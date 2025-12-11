@@ -4,6 +4,7 @@
 //! MPLoRA: Orthogonal Multi-Path Low-Rank Adaptation for Parameter Efficient Fine-Tuning
 //! https://openreview.net/pdf?id=jqz6Msm3AF
 
+use crate::ROUTER_GATE_Q15_DENOM;
 use adapteros_core::Result;
 use std::collections::VecDeque;
 
@@ -69,7 +70,7 @@ impl OrthogonalConstraints {
 
         for (idx, gate) in adapter_indices.iter().zip(gates.iter()) {
             if *idx < 256 {
-                let value = *gate as f32 / 32767.0;
+                let value = *gate as f32 / ROUTER_GATE_Q15_DENOM;
                 activation[*idx as usize] = (value * 10_000.0).round() / 10_000.0;
             }
         }

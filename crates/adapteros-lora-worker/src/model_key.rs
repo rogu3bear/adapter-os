@@ -35,15 +35,12 @@ impl ModelKey {
         }
     }
 
-    /// Create a model key from backend type and optional manifest hash
+    /// DEBUG/TEST ONLY: create a model key from manifest or path.
     ///
-    /// If `manifest_hash` is provided, uses it directly (preferred).
-    /// If not, falls back to computing a hash from the model path (logs warning).
-    ///
-    /// # Arguments
-    /// * `backend_type` - The backend type (Metal, MLX, CoreML)
-    /// * `manifest_hash` - Optional canonical manifest hash from ManifestV3
-    /// * `model_path` - Path to model directory (used as fallback identity)
+    /// This helper is reserved for offline tooling and test code paths and must
+    /// never be used from HTTP handlers or worker UDS handlers. Online inference
+    /// must supply a canonical manifest hash and use [`ModelKey::new`].
+    #[cfg(any(test, debug_assertions))]
     pub fn from_manifest_or_path(
         backend_type: BackendType,
         manifest_hash: Option<&B3Hash>,
@@ -60,26 +57,17 @@ impl ModelKey {
             tracing::warn!(
                 backend = %Self::backend_type_str_static(backend_type),
                 model_path = %model_path.display(),
-                "No manifest hash provided - falling back to path-based identity. \
-                 This may cause cache mismatches if model content changes."
+                "DEBUG/TEST: falling back to path-based identity; not for online inference"
             );
             Self::from_path(backend_type, model_path)
         }
     }
 
-    /// Create a model key by computing a hash from the model path
+    /// DEBUG/TEST ONLY: create a model key by computing a hash from the model path.
     ///
-    /// **WARNING**: This is a fallback method. Prefer `new()` with a canonical
-    /// manifest hash from `ManifestV3::compute_hash()` when available.
-    ///
-    /// The hash is computed from config.json if it exists, otherwise from
-    /// the model path string itself. Path-based identity can cause issues:
-    /// - Content at the same path can change without detection
-    /// - Different paths can have identical content but cache separately
-    ///
-    /// Use this only for:
-    /// - Legacy code paths without manifest access
-    /// - Testing/development scenarios
+    /// Path-based identity is intended solely for offline tooling and tests and
+    /// must not be reachable from production inference paths.
+    #[cfg(any(test, debug_assertions))]
     pub fn from_path(backend_type: BackendType, model_path: &Path) -> Result<Self> {
         let config_path = model_path.join("config.json");
         let manifest_hash = if config_path.exists() {
@@ -94,7 +82,7 @@ impl ModelKey {
             // Last resort: hash the path itself
             tracing::debug!(
                 model_path = %model_path.display(),
-                "No config.json found, using path hash as model identity (not recommended)"
+                "DEBUG/TEST: using path hash as model identity"
             );
             B3Hash::hash(model_path.to_string_lossy().as_bytes())
         };

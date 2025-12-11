@@ -25,13 +25,14 @@
 //! If these caches need to be consolidated in the future, consider making
 //! `ModelCache` support the `get_or_load` pattern and type-erased values.
 
-use crate::model_key::ModelKey;
-use adapteros_core::{AosError, Result};
+use crate::{base_model_state::BaseModelState, model_key::ModelKey};
+use adapteros_core::{constants::BYTES_PER_MB, AosError, Result};
 use adapteros_telemetry::metrics::critical_components::CriticalComponentMetrics;
 use parking_lot::RwLock;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
+use tokio::runtime::Handle;
 
 #[cfg(feature = "multi-backend")]
 use adapteros_lora_mlx_ffi::MLXFFIModel;
@@ -113,6 +114,47 @@ impl std::fmt::Debug for ModelHandle {
     }
 }
 
+/// Listener for cache lifecycle events.
+pub trait CacheEventListener: Send + Sync {
+    fn on_load(&self, _key: &ModelKey, _memory_bytes: u64) {}
+    fn on_reuse(&self, _key: &ModelKey) {}
+    fn on_evict(&self, _key: &ModelKey) {}
+    fn on_error(&self, _key: &ModelKey, _error: &AosError) {}
+}
+
+/// RAII guard that keeps a model marked active while in scope.
+pub struct ActiveGuard<'a> {
+    cache: &'a ModelHandleCache,
+    key: ModelKey,
+    released: bool,
+}
+
+impl<'a> ActiveGuard<'a> {
+    fn new(cache: &'a ModelHandleCache, key: ModelKey) -> Self {
+        Self {
+            cache,
+            key,
+            released: false,
+        }
+    }
+
+    /// Explicitly release the active mark before the guard drops.
+    pub fn release(mut self) {
+        if !self.released {
+            self.cache.mark_inactive(&self.key);
+            self.released = true;
+        }
+    }
+}
+
+impl<'a> Drop for ActiveGuard<'a> {
+    fn drop(&mut self) {
+        if !self.released {
+            self.cache.mark_inactive(&self.key);
+        }
+    }
+}
+
 /// Cached model entry with metadata
 pub struct CachedModelEntry {
     /// The cached model handle
@@ -141,12 +183,16 @@ pub struct CachedModelEntry {
 pub struct ModelHandleCache {
     /// The cache storage
     cache: RwLock<HashMap<ModelKey, CachedModelEntry>>,
+    /// Active usage counts for eviction guards
+    active_counts: RwLock<HashMap<ModelKey, u64>>,
     /// Maximum memory usage in bytes
     max_memory_bytes: u64,
     /// Cache statistics
     stats: RwLock<CacheStats>,
     /// Keys that are pinned and should not be evicted
     pinned_keys: RwLock<HashSet<ModelKey>>,
+    /// Optional listeners keyed per model for lifecycle events
+    listeners: RwLock<HashMap<ModelKey, Arc<dyn CacheEventListener>>>,
     /// Optional telemetry metrics for Prometheus export
     metrics: Option<Arc<CriticalComponentMetrics>>,
 }
@@ -160,6 +206,8 @@ pub struct CacheStats {
     pub total_memory_bytes: u64,
     /// Count of eviction attempts blocked because the entry was pinned
     pub eviction_skip_pinned_count: u64,
+    /// Count of eviction attempts blocked because the entry was marked active
+    pub eviction_skip_active_count: u64,
 }
 
 impl CacheStats {
@@ -179,9 +227,11 @@ impl ModelHandleCache {
     pub fn new(max_memory_bytes: u64) -> Self {
         Self {
             cache: RwLock::new(HashMap::new()),
+            active_counts: RwLock::new(HashMap::new()),
             max_memory_bytes,
             stats: RwLock::new(CacheStats::default()),
             pinned_keys: RwLock::new(HashSet::new()),
+            listeners: RwLock::new(HashMap::new()),
             metrics: None,
         }
     }
@@ -190,9 +240,11 @@ impl ModelHandleCache {
     pub fn new_with_metrics(max_memory_bytes: u64, metrics: Arc<CriticalComponentMetrics>) -> Self {
         Self {
             cache: RwLock::new(HashMap::new()),
+            active_counts: RwLock::new(HashMap::new()),
             max_memory_bytes,
             stats: RwLock::new(CacheStats::default()),
             pinned_keys: RwLock::new(HashSet::new()),
+            listeners: RwLock::new(HashMap::new()),
             metrics: Some(metrics),
         }
     }
@@ -200,6 +252,94 @@ impl ModelHandleCache {
     /// Set telemetry metrics after construction
     pub fn set_metrics(&mut self, metrics: Arc<CriticalComponentMetrics>) {
         self.metrics = Some(metrics);
+    }
+
+    /// Register a lifecycle listener for a specific key.
+    pub fn register_listener(&self, key: ModelKey, listener: Arc<dyn CacheEventListener>) {
+        self.listeners.write().insert(key, listener);
+    }
+
+    /// Convenience: register BaseModelState to receive cache events for `key`.
+    pub fn register_base_model_state(
+        &self,
+        key: ModelKey,
+        state: Arc<tokio::sync::Mutex<BaseModelState>>,
+    ) {
+        self.register_listener(key, Arc::new(BaseModelStateEventHandler::new(state)));
+    }
+
+    /// Remove a lifecycle listener for a specific key.
+    pub fn remove_listener(&self, key: &ModelKey) {
+        self.listeners.write().remove(key);
+    }
+
+    fn notify_load(&self, key: &ModelKey, memory_bytes: u64) {
+        if let Some(listener) = self.listeners.read().get(key) {
+            listener.on_load(key, memory_bytes);
+        }
+    }
+
+    fn notify_reuse(&self, key: &ModelKey) {
+        if let Some(listener) = self.listeners.read().get(key) {
+            listener.on_reuse(key);
+        }
+    }
+
+    fn notify_evict(&self, key: &ModelKey) {
+        if let Some(listener) = self.listeners.read().get(key) {
+            listener.on_evict(key);
+        }
+    }
+
+    fn notify_error(&self, key: &ModelKey, error: &AosError) {
+        if let Some(listener) = self.listeners.read().get(key) {
+            listener.on_error(key, error);
+        }
+    }
+
+    /// Mark a cached model as active to prevent eviction. Returns false if key
+    /// does not currently exist in the cache.
+    pub fn mark_active(&self, key: &ModelKey) -> bool {
+        if !self.cache.read().contains_key(key) {
+            return false;
+        }
+        let mut active = self.active_counts.write();
+        *active.entry(key.clone()).or_insert(0) += 1;
+        true
+    }
+
+    /// Mark a cached model as inactive. Returns false if the key was not active.
+    pub fn mark_inactive(&self, key: &ModelKey) -> bool {
+        let mut active = self.active_counts.write();
+        match active.get_mut(key) {
+            Some(count) if *count > 1 => {
+                *count -= 1;
+                true
+            }
+            Some(_) => {
+                active.remove(key);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Whether a cached model is currently marked active.
+    pub fn is_active(&self, key: &ModelKey) -> bool {
+        self.active_counts
+            .read()
+            .get(key)
+            .map(|c| *c > 0)
+            .unwrap_or(false)
+    }
+
+    /// Begin an active usage guard that releases on drop.
+    pub fn begin_use(&self, key: &ModelKey) -> Option<ActiveGuard<'_>> {
+        if self.mark_active(key) {
+            Some(ActiveGuard::new(self, key.clone()))
+        } else {
+            None
+        }
     }
 
     /// Get or load a model, using the cache for deduplication
@@ -226,6 +366,7 @@ impl ModelHandleCache {
                 if let Some(ref m) = self.metrics {
                     m.record_model_cache_hit();
                 }
+                self.notify_reuse(key);
                 tracing::debug!(
                     key = %key.short_hex(),
                     access_count = entry.access_count,
@@ -238,7 +379,11 @@ impl ModelHandleCache {
         // Slow path: cache miss, need to load
         tracing::info!(key = %key.short_hex(), "Model cache miss, loading from disk");
 
-        let (handle, memory_bytes) = loader()?;
+        let loader_result = loader();
+        if let Err(ref e) = loader_result {
+            self.notify_error(key, e);
+        }
+        let (handle, memory_bytes) = loader_result?;
 
         // Acquire write lock and insert
         let mut cache = self.cache.write();
@@ -251,11 +396,12 @@ impl ModelHandleCache {
             if let Some(ref m) = self.metrics {
                 m.record_model_cache_hit();
             }
+            self.notify_reuse(key);
             return Ok(existing.handle.clone());
         }
 
         // Evict if necessary to make room
-        self.evict_for_size_locked(&mut cache, memory_bytes);
+        self.evict_for_size_locked(&mut cache, memory_bytes)?;
 
         // Insert the new entry
         cache.insert(
@@ -283,6 +429,7 @@ impl ModelHandleCache {
             memory_mb = memory_bytes / (1024 * 1024),
             "Model loaded and cached"
         );
+        self.notify_load(key, memory_bytes);
 
         Ok(handle)
     }
@@ -333,6 +480,9 @@ impl ModelHandleCache {
                 );
             }
         }
+
+        // Base models are considered active while resident.
+        let _ = self.mark_active(key);
 
         Ok(handle)
     }
@@ -394,20 +544,21 @@ impl ModelHandleCache {
         &self,
         cache: &mut HashMap<ModelKey, CachedModelEntry>,
         needed_bytes: u64,
-    ) {
+    ) -> Result<()> {
         let current: u64 = cache.values().map(|e| e.memory_bytes).sum();
         if current + needed_bytes <= self.max_memory_bytes {
-            return;
+            return Ok(());
         }
 
         // Get pinned keys for filtering
         let pinned = self.pinned_keys.read();
+        let active = self.active_counts.read();
 
         // LRU eviction: sort by loaded_at (oldest first), then by access_count
-        // Filter out pinned entries
+        // Filter out pinned entries and active entries
         let mut entries: Vec<_> = cache
             .iter()
-            .filter(|(k, _)| !pinned.contains(*k))
+            .filter(|(k, _)| !pinned.contains(*k) && active.get(*k).copied().unwrap_or(0) == 0)
             .map(|(k, e)| (k.clone(), e.loaded_at, e.access_count, e.memory_bytes))
             .collect();
 
@@ -416,7 +567,12 @@ impl ModelHandleCache {
 
         // Count how many pinned entries we're skipping
         let pinned_in_cache = cache.keys().filter(|k| pinned.contains(*k)).count();
+        let active_in_cache = cache
+            .keys()
+            .filter(|k| active.get(*k).copied().unwrap_or(0) > 0)
+            .count();
         drop(pinned); // Release lock before modifying stats
+        drop(active);
 
         let mut freed = 0u64;
         let target = current + needed_bytes - self.max_memory_bytes;
@@ -426,6 +582,9 @@ impl ModelHandleCache {
                 break;
             }
             cache.remove(&key);
+            self.active_counts.write().remove(&key);
+            self.notify_evict(&key);
+            self.listeners.write().remove(&key);
             freed += mem;
 
             let mut stats = self.stats.write();
@@ -459,6 +618,31 @@ impl ModelHandleCache {
                 "Could not free enough memory due to pinned entries"
             );
         }
+
+        if target > 0 && active_in_cache > 0 {
+            let mut stats = self.stats.write();
+            stats.eviction_skip_active_count += active_in_cache as u64;
+
+            tracing::warn!(
+                active_count = active_in_cache,
+                freed_mb = freed / (1024 * 1024),
+                target_mb = target / (1024 * 1024),
+                "Could not free enough memory due to active entries"
+            );
+        }
+
+        if freed < target {
+            return Err(AosError::Config(format!(
+                "Model cache budget exceeded: needed {} MB, freed {} MB (pinned={}, active={}), max {} MB",
+                needed_bytes / BYTES_PER_MB,
+                freed / BYTES_PER_MB,
+                pinned_in_cache,
+                active_in_cache,
+                self.max_memory_bytes / BYTES_PER_MB
+            )));
+        }
+
+        Ok(())
     }
 
     /// Get current memory usage in bytes
@@ -488,11 +672,81 @@ impl ModelHandleCache {
         cache.clear();
         let mut pinned = self.pinned_keys.write();
         pinned.clear();
+        self.active_counts.write().clear();
+        self.listeners.write().clear();
         if let Some(ref m) = self.metrics {
             m.set_pinned_entries_count(0);
         }
         let mut stats = self.stats.write();
         *stats = CacheStats::default();
+    }
+}
+
+/// Event handler that forwards cache lifecycle updates into BaseModelState.
+#[derive(Clone)]
+pub struct BaseModelStateEventHandler {
+    state: Arc<tokio::sync::Mutex<BaseModelState>>,
+}
+
+impl BaseModelStateEventHandler {
+    pub fn new(state: Arc<tokio::sync::Mutex<BaseModelState>>) -> Self {
+        Self { state }
+    }
+
+    fn spawn<F>(&self, fut: F)
+    where
+        F: std::future::Future<Output = ()> + Send + 'static,
+    {
+        if let Ok(handle) = Handle::try_current() {
+            handle.spawn(fut);
+        } else {
+            tracing::debug!("No async runtime available to publish BaseModelState cache events");
+        }
+    }
+}
+
+impl CacheEventListener for BaseModelStateEventHandler {
+    fn on_load(&self, _key: &ModelKey, memory_bytes: u64) {
+        let state = self.state.clone();
+        let memory_mb = ((memory_bytes + BYTES_PER_MB - 1) / BYTES_PER_MB) as u32;
+        self.spawn(async move {
+            let mut guard = state.lock().await;
+            if let Err(e) = guard.mark_loaded(memory_mb).await {
+                tracing::warn!(error = %e, "Failed to record base model load");
+            }
+        });
+    }
+
+    fn on_reuse(&self, _key: &ModelKey) {
+        let state = self.state.clone();
+        self.spawn(async move {
+            let mut guard = state.lock().await;
+            let memory_mb = guard.memory_usage_mb().unwrap_or(0);
+            if let Err(e) = guard.mark_loaded(memory_mb).await {
+                tracing::warn!(error = %e, "Failed to record base model reuse");
+            }
+        });
+    }
+
+    fn on_evict(&self, _key: &ModelKey) {
+        let state = self.state.clone();
+        self.spawn(async move {
+            let mut guard = state.lock().await;
+            if let Err(e) = guard.mark_unloaded().await {
+                tracing::warn!(error = %e, "Failed to record base model eviction");
+            }
+        });
+    }
+
+    fn on_error(&self, _key: &ModelKey, error: &AosError) {
+        let state = self.state.clone();
+        let message = error.to_string();
+        self.spawn(async move {
+            let mut guard = state.lock().await;
+            if let Err(e) = guard.mark_error(message).await {
+                tracing::warn!(error = %e, "Failed to record base model error");
+            }
+        });
     }
 }
 
@@ -592,6 +846,48 @@ mod tests {
     }
 
     #[test]
+    fn test_eviction_blocks_when_pinned() {
+        let cache = ModelHandleCache::new(100);
+        let key1 = make_key(BackendType::Metal, b"model1");
+        let key2 = make_key(BackendType::Metal, b"model2");
+
+        cache
+            .get_or_load(&key1, || {
+                Ok((ModelHandle::Metal(Arc::new(vec![0; 80])), 80))
+            })
+            .unwrap();
+        assert!(cache.pin(&key1));
+
+        let result = cache.get_or_load(&key2, || {
+            Ok((ModelHandle::Metal(Arc::new(vec![0; 50])), 50))
+        });
+        assert!(result.is_err(), "Pinned entry should prevent eviction");
+        assert_eq!(cache.len(), 1);
+    }
+
+    #[test]
+    fn test_eviction_blocks_when_active() {
+        let cache = ModelHandleCache::new(100);
+        let key1 = make_key(BackendType::Metal, b"model1");
+        let key2 = make_key(BackendType::Metal, b"model2");
+
+        cache
+            .get_or_load(&key1, || {
+                Ok((ModelHandle::Metal(Arc::new(vec![0; 80])), 80))
+            })
+            .unwrap();
+        assert!(cache.mark_active(&key1));
+
+        let result = cache.get_or_load(&key2, || {
+            Ok((ModelHandle::Metal(Arc::new(vec![0; 50])), 50))
+        });
+        assert!(result.is_err(), "Active entry should prevent eviction");
+        assert_eq!(cache.len(), 1);
+
+        assert!(cache.mark_inactive(&key1));
+    }
+
+    #[test]
     fn test_metal_bytes_accessor() {
         let bytes = Arc::new(vec![1, 2, 3, 4, 5]);
         let handle = ModelHandle::Metal(Arc::clone(&bytes));
@@ -632,6 +928,27 @@ mod tests {
         assert_eq!(stats.hits, 1);
         assert_eq!(stats.misses, 1);
         assert_eq!(stats.hit_ratio(), 0.5);
+    }
+
+    #[test]
+    fn test_manifest_hash_change_causes_cache_miss() {
+        let cache = ModelHandleCache::new(1024);
+        let key1 = make_key(BackendType::Metal, b"model_a");
+        let key2 = make_key(BackendType::Metal, b"model_b"); // different manifest hash
+
+        cache
+            .get_or_load(&key1, || Ok((ModelHandle::Metal(Arc::new(vec![1])), 1)))
+            .unwrap();
+        cache
+            .get_or_load(&key2, || Ok((ModelHandle::Metal(Arc::new(vec![2])), 1)))
+            .unwrap();
+
+        let stats = cache.stats();
+        assert_eq!(
+            stats.misses, 2,
+            "Different manifest hashes must not share cache entries"
+        );
+        assert_eq!(cache.len(), 2);
     }
 
     #[test]
@@ -700,10 +1017,10 @@ mod tests {
             .get_or_load(&adapter_key, || {
                 Ok((ModelHandle::Metal(Arc::new(vec![0; 60])), 60))
             })
-            .unwrap();
+            .unwrap_err();
 
-        // Both should be in cache (pinned entry not evicted)
-        assert_eq!(cache.len(), 2);
+        // Pinned entry remains; adapter load is rejected to honor budget
+        assert_eq!(cache.len(), 1);
         assert!(cache.is_pinned(&base_key));
 
         // Stats should show eviction was blocked
@@ -752,5 +1069,77 @@ mod tests {
 
         let stats = cache.stats();
         assert_eq!(stats.evictions, 1, "One eviction should have occurred");
+    }
+
+    #[test]
+    fn test_active_entry_blocks_eviction() {
+        let cache = ModelHandleCache::new(100);
+        let active_key = make_key(BackendType::Metal, b"active");
+        let other_key = make_key(BackendType::Metal, b"other");
+
+        cache
+            .get_or_load(&active_key, || {
+                Ok((ModelHandle::Metal(Arc::new(vec![0; 60])), 60))
+            })
+            .unwrap();
+        assert!(cache.mark_active(&active_key));
+
+        cache
+            .get_or_load(&other_key, || {
+                Ok((ModelHandle::Metal(Arc::new(vec![0; 60])), 60))
+            })
+            .unwrap_err();
+
+        assert_eq!(cache.len(), 1, "active entry must stay resident");
+        let stats = cache.stats();
+        assert_eq!(stats.evictions, 0);
+        assert!(
+            stats.eviction_skip_active_count > 0,
+            "active eviction skips should be tracked"
+        );
+    }
+
+    #[test]
+    fn test_base_model_state_listener_receives_events() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        #[derive(Default)]
+        struct CountingListener {
+            loads: AtomicUsize,
+            evicts: AtomicUsize,
+        }
+
+        impl CacheEventListener for CountingListener {
+            fn on_load(&self, _key: &ModelKey, _memory_bytes: u64) {
+                self.loads.fetch_add(1, Ordering::SeqCst);
+            }
+
+            fn on_evict(&self, _key: &ModelKey) {
+                self.evicts.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+
+        let cache = ModelHandleCache::new(80);
+        let listener = Arc::new(CountingListener::default());
+
+        let base_key = make_key(BackendType::Metal, b"base");
+        cache.register_listener(base_key.clone(), listener.clone());
+
+        cache
+            .get_or_load(&base_key, || {
+                Ok((ModelHandle::Metal(Arc::new(vec![0; 40])), 40))
+            })
+            .unwrap();
+
+        // Load a second model large enough to evict the first
+        let other_key = make_key(BackendType::Metal, b"other");
+        cache
+            .get_or_load(&other_key, || {
+                Ok((ModelHandle::Metal(Arc::new(vec![0; 60])), 60))
+            })
+            .unwrap();
+
+        assert_eq!(listener.loads.load(Ordering::SeqCst), 1);
+        assert_eq!(listener.evicts.load(Ordering::SeqCst), 1);
     }
 }

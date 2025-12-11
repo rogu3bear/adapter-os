@@ -5,12 +5,14 @@
 
 #![allow(dead_code)]
 
+use crate::export::validate_coreml_fusion;
 use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_lora_kernel_api::{
     attestation, BackendHealth, BackendMetrics, FusedKernels, GpuBufferFingerprint, IoBuffers,
     RouterRing,
 };
-use std::collections::HashMap;
+use adapteros_types::coreml::CoreMLPlacementSpec;
+use std::collections::{HashMap, HashSet};
 use std::ffi::{c_void, CStr};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -18,8 +20,14 @@ use tokio::sync::{oneshot, RwLock};
 
 pub mod aos_loader;
 pub mod config;
+pub mod export;
 pub mod ffi;
 pub mod fusion;
+pub mod placement;
+
+pub use placement::{
+    resolve_placement, CoreMLGraph, CoreMLGraphNode, PlacementMetrics, PlacementResolution,
+};
 
 pub use config::{ComputeUnits, CoreMLConfig, CoreMLModelParams};
 pub use ffi::{
@@ -868,7 +876,51 @@ impl MemoryBaseline {
     }
 }
 
-/// CoreML backend for Neural Engine acceleration
+/// CoreML adapter artifact semantics for hot-swap (PRD 3).
+///
+/// - `SidecarDelta`: base CoreML package stays resident; LoRA deltas are
+///   attached/detached at runtime without recompiling.
+/// - `FusedPackage`: pre-fused `.mlmodelc` produced by the export pipeline; the
+///   backend can switch to this compiled bundle without restarting the process.
+#[derive(Debug, Clone)]
+pub enum CoreMLAdapterArtifact {
+    SidecarDelta {
+        /// Number of floats held in-memory for this adapter.
+        len: usize,
+        /// Provenance for observability and routing decisions.
+        source: CoreMLAdapterSource,
+    },
+    FusedPackage {
+        /// Path to the compiled CoreML bundle that already contains the adapter.
+        model_path: PathBuf,
+        /// Optional hash of the compiled bundle for identity tracking.
+        model_hash: Option<B3Hash>,
+    },
+}
+
+/// Source of CoreML adapter payloads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CoreMLAdapterSource {
+    /// Safetensors sidecar from the canonical segment (default hot-swap path).
+    CanonicalSidecar,
+    /// CoreML-specific segment (fused/sidecar emitted by PRD 3 pipeline).
+    CoremlSegment,
+}
+
+/// CoreML backend for Neural Engine acceleration.
+///
+/// Hot-swap semantics:
+/// - Adapters can arrive as sidecar LoRA deltas or pre-fused CoreML bundles.
+///   Sidecars stay in `adapter_cache` and are toggled via `attach_adapter` /
+///   `detach_adapter` without recompiling the base package.
+/// - Fused packages are registered in `adapter_artifacts` and activated through
+///   `switch_adapter`, which swaps the compiled bundle in place via
+///   `load_model_internal` **without** overwriting the recorded `base_model_path`.
+/// - `detach_adapter` removes the adapter from memory and, if a fused bundle was
+///   active, restores the base model handle from `base_model_path` (files on disk
+///   are never deleted).
+/// - `active_fused_adapter` tracks the last fused slot so callers can restore the
+///   base package deterministically after a fused-hop.
 ///
 /// This backend automatically detects and uses MLTensor operations when available
 /// (macOS 15+) for better performance. The `use_mltensor` field indicates whether
@@ -894,6 +946,18 @@ pub struct CoreMLBackend {
     /// Model-specific parameters (optional override from config.json)
     /// If None, defaults to Qwen2.5-7B parameters
     model_params: Option<CoreMLModelParams>,
+    /// Base CoreML model path used to restore after fused switches.
+    base_model_path: Option<PathBuf>,
+    /// Adapter artifacts keyed by adapter slot (sidecar vs fused bundle).
+    adapter_artifacts: HashMap<u16, CoreMLAdapterArtifact>,
+    /// Currently attached adapters for routing (sidecar path).
+    attached_adapters: HashSet<u16>,
+    /// Active fused adapter slot (if switched to a fused bundle).
+    active_fused_adapter: Option<u16>,
+    /// Optional CoreML placement spec loaded from the manifest.
+    placement_spec: Option<CoreMLPlacementSpec>,
+    /// Placement resolution against the loaded CoreML graph.
+    placement_resolution: Option<PlacementResolution>,
 }
 
 unsafe impl Send for CoreMLBackend {}
@@ -953,6 +1017,12 @@ impl CoreMLBackend {
             use_mltensor: false,
             tensor_bridge: TensorBridgeType::ObjCpp,
             model_params: None,
+            base_model_path: None,
+            adapter_artifacts: HashMap::new(),
+            attached_adapters: HashSet::new(),
+            active_fused_adapter: None,
+            placement_spec: None,
+            placement_resolution: None,
         })
     }
 
@@ -1064,6 +1134,12 @@ impl CoreMLBackend {
                 use_mltensor,
                 tensor_bridge,
                 model_params: None,
+                base_model_path: None,
+                adapter_artifacts: HashMap::new(),
+                attached_adapters: HashSet::new(),
+                active_fused_adapter: None,
+                placement_spec: None,
+                placement_resolution: None,
             })
         }
     }
@@ -1106,6 +1182,55 @@ impl CoreMLBackend {
         self.model_params = Some(params);
     }
 
+    /// Resolve and record CoreML placement spec against a logical graph.
+    pub fn apply_placement_spec(
+        &mut self,
+        graph: &CoreMLGraph,
+        spec: CoreMLPlacementSpec,
+    ) -> PlacementMetrics {
+        let resolution = resolve_placement(graph, &spec);
+        let metrics = resolution.metrics();
+
+        if metrics.missing > 0 {
+            tracing::warn!(
+                missing = metrics.missing,
+                resolved = metrics.resolved,
+                "CoreML placement: some bindings did not resolve"
+            );
+        }
+        if metrics.shape_mismatches > 0 {
+            tracing::warn!(
+                mismatches = metrics.shape_mismatches,
+                resolved = metrics.resolved,
+                "CoreML placement: binding shapes differ from graph dims"
+            );
+        }
+
+        self.placement_resolution = Some(resolution);
+        self.placement_spec = Some(spec);
+        metrics
+    }
+
+    /// Convenience helper: import graph from disk and resolve placement.
+    pub fn import_graph_and_apply(
+        &mut self,
+        model_path: impl AsRef<Path>,
+        spec: CoreMLPlacementSpec,
+    ) -> Result<PlacementMetrics> {
+        let graph = CoreMLGraph::from_package(model_path)?;
+        Ok(self.apply_placement_spec(&graph, spec))
+    }
+
+    /// Dump the resolved placement map for debugging.
+    pub fn dump_placement_map(&self) -> Option<String> {
+        self.placement_resolution.as_ref().map(|r| r.dump())
+    }
+
+    /// Placement metrics (if a spec has been applied).
+    pub fn placement_metrics(&self) -> Option<PlacementMetrics> {
+        self.placement_resolution.as_ref().map(|r| r.metrics())
+    }
+
     /// Get current model parameters
     ///
     /// Returns the configured model parameters, or defaults if not set.
@@ -1131,8 +1256,23 @@ impl CoreMLBackend {
 
     /// Load CoreML model from .mlpackage or .mlmodelc
     pub fn load_model(&mut self, model_path: &PathBuf) -> Result<()> {
+        self.load_model_internal(model_path, true)
+    }
+
+    fn load_model_internal(&mut self, model_path: &PathBuf, update_base: bool) -> Result<()> {
         #[cfg(target_os = "macos")]
         {
+            // Unload any previously loaded model before switching handles.
+            if !self.model_handle.is_null() {
+                unsafe { ffi::coreml_unload_model(self.model_handle) };
+                self.model_handle = std::ptr::null_mut();
+            }
+
+            // Remember the base model path when requested.
+            if update_base {
+                self.base_model_path = Some(model_path.clone());
+            }
+
             let (hash_path, load_path) = if model_path.is_dir() {
                 (model_path.join("Manifest.json"), model_path.clone())
             } else {
@@ -1190,6 +1330,54 @@ impl CoreMLBackend {
 
         #[cfg(not(target_os = "macos"))]
         Err(AosError::Kernel("CoreML not available".to_string()))
+    }
+
+    fn restore_base_model_if_needed(&mut self) -> Result<()> {
+        if let Some(base_path) = self.base_model_path.clone() {
+            if self.active_fused_adapter.is_some() {
+                tracing::info!(
+                    adapter = ?self.active_fused_adapter,
+                    path = %base_path.display(),
+                    "Switching CoreML backend back to base model after fused adapter"
+                );
+                self.load_model(&base_path)?;
+                self.active_fused_adapter = None;
+            }
+        } else {
+            tracing::debug!("No base model path recorded; skip restore");
+        }
+        Ok(())
+    }
+
+    /// Register a fused CoreML package for an adapter using fusion metadata.
+    /// Verifies the metadata hashes on disk before recording.
+    pub fn register_fused_adapter_from_metadata(
+        &mut self,
+        id: u16,
+        metadata_path: &Path,
+    ) -> Result<()> {
+        let metadata = validate_coreml_fusion(metadata_path)?;
+
+        if let Some(current_base) = self.model_hash {
+            if current_base != metadata.base_manifest_hash {
+                return Err(AosError::Validation(format!(
+                    "Base manifest hash mismatch for fused adapter {}: expected {}, got {}",
+                    id,
+                    current_base.to_short_hex(),
+                    metadata.base_manifest_hash.to_short_hex()
+                )));
+            }
+        }
+
+        self.adapter_artifacts.insert(
+            id,
+            CoreMLAdapterArtifact::FusedPackage {
+                model_path: metadata.fused_package.clone(),
+                model_hash: Some(metadata.fused_manifest_hash),
+            },
+        );
+
+        Ok(())
     }
 
     #[cfg(target_os = "macos")]
@@ -1723,6 +1911,12 @@ impl FusedKernels for CoreMLBackend {
             .map_err(|_| AosError::Kernel("Invalid plan bytes encoding".to_string()))?;
 
         let model_path = PathBuf::from(model_path_str.trim());
+        // Reset adapter state when a new base model is loaded.
+        self.base_model_path = Some(model_path.clone());
+        self.active_fused_adapter = None;
+        self.adapter_artifacts.clear();
+        self.attached_adapters.clear();
+        self.adapter_cache.clear();
         self.load_model(&model_path)
     }
 
@@ -1870,13 +2064,123 @@ impl FusedKernels for CoreMLBackend {
             adapter_weights.extend(floats);
         }
 
+        let len = adapter_weights.len();
         self.adapter_cache.insert(id, adapter_weights);
-        tracing::debug!(adapter_id = id, "Loaded adapter into CoreML cache");
+        self.adapter_artifacts.insert(
+            id,
+            CoreMLAdapterArtifact::SidecarDelta {
+                len,
+                source: CoreMLAdapterSource::CanonicalSidecar,
+            },
+        );
+        // Default behavior: attach immediately so router can see the adapter.
+        self.attached_adapters.insert(id);
+
+        tracing::debug!(
+            adapter_id = id,
+            weights_len = len,
+            "Loaded adapter into CoreML cache (sidecar)"
+        );
+        Ok(())
+    }
+
+    /// Mark a previously loaded adapter as active for routing.
+    ///
+    /// Sidecar path: keeps the base `.mlpackage` resident and only toggles the
+    /// adapter’s entry in `attached_adapters`. Fused path uses `switch_adapter`
+    /// to swap the compiled bundle instead of reloading here.
+    fn attach_adapter(&mut self, id: u16) -> Result<()> {
+        if !self.adapter_cache.contains_key(&id) {
+            return Err(AosError::Kernel(format!(
+                "Adapter {} not loaded for CoreML attach",
+                id
+            )));
+        }
+        self.attached_adapters.insert(id);
+        Ok(())
+    }
+
+    /// Detach an adapter from routing and clear its cached weights.
+    ///
+    /// Sidecar path: removes weights from `adapter_cache`.
+    /// Fused path: if the active fused slot matches `id`, we restore the base
+    /// model handle via `restore_base_model_if_needed` to keep determinism with
+    /// the original package.
+    fn detach_adapter(&mut self, id: u16) -> Result<()> {
+        self.unload_adapter(id)
+    }
+
+    /// Switch the active adapter slot.
+    ///
+    /// Sidecar path: evicts other adapters and ensures the base model remains
+    /// loaded. Fused path: swaps to a precompiled `.mlmodelc` bundle without
+    /// updating `base_model_path`, so a later detach restores the original base.
+    fn switch_adapter(&mut self, id: u16) -> Result<()> {
+        // Keep CoreML hot-swap semantics explicit: detach everything else, then
+        // attach/switch to the requested adapter.
+        let other_ids: Vec<u16> = self
+            .adapter_cache
+            .keys()
+            .copied()
+            .filter(|other| *other != id)
+            .collect();
+        for other in other_ids {
+            if let Err(e) = self.detach_adapter(other) {
+                tracing::warn!(
+                    adapter_id = other,
+                    error = %e,
+                    "Failed to detach adapter during CoreML switch"
+                );
+            }
+        }
+
+        if !self.adapter_cache.contains_key(&id) {
+            return Err(AosError::Kernel(format!(
+                "Adapter {} not loaded for CoreML switch",
+                id
+            )));
+        }
+
+        // Fused package path: swap model handle without process restart.
+        let fused_model_path =
+            self.adapter_artifacts
+                .get(&id)
+                .and_then(|artifact| match artifact {
+                    CoreMLAdapterArtifact::FusedPackage { model_path, .. } => {
+                        Some(model_path.clone())
+                    }
+                    _ => None,
+                });
+
+        if let Some(model_path) = fused_model_path {
+            #[cfg(target_os = "macos")]
+            {
+                // Do not overwrite recorded base path when loading fused bundle.
+                self.load_model_internal(&model_path, false)?;
+                self.active_fused_adapter = Some(id);
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                return Err(AosError::Kernel("CoreML not available".to_string()));
+            }
+        } else {
+            // Sidecar path: ensure we are on the base model.
+            self.restore_base_model_if_needed()?;
+            self.active_fused_adapter = None;
+        }
+
+        self.attached_adapters.insert(id);
         Ok(())
     }
 
     fn unload_adapter(&mut self, id: u16) -> Result<()> {
+        self.attached_adapters.remove(&id);
         self.adapter_cache.remove(&id);
+        self.adapter_artifacts.remove(&id);
+        if self.active_fused_adapter == Some(id) {
+            // Revert to base model if the fused adapter was active.
+            self.restore_base_model_if_needed()?;
+        }
         tracing::debug!(adapter_id = id, "Unloaded adapter from CoreML cache");
         Ok(())
     }
@@ -1913,6 +2217,16 @@ impl FusedKernels for CoreMLBackend {
 
     fn get_gpu_fingerprints(&self) -> HashMap<u32, GpuBufferFingerprint> {
         self.gpu_fingerprints.clone()
+    }
+}
+
+impl CoreMLBackend {
+    /// Return the currently attached adapter slots (hot-swap view).
+    #[cfg(any(test, debug_assertions, feature = "coreml-stub"))]
+    pub fn attached_adapter_ids(&self) -> Vec<u16> {
+        let mut ids: Vec<u16> = self.attached_adapters.iter().copied().collect();
+        ids.sort_unstable();
+        ids
     }
 }
 
@@ -1963,10 +2277,27 @@ pub fn is_neural_engine_available() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::export::{
+        export_coreml_adapter, validate_coreml_fusion, CoreMLExportRequest, CoreMLFusionMetadata,
+    };
+    use adapteros_aos::{AosWriter, BackendTag};
     use adapteros_core::B3Hash;
     use adapteros_lora_kernel_api::{attestation, FusedKernels, IoBuffers, RouterRing};
     use safetensors::{serialize, tensor::TensorView};
     use std::path::PathBuf;
+    use tempfile::tempdir;
+    fn simple_adapter_payload(delta: f32) -> Vec<u8> {
+        let data = vec![delta; 8];
+        let tensor = TensorView::new(safetensors::Dtype::F32, vec![2, 4], unsafe {
+            std::slice::from_raw_parts(
+                data.as_ptr() as *const u8,
+                data.len() * std::mem::size_of::<f32>(),
+            )
+        })
+        .expect("tensor view");
+        serialize([("dummy.weight".to_string(), tensor)], &Default::default())
+            .expect("serialize sidecar adapter")
+    }
 
     #[test]
     fn test_mltensor_availability() {
@@ -1981,20 +2312,63 @@ mod tests {
     }
 
     #[test]
+    fn placement_spec_applies_to_stub_backend() {
+        let mut backend = CoreMLBackend::new_stub(ComputeUnits::CpuAndNeuralEngine).unwrap();
+        let graph = CoreMLGraph::from_nodes(vec![CoreMLGraphNode {
+            name: "layer0.self_attn.q_proj".into(),
+            op_kind: Some(CoreMLOpKind::AttentionQ),
+            input_dim: Some(8),
+            output_dim: Some(8),
+            path_hint: None,
+        }]);
+        let spec = CoreMLPlacementSpec {
+            version: 1,
+            graph_id: None,
+            bindings: vec![adapteros_types::coreml::CoreMLPlacementBinding {
+                binding_id: "layer0.q".into(),
+                target: adapteros_types::coreml::CoreMLTargetRef {
+                    layer: "layer0.self_attn.q_proj".into(),
+                    op_kind: CoreMLOpKind::AttentionQ,
+                    path_hint: None,
+                },
+                projection: adapteros_types::coreml::CoreMLProjection::InputToHidden,
+                rank: 4,
+                alpha: None,
+                scale: None,
+                gating: None,
+                shape: adapteros_types::coreml::CoreMLPlacementShape {
+                    input_dim: 8,
+                    output_dim: 8,
+                },
+            }],
+        };
+
+        let metrics = backend.apply_placement_spec(&graph, spec);
+        assert_eq!(metrics.missing, 0);
+        assert_eq!(metrics.resolved, 1);
+        assert!(backend.placement_metrics().is_some());
+        assert!(backend.dump_placement_map().is_some());
+    }
+
+    #[test]
     #[cfg(target_os = "macos")]
     fn stub_lora_preserves_coreml_model_bytes() -> Result<()> {
         let manifest_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
             "../../var/model-cache/models/qwen2.5-7b-instruct-fp16-512.mlpackage/Manifest.json",
         );
+        if !manifest_path.exists() {
+            eprintln!(
+                "Skipping CoreML bytes preservation test; fixture missing at {}",
+                manifest_path.display()
+            );
+            return Ok(());
+        }
         let base_bytes = std::fs::read(&manifest_path).expect(
             "CoreML fixture at var/model-cache/models/qwen2.5-7b-instruct-fp16-512.mlpackage",
         );
         let hash_before = B3Hash::hash(&base_bytes);
 
-        // Stub backend exercises LoRA path without touching base weights on disk.
-        let mut backend = CoreMLBackend::new_stub(ComputeUnits::CpuAndNeuralEngine)?;
-
-        // Minimal adapter payload to hit the LoRA fusion branch.
+        // Build a minimal adapter payload to hit the LoRA fusion branch.
         let weights = vec![0.1f32; 4];
         let adapter_tensors = [(
             "dummy.weight".to_string(),
@@ -2005,19 +2379,44 @@ mod tests {
         )];
         let adapter_bytes =
             serialize(adapter_tensors, &Default::default()).expect("serialize adapter");
-        FusedKernels::load_adapter(&mut backend, 0, &adapter_bytes)?;
 
-        let mut ring = RouterRing::new(1);
-        ring.set(&[0u16], &[1200i16]);
+        // Wrap adapter payload into a canonical .aos bundle so the export helper can ingest it.
+        let tmp = tempdir().expect("temp dir");
+        let adapter_path = tmp.path().join("dummy.aos");
+        let mut writer = AosWriter::new();
+        writer.add_segment(
+            BackendTag::Canonical,
+            Some("dummy.scope".into()),
+            &adapter_bytes,
+        )?;
+        let adapter_manifest = serde_json::json!({
+            "metadata": {
+                "scope_path": "dummy.scope",
+                "domain": "tests",
+                "group": "coreml",
+                "operation": "coreml-export"
+            },
+            "scope": "coreml-export"
+        });
+        writer.write_archive(&adapter_path, &adapter_manifest)?;
 
-        let mut io = IoBuffers::new(8);
-        io.input_ids = vec![1, 2, 3];
-        backend.run_step(&mut ring, &mut io)?;
+        let output_path = tmp.path().join("fused/Manifest.json");
+        let outcome = export_coreml_adapter(&CoreMLExportRequest {
+            base_package: manifest_path.clone(),
+            adapter_aos: adapter_path.clone(),
+            output_package: output_path,
+            compute_units: ComputeUnits::CpuAndNeuralEngine,
+        })?;
 
-        let hash_after = B3Hash::hash(&std::fs::read(&manifest_path).expect("re-read manifest"));
+        validate_coreml_fusion(&outcome.metadata_path)?;
+
         assert_eq!(
-            hash_before, hash_after,
-            "CoreML LoRA path must not mutate base model bytes"
+            hash_before, outcome.base_manifest_hash,
+            "hash should reflect the original manifest"
+        );
+        assert_eq!(
+            outcome.base_manifest_hash, outcome.fused_manifest_hash,
+            "export must keep base manifest bytes unchanged"
         );
 
         Ok(())
@@ -2057,6 +2456,64 @@ mod tests {
             report.rng_seed_method,
             attestation::RngSeedingMethod::SystemEntropy
         ));
+        Ok(())
+    }
+
+    #[test]
+    #[cfg(all(target_os = "macos", feature = "coreml-backend"))]
+    fn coreml_stub_hot_swap_sidecar_switches_and_restores() -> Result<()> {
+        let mut backend = CoreMLBackend::new_stub(ComputeUnits::CpuAndNeuralEngine)?;
+
+        // Baseline run without adapters
+        let mut base_ring = RouterRing::new(0);
+        let mut base_io = IoBuffers::new(6);
+        base_io.input_ids = vec![1];
+        backend.run_step(&mut base_ring, &mut base_io)?;
+        let base_logits = base_io.output_logits.clone();
+
+        // Attach adapter A and run twice for determinism
+        let adapter_a = simple_adapter_payload(0.05);
+        backend.load_adapter(7, &adapter_a)?;
+        let mut ring_a = RouterRing::new(1);
+        ring_a.set(&[7u16], &[32767]);
+        let mut io_a = IoBuffers::new(6);
+        io_a.input_ids = vec![1];
+        backend.run_step(&mut ring_a, &mut io_a)?;
+        let logits_a = io_a.output_logits.clone();
+
+        let mut io_a_repeat = IoBuffers::new(6);
+        io_a_repeat.input_ids = vec![1];
+        backend.run_step(&mut ring_a, &mut io_a_repeat)?;
+        assert_eq!(
+            logits_a, io_a_repeat.output_logits,
+            "Same adapter + seed must be deterministic"
+        );
+
+        // Switch to adapter B and ensure outputs differ
+        let adapter_b = simple_adapter_payload(0.15);
+        backend.load_adapter(9, &adapter_b)?;
+        backend.switch_adapter(9)?;
+        let mut ring_b = RouterRing::new(1);
+        ring_b.set(&[9u16], &[32767]);
+        let mut io_b = IoBuffers::new(6);
+        io_b.input_ids = vec![1];
+        backend.run_step(&mut ring_b, &mut io_b)?;
+        assert_ne!(
+            logits_a, io_b.output_logits,
+            "Adapter switch should change logits in stub path"
+        );
+
+        // Detach all adapters and confirm base-only logits restored
+        backend.detach_adapter(9)?;
+        let mut clear_ring = RouterRing::new(0);
+        let mut base_again = IoBuffers::new(6);
+        base_again.input_ids = vec![1];
+        backend.run_step(&mut clear_ring, &mut base_again)?;
+        assert_eq!(
+            base_logits, base_again.output_logits,
+            "Detaching should restore base-only behavior"
+        );
+
         Ok(())
     }
 
@@ -2159,6 +2616,58 @@ mod tests {
         let result = product.to_vec().unwrap();
 
         assert_eq!(result, vec![19.0, 22.0, 43.0, 50.0]);
+    }
+
+    #[test]
+    #[cfg(all(target_os = "macos", feature = "coreml-backend"))]
+    fn fused_metadata_mismatch_is_rejected() -> Result<()> {
+        let tmp = tempdir().expect("tempdir");
+        let base = tmp.path().join("base.json");
+        let fused = tmp.path().join("fused.json");
+        let adapter = tmp.path().join("adapter.bin");
+        std::fs::write(&base, b"base-bytes")?;
+        std::fs::write(&fused, b"fused-bytes")?;
+        std::fs::write(&adapter, b"adapter-bytes")?;
+
+        let metadata = CoreMLFusionMetadata {
+            base_manifest_hash: B3Hash::hash(b"wrong-base"),
+            fused_manifest_hash: B3Hash::hash(b"fused-bytes"),
+            adapter_hash: B3Hash::hash(b"adapter-bytes"),
+            base_package: base.clone(),
+            fused_package: fused.clone(),
+            adapter_path: adapter.clone(),
+        };
+        let metadata_path = tmp.path().join("adapteros_coreml_fusion.json");
+        std::fs::write(&metadata_path, serde_json::to_vec(&metadata)?)?;
+
+        let mut backend = CoreMLBackend::new_stub(ComputeUnits::CpuAndNeuralEngine)?;
+        let err = backend.register_fused_adapter_from_metadata(5, &metadata_path);
+        assert!(
+            err.is_err(),
+            "mismatched base hash should reject fused adapter"
+        );
+        Ok(())
+    }
+
+    #[test]
+    #[cfg(all(target_os = "macos", feature = "coreml-backend"))]
+    fn switch_adapter_fails_for_missing_fused_package() -> Result<()> {
+        let mut backend = CoreMLBackend::new_stub(ComputeUnits::CpuAndNeuralEngine)?;
+        backend.adapter_artifacts.insert(
+            11,
+            CoreMLAdapterArtifact::FusedPackage {
+                model_path: PathBuf::from("/nonexistent/fused.mlmodelc"),
+                model_hash: None,
+            },
+        );
+
+        let result = backend.switch_adapter(11);
+        assert!(result.is_err(), "missing fused package should error");
+        assert!(
+            backend.active_fused_adapter.is_none(),
+            "fused activation should not be recorded on failure"
+        );
+        Ok(())
     }
 
     #[test]
@@ -3414,6 +3923,48 @@ mod tests {
             "Logits not normalized: sum = {}",
             sum
         );
+    }
+
+    #[test]
+    fn test_coreml_hot_swap_attach_switch_detach_stub() {
+        fn make_weights(values: &[f32]) -> Vec<u8> {
+            let bytes = unsafe {
+                std::slice::from_raw_parts(values.as_ptr() as *const u8, values.len() * 4)
+            };
+            let tensor = TensorView::new(safetensors::Dtype::F32, vec![values.len()], bytes)
+                .expect("tensor view");
+            serialize(
+                vec![("adapter.weight".to_string(), tensor)],
+                &Default::default(),
+            )
+            .expect("serialize adapter weights")
+        }
+
+        // Build minimal safetensors payloads for two adapters.
+        let weights1 = make_weights(&[1.0, 2.0, 3.0, 4.0]);
+        let weights2 = make_weights(&[5.0, 6.0, 7.0, 8.0]);
+
+        let mut backend = CoreMLBackend::new_stub(ComputeUnits::All).unwrap();
+
+        // Base: no adapters attached.
+        assert!(backend.attached_adapter_ids().is_empty());
+
+        // Attach first adapter via load (sidecar semantics).
+        backend.load_adapter(1, &weights1).unwrap();
+        assert_eq!(backend.attached_adapter_ids(), vec![1]);
+
+        // Load a second adapter and confirm both are visible.
+        backend.load_adapter(2, &weights2).unwrap();
+        assert_eq!(backend.attached_adapter_ids(), vec![1, 2]);
+
+        // Switch to adapter 2, which should detach adapter 1.
+        backend.switch_adapter(2).unwrap();
+        assert_eq!(backend.attached_adapter_ids(), vec![2]);
+
+        // Detach the active adapter; cache should drop it.
+        backend.detach_adapter(2).unwrap();
+        assert!(backend.attached_adapter_ids().is_empty());
+        assert!(!backend.adapter_cache.contains_key(&2));
     }
 
     #[test]

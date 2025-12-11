@@ -58,11 +58,7 @@ impl UmaPressureMonitor {
                 // Attempt to get memory stats
                 match tokio::task::spawn_blocking(|| {
                     // Run potentially blocking system calls in a blocking thread
-                    std::panic::catch_unwind(|| {
-                        // This is synchronous but may call system APIs
-                        // We wrap it to prevent panics from killing the task
-                        tokio::runtime::Handle::current().block_on(get_uma_stats())
-                    })
+                    std::panic::catch_unwind(get_uma_stats)
                 })
                 .await
                 {
@@ -132,6 +128,39 @@ impl UmaPressureMonitor {
         *self.cached_pressure.read()
     }
 
+    /// Override cached pressure (intended for tests and diagnostics).
+    pub fn set_pressure_for_test(&self, level: MemoryPressureLevel) {
+        *self.cached_pressure.write() = level;
+    }
+
+    /// Compute the current pressure level using live headroom measurement.
+    /// Falls back to the same thresholds used by the polling task.
+    pub async fn current_pressure_level(&self) -> MemoryPressureLevel {
+        let stats =
+            match tokio::task::spawn_blocking(|| std::panic::catch_unwind(get_uma_stats)).await {
+                Ok(Ok(stats)) => stats,
+                Ok(Err(panic_err)) => {
+                    warn!(
+                        error = ?panic_err,
+                        "Memory stats collection panicked during live pressure check"
+                    );
+                    self.fallback_stats()
+                }
+                Err(join_err) => {
+                    warn!(
+                        error = %join_err,
+                        "Memory stats task failed during live pressure check"
+                    );
+                    self.fallback_stats()
+                }
+            };
+
+        let level = determine_pressure(&stats, self.min_headroom_pct as f32);
+        // Update cache so subsequent reads stay consistent even if polling is disabled.
+        *self.cached_pressure.write() = level;
+        level
+    }
+
     /// Check if headroom meets minimum
     pub fn check_headroom(&self) -> Result<()> {
         let headroom = self.headroom_pct();
@@ -160,6 +189,19 @@ impl UmaPressureMonitor {
         {
             // Fallback for unsupported platforms
             20.0
+        }
+    }
+
+    fn fallback_stats(&self) -> UmaStats {
+        UmaStats {
+            headroom_pct: self.headroom_pct(),
+            used_mb: 0,
+            total_mb: 0,
+            available_mb: 0,
+            ane_allocated_mb: None,
+            ane_used_mb: None,
+            ane_available_mb: None,
+            ane_usage_percent: None,
         }
     }
 
@@ -525,7 +567,7 @@ pub struct UmaStats {
 }
 
 /// Standalone function to get UMA stats for use in spawned tasks
-async fn get_uma_stats() -> UmaStats {
+fn get_uma_stats() -> UmaStats {
     // Use sysctl to get memory info on macOS
     #[cfg(target_os = "macos")]
     {

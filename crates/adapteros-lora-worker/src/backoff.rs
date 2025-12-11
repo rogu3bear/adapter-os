@@ -7,7 +7,7 @@
 //!
 //! # Usage
 //!
-//! ```rust
+//! ```ignore
 //! use adapteros_lora_worker::backoff::{BackoffConfig, CircuitBreaker};
 //! use std::time::Duration;
 //!

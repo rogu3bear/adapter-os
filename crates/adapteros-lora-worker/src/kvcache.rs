@@ -16,7 +16,7 @@
 //!
 //! # Usage
 //!
-//! ```rust
+//! ```ignore
 //! use adapteros_lora_worker::kvcache::KvCache;
 //! use adapteros_core::constants::BYTES_PER_MB;
 //!

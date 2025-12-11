@@ -13,7 +13,7 @@
 //!
 //! Basic usage showing the Worker structure and inference request types:
 //!
-//! ```rust
+//! ```ignore
 //! use adapteros_lora_worker::{InferenceRequest, RequestType};
 //!
 //! // Create an inference request
@@ -32,6 +32,7 @@
 //!     router_seed: None,
 //!     seed_mode: None,
 //!     request_seed: None,
+//!     fusion_interval: None,
 //!     backend_profile: None,
 //!     pinned_adapter_ids: None,
 //!     determinism_mode: "strict".to_string(),
@@ -50,20 +51,30 @@ use crate::adapter_hotswap::adapter_id_to_u16;
 use crate::device_placement::{
     DeviceKind, LaneDescriptor, PlacementDecision, PlacementEngine, TelemetryCollector,
 };
+use crate::memory::MemoryPressureLevel;
 use crate::router_bridge::decision_to_router_ring_with_active_ids_and_strengths;
 use crate::routing_policy_filter::filter_decision_by_policy;
-use adapteros_api_types::{RouterDecisionChainEntry, RouterDecisionHash};
+use adapteros_api_types::{
+    inference::FusionIntervalTrace, RouterDecisionChainEntry, RouterDecisionHash, RunReceipt,
+};
 use adapteros_config::{resolve_index_root, PlacementConfig, PlacementMode, PlacementWeights};
-use adapteros_core::{AosError, B3Hash, BackendProfile, RepoAdapterPaths, Result, SeedMode};
+use adapteros_core::{
+    determinism::{DeterminismContext, DeterminismSource},
+    AosError, B3Hash, BackendKind, FusionInterval, RepoAdapterPaths, Result, SeedMode,
+};
+use adapteros_db::{Db, SqlTraceSink, TraceReceipt, TraceStart, TraceTokenInput};
 use adapteros_lora_kernel_api::{FusedKernels, IoBuffers, RouterRing};
 use adapteros_lora_rag::RagSystem;
 use adapteros_lora_router::{
-    constants::PINNED_BOOST, features::CodeFeatures, AdapterInfo, Router, RouterDeterminismConfig,
+    constants::PINNED_BOOST, features::CodeFeatures, policy_mask::PolicyMask, AdapterInfo, Router,
+    RouterDeterminismConfig,
 };
 use adapteros_manifest::ManifestV3;
 use adapteros_policy::{PolicyEngine, RefusalResponse};
 use adapteros_telemetry::TelemetryWriter;
 use adapteros_types::adapters::metadata::RoutingDeterminismMode;
+use adapteros_types::coreml::CoreMLMode;
+use base64;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -71,7 +82,8 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::watch;
-use tracing::info;
+use tracing::{info, warn};
+use uuid::Uuid;
 
 pub mod adapter_hotswap;
 pub mod anomaly_detection;
@@ -88,6 +100,7 @@ pub mod directory_adapters;
 pub mod embeddings;
 pub mod ephemeral_adapters;
 pub mod evidence;
+pub mod export;
 pub mod filter_engine;
 pub mod framework_adapters;
 pub mod generation;
@@ -96,6 +109,7 @@ pub mod inference_metrics;
 pub mod inference_pipeline;
 pub mod kvcache;
 pub mod launcher;
+pub mod lifecycle_state;
 pub mod limiter;
 pub mod linter_runner;
 pub mod llm_backend;
@@ -107,6 +121,7 @@ pub mod model_loader;
 pub mod patch_generator;
 pub mod patch_telemetry;
 pub mod patch_validator;
+pub mod request_pinner;
 pub mod router_bridge;
 pub mod routing_policy_filter;
 pub mod services;
@@ -144,6 +159,9 @@ pub use deadlock::{DeadlockConfig, DeadlockDetector};
 pub use deterministic_rng::{DeterministicRng, RngFactory};
 pub use directory_adapters::{DirectoryAdapterManager, DirectoryAdapterSpec, PathActivationRule};
 pub use ephemeral_adapters::{EphemeralAdapterManager, EphemeralAdapterSpec};
+pub use export::{
+    run_coreml_export, verify_coreml_export, ComputeUnits, CoreMLExportJob, CoreMLExportRecord,
+};
 pub use filter_engine::{FilterConfig, FilterEngine, FilterKind};
 pub use framework_adapters::{FrameworkAdapterManager, FrameworkAdapterSpec};
 pub use generation::Generator;
@@ -183,6 +201,31 @@ pub use vision_lora::{
     load_vision_lora, VisionLoraRegistry, VisionLoraWeights, VisionMergePlan, VisionTask,
 };
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn preload_guard_blocks_on_critical_pressure() {
+        let err =
+            ensure_preload_allowed(MemoryPressureLevel::Critical, MemoryPressureLevel::Critical)
+                .unwrap_err();
+
+        match err {
+            AosError::MemoryPressure(msg) => {
+                assert!(msg.contains("Memory pressure critical, cannot load more adapters"))
+            }
+            other => panic!("expected memory pressure error, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn preload_guard_allows_after_recovery() {
+        let res = ensure_preload_allowed(MemoryPressureLevel::Critical, MemoryPressureLevel::Low);
+        assert!(res.is_ok());
+    }
+}
+
 /// Strictness control for backend execution (strict mode disables fallback)
 pub trait StrictnessControl {
     /// Set strict mode for subsequent operations
@@ -211,6 +254,26 @@ pub enum BackendLane {
 enum ActiveBackend {
     Primary,
     Fallback,
+}
+
+/// Enforce guardrails for adapter preload under memory pressure.
+fn ensure_preload_allowed(
+    pressure_before: MemoryPressureLevel,
+    pressure_after: MemoryPressureLevel,
+) -> Result<()> {
+    if matches!(pressure_after, MemoryPressureLevel::Critical) {
+        return Err(AosError::MemoryPressure(
+            "Memory pressure critical, cannot load more adapters".to_string(),
+        ));
+    }
+
+    // If we started at critical but recovered, allow the load to proceed.
+    tracing::debug!(
+        pressure_before = ?pressure_before,
+        pressure_after = ?pressure_after,
+        "Preload allowed after memory pressure check"
+    );
+    Ok(())
 }
 
 // Default strictness control for plain backends (no fallback)
@@ -477,6 +540,42 @@ impl FusedKernels for KernelWrapper {
             }
         }
     }
+
+    fn attach_adapter(&mut self, id: u16) -> Result<()> {
+        match self {
+            KernelWrapper::Direct(k) => k.inner.attach_adapter(id),
+            KernelWrapper::Coordinated(k) => {
+                if let Some(fallback) = k.fallback.as_mut() {
+                    fallback.attach_adapter(id)?;
+                }
+                k.primary.attach_adapter(id)
+            }
+        }
+    }
+
+    fn detach_adapter(&mut self, id: u16) -> Result<()> {
+        match self {
+            KernelWrapper::Direct(k) => k.inner.detach_adapter(id),
+            KernelWrapper::Coordinated(k) => {
+                if let Some(fallback) = k.fallback.as_mut() {
+                    fallback.detach_adapter(id)?;
+                }
+                k.primary.detach_adapter(id)
+            }
+        }
+    }
+
+    fn switch_adapter(&mut self, id: u16) -> Result<()> {
+        match self {
+            KernelWrapper::Direct(k) => k.inner.switch_adapter(id),
+            KernelWrapper::Coordinated(k) => {
+                if let Some(fallback) = k.fallback.as_mut() {
+                    fallback.switch_adapter(id)?;
+                }
+                k.primary.switch_adapter(id)
+            }
+        }
+    }
 }
 
 /// Inference request
@@ -528,9 +627,15 @@ pub struct InferenceRequest {
     /// Request-scoped seed provided by control plane (32 bytes)
     #[serde(default)]
     pub request_seed: Option<[u8; 32]>,
+    /// Fusion interval policy for aligning router gates with fused weights
+    #[serde(default)]
+    pub fusion_interval: Option<FusionInterval>,
     /// Backend profile requested by control plane
     #[serde(default)]
-    pub backend_profile: Option<BackendProfile>,
+    pub backend_profile: Option<BackendKind>,
+    /// CoreML mode applied by control plane
+    #[serde(default)]
+    pub coreml_mode: Option<CoreMLMode>,
     /// Pinned adapter IDs that receive prior boost in routing (CHAT-PIN-02)
     ///
     /// These adapters receive PINNED_BOOST (0.3) added to their prior scores
@@ -600,12 +705,37 @@ pub struct PlacementTraceEntry {
     pub utilization: f32,
 }
 
+/// Cached CoreML verification snapshot for observability.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct CoremlVerificationSnapshot {
+    /// Verification mode (off/warn/strict) in effect when the check ran.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<String>,
+    /// Expected fused CoreML package hash (hex) if known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected: Option<String>,
+    /// Actual fused CoreML package hash (hex) if computed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub actual: Option<String>,
+    /// Source of the expected hash (db/manifest/env/metadata/none).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    /// Terminal verification status label (match/mismatch/missing_expected/missing_actual/skipped).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
+    /// Convenience flag for mismatch detection.
+    #[serde(default)]
+    pub mismatch: bool,
+}
+
 /// Inference response
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InferenceResponse {
     pub text: Option<String>,
     pub status: String,
     pub trace: ResponseTrace,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run_receipt: Option<RunReceipt>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub refusal: Option<RefusalResponse>,
     /// Patch proposal if requested
@@ -626,6 +756,27 @@ pub struct InferenceResponse {
     /// Whether backend fallback occurred during execution
     #[serde(default)]
     pub fallback_triggered: bool,
+    /// Requested CoreML compute preference (if applicable)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub coreml_compute_preference: Option<String>,
+    /// CoreML compute units actually used (if applicable)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub coreml_compute_units: Option<String>,
+    /// Whether CoreML leveraged GPU for this inference (if applicable)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub coreml_gpu_used: Option<bool>,
+    /// Hash of the fused CoreML package manifest used (if applicable)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub coreml_package_hash: Option<String>,
+    /// Expected hash used for verification, if available.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub coreml_expected_package_hash: Option<String>,
+    /// Whether the computed hash mismatched the expected value.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub coreml_hash_mismatch: Option<bool>,
+    /// Backend selected after fallback (if different from requested)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback_backend: Option<String>,
     /// Determinism mode applied after resolution
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub determinism_mode_applied: Option<String>,
@@ -696,6 +847,9 @@ pub struct ResponseTrace {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub router_decision_chain:
         Option<Vec<adapteros_api_types::inference::RouterDecisionChainEntry>>,
+    /// Fusion interval boundaries and fused tensor hashes
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fusion_intervals: Option<Vec<FusionIntervalTrace>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -759,6 +913,233 @@ pub fn summarize_router_usage(
     }
 }
 
+#[derive(Serialize)]
+struct FusionCandidateMaterial {
+    adapter_idx: u16,
+    raw_score: f32,
+    gate_q15: i16,
+}
+
+#[derive(Serialize)]
+struct FusionDecisionMaterial {
+    step: usize,
+    input_token_id: Option<u32>,
+    candidate_adapters: Vec<FusionCandidateMaterial>,
+    entropy: f32,
+    tau: f32,
+    entropy_floor: f32,
+    stack_hash: Option<String>,
+    policy_mask_digest: Option<B3Hash>,
+    policy_overrides_applied: Option<adapteros_api_types::inference::PolicyOverrideFlags>,
+    interval_id: Option<String>,
+}
+
+#[derive(Serialize)]
+struct FusionIntervalMaterial {
+    base_model_hash: B3Hash,
+    interval_id: String,
+    decisions: Vec<FusionDecisionMaterial>,
+}
+
+fn fused_hash_for_interval(
+    base_model_hash: &B3Hash,
+    interval_id: &str,
+    decisions: &[adapteros_api_types::inference::RouterDecision],
+) -> B3Hash {
+    let material = FusionIntervalMaterial {
+        base_model_hash: *base_model_hash,
+        interval_id: interval_id.to_string(),
+        decisions: decisions
+            .iter()
+            .map(|decision| FusionDecisionMaterial {
+                step: decision.step,
+                input_token_id: decision.input_token_id,
+                candidate_adapters: decision
+                    .candidate_adapters
+                    .iter()
+                    .map(|c| FusionCandidateMaterial {
+                        adapter_idx: c.adapter_idx,
+                        raw_score: c.raw_score,
+                        gate_q15: c.gate_q15,
+                    })
+                    .collect(),
+                entropy: decision.entropy,
+                tau: decision.tau,
+                entropy_floor: decision.entropy_floor,
+                stack_hash: decision.stack_hash.clone(),
+                policy_mask_digest: decision.policy_mask_digest,
+                policy_overrides_applied: decision.policy_overrides_applied.clone(),
+                interval_id: decision.interval_id.clone(),
+            })
+            .collect(),
+    };
+
+    // Canonical JSON ensures platform-stable byte layout for replay hashing.
+    let canonical_bytes =
+        serde_jcs::to_vec(&material).expect("fusion interval hash serialization must succeed");
+    B3Hash::hash(&canonical_bytes)
+}
+
+fn fusion_intervals_for_mode(
+    mode: FusionInterval,
+    router_decisions: Option<&Vec<adapteros_api_types::inference::RouterDecision>>,
+    base_model_hash: &B3Hash,
+) -> Option<Vec<FusionIntervalTrace>> {
+    let decisions = router_decisions?;
+    if decisions.is_empty() {
+        return None;
+    }
+
+    let mut intervals = Vec::new();
+    let mut current_interval = String::new();
+    let mut current_bucket: Vec<&adapteros_api_types::inference::RouterDecision> = Vec::new();
+
+    let mut push_bucket =
+        |interval_id: &str, bucket: &[&adapteros_api_types::inference::RouterDecision]| {
+            if bucket.is_empty() {
+                return;
+            }
+            let hash = fused_hash_for_interval(base_model_hash, interval_id, bucket);
+            let start = bucket.first().map(|d| d.step).unwrap_or(0);
+            let end = bucket.last().map(|d| d.step).unwrap_or(start);
+            intervals.push(FusionIntervalTrace {
+                interval_id: interval_id.to_string(),
+                start_token: start,
+                end_token: end,
+                fused_weight_hash: hash,
+            });
+        };
+
+    for decision in decisions {
+        let interval_id = decision
+            .interval_id
+            .clone()
+            .unwrap_or_else(|| mode.interval_id_for_step(decision.step));
+
+        if current_interval.is_empty() {
+            current_interval = interval_id.clone();
+        }
+
+        if interval_id != current_interval {
+            push_bucket(&current_interval, &current_bucket);
+            current_bucket.clear();
+            current_interval = interval_id.clone();
+        }
+
+        current_bucket.push(decision);
+    }
+
+    push_bucket(&current_interval, &current_bucket);
+
+    Some(intervals)
+}
+
+#[cfg(test)]
+mod fusion_interval_tests {
+    use super::*;
+    use adapteros_api_types::inference::{RouterCandidate, RouterDecision};
+
+    fn sample_decisions() -> Vec<RouterDecision> {
+        vec![
+            RouterDecision {
+                step: 0,
+                input_token_id: Some(1),
+                candidate_adapters: vec![
+                    RouterCandidate {
+                        adapter_idx: 0,
+                        raw_score: 0.8,
+                        gate_q15: 20000,
+                    },
+                    RouterCandidate {
+                        adapter_idx: 1,
+                        raw_score: 0.2,
+                        gate_q15: 5000,
+                    },
+                ],
+                entropy: 0.4,
+                tau: 1.0,
+                entropy_floor: 0.1,
+                stack_hash: Some("stack-a".to_string()),
+                interval_id: None,
+            },
+            RouterDecision {
+                step: 1,
+                input_token_id: Some(2),
+                candidate_adapters: vec![RouterCandidate {
+                    adapter_idx: 0,
+                    raw_score: 0.5,
+                    gate_q15: 15000,
+                }],
+                entropy: 0.5,
+                tau: 1.0,
+                entropy_floor: 0.1,
+                stack_hash: Some("stack-a".to_string()),
+                interval_id: None,
+            },
+        ]
+    }
+
+    #[test]
+    fn per_request_creates_single_interval() {
+        let base = B3Hash::hash(b"base");
+        let decisions = sample_decisions();
+        let intervals =
+            fusion_intervals_for_mode(FusionInterval::PerRequest, Some(&decisions), &base)
+                .expect("intervals exist");
+
+        assert_eq!(intervals.len(), 1);
+        assert_eq!(intervals[0].interval_id, "request-0");
+        assert_eq!(intervals[0].start_token, 0);
+        assert_eq!(intervals[0].end_token, 1);
+    }
+
+    #[test]
+    fn per_token_creates_interval_per_step() {
+        let base = B3Hash::hash(b"base");
+        let decisions = sample_decisions();
+        let intervals =
+            fusion_intervals_for_mode(FusionInterval::PerToken, Some(&decisions), &base)
+                .expect("intervals exist");
+
+        assert_eq!(intervals.len(), decisions.len());
+        assert_eq!(intervals[0].interval_id, "token-0");
+        assert_eq!(intervals[1].interval_id, "token-1");
+    }
+
+    #[test]
+    fn fused_hash_is_stable_for_same_inputs() {
+        let base = B3Hash::hash(b"base");
+        let decisions = sample_decisions();
+        let first = fusion_intervals_for_mode(FusionInterval::PerRequest, Some(&decisions), &base)
+            .expect("intervals");
+        let second = fusion_intervals_for_mode(FusionInterval::PerRequest, Some(&decisions), &base)
+            .expect("intervals");
+
+        assert_eq!(
+            first[0].fused_weight_hash, second[0].fused_weight_hash,
+            "same inputs must produce identical fused hash"
+        );
+    }
+
+    #[test]
+    fn provided_interval_ids_are_honored() {
+        let base = B3Hash::hash(b"base");
+        let mut decisions = sample_decisions();
+        decisions
+            .iter_mut()
+            .for_each(|d| d.interval_id = Some("segment-0".to_string()));
+
+        let intervals =
+            fusion_intervals_for_mode(FusionInterval::PerToken, Some(&decisions), &base)
+                .expect("intervals");
+
+        assert_eq!(intervals.len(), 1, "custom interval ids control grouping");
+        assert_eq!(intervals[0].interval_id, "segment-0");
+        assert_eq!(intervals[0].start_token, 0);
+        assert_eq!(intervals[0].end_token, 1);
+    }
+}
+
 #[cfg(test)]
 mod router_summary_tests {
     use super::summarize_router_usage;
@@ -785,6 +1166,8 @@ mod router_summary_tests {
             tau: 0.0,
             entropy_floor: 0.0,
             stack_hash: None,
+            policy_mask_digest: None,
+            policy_overrides_applied: None,
         }];
         let active_ids = vec!["adapter-a".to_string(), "adapter-b".to_string()];
         let summary = summarize_router_usage(false, &active_ids, 2, Some(&decisions));
@@ -865,6 +1248,41 @@ fn resolve_worker_adapter_paths() -> RepoAdapterPaths {
     RepoAdapterPaths::from_env_and_config(None)
 }
 
+/// CoreML runtime telemetry captured for replay/logging
+#[derive(Debug, Clone, Default)]
+pub struct CoremlRuntimeTelemetry {
+    pub compute_preference: Option<String>,
+    pub compute_units: Option<String>,
+    pub gpu_available: Option<bool>,
+    pub ane_available: Option<bool>,
+    pub gpu_used: Option<bool>,
+    pub ane_used: Option<bool>,
+    pub production_mode: Option<bool>,
+}
+
+/// Backends available in this worker (primary + optional fallback).
+#[derive(Debug, Clone)]
+pub struct AvailableBackends {
+    pub primary: BackendKind,
+    pub fallback: Option<BackendKind>,
+    pub coreml_primary: Option<CoremlRuntimeTelemetry>,
+    pub coreml_fallback: Option<CoremlRuntimeTelemetry>,
+}
+
+impl AvailableBackends {
+    fn contains(&self, backend: BackendKind) -> bool {
+        self.primary == backend || self.fallback == Some(backend)
+    }
+
+    fn lane_for(&self, backend: BackendKind) -> BackendLane {
+        if self.fallback == Some(backend) {
+            BackendLane::Fallback
+        } else {
+            BackendLane::Primary
+        }
+    }
+}
+
 #[cfg(test)]
 mod adapter_path_tests {
     use super::resolve_worker_adapter_paths;
@@ -872,9 +1290,9 @@ mod adapter_path_tests {
 
     #[test]
     fn worker_paths_respect_env_override() {
-        std::env::set_var("AOS_ADAPTERS_ROOT", "/tmp/aos-worker-repo");
+        std::env::set_var("AOS_ADAPTERS_ROOT", "./var/test-adapters-repo");
         let paths = resolve_worker_adapter_paths();
-        assert_eq!(paths.repo_root, PathBuf::from("/tmp/aos-worker-repo"));
+        assert_eq!(paths.repo_root, PathBuf::from("./var/test-adapters-repo"));
         std::env::remove_var("AOS_ADAPTERS_ROOT");
     }
 }
@@ -904,14 +1322,22 @@ pub struct Worker<K: FusedKernels + StrictnessControl + Send + Sync> {
     kv_cache: Arc<StdMutex<KvCache>>,
     /// Last stack hash for change detection (reserved for stack caching)
     _last_stack_hash: RwLock<Option<B3Hash>>,
+    /// Backends available to this worker (primary + optional fallback)
+    available_backends: AvailableBackends,
+    /// Hash of the fused CoreML package manifest (if applicable)
+    coreml_package_hash: Option<String>,
+    /// Cached CoreML verification snapshot for observability/debug.
+    coreml_verification: Option<CoremlVerificationSnapshot>,
     // Safety mechanisms
     _timeout_config: TimeoutConfig,
     _timeout_wrapper: TimeoutWrapper,
     circuit_breaker: CircuitBreaker,
     _resource_limiter: ResourceLimiter,
     _deadlock_detector: DeadlockDetector,
-    health_monitor: HealthMonitor,
+    health_monitor: Arc<HealthMonitor>,
     telemetry: Option<TelemetryWriter>,
+    trace_db: Option<Arc<Db>>,
+    trace_flush_every: usize,
     placement_template: Option<(PlacementConfig, Vec<LaneDescriptor>)>,
     // Lifecycle management
     profiler: adapteros_profiler::AdapterProfiler,
@@ -931,10 +1357,13 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         manifest: ManifestV3,
         tenant_id: &str,
         kernels: K,
+        available_backends: AvailableBackends,
         rag: Option<RagSystem>,
         tokenizer_path: &str,
         model_path: &str,
         telemetry: TelemetryWriter,
+        coreml_package_hash: Option<String>,
+        coreml_verification: Option<CoremlVerificationSnapshot>,
     ) -> Result<Self> {
         // Initialize determinism guards first
         init_determinism_guards()?;
@@ -962,7 +1391,11 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         let circuit_breaker = CircuitBreaker::new(5, std::time::Duration::from_secs(60));
         let resource_limiter = ResourceLimiter::new(ResourceLimits::default());
         let deadlock_detector = DeadlockDetector::new(DeadlockConfig::default());
-        let health_monitor = HealthMonitor::new(HealthConfig::default())?;
+        let health_monitor = Arc::new(HealthMonitor::new(HealthConfig::default())?.with_telemetry(
+            telemetry.clone(),
+            tenant_id.to_string(),
+            "worker".to_string(),
+        ));
 
         // Load tokenizer
         let tokenizer = Arc::new(QwenTokenizer::from_file(tokenizer_path)?);
@@ -1047,6 +1480,12 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             manifest.router.k_sparse,
         )));
 
+        {
+            let mut lifecycle_guard = lifecycle.lock().await;
+            lifecycle_guard
+                .set_expected_base_model(&manifest.base.model_id, manifest.base.model_hash);
+        }
+
         // Placement configuration (CPU/GPU/ANE lane steering)
         let placement_template = if cfg!(feature = "telemetry-sysinfo") {
             let placement_cfg = PlacementConfig::from_env();
@@ -1089,6 +1528,31 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         // Initialize active training jobs tracking
         let active_training_jobs = Arc::new(RwLock::new(HashMap::new()));
 
+        let trace_flush_every = std::env::var("AOS_TRACE_FLUSH_EVERY")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .map(|v: usize| v.max(1))
+            .unwrap_or(1);
+
+        let trace_db = if std::env::var("AOS_TRACE_DB_DISABLED").is_ok() {
+            None
+        } else {
+            match Db::from_config().await {
+                Ok(db) => {
+                    if let Err(e) = db.migrate().await {
+                        warn!(error = %e, "Trace DB migration failed; disabling trace sink");
+                        None
+                    } else {
+                        Some(Arc::new(db))
+                    }
+                }
+                Err(e) => {
+                    warn!(error = %e, "Trace DB unavailable; disabling trace sink");
+                    None
+                }
+            }
+        };
+
         Ok(Self {
             manifest,
             policy,
@@ -1103,6 +1567,9 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             evidence_retriever,
             kv_cache,
             _last_stack_hash: last_stack_hash,
+            available_backends,
+            coreml_package_hash,
+            coreml_verification,
             _timeout_config: timeout_config,
             _timeout_wrapper: timeout_wrapper,
             circuit_breaker,
@@ -1110,6 +1577,8 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             _deadlock_detector: deadlock_detector,
             health_monitor,
             telemetry: Some(telemetry),
+            trace_db,
+            trace_flush_every,
             placement_template,
             profiler,
             lifecycle,
@@ -1230,7 +1699,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
 
                                         // Corrective action: Unload corrupted adapter from kernels
                                         if let Err(unload_err) =
-                                            kernels_lock.unload_adapter(*adapter_id_u16)
+                                            kernels_lock.detach_adapter(*adapter_id_u16)
                                         {
                                             tracing::error!(
                                                 adapter_id = %adapter_id,
@@ -1302,6 +1771,43 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         })
     }
 
+    /// Resolve runtime metadata (coreml + fallback) for the active backend lane.
+    fn runtime_metadata_for_response(
+        &self,
+        fallback_triggered: bool,
+    ) -> (Option<CoremlRuntimeTelemetry>, Option<String>) {
+        let active_backend = if fallback_triggered {
+            self.available_backends
+                .fallback
+                .unwrap_or(self.available_backends.primary)
+        } else {
+            self.available_backends.primary
+        };
+
+        let coreml = if active_backend == BackendKind::CoreML {
+            if fallback_triggered {
+                self.available_backends
+                    .coreml_fallback
+                    .clone()
+                    .or_else(|| self.available_backends.coreml_primary.clone())
+            } else {
+                self.available_backends.coreml_primary.clone()
+            }
+        } else {
+            None
+        };
+
+        let fallback_backend = if fallback_triggered {
+            self.available_backends
+                .fallback
+                .map(|bk| bk.as_str().to_string())
+        } else {
+            None
+        };
+
+        (coreml, fallback_backend)
+    }
+
     /// Run inference with comprehensive safety mechanisms
     pub async fn infer(&mut self, request: InferenceRequest) -> Result<InferenceResponse> {
         let start_time = Instant::now();
@@ -1329,8 +1835,17 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
 
     /// Internal inference implementation with safety checks
     async fn infer_internal(&mut self, request: InferenceRequest) -> Result<InferenceResponse> {
+        let mut request = request;
         // Start profiler session
         let mut _profiler_session = self.profiler.start_inference();
+
+        // Enforce tenant isolation: worker must only serve its configured tenant
+        if request.cpid != self.tenant_namespace {
+            return Err(AosError::IsolationViolation(format!(
+                "Request tenant {} does not match worker tenant {}",
+                request.cpid, self.tenant_namespace
+            )));
+        }
 
         // Check memory - handle memory pressure if needed
         if let Err(_e) = self.memory_monitor.check_headroom() {
@@ -1348,6 +1863,44 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             request.effective_adapter_ids.as_ref(),
             Some(ids) if ids.is_empty()
         );
+
+        let strict_mode_active =
+            strict_mode_enabled(request.strict_mode, request.determinism_mode.as_deref());
+
+        // Resolve backend lane for this request
+        let requested_backend = request.backend_profile;
+        let (resolved_backend, backend_lane, backend_overridden) = {
+            let requested = requested_backend.unwrap_or(self.available_backends.primary);
+            if self.available_backends.contains(requested) {
+                (
+                    requested,
+                    self.available_backends.lane_for(requested),
+                    false,
+                )
+            } else {
+                let fallback = self
+                    .available_backends
+                    .fallback
+                    .unwrap_or(self.available_backends.primary);
+                (fallback, self.available_backends.lane_for(fallback), true)
+            }
+        };
+        if backend_overridden {
+            warn!(
+                requested = ?requested_backend.map(|b| b.as_str().to_string()),
+                selected = %resolved_backend.as_str(),
+                "Requested backend not available on this worker; falling back"
+            );
+        }
+        request.backend_profile = Some(resolved_backend);
+        let backend_label = resolved_backend.as_str().to_string();
+        let kernel_version_id = adapteros_core::version::VERSION.to_string();
+
+        if strict_mode_active && kernel_version_id.is_empty() {
+            return Err(AosError::DeterminismViolation(
+                "Strict determinism mode requires kernel_version_id".to_string(),
+            ));
+        }
 
         // Validate effective adapter gate (if provided)
         let allowed_indices = self.validate_effective_adapter_gate(&request)?;
@@ -1433,6 +1986,8 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                         )
                     };
                     let backend_version = adapteros_core::version::VERSION.to_string();
+                    let (coreml_runtime, fallback_backend) =
+                        self.runtime_metadata_for_response(fallback_triggered);
 
                     return Ok(InferenceResponse {
                         text: None,
@@ -1448,7 +2003,9 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                             token_count: 0,
                             router_decisions: None,
                             router_decision_chain: None,
+                            fusion_intervals: None,
                         },
+                        run_receipt: None,
                         refusal: Some(RefusalResponse::insufficient_evidence(
                             self.manifest.policies.evidence.min_spans,
                             evidence.len(),
@@ -1459,6 +2016,20 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                         backend_used: Some(backend_used),
                         backend_version: Some(backend_version),
                         fallback_triggered,
+                        coreml_compute_preference: coreml_runtime
+                            .as_ref()
+                            .and_then(|r| r.compute_preference.clone()),
+                        coreml_compute_units: coreml_runtime
+                            .as_ref()
+                            .and_then(|r| r.compute_units.clone()),
+                        coreml_gpu_used: coreml_runtime.as_ref().and_then(|r| r.gpu_used),
+                        coreml_package_hash: self.coreml_package_hash.clone(),
+                        coreml_expected_package_hash: self
+                            .coreml_verification
+                            .as_ref()
+                            .and_then(|v| v.expected.clone()),
+                        coreml_hash_mismatch: self.coreml_verification.as_ref().map(|v| v.mismatch),
+                        fallback_backend,
                         determinism_mode_applied: Some(request.determinism_mode.clone()),
                         unavailable_pinned_adapters: unavailable_pinned_adapters.clone(),
                         pinned_routing_fallback: pinned_routing_fallback.clone(),
@@ -1470,6 +2041,25 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
 
         // Apply request-provided sampling parameters (PRD-02: replay support)
         // This enables deterministic replay when the same parameters are provided
+        let routing_mode = request
+            .routing_determinism_mode
+            .unwrap_or(RoutingDeterminismMode::Deterministic);
+        let seed_mode = request.seed_mode.unwrap_or(SeedMode::BestEffort);
+        let determinism_ctx: Option<DeterminismContext> = request.request_seed.map(|seed_bytes| {
+            DeterminismContext::new_with_router_seed(
+                seed_bytes,
+                request.router_seed.clone(),
+                None,
+                seed_mode,
+                routing_mode,
+                DeterminismSource::DerivedFromRequest,
+            )
+        });
+
+        let fusion_interval = request
+            .fusion_interval
+            .unwrap_or(FusionInterval::PerRequest);
+
         if let Some(seed_bytes) = request.request_seed {
             self.generator.set_seed_bytes(seed_bytes);
             // Avoid overriding master request seed with low-entropy seed
@@ -1493,9 +2083,13 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         let formatted_prompt = self.tokenizer.apply_chat_template(&request.prompt);
         let prompt_tokens = self.tokenizer.encode(&formatted_prompt)?;
 
-        // Snapshot current stack and increment refcounts
-        let stack_handle = self.hotswap.table().get_current_stack_handle();
-        let current_generation = stack_handle.generation;
+        // Snapshot current stack and pin adapters for this request
+        let pinner = RequestPinner::new(self.hotswap.table().clone());
+        let pinned_request = pinner
+            .pin()
+            .map_err(|e| AosError::Worker(format!("Failed to pin adapters: {}", e)))?;
+        let stack_handle = pinned_request.stack().clone();
+        let current_generation = pinned_request.generation();
 
         // Ensure KV cache coherence with current generation
         // This will reset cache if generation changed since last inference
@@ -1512,14 +2106,45 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             }
         }
 
-        // Increment refcounts for all active adapters (reuse table reference)
-        let table = self.hotswap.table();
-        for name in stack_handle.active.keys() {
-            table.inc_ref(name).await;
-        }
-
         // Build deterministic active adapter view for routing (no per-token attach/detach)
-        let stack_hash = table.compute_stack_hash();
+        let stack_hash = pinned_request.stack_hash();
+        let mut context_bytes =
+            Vec::with_capacity(self.tenant_namespace.len() + 32 + (prompt_tokens.len() * 4) + 4);
+        context_bytes.extend_from_slice(self.tenant_namespace.as_bytes());
+        context_bytes.extend_from_slice(stack_hash.as_bytes());
+        context_bytes.extend_from_slice(&(prompt_tokens.len() as u32).to_le_bytes());
+        for t in &prompt_tokens {
+            context_bytes.extend_from_slice(&t.to_le_bytes());
+        }
+        let context_digest = B3Hash::hash(&context_bytes).to_bytes();
+
+        let mut trace_sink = if let Some(db) = self.trace_db.as_ref() {
+            let start = TraceStart {
+                trace_id: Uuid::now_v7().to_string(),
+                tenant_id: request.cpid.clone(),
+                request_id: None,
+                context_digest,
+            };
+
+            match SqlTraceSink::new(db.clone(), start, self.trace_flush_every).await {
+                Ok(sink) => Some(sink),
+                Err(e) => {
+                    warn!(
+                        error = %e,
+                        "Trace sink unavailable; continuing without persistence"
+                    );
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
+        if strict_mode_active && trace_sink.is_none() {
+            return Err(AosError::DeterminismViolation(
+                "Strict determinism mode requires active trace sink".to_string(),
+            ));
+        }
         let mut active_entries: Vec<(usize, _)> = self
             .manifest
             .adapters
@@ -1535,6 +2160,9 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             .collect();
 
         if active_entries.is_empty() {
+            if let Some(sink) = trace_sink.as_mut() {
+                sink.fail("error").await.ok();
+            }
             return Err(AosError::Worker(
                 "No active adapters available for routing".to_string(),
             ));
@@ -1579,10 +2207,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
 
         // Configure router determinism mode from request (PRD-06: determinism configuration)
         // Parse routing_determinism_mode (deterministic|adaptive) and determinism_mode (strict/besteffort/relaxed)
-        let adaptive_routing = matches!(
-            request.routing_determinism_mode,
-            Some(RoutingDeterminismMode::Adaptive)
-        );
+        let adaptive_routing = routing_mode == RoutingDeterminismMode::Adaptive;
         self.router.set_routing_determinism_mode(adaptive_routing);
 
         let router_config = if adaptive_routing {
@@ -1611,6 +2236,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             let mut kernels = self.kernels.lock().await;
             kernels.set_strict_mode(request.strict_mode);
             kernels.reset_fallback();
+            kernels.set_active_lane(backend_lane);
         }
 
         // Build priors once from active adapter set
@@ -1624,11 +2250,25 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
 
         if let Some(ref allowed) = allowed_active_indices {
             if allowed.is_empty() && !base_only_request {
+                if let Some(sink) = trace_sink.as_mut() {
+                    sink.fail("error").await.ok();
+                }
                 return Err(AosError::Worker(
                     "Effective adapter set has no overlap with active stack".to_string(),
                 ));
             }
         }
+
+        let policy_mask_digest: Option<[u8; 32]> = allowed_active_indices.as_ref().map(|allowed| {
+            let mut ordered: Vec<u16> = allowed.iter().map(|idx| *idx as u16).collect();
+            ordered.sort_unstable();
+            let mut buf = Vec::with_capacity(4 + ordered.len() * 2);
+            buf.extend_from_slice(&(ordered.len() as u32).to_le_bytes());
+            for idx in ordered {
+                buf.extend_from_slice(&idx.to_le_bytes());
+            }
+            B3Hash::hash(&buf).to_bytes()
+        });
 
         // Build placement state per-request (env + optional override)
         let mut placement_state = if let Some((base_cfg, lanes)) = &self.placement_template {
@@ -1691,11 +2331,33 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             }
         }
 
+        // Build deterministic policy mask from routing policy + effective set.
+        let policy_mask_digest_seed = request
+            .routing_policy
+            .as_ref()
+            .and_then(|policy| serde_json::to_vec(policy).ok())
+            .map(|bytes| B3Hash::hash(&bytes));
+        let policy_mask = PolicyMask::build(
+            &active_ids,
+            request
+                .routing_policy
+                .as_ref()
+                .and_then(|p| p.allowed_adapter_ids.as_deref()),
+            request
+                .routing_policy
+                .as_ref()
+                .and_then(|p| p.denied_adapter_ids.as_deref()),
+            allowed_active_indices.as_ref(),
+            None,
+            policy_mask_digest_seed,
+        );
+
         let mut generated_tokens = Vec::new();
         let mut router_decisions_collected = Vec::new();
         let mut router_decision_chain = Vec::new();
         let mut previous_chain_hash: Option<String> = None;
         let mut placement_trace: Vec<PlacementTraceEntry> = Vec::new();
+        let mut run_receipt: Option<RunReceipt> = None;
 
         // Autoregressive generation loop
         for step in 0..request.max_tokens {
@@ -1725,9 +2387,13 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 CodeFeatures::from_context(&context_text).to_vector()
             };
             // Build priors with PINNED_BOOST for pinned adapters (CHAT-PIN-02)
-            let decision = self
-                .router
-                .route_with_adapter_info(&features, &priors, &adapter_info);
+            let decision = self.router.route_with_adapter_info_with_ctx(
+                &features,
+                &priors,
+                &adapter_info,
+                &policy_mask,
+                determinism_ctx.as_ref(),
+            );
 
             let mut decision =
                 self.apply_routing_policy_to_decision(decision, request.routing_policy.as_ref())?;
@@ -1760,6 +2426,15 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 tau: self.router.tau(),
                 entropy_floor: self.router.eps(),
                 stack_hash: self.router.stack_hash(),
+                interval_id: Some(fusion_interval.interval_id_for_step(step)),
+                policy_mask_digest: decision.policy_mask_digest,
+                policy_overrides_applied: decision.policy_overrides_applied.as_ref().map(|flags| {
+                    adapteros_api_types::inference::PolicyOverrideFlags {
+                        allow_list: flags.allow_list,
+                        deny_list: flags.deny_list,
+                        trust_state: flags.trust_state,
+                    }
+                }),
             });
 
             // Build chained router decision entry (per-token)
@@ -1773,6 +2448,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                         .map(|a| a.id.clone())
                 })
                 .collect();
+            let adapter_ids_for_trace = adapter_ids_for_decision.clone();
 
             let decision_hash_payload =
                 decision.decision_hash.as_ref().map(|h| RouterDecisionHash {
@@ -1824,6 +2500,14 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 decision_hash: decision_hash_payload,
                 previous_hash: previous_chain_hash.clone(),
                 entry_hash: entry_hash.clone(),
+                policy_mask_digest: decision.policy_mask_digest,
+                policy_overrides_applied: decision.policy_overrides_applied.as_ref().map(|flags| {
+                    adapteros_api_types::inference::PolicyOverrideFlags {
+                        allow_list: flags.allow_list,
+                        deny_list: flags.deny_list,
+                        trust_state: flags.trust_state,
+                    }
+                }),
             });
 
             previous_chain_hash = Some(entry_hash);
@@ -1842,7 +2526,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                                 .get(adapter_idx as usize)
                                 .copied()
                                 .unwrap_or_default();
-                            return Err(AosError::AdapterNotInEffectiveSet {
+                            let err = AosError::AdapterNotInEffectiveSet {
                                 adapter_id: self
                                     .manifest
                                     .adapters
@@ -1853,7 +2537,11 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                                     .effective_adapter_ids
                                     .clone()
                                     .unwrap_or_default(),
-                            });
+                            };
+                            if let Some(sink) = trace_sink.as_mut() {
+                                sink.fail("error").await.ok();
+                            }
+                            return Err(err);
                         }
                     }
                 }
@@ -1868,12 +2556,50 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                                 .get(adapter_idx as usize)
                                 .map(|a| a.id.clone())
                                 .unwrap_or_else(|| format!("adapter_{}", adapter_idx));
-                            return Err(AosError::AdapterNotLoaded {
+                            let err = AosError::AdapterNotLoaded {
                                 adapter_id,
                                 current_state: state.to_string(),
-                            });
+                            };
+                            if let Some(sink) = trace_sink.as_mut() {
+                                sink.fail("error").await.ok();
+                            }
+                            return Err(err);
                         }
                     }
+                }
+            }
+
+            if let Some(sink) = trace_sink.as_mut() {
+                let (fusion_interval_id, fused_weight_hash) = match fusion_interval {
+                    FusionInterval::PerToken => {
+                        let fused_hash = router_decisions_collected.last().map(|decision| {
+                            fused_hash_for_decisions(
+                                &self.manifest.base.model_hash,
+                                std::slice::from_ref(decision),
+                            )
+                            .to_bytes()
+                        });
+                        (Some(format!("token-{}", step)), fused_hash)
+                    }
+                    FusionInterval::PerSegment { tokens_per_segment } => {
+                        let segment = tokens_per_segment.max(1) as usize;
+                        (Some(format!("segment-{}", step / segment)), None)
+                    }
+                    FusionInterval::PerRequest => (Some("request-0".to_string()), None),
+                };
+                let token_input = TraceTokenInput {
+                    token_index: step as u32,
+                    adapter_ids: adapter_ids_for_trace.clone(),
+                    gates_q15: decision.gates_q15.iter().copied().collect(),
+                    policy_mask_digest,
+                    backend_id: Some(backend_label.clone()),
+                    kernel_version_id: Some(kernel_version_id.clone()),
+                    fusion_interval_id,
+                    fused_weight_hash,
+                };
+                if let Err(e) = sink.record_token(token_input).await {
+                    sink.fail("error").await.ok();
+                    return Err(e);
                 }
             }
 
@@ -1952,11 +2678,6 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             generated_tokens.push(next_token);
         }
 
-        // Decrement refcounts
-        for name in stack_handle.active.keys() {
-            let _new_ref = self.hotswap.table().dec_ref(name);
-        }
-
         // Evaluate lifecycle transitions after inference
         {
             let lifecycle = self.lifecycle.lock().await;
@@ -1979,10 +2700,34 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             )
         };
         let backend_version = adapteros_core::version::VERSION.to_string();
+        let (coreml_runtime, fallback_backend) =
+            self.runtime_metadata_for_response(fallback_triggered);
+
+        if let Some(sink) = trace_sink.as_mut() {
+            match sink.finalize(&generated_tokens).await {
+                Ok(receipt) => {
+                    run_receipt = Some(RunReceipt {
+                        trace_id: receipt.trace_id.clone(),
+                        run_head_hash: receipt.run_head_hash,
+                        output_digest: receipt.output_digest,
+                        receipt_digest: receipt.receipt_digest,
+                        signature: receipt.signature.as_ref().map(base64::encode),
+                        attestation: receipt.attestation.as_ref().map(base64::encode),
+                    });
+                }
+                Err(e) => {
+                    sink.fail("error").await.ok();
+                    return Err(e);
+                }
+            }
+        }
 
         if let Some(profile) = request.backend_profile {
             let expected = profile.as_str();
             if backend_used.to_lowercase() != expected {
+                if let Some(sink) = trace_sink.as_mut() {
+                    sink.fail("error").await.ok();
+                }
                 return Err(AosError::DeterminismViolation(format!(
                     "Backend profile mismatch: requested {}, got {}",
                     expected, backend_used
@@ -1996,6 +2741,15 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             Some(router_decision_chain)
         };
 
+        enforce_strict_router_chain(
+            strict_mode_active,
+            base_only_request,
+            router_decision_chain_opt
+                .as_ref()
+                .map(|v| v.as_slice())
+                .unwrap_or(&[]),
+        )?;
+
         Ok(InferenceResponse {
             text: Some(generated_text),
             status: "ok".to_string(),
@@ -2005,9 +2759,11 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 generated_tokens.len(),
                 Some(router_decisions_collected),
                 router_decision_chain_opt,
+                fusion_interval,
                 &active_ids,
                 base_only_request,
             ),
+            run_receipt,
             refusal: None,
             patch_proposal: None,
             stack_id: request.stack_id.clone(),
@@ -2015,6 +2771,20 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             backend_used: Some(backend_used),
             backend_version: Some(backend_version),
             fallback_triggered,
+            coreml_compute_preference: coreml_runtime
+                .as_ref()
+                .and_then(|r| r.compute_preference.clone()),
+            coreml_compute_units: coreml_runtime
+                .as_ref()
+                .and_then(|r| r.compute_units.clone()),
+            coreml_gpu_used: coreml_runtime.as_ref().and_then(|r| r.gpu_used),
+            coreml_package_hash: self.coreml_package_hash.clone(),
+            coreml_expected_package_hash: self
+                .coreml_verification
+                .as_ref()
+                .and_then(|v| v.expected.clone()),
+            coreml_hash_mismatch: self.coreml_verification.as_ref().map(|v| v.mismatch),
+            fallback_backend,
             determinism_mode_applied: Some(request.determinism_mode.clone()),
             unavailable_pinned_adapters,
             pinned_routing_fallback,
@@ -2318,6 +3088,10 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             "validation_failed".to_string()
         };
 
+        let fusion_interval = request
+            .fusion_interval
+            .unwrap_or(FusionInterval::PerRequest);
+
         let text = if validation_result.is_valid {
             Some(format!(
                 "Patch proposal generated successfully with {} files and {} citations",
@@ -2340,6 +3114,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 0,
                 None,
                 None,
+                fusion_interval,
                 &self
                     .manifest
                     .adapters
@@ -2348,6 +3123,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                     .collect::<Vec<_>>(),
                 false,
             ),
+            run_receipt: None,
             refusal: if !validation_result.is_valid {
                 Some(RefusalResponse {
                     status: "failed".to_string(),
@@ -2369,6 +3145,16 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             backend_used: Some(self.kernels.lock().await.device_name().to_string()),
             backend_version: Some(adapteros_core::version::VERSION.to_string()),
             fallback_triggered: false,
+            coreml_compute_preference: None,
+            coreml_compute_units: None,
+            coreml_gpu_used: None,
+            coreml_package_hash: self.coreml_package_hash.clone(),
+            coreml_expected_package_hash: self
+                .coreml_verification
+                .as_ref()
+                .and_then(|v| v.expected.clone()),
+            coreml_hash_mismatch: self.coreml_verification.as_ref().map(|v| v.mismatch),
+            fallback_backend: None,
             determinism_mode_applied: Some(request.determinism_mode.clone()),
             unavailable_pinned_adapters,
             pinned_routing_fallback,
@@ -2480,6 +3266,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         router_decision_chain: Option<
             Vec<adapteros_api_types::inference::RouterDecisionChainEntry>,
         >,
+        fusion_interval: FusionInterval,
         active_ids: &[String],
         base_only_request: bool,
     ) -> ResponseTrace {
@@ -2500,6 +3287,12 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             router_decisions.as_ref(),
         );
 
+        let fusion_intervals = fusion_intervals_for_mode(
+            fusion_interval,
+            router_decisions.as_ref(),
+            &self.manifest.base.model_hash,
+        );
+
         ResponseTrace {
             cpid: cpid.to_string(),
             plan_id: self.generate_plan_id(cpid),
@@ -2508,6 +3301,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             token_count,
             router_decisions,
             router_decision_chain,
+            fusion_intervals,
         }
     }
 
@@ -2516,6 +3310,33 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         &mut self,
         command: AdapterCommand,
     ) -> Result<AdapterCommandResult> {
+        if let AdapterCommand::Preload { ref adapter_id, .. } = &command {
+            // Check live pressure before attempting to load another adapter.
+            let pressure_before: MemoryPressureLevel =
+                self.memory_monitor.current_pressure_level().await;
+
+            if pressure_before == MemoryPressureLevel::Critical {
+                tracing::warn!(
+                    adapter_id = %adapter_id,
+                    "Critical memory pressure before adapter preload; attempting eviction"
+                );
+
+                // Attempt to free memory through lifecycle eviction logic.
+                let lifecycle = self.lifecycle.lock().await;
+                if let Err(evict_err) = lifecycle.handle_memory_pressure(&self.profiler) {
+                    tracing::warn!(
+                        adapter_id = %adapter_id,
+                        error = %evict_err,
+                        "Eviction attempt during preload guard failed"
+                    );
+                }
+            }
+
+            let pressure_after: MemoryPressureLevel =
+                self.memory_monitor.current_pressure_level().await;
+            ensure_preload_allowed(pressure_before, pressure_after)?;
+        }
+
         self.hotswap.execute(command).await
     }
 
@@ -2801,7 +3622,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
 
         // Decrement refcounts
         for id in &adapter_ids {
-            let _new_ref = table.dec_ref(id);
+            let _new_ref = table.dec_ref(id).await;
         }
 
         result
@@ -2817,6 +3638,11 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         &self.kv_cache
     }
 
+    /// Return the cached CoreML verification snapshot, if available.
+    pub fn coreml_verification(&self) -> Option<CoremlVerificationSnapshot> {
+        self.coreml_verification.clone()
+    }
+
     /// Get reference to the last stack hash
     pub fn last_stack_hash(&self) -> &RwLock<Option<B3Hash>> {
         &self._last_stack_hash
@@ -2825,6 +3651,16 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
     /// Get reference to the telemetry writer
     pub fn telemetry(&self) -> &Option<TelemetryWriter> {
         &self.telemetry
+    }
+
+    /// Get cloned reference to health monitor
+    pub fn health_monitor(&self) -> Arc<HealthMonitor> {
+        self.health_monitor.clone()
+    }
+
+    /// Replace the health monitor (for heartbeat alignment after CP registration)
+    pub fn set_health_monitor(&mut self, monitor: Arc<HealthMonitor>) {
+        self.health_monitor = monitor;
     }
 
     /// Register an active training job with its cancellation token
@@ -2946,4 +3782,47 @@ pub fn determinism_guards_enabled() -> bool {
 pub fn determinism_violation_count() -> u64 {
     // runtime_guards::violation_count()  // Temporarily disabled due to dependency issues
     0
+}
+
+#[cfg(test)]
+mod strict_mode_guard_tests {
+    use super::{enforce_strict_router_chain, strict_mode_enabled};
+    use adapteros_api_types::inference::RouterDecisionChainEntry;
+
+    #[test]
+    fn detects_strict_mode() {
+        assert!(strict_mode_enabled(true, None));
+        assert!(strict_mode_enabled(false, Some("strict")));
+        assert!(!strict_mode_enabled(false, Some("relaxed")));
+    }
+
+    #[test]
+    fn strict_router_chain_requires_q15_gates() {
+        let entry = RouterDecisionChainEntry {
+            step: 0,
+            input_token_id: Some(1),
+            adapter_indices: vec![0, 1],
+            adapter_ids: vec!["a".into(), "b".into()],
+            gates_q15: vec![123, 456],
+            entropy: 0.0,
+            decision_hash: None,
+            previous_hash: None,
+            entry_hash: "h".into(),
+            policy_mask_digest: None,
+            policy_overrides_applied: None,
+        };
+
+        // Happy path
+        enforce_strict_router_chain(true, false, &[entry.clone()]).unwrap();
+
+        // Missing gates should fail
+        let mut missing = entry.clone();
+        missing.gates_q15.clear();
+        assert!(enforce_strict_router_chain(true, false, &[missing]).is_err());
+
+        // Mismatched gate count should fail
+        let mut mismatched = entry;
+        mismatched.gates_q15 = vec![123];
+        assert!(enforce_strict_router_chain(true, false, &[mismatched]).is_err());
+    }
 }

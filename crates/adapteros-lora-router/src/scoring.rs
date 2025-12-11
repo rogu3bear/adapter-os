@@ -1,6 +1,6 @@
 //! Pluggable scoring functions for adapter routing
 
-use super::{Decision, Router};
+use super::{Decision, Router, ROUTER_GATE_Q15_DENOM};
 use smallvec::SmallVec;
 
 /// Trait for pluggable scoring functions
@@ -49,7 +49,7 @@ impl ScoringFunction for WeightedScorer {
     ) -> Decision {
         // Use the existing router logic with empty adapter_info (fallback)
         // Create empty adapter_info vector matching priors length
-        use crate::AdapterInfo;
+        use crate::{policy_mask::PolicyMask, AdapterInfo};
         let adapter_info: Vec<AdapterInfo> = (0..priors.len())
             .map(|i| AdapterInfo {
                 id: format!("adapter_{}", i),
@@ -59,8 +59,10 @@ impl ScoringFunction for WeightedScorer {
                 ..Default::default()
             })
             .collect();
+        let adapter_ids: Vec<String> = adapter_info.iter().map(|a| a.id.clone()).collect();
+        let policy_mask = PolicyMask::allow_all(&adapter_ids, None);
         self.router
-            .route_with_adapter_info(features, priors, &adapter_info)
+            .route_with_adapter_info(features, priors, &adapter_info, &policy_mask)
     }
 }
 
@@ -125,7 +127,7 @@ impl ScoringFunction for EntropyFloorScorer {
         let gates_q15: SmallVec<[i16; 8]> = gates
             .iter()
             .map(|&g| {
-                let q = (g * 32767.0).round() as i16;
+                let q = (g * ROUTER_GATE_Q15_DENOM).round() as i16;
                 q.max(0)
             })
             .collect();
@@ -159,6 +161,8 @@ impl ScoringFunction for EntropyFloorScorer {
             entropy,
             candidates,
             decision_hash: None, // Scoring functions don't use decision hashing
+            policy_mask_digest: None,
+            policy_overrides_applied: None,
         }
     }
 }
@@ -251,7 +255,7 @@ impl ScoringFunction for AdapterAwareScorer {
         }
         let gates_q15: SmallVec<[i16; 8]> = gates
             .iter()
-            .map(|&g| (g * 32767.0).round() as i16)
+            .map(|&g| (g * ROUTER_GATE_Q15_DENOM).round() as i16)
             .collect();
         let indices: SmallVec<[u16; 8]> = top_k.iter().map(|(i, _)| *i as u16).collect();
 
@@ -278,6 +282,8 @@ impl ScoringFunction for AdapterAwareScorer {
             entropy,
             candidates,
             decision_hash: None, // Scoring functions don't use decision hashing
+            policy_mask_digest: None,
+            policy_overrides_applied: None,
         }
     }
 }

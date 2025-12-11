@@ -3,8 +3,10 @@
 //! Implements health checks and process monitoring to prevent runaway processes.
 //! Aligns with Isolation Ruleset #8 and Memory Ruleset #12 from policy enforcement.
 
-use adapteros_core::{AosError, Result};
+use adapteros_core::{identity::IdentityEnvelope, AosError, Result};
+use adapteros_telemetry::{make_health_payload, HealthEventKind, TelemetryWriter};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use tokio::time::interval;
 use tracing::{error, info, warn};
@@ -43,6 +45,17 @@ pub enum ProcessHealthStatus {
     Failing,
 }
 
+impl ProcessHealthStatus {
+    fn label(&self) -> String {
+        match self {
+            ProcessHealthStatus::Healthy => "healthy".to_string(),
+            ProcessHealthStatus::Warning(msg) => format!("warning:{msg}"),
+            ProcessHealthStatus::Critical(msg) => format!("critical:{msg}"),
+            ProcessHealthStatus::Failing => "failing".to_string(),
+        }
+    }
+}
+
 /// Process health monitor
 pub struct HealthMonitor {
     config: HealthConfig,
@@ -52,6 +65,10 @@ pub struct HealthMonitor {
     cpu_time_start: Duration,
     consecutive_failures: AtomicUsize,
     shutdown_requested: AtomicBool,
+    telemetry: Option<TelemetryWriter>,
+    tenant_id: String,
+    worker_id: String,
+    last_status: Mutex<Option<String>>,
 }
 
 impl HealthMonitor {
@@ -67,10 +84,92 @@ impl HealthMonitor {
             cpu_time_start,
             consecutive_failures: AtomicUsize::new(0),
             shutdown_requested: AtomicBool::new(false),
+            telemetry: None,
+            tenant_id: "system".to_string(),
+            worker_id: "unknown".to_string(),
+            last_status: Mutex::new(None),
         })
     }
 
+    /// Attach telemetry context for health lifecycle emissions.
+    pub fn with_telemetry(
+        mut self,
+        telemetry: TelemetryWriter,
+        tenant_id: impl Into<String>,
+        worker_id: impl Into<String>,
+    ) -> Self {
+        self.telemetry = Some(telemetry);
+        self.tenant_id = tenant_id.into();
+        self.worker_id = worker_id.into();
+        self
+    }
+
+    fn emit_health_status(&self, kind: HealthEventKind, status: &str, error: Option<String>) {
+        let Some(writer) = &self.telemetry else {
+            return;
+        };
+
+        let mut last = self.last_status.lock().unwrap_or_else(|e| e.into_inner());
+
+        let previous = last.clone();
+        let should_emit =
+            matches!(kind, HealthEventKind::FatalError) || previous.as_deref() != Some(status);
+
+        if !should_emit {
+            return;
+        }
+
+        let identity = IdentityEnvelope::new(
+            self.tenant_id.clone(),
+            "worker".to_string(),
+            "health".to_string(),
+            env!("CARGO_PKG_VERSION").to_string(),
+        );
+
+        let payload = make_health_payload(
+            self.worker_id.clone(),
+            self.tenant_id.clone(),
+            kind,
+            previous,
+            Some(status.to_string()),
+            None,
+            None,
+            error,
+        );
+
+        if let Err(e) = writer.log_health_lifecycle(identity, payload) {
+            warn!(error = %e, "Failed to emit health telemetry");
+        }
+
+        *last = Some(status.to_string());
+    }
+
+    /// Emit a fatal health event outside the periodic monitor loop.
+    pub fn record_fatal(&self, status: &str, error: impl Into<String>) {
+        self.emit_health_status(HealthEventKind::FatalError, status, Some(error.into()));
+    }
+
+    /// Request shutdown without waiting for the monitor loop to hit thresholds.
+    pub fn request_shutdown(&self) {
+        self.shutdown_requested.store(true, Ordering::Relaxed);
+    }
+
+    #[cfg(test)]
+    pub fn last_status_for_test(&self) -> Option<String> {
+        self.last_status
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
     pub async fn start_monitoring(&self) -> Result<()> {
+        self.start_monitoring_with_hook(|_, _| Ok(())).await
+    }
+
+    pub async fn start_monitoring_with_hook<F>(&self, mut on_tick: F) -> Result<()>
+    where
+        F: FnMut(&HealthMonitor, HealthTick) -> Result<()> + Send,
+    {
         let mut interval = interval(self.config.check_interval);
 
         loop {
@@ -84,17 +183,30 @@ impl HealthMonitor {
             match self.check_health().await {
                 Ok(status) => {
                     self.consecutive_failures.store(0, Ordering::Relaxed);
-                    if !matches!(status, ProcessHealthStatus::Healthy) {
-                        warn!("Health check warning: {:?}", status);
-                    }
+                    let status_str = status.label();
+                    self.emit_health_status(HealthEventKind::HealthStateChange, &status_str, None);
+                    let _ = on_tick(self, HealthTick::Status { status, status_str });
                 }
                 Err(e) => {
                     let failures = self.consecutive_failures.fetch_add(1, Ordering::Relaxed) + 1;
                     error!("Health check failed ({}): {}", failures, e);
+                    self.emit_health_status(
+                        HealthEventKind::FatalError,
+                        "failing",
+                        Some(e.to_string()),
+                    );
+                    let _ = on_tick(
+                        self,
+                        HealthTick::Failure {
+                            error: e.to_string(),
+                            failures,
+                        },
+                    );
 
                     if failures >= self.config.max_consecutive_failures {
                         error!("Too many consecutive health check failures, triggering shutdown");
                         self.trigger_shutdown().await?;
+                        let _ = on_tick(self, HealthTick::Shutdown { failures });
                         break;
                     }
                 }
@@ -183,6 +295,22 @@ impl HealthMonitor {
     }
 }
 
+/// Hook events emitted for each health tick.
+#[derive(Debug, Clone)]
+pub enum HealthTick {
+    Status {
+        status: ProcessHealthStatus,
+        status_str: String,
+    },
+    Failure {
+        error: String,
+        failures: usize,
+    },
+    Shutdown {
+        failures: usize,
+    },
+}
+
 /// Health event for telemetry
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct HealthEvent {
@@ -196,13 +324,13 @@ pub struct HealthEvent {
 }
 
 impl HealthEvent {
-    pub fn from_monitor(monitor: &HealthMonitor) -> Result<Self> {
+    pub fn from_monitor(monitor: &HealthMonitor, status: &ProcessHealthStatus) -> Result<Self> {
         let memory_usage = monitor.get_memory_usage()?;
         let cpu_time = monitor.get_cpu_time()?;
         let memory_growth = memory_usage.saturating_sub(monitor.baseline_memory);
 
         Ok(Self {
-            status: "healthy".to_string(), // Would be determined by health check
+            status: status.label(),
             memory_usage_bytes: memory_usage,
             memory_growth_bytes: memory_growth,
             cpu_time_secs: cpu_time.as_secs(),
@@ -299,11 +427,47 @@ mod tests {
         let monitor =
             HealthMonitor::new(config).expect("Test health monitor creation should succeed");
 
-        let event =
-            HealthEvent::from_monitor(&monitor).expect("Test health event creation should succeed");
+        let event = HealthEvent::from_monitor(&monitor, &ProcessHealthStatus::Healthy)
+            .expect("Test health event creation should succeed");
 
         assert_eq!(event.status, "healthy");
         assert_eq!(event.consecutive_failures, 0);
         assert!(event.timestamp > 0);
+    }
+
+    #[tokio::test]
+    async fn health_monitor_emits_shutdown_after_failures() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Arc;
+        use std::time::Duration;
+
+        let mut config = HealthConfig::default();
+        config.check_interval = Duration::from_millis(5);
+        config.max_consecutive_failures = 1;
+        config.max_memory_growth = 0; // any growth triggers failure
+
+        let mut monitor =
+            HealthMonitor::new(config).expect("Test health monitor creation should succeed");
+        monitor.baseline_memory = 0; // force growth on next check
+
+        let shutdown_seen = Arc::new(AtomicBool::new(false));
+        let flag = shutdown_seen.clone();
+
+        // Run with a short timeout to avoid hanging tests
+        let _ = tokio::time::timeout(
+            Duration::from_millis(50),
+            monitor.start_monitoring_with_hook(|_, tick| {
+                if matches!(tick, HealthTick::Shutdown { .. }) {
+                    flag.store(true, Ordering::Relaxed);
+                }
+                Ok(())
+            }),
+        )
+        .await;
+
+        assert!(
+            shutdown_seen.load(Ordering::Relaxed),
+            "Health monitor should trigger shutdown after failures"
+        );
     }
 }

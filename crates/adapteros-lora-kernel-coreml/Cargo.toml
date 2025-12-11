@@ -9,6 +9,11 @@ description = "CoreML backend for AdapterOS - Neural Engine acceleration"
 [features]
 default = []
 
+# Align with workspace feature flag used by CI and dependent crates.
+# Enables CoreML-only tests with:
+#   cargo test -p adapteros-lora-kernel-coreml --features coreml-backend
+coreml-backend = []
+
 # =============================================================================
 # COREML KERNEL FEATURE FLAGS
 # =============================================================================
@@ -30,8 +35,10 @@ coreml-stub = []       # Enable stub fallback for tests/dev; OFF for production
 
 [dependencies]
 adapteros-core = { path = "../adapteros-core" }
+adapteros-aos = { path = "../adapteros-aos" }
 adapteros-lora-kernel-api = { path = "../adapteros-lora-kernel-api" }
 adapteros-telemetry = { path = "../adapteros-telemetry" }
+adapteros-types = { path = "../adapteros-types" }
 thiserror = { workspace = true }
 serde = { workspace = true }
 serde_derive = { workspace = true }

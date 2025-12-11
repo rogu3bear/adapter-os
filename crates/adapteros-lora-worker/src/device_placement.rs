@@ -210,7 +210,8 @@ impl PlacementEngine {
         snap: &TelemetrySnapshot,
     ) -> Option<PlacementDecision> {
         // When telemetry is not available (feature off), avoid steering to keep behavior stable.
-        if !cfg!(feature = "telemetry-sysinfo") {
+        // Allow tests to execute deterministically even without the feature.
+        if !cfg!(feature = "telemetry-sysinfo") && !cfg!(test) {
             return None;
         }
         if telemetry_empty(snap) {

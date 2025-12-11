@@ -5,12 +5,13 @@ use adapteros_aos::{
 };
 use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_single_file_adapter::format::AosSignature;
+use adapteros_types::coreml::CoreMLPlacementSpec;
 use adapteros_types::training::LoraTier;
 use memmap2::Mmap;
 use safetensors::SafeTensors;
 use serde::{Deserialize, Serialize};
 use serde_json;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
 use std::io::Read;
 use std::path::PathBuf;
@@ -213,6 +214,9 @@ pub struct AdapterLoader {
     /// In debug builds, defaults to false (warn only)
     /// In release builds, defaults to true (enforced)
     require_signatures: bool,
+    /// Expected base model identity (id + hash) for CoreML placement validation.
+    expected_base_model_id: Option<String>,
+    expected_base_model_hash: Option<B3Hash>,
 }
 
 impl AdapterLoader {
@@ -241,6 +245,8 @@ impl AdapterLoader {
             loaded: HashMap::new(),
             expected_hashes,
             require_signatures,
+            expected_base_model_id: None,
+            expected_base_model_hash: None,
         }
     }
 
@@ -255,12 +261,24 @@ impl AdapterLoader {
             loaded: HashMap::new(),
             expected_hashes,
             require_signatures,
+            expected_base_model_id: None,
+            expected_base_model_hash: None,
         }
     }
 
     /// Set whether signatures are required
     pub fn set_require_signatures(&mut self, require: bool) {
         self.require_signatures = require;
+    }
+
+    /// Bind expected base model identity for CoreML-aware validation.
+    pub fn set_expected_base_model(
+        &mut self,
+        model_id: impl Into<String>,
+        model_hash: Option<B3Hash>,
+    ) {
+        self.expected_base_model_id = Some(model_id.into());
+        self.expected_base_model_hash = model_hash;
     }
 
     #[cfg(test)]
@@ -386,6 +404,8 @@ impl AdapterLoader {
         let expected_hash = self.expected_hash(adapter_name)?;
         let adapter_name_owned = adapter_name.to_string();
         let backend_owned = backend.to_string();
+        let expected_base_model_id = self.expected_base_model_id.clone();
+        let expected_base_model_hash = self.expected_base_model_hash;
 
         let (handle, weights_data) = tokio::task::spawn_blocking(move || {
             let (aos_path, safetensors_path) =
@@ -398,7 +418,12 @@ impl AdapterLoader {
                     "Loading from .aos file (async)"
                 );
                 // Load from .aos file
-                let (data, meta) = AdapterLoader::load_from_aos_static(&aos_path, &backend_owned)?;
+                let (data, meta) = AdapterLoader::load_from_aos_static(
+                    &aos_path,
+                    &backend_owned,
+                    expected_base_model_id.as_deref(),
+                    expected_base_model_hash.as_ref(),
+                )?;
                 (aos_path, data, meta)
             } else if safetensors_path.exists() {
                 tracing::debug!(
@@ -567,7 +592,12 @@ impl AdapterLoader {
         self.verify_aos_signature(aos_path)?;
 
         // Then load the weights
-        Self::load_from_aos_static(aos_path, backend)
+        Self::load_from_aos_static(
+            aos_path,
+            backend,
+            self.expected_base_model_id.as_deref(),
+            self.expected_base_model_hash.as_ref(),
+        )
     }
 
     /// Verify the Ed25519 signature on an .aos file
@@ -670,6 +700,8 @@ impl AdapterLoader {
     fn load_from_aos_static(
         aos_path: &PathBuf,
         backend: &str,
+        expected_base_model_id: Option<&str>,
+        expected_base_model_hash: Option<&B3Hash>,
     ) -> Result<(LoadedWeights, AdapterMetadata)> {
         // Open and memory-map the .aos file
         let file = File::open(aos_path)
@@ -691,6 +723,12 @@ impl AdapterLoader {
         // Extract manifest for integrity checks
         let manifest: ManifestForVerify = serde_json::from_slice(file_view.manifest_bytes)
             .map_err(|e| AosError::Parse(format!("Failed to parse adapter manifest: {}", e)))?;
+
+        Self::validate_base_model_identity(
+            expected_base_model_id,
+            expected_base_model_hash,
+            &manifest,
+        )?;
 
         let metadata_map = manifest.metadata.clone().unwrap_or_default();
         let domain = manifest
@@ -739,6 +777,8 @@ impl AdapterLoader {
         let tensors = SafeTensors::deserialize(selected_segment.payload).map_err(|e| {
             AosError::Lifecycle(format!("Failed to parse SafeTensors from .aos: {}", e))
         })?;
+
+        Self::validate_coreml_placement(&manifest.coreml_placement, &tensors)?;
 
         let adapter_name = manifest
             .adapter_id
@@ -795,6 +835,147 @@ impl AdapterLoader {
             },
             metadata,
         ))
+    }
+
+    fn validate_base_model_identity(
+        expected_id: Option<&str>,
+        expected_hash: Option<&B3Hash>,
+        manifest: &ManifestForVerify,
+    ) -> Result<()> {
+        if let Some(expected) = expected_id {
+            let manifest_id = manifest.base_model.as_deref().ok_or_else(|| {
+                AosError::Validation(
+                    "Adapter manifest missing base_model for CoreML validation".to_string(),
+                )
+            })?;
+            if manifest_id != expected {
+                return Err(AosError::Validation(format!(
+                    "Base model mismatch for adapter manifest: expected {}, got {}",
+                    expected, manifest_id
+                )));
+            }
+        }
+
+        if let Some(expected) = expected_hash {
+            match manifest.base_model_hash.as_deref() {
+                Some(hash_hex) => {
+                    let parsed = B3Hash::from_hex(hash_hex).map_err(|e| {
+                        AosError::InvalidHash(format!("Invalid base_model_hash in manifest: {}", e))
+                    })?;
+                    if &parsed != expected {
+                        return Err(AosError::Validation(format!(
+                            "Base model hash mismatch for adapter manifest: expected {}, got {}",
+                            expected.to_hex(),
+                            parsed.to_hex()
+                        )));
+                    }
+                }
+                None if expected_id.is_some() => {
+                    tracing::warn!(
+                        "Adapter manifest missing base_model_hash; continuing with id-only validation"
+                    );
+                }
+                _ => {}
+            }
+        }
+
+        Ok(())
+    }
+
+    fn validate_coreml_placement(
+        placement: &Option<CoremlPlacementSpec>,
+        tensors: &SafeTensors,
+    ) -> Result<()> {
+        let spec = match placement {
+            Some(spec) => spec,
+            None => return Ok(()), // backward-compatible for non-CoreML packages
+        };
+
+        if spec.bindings.is_empty() {
+            return Err(AosError::Validation(
+                "CoreML placement spec is empty; refusing to attach".to_string(),
+            ));
+        }
+
+        let mut a_shapes: HashMap<String, Vec<u64>> = HashMap::new();
+        let mut b_shapes: HashMap<String, Vec<u64>> = HashMap::new();
+
+        for (name, tensor) in tensors.tensors() {
+            let shape: Vec<u64> = tensor.shape().iter().map(|v| *v as u64).collect();
+            if let Some(suffix) = name.strip_prefix("lora_a.") {
+                a_shapes.insert(suffix.to_string(), shape.clone());
+            }
+            if let Some(suffix) = name.strip_prefix("lora_b.") {
+                b_shapes.insert(suffix.to_string(), shape.clone());
+            }
+        }
+
+        let mut seen = HashSet::new();
+
+        for binding in &spec.bindings {
+            if !seen.insert(binding.binding_id.clone()) {
+                return Err(AosError::Validation(format!(
+                    "Duplicate CoreML placement binding '{}'",
+                    binding.binding_id
+                )));
+            }
+
+            if binding.rank == 0 {
+                return Err(AosError::Validation(format!(
+                    "CoreML placement binding '{}' has rank 0",
+                    binding.binding_id
+                )));
+            }
+
+            let hidden_in = binding.shape.input_dim as usize;
+            let hidden_out = binding.shape.output_dim as usize;
+            if hidden_in == 0 || hidden_out == 0 {
+                return Err(AosError::Validation(format!(
+                    "CoreML placement binding '{}' has zero-dimension shape",
+                    binding.binding_id
+                )));
+            }
+            if hidden_in != hidden_out {
+                return Err(AosError::Validation(format!(
+                    "CoreML placement binding '{}' has asymmetric shape {}x{}",
+                    binding.binding_id, hidden_in, hidden_out
+                )));
+            }
+
+            let expected_rank = binding.rank as u64;
+            let expected_hidden = hidden_out as u64;
+
+            let expected_a = vec![expected_rank, expected_hidden];
+            let expected_b = vec![expected_hidden, expected_rank];
+
+            let a_shape = a_shapes.get(&binding.binding_id).ok_or_else(|| {
+                AosError::Validation(format!(
+                    "CoreML placement target '{}' missing lora_a tensor",
+                    binding.binding_id
+                ))
+            })?;
+            if a_shape != &expected_a {
+                return Err(AosError::Validation(format!(
+                    "CoreML placement shape mismatch for lora_a.{}: expected {:?}, got {:?}",
+                    binding.binding_id, expected_a, a_shape
+                )));
+            }
+
+            let b_shape = b_shapes.get(&binding.binding_id).ok_or_else(|| {
+                AosError::Validation(format!(
+                    "CoreML placement target '{}' missing lora_b tensor",
+                    binding.binding_id
+                ))
+            })?;
+            if b_shape != &expected_b {
+                return Err(AosError::Validation(format!(
+                    "CoreML placement shape mismatch for lora_b.{}: expected {:?}, got {:?}",
+                    binding.binding_id, expected_b, b_shape
+                )));
+            }
+        }
+
+        Ok(())
     }
 
     fn verify_per_layer_hashes(
@@ -991,7 +1172,15 @@ struct ManifestForVerify {
     group: Option<String>,
     #[serde(default)]
     operation: Option<String>,
+    #[serde(default)]
+    base_model: Option<String>,
+    #[serde(default)]
+    base_model_hash: Option<String>,
+    #[serde(default)]
+    coreml_placement: Option<CoremlPlacementSpec>,
 }
+
+type CoremlPlacementSpec = CoreMLPlacementSpec;
 
 /// Per-layer hash entry keyed by canonical logical layer id. Accepts either the
 /// new `{ \"hash\": \"...\", \"tensor_name\": \"...\" }` form or legacy string
@@ -1041,6 +1230,10 @@ impl AdapterHandle {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use adapteros_types::coreml::{
+        CoreMLOpKind, CoreMLPlacementBinding, CoreMLPlacementShape, CoreMLPlacementSpec,
+        CoreMLProjection, CoreMLTargetRef,
+    };
     use safetensors::tensor::serialize;
     use serde::Serialize;
     use std::fs;
@@ -1371,16 +1564,98 @@ mod tests {
         fs::create_dir_all(&temp_dir).expect("Temp dir create should succeed");
 
         let prev = std::env::var("AOS_SERVER_PRODUCTION_MODE").ok();
-        std::env::set_var("AOS_SERVER_PRODUCTION_MODE", "true");
+        #[allow(unused_unsafe)]
+        unsafe {
+            std::env::set_var("AOS_SERVER_PRODUCTION_MODE", "true");
+        }
 
         let loader = AdapterLoader::new(temp_dir.clone(), HashMap::new());
         assert!(loader.signatures_required());
 
-        if let Some(v) = prev {
-            std::env::set_var("AOS_SERVER_PRODUCTION_MODE", v);
-        } else {
-            std::env::remove_var("AOS_SERVER_PRODUCTION_MODE");
+        #[allow(unused_unsafe)]
+        unsafe {
+            if let Some(v) = prev {
+                std::env::set_var("AOS_SERVER_PRODUCTION_MODE", v);
+            } else {
+                std::env::remove_var("AOS_SERVER_PRODUCTION_MODE");
+            }
         }
         let _ = fs::remove_dir_all(temp_dir);
+    }
+
+    #[test]
+    fn base_model_identity_mismatch_fails_validation() {
+        let manifest = ManifestForVerify {
+            adapter_id: None,
+            weights_hash: None,
+            per_layer_hashes: None,
+            lora_tier: None,
+            lora_strength: None,
+            scope: None,
+            metadata: None,
+            domain: None,
+            group: None,
+            operation: None,
+            base_model: Some("model-a".to_string()),
+            base_model_hash: Some(B3Hash::hash(b"base").to_hex()),
+            coreml_placement: None,
+        };
+
+        let result = AdapterLoader::validate_base_model_identity(
+            Some("model-b"),
+            Some(&B3Hash::hash(b"base")),
+            &manifest,
+        );
+
+        assert!(
+            matches!(result, Err(AosError::Validation(msg)) if msg.contains("Base model mismatch"))
+        );
+    }
+
+    #[test]
+    fn coreml_placement_mismatch_is_rejected() {
+        let tensor_data = [0u8; 4 * 32 * 4];
+
+        let serialized = safetensors::tensor::serialize(
+            [(
+                "lora_a.q_proj".to_string(),
+                safetensors::tensor::TensorView::new(
+                    safetensors::Dtype::F32,
+                    vec![4, 32],
+                    &tensor_data,
+                )
+                .unwrap(),
+            )],
+            &None,
+        )
+        .unwrap();
+
+        let tensors = SafeTensors::deserialize(&serialized).unwrap();
+
+        let spec = CoreMLPlacementSpec {
+            version: 1,
+            graph_id: Some("g".to_string()),
+            bindings: vec![CoreMLPlacementBinding {
+                binding_id: "q_proj".to_string(),
+                target: CoreMLTargetRef {
+                    layer: "q_proj".to_string(),
+                    op_kind: CoreMLOpKind::AttentionQ,
+                    path_hint: None,
+                },
+                projection: CoreMLProjection::InputToHidden,
+                rank: 4,
+                alpha: None,
+                scale: None,
+                gating: None,
+                shape: CoreMLPlacementShape {
+                    input_dim: 32,
+                    output_dim: 32,
+                },
+            }],
+        };
+
+        // Missing lora_b tensor should trigger validation failure
+        let result = AdapterLoader::validate_coreml_placement(&Some(spec), &tensors);
+        assert!(matches!(result, Err(AosError::Validation(msg)) if msg.contains("lora_b")));
     }
 }

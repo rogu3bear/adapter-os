@@ -204,6 +204,9 @@ impl BackendCoordinator {
                     ))
                 }
             }
+            BackendChoice::CPU => Err(AosError::Config(
+                "CPU backend is not supported for inference fallback".to_string(),
+            )),
         }
     }
 

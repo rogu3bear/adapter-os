@@ -239,6 +239,12 @@ impl LifecycleManager {
         }
     }
 
+    /// Bind expected base model identity for loader-level validation.
+    pub fn set_expected_base_model(&self, model_id: &str, model_hash: B3Hash) {
+        let mut loader = self.loader.write();
+        loader.set_expected_base_model(model_id.to_string(), Some(model_hash));
+    }
+
     /// Set database for persistence
     pub fn set_db(&mut self, db: Db) {
         self.db = Some(db);
@@ -720,7 +726,7 @@ impl LifecycleManager {
 
                 // Mark as unloaded in database
                 sqlx::query(
-                    "UPDATE adapters SET load_state = 'unloaded', updated_at = datetime('now') WHERE adapter_id = ?",
+                    "UPDATE adapters SET load_state = 'cold', current_state = 'unloaded', updated_at = datetime('now') WHERE adapter_id = ?",
                 )
                 .bind(&adapter_id)
                 .execute(db.pool())

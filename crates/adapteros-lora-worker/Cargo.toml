@@ -55,6 +55,7 @@ adapteros-crypto = { path = "../adapteros-crypto" }
 adapteros-deterministic-exec = { path = "../adapteros-deterministic-exec" }
 adapteros-memory = { path = "../adapteros-memory" }
 adapteros-secure-fs = { path = "../adapteros-secure-fs" }
+adapteros-storage = { path = "../adapteros-storage" }
 adapteros-single-file-adapter = { path = "../adapteros-single-file-adapter" }
 adapteros-platform = { path = "../adapteros-platform" }
 adapteros-types = { path = "../adapteros-types" }
@@ -63,6 +64,8 @@ adapteros-api-types = { path = "../adapteros-api-types" }
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+serde_jcs = { workspace = true }
+walkdir = { workspace = true }
 thiserror = { workspace = true }
 tokenizers = { workspace = true }
 safetensors = { workspace = true }
@@ -82,6 +85,7 @@ tokio-util = { version = "0.7", features = ["time"] }
 hkdf = "0.12"
 sha2 = "0.10"
 hex = { workspace = true }
+base64 = { version = "0.21" }
 async-trait = "0.1"
 anyhow = { workspace = true }
 serde_yaml = "0.9"

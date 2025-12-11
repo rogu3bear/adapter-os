@@ -13,74 +13,116 @@
 
 use crate::model_handle_cache::{ModelHandle, ModelHandleCache};
 use crate::model_key::ModelKey;
-use adapteros_config::{model, BackendPreference, ModelConfig};
-use adapteros_core::{constants::BYTES_PER_MB, AosError, B3Hash, Result};
+use adapteros_config::{model, BackendPreference, ConfigLoader, ModelConfig};
+use adapteros_core::{
+    backend::BackendKind, constants::BYTES_PER_MB, AosError, B3Hash, ExecutionProfile, Result,
+};
 use adapteros_lora_kernel_api::attestation::BackendType;
 use adapteros_lora_kernel_api::FusedKernels;
 use once_cell::sync::Lazy;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
+
+#[cfg(all(target_os = "macos", feature = "coreml-backend"))]
+use adapteros_config::CoreMLComputePreference;
+#[cfg(all(target_os = "macos", feature = "coreml-backend"))]
+use std::str::FromStr;
 
 /// Shared kernel object type with Send + Sync for use across async boundaries
 pub type KernelBox = Box<dyn FusedKernels + Send + Sync>;
 
+/// Resolve model cache budget in bytes (env overrides config).
+fn resolve_model_cache_budget_bytes() -> Result<u64> {
+    // 1) Environment override
+    if let Ok(raw) = std::env::var("AOS_MODEL_CACHE_MAX_MB") {
+        let parsed: u64 = raw.parse().map_err(|_| {
+            AosError::Config(format!(
+                "Invalid AOS_MODEL_CACHE_MAX_MB '{}': must be a positive integer (MB)",
+                raw
+            ))
+        })?;
+        if parsed == 0 {
+            return Err(AosError::Config(
+                "AOS_MODEL_CACHE_MAX_MB must be greater than zero".to_string(),
+            ));
+        }
+        return Ok(parsed * 1024 * 1024);
+    }
+
+    // 2) Config file (env + TOML via ConfigLoader). Prefer explicit path override if provided.
+    let explicit_toml_path = std::env::var("AOS_CONFIG_TOML").ok();
+    let default_toml_path = {
+        let default_path = Path::new("configs/cp.toml");
+        if default_path.exists() {
+            Some(default_path.to_string_lossy().to_string())
+        } else {
+            None
+        }
+    };
+    let toml_path = explicit_toml_path.or(default_toml_path);
+
+    let config = ConfigLoader::new()
+        .load(Vec::new(), toml_path.clone())
+        .map_err(|e| {
+            let scope = toml_path
+                .as_ref()
+                .map(|p| format!(" from {}", p))
+                .unwrap_or_default();
+            AosError::Config(format!(
+                "Failed to load configuration{} for model cache budget: {}",
+                scope, e
+            ))
+        })?;
+
+    if let Some(raw) = config.get("model.cache.max.mb") {
+        let parsed: u64 = raw.parse().map_err(|_| {
+            AosError::Config(format!(
+                "Invalid model.cache.max.mb '{}': must be a positive integer (MB)",
+                raw
+            ))
+        })?;
+        if parsed == 0 {
+            return Err(AosError::Config(
+                "model.cache.max.mb must be greater than zero".to_string(),
+            ));
+        }
+        return Ok(parsed * 1024 * 1024);
+    }
+
+    Err(AosError::Config(
+        "Model cache budget not configured. Set AOS_MODEL_CACHE_MAX_MB or model.cache.max.mb in the config TOML (MB).".to_string(),
+    ))
+}
+
 /// Per-worker model cache singleton
 ///
 /// This cache ensures that the same model is only loaded once per worker process.
-/// The maximum memory can be configured via `AOS_MODEL_CACHE_MAX_MB` env var.
+/// Budget must be explicitly provided (env or TOML); missing/zero budgets abort startup.
 static MODEL_CACHE: Lazy<ModelHandleCache> = Lazy::new(|| {
-    let max_mb: u64 = std::env::var("AOS_MODEL_CACHE_MAX_MB")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(16 * 1024); // Default: 16GB
+    let max_bytes = match resolve_model_cache_budget_bytes() {
+        Ok(bytes) => bytes,
+        Err(err) => {
+            error!(
+                error = %err,
+                "Model cache budget missing or invalid; worker cannot start"
+            );
+            panic!("Model cache budget error: {}", err);
+        }
+    };
+    let max_mb = max_bytes / BYTES_PER_MB;
     info!(
         max_memory_mb = max_mb,
-        "Initializing per-worker model cache"
+        "Initializing per-worker model cache with explicit budget"
     );
-    ModelHandleCache::new(max_mb * 1024 * 1024)
+    ModelHandleCache::new(max_bytes)
 });
 
-/// Backend choice for kernel creation
+/// Canonical backend choice for kernel creation.
 ///
-/// This enum mirrors `BackendPreference` from `adapteros-config` and provides
-/// bidirectional conversion. New code should prefer using `BackendPreference`
-/// directly when possible.
-///
-/// Use `create_backend_with_model` or `create_backend_from_config` when a model path is required.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BackendChoice {
-    /// Metal GPU backend (production, deterministic)
-    Metal,
-    /// CoreML backend with ANE acceleration (production, deterministic)
-    CoreML,
-    /// MLX backend (research, training)
-    Mlx,
-    /// Automatic selection based on capabilities (CoreML -> MLX -> Metal fallback)
-    Auto,
-}
-
-impl From<BackendPreference> for BackendChoice {
-    fn from(pref: BackendPreference) -> Self {
-        match pref {
-            BackendPreference::Auto => BackendChoice::Auto,
-            BackendPreference::CoreML => BackendChoice::CoreML,
-            BackendPreference::Metal => BackendChoice::Metal,
-            BackendPreference::Mlx => BackendChoice::Mlx,
-        }
-    }
-}
-
-impl From<BackendChoice> for BackendPreference {
-    fn from(choice: BackendChoice) -> Self {
-        match choice {
-            BackendChoice::Auto => BackendPreference::Auto,
-            BackendChoice::CoreML => BackendPreference::CoreML,
-            BackendChoice::Metal => BackendPreference::Metal,
-            BackendChoice::Mlx => BackendPreference::Mlx,
-        }
-    }
-}
+/// This is an alias of `BackendKind` to keep public signatures stable while
+/// consolidating backend parsing and display logic in a single place.
+pub type BackendChoice = adapteros_core::backend::BackendKind;
 
 /// Backend strategy for automatic selection
 #[derive(Debug, Clone)]
@@ -93,6 +135,26 @@ pub enum BackendStrategy {
     MlxPrimary,
     /// Use Metal only without fallback
     MetalOnly,
+}
+
+/// Context used to make deterministic backend selection decisions.
+///
+/// Bundles the request `ExecutionProfile` with the detected hardware
+/// `BackendCapabilities` so the selection logic always receives the same
+/// inputs in a single value.
+#[derive(Debug, Clone)]
+pub struct SelectionContext {
+    pub profile: ExecutionProfile,
+    pub capabilities: BackendCapabilities,
+}
+
+impl SelectionContext {
+    pub fn new(profile: ExecutionProfile, capabilities: BackendCapabilities) -> Self {
+        Self {
+            profile,
+            capabilities,
+        }
+    }
 }
 
 impl BackendStrategy {
@@ -253,35 +315,155 @@ fn is_apple_silicon() -> bool {
 
 /// Automatic backend selection with fallback chain
 ///
-/// Selection order: CoreML (ANE) -> MLX -> Metal
-/// This prioritizes production paths per ADR: CoreML (ANE) first, MLX second,
-/// Metal as the deterministic legacy fallback.
+/// Selection order is defined centrally in `BackendKind::inference_priority()`:
+/// CoreML → MLX → Metal → CPU. CPU remains an observability-only terminal entry
+/// (no CPU kernels are implemented).
 pub fn auto_select_backend(capabilities: &BackendCapabilities) -> Result<BackendChoice> {
-    // Priority 1: CoreML with ANE (most power efficient)
-    if capabilities.has_coreml && capabilities.has_ane {
-        info!("Auto-selected CoreML backend with Neural Engine");
-        return Ok(BackendChoice::CoreML);
+    let mut skipped: Vec<String> = Vec::new();
+
+    for backend in BackendKind::inference_priority() {
+        match backend {
+            BackendKind::CoreML => {
+                if capabilities.has_coreml && capabilities.has_ane {
+                    if !skipped.is_empty() {
+                        info!(
+                            selected = "coreml",
+                            skipped = skipped.join("; "),
+                            "Auto-selected CoreML after evaluating higher-priority fallbacks"
+                        );
+                    } else {
+                        info!("Auto-selected CoreML backend with Neural Engine");
+                    }
+                    return Ok(BackendChoice::CoreML);
+                }
+                skipped.push(format!(
+                    "coreml_unavailable(has_coreml={},has_ane={})",
+                    capabilities.has_coreml, capabilities.has_ane
+                ));
+            }
+            BackendKind::Mlx => {
+                if cfg!(feature = "multi-backend") && capabilities.has_mlx {
+                    info!(
+                        selected = "mlx",
+                        skipped = skipped.join("; "),
+                        "Auto-selected MLX backend"
+                    );
+                    return Ok(BackendChoice::Mlx);
+                }
+                skipped.push("mlx_unavailable_or_feature_disabled".to_string());
+            }
+            BackendKind::Metal => {
+                if capabilities.has_metal {
+                    info!(
+                        selected = "metal",
+                        device = ?capabilities.metal_device_name,
+                        skipped = skipped.join("; "),
+                        "Auto-selected Metal backend"
+                    );
+                    return Ok(BackendChoice::Metal);
+                }
+                skipped.push("metal_unavailable".to_string());
+            }
+            BackendKind::CPU => {
+                skipped.push("cpu_backend_not_supported_for_inference".to_string());
+            }
+            BackendKind::Auto => {
+                // Auto should never appear in the priority list
+            }
+        }
     }
 
-    // Priority 2: MLX (production/training when enabled)
-    if capabilities.has_mlx {
-        info!("Auto-selected MLX backend (production)");
-        return Ok(BackendChoice::Mlx);
-    }
-
-    // Priority 3: Metal (legacy deterministic fallback)
-    if capabilities.has_metal {
-        info!(
-            device = ?capabilities.metal_device_name,
-            "Auto-selected Metal backend"
-        );
-        return Ok(BackendChoice::Metal);
-    }
-
+    info!(
+        skipped = skipped.join("; "),
+        "Auto backend selection exhausted all options"
+    );
     Err(AosError::Config(
-        "No suitable backend available. Ensure Metal GPU or CoreML with ANE is present."
-            .to_string(),
+        "No suitable backend available. Checked priority CoreML → MLX → Metal → CPU.".to_string(),
     ))
+}
+
+/// Result of selecting a backend from an ExecutionProfile.
+#[derive(Debug, Clone)]
+pub struct BackendSelection {
+    pub selected: BackendChoice,
+    pub overridden: bool,
+    pub reason: Option<&'static str>,
+}
+
+impl BackendSelection {
+    pub fn new(selected: BackendChoice) -> Self {
+        Self {
+            selected,
+            overridden: false,
+            reason: None,
+        }
+    }
+}
+
+/// Resolve backend choice using the canonical ExecutionProfile and capabilities.
+pub fn select_backend_from_execution_profile(
+    context: &SelectionContext,
+) -> Result<BackendSelection> {
+    let requested = context.profile.backend_profile;
+    let capabilities = &context.capabilities;
+    let selection = match requested {
+        BackendKind::Auto => BackendSelection::new(auto_select_backend(capabilities)?),
+        BackendKind::CoreML => match auto_select_backend(capabilities) {
+            Ok(choice) => {
+                if choice == BackendChoice::CoreML {
+                    BackendSelection::new(BackendChoice::CoreML)
+                } else {
+                    BackendSelection {
+                        selected: choice,
+                        overridden: true,
+                        reason: Some(match choice {
+                            BackendChoice::Mlx => "coreml_unavailable_fallback_mlx",
+                            BackendChoice::Metal => "coreml_unavailable_fallback_metal",
+                            BackendChoice::CPU => "coreml_unavailable_fallback_cpu",
+                            BackendChoice::CoreML => "coreml_unavailable_fallback_coreml",
+                            BackendChoice::Auto => "coreml_unavailable_fallback_auto",
+                        }),
+                    }
+                }
+            }
+            Err(_) => {
+                return Err(AosError::Config(
+                    "Requested CoreML backend is not available (ANE/CoreML missing)".to_string(),
+                ))
+            }
+        },
+        BackendKind::Metal => {
+            if capabilities.has_metal {
+                BackendSelection::new(BackendChoice::Metal)
+            } else {
+                return Err(AosError::Config(
+                    "Requested Metal backend is not available".to_string(),
+                ));
+            }
+        }
+        BackendKind::Mlx => {
+            if cfg!(feature = "multi-backend") {
+                if capabilities.has_mlx {
+                    BackendSelection::new(BackendChoice::Mlx)
+                } else {
+                    return Err(AosError::Config(
+                        "Requested MLX backend is not available (enable multi-backend)".to_string(),
+                    ));
+                }
+            } else {
+                return Err(AosError::Config(
+                    "Requested MLX backend is not available (enable multi-backend)".to_string(),
+                ));
+            }
+        }
+        BackendKind::CPU => {
+            return Err(AosError::Config(
+                "CPU backend is not supported for inference kernels".to_string(),
+            ))
+        }
+    };
+
+    Ok(selection)
 }
 
 /// Create a kernel backend from unified ModelConfig
@@ -308,8 +490,117 @@ pub fn create_backend_from_config(config: &ModelConfig) -> Result<KernelBox> {
         BackendPreference::CoreML => BackendChoice::CoreML,
         BackendPreference::Metal => BackendChoice::Metal,
         BackendPreference::Mlx => BackendChoice::Mlx,
+        BackendPreference::CPU => BackendChoice::CPU,
     };
     create_backend_with_model(choice, &config.path)
+}
+
+#[cfg(all(target_os = "macos", feature = "coreml-backend"))]
+#[derive(Debug, Clone)]
+pub struct CoreMLBackendSettings {
+    pub preference: CoreMLComputePreference,
+    pub compute_units: adapteros_lora_kernel_coreml::ComputeUnits,
+    pub production_mode: bool,
+    pub gpu_available: bool,
+    pub ane_available: bool,
+    pub gpu_used: bool,
+    pub ane_used: bool,
+}
+
+#[cfg(all(target_os = "macos", feature = "coreml-backend"))]
+fn resolve_coreml_config_settings() -> (CoreMLComputePreference, bool) {
+    if let Some(cfg) = adapteros_config::try_effective_config() {
+        return (cfg.coreml.compute_preference, cfg.coreml.production_mode);
+    }
+
+    if let Ok(runtime) = adapteros_config::config_or_default() {
+        let preference = runtime
+            .get_string("AOS_COREML_COMPUTE_PREFERENCE")
+            .and_then(|v| CoreMLComputePreference::from_str(v).ok())
+            .unwrap_or_default();
+        let production_mode = runtime
+            .get_bool("AOS_COREML_PRODUCTION_MODE")
+            .unwrap_or(false);
+        return (preference, production_mode);
+    }
+
+    (CoreMLComputePreference::default(), false)
+}
+
+#[cfg(all(target_os = "macos", feature = "coreml-backend"))]
+fn coreml_units_from_preference(
+    preference: CoreMLComputePreference,
+) -> adapteros_lora_kernel_coreml::ComputeUnits {
+    match preference {
+        CoreMLComputePreference::CpuOnly => adapteros_lora_kernel_coreml::ComputeUnits::CpuOnly,
+        CoreMLComputePreference::CpuAndGpu => adapteros_lora_kernel_coreml::ComputeUnits::CpuAndGpu,
+        CoreMLComputePreference::CpuAndNe => {
+            adapteros_lora_kernel_coreml::ComputeUnits::CpuAndNeuralEngine
+        }
+        CoreMLComputePreference::All => adapteros_lora_kernel_coreml::ComputeUnits::All,
+    }
+}
+
+#[cfg(all(target_os = "macos", feature = "coreml-backend"))]
+pub fn resolve_coreml_backend_settings() -> CoreMLBackendSettings {
+    let (preference, production_mode) = resolve_coreml_config_settings();
+    let caps = adapteros_lora_kernel_coreml::get_system_capabilities();
+    let gpu_available = caps & adapteros_lora_kernel_coreml::capabilities::GPU != 0;
+    let ane_available = caps & adapteros_lora_kernel_coreml::capabilities::NEURAL_ENGINE != 0;
+
+    let mut compute_units = coreml_units_from_preference(preference);
+
+    if !production_mode {
+        let gpu_required = matches!(
+            compute_units,
+            adapteros_lora_kernel_coreml::ComputeUnits::CpuAndGpu
+                | adapteros_lora_kernel_coreml::ComputeUnits::All
+        );
+        let ane_required = matches!(
+            compute_units,
+            adapteros_lora_kernel_coreml::ComputeUnits::CpuAndNeuralEngine
+                | adapteros_lora_kernel_coreml::ComputeUnits::All
+        );
+
+        if gpu_required && !gpu_available {
+            warn!(
+                requested = ?compute_units,
+                "CoreML GPU not available; falling back to CPU-only compute units"
+            );
+            compute_units = adapteros_lora_kernel_coreml::ComputeUnits::CpuOnly;
+        }
+
+        if ane_required && !ane_available {
+            warn!(
+                requested = ?compute_units,
+                "CoreML Neural Engine not available; falling back to CPU-only compute units"
+            );
+            compute_units = adapteros_lora_kernel_coreml::ComputeUnits::CpuOnly;
+        }
+    }
+
+    let gpu_used = gpu_available
+        && matches!(
+            compute_units,
+            adapteros_lora_kernel_coreml::ComputeUnits::CpuAndGpu
+                | adapteros_lora_kernel_coreml::ComputeUnits::All
+        );
+    let ane_used = ane_available
+        && matches!(
+            compute_units,
+            adapteros_lora_kernel_coreml::ComputeUnits::CpuAndNeuralEngine
+                | adapteros_lora_kernel_coreml::ComputeUnits::All
+        );
+
+    CoreMLBackendSettings {
+        preference,
+        compute_units,
+        production_mode,
+        gpu_available,
+        ane_available,
+        gpu_used,
+        ane_used,
+    }
 }
 
 /// Create a kernel backend with an explicit model path
@@ -339,6 +630,9 @@ pub fn create_backend_with_model(choice: BackendChoice, model_path: &Path) -> Re
             let selected = auto_select_backend(&capabilities)?;
             create_backend_with_model(selected, model_path)
         }
+        BackendChoice::CPU => Err(AosError::Config(
+            "CPU backend is not supported for inference kernels".to_string(),
+        )),
         BackendChoice::Metal => {
             // Delegate to helper (no manifest hash in this legacy path)
             create_metal_backend(model_path, None)
@@ -346,12 +640,12 @@ pub fn create_backend_with_model(choice: BackendChoice, model_path: &Path) -> Re
         BackendChoice::CoreML => {
             #[cfg(all(target_os = "macos", feature = "coreml-backend"))]
             {
-                use adapteros_lora_kernel_coreml::{
-                    init_coreml, ComputeUnits, CoreMLBackend, CoreMLModelParams,
-                };
+                use adapteros_lora_kernel_coreml::{init_coreml, CoreMLBackend, CoreMLModelParams};
 
                 // Initialize CoreML runtime
                 init_coreml()?;
+
+                let settings = resolve_coreml_backend_settings();
 
                 // Load model configuration from config.json if available
                 let model_config = ModelConfig::from_config_json(model_path).ok();
@@ -366,17 +660,20 @@ pub fn create_backend_with_model(choice: BackendChoice, model_path: &Path) -> Re
                     );
                 }
 
-                // Use CpuAndNeuralEngine for optimal ANE utilization
-                let compute_units = ComputeUnits::CpuAndNeuralEngine;
-                let production_mode = true;
-
                 info!(
+                    backend = "coreml",
                     model_path = %model_path.display(),
-                    compute_units = ?compute_units,
-                    production_mode = production_mode,
+                    compute_preference = %settings.preference,
+                    compute_units = ?settings.compute_units,
+                    production_mode = settings.production_mode,
+                    gpu_available = settings.gpu_available,
+                    ane_available = settings.ane_available,
+                    gpu_used = settings.gpu_used,
+                    ane_used = settings.ane_used,
                     "Creating CoreML kernel backend"
                 );
-                let mut backend = CoreMLBackend::new(compute_units, production_mode)?;
+                let mut backend =
+                    CoreMLBackend::new(settings.compute_units, settings.production_mode)?;
 
                 // Set model parameters from config.json if available
                 if let Some(cfg) = model_config {
@@ -464,11 +761,12 @@ fn create_mlx_backend(model_path: &Path, manifest_hash: Option<&B3Hash>) -> Resu
         "Creating MLX FFI kernel backend"
     );
 
-    if manifest_hash.is_none() {
-        warn!(
-            "MLX backend created without manifest hash; determinism attestation will be disabled"
-        );
-    }
+    let manifest_hash = manifest_hash.ok_or_else(|| {
+        AosError::Config(
+            "Manifest hash is required for MLX backend identity; pass manifest hash to backend factory"
+                .to_string(),
+        )
+    })?;
 
     // Ensure MLX runtime is initialized
     if !mlx_runtime_is_initialized() {
@@ -477,7 +775,7 @@ fn create_mlx_backend(model_path: &Path, manifest_hash: Option<&B3Hash>) -> Resu
     }
 
     // Create cache key - prefer manifest hash when available for canonical identity
-    let cache_key = ModelKey::from_manifest_or_path(BackendType::Mlx, manifest_hash, &model_path)?;
+    let cache_key = ModelKey::new(BackendType::Mlx, *manifest_hash);
     let model_arc = MODEL_CACHE
         .get_or_load(&cache_key, || {
             let model = MLXFFIModel::load(&model_path).map_err(|e| {
@@ -493,19 +791,15 @@ fn create_mlx_backend(model_path: &Path, manifest_hash: Option<&B3Hash>) -> Resu
         .as_mlx_model()?;
 
     // Create backend with or without manifest hash for deterministic seeding
-    let backend: KernelBox = if let Some(hash) = manifest_hash {
-        info!("Creating MLX backend with HKDF-seeded determinism from manifest hash");
-        Box::new(
-            MLXFFIBackend::with_manifest_hash_arc(model_arc, hash.clone()).map_err(|e| {
-                AosError::Config(format!(
-                    "Failed to create MLX backend with manifest hash: {}",
-                    e
-                ))
-            })?,
-        )
-    } else {
-        Box::new(MLXFFIBackend::new_with_arc(model_arc))
-    };
+    info!("Creating MLX backend with HKDF-seeded determinism from manifest hash");
+    let backend: KernelBox = Box::new(
+        MLXFFIBackend::with_manifest_hash_arc(model_arc, manifest_hash.clone()).map_err(|e| {
+            AosError::Config(format!(
+                "Failed to create MLX backend with manifest hash: {}",
+                e
+            ))
+        })?,
+    );
 
     Ok(backend)
 }
@@ -518,7 +812,7 @@ fn estimate_mlx_model_memory(model_path: &Path) -> u64 {
         // Estimate: 4 bytes per param (f32), with typical model structure
         // hidden_size * num_layers * 12 (approx params per layer) * 4 bytes
         let params_estimate = config.hidden_size as u64
-            * config.num_hidden_layers as u64
+            * config.num_layers as u64
             * 12  // Approximate number of weight matrices per layer
             * config.hidden_size as u64
             / 1000; // Normalize
@@ -545,9 +839,15 @@ fn create_mlx_backend(_model_path: &Path, _manifest_hash: Option<&B3Hash>) -> Re
 #[cfg(target_os = "macos")]
 fn create_metal_backend(model_path: &Path, manifest_hash: Option<&B3Hash>) -> Result<KernelBox> {
     use adapteros_lora_kernel_mtl::{GqaConfig, MetalKernels};
+    let manifest_hash = manifest_hash.ok_or_else(|| {
+        AosError::Config(
+            "Manifest hash is required for Metal backend identity; pass manifest hash to backend factory"
+                .to_string(),
+        )
+    })?;
     info!(
         model_path = %model_path.display(),
-        has_manifest_hash = manifest_hash.is_some(),
+        has_manifest_hash = true,
         "Creating Metal kernel backend"
     );
 
@@ -565,7 +865,7 @@ fn create_metal_backend(model_path: &Path, manifest_hash: Option<&B3Hash>) -> Re
     }
 
     // Create cache key - prefer manifest hash when available for canonical identity
-    let cache_key = ModelKey::from_manifest_or_path(BackendType::Metal, manifest_hash, model_path)?;
+    let cache_key = ModelKey::new(BackendType::Metal, *manifest_hash);
     let model_bytes_arc = MODEL_CACHE
         .get_or_load(&cache_key, || {
             let bytes = load_model_bytes(model_path)?;
@@ -599,9 +899,8 @@ fn create_metal_backend(model_path: &Path, manifest_hash: Option<&B3Hash>) -> Re
     // Invariant: base model bytes must remain immutable after load. When we have a
     // manifest hash (deterministic path) or explicit verification is requested,
     // re-hash before/after load to catch any accidental mutation in the kernel.
-    let verify_immutable = manifest_hash.is_some()
-        || cfg!(debug_assertions)
-        || std::env::var("AOS_VERIFY_MODEL_BYTES").is_ok();
+    let verify_immutable =
+        cfg!(debug_assertions) || std::env::var("AOS_VERIFY_MODEL_BYTES").is_ok();
 
     if verify_immutable {
         let before = B3Hash::hash(plan_bytes);
@@ -674,6 +973,9 @@ pub fn create_backend(choice: BackendChoice) -> Result<KernelBox> {
             let selected = auto_select_backend(&capabilities)?;
             create_backend(selected)
         }
+        BackendChoice::CPU => Err(AosError::Config(
+            "CPU backend is not supported for inference kernels".to_string(),
+        )),
         BackendChoice::Metal => {
             #[cfg(target_os = "macos")]
             {
@@ -689,21 +991,25 @@ pub fn create_backend(choice: BackendChoice) -> Result<KernelBox> {
         BackendChoice::CoreML => {
             #[cfg(all(target_os = "macos", feature = "coreml-backend"))]
             {
-                use adapteros_lora_kernel_coreml::{init_coreml, ComputeUnits, CoreMLBackend};
+                use adapteros_lora_kernel_coreml::{init_coreml, CoreMLBackend};
 
                 // Initialize CoreML runtime
                 init_coreml()?;
 
-                // Use CpuAndNeuralEngine for optimal ANE utilization
-                let compute_units = ComputeUnits::CpuAndNeuralEngine;
-                let production_mode = true;
+                let settings = resolve_coreml_backend_settings();
 
                 info!(
-                    compute_units = ?compute_units,
-                    production_mode = production_mode,
+                    backend = "coreml",
+                    compute_preference = %settings.preference,
+                    compute_units = ?settings.compute_units,
+                    production_mode = settings.production_mode,
+                    gpu_available = settings.gpu_available,
+                    ane_available = settings.ane_available,
+                    gpu_used = settings.gpu_used,
+                    ane_used = settings.ane_used,
                     "Creating CoreML kernel backend"
                 );
-                let backend = CoreMLBackend::new(compute_units, production_mode)?;
+                let backend = CoreMLBackend::new(settings.compute_units, settings.production_mode)?;
                 Ok(Box::new(backend))
             }
             #[cfg(all(target_os = "macos", not(feature = "coreml-backend")))]
@@ -761,6 +1067,259 @@ pub fn create_backend(choice: BackendChoice) -> Result<KernelBox> {
                         .to_string(),
                 ))
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn backend_kind_identity_in_choice() {
+        assert_eq!(
+            BackendChoice::CoreML,
+            adapteros_core::backend::BackendKind::CoreML
+        );
+        assert_eq!(
+            BackendChoice::Mlx,
+            adapteros_core::backend::BackendKind::Mlx
+        );
+    }
+
+    #[test]
+    fn auto_select_prefers_coreml_when_available() {
+        let capabilities = BackendCapabilities {
+            has_metal: true,
+            metal_device_name: Some("Test Metal".to_string()),
+            has_ane: true,
+            has_coreml: true,
+            has_mlx: true,
+            gpu_memory_bytes: None,
+        };
+
+        let selected = auto_select_backend(&capabilities).expect("coreml should be selected");
+        assert_eq!(selected, BackendChoice::CoreML);
+    }
+
+    #[test]
+    fn coreml_request_falls_back_to_metal_when_unavailable() {
+        let profile = ExecutionProfile {
+            seed_mode: adapteros_core::SeedMode::BestEffort,
+            backend_profile: BackendKind::CoreML,
+        };
+        let capabilities = BackendCapabilities {
+            has_metal: true,
+            metal_device_name: Some("Test Metal".to_string()),
+            has_ane: false,
+            has_coreml: false,
+            has_mlx: false,
+            gpu_memory_bytes: None,
+        };
+        let ctx = SelectionContext::new(profile, capabilities);
+
+        let selection = select_backend_from_execution_profile(&ctx).expect("fallback works");
+        assert_eq!(selection.selected, BackendChoice::Metal);
+        assert!(selection.overridden);
+        assert_eq!(
+            selection.reason,
+            Some("coreml_unavailable_fallback_metal"),
+            "expected stable override reason when CoreML unavailable"
+        );
+    }
+
+    #[test]
+    fn coreml_request_honors_capability() {
+        let profile = ExecutionProfile {
+            seed_mode: adapteros_core::SeedMode::BestEffort,
+            backend_profile: BackendKind::CoreML,
+        };
+        let capabilities = BackendCapabilities {
+            has_metal: true,
+            metal_device_name: Some("Test Metal".to_string()),
+            has_ane: true,
+            has_coreml: true,
+            has_mlx: false,
+            gpu_memory_bytes: None,
+        };
+        let ctx = SelectionContext::new(profile, capabilities);
+
+        let selection = select_backend_from_execution_profile(&ctx).expect("coreml allowed");
+        assert_eq!(selection.selected, BackendChoice::CoreML);
+        assert!(!selection.overridden);
+    }
+
+    #[test]
+    fn coreml_request_without_ane_falls_back() {
+        let profile = ExecutionProfile {
+            seed_mode: adapteros_core::SeedMode::BestEffort,
+            backend_profile: BackendKind::CoreML,
+        };
+        let capabilities = BackendCapabilities {
+            has_metal: true,
+            metal_device_name: Some("Test Metal".to_string()),
+            has_ane: false,
+            has_coreml: true,
+            has_mlx: false,
+            gpu_memory_bytes: None,
+        };
+        let ctx = SelectionContext::new(profile, capabilities);
+
+        let selection = select_backend_from_execution_profile(&ctx).expect("fallback allowed");
+        assert_eq!(selection.selected, BackendChoice::Metal);
+        assert!(selection.overridden);
+        assert_eq!(selection.reason, Some("coreml_unavailable_fallback_metal"));
+    }
+
+    #[test]
+    fn selection_context_deterministic_matrix() {
+        let base_profile = ExecutionProfile {
+            seed_mode: adapteros_core::SeedMode::BestEffort,
+            backend_profile: BackendKind::Auto,
+        };
+        let full_caps = BackendCapabilities {
+            has_metal: true,
+            metal_device_name: Some("Test Metal".to_string()),
+            has_ane: true,
+            has_coreml: true,
+            has_mlx: true,
+            gpu_memory_bytes: None,
+        };
+        let ctx = SelectionContext::new(base_profile.clone(), full_caps);
+        let selection = select_backend_from_execution_profile(&ctx).expect("auto resolves");
+        assert_eq!(selection.selected, BackendChoice::CoreML);
+
+        let no_coreml_caps = BackendCapabilities {
+            has_metal: true,
+            metal_device_name: Some("Test Metal".to_string()),
+            has_ane: false,
+            has_coreml: false,
+            has_mlx: true,
+            gpu_memory_bytes: None,
+        };
+        let ctx = SelectionContext::new(base_profile.clone(), no_coreml_caps);
+        let selection =
+            select_backend_from_execution_profile(&ctx).expect("fallback when coreml/ane missing");
+        if cfg!(feature = "multi-backend") {
+            assert_eq!(selection.selected, BackendChoice::Mlx);
+        } else {
+            assert_eq!(selection.selected, BackendChoice::Metal);
+        }
+
+        let metal_only_caps = BackendCapabilities {
+            has_metal: true,
+            metal_device_name: Some("Test Metal".to_string()),
+            has_ane: false,
+            has_coreml: false,
+            has_mlx: false,
+            gpu_memory_bytes: None,
+        };
+        let ctx = SelectionContext::new(base_profile, metal_only_caps);
+        let selection = select_backend_from_execution_profile(&ctx).expect("fallback to metal");
+        assert_eq!(selection.selected, BackendChoice::Metal);
+    }
+
+    #[cfg(not(feature = "multi-backend"))]
+    #[test]
+    fn mlx_selection_rejected_without_feature() {
+        let profile = ExecutionProfile {
+            seed_mode: adapteros_core::SeedMode::BestEffort,
+            backend_profile: BackendKind::Mlx,
+        };
+        let capabilities = BackendCapabilities {
+            has_metal: true,
+            metal_device_name: Some("Test Metal".to_string()),
+            has_ane: false,
+            has_coreml: false,
+            has_mlx: true,
+            gpu_memory_bytes: None,
+        };
+        let ctx = SelectionContext::new(profile, capabilities);
+
+        let err = select_backend_from_execution_profile(&ctx).unwrap_err();
+        assert!(
+            err.to_string().contains("multi-backend"),
+            "expected feature gate error"
+        );
+    }
+
+    #[cfg(feature = "multi-backend")]
+    #[test]
+    fn mlx_selection_requires_capability() {
+        let profile = ExecutionProfile {
+            seed_mode: adapteros_core::SeedMode::BestEffort,
+            backend_profile: BackendKind::Mlx,
+        };
+        let capabilities = BackendCapabilities {
+            has_metal: true,
+            metal_device_name: Some("Test Metal".to_string()),
+            has_ane: false,
+            has_coreml: false,
+            has_mlx: false,
+            gpu_memory_bytes: None,
+        };
+        let ctx = SelectionContext::new(profile, capabilities);
+
+        let err = select_backend_from_execution_profile(&ctx).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("Requested MLX backend is not available"),
+            "should reject when MLX capability missing"
+        );
+    }
+
+    #[test]
+    fn cpu_backend_is_rejected_for_inference() {
+        let err = create_backend(BackendChoice::CPU)
+            .err()
+            .expect("CPU backend should be rejected");
+        assert!(err
+            .to_string()
+            .contains("CPU backend is not supported for inference kernels"));
+    }
+
+    #[cfg(all(target_os = "macos", feature = "coreml-backend"))]
+    #[test]
+    fn coreml_preference_maps_to_compute_units() {
+        use adapteros_lora_kernel_coreml::ComputeUnits;
+
+        assert_eq!(
+            coreml_units_from_preference(CoreMLComputePreference::CpuOnly),
+            ComputeUnits::CpuOnly
+        );
+        assert_eq!(
+            coreml_units_from_preference(CoreMLComputePreference::CpuAndGpu),
+            ComputeUnits::CpuAndGpu
+        );
+        assert_eq!(
+            coreml_units_from_preference(CoreMLComputePreference::CpuAndNe),
+            ComputeUnits::CpuAndNeuralEngine
+        );
+        assert_eq!(
+            coreml_units_from_preference(CoreMLComputePreference::All),
+            ComputeUnits::All
+        );
+    }
+
+    #[cfg(not(feature = "coreml-backend"))]
+    #[test]
+    fn coreml_backend_is_rejected_when_feature_disabled() {
+        let err = create_backend_with_model(BackendChoice::CoreML, Path::new("var/model-cache"))
+            .err()
+            .expect("CoreML backend should be gated behind feature flag");
+
+        if cfg!(target_os = "macos") {
+            assert!(
+                err.to_string().contains("coreml-backend"),
+                "expected feature gate error, got {}",
+                err
+            );
+        } else {
+            assert!(
+                err.to_string().contains("requires macOS"),
+                "expected platform error, got {}",
+                err
+            );
         }
     }
 }

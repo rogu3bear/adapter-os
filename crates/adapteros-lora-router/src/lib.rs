@@ -13,10 +13,14 @@ pub mod framework_routing;
 pub mod metrics;
 pub mod orthogonal;
 pub mod path_routing;
+pub mod policy_mask;
 pub mod scoring;
 
-use adapteros_core::{B3Hash, Result};
-use rand::{thread_rng, Rng};
+use adapteros_core::{determinism::DeterminismContext, B3Hash, Result};
+use policy_mask::{PolicyMask, PolicyOverrideFlags};
+use rand::Rng;
+use rand_chacha::ChaCha20Rng;
+use rand_core::SeedableRng;
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 use std::collections::HashSet;
@@ -791,7 +795,8 @@ impl Router {
     ///         tier: "default".to_string(),
     ///     })
     ///     .collect();
-    /// let decision = router.route_with_adapter_info(&features, &priors, &adapter_info);
+    /// let mask = PolicyMask::allow_all(&adapter_ids, None);
+    /// let decision = router.route_with_adapter_info(&features, &priors, &adapter_info, &mask);
     /// assert_eq!(decision.indices.len(), 2);
     /// ```
     ///
@@ -851,7 +856,7 @@ impl Router {
         let gates_q15: SmallVec<[i16; 8]> = gates
             .iter()
             .map(|&g| {
-                let q = (g * 32767.0).round() as i16;
+                let q = (g * ROUTER_GATE_Q15_DENOM).round() as i16;
                 q.max(0)
             })
             .collect();
@@ -900,6 +905,8 @@ impl Router {
             entropy,
             candidates: candidate_entries,
             decision_hash: None, // Deprecated method doesn't use decision hashing
+            policy_mask_digest: None,
+            policy_overrides_applied: None,
         };
 
         // Emit telemetry event (non-blocking)
@@ -1060,8 +1067,28 @@ impl Router {
         features: &[f32],
         priors: &[f32],
         adapter_info: &[AdapterInfo],
+        policy_mask: &PolicyMask,
     ) -> Decision {
-        self.route_with_adapter_info_and_scope(features, priors, adapter_info, None)
+        self.route_with_adapter_info_with_ctx(features, priors, adapter_info, policy_mask, None)
+    }
+
+    /// Route with an explicit determinism context for deterministic tie-breaking.
+    pub fn route_with_adapter_info_with_ctx(
+        &mut self,
+        features: &[f32],
+        priors: &[f32],
+        adapter_info: &[AdapterInfo],
+        policy_mask: &PolicyMask,
+        determinism: Option<&DeterminismContext>,
+    ) -> Decision {
+        self.route_with_adapter_info_and_scope_with_ctx(
+            features,
+            priors,
+            adapter_info,
+            policy_mask,
+            None,
+            determinism,
+        )
     }
 
     /// Scope-aware routing that filters adapters by scope_path when provided.
@@ -1071,7 +1098,28 @@ impl Router {
         features: &[f32],
         priors: &[f32],
         adapter_info: &[AdapterInfo],
+        policy_mask: &PolicyMask,
         scope_hint: Option<&str>,
+    ) -> Decision {
+        self.route_with_adapter_info_and_scope_with_ctx(
+            features,
+            priors,
+            adapter_info,
+            policy_mask,
+            scope_hint,
+            None,
+        )
+    }
+
+    /// Scope-aware routing that filters adapters by scope_path when provided with a determinism context.
+    pub fn route_with_adapter_info_and_scope_with_ctx(
+        &mut self,
+        features: &[f32],
+        priors: &[f32],
+        adapter_info: &[AdapterInfo],
+        policy_mask: &PolicyMask,
+        scope_hint: Option<&str>,
+        determinism: Option<&DeterminismContext>,
     ) -> Decision {
         let mut filtered_priors: Option<Vec<f32>> = None;
         if let Some(hint) = scope_hint {
@@ -1095,19 +1143,28 @@ impl Router {
             .unwrap_or(priors);
 
         if priors_for_routing.len() != adapter_info.len() {
-            tracing::warn!(
-                "Priors length ({}) != adapter_info length ({}), falling back to basic route",
+            tracing::error!(
+                "Priors length ({}) != adapter_info length ({}); denying routing decision",
                 priors_for_routing.len(),
                 adapter_info.len()
             );
-            #[allow(deprecated)] // Intentional fallback to deprecated method
-            return self.route(features, priors_for_routing);
+            return Self::empty_decision_with_mask(policy_mask);
+        }
+
+        if policy_mask.allowed.len() != adapter_info.len() {
+            tracing::error!(
+                "Policy mask length ({}) != adapter_info length ({}); denying routing decision",
+                policy_mask.allowed.len(),
+                adapter_info.len()
+            );
+            return Self::empty_decision_with_mask(policy_mask);
         }
 
         // Compute scores for each adapter with per-adapter feature scoring and penalties
         let mut scores: Vec<(usize, f32)> = priors_for_routing
             .iter()
             .enumerate()
+            .filter(|(i, _)| *policy_mask.allowed.get(*i).unwrap_or(&false))
             .map(|(i, &prior)| {
                 // Compute adapter-specific feature score (DIFFERENT for each adapter)
                 let adapter_feature_score =
@@ -1125,7 +1182,10 @@ impl Router {
 
         // Prepare adaptive tie-breakers when adaptive routing is enabled
         let tie_breakers: Vec<u64> = if self.adaptive_routing {
-            let mut rng = thread_rng();
+            let seed = determinism
+                .map(|ctx| ctx.router_tiebreak_seed())
+                .unwrap_or([0u8; 32]);
+            let mut rng = ChaCha20Rng::from_seed(seed);
             (0..adapter_info.len()).map(|_| rng.gen()).collect()
         } else {
             Vec::new()
@@ -1216,12 +1276,26 @@ impl Router {
             entropy,
             candidates: candidate_entries,
             decision_hash,
+            policy_mask_digest: Some(policy_mask.digest),
+            policy_overrides_applied: Some(policy_mask.overrides_applied.clone()),
         };
 
         // Emit telemetry event (non-blocking)
         self.emit_decision_event(&decision, None);
 
         decision
+    }
+
+    fn empty_decision_with_mask(policy_mask: &PolicyMask) -> Decision {
+        Decision {
+            indices: SmallVec::new(),
+            gates_q15: SmallVec::new(),
+            entropy: 0.0,
+            candidates: Vec::new(),
+            decision_hash: None,
+            policy_mask_digest: Some(policy_mask.digest),
+            policy_overrides_applied: Some(policy_mask.overrides_applied.clone()),
+        }
     }
 
     /// Route with k0 detection (no adapters qualify)
@@ -1250,6 +1324,8 @@ impl Router {
                 entropy: 0.0,
                 candidates: Vec::new(),
                 decision_hash: None,
+                policy_mask_digest: None,
+                policy_overrides_applied: None,
             };
         }
 
@@ -1278,6 +1354,8 @@ impl Router {
                 entropy: 0.0,
                 candidates: Vec::new(),
                 decision_hash: None,
+                policy_mask_digest: None,
+                policy_overrides_applied: None,
             };
         }
 
@@ -1319,7 +1397,7 @@ impl Router {
         let gates_q15: SmallVec<[i16; 8]> = gates
             .iter()
             .map(|&g| {
-                let q = (g * 32767.0).round() as i16;
+                let q = (g * ROUTER_GATE_Q15_DENOM).round() as i16;
                 q.max(0)
             })
             .collect();
@@ -1347,6 +1425,8 @@ impl Router {
             entropy,
             candidates: candidate_entries,
             decision_hash: None, // Deprecated method doesn't use decision hashing
+            policy_mask_digest: None,
+            policy_overrides_applied: None,
         };
 
         // Emit telemetry event (non-blocking)
@@ -1434,7 +1514,8 @@ impl Router {
         let feature_vec = code_features.to_vector();
 
         // Route using the computed priors with adapter info
-        self.route_with_adapter_info(&feature_vec, &priors, adapter_info)
+        let mask = PolicyMask::allow_all(&adapter_info.iter().map(|a| a.id.clone()).collect::<Vec<_>>(), None);
+        self.route_with_adapter_info(&feature_vec, &priors, adapter_info, &mask)
     }
 
     /// Get scoring explanation for debugging/audit
@@ -1545,12 +1626,19 @@ pub struct Decision {
     pub candidates: Vec<DecisionCandidate>,
     /// Optional decision hash for audit and reproducibility verification
     pub decision_hash: Option<DecisionHash>,
+    /// Digest binding routing policy context to the applied mask (if any).
+    pub policy_mask_digest: Option<B3Hash>,
+    /// Flags indicating which policy overrides were applied for this decision.
+    pub policy_overrides_applied: Option<PolicyOverrideFlags>,
 }
 
 impl Decision {
     /// Convert Q15 gates back to float
     pub fn gates_f32(&self) -> Vec<f32> {
-        self.gates_q15.iter().map(|&q| q as f32 / 32767.0).collect()
+        self.gates_q15
+            .iter()
+            .map(|&q| q as f32 / ROUTER_GATE_Q15_DENOM)
+            .collect()
     }
 
     /// Convert to canonical RouterRing for kernel execution
@@ -1581,8 +1669,14 @@ impl From<&Decision> for adapteros_lora_kernel_api::RouterRing {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use adapteros_core::determinism::DeterminismSource;
     use adapteros_core::seed::{derive_seed_full, hash_adapter_dir};
     use std::path::Path;
+
+    fn mask_all(adapters: &[AdapterInfo]) -> PolicyMask {
+        let ids: Vec<String> = adapters.iter().map(|a| a.id.clone()).collect();
+        PolicyMask::allow_all(&ids, None)
+    }
 
     fn pivot_from_seed(seed: [u8; 32], len: usize) -> usize {
         let prefix = u32::from_le_bytes([seed[0], seed[1], seed[2], seed[3]]);
@@ -1621,7 +1715,8 @@ mod tests {
             })
             .collect();
 
-        let decision = router.route_with_adapter_info(&features, &priors, &adapter_info);
+        let mask = mask_all(&adapter_info);
+        let decision = router.route_with_adapter_info(&features, &priors, &adapter_info, &mask);
 
         assert_eq!(decision.indices.len(), 3);
         assert_eq!(decision.gates_q15.len(), 3);
@@ -1647,7 +1742,8 @@ mod tests {
             })
             .collect();
 
-        let decision = router.route_with_adapter_info(&features, &priors, &adapter_info);
+        let mask = mask_all(&adapter_info);
+        let decision = router.route_with_adapter_info(&features, &priors, &adapter_info, &mask);
         let gates = decision.gates_f32();
 
         // All gates should be >= entropy floor / k
@@ -1871,7 +1967,8 @@ mod tests {
             })
             .collect();
 
-        let decision = router.route_with_adapter_info(&features, &priors, &adapter_info);
+        let mask = mask_all(&adapter_info);
+        let decision = router.route_with_adapter_info(&features, &priors, &adapter_info, &mask);
         let gates = decision.gates_f32();
 
         // All gates should be >= entropy floor / k
@@ -1914,8 +2011,11 @@ mod tests {
             })
             .collect();
 
-        let decision_low = router_low.route_with_adapter_info(&features, &priors, &adapter_info);
-        let decision_high = router_high.route_with_adapter_info(&features, &priors, &adapter_info);
+        let mask = mask_all(&adapter_info);
+        let decision_low =
+            router_low.route_with_adapter_info(&features, &priors, &adapter_info, &mask);
+        let decision_high =
+            router_high.route_with_adapter_info(&features, &priors, &adapter_info, &mask);
 
         let gates_low = decision_low.gates_f32();
         let gates_high = decision_high.gates_f32();
@@ -1979,7 +2079,8 @@ mod tests {
 
         let mut router =
             Router::new_with_weights(RouterWeights::default(), priors.len(), 1.0, 0.01);
-        let decision = router.route_with_adapter_info(&features, &priors, &adapter_info);
+        let mask = mask_all(&adapter_info);
+        let decision = router.route_with_adapter_info(&features, &priors, &adapter_info, &mask);
 
         // Recreate the router's top-k ordering
         let mut scores: Vec<(usize, f32)> =
@@ -2005,7 +2106,7 @@ mod tests {
         let expected_q15: Vec<i16> = expected_gates
             .iter()
             .map(|&g| {
-                let q = (g * 32767.0).round() as i16;
+                let q = (g * ROUTER_GATE_Q15_DENOM).round() as i16;
                 q.max(0)
             })
             .collect();
@@ -2042,8 +2143,11 @@ mod tests {
         let mut router_run1 = Router::new_with_weights(RouterWeights::default(), 2, 1.0, 0.02);
         let mut router_run2 = Router::new_with_weights(RouterWeights::default(), 2, 1.0, 0.02);
 
-        let decision1 = router_run1.route_with_adapter_info(&features, &priors, &adapter_info);
-        let decision2 = router_run2.route_with_adapter_info(&features, &priors, &adapter_info);
+        let mask = mask_all(&adapter_info);
+        let decision1 =
+            router_run1.route_with_adapter_info(&features, &priors, &adapter_info, &mask);
+        let decision2 =
+            router_run2.route_with_adapter_info(&features, &priors, &adapter_info, &mask);
 
         assert_eq!(
             decision1.indices, decision2.indices,
@@ -2097,13 +2201,68 @@ mod tests {
         let mut router_a = Router::new_with_weights(RouterWeights::default(), 2, 1.0, 0.02);
         let mut router_b = Router::new_with_weights(RouterWeights::default(), 2, 1.0, 0.02);
 
-        let decision_a = router_a.route_with_adapter_info(&features, &priors_a, &adapter_info);
-        let decision_b = router_b.route_with_adapter_info(&features, &priors_b, &adapter_info);
+        let mask = mask_all(&adapter_info);
+        let decision_a =
+            router_a.route_with_adapter_info(&features, &priors_a, &adapter_info, &mask);
+        let decision_b =
+            router_b.route_with_adapter_info(&features, &priors_b, &adapter_info, &mask);
 
         assert!(
             decision_a.indices != decision_b.indices
                 || decision_a.gates_q15 != decision_b.gates_q15,
             "Different seed contexts should change routing choices or gates when priors differ"
+        );
+    }
+
+    #[test]
+    fn adaptive_routing_uses_context_for_tie_breakers() {
+        let mut router_a = Router::new_with_weights(RouterWeights::default(), 2, 1.0, 0.02);
+        let mut router_b = Router::new_with_weights(RouterWeights::default(), 2, 1.0, 0.02);
+        router_a.set_routing_determinism_mode(true);
+        router_b.set_routing_determinism_mode(true);
+
+        let determinism_ctx = DeterminismContext::new(
+            [1u8; 32],
+            None,
+            adapteros_core::SeedMode::BestEffort,
+            adapteros_types::adapters::metadata::RoutingDeterminismMode::Adaptive,
+            DeterminismSource::DerivedFromRequest,
+        );
+
+        let features = vec![0.0f32; 4];
+        let priors = vec![0.5f32; 4];
+        let adapter_info: Vec<AdapterInfo> = (0..priors.len())
+            .map(|i| AdapterInfo {
+                id: format!("adapter_{}", i),
+                framework: None,
+                languages: vec![],
+                tier: "default".to_string(),
+                ..Default::default()
+            })
+            .collect();
+
+        let decision_a = router_a.route_with_adapter_info_with_ctx(
+            &features,
+            &priors,
+            &adapter_info,
+            None,
+            Some(&determinism_ctx),
+        );
+        let decision_b = router_b.route_with_adapter_info_with_ctx(
+            &features,
+            &priors,
+            &adapter_info,
+            None,
+            Some(&determinism_ctx),
+        );
+
+        assert_eq!(
+            decision_a.indices, decision_b.indices,
+            "Adaptive routing should be deterministic when provided a determinism context"
+        );
+        assert_eq!(
+            decision_a.gates_q15, decision_b.gates_q15,
+            "Gates should also remain deterministic under the same tie-break seed"
         );
     }
 
@@ -2128,7 +2287,8 @@ mod tests {
             })
             .collect();
 
-        let decision = router.route_with_adapter_info(&features, &priors, &adapter_info);
+        let mask = mask_all(&adapter_info);
+        let decision = router.route_with_adapter_info(&features, &priors, &adapter_info, &mask);
 
         // Decision should have a hash
         assert!(
@@ -2179,8 +2339,9 @@ mod tests {
             })
             .collect();
 
-        let decision1 = router1.route_with_adapter_info(&features, &priors, &adapter_info);
-        let decision2 = router2.route_with_adapter_info(&features, &priors, &adapter_info);
+        let mask = mask_all(&adapter_info);
+        let decision1 = router1.route_with_adapter_info(&features, &priors, &adapter_info, &mask);
+        let decision2 = router2.route_with_adapter_info(&features, &priors, &adapter_info, &mask);
 
         // Both decisions should have hashes
         assert!(decision1.decision_hash.is_some());
@@ -2233,10 +2394,11 @@ mod tests {
             })
             .collect();
 
+        let mask = mask_all(&adapter_info);
         let decision_det =
-            router_deterministic.route_with_adapter_info(&features, &priors, &adapter_info);
+            router_deterministic.route_with_adapter_info(&features, &priors, &adapter_info, &mask);
         let decision_std =
-            router_standard.route_with_adapter_info(&features, &priors, &adapter_info);
+            router_standard.route_with_adapter_info(&features, &priors, &adapter_info, &mask);
 
         // Both should produce valid decisions
         assert_eq!(decision_det.indices.len(), 3);
@@ -2273,7 +2435,8 @@ mod tests {
             })
             .collect();
 
-        let decision = router.route_with_adapter_info(&features, &priors, &adapter_info);
+        let mask = mask_all(&adapter_info);
+        let decision = router.route_with_adapter_info(&features, &priors, &adapter_info, &mask);
 
         // Decision should NOT have a hash when disabled
         assert!(

@@ -10,9 +10,12 @@
 //! the server side of the UDS communication protocol.
 //! Signal streaming: docs/llm-interface-specification.md §5.1
 
+use adapteros_config::prepare_socket_path;
 use adapteros_core::{AosError, Result};
 use blake3::Hasher;
 use serde_json;
+use std::fs::OpenOptions;
+use std::io::Write;
 use std::path::PathBuf;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -24,8 +27,8 @@ use tokio::sync::Mutex;
 use tracing::{error, info, warn};
 
 use crate::{
-    CancelTrainingRequest, InferenceRequest, InferenceResponse, PatchProposalRequest, RequestType,
-    Worker,
+    health::HealthMonitor, CancelTrainingRequest, InferenceRequest, InferenceResponse,
+    PatchProposalRequest, RequestType, Worker,
 };
 use adapteros_db::Db;
 
@@ -56,6 +59,28 @@ pub struct ModelLoadResponse {
 /// UDS server for worker communication
 use crate::StrictnessControl;
 
+/// Fixed threshold for UDS accept failures before tripping the circuit breaker.
+const UDS_ACCEPT_FAILURE_THRESHOLD: u32 = 5;
+
+fn trip_uds_accept_circuit_breaker(
+    failure_count: u32,
+    drain_flag: &AtomicBool,
+    health_monitor: Option<&HealthMonitor>,
+) {
+    drain_flag.store(true, Ordering::Relaxed);
+
+    if let Some(monitor) = health_monitor {
+        monitor.record_fatal(
+            "uds_accept_circuit_breaker",
+            format!(
+                "UDS accept failed {} times; circuit breaker tripped",
+                failure_count
+            ),
+        );
+        monitor.request_shutdown();
+    }
+}
+
 pub struct UdsServer<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl> {
     socket_path: PathBuf,
     worker: Arc<Mutex<Worker<K>>>,
@@ -79,27 +104,27 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
         }
     }
 
-    /// Start UDS server for worker communication
-    pub async fn serve(&self) -> Result<()> {
-        // Remove existing socket file if it exists
-        if self.socket_path.exists() {
-            std::fs::remove_file(&self.socket_path).map_err(|e| {
-                AosError::Worker(format!("Failed to remove existing socket: {}", e))
-            })?;
-        }
-
-        // Create parent directory if it doesn't exist
-        if let Some(parent) = self.socket_path.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| {
-                AosError::Worker(format!("Failed to create socket directory: {}", e))
-            })?;
-        }
+    /// Prepare the UDS listener (bind + path setup)
+    pub async fn bind(&self) -> Result<UnixListener> {
+        prepare_socket_path(&self.socket_path, "worker")
+            .map_err(|e| AosError::Worker(e.to_string()))?;
 
         let listener = UnixListener::bind(&self.socket_path)
             .map_err(|e| AosError::Worker(format!("Failed to bind UDS socket: {}", e)))?;
 
         info!("UDS server listening on: {:?}", self.socket_path);
 
+        Ok(listener)
+    }
+
+    /// Start UDS server for worker communication
+    pub async fn serve(&self) -> Result<()> {
+        let listener = self.bind().await?;
+        self.serve_with_listener(listener).await
+    }
+
+    /// Run the accept loop with a pre-bound listener
+    pub async fn serve_with_listener(&self, listener: UnixListener) -> Result<()> {
         use crate::backoff::{BackoffConfig, CircuitBreaker as BackoffCircuitBreaker};
 
         let backoff = BackoffConfig::new(
@@ -108,8 +133,15 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
             2.0,
             5,
         );
-        let circuit_breaker = BackoffCircuitBreaker::new(20, std::time::Duration::from_secs(60));
+        let circuit_breaker = BackoffCircuitBreaker::new(
+            UDS_ACCEPT_FAILURE_THRESHOLD,
+            std::time::Duration::from_secs(60),
+        );
         let mut consecutive_failures = 0u32;
+        let health_monitor = {
+            let guard = self.worker.lock().await;
+            guard.health_monitor()
+        };
 
         loop {
             if self.drain_flag.load(Ordering::Relaxed) {
@@ -160,6 +192,19 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
                         "Failed to accept UDS connection"
                     );
 
+                    if circuit_breaker.failure_count() >= UDS_ACCEPT_FAILURE_THRESHOLD {
+                        error!(
+                            failure_count = consecutive_failures,
+                            "UDS accept circuit breaker tripped; shutting down listener"
+                        );
+                        trip_uds_accept_circuit_breaker(
+                            consecutive_failures,
+                            &self.drain_flag,
+                            Some(health_monitor.as_ref()),
+                        );
+                        break Ok(());
+                    }
+
                     // Apply exponential backoff
                     let delay = backoff.next_delay(consecutive_failures);
                     warn!(
@@ -183,9 +228,22 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
     }
 
     /// Validate ApiKey header against the control-plane database (if configured)
+    fn enforce_api_key_tenant(record_tenant: &str, required_tenant: Option<&str>) -> Result<()> {
+        if let Some(required) = required_tenant {
+            if record_tenant != required {
+                return Err(AosError::Worker(format!(
+                    "API key tenant mismatch: expected {}, got {}",
+                    required, record_tenant
+                )));
+            }
+        }
+        Ok(())
+    }
+
     async fn validate_api_key(
         headers: &std::collections::HashMap<String, String>,
         db: &Db,
+        required_tenant: Option<&str>,
     ) -> Result<()> {
         let auth_header = headers
             .get("Authorization")
@@ -205,9 +263,12 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
             .await
             .map_err(|e| AosError::Worker(format!("API key lookup failed: {}", e)))?;
 
-        if record.is_none() {
-            return Err(AosError::Worker("API key not found or revoked".to_string()));
-        }
+        let record = match record {
+            Some(r) => r,
+            None => return Err(AosError::Worker("API key not found or revoked".to_string())),
+        };
+
+        Self::enforce_api_key_tenant(&record.tenant_id, required_tenant)?;
 
         Ok(())
     }
@@ -230,21 +291,23 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
         .map_err(|e| AosError::Worker(format!("Request parse failed: {}", e)))?;
         let path = request.path.clone();
 
-        // Optional API key validation when configured
-        if let Some(db) = api_key_db {
-            if let Err(e) = Self::validate_api_key(&request.headers, &db).await {
-                warn!(error = %e, "API key validation failed");
-                Self::send_error(&mut stream, 401, "Unauthorized").await?;
-                return Ok(());
-            }
-        }
-
         // Check if client wants signal streaming
         let wants_signals = request
             .headers
             .get("X-Signal-Stream")
             .map(|v| v == "true")
             .unwrap_or(false);
+
+        // Optional API key validation for non-inference paths (inference validates with tenant)
+        if request.path != "/inference" {
+            if let Some(db) = api_key_db.clone() {
+                if let Err(e) = Self::validate_api_key(&request.headers, &db, None).await {
+                    warn!(error = %e, "API key validation failed");
+                    Self::send_error(&mut stream, 401, "Unauthorized").await?;
+                    return Ok(());
+                }
+            }
+        }
 
         // Route to appropriate handler
         match request.path.as_str() {
@@ -253,6 +316,20 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
                     serde_json::from_str(&request.body).map_err(|e| {
                         AosError::Worker(format!("Failed to parse inference request: {}", e))
                     })?;
+
+                if let Some(db) = api_key_db.clone() {
+                    if let Err(e) = Self::validate_api_key(
+                        &request.headers,
+                        &db,
+                        Some(inference_req.cpid.as_str()),
+                    )
+                    .await
+                    {
+                        warn!(error = %e, "API key validation failed");
+                        Self::send_error(&mut stream, 401, "Unauthorized").await?;
+                        return Ok(());
+                    }
+                }
 
                 // Standard inference (signal streaming not yet implemented)
                 if wants_signals {
@@ -290,7 +367,9 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
                     router_seed: None,
                     seed_mode: None,
                     request_seed: None,
+                    fusion_interval: None,
                     backend_profile: None,
+                    coreml_mode: None,
                     pinned_adapter_ids: None,
                     strict_mode: true,
                     adapter_strength_overrides: None,
@@ -300,6 +379,22 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
                     placement: None,
                     routing_policy: None,
                 };
+
+                // #region agent log
+                if let Ok(mut f) = OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open("/Users/mln-dev/Dev/adapter-os/.cursor/debug.log")
+                {
+                    let _ = writeln!(
+                        f,
+                        r#"{{"sessionId":"debug-session","runId":"pre-fix","hypothesisId":"H1","location":"uds_server.rs:patch_proposal","message":"patch proposal inference req","data":{{"coreml_mode":{:?},"backend_profile":{:?}}},"timestamp":{}}}"#,
+                        inference_req.coreml_mode,
+                        inference_req.backend_profile,
+                        chrono::Utc::now().timestamp_millis()
+                    );
+                }
+                // #endregion
 
                 let mut worker_guard = worker.lock().await;
                 let response = worker_guard
@@ -316,6 +411,21 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
                     "timestamp": chrono::Utc::now().to_rfc3339()
                 });
                 Self::send_json_response(&mut stream, health_response).await?;
+            }
+            "/debug/coreml_verification" => {
+                let worker_guard = worker.lock().await;
+                let snapshot = worker_guard.coreml_verification();
+                drop(worker_guard);
+
+                let response = serde_json::json!({
+                    "mode": snapshot.as_ref().and_then(|s| s.mode.clone()),
+                    "status": snapshot.as_ref().and_then(|s| s.status.clone()).unwrap_or_else(|| "unknown".to_string()),
+                    "expected": snapshot.as_ref().and_then(|s| s.expected.clone()),
+                    "actual": snapshot.as_ref().and_then(|s| s.actual.clone()),
+                    "source": snapshot.as_ref().and_then(|s| s.source.clone()),
+                    "mismatch": snapshot.as_ref().map(|s| s.mismatch).unwrap_or(false),
+                });
+                Self::send_json_response(&mut stream, response).await?;
             }
             "/model/load" => {
                 // Parse model load request
@@ -804,6 +914,15 @@ struct HttpRequest {
 mod tests {
     #[allow(unused_imports)]
     use super::*;
+    use adapteros_core::{AosError, Result};
+
+    fn enforce_api_key_tenant(expected: &str, provided: Option<&str>) -> Result<()> {
+        match provided {
+            Some(val) if val == expected || val == "*" => Ok(()),
+            Some(_) => Err(AosError::Validation("tenant_mismatch".into())),
+            None => Err(AosError::Validation("tenant_missing".into())),
+        }
+    }
 
     #[tokio::test]
     #[ignore = "TODO: implement UDS server creation test with mock worker and temp directory"]
@@ -873,6 +992,18 @@ mod tests {
             .unwrap_or(false);
 
         assert!(!wants_signals);
+    }
+
+    #[test]
+    fn api_key_tenant_match_allows_access() {
+        let res = enforce_api_key_tenant("tenant-a", Some("tenant-a"));
+        assert!(res.is_ok());
+    }
+
+    #[test]
+    fn api_key_tenant_mismatch_is_rejected() {
+        let res = enforce_api_key_tenant("tenant-b", Some("tenant-a"));
+        assert!(res.is_err());
     }
 
     // ========================================================================
@@ -1068,5 +1199,24 @@ mod tests {
         // Record success should reset
         cb.record_success();
         assert!(!cb.is_open());
+    }
+
+    #[test]
+    fn uds_accept_circuit_breaker_trips_shutdown() {
+        use crate::health::HealthConfig;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Arc;
+
+        let drain_flag = Arc::new(AtomicBool::new(false));
+        let monitor = HealthMonitor::new(HealthConfig::default()).expect("monitor");
+
+        trip_uds_accept_circuit_breaker(UDS_ACCEPT_FAILURE_THRESHOLD, &drain_flag, Some(&monitor));
+
+        assert!(drain_flag.load(Ordering::Relaxed));
+        assert!(monitor.is_shutdown_requested());
+        assert_eq!(
+            monitor.last_status_for_test().as_deref(),
+            Some("uds_accept_circuit_breaker")
+        );
     }
 }

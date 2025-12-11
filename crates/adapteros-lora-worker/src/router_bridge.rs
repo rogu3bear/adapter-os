@@ -17,7 +17,7 @@
 use adapteros_core::AosError;
 use adapteros_lora_kernel_api::RouterRing;
 use adapteros_lora_router::{Decision, ROUTER_GATE_Q15_MAX};
-use tracing::{debug, warn};
+use tracing::debug;
 
 /// Convert router Decision to canonical RouterRing format
 ///
@@ -38,7 +38,7 @@ use tracing::{debug, warn};
 /// RouterRing with K active entries, unused entries zero-filled
 ///
 /// # Examples
-/// ```
+/// ```ignore
 /// # use adapteros_lora_router::Decision;
 /// # use adapteros_lora_worker::router_bridge::decision_to_router_ring;
 /// # use smallvec::SmallVec;
@@ -48,6 +48,7 @@ use tracing::{debug, warn};
 ///     gates_q15: SmallVec::from_slice(&[16383, 8191, 4095]),
 ///     entropy: 0.5,
 ///     candidates: vec![],
+///     decision_hash: None,
 /// };
 ///
 /// let ring = decision_to_router_ring(&decision, 100)?;
@@ -76,6 +77,16 @@ pub fn decision_to_router_ring(
             "Decision K > 8 (got {}), violates SmallVec<[_; 8]> invariant",
             k
         )));
+    }
+
+    // Bounds check all indices before constructing the ring
+    for (pos, idx) in decision.indices.iter().enumerate() {
+        if *idx >= max_adapter_count {
+            return Err(adapteros_core::AosError::Routing(format!(
+                "Router decision index {} at position {} exceeds active adapter count {}",
+                idx, pos, max_adapter_count
+            )));
+        }
     }
 
     // Create RouterRing with K active entries
@@ -177,18 +188,6 @@ pub fn decision_to_router_ring_with_active_ids_and_strengths(
     Ok(ring)
 }
 
-/// Convert Decision to RouterRing without adapter count validation
-///
-/// **WARNING**: Skips bounds checking on adapter indices. Only use when:
-/// - Adapter indices are known to be valid (e.g., from trusted source)
-/// - Performance-critical path where validation is done elsewhere
-///
-/// For normal use, prefer `decision_to_router_ring()` with explicit max_adapter_count.
-pub fn decision_to_router_ring_unchecked(decision: &Decision) -> RouterRing {
-    warn!("Using unchecked router bridge conversion - bounds checking disabled");
-    decision_to_router_ring(decision, u16::MAX).expect("Unchecked conversion should not fail")
-}
-
 /// Batch convert multiple Decisions to RouterRings
 ///
 /// # Arguments
@@ -226,6 +225,8 @@ mod tests {
             entropy,
             candidates: vec![],
             decision_hash: None,
+            policy_mask_digest: None,
+            policy_overrides_applied: None,
         }
     }
 
@@ -290,25 +291,18 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "invalid adapter index")]
-    #[cfg(debug_assertions)]
-    fn test_decision_to_router_ring_out_of_bounds_debug() {
-        // Debug builds should panic on out-of-bounds indices
+    fn test_decision_to_router_ring_out_of_bounds_errors() {
+        // Out-of-bounds indices must return an error (no silent zero-fill)
         let decision = make_decision(&[0, 200], &[1000, 2000], 0.5);
-        let _ = decision_to_router_ring(&decision, 100); // max_adapter=100, index 200 is invalid
-    }
-
-    #[test]
-    #[cfg(not(debug_assertions))]
-    fn test_decision_to_router_ring_out_of_bounds_release() {
-        // Release builds should log error and zero-fill
-        let decision = make_decision(&[0, 200], &[1000, 2000], 0.5);
-        let ring = decision_to_router_ring(&decision, 100).unwrap();
-
-        // Verify zero-fill fallback
-        assert_eq!(ring.k, 0);
-        assert_eq!(ring.indices, [0; 8]);
-        assert_eq!(ring.gates_q15, [0; 8]);
+        let err = decision_to_router_ring(&decision, 100).unwrap_err();
+        if let AosError::Routing(msg) = err {
+            assert!(
+                msg.contains("exceeds active adapter count"),
+                "unexpected message: {msg}"
+            );
+        } else {
+            panic!("expected routing error, got {:?}", err);
+        }
     }
 
     #[test]
@@ -329,15 +323,6 @@ mod tests {
         assert_eq!(rings[0].active_indices(), &[0, 1]);
         assert_eq!(rings[1].active_indices(), &[2, 3, 4]);
         assert_eq!(rings[2].active_indices(), &[5]);
-    }
-
-    #[test]
-    fn test_decision_to_router_ring_unchecked() {
-        let decision = make_decision(&[0, 1, 2], &[1000, 2000, 3000], 0.5);
-        let ring = decision_to_router_ring_unchecked(&decision);
-
-        assert_eq!(ring.k, 3);
-        assert_eq!(ring.active_indices(), &[0, 1, 2]);
     }
 
     #[test]

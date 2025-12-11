@@ -3,22 +3,20 @@
 //! Tracks the loading state of base models (Layer 1) and persists status
 //! to database for UI consumption. Follows existing adapter lifecycle patterns.
 
-use adapteros_core::{AosError, Result};
+use crate::lifecycle_state::LifecycleState;
+use adapteros_core::{AosError, Result, WorkerStatus};
 use adapteros_db::Db;
 use std::sync::Arc;
 use std::time::Instant;
 use tracing::{debug, info, warn};
-
-/// Canonical base model loading status shared across components.
-pub type BaseModelStatus = adapteros_api_types::ModelLoadStatus;
 
 /// Base model state tracking
 #[derive(Clone)]
 pub struct BaseModelState {
     /// Model identifier
     pub model_id: String,
-    /// Current loading status
-    pub status: BaseModelStatus,
+    /// Current lifecycle status
+    pub lifecycle: LifecycleState,
     /// When the model was loaded (if currently loaded)
     pub loaded_at: Option<Instant>,
     /// Error message if status is Error
@@ -36,7 +34,7 @@ impl BaseModelState {
     pub fn new(model_id: String, tenant_id: String, db: Arc<Db>) -> Self {
         Self {
             model_id,
-            status: BaseModelStatus::NoModel,
+            lifecycle: LifecycleState::Unloaded,
             loaded_at: None,
             error_message: None,
             memory_usage_mb: None,
@@ -48,26 +46,26 @@ impl BaseModelState {
     /// Update status and persist to database
     pub async fn update_status(
         &mut self,
-        status: BaseModelStatus,
+        lifecycle: LifecycleState,
         error_message: Option<String>,
         memory_usage_mb: Option<u32>,
     ) -> Result<()> {
-        let old_status = self.status;
-        self.status = status;
+        let old_state = self.lifecycle;
+        self.lifecycle = lifecycle;
         self.error_message = error_message;
         self.memory_usage_mb = memory_usage_mb;
 
-        // Update timestamps based on status
-        match status {
-            BaseModelStatus::Ready => {
+        // Update timestamps based on lifecycle
+        match lifecycle {
+            LifecycleState::Active | LifecycleState::Loaded => {
                 self.loaded_at = Some(Instant::now());
                 info!("Base model {} loaded successfully", self.model_id);
             }
-            BaseModelStatus::NoModel => {
+            LifecycleState::Unloaded => {
                 self.loaded_at = None;
                 info!("Base model {} unloaded", self.model_id);
             }
-            BaseModelStatus::Error => {
+            LifecycleState::Error => {
                 warn!(
                     "Base model {} error: {:?}",
                     self.model_id, self.error_message
@@ -75,8 +73,8 @@ impl BaseModelState {
             }
             _ => {
                 debug!(
-                    "Base model {} status changed: {:?} -> {:?}",
-                    self.model_id, old_status, status
+                    "Base model {} lifecycle changed: {:?} -> {:?}",
+                    self.model_id, old_state, lifecycle
                 );
             }
         }
@@ -87,44 +85,62 @@ impl BaseModelState {
         Ok(())
     }
 
+    /// Update based on worker lifecycle status
+    pub async fn update_from_worker_status(
+        &mut self,
+        status: WorkerStatus,
+        error_message: Option<String>,
+        memory_usage_mb: Option<u32>,
+    ) -> Result<()> {
+        let lifecycle = match status {
+            WorkerStatus::Healthy => LifecycleState::Active,
+            WorkerStatus::Registered | WorkerStatus::Created => LifecycleState::Loading,
+            WorkerStatus::Draining => LifecycleState::Unloading,
+            WorkerStatus::Stopped => LifecycleState::Unloaded,
+            WorkerStatus::Error => LifecycleState::Error,
+        };
+        self.update_status(lifecycle, error_message, memory_usage_mb)
+            .await
+    }
+
     /// Mark model as loading
     pub async fn mark_loading(&mut self) -> Result<()> {
-        self.update_status(BaseModelStatus::Loading, None, None)
+        self.update_status(LifecycleState::Loading, None, None)
             .await
     }
 
     /// Mark model as loaded
     pub async fn mark_loaded(&mut self, memory_usage_mb: u32) -> Result<()> {
-        self.update_status(BaseModelStatus::Ready, None, Some(memory_usage_mb))
+        self.update_status(LifecycleState::Active, None, Some(memory_usage_mb))
             .await
     }
 
     /// Mark model as unloading
     pub async fn mark_unloading(&mut self) -> Result<()> {
-        self.update_status(BaseModelStatus::Unloading, None, None)
+        self.update_status(LifecycleState::Unloading, None, None)
             .await
     }
 
     /// Mark model as unloaded
     pub async fn mark_unloaded(&mut self) -> Result<()> {
-        self.update_status(BaseModelStatus::NoModel, None, None)
+        self.update_status(LifecycleState::Unloaded, None, None)
             .await
     }
 
     /// Mark model as error
     pub async fn mark_error(&mut self, error_message: String) -> Result<()> {
-        self.update_status(BaseModelStatus::Error, Some(error_message), None)
+        self.update_status(LifecycleState::Error, Some(error_message), None)
             .await
     }
 
     /// Get current status
-    pub fn status(&self) -> BaseModelStatus {
-        self.status
+    pub fn lifecycle(&self) -> LifecycleState {
+        self.lifecycle
     }
 
     /// Check if model is loaded
     pub fn is_loaded(&self) -> bool {
-        self.status.is_ready()
+        self.lifecycle.is_active()
     }
 
     /// Get memory usage in MB
@@ -148,7 +164,7 @@ impl BaseModelState {
             .update_base_model_status(
                 &self.tenant_id,
                 &self.model_id,
-                self.status.as_str(),
+                self.lifecycle.to_model_status().as_str(),
                 self.error_message.as_deref(),
                 self.memory_usage_mb.map(|mb| mb as i32),
             )
@@ -161,17 +177,22 @@ impl BaseModelState {
     /// Load status from database
     pub async fn load_from_db(&mut self) -> Result<()> {
         if let Some(status_record) = self.db.get_base_model_status(&self.tenant_id).await? {
-            self.status = BaseModelStatus::from_str(&status_record.status);
+            let model_status =
+                adapteros_api_types::ModelLoadStatus::from_str(&status_record.status);
+            self.lifecycle = LifecycleState::from(model_status);
             self.error_message = status_record.error_message;
             self.memory_usage_mb = status_record.memory_usage_mb.map(|mb| mb as u32);
 
             // Restore loaded_at if model is currently loaded
-            if self.status.is_ready() && status_record.loaded_at.is_some() {
+            if self.lifecycle.is_active() && status_record.loaded_at.is_some() {
                 // Parse the timestamp (simplified - in production would use proper parsing)
                 self.loaded_at = Some(Instant::now()); // Simplified for now
             }
 
-            debug!("Loaded base model status from database: {:?}", self.status);
+            debug!(
+                "Loaded base model lifecycle from database: {:?}",
+                self.lifecycle
+            );
         }
 
         Ok(())
@@ -184,55 +205,37 @@ mod tests {
     // use std::sync::Arc; // unused
 
     #[test]
-    fn test_base_model_status_conversion() {
-        assert_eq!(BaseModelStatus::Loading.as_str(), "loading");
-        assert_eq!(BaseModelStatus::Ready.as_str(), "ready");
-        assert_eq!(BaseModelStatus::Unloading.as_str(), "unloading");
-        assert_eq!(BaseModelStatus::NoModel.as_str(), "no-model");
-        assert_eq!(BaseModelStatus::Error.as_str(), "error");
-        assert_eq!(BaseModelStatus::Checking.as_str(), "checking");
-
+    fn test_lifecycle_to_model_status_conversion() {
         assert_eq!(
-            BaseModelStatus::from_str("loading"),
-            BaseModelStatus::Loading
+            LifecycleState::Loading.to_model_status().as_str(),
+            "loading"
         );
-        assert_eq!(BaseModelStatus::from_str("loaded"), BaseModelStatus::Ready);
-        assert_eq!(BaseModelStatus::from_str("ready"), BaseModelStatus::Ready);
+        assert_eq!(LifecycleState::Active.to_model_status().as_str(), "ready");
         assert_eq!(
-            BaseModelStatus::from_str("unloading"),
-            BaseModelStatus::Unloading
+            LifecycleState::Unloading.to_model_status().as_str(),
+            "unloading"
         );
         assert_eq!(
-            BaseModelStatus::from_str("unloaded"),
-            BaseModelStatus::NoModel
+            LifecycleState::Unloaded.to_model_status().as_str(),
+            "no-model"
         );
-        assert_eq!(
-            BaseModelStatus::from_str("no-model"),
-            BaseModelStatus::NoModel
-        );
-        assert_eq!(BaseModelStatus::from_str("error"), BaseModelStatus::Error);
+        assert_eq!(LifecycleState::Error.to_model_status().as_str(), "error");
     }
 
     #[test]
-    fn test_base_model_status_checks() {
-        assert!(BaseModelStatus::Ready.is_ready());
-        assert!(!BaseModelStatus::Loading.is_ready());
-        assert!(!BaseModelStatus::NoModel.is_ready());
-
-        assert!(BaseModelStatus::Loading.is_transitioning());
-        assert!(BaseModelStatus::Unloading.is_transitioning());
-        assert!(BaseModelStatus::Checking.is_transitioning());
-        assert!(!BaseModelStatus::Ready.is_transitioning());
-        assert!(!BaseModelStatus::NoModel.is_transitioning());
+    fn test_lifecycle_activity_checks() {
+        assert!(LifecycleState::Active.is_active());
+        assert!(LifecycleState::Loaded.is_active());
+        assert!(!LifecycleState::Loading.is_active());
+        assert!(!LifecycleState::Unloaded.is_active());
     }
 
     #[test]
     fn test_base_model_state_creation() {
         // Note: In-memory database testing would require proper Db implementation
         // For now, just test the status enum functionality
-        let status = BaseModelStatus::NoModel;
-        assert_eq!(status, BaseModelStatus::NoModel);
-        assert!(!status.is_ready());
-        assert!(!status.is_transitioning());
+        let lifecycle = LifecycleState::Unloaded;
+        assert_eq!(lifecycle, LifecycleState::Unloaded);
+        assert!(!lifecycle.is_active());
     }
 }

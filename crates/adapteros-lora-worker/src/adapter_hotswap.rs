@@ -12,10 +12,15 @@
 //!
 //! GPU fingerprint format: GpuBufferFingerprint from adapteros-lora-kernel-mtl
 
+use crate::lifecycle_state::LifecycleState;
 use adapteros_core::{
-    adapter_fs_path_with_root, constants::BYTES_PER_MB, AosError, B3Hash, RepoAdapterPaths, Result,
+    adapter_fs_path_with_root,
+    adapter_store::{AdapterRecord, AdapterStore},
+    constants::BYTES_PER_MB,
+    identity::IdentityEnvelope,
+    AosError, B3Hash, RepoAdapterPaths, Result,
 };
-use adapteros_telemetry::TelemetryWriter;
+use adapteros_telemetry::{make_health_payload, HealthEventKind, TelemetryWriter};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -118,6 +123,7 @@ pub struct AdapterState {
     pub vram_mb: u64,
     pub loaded_at: Instant,
     pub active: bool,
+    pub lifecycle: LifecycleState,
 }
 
 /// GPU buffer fingerprint for cross-layer integrity verification
@@ -165,16 +171,20 @@ pub struct AdapterTable {
     /// Atomic pointer to the current active stack
     /// INVARIANT: current_stack generation strictly increases on successful swap. The atomic pointer ensures readers see consistent stack during inference.
     current_stack: AtomicUsize,
-    /// Reference counts for staged adapters
-    refcounts: TokioMutex<HashMap<String, AtomicUsize>>,
+    /// Reference counts for staged adapters (shared with AdapterStore)
+    refcounts: TokioMutex<HashMap<String, Arc<AtomicUsize>>>,
     /// List of retired stacks for RCU
     retired_stacks: TokioMutex<Vec<Arc<Stack>>>,
     /// Sender for event-driven retirement wake-up when refcounts reach 0 (bounded to prevent memory growth)
     retirement_sender: Option<MpscSender<()>>,
     /// Telemetry writer for RCU events
     telemetry: Option<Arc<TelemetryWriter>>,
+    /// Tenant identifier for telemetry identity
+    tenant_id: Option<String>,
     /// Retry counts for RCU
     retry_counts: TokioMutex<HashMap<u64, u32>>,
+    /// Adapter index for request pinning and draining
+    store: AdapterStore,
 }
 
 impl AdapterTable {
@@ -191,7 +201,9 @@ impl AdapterTable {
             retired_stacks: TokioMutex::new(Vec::new()),
             retirement_sender: None,
             telemetry: None,
+            tenant_id: None,
             retry_counts: TokioMutex::new(HashMap::new()),
+            store: AdapterStore::new(),
         }
     }
 
@@ -208,8 +220,56 @@ impl AdapterTable {
             retired_stacks: TokioMutex::new(Vec::new()),
             retirement_sender: None,
             telemetry: None,
+            tenant_id: None,
             retry_counts: TokioMutex::new(HashMap::new()),
+            store: AdapterStore::new(),
         }
+    }
+
+    fn emit_swap_event(
+        &self,
+        add_ids: &[String],
+        remove_ids: &[String],
+        success: bool,
+        error: Option<String>,
+    ) {
+        let Some(tel) = &self.telemetry else {
+            return;
+        };
+
+        let tenant_id = self
+            .tenant_id
+            .clone()
+            .unwrap_or_else(|| "system".to_string());
+        let identity = IdentityEnvelope::new(
+            tenant_id.clone(),
+            "worker".to_string(),
+            "adapter_swap".to_string(),
+            env!("CARGO_PKG_VERSION").to_string(),
+        );
+
+        let adapters: Vec<String> = add_ids.iter().chain(remove_ids.iter()).cloned().collect();
+
+        let payload = make_health_payload(
+            "adapter_hotswap".to_string(),
+            tenant_id,
+            if success {
+                HealthEventKind::AdapterSwap
+            } else {
+                HealthEventKind::FatalError
+            },
+            None,
+            Some(if success {
+                "swapped".to_string()
+            } else {
+                "failed".to_string()
+            }),
+            None,
+            Some(adapters),
+            error,
+        );
+
+        let _ = tel.log_health_lifecycle(identity, payload);
     }
 
     /// Preload adapter into staging area
@@ -226,6 +286,7 @@ impl AdapterTable {
                         vram_mb,
                         loaded_at: Instant::now(),
                         active: false,
+                        lifecycle: LifecycleState::Loaded,
                     },
                 );
             }
@@ -235,7 +296,7 @@ impl AdapterTable {
         let mut refcounts = self.refcounts.lock().await;
         refcounts
             .entry(id.clone())
-            .or_insert_with(|| AtomicUsize::new(0));
+            .or_insert_with(|| Arc::new(AtomicUsize::new(0)));
         drop(refcounts);
 
         Ok(())
@@ -260,16 +321,19 @@ impl AdapterTable {
             let staged_read = self.staged.read();
             for id in add_ids {
                 if !staged_read.contains_key(id) {
-                    return Err(AosError::Worker(format!(
+                    let err = AosError::Worker(format!(
                         "Adapter {} not found in staged set - aborting swap before any changes",
                         id
-                    )));
+                    ));
+                    self.emit_swap_event(add_ids, remove_ids, false, Some(err.to_string()));
+                    return Err(err);
                 }
             }
         } // Drop staged_read lock
 
         let old_stack = self.current_stack.load(Ordering::Acquire);
         let mut new_active = self.active.read().clone();
+        let old_active_snapshot = new_active.clone();
 
         // Calculate VRAM delta
         let mut vram_delta: i64 = 0;
@@ -289,6 +353,7 @@ impl AdapterTable {
             for id in add_ids {
                 if let Some(mut adapter) = staged_read.get(id).cloned() {
                     adapter.active = true;
+                    adapter.lifecycle = LifecycleState::Active;
                     vram_delta += adapter.vram_mb as i64;
                     new_active.insert(id.clone(), adapter);
                     added_count += 1;
@@ -304,16 +369,20 @@ impl AdapterTable {
                             "UNEXPECTED: Adapter not in staged after validation - rolling back"
                         );
                         self.staged.write().clear();
-                        return Err(AosError::Worker(format!(
+                        let err = AosError::Worker(format!(
                             "Adapter {} disappeared from staged set after validation (possible concurrent modification)",
                             id
-                        )));
+                        ));
+                        self.emit_swap_event(add_ids, remove_ids, false, Some(err.to_string()));
+                        return Err(err);
                     } else {
                         self.staged.write().clear();
-                        return Err(AosError::Worker(format!(
+                        let err = AosError::Worker(format!(
                             "Adapter {} disappeared from staged set and no rollback state available",
                             id
-                        )));
+                        ));
+                        self.emit_swap_event(add_ids, remove_ids, false, Some(err.to_string()));
+                        return Err(err);
                     }
                 }
             }
@@ -324,27 +393,51 @@ impl AdapterTable {
         for name in new_active.keys() {
             refcounts
                 .entry(name.clone())
-                .or_insert_with(|| AtomicUsize::new(0));
+                .or_insert_with(|| Arc::new(AtomicUsize::new(0)));
         }
         drop(refcounts);
 
         let new_gen = old_stack + 1;
-        let _new_stack = Arc::new(Stack {
-            generation: new_gen as u64,
-            active: new_active,
-        });
+        let new_active_snapshot = new_active.clone();
+        {
+            let mut active_guard = self.active.write();
+            *active_guard = new_active;
+        }
 
+        // Update generation pointer
         let old = self.current_stack.swap(new_gen, Ordering::AcqRel);
 
-        // Retire old stack if generation changed
-        if old > new_gen {
+        // Publish new index for request pinning
+        let refcounts_guard = self.refcounts.lock().await;
+        let store_entries: HashMap<String, AdapterRecord> = new_active_snapshot
+            .iter()
+            .map(|(id, state)| {
+                let rc = refcounts_guard
+                    .get(id)
+                    .cloned()
+                    .unwrap_or_else(|| Arc::new(AtomicUsize::new(0)));
+                (
+                    id.clone(),
+                    AdapterRecord {
+                        hash: state.hash,
+                        refcount: rc,
+                    },
+                )
+            })
+            .collect();
+        drop(refcounts_guard);
+        self.store.install(new_gen as u64, store_entries);
+
+        // Retire previous stack if generation changed
+        if old != new_gen {
             let mut retired = self.retired_stacks.lock().await;
             retired.push(Arc::new(Stack {
                 generation: old as u64,
-                active: self.active.read().clone(),
+                active: old_active_snapshot,
             }));
         }
 
+        self.emit_swap_event(add_ids, remove_ids, true, None);
         Ok((vram_delta, added_count))
     }
 
@@ -360,6 +453,11 @@ impl AdapterTable {
         let old = self
             .current_stack
             .swap(rollback_stack.generation as usize, Ordering::AcqRel);
+
+        {
+            let mut active_guard = self.active.write();
+            *active_guard = rollback_stack.active.clone();
+        }
 
         // Retire the previous current stack if generation changed
         if old as u64 > rollback_stack.generation {
@@ -636,6 +734,62 @@ impl AdapterTable {
         }
     }
 
+    /// Wait for referenced adapters to reach refcount 0 before hot-swap
+    ///
+    /// Returns error if the timeout elapses while any adapter is still referenced.
+    pub async fn wait_for_zero_refs(
+        &self,
+        adapter_ids: &[String],
+        timeout: Duration,
+    ) -> Result<()> {
+        let start = Instant::now();
+        let mut logged_wait = false;
+
+        loop {
+            let counts: Vec<(String, usize)> = {
+                let refcounts = self.refcounts.lock().await;
+                adapter_ids
+                    .iter()
+                    .map(|id| {
+                        let count = refcounts
+                            .get(id)
+                            .map(|rc| rc.load(Ordering::Relaxed))
+                            .unwrap_or(0);
+                        (id.clone(), count)
+                    })
+                    .collect()
+            };
+
+            if counts.iter().all(|(_, count)| *count == 0) {
+                return Ok(());
+            }
+
+            if !logged_wait {
+                tracing::info!(
+                    adapter_ids = ?adapter_ids,
+                    refcounts = ?counts,
+                    "Waiting for in-flight sequences to drain before hot-swap"
+                );
+                logged_wait = true;
+            }
+
+            if start.elapsed() >= timeout {
+                tracing::error!(
+                    adapter_ids = ?adapter_ids,
+                    refcounts = ?counts,
+                    timeout_ms = timeout.as_millis(),
+                    "Hot-swap drain timed out; adapters still referenced"
+                );
+                return Err(AosError::Worker(format!(
+                    "Hot-swap blocked: adapters still in use after {:?}: {:?}",
+                    timeout, counts
+                )));
+            }
+
+            sleep(Duration::from_millis(25)).await;
+        }
+    }
+
     /// Process retired stacks for RCU (Reference Count Update)
     ///
     /// This function is designed to be called periodically or when the system
@@ -729,7 +883,7 @@ impl AdapterTable {
                     let mut k_lock = kernels.lock().await;
                     for id in &adapter_ids_for_unload {
                         let id_u16 = adapter_id_to_u16(id);
-                        if let Err(e) = k_lock.unload_adapter(id_u16) {
+                        if let Err(e) = k_lock.detach_adapter(id_u16) {
                             tracing::warn!("Failed to unload adapter {}: {}", id, e);
                             unload_failed = true;
                             break; // Retry next time
@@ -798,7 +952,7 @@ impl AdapterTable {
     }
 
     /// Get access to refcounts for external management
-    pub fn refcounts(&self) -> &TokioMutex<HashMap<String, AtomicUsize>> {
+    pub fn refcounts(&self) -> &TokioMutex<HashMap<String, Arc<AtomicUsize>>> {
         &self.refcounts
     }
 
@@ -810,6 +964,10 @@ impl AdapterTable {
     /// Get access to retired stacks for external management
     pub fn retired_stacks(&self) -> &TokioMutex<Vec<Arc<Stack>>> {
         &self.retired_stacks
+    }
+
+    pub fn store(&self) -> &AdapterStore {
+        &self.store
     }
 }
 
@@ -879,6 +1037,7 @@ where
         let mut table = AdapterTable::new();
         table.retirement_sender = Some(tx);
         table.telemetry = telemetry;
+        table.tenant_id = Some(tenant_id.clone());
         let table_arc = Arc::new(table);
         let table_clone = table_arc.clone();
         let kernels_clone = Some(kernels.clone());
@@ -979,11 +1138,21 @@ where
 
         let result = match command {
             AdapterCommand::Preload { adapter_id, hash } => {
+                // Resolve adapter path relative to tenant root and enforce isolation
+                let adapter_path =
+                    resolve_adapter_file(&self.repo_root, &self.tenant_id, &adapter_id);
+                let tenant_root = self.repo_root.join(&self.tenant_id);
+                if !adapter_path.starts_with(&tenant_root) {
+                    return Err(AosError::IsolationViolation(format!(
+                        "Adapter path {} is outside tenant root {}",
+                        adapter_path.display(),
+                        tenant_root.display()
+                    )));
+                }
+
                 // Load actual adapter weights if kernel backend is available
                 let vram_mb = if let Some(ref kernels) = self.kernels {
                     // Load .aos file (async I/O to avoid blocking executor)
-                    let adapter_path =
-                        resolve_adapter_file(&self.repo_root, &self.tenant_id, &adapter_id);
                     let adapter_bytes = tokio::fs::read(&adapter_path).await.map_err(|e| {
                         AosError::Io(format!(
                             "Failed to read adapter file {}: {}",
@@ -996,12 +1165,21 @@ where
                     let _manifest: serde_json::Value =
                         serde_json::from_slice(file_view.manifest_bytes)
                             .map_err(|e| AosError::Parse(format!("Invalid AOS manifest: {}", e)))?;
+                    // Prefer a CoreML-specific segment when present; fall back to canonical.
                     let canonical_segment = file_view
                         .segments
                         .iter()
-                        .find(|seg| seg.backend_tag == adapteros_aos::BackendTag::Canonical)
+                        .find(|seg| seg.backend_tag == adapteros_aos::BackendTag::Coreml)
+                        .or_else(|| {
+                            file_view
+                                .segments
+                                .iter()
+                                .find(|seg| seg.backend_tag == adapteros_aos::BackendTag::Canonical)
+                        })
                         .ok_or_else(|| {
-                            AosError::Validation("Missing canonical segment".to_string())
+                            AosError::Validation(
+                                "Missing CoreML or canonical segment in adapter bundle".to_string(),
+                            )
                         })?;
 
                     // Extract SafeTensors payload
@@ -1013,6 +1191,8 @@ where
                     // Load weights into GPU
                     let mut kernels_lock = kernels.lock().await;
                     kernels_lock.load_adapter(adapter_id_u16, weights)?;
+                    // CoreML hot-swap path uses explicit attach; other backends no-op.
+                    kernels_lock.attach_adapter(adapter_id_u16)?;
 
                     // Get actual VRAM usage from Metal buffers
                     // This ensures tracking matches real GPU allocation
@@ -1098,6 +1278,13 @@ where
                 add_ids,
                 remove_ids,
             } => {
+                // Ensure no in-flight references to adapters being removed
+                if !remove_ids.is_empty() {
+                    self.table
+                        .wait_for_zero_refs(&remove_ids, Duration::from_secs(2))
+                        .await?;
+                }
+
                 // Unload removed adapters from GPU
                 if let Some(ref kernels) = self.kernels {
                     let mut kernels_lock = kernels.lock().await;
@@ -1107,13 +1294,27 @@ where
                         let adapter_id_u16 = adapter_id_to_u16(remove_id);
 
                         // Unload from GPU (ignoring errors if not loaded)
-                        if let Err(e) = kernels_lock.unload_adapter(adapter_id_u16) {
+                        if let Err(e) = kernels_lock.detach_adapter(adapter_id_u16) {
                             tracing::warn!(
                                 adapter_id = %remove_id,
                                 error = %e,
                                 "Failed to unload adapter from GPU (may not be loaded)"
                             );
                         }
+                    }
+
+                    // If a single adapter is being swapped/added, hint the backend to switch.
+                    if add_ids.len() == 1 {
+                        let add_adapter_u16 = adapter_id_to_u16(&add_ids[0]);
+                        if let Err(e) = kernels_lock.switch_adapter(add_adapter_u16) {
+                            tracing::warn!(
+                                adapter_id = %add_ids[0],
+                                backend_reason = "coreml_switch_adapter_failed",
+                                error = %e,
+                                "Backend switch_adapter hint failed"
+                            );
+                            return Err(e);
+                        };
                     }
 
                     drop(kernels_lock);
@@ -1317,7 +1518,7 @@ where
                             let mut unload_failed = false;
                             for id in stack.active.keys() {
                                 let id_u16 = adapter_id_to_u16(id);
-                                if let Err(e) = k_lock.unload_adapter(id_u16) {
+                                if let Err(e) = k_lock.detach_adapter(id_u16) {
                                     tracing::warn!("Failed to unload adapter {}: {}", id, e);
                                     unload_failed = true;
                                     break; // Retry next time
@@ -1350,6 +1551,14 @@ where
                         }
                     }
                 }
+
+                let drained = manager.table.store().drain_retired();
+                if !drained.is_empty() {
+                    tracing::debug!(
+                        generations = ?drained,
+                        "Drained adapter index generations"
+                    );
+                }
             }
         })
     }
@@ -1361,7 +1570,125 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::generation::Generator;
+    use crate::kvcache::KvCache;
+    use adapteros_core::constants::BYTES_PER_MB;
+    use adapteros_lora_kernel_api::{attestation, IoBuffers, RouterRing};
+    use std::sync::{Arc, Mutex};
     use tempfile::tempdir;
+    use tokio::sync::oneshot;
+    use tokio::time::{sleep, Duration};
+
+    #[derive(Default, Debug)]
+    struct MockKernels {
+        switch_calls: usize,
+        detach_calls: usize,
+    }
+
+    impl adapteros_lora_kernel_api::FusedKernels for MockKernels {
+        fn load(&mut self, _plan_bytes: &[u8]) -> Result<()> {
+            Ok(())
+        }
+
+        fn run_step(&mut self, _ring: &RouterRing, _io: &mut IoBuffers) -> Result<()> {
+            Ok(())
+        }
+
+        fn device_name(&self) -> &str {
+            "mock"
+        }
+
+        fn attest_determinism(&self) -> Result<attestation::DeterminismReport> {
+            Ok(attestation::DeterminismReport {
+                backend_type: attestation::BackendType::Mock,
+                metallib_hash: None,
+                manifest: None,
+                rng_seed_method: attestation::RngSeedingMethod::HkdfSeeded,
+                floating_point_mode: attestation::FloatingPointMode::Deterministic,
+                compiler_flags: vec![],
+                deterministic: true,
+            })
+        }
+
+        fn load_adapter(&mut self, _id: u16, _weights: &[u8]) -> Result<()> {
+            Ok(())
+        }
+
+        fn unload_adapter(&mut self, _id: u16) -> Result<()> {
+            Ok(())
+        }
+
+        fn attach_adapter(&mut self, _id: u16) -> Result<()> {
+            Ok(())
+        }
+
+        fn detach_adapter(&mut self, _id: u16) -> Result<()> {
+            self.detach_calls += 1;
+            Ok(())
+        }
+
+        fn switch_adapter(&mut self, _id: u16) -> Result<()> {
+            self.switch_calls += 1;
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn swap_with_single_add_hints_switch_adapter() {
+        let kernels = Arc::new(tokio::sync::Mutex::new(MockKernels::default()));
+        let repo = tempdir().expect("tempdir");
+        let mut manager = HotSwapManager::new_with_kernels(
+            kernels.clone(),
+            repo.path().to_path_buf(),
+            SYSTEM_TENANT.to_string(),
+            None,
+        );
+
+        let adapter_id = "coreml-hot-swap";
+        let hash = B3Hash::hash(adapter_id.as_bytes());
+        manager
+            .table
+            .preload(adapter_id.to_string(), hash, 10)
+            .await
+            .expect("preload");
+
+        let result = manager
+            .execute(AdapterCommand::Swap {
+                add_ids: vec![adapter_id.to_string()],
+                remove_ids: vec![],
+            })
+            .await;
+
+        assert!(result.is_ok(), "swap should succeed");
+        let guard = kernels.lock().await;
+        assert_eq!(
+            guard.switch_calls, 1,
+            "single-add swaps should call switch_adapter"
+        );
+        assert_eq!(guard.detach_calls, 0);
+    }
+
+    #[tokio::test]
+    async fn lifecycle_moves_loaded_to_active_on_swap() {
+        let table = AdapterTable::new();
+        let hash = B3Hash::hash(b"lifecycle");
+        table
+            .preload("life".to_string(), hash, 12)
+            .await
+            .expect("preload succeeds");
+
+        table
+            .swap(&["life".to_string()], &[])
+            .await
+            .expect("swap succeeds");
+
+        let active = table.get_active();
+        assert_eq!(active.len(), 1);
+        assert_eq!(
+            active[0].lifecycle,
+            crate::lifecycle_state::LifecycleState::Active
+        );
+    }
 
     #[tokio::test]
     async fn test_preload_and_swap() {
@@ -1392,6 +1719,45 @@ mod tests {
         let hash_1 = table.compute_stack_hash();
         let hash_2 = table.compute_stack_hash();
         assert_eq!(hash_1, hash_2);
+    }
+
+    #[tokio::test]
+    async fn swap_is_atomic_for_inflight_snapshot() {
+        let table = AdapterTable::new();
+
+        let hash1 = B3Hash::hash(b"adapter-live");
+        table
+            .preload("adapter-live".to_string(), hash1, 12)
+            .await
+            .expect("preload live");
+        table
+            .swap(&["adapter-live".to_string()], &[])
+            .await
+            .expect("activate live");
+
+        // Hold a snapshot used by an in-flight request
+        let handle_before = table.get_current_stack_handle();
+        assert!(handle_before.active.contains_key("adapter-live"));
+
+        // Stage a new adapter and swap atomically
+        let hash2 = B3Hash::hash(b"adapter-next");
+        table
+            .preload("adapter-next".to_string(), hash2, 8)
+            .await
+            .expect("preload next");
+        table
+            .swap(&["adapter-next".to_string()], &["adapter-live".to_string()])
+            .await
+            .expect("swap next");
+
+        // Snapshot held by in-flight request remains consistent
+        assert!(handle_before.active.contains_key("adapter-live"));
+        assert!(!handle_before.active.contains_key("adapter-next"));
+
+        // New readers see the updated stack
+        let handle_after = table.get_current_stack_handle();
+        assert!(handle_after.active.contains_key("adapter-next"));
+        assert!(!handle_after.active.contains_key("adapter-live"));
     }
 
     #[tokio::test]
@@ -1590,6 +1956,201 @@ mod tests {
             let refcounts = table_arc.refcounts.lock().await;
             assert_eq!(refcounts.get(name).unwrap().load(Ordering::Relaxed), 0);
         }
+    }
+
+    #[tokio::test]
+    async fn wait_for_zero_refs_blocks_until_release() {
+        let table = Arc::new(AdapterTable::new());
+        let h = B3Hash::hash(b"hold");
+        table
+            .preload("hold".to_string(), h, 10)
+            .await
+            .expect("preload should work");
+        table
+            .swap(&["hold".to_string()], &[])
+            .await
+            .expect("swap should work");
+
+        table.inc_ref("hold").await;
+
+        let table_clone = table.clone();
+        let wait_handle = tokio::spawn(async move {
+            table_clone
+                .wait_for_zero_refs(&["hold".to_string()], Duration::from_millis(500))
+                .await
+        });
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        table.dec_ref("hold").await;
+
+        let waited = wait_handle.await.expect("task should run");
+        assert!(
+            waited.is_ok(),
+            "wait_for_zero_refs should succeed after release"
+        );
+    }
+
+    #[tokio::test]
+    async fn wait_for_zero_refs_times_out() {
+        let table = AdapterTable::new();
+        let h = B3Hash::hash(b"timeout");
+        table
+            .preload("timeout".to_string(), h, 10)
+            .await
+            .expect("preload should work");
+        table
+            .swap(&["timeout".to_string()], &[])
+            .await
+            .expect("swap should work");
+
+        table.inc_ref("timeout").await;
+        let result = table
+            .wait_for_zero_refs(&["timeout".to_string()], Duration::from_millis(50))
+            .await;
+        assert!(
+            result.is_err(),
+            "wait_for_zero_refs should time out when refcount held"
+        );
+        table.dec_ref("timeout").await;
+    }
+
+    #[tokio::test]
+    async fn inflight_swap_is_rejected_and_cache_resets_on_generation_bump() {
+        const ADAPTER_ID: &str = "adapter-hotswap-determinism";
+        let hash = B3Hash::hash(ADAPTER_ID.as_bytes());
+
+        let table = Arc::new(AdapterTable::new());
+        table
+            .preload(ADAPTER_ID.to_string(), hash, 10)
+            .await
+            .expect("preload should work");
+        table
+            .swap(&[ADAPTER_ID.to_string()], &[])
+            .await
+            .expect("initial swap should work");
+
+        let kv_cache = Arc::new(Mutex::new(KvCache::new(BYTES_PER_MB)));
+        let seed = b"hotswap-determinism-seed-32bytes!!";
+
+        // Baseline run (establish deterministic token stream)
+        let (baseline_tokens, baseline_reset) =
+            run_stream_for_test(table.clone(), kv_cache.clone(), ADAPTER_ID, None, seed, 6).await;
+        assert!(
+            baseline_reset,
+            "initial coherence check should reset cache from generation 0"
+        );
+
+        // Simulate in-flight inference with a concurrent swap attempt that should be rejected.
+        let infer_table = table.clone();
+        let infer_kv = kv_cache.clone();
+        let (ready_tx, ready_rx) = oneshot::channel();
+        let infer_handle = tokio::spawn(run_stream_for_test(
+            infer_table,
+            infer_kv,
+            ADAPTER_ID,
+            Some(ready_tx),
+            seed,
+            6,
+        ));
+
+        let swap_table = table.clone();
+        let swap_handle = tokio::spawn(async move {
+            ready_rx
+                .await
+                .expect("inference should hold refs before swap");
+            sleep(Duration::from_millis(5)).await;
+            swap_table
+                .wait_for_zero_refs(&[ADAPTER_ID.to_string()], Duration::from_millis(25))
+                .await
+        });
+
+        let (tokens_with_swap, reset_flag) = infer_handle.await.expect("join inference task");
+        let swap_result = swap_handle.await.expect("join swap task");
+
+        assert!(
+            swap_result.is_err(),
+            "swap should be rejected while in-flight refcount is held (maps to 409 ADAPTER_IN_USE)"
+        );
+        assert_eq!(
+            tokens_with_swap, baseline_tokens,
+            "in-flight stream must stay deterministic when swap is deferred"
+        );
+        assert!(
+            !reset_flag,
+            "KV cache should stay coherent when generation has not changed"
+        );
+
+        // After in-flight completes, bump generation with identical content and ensure coherence.
+        table
+            .preload(ADAPTER_ID.to_string(), hash, 10)
+            .await
+            .expect("restage same adapter");
+        table
+            .swap(&[ADAPTER_ID.to_string()], &[ADAPTER_ID.to_string()])
+            .await
+            .expect("self-swap to bump generation should succeed");
+        let (post_tokens, post_reset) =
+            run_stream_for_test(table.clone(), kv_cache.clone(), ADAPTER_ID, None, seed, 6).await;
+        assert!(post_reset, "KV cache must reset on generation change");
+        assert_eq!(
+            post_tokens, baseline_tokens,
+            "same adapter content + seed should remain deterministic across generation bump"
+        );
+    }
+
+    async fn run_stream_for_test(
+        table: Arc<AdapterTable>,
+        kv_cache: Arc<Mutex<KvCache>>,
+        adapter_id: &str,
+        notify_refs_held: Option<oneshot::Sender<()>>,
+        seed: &[u8],
+        steps: usize,
+    ) -> (Vec<u32>, bool) {
+        let handle = table.get_current_stack_handle();
+
+        // Align KV cache with the captured generation (mirrors infer_internal)
+        let reset = {
+            let mut kv_guard = kv_cache.lock().unwrap();
+            kv_guard
+                .ensure_cache_coherence(handle.generation)
+                .expect("coherence check should succeed")
+        };
+
+        {
+            let refcounts = table.refcounts().lock().await;
+            assert!(
+                refcounts.contains_key(adapter_id),
+                "refcount entry must exist before holding references"
+            );
+        }
+
+        // Hold refcounts for active adapters
+        for name in handle.active.keys() {
+            table.inc_ref(name).await;
+        }
+        if let Some(tx) = notify_refs_held {
+            let _ = tx.send(());
+        }
+
+        let mut generator = Generator::new_deterministic(seed, "hotswap-determinism");
+        let logits = vec![0.25_f32; 4];
+        let mut tokens = Vec::new();
+        for step in 0..steps {
+            generator.reseed_for_step(step);
+            tokens.push(
+                generator
+                    .next_token(&logits)
+                    .expect("mock sampling should succeed"),
+            );
+            sleep(Duration::from_millis(50)).await;
+        }
+
+        // Release refcounts
+        for name in handle.active.keys() {
+            table.dec_ref(name).await;
+        }
+
+        (tokens, reset)
     }
 
     #[tokio::test]

@@ -21,6 +21,9 @@ pub fn filter_decision_by_policy(
     adapter_ids: &[String],
     policy: Option<&RoutingPolicy>,
 ) -> Result<Decision> {
+    let policy_mask_digest = decision.policy_mask_digest;
+    let policy_overrides_applied = decision.policy_overrides_applied.clone();
+
     let Some(policy) = policy else {
         return Ok(decision);
     };
@@ -95,6 +98,8 @@ pub fn filter_decision_by_policy(
         entropy: decision.entropy,
         candidates: filtered_candidates,
         decision_hash: decision.decision_hash,
+        policy_mask_digest,
+        policy_overrides_applied,
     })
 }
 
@@ -111,6 +116,8 @@ mod tests {
             entropy: 0.0,
             candidates: Vec::new(),
             decision_hash: None,
+            policy_mask_digest: None,
+            policy_overrides_applied: None,
         }
     }
 

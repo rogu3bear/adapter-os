@@ -15,7 +15,7 @@ use adapteros_core::{
 };
 use adapteros_lora_kernel_api::attestation::BackendType;
 use adapteros_lora_kernel_api::{FusedKernels, IoBuffers};
-use adapteros_lora_router::{AdapterInfo, Router};
+use adapteros_lora_router::{AdapterInfo, PolicyMask, Router};
 use adapteros_policy::{PolicyEngine, QuarantineManager, QuarantineOperation};
 use adapteros_telemetry::events::{
     PerformanceBudgetViolationEvent, RouterCandidate, RouterDecisionEvent,
@@ -569,10 +569,34 @@ impl InferencePipeline {
 
             let (adapter_info, priors) = self.filter_adapters(&adapter_info, &priors)?;
 
+            let adapter_ids: Vec<String> = adapter_info.iter().map(|a| a.id.clone()).collect();
+            let policy_digest_seed = request
+                .routing_policy
+                .as_ref()
+                .and_then(|policy| serde_json::to_vec(policy).ok())
+                .map(|bytes| B3Hash::hash(&bytes));
+            let policy_mask = PolicyMask::build(
+                &adapter_ids,
+                request
+                    .routing_policy
+                    .as_ref()
+                    .and_then(|p| p.allowed_adapter_ids.as_deref()),
+                request
+                    .routing_policy
+                    .as_ref()
+                    .and_then(|p| p.denied_adapter_ids.as_deref()),
+                None,
+                None,
+                policy_digest_seed,
+            );
+
             let router_start = Instant::now();
-            let decision = self
-                .router
-                .route_with_adapter_info(&features, &priors, &adapter_info);
+            let decision = self.router.route_with_adapter_info(
+                &features,
+                &priors,
+                &adapter_info,
+                &policy_mask,
+            );
 
             // Enforce resolved routing policy deterministically before kernels run
             let decision = enforce_routing_policy_on_decision(

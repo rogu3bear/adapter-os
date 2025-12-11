@@ -5,6 +5,7 @@
 //! - AOS 2.0 format: 268-byte header with AOS2 magic
 
 use adapteros_core::{AosError, Result};
+use serde::Deserialize;
 use std::path::PathBuf;
 
 /// AOS 2.0 magic bytes
@@ -27,6 +28,52 @@ pub enum AosFormat {
     Simple,
     /// Not an .aos archive (likely a UTF-8 path)
     NotAos,
+}
+
+/// Minimal view of CoreML training metadata in manifest.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+pub struct CoremlTrainingSection {
+    pub coreml_used: bool,
+    #[serde(default)]
+    pub coreml_device_type: Option<String>,
+    #[serde(default)]
+    pub coreml_precision_mode: Option<String>,
+    #[serde(default)]
+    pub coreml_compile_config_id: Option<String>,
+}
+
+/// Placement section containing CoreML graph placement hints.
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct PlacementSection {
+    #[serde(default)]
+    pub records: Vec<PlacementRecord>,
+}
+
+/// Placement record describing how LoRA maps to CoreML graph targets.
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct PlacementRecord {
+    pub graph_target: String,
+    pub rank: u32,
+    pub direction: String,
+    #[serde(default)]
+    pub alpha_override: Option<f32>,
+}
+
+/// Extract CoreML training and placement metadata from manifest JSON value.
+pub fn read_coreml_sections(
+    manifest: &serde_json::Value,
+) -> (Option<CoremlTrainingSection>, Vec<PlacementRecord>) {
+    let coreml = manifest
+        .get("coreml")
+        .and_then(|v| serde_json::from_value::<CoremlTrainingSection>(v.clone()).ok());
+
+    let placement = manifest
+        .get("placement")
+        .and_then(|v| serde_json::from_value::<PlacementSection>(v.clone()).ok())
+        .map(|p| p.records)
+        .unwrap_or_default();
+
+    (coreml, placement)
 }
 
 /// Detect the format of plan_bytes

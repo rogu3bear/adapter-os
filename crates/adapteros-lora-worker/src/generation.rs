@@ -1,7 +1,7 @@
 //! Token generation loop with sampling strategies
 
 use adapteros_core::{AosError, Result};
-use adapteros_lora_router::AdapterInfo;
+use adapteros_lora_router::{AdapterInfo, PolicyMask};
 use blake3::Hasher;
 use rand::Rng;
 use rand::SeedableRng;
@@ -30,7 +30,8 @@ impl Generator {
             top_p: None,
             base_seed: seed,
             step_counter: 0,
-            deterministic_mode: true,
+            // Default constructor is non-deterministic; use new_deterministic for replayable mode.
+            deterministic_mode: false,
         }
     }
 
@@ -251,7 +252,10 @@ impl Generator {
                     ..Default::default()
                 })
                 .collect();
-            let decision = router.route_with_adapter_info(&features, &priors, &adapter_info);
+            let adapter_ids: Vec<String> = adapter_info.iter().map(|a| a.id.clone()).collect();
+            let policy_mask = PolicyMask::allow_all(&adapter_ids, None);
+            let decision =
+                router.route_with_adapter_info(&features, &priors, &adapter_info, &policy_mask);
 
             // Run inference step
             // Convert Decision to RouterRing
