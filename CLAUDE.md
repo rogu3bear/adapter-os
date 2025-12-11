@@ -51,18 +51,18 @@ cargo sqlx migrate run                   # Apply migrations
 pnpm dev                                 # Dev server
 pnpm build                               # Production build
 pnpm test                                # Vitest tests
+
+# Worker startup e2e
+make e2e-worker-test                     # MLX Qwen 4-bit defaults from .env/.env.local; auto adds multi-backend when backend=mlx
 ```
 
 ---
 
 ## Dev Authentication (Debug Builds Only)
 
-```bash
-# Option 1: Dev Bootstrap (Recommended)
-curl -X POST http://localhost:8080/v1/dev/bootstrap \
-  -H "Content-Type: application/json" \
-  -d '{"email": "dev@local", "password": "dev123"}'
-# Returns JWT token for subsequent requests
+Frontend runs on 3200.
+Backend runs on 8080.
+
 
 # Option 2: No-Auth Bypass
 AOS_DEV_NO_AUTH=1 cargo run --bin adapteros-server
@@ -235,6 +235,9 @@ make prepare                 # Stops services, cleans ports
 lsof -ti:8080 | xargs kill   # Manual port cleanup
 ```
 
+### Env loading
+- `.envrc` auto-exports `.env` + `.env.local` (run `direnv allow` once). Without direnv: `set -a; source .env; source .env.local; set +a`.
+
 ---
 
-MLNavigator Inc 2025-12-07
+MLNavigator Inc 2025-12-09

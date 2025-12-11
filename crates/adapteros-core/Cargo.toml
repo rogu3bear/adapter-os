@@ -43,6 +43,7 @@ schemars-support = ["schemars"]
 sqlx = ["dep:sqlx"]
 utoipa = ["dep:utoipa"]
 async = []
+coreml-backend = []
 
 [dependencies.utoipa]
 version = "5.4"
@@ -56,3 +57,7 @@ path = "src/lib.rs"
 [[bench]]
 name = "hash_benchmarks"
 harness = false
+
+[[test]]
+name = "canonical_bytes_proptest"
+path = "proptest/canonical_bytes.rs"

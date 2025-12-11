@@ -12,6 +12,7 @@ adapteros-manifest = { path = "../adapteros-manifest" }
 adapteros-lora-rag = { path = "../adapteros-lora-rag" }
 adapteros-lora-kernel-api = { path = "../adapteros-lora-kernel-api" }
 adapteros-db = { path = "../adapteros-db" }
+adapteros-api-types = { path = "../adapteros-api-types" }
 adapteros-telemetry = { path = "../adapteros-telemetry" }
 adapteros-telemetry-types = { path = "../adapteros-telemetry-types" }
 hex = { workspace = true }

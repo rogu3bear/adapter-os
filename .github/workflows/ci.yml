@@ -155,6 +155,15 @@ jobs:
           cat kv-verify.json
           jq -e '(.drift == 0) and (.fallback == 0) and (.errors == 0) and (.degraded == false)' kv-verify.json
 
+  determinism:
+    name: Determinism Suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run determinism check
+        run: make determinism-check
+
   security-audit:
     name: Security Audit
     runs-on: ubuntu-latest
@@ -209,3 +218,38 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Build release
         run: cargo build --release --workspace --exclude adapteros-lora-mlx-ffi
+      - name: Install b3sum for provenance hashing
+        run: cargo install b3sum --locked
+      - name: Generate signed SBOM and provenance bundle
+        if: github.event_name != 'pull_request'
+        env:
+          RELEASE_SIGNING_KEY_PEM: ${{ secrets.RELEASE_SIGNING_KEY_PEM }}
+          RELEASE_SIGNING_PUBKEY_HEX: ${{ secrets.RELEASE_SIGNING_PUBKEY_HEX }}
+        run: bash scripts/release/sbom.sh
+      - name: Upload release provenance bundle
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-provenance
+          path: target/release-bundle
+
+  fuzz:
+    name: Fuzz Smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz
+      - name: Seed corpora
+        run: |
+          mkdir -p fuzz/corpus/router_inputs fuzz/corpus/trace_encoding fuzz/corpus/receipt_verification
+          cp -r crates/adapteros-lora-router/fuzz/corpus/router_inputs/. fuzz/corpus/router_inputs/ || true
+          cp -r crates/adapteros-lora-router/fuzz/corpus/trace_encoding/. fuzz/corpus/trace_encoding/ || true
+          cp -r crates/adapteros-lora-router/fuzz/corpus/receipt_verification/. fuzz/corpus/receipt_verification/ || true
+      - name: Run router_inputs fuzz (60s cap)
+        run: cargo fuzz run router_inputs -- -max_total_time=60
+      - name: Run trace_encoding fuzz (60s cap)
+        run: cargo fuzz run trace_encoding -- -max_total_time=60
+      - name: Run receipt_verification fuzz (60s cap)
+        run: cargo fuzz run receipt_verification -- -max_total_time=60

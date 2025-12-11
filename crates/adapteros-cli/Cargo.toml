@@ -103,6 +103,7 @@ multi-backend = ["dep:adapteros-lora-mlx-ffi"]
 secd-support = ["dep:adapteros-secd"]
 tui = ["dep:adapteros-tui"]
 extended-tests = []
+coreml-export = ["adapteros-lora-worker/coreml-backend"]
 
 [dev-dependencies]
 axum = { version = "0.8", features = ["macros", "json"] }

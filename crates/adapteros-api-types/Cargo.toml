@@ -13,5 +13,5 @@ axum = "0.8"
 adapteros-core = { path = "../adapteros-core" }
 adapteros-telemetry-types = { path = "../adapteros-telemetry-types", features = ["utoipa"] }
 # adapteros-orchestrator = { path = "../adapteros-orchestrator" }  # Unused dependency removed
-adapteros-types = { path = "../adapteros-types" }
+adapteros-types = { path = "../adapteros-types", features = ["utoipa"] }
 adapteros-telemetry = { path = "../adapteros-telemetry" }

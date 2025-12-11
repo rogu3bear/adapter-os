@@ -7,7 +7,8 @@ bind = "127.0.0.1"
 production_mode = false
 
 [db]
-path = "var/aos-cp.sqlite3"
+# Use explicit scheme so loader maps to database.url correctly
+path = "sqlite://var/aos-cp.sqlite3"
 storage_mode = "sql_only"
 pool_size = 20
 kv_path = "var/aos-kv.redb"
@@ -29,6 +30,10 @@ adapters_root = "var/adapters"
 plan_dir = "plan"
 datasets_root = "var/datasets"
 documents_root = "var/documents"
+
+[model.cache]
+# Explicit budget required for worker model cache (MB)
+max.mb = 16384
 
 [worker.safety]
 # Timeout configuration
@@ -54,6 +59,12 @@ max_response_time_secs = 60
 max_memory_growth_mb = 100
 max_cpu_time_secs = 300
 max_consecutive_failures = 3
+
+[health.adapter]
+# Drift above this threshold is at least degraded
+drift_hard_threshold = 0.15
+# For high-tier adapters, this threshold blocks promotion
+high_tier_block_threshold = 0.10
 
 # Deadlock detection
 deadlock_check_interval_secs = 5
@@ -81,6 +92,12 @@ enabled = true
 alert_dir = "var/alerts"
 max_alerts_per_file = 10000
 rotate_size_mb = 50
+
+[self_hosting]
+# off | on | safe (safe requires manual promotion)
+mode = "off"
+repo_allowlist = []
+promotion_threshold = 0.0
 
 [logging]
 # Log level filter (supports per-module levels like "aos_cp=debug,tower_http=info")

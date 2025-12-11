@@ -436,6 +436,7 @@ name = "adapteros-db"
 version = "0.1.0"
 dependencies = [
  "adapteros-api-types",
+ "adapteros-artifacts",
  "adapteros-config",
  "adapteros-core",
  "adapteros-crypto",
@@ -448,6 +449,7 @@ dependencies = [
  "base64 0.22.1",
  "bincode",
  "blake3",
+ "chacha20poly1305",
  "chrono",
  "criterion",
  "ed25519-dalek",
@@ -455,6 +457,7 @@ dependencies = [
  "once_cell",
  "rand 0.8.5",
  "rand_chacha 0.3.1",
+ "semver",
  "serde",
  "serde_json",
  "sha2",
@@ -655,12 +658,14 @@ dependencies = [
 name = "adapteros-lora-kernel-coreml"
 version = "0.1.0"
 dependencies = [
+ "adapteros-aos",
  "adapteros-config",
  "adapteros-core",
  "adapteros-lora-kernel-api",
  "adapteros-memory",
  "adapteros-telemetry",
  "adapteros-testing",
+ "adapteros-types",
  "blake3",
  "cc",
  "cocoa",
@@ -839,6 +844,7 @@ dependencies = [
  "adapteros-lora-kernel-api",
  "adapteros-policy",
  "adapteros-telemetry",
+ "adapteros-types",
  "anyhow",
  "bincode",
  "futures",
@@ -879,10 +885,12 @@ dependencies = [
  "adapteros-profiler",
  "adapteros-secure-fs",
  "adapteros-single-file-adapter",
+ "adapteros-storage",
  "adapteros-telemetry",
  "adapteros-types",
  "anyhow",
  "async-trait",
+ "base64 0.21.7",
  "blake3",
  "bytemuck",
  "chrono",
@@ -907,6 +915,7 @@ dependencies = [
  "reqwest 0.12.24",
  "safetensors",
  "serde",
+ "serde_jcs",
  "serde_json",
  "serde_yaml",
  "serial_test",
@@ -923,6 +932,7 @@ dependencies = [
  "tracing-subscriber",
  "ureq",
  "uuid",
+ "walkdir",
  "zeroize",
 ]
 
@@ -931,6 +941,7 @@ name = "adapteros-manifest"
 version = "0.1.0"
 dependencies = [
  "adapteros-core",
+ "adapteros-types",
  "schemars 0.8.22",
  "serde",
  "serde_json",
@@ -1128,6 +1139,7 @@ dependencies = [
 name = "adapteros-policy"
 version = "0.1.0"
 dependencies = [
+ "adapteros-api-types",
  "adapteros-core",
  "adapteros-crypto",
  "adapteros-db",
@@ -1346,6 +1358,7 @@ dependencies = [
  "adapteros-orchestrator",
  "adapteros-policy",
  "adapteros-registry",
+ "adapteros-storage",
  "adapteros-system-metrics",
  "adapteros-telemetry",
  "adapteros-types",
@@ -1487,6 +1500,7 @@ dependencies = [
  "adapteros-types",
  "async-trait",
  "bincode",
+ "bytes",
  "chrono",
  "glob",
  "redb",
@@ -1577,6 +1591,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "adapteros-telemetry-verifier"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "regex",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "adapteros-testing"
 version = "0.1.0"
 dependencies = [
@@ -1650,9 +1675,11 @@ version = "0.1.0"
 dependencies = [
  "blake3",
  "chrono",
+ "schemars 0.8.22",
  "serde",
  "serde_json",
  "sqlx",
+ "utoipa",
  "uuid",
 ]
 
@@ -6068,12 +6095,18 @@ name = "mplora-fuzz"
 version = "0.1.0"
 dependencies = [
  "adapteros-core",
+ "adapteros-db",
+ "adapteros-lora-router",
  "adapteros-manifest",
  "adapteros-policy",
  "adapteros-sbom",
+ "blake3",
  "libfuzzer-sys",
+ "rand 0.8.5",
+ "rand_chacha 0.3.1",
  "serde_json",
  "serde_yaml",
+ "tokio",
 ]
 
 [[package]]

@@ -112,7 +112,7 @@ jobs:
 
   # macOS builds - CoreML backend
   macos-coreml:
-    name: macOS CoreML Backend
+    name: macOS CoreML Backend & Smoke Tests
     runs-on: macos-14  # Requires macOS 13+ for Neural Engine
     steps:
       - uses: actions/checkout@v4
@@ -152,6 +152,17 @@ jobs:
         run: |
           cargo test -p adapteros-lora-kernel-coreml \
             --features ane-optimizations \
+            -- --nocapture
+
+      - name: Run CoreML config mapping tests
+        run: |
+          cargo test -p adapteros-config coreml -- --nocapture
+
+      - name: CoreML stub inference smoke (worker)
+        run: |
+          cargo test -p adapteros-lora-worker \
+            --features coreml-backend \
+            --test coreml_stub_inference \
             -- --nocapture
 
       - name: CoreML perf smoke (tok/s ≥40, p95 <30ms)

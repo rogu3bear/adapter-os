@@ -48,6 +48,8 @@ This assistant can:
 ---
 
 ## 2. Core Principles & Invariants
+Frontend runs on 3200.
+Backend runs on 8080.
 
 ### 2.1 Determinism and Replay
 
@@ -247,6 +249,7 @@ make determinism-check # Determinism test suite
 make check             # fmt + clippy + test
 make metal             # Build Metal shaders
 make security-audit    # Vulnerabilities, licenses, SBOM
+make e2e-worker-test   # Worker startup lifecycle test (MLX Qwen 4-bit defaults from .env/.env.local; auto adds multi-backend when backend=mlx)
 ```
 
 ### 5.2 Database
@@ -266,6 +269,10 @@ cargo test -- --test-threads=1               # Sequential (debugging)
 cargo test -- --nocapture                    # With output
 LOOM_MAX_PREEMPTIONS=3 cargo test test_name  # Concurrency tests
 ```
+
+### 5.4a Environment loading for commands
+
+- `.envrc` auto-exports `.env` and `.env.local` (run `direnv allow` once). Without direnv: `set -a; source .env; source .env.local; set +a`.
 
 ### 5.4 Environment Assumptions
 
@@ -597,4 +604,13 @@ Replay does **NOT** bypass InferenceCore:
 - Routing is deterministic by algorithm (sorted scores, tie-breaking)
 - NOT by RNG seeding
 
-MLNavigator Inc 2025-12-04.
+### Canonical token sets
+
+- trust_state: allowed / allowed_with_warning / needs_approval / blocked / unknown
+- adapter_health: healthy / degraded / unsafe / corrupt
+- backend_policy: auto / coreml_only / coreml_else_fallback
+- preferred_backend: auto / coreml / mlx / metal / cpu
+- training error codes: LINEAGE_REQUIRED / DATASET_TRUST_BLOCKED / DATASET_TRUST_NEEDS_APPROVAL / DATA_SPEC_HASH_MISMATCH
+- Runbook: see `docs/RUNBOOK_TRAINING_LINEAGE_TRUST.md` for operator steps and test references.
+
+MLNavigator Inc Wednesday Dec 10, 2025.

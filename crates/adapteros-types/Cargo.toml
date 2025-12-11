@@ -9,12 +9,15 @@ description = "Core type definitions for AdapterOS (no framework dependencies)"
 
 [features]
 default = []
+utoipa = ["dep:utoipa"]
 
 [dependencies]
 # Serialization (required for API boundaries)
 serde = { workspace = true }
 serde_json = { workspace = true }
 sqlx = { workspace = true, features = ["sqlite"] }
+schemars = { workspace = true }
+utoipa = { workspace = true, optional = true }
 
 # Core types
 chrono = { workspace = true }

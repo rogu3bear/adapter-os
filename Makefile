@@ -161,12 +161,12 @@ validate-openapi: ## Validate OpenAPI documentation
 	./scripts/validate_openapi_docs.sh
 
 determinism-check: ## Run determinism tests
-	cargo test --test determinism_harness -- --test-threads=8 --test-timeout=45
+	cargo test --test determinism_core_suite -- --test-threads=8 --test-timeout=45
 	cargo test -p adapteros-lora-router --test determinism
 
 # For faster runs: PROFILE=release make determinism-check
 ifeq ($(PROFILE),release)
-	cargo test --release --test determinism_harness -- --test-threads=8 --test-timeout=45
+	cargo test --release --test determinism_core_suite -- --test-threads=8 --test-timeout=45
 	cargo test --release -p adapteros-lora-router --test determinism
 endif
 
@@ -191,6 +191,18 @@ kv-verify: ## Run SQL↔KV drift verification (fails on drift, no repair)
 
 dup: ## Check for code duplication (fails on violations)
 	bash scripts/run_jscpd.sh
+
+# E2E worker startup harness (uses MLX 4-bit Qwen defaults from .env)
+E2E_MODEL_PATH ?= ./var/models/Qwen2.5-7B-Instruct-4bit
+E2E_BACKEND ?= mlx
+E2E_UDS ?= ./var/run/aos-e2e.sock
+E2E_MANIFEST ?= manifests/qwen7b-4bit-mlx.yaml
+e2e-worker-test: ## Run aos-worker startup lifecycle test with MLX defaults
+	AOS_E2E_MODEL_PATH=$(E2E_MODEL_PATH) \
+	AOS_E2E_BACKEND=$(E2E_BACKEND) \
+	AOS_E2E_UDS=$(E2E_UDS) \
+	AOS_WORKER_MANIFEST=$(E2E_MANIFEST) \
+	cargo test -p adapteros-lora-worker --test startup_lifecycle -- --nocapture
 
 MLX_PACKAGE ?= adapteros-lora-mlx-ffi
 MLX_FEATURES ?= multi-backend,mlx

@@ -34,6 +34,12 @@ UI_LOG="$LOG_DIR/ui.log"
 MENU_BAR_LOG="$LOG_DIR/menu-bar.log"
 WORKER_LOG="$LOG_DIR/worker.log"
 
+# Canonical dev model (single source of truth)
+DEFAULT_MODEL_DIR="$PROJECT_ROOT/var/models/Qwen2.5-7B-Instruct-4bit"
+DEFAULT_MANIFEST_PATH="$PROJECT_ROOT/manifests/qwen7b-4bit-mlx.yaml"
+# Leave empty so the worker computes the manifest hash from the file by default.
+DEFAULT_MANIFEST_HASH="${DEFAULT_MANIFEST_HASH:-}"
+
 # Worker database tracking
 WORKER_ID_FILE="$PID_DIR/worker.id"
 DATABASE_PATH="${AOS_DATABASE_URL:-sqlite://var/aos-cp.sqlite3}"
@@ -258,10 +264,14 @@ start_backend() {
 
     # Provide a default manifest path in dev so resolve_manifest_path succeeds
     if [ -z "${AOS_MANIFEST_PATH:-}" ]; then
-        local dev_manifest="$PROJECT_ROOT/var/models/Qwen2.5-7B-Instruct-4bit/config.json"
+        local dev_manifest_json="$DEFAULT_MODEL_DIR/config.json"
+        local dev_manifest_yaml="$DEFAULT_MANIFEST_PATH"
         local fixture_manifest="$PROJECT_ROOT/crates/adapteros-server-api/tests/fixtures/mlx/Mistral-7B-Instruct-4bit/config.json"
-        if [ -f "$dev_manifest" ]; then
-            export AOS_MANIFEST_PATH="$dev_manifest"
+
+        if [ -f "$dev_manifest_yaml" ]; then
+            export AOS_MANIFEST_PATH="$dev_manifest_yaml"
+        elif [ -f "$dev_manifest_json" ]; then
+            export AOS_MANIFEST_PATH="$dev_manifest_json"
         elif [ -f "$fixture_manifest" ]; then
             export AOS_MANIFEST_PATH="$fixture_manifest"
         fi
@@ -270,11 +280,11 @@ start_backend() {
     # Fail fast with a clear message when no manifest is available
     local manifest_path="${AOS_MANIFEST_PATH:-}"
     if [ -z "$manifest_path" ]; then
-        error_msg "Manifest path required. Set AOS_MANIFEST_PATH or provide --manifest-path; expected dev manifest at var/models/Qwen2.5-7B-Instruct-4bit/config.json."
+        error_msg "Manifest path required. Set AOS_MANIFEST_PATH or provide --manifest-path; expected dev manifest at $DEFAULT_MANIFEST_PATH."
         return 1
     fi
     if [ ! -f "$manifest_path" ]; then
-        error_msg "Manifest path does not exist: $manifest_path. Provide a valid .json manifest via AOS_MANIFEST_PATH or CLI."
+        error_msg "Manifest path does not exist: $manifest_path. Provide a valid manifest via AOS_MANIFEST_PATH or CLI."
         return 1
     fi
 
@@ -824,8 +834,8 @@ cleanup_stale_workers() {
         return 1
     fi
 
-    # Find workers with status 'starting' or 'serving' but PID no longer exists
-    local stale_workers=$(sqlite3 "$DATABASE_PATH" "SELECT id, pid FROM workers WHERE status IN ('starting', 'serving') AND pid IS NOT NULL;" 2>&1)
+    # Find workers with status created/registered/healthy but PID no longer exists
+    local stale_workers=$(sqlite3 "$DATABASE_PATH" "SELECT id, pid FROM workers WHERE status IN ('created', 'registered', 'healthy') AND pid IS NOT NULL;" 2>&1)
     
     if [ $? -ne 0 ]; then
         warning_msg "Failed to query stale workers: $stale_workers"
@@ -902,9 +912,9 @@ start_worker() {
     fi
 
     # Determine manifest and model paths (default to 32B model)
-    local manifest_path="${AOS_WORKER_MANIFEST:-$PROJECT_ROOT/manifests/qwen32b-coder-mlx.yaml}"
-    local manifest_hash="${AOS_MANIFEST_HASH:-756be0c4434c3fe5e1198fcf417c52a662e7a24d0716dbf12aae6246bea84f9e}"
-    local model_path="${AOS_MODEL_PATH:-$PROJECT_ROOT/var/models/Qwen2.5-7B-Instruct-4bit}"
+    local manifest_path="${AOS_WORKER_MANIFEST:-$DEFAULT_MANIFEST_PATH}"
+    local manifest_hash="${AOS_MANIFEST_HASH:-$DEFAULT_MANIFEST_HASH}"
+    local model_path="${AOS_MODEL_PATH:-$DEFAULT_MODEL_DIR}"
     local uds_path="${AOS_WORKER_SOCKET:-$PROJECT_ROOT/var/run/worker.sock}"
     # Default to MLX; requires worker to be built with multi-backend/MLX features.
     # Override via AOS_MODEL_BACKEND=metal|coreml if MLX is unavailable.

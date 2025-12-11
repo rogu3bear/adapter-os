@@ -18,6 +18,7 @@ adapteros-crypto = { path = "../adapteros-crypto" }
 adapteros-storage = { path = "../adapteros-storage" }
 adapteros-api-types = { path = "../adapteros-api-types" }
 adapteros-types = { path = "../adapteros-types" }
+adapteros-artifacts = { path = "../adapteros-artifacts" }
 
 # Workspace dependencies
 anyhow.workspace = true
@@ -25,6 +26,9 @@ thiserror.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
+
+# Version parsing for semver ordering
+semver = "1.0"
 
 # Database
 sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "macros", "migrate", "chrono", "uuid"] }
@@ -47,6 +51,7 @@ hex = { workspace = true }
 base64 = { workspace = true }
 sha2 = { workspace = true }
 ed25519-dalek = { version = "2.1", features = ["pkcs8"] }
+chacha20poly1305 = "0.10"
 
 # OpenAPI schema generation
 utoipa = { workspace = true, optional = true }

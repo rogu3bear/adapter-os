@@ -1,0 +1,7 @@
+[db]
+path = "sqlite:///tmp/aos-cli-test.db"
+
+[logging]
+level = "info"
+format = "text"
+
