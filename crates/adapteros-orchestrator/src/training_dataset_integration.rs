@@ -105,6 +105,48 @@ impl TrainingDatasetManager {
         }
     }
 
+    /// Load training examples from a specific dataset version (canonical JSONL).
+    ///
+    /// - Validates the dataset version exists and is marked valid.
+    /// - Verifies storage_path hash matches recorded hash_b3.
+    /// - Returns examples, hash, and parent dataset_id.
+    pub async fn load_dataset_version_examples(
+        &self,
+        dataset_version_id: &str,
+    ) -> Result<(Vec<WorkerTrainingExample>, String, String)> {
+        debug!("Loading training dataset version: {}", dataset_version_id);
+
+        let version = self
+            .db
+            .get_training_dataset_version(dataset_version_id)
+            .await?
+            .ok_or_else(|| {
+                AosError::NotFound(format!("Dataset version not found: {}", dataset_version_id))
+            })?;
+
+        if version.validation_status != "valid" {
+            return Err(AosError::Validation(format!(
+                "Dataset version {} is not validated (status: {})",
+                dataset_version_id, version.validation_status
+            )));
+        }
+
+        let storage_path = PathBuf::from(&version.storage_path);
+
+        // Verify file integrity with recorded hash
+        let actual_hash = self.compute_file_hash(&storage_path).await?;
+        if actual_hash != version.hash_b3 {
+            return Err(AosError::Validation(format!(
+                "Dataset version {} hash mismatch: expected {}, got {}",
+                dataset_version_id, version.hash_b3, actual_hash
+            )));
+        }
+
+        let examples = self.load_examples_from_jsonl(&storage_path).await?;
+
+        Ok((examples, actual_hash, version.dataset_id))
+    }
+
     /// Create a training dataset from documents
     pub async fn create_dataset_from_documents(
         &self,
@@ -401,7 +443,13 @@ mod tests {
                 metadata_json TEXT,
                 created_by TEXT,
                 created_at TEXT NOT NULL DEFAULT (datetime('now')),
-                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+                updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+                dataset_type TEXT,
+                purpose TEXT,
+                source_location TEXT,
+                collection_method TEXT,
+                ownership TEXT,
+                tenant_id TEXT
             )",
         )
         .execute(db.pool())

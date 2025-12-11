@@ -226,6 +226,14 @@ impl DatasetGenerator {
                     self.context_window
                 )));
             }
+            if example.target.len() > self.context_window {
+                return Err(AosError::Training(format!(
+                    "Example {} target exceeds context window: {} > {}",
+                    idx,
+                    example.target.len(),
+                    self.context_window
+                )));
+            }
         }
 
         Ok(())
@@ -297,6 +305,19 @@ mod tests {
     fn test_validate_empty_examples() {
         let gen = DatasetGenerator::default();
         let examples: Vec<TrainingExample> = vec![];
+
+        assert!(gen.validate_examples(&examples).is_err());
+    }
+
+    #[test]
+    fn test_validate_target_over_context() {
+        let gen = DatasetGenerator::new(4, 1);
+        let examples = vec![TrainingExample {
+            input: vec![1, 2],
+            target: vec![1, 2, 3, 4, 5],
+            metadata: HashMap::new(),
+            weight: 1.0,
+        }];
 
         assert!(gen.validate_examples(&examples).is_err());
     }

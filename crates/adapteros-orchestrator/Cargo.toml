@@ -8,6 +8,7 @@ license = "MIT OR Apache-2.0"
 [features]
 default = []
 deterministic-only = []
+coreml-backend = ["adapteros-lora-worker/coreml-backend"]
 
 [dependencies]
 # Core

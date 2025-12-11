@@ -8,13 +8,25 @@ use adapteros_aos::{AosWriter, BackendTag};
 use adapteros_core::{AosError, RepoAdapterPaths, Result};
 use adapteros_crypto::Keypair;
 use adapteros_lora_router::ROUTER_GATE_Q15_DENOM;
+use adapteros_storage::{ByteStorage, FsByteStorage, StorageKey, StorageKind};
+use adapteros_types::coreml::{
+    CoreMLOpKind, CoreMLPlacementBinding, CoreMLPlacementShape, CoreMLPlacementSpec,
+    CoreMLProjection, CoreMLTargetRef,
+};
 use adapteros_types::training::LoraTier;
+use chrono::Utc;
 use safetensors::tensor::TensorView;
 use safetensors::SafeTensors;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::fs::OpenOptions;
+use std::io::Write;
 use std::path::{Path, PathBuf};
-use tracing::info;
+use tracing::{info, warn};
+use walkdir::WalkDir;
+
+const DEFAULT_ARTIFACT_HARD_QUOTA_BYTES: u64 = 10 * 1024 * 1024 * 1024; // 10 GiB
+const DEFAULT_ARTIFACT_SOFT_PCT: f64 = 0.8;
 
 /// Adapter packager.
 /// Adapter-only invariant: only LoRA deltas are ever exported; base model
@@ -39,6 +51,8 @@ pub struct AdapterManifest {
     pub version: String,
     pub rank: usize,
     pub base_model: String,
+    #[serde(default)]
+    pub base_model_hash: Option<String>,
     pub training_config: TrainingConfig,
     pub created_at: String,
     pub weights_hash: String,
@@ -62,8 +76,31 @@ pub struct AdapterManifest {
     pub quantization: Option<String>,
     #[serde(default)]
     pub gate_q15_denominator: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub coreml: Option<CoremlTrainingMetadata>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub placement: Option<AdapterPlacement>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub coreml_placement: Option<CoremlPlacementSpec>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub training_backend_details: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dataset_version_ids: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data_spec_hash: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data_lineage_mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub synthetic_mode: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub training_slice_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backend_policy: Option<String>,
     pub metadata: std::collections::HashMap<String, String>,
 }
+
+/// Placement specification for CoreML fusion/attach (canonical type).
+pub type CoremlPlacementSpec = CoreMLPlacementSpec;
 
 /// Per-layer hash entry keyed by canonical logical layer path
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -71,6 +108,35 @@ pub struct LayerHash {
     pub hash: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tensor_name: Option<String>,
+}
+
+/// CoreML-specific training metadata captured at packaging time.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CoremlTrainingMetadata {
+    pub coreml_used: bool,
+    #[serde(default)]
+    pub coreml_device_type: Option<String>,
+    #[serde(default)]
+    pub coreml_precision_mode: Option<String>,
+    #[serde(default)]
+    pub coreml_compile_config_id: Option<String>,
+}
+
+/// Placement metadata describing how adapters map onto CoreML graph targets.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AdapterPlacement {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub records: Vec<PlacementRecord>,
+}
+
+/// Individual placement record for CoreML graph targets.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlacementRecord {
+    pub graph_target: String,
+    pub rank: u32,
+    pub direction: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alpha_override: Option<f32>,
 }
 
 fn default_determinism_mode() -> String {
@@ -111,6 +177,195 @@ fn default_strength_for_tier(tier: Option<LoraTier>) -> Option<f32> {
     }
 }
 
+fn canonicalize_backend_label(raw: &str) -> String {
+    let lower = raw.trim().to_ascii_lowercase();
+    if lower.contains("coreml") {
+        "coreml".to_string()
+    } else if lower.contains("mlx") {
+        "mlx".to_string()
+    } else if lower.contains("metal") {
+        "metal".to_string()
+    } else if lower.contains("cpu") {
+        "cpu".to_string()
+    } else {
+        lower
+    }
+}
+
+fn is_valid_graph_target(target: &str) -> bool {
+    !target.trim().is_empty()
+        && target.len() <= 256
+        && target
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | '/'))
+}
+
+fn infer_op_kind_from_target(target: &str) -> CoreMLOpKind {
+    let lower = target.to_ascii_lowercase();
+    if lower.contains("q_proj") || lower.contains(".q_proj") || lower.contains("query") {
+        CoreMLOpKind::AttentionQ
+    } else if lower.contains("k_proj") || lower.contains(".k_proj") || lower.contains("key") {
+        CoreMLOpKind::AttentionK
+    } else if lower.contains("v_proj") || lower.contains(".v_proj") || lower.contains("value") {
+        CoreMLOpKind::AttentionV
+    } else if lower.contains("o_proj") || lower.contains(".o_proj") || lower.contains("out_proj") {
+        CoreMLOpKind::AttentionO
+    } else if lower.contains("gate") {
+        CoreMLOpKind::MlpGate
+    } else if lower.contains("up_proj") {
+        CoreMLOpKind::MlpUp
+    } else if lower.contains("down_proj") {
+        CoreMLOpKind::MlpDown
+    } else {
+        CoreMLOpKind::AttentionO
+    }
+}
+
+impl AdapterManifest {
+    fn validate(&self) -> Result<()> {
+        if let Some(coreml) = &self.coreml {
+            if coreml.coreml_used {
+                let backend = self
+                    .training_backend
+                    .as_deref()
+                    .or(self.training_backend_details.as_deref())
+                    .unwrap_or_default()
+                    .to_ascii_lowercase();
+                if !backend.contains("coreml") {
+                    return Err(AosError::InvalidManifest(
+                        "coreml_used requires training_backend coreml".to_string(),
+                    ));
+                }
+            }
+
+            if let Some(device) = &coreml.coreml_device_type {
+                let device_lc = device.to_ascii_lowercase();
+                if !matches!(device_lc.as_str(), "ane" | "gpu" | "cpu" | "unknown") {
+                    return Err(AosError::InvalidManifest(format!(
+                        "Invalid coreml_device_type: {}",
+                        device
+                    )));
+                }
+            }
+        }
+
+        let synthetic_mode = self
+            .metadata
+            .get("synthetic_mode")
+            .map(|v| v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false);
+        let lineage_mode = self
+            .metadata
+            .get("data_lineage_mode")
+            .map(|s| s.as_str())
+            .unwrap_or("versioned");
+        let dataset_ids_present = self
+            .dataset_version_ids
+            .as_ref()
+            .map(|ids| !ids.is_empty())
+            .unwrap_or(false);
+
+        // #region agent log
+        if let Ok(mut f) = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open("/Users/mln-dev/Dev/adapter-os/.cursor/debug.log")
+        {
+            let _ = writeln!(
+                f,
+                r#"{{"sessionId":"debug-session","runId":"pre-fix","hypothesisId":"H2","location":"training/packager.rs:lineage_mode","message":"evaluated lineage mode","data":{{"lineage_mode":"{}","dataset_ids_present":{}}},"timestamp":{}}}"#,
+                lineage_mode,
+                dataset_ids_present,
+                Utc::now().timestamp_millis()
+            );
+        }
+        // #endregion
+
+        if !synthetic_mode {
+            if let Some(ids) = &self.dataset_version_ids {
+                if ids.is_empty() {
+                    return Err(AosError::InvalidManifest(
+                        "dataset_version_ids cannot be empty".to_string(),
+                    ));
+                }
+            }
+
+            if !dataset_ids_present && lineage_mode != "legacy_unpinned" {
+                return Err(AosError::InvalidManifest(
+                    "dataset_version_ids required unless synthetic_mode=true or lineage_mode=legacy_unpinned"
+                        .to_string(),
+                ));
+            }
+
+            if dataset_ids_present && self.data_spec_hash.is_none() {
+                return Err(AosError::InvalidManifest(
+                    "data_spec_hash is required when dataset_version_ids are present".to_string(),
+                ));
+            }
+        }
+
+        if let Some(placement) = &self.placement {
+            for record in &placement.records {
+                if record.rank == 0 {
+                    return Err(AosError::InvalidManifest(
+                        "Placement record rank must be > 0".to_string(),
+                    ));
+                }
+
+                if !is_valid_graph_target(&record.graph_target) {
+                    return Err(AosError::InvalidManifest(format!(
+                        "Invalid placement graph_target: {}",
+                        record.graph_target
+                    )));
+                }
+
+                if record.direction.trim().is_empty() {
+                    return Err(AosError::InvalidManifest(
+                        "Placement direction must be non-empty".to_string(),
+                    ));
+                }
+
+                if let Some(alpha) = record.alpha_override {
+                    if alpha <= 0.0 {
+                        return Err(AosError::InvalidManifest(
+                            "Placement alpha_override must be positive".to_string(),
+                        ));
+                    }
+                }
+            }
+        }
+
+        if let Some(spec) = &self.coreml_placement {
+            if spec.version == 0 {
+                return Err(AosError::InvalidManifest(
+                    "coreml_placement.version must be > 0".to_string(),
+                ));
+            }
+            for binding in &spec.bindings {
+                if binding.rank == 0 {
+                    return Err(AosError::InvalidManifest(format!(
+                        "coreml_placement binding {} has rank 0",
+                        binding.binding_id
+                    )));
+                }
+                if binding.shape.input_dim == 0 || binding.shape.output_dim == 0 {
+                    return Err(AosError::InvalidManifest(format!(
+                        "coreml_placement binding {} has zero-dimension shape",
+                        binding.binding_id
+                    )));
+                }
+                if binding.target.layer.trim().is_empty() {
+                    return Err(AosError::InvalidManifest(
+                        "coreml_placement binding missing target layer".to_string(),
+                    ));
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
+
 impl AdapterPackager {
     /// Create a new packager with output directory
     pub fn new<P: AsRef<Path>>(output_dir: P) -> Self {
@@ -141,6 +396,62 @@ impl AdapterPackager {
         }
     }
 
+    fn artifact_quota_limits() -> (u64, u64) {
+        let hard = std::env::var("AOS_ARTIFACT_HARD_QUOTA_BYTES")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(DEFAULT_ARTIFACT_HARD_QUOTA_BYTES);
+        let soft = std::env::var("AOS_ARTIFACT_SOFT_QUOTA_BYTES")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or((hard as f64 * DEFAULT_ARTIFACT_SOFT_PCT) as u64);
+        (soft, hard)
+    }
+
+    async fn current_artifact_usage(&self, tenant_id: &str) -> Result<u64> {
+        let tenant_dir = self.repo_root.join(tenant_id);
+        if !tenant_dir.exists() {
+            return Ok(0);
+        }
+        let mut total: u64 = 0;
+        for entry in WalkDir::new(&tenant_dir)
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().is_file())
+        {
+            let path = entry.path();
+            if let Some(ext) = path.extension() {
+                if ext == "aos" {
+                    if let Ok(meta) = tokio::fs::metadata(path).await {
+                        total = total.saturating_add(meta.len());
+                    }
+                }
+            }
+        }
+        Ok(total)
+    }
+
+    async fn enforce_artifact_quota(&self, tenant_id: &str, incoming_bytes: u64) -> Result<()> {
+        let (soft, hard) = Self::artifact_quota_limits();
+        let current = self.current_artifact_usage(tenant_id).await?;
+        let predicted = current.saturating_add(incoming_bytes);
+        if predicted > hard {
+            return Err(AosError::Training(format!(
+                "Artifact storage quota exceeded for tenant {}: {} > {} bytes",
+                tenant_id, predicted, hard
+            )));
+        }
+        if predicted > soft {
+            warn!(
+                tenant_id = %tenant_id,
+                predicted,
+                soft,
+                "Artifact storage soft quota exceeded"
+            );
+        }
+        Ok(())
+    }
+
     /// Enrich metadata with deterministic defaults and backend/quantization hints.
     fn build_manifest_metadata(
         metadata: HashMap<String, String>,
@@ -165,30 +476,43 @@ impl AdapterPackager {
             .or_insert_with(default_determinism_mode)
             .clone();
 
-        // Prefer caller-provided backend, otherwise derive from config preference
-        let training_backend = config
-            .preferred_backend
-            .map(|b| b.tag().to_string())
-            .or_else(|| manifest_metadata.get("training_backend").cloned());
+        // Prefer caller-provided backend (actual executed), otherwise derive from config preference
+        let training_backend = manifest_metadata
+            .get("training_backend")
+            .cloned()
+            .or_else(|| config.preferred_backend.map(|b| b.tag().to_string()))
+            .map(|b| canonicalize_backend_label(&b));
 
         if let Some(ref backend) = training_backend {
-            manifest_metadata
-                .entry("training_backend".to_string())
-                .or_insert_with(|| backend.clone());
+            manifest_metadata.insert("training_backend".to_string(), backend.clone());
         }
 
+        // Hierarchical adapter metadata: derive when missing or placeholder.
+        // domain <- category (adapter type), group <- scope (project/tenant), operation <- adapter_name/action.
         let domain = manifest_metadata
-            .entry("domain".to_string())
-            .or_insert_with(|| "unspecified".to_string())
-            .clone();
+            .get("domain")
+            .filter(|v| v != &&"unspecified".to_string())
+            .cloned()
+            .or_else(|| manifest_metadata.get("category").cloned())
+            .unwrap_or_else(|| "unspecified".to_string());
+        manifest_metadata.insert("domain".to_string(), domain.clone());
+
         let group = manifest_metadata
-            .entry("group".to_string())
-            .or_insert_with(|| "unspecified".to_string())
-            .clone();
+            .get("group")
+            .filter(|v| v != &&"unspecified".to_string())
+            .cloned()
+            .or_else(|| manifest_metadata.get("scope").cloned())
+            .unwrap_or_else(|| "unspecified".to_string());
+        manifest_metadata.insert("group".to_string(), group.clone());
+
         let operation = manifest_metadata
-            .entry("operation".to_string())
-            .or_insert_with(|| "unspecified".to_string())
-            .clone();
+            .get("operation")
+            .filter(|v| v != &&"unspecified".to_string())
+            .cloned()
+            .or_else(|| manifest_metadata.get("adapter_name").cloned())
+            .or_else(|| manifest_metadata.get("training_action").cloned())
+            .unwrap_or_else(|| "unspecified".to_string());
+        manifest_metadata.insert("operation".to_string(), operation.clone());
 
         let scope_path = format!("{}/{}/{}/{}", domain, group, scope, operation);
         manifest_metadata
@@ -198,12 +522,284 @@ impl AdapterPackager {
         (manifest_metadata, training_backend, determinism, scope_path)
     }
 
+    fn validate_quantized_shapes(
+        weights: &QuantizedLoRAWeights,
+        config: &TrainingConfig,
+    ) -> Result<(usize, usize, usize, usize)> {
+        let a_rows = weights.lora_a_q15.len();
+        let a_cols = weights
+            .lora_a_q15
+            .first()
+            .map(|r| r.len())
+            .unwrap_or_default();
+        let b_rows = weights.lora_b_q15.len();
+        let b_cols = weights
+            .lora_b_q15
+            .first()
+            .map(|r| r.len())
+            .unwrap_or_default();
+
+        if a_rows == 0 || a_cols == 0 || b_rows == 0 || b_cols == 0 {
+            return Err(AosError::Validation(
+                "Quantized weights are empty; aborting packaging".to_string(),
+            ));
+        }
+
+        if a_rows != config.rank || b_cols != config.rank {
+            return Err(AosError::Validation(format!(
+                "LoRA rank mismatch for CoreML placement: expected {}, got A rows {} / B cols {}",
+                config.rank, a_rows, b_cols
+            )));
+        }
+
+        if a_cols != config.hidden_dim || b_rows != config.hidden_dim {
+            return Err(AosError::Validation(format!(
+                "Hidden dimension mismatch for CoreML placement: expected {}, got A cols {} / B rows {}",
+                config.hidden_dim, a_cols, b_rows
+            )));
+        }
+
+        Ok((a_rows, a_cols, b_rows, b_cols))
+    }
+
+    fn parse_coreml_placement_from_metadata(
+        metadata: &HashMap<String, String>,
+    ) -> Result<Option<CoremlPlacementSpec>> {
+        if let Some(raw) = metadata.get("coreml_placement") {
+            let spec: CoremlPlacementSpec = serde_json::from_str(raw).map_err(|e| {
+                AosError::Validation(format!("Invalid CoreML placement spec JSON: {}", e))
+            })?;
+            return Ok(Some(spec));
+        }
+        Ok(None)
+    }
+
+    fn default_coreml_placement_spec(
+        modules: &[&str],
+        rank: usize,
+        hidden_dim: usize,
+    ) -> CoremlPlacementSpec {
+        CoremlPlacementSpec {
+            version: 1,
+            graph_id: Some("coreml-default".to_string()),
+            bindings: modules
+                .iter()
+                .map(|m| CoreMLPlacementBinding {
+                    binding_id: m.to_string(),
+                    target: CoreMLTargetRef {
+                        layer: m.to_string(),
+                        op_kind: infer_op_kind_from_target(m),
+                        path_hint: None,
+                    },
+                    projection: CoreMLProjection::InputToHidden,
+                    rank: rank as u32,
+                    alpha: None,
+                    scale: None,
+                    gating: None,
+                    shape: CoreMLPlacementShape {
+                        input_dim: hidden_dim as u32,
+                        output_dim: hidden_dim as u32,
+                    },
+                })
+                .collect(),
+        }
+    }
+
+    fn validate_coreml_placement_spec(
+        spec: &CoremlPlacementSpec,
+        modules: &[&str],
+        rank: usize,
+        hidden_dim: usize,
+    ) -> Result<()> {
+        if spec.version == 0 {
+            return Err(AosError::Validation(
+                "CoreML placement spec version must be > 0".to_string(),
+            ));
+        }
+        if spec.bindings.is_empty() {
+            return Err(AosError::Validation(
+                "CoreML placement spec must include at least one entry".to_string(),
+            ));
+        }
+
+        let mut seen = HashSet::new();
+        let allowed: HashSet<String> = modules.iter().map(|m| m.to_string()).collect();
+
+        for binding in &spec.bindings {
+            if !seen.insert(binding.binding_id.clone()) {
+                return Err(AosError::Validation(format!(
+                    "Duplicate CoreML placement target '{}'",
+                    binding.binding_id
+                )));
+            }
+
+            if !allowed.contains(&binding.target.layer) {
+                return Err(AosError::Validation(format!(
+                    "Unknown CoreML placement target '{}' (expected one of {:?})",
+                    binding.target.layer, modules
+                )));
+            }
+
+            if binding.rank as usize != rank {
+                return Err(AosError::Validation(format!(
+                    "CoreML placement rank mismatch for '{}': expected {}, got {}",
+                    binding.binding_id, rank, binding.rank
+                )));
+            }
+            if binding.shape.input_dim != hidden_dim as u32
+                || binding.shape.output_dim != hidden_dim as u32
+            {
+                return Err(AosError::Validation(format!(
+                    "CoreML placement shape mismatch for '{}': expected {}x{}, got {}x{}",
+                    binding.binding_id,
+                    hidden_dim,
+                    hidden_dim,
+                    binding.shape.output_dim,
+                    binding.shape.input_dim
+                )));
+            }
+        }
+
+        Ok(())
+    }
+
+    fn resolve_coreml_placement_spec(
+        metadata: &HashMap<String, String>,
+        modules: &[&str],
+        rank: usize,
+        hidden_dim: usize,
+    ) -> Result<CoremlPlacementSpec> {
+        if let Some(spec) = Self::parse_coreml_placement_from_metadata(metadata)? {
+            Self::validate_coreml_placement_spec(&spec, modules, rank, hidden_dim)?;
+            return Ok(spec);
+        }
+
+        let spec = Self::default_coreml_placement_spec(modules, rank, hidden_dim);
+        Self::validate_coreml_placement_spec(&spec, modules, rank, hidden_dim)?;
+        Ok(spec)
+    }
+
+    fn build_coreml_sections(
+        metadata: &HashMap<String, String>,
+        training_backend: Option<&str>,
+        rank: usize,
+    ) -> Result<(
+        Option<CoremlTrainingMetadata>,
+        Option<AdapterPlacement>,
+        Option<String>,
+    )> {
+        let mut training_backend_details = metadata
+            .get("training_backend_details")
+            .cloned()
+            .or_else(|| training_backend.map(|b| format!("{b}_train")));
+
+        let coreml_requested = metadata
+            .get("coreml_used")
+            .and_then(|v| v.parse::<bool>().ok())
+            .unwrap_or(false)
+            || matches!(training_backend, Some("coreml"));
+
+        let coreml_metadata = if coreml_requested {
+            if training_backend.is_none() && training_backend_details.is_none() {
+                training_backend_details = Some("coreml_train".to_string());
+            }
+            let device_type = metadata
+                .get("coreml_device_type")
+                .or_else(|| metadata.get("coreml_device"))
+                .cloned()
+                .or_else(|| {
+                    training_backend.map(|b| {
+                        if b == "coreml" {
+                            "ane".to_string()
+                        } else {
+                            "unknown".to_string()
+                        }
+                    })
+                })
+                .unwrap_or_else(|| "unknown".to_string());
+
+            Some(CoremlTrainingMetadata {
+                coreml_used: true,
+                coreml_device_type: Some(device_type.to_ascii_lowercase()),
+                coreml_precision_mode: metadata.get("coreml_precision_mode").cloned(),
+                coreml_compile_config_id: metadata.get("coreml_compile_config_id").cloned(),
+            })
+        } else {
+            None
+        };
+
+        let placement_records = if let Some(raw) = metadata.get("coreml_placement_records") {
+            let parsed: Vec<PlacementRecord> = serde_json::from_str(raw).map_err(|e| {
+                AosError::InvalidManifest(format!(
+                    "coreml_placement_records is not valid JSON array: {}",
+                    e
+                ))
+            })?;
+            Some(parsed)
+        } else if let Some(target) = metadata.get("coreml_graph_target") {
+            let direction = metadata
+                .get("coreml_projection")
+                .cloned()
+                .unwrap_or_else(|| "projection".to_string());
+            let alpha_override = metadata
+                .get("coreml_alpha_override")
+                .and_then(|v| v.parse::<f32>().ok());
+            Some(vec![PlacementRecord {
+                graph_target: target.clone(),
+                rank: rank as u32,
+                direction,
+                alpha_override,
+            }])
+        } else {
+            None
+        };
+
+        let placement = placement_records.and_then(|records| {
+            if records.is_empty() {
+                None
+            } else {
+                Some(AdapterPlacement { records })
+            }
+        });
+
+        Ok((coreml_metadata, placement, training_backend_details))
+    }
+
     fn adapter_dir(
         &self,
         tenant_id: &str,
         adapter_id: &str,
     ) -> std::result::Result<PathBuf, adapteros_core::ResolveError> {
         adapteros_core::adapter_fs_path_with_root(&self.repo_root, tenant_id, adapter_id)
+    }
+
+    async fn artifact_usage_for_tenant(&self, tenant_id: &str) -> Result<u64> {
+        let root = self.repo_root.join(tenant_id);
+        Self::dir_size(&root).await
+    }
+
+    async fn dir_size(root: &Path) -> Result<u64> {
+        let mut total: u64 = 0;
+        let mut stack = vec![root.to_path_buf()];
+        while let Some(dir) = stack.pop() {
+            let mut entries = tokio::fs::read_dir(&dir).await.map_err(|e| {
+                AosError::Io(format!("Failed to read dir {}: {}", dir.display(), e))
+            })?;
+            while let Some(entry) = entries.next_entry().await.map_err(|e| {
+                AosError::Io(format!("Failed to read dir entry {}: {}", dir.display(), e))
+            })? {
+                let path = entry.path();
+                let meta = entry.metadata().await.map_err(|e| {
+                    AosError::Io(format!("Failed to stat {}: {}", path.display(), e))
+                })?;
+                if meta.is_dir() {
+                    stack.push(path);
+                } else {
+                    total = total.saturating_add(meta.len());
+                }
+            }
+        }
+        Ok(total)
     }
 
     /// Package adapter with weights and manifest
@@ -256,6 +852,12 @@ impl AdapterPackager {
         let hash_b3 = blake3::hash(&weights_bytes).to_hex().to_string();
         let per_layer_hashes = Self::compute_per_layer_hashes_from_bytes(&weights_bytes)?;
 
+        let modules = ["q_proj", "k_proj", "v_proj", "o_proj"];
+        let (rank, hidden_dim, _, _) = Self::validate_quantized_shapes(weights, config)?;
+        let coreml_placement =
+            Self::resolve_coreml_placement_spec(&metadata, &modules, rank, hidden_dim)?;
+        let base_model_hash = metadata.get("base_model_hash").cloned();
+
         let scope_value = metadata.get("scope").cloned().unwrap_or_else(default_scope);
         let (metadata, training_backend, determinism, _scope_path) =
             Self::build_manifest_metadata(metadata, config, &scope_value);
@@ -269,12 +871,47 @@ impl AdapterPackager {
             .cloned()
             .unwrap_or_else(default_category);
         let tier = metadata.get("tier").cloned().unwrap_or_else(default_tier);
+        let (coreml, placement, training_backend_details) =
+            Self::build_coreml_sections(&metadata, training_backend.as_deref(), config.rank)?;
+
+        let dataset_version_ids = metadata.get("dataset_version_ids").and_then(|raw| {
+            serde_json::from_str::<serde_json::Value>(raw)
+                .ok()
+                .and_then(|val| {
+                    let arr = val.as_array()?;
+                    let ids: Vec<String> = arr
+                        .iter()
+                        .filter_map(|v| {
+                            if let Some(id) = v.get("dataset_version_id").and_then(|s| s.as_str()) {
+                                Some(id.to_string())
+                            } else if let Some(s) = v.as_str() {
+                                Some(s.to_string())
+                            } else {
+                                None
+                            }
+                        })
+                        .collect();
+                    if ids.is_empty() {
+                        None
+                    } else {
+                        Some(ids)
+                    }
+                })
+        });
+        let data_spec_hash = metadata.get("data_spec_hash").cloned();
+        let training_slice_id = metadata.get("training_slice_id").cloned();
+        let backend_policy = metadata.get("backend_policy").cloned();
+        let data_lineage_mode = metadata.get("data_lineage_mode").cloned();
+        let synthetic_mode = metadata
+            .get("synthetic_mode")
+            .map(|v| v == "true" || v == "1");
 
         // Create manifest
         let manifest = AdapterManifest {
             version: "1.0.0".to_string(),
             rank: config.rank,
             base_model: base_model.to_string(),
+            base_model_hash,
             training_config: config.clone(),
             created_at: chrono::Utc::now().to_rfc3339(),
             weights_hash: hash_b3.clone(),
@@ -283,13 +920,25 @@ impl AdapterPackager {
             per_layer_hashes: Some(per_layer_hashes),
             training_backend,
             determinism,
+            coreml_placement: Some(coreml_placement.clone()),
             lora_tier,
             lora_strength,
             scope: scope_value,
             quantization: Some("q15".to_string()),
             gate_q15_denominator: Some(ROUTER_GATE_Q15_DENOM as u32),
+            coreml,
+            placement,
+            training_backend_details,
+            dataset_version_ids,
+            data_spec_hash,
+            data_lineage_mode,
+            synthetic_mode,
+            training_slice_id,
+            backend_policy,
             metadata,
         };
+
+        manifest.validate()?;
 
         // Serialize manifest once for deterministic signing
         let manifest_bytes = serde_json::to_vec_pretty(&manifest)
@@ -371,13 +1020,23 @@ impl AdapterPackager {
         tokio::fs::create_dir_all(&adapter_dir).await.map_err(|e| {
             AosError::Training(format!("Failed to create adapter directory: {}", e))
         })?;
+        let storage = FsByteStorage::new(PathBuf::from("var/datasets"), self.repo_root.clone());
 
         // Serialize weights to in-memory safetensors buffer (matches loader expectations)
         let weights_data = Self::build_safetensors_bytes(weights)?;
+        let estimate_bytes = weights_data.len() as u64;
+        self.enforce_artifact_quota(tenant_id, estimate_bytes)
+            .await?;
 
         // Compute BLAKE3 hash of weights and per-layer hashes
         let hash_b3 = blake3::hash(&weights_data).to_hex().to_string();
         let per_layer_hashes = Self::compute_per_layer_hashes_from_bytes(&weights_data)?;
+
+        let modules = ["q_proj", "k_proj", "v_proj", "o_proj"];
+        let (rank, hidden_dim, _, _) = Self::validate_quantized_shapes(weights, config)?;
+        let coreml_placement =
+            Self::resolve_coreml_placement_spec(&metadata, &modules, rank, hidden_dim)?;
+        let base_model_hash = metadata.get("base_model_hash").cloned();
 
         let scope_value = metadata.get("scope").cloned().unwrap_or_else(default_scope);
         let (metadata, training_backend, determinism, scope_path) =
@@ -392,12 +1051,46 @@ impl AdapterPackager {
             .cloned()
             .unwrap_or_else(default_category);
         let tier = metadata.get("tier").cloned().unwrap_or_else(default_tier);
+        let (coreml, placement, training_backend_details) =
+            Self::build_coreml_sections(&metadata, training_backend.as_deref(), config.rank)?;
+        let dataset_version_ids = metadata.get("dataset_version_ids").and_then(|raw| {
+            serde_json::from_str::<serde_json::Value>(raw)
+                .ok()
+                .and_then(|val| {
+                    let arr = val.as_array()?;
+                    let ids: Vec<String> = arr
+                        .iter()
+                        .filter_map(|v| {
+                            if let Some(id) = v.get("dataset_version_id").and_then(|s| s.as_str()) {
+                                Some(id.to_string())
+                            } else if let Some(s) = v.as_str() {
+                                Some(s.to_string())
+                            } else {
+                                None
+                            }
+                        })
+                        .collect();
+                    if ids.is_empty() {
+                        None
+                    } else {
+                        Some(ids)
+                    }
+                })
+        });
+        let data_spec_hash = metadata.get("data_spec_hash").cloned();
+        let training_slice_id = metadata.get("training_slice_id").cloned();
+        let backend_policy = metadata.get("backend_policy").cloned();
+        let data_lineage_mode = metadata.get("data_lineage_mode").cloned();
+        let synthetic_mode = metadata
+            .get("synthetic_mode")
+            .map(|v| v == "true" || v == "1");
 
         // Create manifest
         let manifest = AdapterManifest {
             version: "2.0".to_string(), // AOS 2.0 format
             rank: config.rank,
             base_model: base_model.to_string(),
+            base_model_hash,
             training_config: config.clone(),
             created_at: chrono::Utc::now().to_rfc3339(),
             weights_hash: hash_b3.clone(),
@@ -406,16 +1099,57 @@ impl AdapterPackager {
             per_layer_hashes: Some(per_layer_hashes),
             training_backend,
             determinism,
+            coreml_placement: Some(coreml_placement.clone()),
             lora_tier,
             lora_strength,
             scope: scope_value.clone(),
             quantization: Some("q15".to_string()),
             gate_q15_denominator: Some(ROUTER_GATE_Q15_DENOM as u32),
+            coreml,
+            placement,
+            training_backend_details,
+            dataset_version_ids,
+            data_spec_hash,
+            data_lineage_mode,
+            synthetic_mode,
+            training_slice_id,
+            backend_policy,
             metadata,
         };
 
-        // Write .aos archive
-        let aos_path = adapter_dir.join(format!("{}.aos", adapter_id));
+        manifest.validate()?;
+
+        let manifest_bytes = serde_json::to_vec_pretty(&manifest)
+            .map_err(|e| AosError::Training(format!("Failed to serialize manifest: {}", e)))?;
+
+        let (soft_quota, hard_quota) = Self::artifact_quota_limits();
+        let current_usage = self.artifact_usage_for_tenant(tenant_id).await.unwrap_or(0);
+        let expected_bytes = weights_data.len() as u64 + manifest_bytes.len() as u64;
+        let predicted = current_usage + expected_bytes;
+        if predicted > hard_quota {
+            return Err(AosError::Validation(format!(
+                "Artifact storage quota exceeded: {} > {} bytes",
+                predicted, hard_quota
+            )));
+        }
+        if predicted > soft_quota {
+            warn!(
+                tenant_id = %tenant_id,
+                predicted,
+                soft_quota,
+                "Artifact storage soft quota exceeded"
+            );
+        }
+
+        // Resolve archive path via storage abstraction (tenant-scoped)
+        let aos_key = StorageKey {
+            tenant_id: Some(tenant_id.to_string()),
+            object_id: adapter_id.to_string(),
+            version_id: None,
+            file_name: format!("{}.aos", adapter_id),
+            kind: StorageKind::AdapterArtifact,
+        };
+        let aos_path = storage.path_for(&aos_key)?;
         let mut writer = AosWriter::new();
         writer.add_segment(
             BackendTag::Canonical,
@@ -809,6 +1543,7 @@ mod tests {
             version: "1.0.0".to_string(),
             rank: 4,
             base_model: "test-model".to_string(),
+            base_model_hash: None,
             training_config: TrainingConfig::default(),
             created_at: chrono::Utc::now().to_rfc3339(),
             weights_hash: "test_hash".to_string(),
@@ -822,6 +1557,16 @@ mod tests {
             scope: default_scope(),
             quantization: Some("q15".to_string()),
             gate_q15_denominator: Some(ROUTER_GATE_Q15_DENOM as u32),
+            coreml: None,
+            placement: None,
+            training_backend_details: None,
+            coreml_placement: None,
+            dataset_version_ids: None,
+            data_spec_hash: None,
+            data_lineage_mode: None,
+            synthetic_mode: None,
+            training_slice_id: None,
+            backend_policy: None,
             metadata: std::collections::HashMap::new(),
         };
 
@@ -837,6 +1582,22 @@ mod tests {
 
         assert_eq!(loaded_manifest.rank, 4);
         assert_eq!(loaded_manifest.base_model, "test-model");
+    }
+
+    #[tokio::test]
+    async fn artifact_quota_enforces_hard_limit() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let tenant_dir = temp_dir.path().join("tenant1").join("adapter");
+        tokio::fs::create_dir_all(&tenant_dir).await.unwrap();
+        let existing = tenant_dir.join("v1.aos");
+        tokio::fs::write(&existing, vec![0u8; 8]).await.unwrap();
+
+        std::env::set_var("AOS_ARTIFACT_HARD_QUOTA_BYTES", "10");
+        std::env::set_var("AOS_ARTIFACT_SOFT_QUOTA_BYTES", "8");
+
+        let packager = AdapterPackager::new(temp_dir.path());
+        let result = packager.enforce_artifact_quota("tenant1", 5).await;
+        assert!(result.is_err());
     }
 
     #[test]
@@ -865,5 +1626,148 @@ mod tests {
             Some("model.layers.0.attn.q_proj.lora_A.weight")
         );
         assert!(!entry.hash.is_empty());
+    }
+
+    #[test]
+    fn manifest_prefers_actual_backend_metadata() {
+        let mut metadata = HashMap::new();
+        metadata.insert("training_backend".to_string(), "mlx".to_string());
+        metadata.insert(
+            "training_backend_reason".to_string(),
+            "coreml_unavailable".to_string(),
+        );
+        let (_meta, training_backend, _determinism, _scope) =
+            AdapterPackager::build_manifest_metadata(
+                metadata,
+                &TrainingConfig::default(),
+                "project",
+            );
+
+        assert_eq!(training_backend.as_deref(), Some("mlx"));
+    }
+
+    #[test]
+    fn manifest_keeps_backend_reason_metadata() {
+        let mut metadata = HashMap::new();
+        metadata.insert("training_backend".to_string(), "cpu".to_string());
+        metadata.insert(
+            "training_backend_reason".to_string(),
+            "coreml_unavailable".to_string(),
+        );
+        let config = TrainingConfig::default();
+        let (meta, _backend, _determinism, _scope) =
+            AdapterPackager::build_manifest_metadata(metadata, &config, "project");
+
+        assert_eq!(
+            meta.get("training_backend_reason").map(String::as_str),
+            Some("coreml_unavailable")
+        );
+    }
+
+    #[test]
+    fn derives_domain_group_operation_from_defaults() {
+        let mut metadata = HashMap::new();
+        metadata.insert("adapter_name".to_string(), "my-adapter".to_string());
+        metadata.insert("category".to_string(), "code".to_string());
+        metadata.insert("scope".to_string(), "project".to_string());
+
+        let (enriched, _, _, scope_path) = AdapterPackager::build_manifest_metadata(
+            metadata,
+            &TrainingConfig::default(),
+            "tenant",
+        );
+
+        assert_eq!(enriched.get("domain").unwrap(), "code");
+        assert_eq!(enriched.get("group").unwrap(), "project");
+        assert_eq!(enriched.get("operation").unwrap(), "my-adapter");
+        assert_eq!(scope_path, "code/project/tenant/my-adapter");
+    }
+
+    #[test]
+    fn respects_provided_hierarchy_overrides() {
+        let mut metadata = HashMap::new();
+        metadata.insert("domain".to_string(), "custom-domain".to_string());
+        metadata.insert("group".to_string(), "custom-group".to_string());
+        metadata.insert("operation".to_string(), "custom-op".to_string());
+
+        let (enriched, _, _, scope_path) = AdapterPackager::build_manifest_metadata(
+            metadata,
+            &TrainingConfig::default(),
+            "tenant",
+        );
+
+        assert_eq!(enriched.get("domain").unwrap(), "custom-domain");
+        assert_eq!(enriched.get("group").unwrap(), "custom-group");
+        assert_eq!(enriched.get("operation").unwrap(), "custom-op");
+        assert_eq!(scope_path, "custom-domain/custom-group/tenant/custom-op");
+    }
+
+    #[test]
+    fn invalid_coreml_placement_is_rejected() {
+        let mut metadata = HashMap::new();
+        let bad_spec = CoremlPlacementSpec {
+            version: 1,
+            graph_id: Some("graph".to_string()),
+            bindings: vec![CoreMLPlacementBinding {
+                binding_id: "q_proj".to_string(),
+                target: CoreMLTargetRef {
+                    layer: "q_proj".to_string(),
+                    op_kind: CoreMLOpKind::AttentionQ,
+                    path_hint: None,
+                },
+                projection: CoreMLProjection::InputToHidden,
+                rank: 8, // wrong rank/hidden_dim for this test
+                alpha: None,
+                scale: None,
+                gating: None,
+                shape: CoreMLPlacementShape {
+                    input_dim: 16,
+                    output_dim: 16,
+                },
+            }],
+        };
+        metadata.insert(
+            "coreml_placement".to_string(),
+            serde_json::to_string(&bad_spec).unwrap(),
+        );
+
+        let config = TrainingConfig {
+            rank: 4,
+            hidden_dim: 32,
+            ..Default::default()
+        };
+
+        let err = AdapterPackager::resolve_coreml_placement_spec(
+            &metadata,
+            &["q_proj"],
+            config.rank,
+            config.hidden_dim,
+        );
+
+        assert!(err.is_err());
+    }
+
+    #[test]
+    fn default_coreml_placement_covers_modules() {
+        let modules = ["q_proj", "o_proj"];
+        let spec = AdapterPackager::default_coreml_placement_spec(&modules, 4, 32);
+        assert_eq!(spec.version, 1);
+        assert_eq!(spec.bindings.len(), modules.len());
+        for binding in spec.bindings {
+            assert_eq!(binding.rank, 4);
+            assert_eq!(binding.shape.input_dim, 32);
+            assert_eq!(binding.shape.output_dim, 32);
+        }
+    }
+
+    #[test]
+    fn artifact_quota_limits_respect_env() {
+        std::env::set_var("AOS_ARTIFACT_HARD_QUOTA_BYTES", "1000");
+        std::env::set_var("AOS_ARTIFACT_SOFT_QUOTA_BYTES", "800");
+        let (soft, hard) = AdapterPackager::artifact_quota_limits();
+        assert_eq!(hard, 1000);
+        assert_eq!(soft, 800);
+        std::env::remove_var("AOS_ARTIFACT_HARD_QUOTA_BYTES");
+        std::env::remove_var("AOS_ARTIFACT_SOFT_QUOTA_BYTES");
     }
 }

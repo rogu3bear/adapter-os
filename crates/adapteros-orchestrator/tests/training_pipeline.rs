@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use adapteros_db::sqlx;
 use adapteros_orchestrator::TrainingService;
-use adapteros_types::training::{TrainingConfig, TrainingJobStatus};
+use adapteros_types::training::{DataLineageMode, TrainingConfig, TrainingJobStatus};
 
 /// End-to-end pipeline: start training → package .aos → register adapter → materialize artifact.
 #[tokio::test(flavor = "current_thread")]
@@ -79,9 +79,14 @@ async fn training_pipeline_produces_registered_aos() {
         .start_training(
             "pipeline-adapter".to_string(),
             config,
-            None,                            // template_id
-            None,                            // repo_id
-            None,                            // dataset_id (synthetic fallback)
+            None, // template_id
+            None, // repo_id
+            None, // target_branch
+            None, // base_version_id
+            None, // dataset_id (synthetic fallback)
+            None, // dataset_version_ids
+            true, // synthetic_mode
+            DataLineageMode::Synthetic,
             Some("system".into()),           // tenant_id
             Some("user-test".into()),        // initiated_by
             Some("admin".into()),            // initiated_by_role
@@ -96,6 +101,10 @@ async fn training_pipeline_produces_registered_aos() {
             None,                            // framework_version
             Some(post_actions_json.clone()), // post_actions_json (explicit paths)
             None,                            // retry_of_job_id
+            None,                            // versioning
+            None,                            // code_commit_sha
+            None,                            // data_spec_json
+            None,                            // data_spec_hash
         )
         .await
         .expect("training job should start");

@@ -80,7 +80,7 @@ impl SeparatedLoRATrainer {
         ]);
 
         // Initialize telemetry writer with default settings
-        let telemetry_dir = resolve_telemetry_dir();
+        let telemetry_dir = resolve_telemetry_dir()?;
         let _ = std::fs::create_dir_all(&telemetry_dir.path);
         let _telemetry = TelemetryWriter::new(&telemetry_dir.path, 10_000, 10 * 1024 * 1024)?;
         info!(
@@ -131,6 +131,7 @@ impl SeparatedLoRATrainer {
         };
 
         let total_time = start_time.elapsed().as_millis() as u64;
+        let total_time = total_time.max(1);
 
         info!(
             "Separated training completed: positive_loss={:.6}, negative_loss={:.6}, time_ms={}",
@@ -193,6 +194,7 @@ impl SeparatedLoRATrainer {
         }
 
         let training_time = start_time.elapsed().as_millis() as u64;
+        let training_time = training_time.max(1);
 
         Ok(WeightGroupResult {
             group_type,
@@ -461,13 +463,19 @@ mod tests {
             epochs: 2,
             hidden_dim: 128,
             vocab_size: 32000,
+            coreml_placement: None,
             preferred_backend: None,
+            backend_policy: None,
+            coreml_fallback_backend: None,
             require_gpu: false,
             max_gpu_memory_mb: 0,
+            max_tokens_per_batch: None,
+            device_policy: None,
             checkpoint_interval: None,
             warmup_steps: None,
             max_seq_length: None,
             gradient_accumulation_steps: None,
+            determinism: None,
         };
 
         let trainer = SeparatedLoRATrainer::new(config).unwrap();

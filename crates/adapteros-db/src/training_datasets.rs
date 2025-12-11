@@ -7,6 +7,91 @@ use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+/// Derive aggregate safety status from individual signals.
+fn derive_overall_safety_status(
+    pii_status: &str,
+    toxicity_status: &str,
+    leak_status: &str,
+    anomaly_status: &str,
+) -> String {
+    let signals = [pii_status, toxicity_status, leak_status, anomaly_status];
+    if signals
+        .iter()
+        .any(|s| s.eq_ignore_ascii_case("block") || s.eq_ignore_ascii_case("unsafe"))
+    {
+        "block".to_string()
+    } else if signals.iter().any(|s| s.eq_ignore_ascii_case("warn")) {
+        "warn".to_string()
+    } else if signals.iter().all(|s| s.eq_ignore_ascii_case("unknown")) {
+        "unknown".to_string()
+    } else {
+        "clean".to_string()
+    }
+}
+
+/// Derive trust_state for a dataset version.
+///
+/// Canonical semantics:
+/// - `allowed`: validation passed and no safety warnings.
+/// - `allowed_with_warning`: validation passed but at least one safety signal warned.
+/// - `needs_approval`: validation is pending/validating or any safety signal is unresolved.
+/// - `blocked`: validation failed/invalid or any safety signal blocked.
+/// - `unknown`: trust not evaluated (explicit `validation_status == unknown`).
+///
+/// Training gates block `blocked`, `needs_approval`, and `unknown`. Adapter trust
+/// aggregates per-dataset trust using `map_dataset_trust_to_adapter_trust` in
+/// `adapter_repositories.rs` (priority: blocked > warn > unknown > allowed).
+fn derive_trust_state(
+    validation_status: &str,
+    pii_status: &str,
+    toxicity_status: &str,
+    leak_status: &str,
+    anomaly_status: &str,
+    override_state: Option<&str>,
+) -> String {
+    if let Some(ov) = override_state {
+        return ov.trim().to_ascii_lowercase();
+    }
+
+    let validation_lower = validation_status.trim().to_ascii_lowercase();
+    if validation_lower == "invalid" || validation_lower == "failed" {
+        return "blocked".to_string();
+    }
+
+    let safety_block = [pii_status, toxicity_status, leak_status, anomaly_status]
+        .iter()
+        .any(|s| s.eq_ignore_ascii_case("block") || s.eq_ignore_ascii_case("unsafe"));
+    if safety_block {
+        return "blocked".to_string();
+    }
+
+    let safety_warn = [pii_status, toxicity_status, leak_status, anomaly_status]
+        .iter()
+        .any(|s| s.eq_ignore_ascii_case("warn"));
+
+    let safety_unknown = [pii_status, toxicity_status, leak_status, anomaly_status]
+        .iter()
+        .any(|s| s.eq_ignore_ascii_case("unknown"));
+
+    if validation_lower == "unknown" {
+        return "unknown".to_string();
+    }
+
+    if validation_lower == "pending" || validation_lower == "validating" {
+        return "needs_approval".to_string();
+    }
+
+    if safety_unknown {
+        return "needs_approval".to_string();
+    }
+
+    if safety_warn {
+        "allowed_with_warning".to_string()
+    } else {
+        "allowed".to_string()
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct TrainingDataset {
     pub id: String,
@@ -54,6 +139,56 @@ pub struct DatasetStatistics {
     pub file_type_distribution: Option<String>,
     pub total_tokens: i64,
     pub computed_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct TrainingDatasetVersion {
+    pub id: String,
+    pub dataset_id: String,
+    pub tenant_id: Option<String>,
+    pub version_number: i64,
+    pub version_label: Option<String>,
+    pub storage_path: String,
+    pub hash_b3: String,
+    pub manifest_path: Option<String>,
+    pub manifest_json: Option<String>,
+    pub validation_status: String,
+    pub validation_errors_json: Option<String>,
+    pub pii_status: String,
+    pub toxicity_status: String,
+    pub leak_status: String,
+    pub anomaly_status: String,
+    pub overall_safety_status: String,
+    pub trust_state: String,
+    pub overall_trust_status: String,
+    pub sensitivity: Option<String>,
+    pub created_at: String,
+    pub created_by: Option<String>,
+    pub locked_at: Option<String>,
+    pub soft_deleted_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct DatasetVersionValidation {
+    pub id: String,
+    pub dataset_version_id: String,
+    pub tier: String,
+    pub status: String,
+    pub signal: Option<String>,
+    pub validation_errors_json: Option<String>,
+    pub sample_row_ids_json: Option<String>,
+    pub created_at: String,
+    pub created_by: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct DatasetVersionOverride {
+    pub id: String,
+    pub dataset_version_id: String,
+    pub override_state: String,
+    pub reason: Option<String>,
+    pub created_by: String,
+    pub created_at: String,
 }
 
 /// Evidence entry for datasets and adapters
@@ -133,6 +268,325 @@ impl Db {
         .await
         .map_err(db_err("create training dataset"))?;
         Ok(id)
+    }
+
+    /// Create a new training dataset using a precomputed ID (e.g., to align DB rows with storage paths)
+    pub async fn create_training_dataset_with_id(
+        &self,
+        dataset_id: &str,
+        name: &str,
+        description: Option<&str>,
+        format: &str,
+        hash_b3: &str,
+        storage_path: &str,
+        created_by: Option<&str>,
+    ) -> Result<String> {
+        sqlx::query(
+            "INSERT INTO training_datasets (
+                id, name, description, format, hash_b3, storage_path,
+                validation_status, created_by
+            ) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)",
+        )
+        .bind(dataset_id)
+        .bind(name)
+        .bind(description)
+        .bind(format)
+        .bind(hash_b3)
+        .bind(storage_path)
+        .bind(created_by)
+        .execute(&*self.pool())
+        .await
+        .map_err(db_err("create training dataset"))?;
+        Ok(dataset_id.to_string())
+    }
+
+    /// Create a new dataset version aligned to a dataset record.
+    /// Version numbers are monotonically increasing per dataset; start at 1.
+    pub async fn create_training_dataset_version(
+        &self,
+        dataset_id: &str,
+        tenant_id: Option<&str>,
+        version_label: Option<&str>,
+        storage_path: &str,
+        hash_b3: &str,
+        manifest_path: Option<&str>,
+        manifest_json: Option<&str>,
+        created_by: Option<&str>,
+    ) -> Result<String> {
+        let next_version: (i64,) = sqlx::query_as(
+            "SELECT COALESCE(MAX(version_number), 0) + 1 FROM training_dataset_versions WHERE dataset_id = ?",
+        )
+        .bind(dataset_id)
+        .fetch_one(&*self.pool())
+        .await
+        .map_err(db_err("next dataset version number"))?;
+
+        let version_id = Uuid::now_v7().to_string();
+
+        sqlx::query(
+            "INSERT INTO training_dataset_versions (
+                id, dataset_id, tenant_id, version_number, version_label, storage_path, hash_b3,
+                manifest_path, manifest_json, created_by
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(&version_id)
+        .bind(dataset_id)
+        .bind(tenant_id)
+        .bind(next_version.0)
+        .bind(version_label)
+        .bind(storage_path)
+        .bind(hash_b3)
+        .bind(manifest_path)
+        .bind(manifest_json)
+        .bind(created_by)
+        .execute(&*self.pool())
+        .await
+        .map_err(db_err("create training dataset version"))?;
+
+        Ok(version_id)
+    }
+
+    /// Ensure at least one version exists for a dataset; returns the latest version id.
+    pub async fn ensure_dataset_version_exists(&self, dataset_id: &str) -> Result<String> {
+        if let Some(ver) = self
+            .get_latest_dataset_version_for_dataset(dataset_id)
+            .await?
+        {
+            return Ok(ver.id);
+        }
+
+        let dataset = self
+            .get_training_dataset(dataset_id)
+            .await?
+            .ok_or_else(|| AosError::Validation("dataset not found".to_string()))?;
+
+        let version_id = self
+            .create_training_dataset_version(
+                &dataset.id,
+                dataset.tenant_id.as_deref(),
+                None,
+                &dataset.storage_path,
+                &dataset.hash_b3,
+                None,
+                None,
+                dataset.created_by.as_deref(),
+            )
+            .await?;
+        Ok(version_id)
+    }
+
+    /// Create a dataset version using a caller-provided version ID (aligns storage layout).
+    pub async fn create_training_dataset_version_with_id(
+        &self,
+        version_id: &str,
+        dataset_id: &str,
+        tenant_id: Option<&str>,
+        version_label: Option<&str>,
+        storage_path: &str,
+        hash_b3: &str,
+        manifest_path: Option<&str>,
+        manifest_json: Option<&str>,
+        created_by: Option<&str>,
+    ) -> Result<String> {
+        let next_version: (i64,) = sqlx::query_as(
+            "SELECT COALESCE(MAX(version_number), 0) + 1 FROM training_dataset_versions WHERE dataset_id = ?",
+        )
+        .bind(dataset_id)
+        .fetch_one(&*self.pool())
+        .await
+        .map_err(db_err("next dataset version number"))?;
+
+        sqlx::query(
+            "INSERT INTO training_dataset_versions (
+                id, dataset_id, tenant_id, version_number, version_label, storage_path, hash_b3,
+                manifest_path, manifest_json, created_by
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(version_id)
+        .bind(dataset_id)
+        .bind(tenant_id)
+        .bind(next_version.0)
+        .bind(version_label)
+        .bind(storage_path)
+        .bind(hash_b3)
+        .bind(manifest_path)
+        .bind(manifest_json)
+        .bind(created_by)
+        .execute(&*self.pool())
+        .await
+        .map_err(db_err("create training dataset version (with id)"))?;
+
+        Ok(version_id.to_string())
+    }
+
+    /// Fetch a dataset version by ID.
+    pub async fn get_training_dataset_version(
+        &self,
+        version_id: &str,
+    ) -> Result<Option<TrainingDatasetVersion>> {
+        let row = sqlx::query_as::<_, TrainingDatasetVersion>(
+            "SELECT id, dataset_id, tenant_id, version_number, version_label, storage_path, hash_b3,
+                    manifest_path, manifest_json, validation_status, validation_errors_json,
+                    pii_status, toxicity_status, leak_status, anomaly_status, overall_safety_status,
+                    trust_state, overall_trust_status, sensitivity, created_at, created_by,
+                    locked_at, soft_deleted_at
+             FROM training_dataset_versions WHERE id = ?",
+        )
+        .bind(version_id)
+        .fetch_optional(&*self.pool())
+        .await
+        .map_err(db_err("get training dataset version"))?;
+
+        Ok(row)
+    }
+
+    /// Fetch manifest JSON for a dataset version (if stored inline).
+    pub async fn get_dataset_version_manifest(
+        &self,
+        dataset_version_id: &str,
+    ) -> Result<Option<String>> {
+        let row = sqlx::query_as::<_, (String,)>(
+            "SELECT manifest_json FROM training_dataset_versions WHERE id = ?",
+        )
+        .bind(dataset_version_id)
+        .fetch_optional(&*self.pool())
+        .await
+        .map_err(db_err("get dataset version manifest"))?;
+
+        Ok(row.map(|tuple| tuple.0))
+    }
+
+    /// Fetch a dataset version while enforcing tenant isolation.
+    pub async fn get_training_dataset_version_for_tenant(
+        &self,
+        version_id: &str,
+        tenant_id: &str,
+    ) -> Result<Option<TrainingDatasetVersion>> {
+        let version = self.get_training_dataset_version(version_id).await?;
+        if let Some(ver) = version {
+            if let Some(ref version_tenant) = ver.tenant_id {
+                if version_tenant != tenant_id {
+                    return Err(AosError::Authz(
+                        "Dataset version belongs to different tenant".into(),
+                    ));
+                }
+            }
+            Ok(Some(ver))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Fetch the latest version for a dataset (by version_number DESC).
+    pub async fn get_latest_dataset_version_for_dataset(
+        &self,
+        dataset_id: &str,
+    ) -> Result<Option<TrainingDatasetVersion>> {
+        let row = sqlx::query_as::<_, TrainingDatasetVersion>(
+            "SELECT id, dataset_id, tenant_id, version_number, version_label, storage_path, hash_b3,
+                    manifest_path, manifest_json, validation_status, validation_errors_json,
+                    pii_status, toxicity_status, leak_status, anomaly_status, overall_safety_status,
+                    trust_state, overall_trust_status, sensitivity, created_at, created_by,
+                    locked_at, soft_deleted_at
+             FROM training_dataset_versions
+             WHERE dataset_id = ?
+             ORDER BY version_number DESC
+             LIMIT 1",
+        )
+        .bind(dataset_id)
+        .fetch_optional(&*self.pool())
+        .await
+        .map_err(db_err("get latest dataset version"))?;
+
+        Ok(row)
+    }
+
+    /// Compute effective trust_state for a dataset version by applying the most recent override (if any).
+    async fn effective_trust_state_for_version(
+        &self,
+        version: &TrainingDatasetVersion,
+    ) -> Result<String> {
+        let override_state: Option<(String,)> = sqlx::query_as(
+            "SELECT override_state FROM dataset_version_overrides
+             WHERE dataset_version_id = ?
+             ORDER BY created_at DESC
+             LIMIT 1",
+        )
+        .bind(&version.id)
+        .fetch_optional(&*self.pool())
+        .await
+        .map_err(db_err("get dataset version override for effective trust"))?;
+
+        Ok(override_state
+            .map(|(ov,)| ov)
+            .unwrap_or_else(|| version.trust_state.clone()))
+    }
+
+    /// Fetch the latest trusted dataset version (allowed/allowed_with_warning). Falls back to latest version if none trusted.
+    pub async fn get_latest_trusted_dataset_version_for_dataset(
+        &self,
+        dataset_id: &str,
+    ) -> Result<Option<(TrainingDatasetVersion, String)>> {
+        let versions = sqlx::query_as::<_, TrainingDatasetVersion>(
+            "SELECT id, dataset_id, tenant_id, version_number, version_label, storage_path, hash_b3,
+                    manifest_path, manifest_json, validation_status, validation_errors_json,
+                    pii_status, toxicity_status, leak_status, anomaly_status, overall_safety_status,
+                    trust_state, overall_trust_status, sensitivity, created_at, created_by,
+                    locked_at, soft_deleted_at
+             FROM training_dataset_versions
+             WHERE dataset_id = ?
+               AND soft_deleted_at IS NULL
+             ORDER BY version_number DESC",
+        )
+        .bind(dataset_id)
+        .fetch_all(&*self.pool())
+        .await
+        .map_err(db_err("list dataset versions for trust selection"))?;
+
+        for version in versions.iter() {
+            let trust_state = self.effective_trust_state_for_version(version).await?;
+            let trust_lower = trust_state.to_ascii_lowercase();
+            if trust_lower == "allowed" || trust_lower == "allowed_with_warning" {
+                return Ok(Some((version.clone(), trust_state)));
+            }
+        }
+
+        if let Some(version) = versions.into_iter().next() {
+            let trust_state = self.effective_trust_state_for_version(&version).await?;
+            return Ok(Some((version, trust_state)));
+        }
+
+        Ok(None)
+    }
+
+    /// List dataset versions for a dataset with effective trust_state applied (ordered DESC by version_number).
+    pub async fn list_dataset_versions_for_dataset(
+        &self,
+        dataset_id: &str,
+    ) -> Result<Vec<(TrainingDatasetVersion, String)>> {
+        let versions = sqlx::query_as::<_, TrainingDatasetVersion>(
+            "SELECT id, dataset_id, tenant_id, version_number, version_label, storage_path, hash_b3,
+                    manifest_path, manifest_json, validation_status, validation_errors_json,
+                    pii_status, toxicity_status, leak_status, anomaly_status, overall_safety_status,
+                    trust_state, overall_trust_status, sensitivity, created_at, created_by,
+                    locked_at, soft_deleted_at
+             FROM training_dataset_versions
+             WHERE dataset_id = ?
+               AND soft_deleted_at IS NULL
+             ORDER BY version_number DESC",
+        )
+        .bind(dataset_id)
+        .fetch_all(&*self.pool())
+        .await
+        .map_err(db_err("list dataset versions for dataset"))?;
+
+        let mut result = Vec::with_capacity(versions.len());
+        for version in versions {
+            let trust_state = self.effective_trust_state_for_version(&version).await?;
+            result.push((version, trust_state));
+        }
+
+        Ok(result)
     }
 
     /// Get training dataset by ID
@@ -303,6 +757,58 @@ impl Db {
         Ok(files)
     }
 
+    /// Sum total dataset bytes for a tenant across all datasets.
+    pub async fn sum_dataset_sizes_for_tenant(&self, tenant_id: &str) -> Result<i64> {
+        let total: i64 = sqlx::query_scalar(
+            "SELECT COALESCE(SUM(total_size_bytes), 0) as total FROM training_datasets WHERE tenant_id = ?",
+        )
+        .bind(tenant_id)
+        .fetch_one(&*self.pool())
+        .await
+        .unwrap_or(0);
+        Ok(total)
+    }
+
+    /// Count dataset versions for a tenant.
+    pub async fn count_dataset_versions_for_tenant(&self, tenant_id: &str) -> Result<i64> {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) as cnt FROM training_dataset_versions WHERE tenant_id = ?",
+        )
+        .bind(tenant_id)
+        .fetch_one(&*self.pool())
+        .await
+        .unwrap_or(0);
+        Ok(count)
+    }
+
+    /// List all dataset versions (used by reconciler).
+    pub async fn list_all_dataset_versions(&self) -> Result<Vec<TrainingDatasetVersion>> {
+        let versions = sqlx::query_as::<_, TrainingDatasetVersion>(
+            "SELECT id, dataset_id, tenant_id, version_number, version_label, storage_path,
+                    hash_b3, manifest_path, manifest_json, validation_status,
+                    validation_errors_json, pii_status, toxicity_status, leak_status,
+                    anomaly_status, overall_safety_status, trust_state, overall_trust_status,
+                    sensitivity, created_at, created_by, locked_at, soft_deleted_at
+             FROM training_dataset_versions",
+        )
+        .fetch_all(&*self.pool())
+        .await
+        .map_err(db_err("list dataset versions"))?;
+        Ok(versions)
+    }
+
+    /// List all dataset files (used by reconciler for orphan detection).
+    pub async fn list_all_dataset_files(&self) -> Result<Vec<DatasetFile>> {
+        let files = sqlx::query_as::<_, DatasetFile>(
+            "SELECT id, dataset_id, file_name, file_path, size_bytes, hash_b3, mime_type, created_at
+             FROM dataset_files",
+        )
+        .fetch_all(&*self.pool())
+        .await
+        .map_err(db_err("list dataset files"))?;
+        Ok(files)
+    }
+
     /// Update dataset validation status
     pub async fn update_dataset_validation(
         &self,
@@ -322,6 +828,239 @@ impl Db {
         .await
         .map_err(db_err("update dataset validation"))?;
         Ok(())
+    }
+
+    /// Update structural validation status for a dataset version and recompute trust.
+    pub async fn update_dataset_version_structural_validation(
+        &self,
+        dataset_version_id: &str,
+        status: &str,
+        errors_json: Option<&str>,
+    ) -> Result<String> {
+        let prev_effective = self.get_effective_trust_state(dataset_version_id).await?;
+
+        let current = self
+            .get_training_dataset_version(dataset_version_id)
+            .await?
+            .ok_or_else(|| AosError::Validation("dataset version not found".to_string()))?;
+
+        let trust_state = derive_trust_state(
+            status,
+            &current.pii_status,
+            &current.toxicity_status,
+            &current.leak_status,
+            &current.anomaly_status,
+            None,
+        );
+        let overall_safety = derive_overall_safety_status(
+            &current.pii_status,
+            &current.toxicity_status,
+            &current.leak_status,
+            &current.anomaly_status,
+        );
+
+        sqlx::query(
+            "UPDATE training_dataset_versions
+             SET validation_status = ?, validation_errors_json = ?, overall_safety_status = ?,
+                 trust_state = ?, overall_trust_status = ?
+             WHERE id = ?",
+        )
+        .bind(status)
+        .bind(errors_json)
+        .bind(&overall_safety)
+        .bind(&trust_state)
+        .bind(&trust_state)
+        .bind(dataset_version_id)
+        .execute(&*self.pool())
+        .await
+        .map_err(db_err("update dataset version validation"))?;
+
+        if let Some(new_effective) = self.get_effective_trust_state(dataset_version_id).await? {
+            self.propagate_dataset_trust_change(
+                dataset_version_id,
+                prev_effective.as_deref(),
+                &new_effective,
+            )
+            .await?;
+        }
+
+        Ok(trust_state)
+    }
+
+    /// Update semantic/safety statuses and recompute trust for a dataset version.
+    pub async fn update_dataset_version_safety_status(
+        &self,
+        dataset_version_id: &str,
+        pii_status: Option<&str>,
+        toxicity_status: Option<&str>,
+        leak_status: Option<&str>,
+        anomaly_status: Option<&str>,
+    ) -> Result<String> {
+        let prev_effective = self.get_effective_trust_state(dataset_version_id).await?;
+
+        let mut current = self
+            .get_training_dataset_version(dataset_version_id)
+            .await?
+            .ok_or_else(|| AosError::Validation("dataset version not found".to_string()))?;
+
+        if let Some(p) = pii_status {
+            current.pii_status = p.to_string();
+        }
+        if let Some(t) = toxicity_status {
+            current.toxicity_status = t.to_string();
+        }
+        if let Some(l) = leak_status {
+            current.leak_status = l.to_string();
+        }
+        if let Some(a) = anomaly_status {
+            current.anomaly_status = a.to_string();
+        }
+
+        let trust_state = derive_trust_state(
+            &current.validation_status,
+            &current.pii_status,
+            &current.toxicity_status,
+            &current.leak_status,
+            &current.anomaly_status,
+            None,
+        );
+        let overall_safety = derive_overall_safety_status(
+            &current.pii_status,
+            &current.toxicity_status,
+            &current.leak_status,
+            &current.anomaly_status,
+        );
+
+        sqlx::query(
+            "UPDATE training_dataset_versions
+             SET pii_status = ?, toxicity_status = ?, leak_status = ?, anomaly_status = ?,
+                 overall_safety_status = ?, trust_state = ?, overall_trust_status = ?
+             WHERE id = ?",
+        )
+        .bind(&current.pii_status)
+        .bind(&current.toxicity_status)
+        .bind(&current.leak_status)
+        .bind(&current.anomaly_status)
+        .bind(&overall_safety)
+        .bind(&trust_state)
+        .bind(&trust_state)
+        .bind(dataset_version_id)
+        .execute(&*self.pool())
+        .await
+        .map_err(db_err("update dataset version safety status"))?;
+
+        if let Some(new_effective) = self.get_effective_trust_state(dataset_version_id).await? {
+            self.propagate_dataset_trust_change(
+                dataset_version_id,
+                prev_effective.as_deref(),
+                &new_effective,
+            )
+            .await?;
+        }
+
+        Ok(trust_state)
+    }
+
+    /// Record a validation run for observability/audit.
+    pub async fn record_dataset_version_validation_run(
+        &self,
+        dataset_version_id: &str,
+        tier: &str,
+        status: &str,
+        signal: Option<&str>,
+        validation_errors_json: Option<&str>,
+        sample_row_ids_json: Option<&str>,
+        created_by: Option<&str>,
+    ) -> Result<String> {
+        let id = Uuid::now_v7().to_string();
+        sqlx::query(
+            "INSERT INTO dataset_version_validations (
+                id, dataset_version_id, tier, status, signal, validation_errors_json,
+                sample_row_ids_json, created_by
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(&id)
+        .bind(dataset_version_id)
+        .bind(tier)
+        .bind(status)
+        .bind(signal)
+        .bind(validation_errors_json)
+        .bind(sample_row_ids_json)
+        .bind(created_by)
+        .execute(&*self.pool())
+        .await
+        .map_err(db_err("record dataset version validation run"))?;
+        Ok(id)
+    }
+
+    /// Record an admin override for trust_state.
+    pub async fn create_dataset_version_override(
+        &self,
+        dataset_version_id: &str,
+        override_state: &str,
+        reason: Option<&str>,
+        created_by: &str,
+    ) -> Result<String> {
+        let prev_effective = self.get_effective_trust_state(dataset_version_id).await?;
+
+        let id = Uuid::now_v7().to_string();
+        sqlx::query(
+            "INSERT INTO dataset_version_overrides (
+                id, dataset_version_id, override_state, reason, created_by
+            ) VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind(&id)
+        .bind(dataset_version_id)
+        .bind(override_state)
+        .bind(reason)
+        .bind(created_by)
+        .execute(&*self.pool())
+        .await
+        .map_err(db_err("create dataset version override"))?;
+
+        if let Some(new_effective) = self.get_effective_trust_state(dataset_version_id).await? {
+            self.propagate_dataset_trust_change(
+                dataset_version_id,
+                prev_effective.as_deref(),
+                &new_effective,
+            )
+            .await?;
+        }
+
+        Ok(id)
+    }
+
+    /// Compute effective trust_state by layering overrides over derived trust_state.
+    pub async fn get_effective_trust_state(
+        &self,
+        dataset_version_id: &str,
+    ) -> Result<Option<String>> {
+        let version = self
+            .get_training_dataset_version(dataset_version_id)
+            .await?;
+
+        if version.is_none() {
+            return Ok(None);
+        }
+
+        let override_state: Option<(String,)> = sqlx::query_as(
+            "SELECT override_state FROM dataset_version_overrides
+             WHERE dataset_version_id = ?
+             ORDER BY created_at DESC
+             LIMIT 1",
+        )
+        .bind(dataset_version_id)
+        .fetch_optional(&*self.pool())
+        .await
+        .map_err(db_err("get dataset version override"))?;
+
+        let effective = if let Some((ov,)) = override_state {
+            ov
+        } else {
+            version.unwrap().trust_state
+        };
+
+        Ok(Some(effective))
     }
 
     /// Update dataset storage path
@@ -708,5 +1447,70 @@ impl Db {
             AosError::Database(format!("Failed to update dataset extended fields: {}", e))
         })?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{derive_overall_safety_status, derive_trust_state};
+
+    #[test]
+    fn trust_blocks_on_invalid() {
+        let trust = derive_trust_state("invalid", "clean", "clean", "clean", "clean", None);
+        assert_eq!(trust, "blocked");
+    }
+
+    #[test]
+    fn trust_blocks_on_safety_block() {
+        let trust = derive_trust_state("valid", "block", "clean", "clean", "clean", None);
+        assert_eq!(trust, "blocked");
+    }
+
+    #[test]
+    fn trust_warns_on_warn() {
+        let trust = derive_trust_state("valid", "warn", "clean", "clean", "clean", None);
+        assert_eq!(trust, "allowed_with_warning");
+    }
+
+    #[test]
+    fn trust_needs_approval_when_pending_validation() {
+        let trust = derive_trust_state("pending", "clean", "clean", "clean", "clean", None);
+        assert_eq!(trust, "needs_approval");
+    }
+
+    #[test]
+    fn trust_needs_approval_on_unknown() {
+        let trust = derive_trust_state("valid", "unknown", "clean", "clean", "clean", None);
+        assert_eq!(trust, "needs_approval");
+    }
+
+    #[test]
+    fn trust_unknown_when_validation_unknown() {
+        let trust = derive_trust_state("unknown", "unknown", "unknown", "unknown", "unknown", None);
+        assert_eq!(trust, "unknown");
+    }
+
+    #[test]
+    fn trust_allows_with_warning_when_warn_present() {
+        let trust = derive_trust_state("valid", "clean", "warn", "clean", "clean", None);
+        assert_eq!(trust, "allowed_with_warning");
+    }
+
+    #[test]
+    fn trust_allows_when_clean_and_valid() {
+        let trust = derive_trust_state("valid", "clean", "clean", "clean", "clean", None);
+        assert_eq!(trust, "allowed");
+    }
+
+    #[test]
+    fn safety_aggregates_block() {
+        let safety = derive_overall_safety_status("clean", "block", "clean", "clean");
+        assert_eq!(safety, "block");
+    }
+
+    #[test]
+    fn safety_warn_when_warn_present() {
+        let safety = derive_overall_safety_status("clean", "warn", "clean", "clean");
+        assert_eq!(safety, "warn");
     }
 }

@@ -1,20 +1,23 @@
-//! Dataset management commands
-//!
-//! Provides dataset lifecycle operations:
-//! - `aosctl dataset upload <files...>` - Upload files to create dataset
-//! - `aosctl dataset list` - List all datasets
-//! - `aosctl dataset get <id>` - Show dataset details
-//! - `aosctl dataset validate <id>` - Validate dataset
-//! - `aosctl dataset preview <id>` - Preview dataset contents
-//! - `aosctl dataset delete <id>` - Delete dataset
+//! Dataset management commands backed by the control-plane APIs.
+//! Implements create, ingest, list, version inspection, manifest summaries,
+//! validation triggers, and trust_state visibility for scripting and
+//! interactive use.
 
-use crate::output::OutputWriter;
-use adapteros_core::Result;
+use crate::auth_store::{load_auth, warn_if_tenant_mismatch};
+use crate::http_client::send_with_refresh_from_store;
+use crate::output::{OutputWriter, Table};
+use adapteros_api_types::dataset_domain::DatasetManifest;
+use adapteros_api_types::training::{
+    DatasetResponse, UploadDatasetResponse, ValidateDatasetResponse,
+};
+use adapteros_core::{AosError, Result};
+use adapteros_db::training_datasets::TrainingDatasetVersion;
 use adapteros_db::Db;
 use clap::{Args, Subcommand};
+use comfy_table::{modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL};
+use reqwest::{multipart, Client};
 use serde::Serialize;
 use std::path::PathBuf;
-use tracing::info;
 
 /// Dataset management command
 pub type DatasetCommand = DatasetSubcommand;
@@ -22,648 +25,662 @@ pub type DatasetCommand = DatasetSubcommand;
 /// Dataset subcommands
 #[derive(Debug, Subcommand, Clone)]
 pub enum DatasetSubcommand {
-    /// Upload files to create a new dataset
+    /// Create a dataset identity from documents/collections (no local files)
     #[command(after_help = r#"Examples:
-  # Upload a single training data file
-  aosctl dataset upload training_data.jsonl
+  # Create from a single document
+  aosctl dataset create --document-id doc-123 --name reviews
 
-  # Upload multiple files
-  aosctl dataset upload data1.jsonl data2.jsonl data3.jsonl
+  # Create from multiple documents
+  aosctl dataset create --document-ids doc-1 doc-2 --name combined
 
-  # Upload with custom dataset name
-  aosctl dataset upload training.jsonl --name my_dataset --tenant dev
-
-  # Upload and validate
-  aosctl dataset upload data.jsonl --validate
+  # Create from a collection
+  aosctl dataset create --collection-id coll-9 --name coll_ds
 "#)]
-    Upload(UploadArgs),
+    Create(CreateArgs),
 
-    /// List all datasets
+    /// Ingest local files into a new dataset version
     #[command(after_help = r#"Examples:
-  # List all datasets
+  # Ingest a single file
+  aosctl dataset ingest ./data/train.jsonl
+
+  # Ingest multiple files with format hint
+  aosctl dataset ingest ./data/*.jsonl --format jsonl
+
+  # Ingest into an existing dataset
+  aosctl dataset ingest ./data/new.jsonl --dataset-id ds-123
+
+  # JSON output
+  aosctl dataset ingest ./data/train.jsonl --json
+"#)]
+    Ingest(IngestArgs),
+
+    /// List datasets with validation/trainability state
+    #[command(after_help = r#"Examples:
   aosctl dataset list
-
-  # List datasets for specific tenant
-  aosctl dataset list --tenant prod
-
-  # Show JSON output
-  aosctl dataset list --json
+  aosctl dataset list --trust-state allowed
+  aosctl dataset list --name contains \"reviews\" --json
 "#)]
     List(ListArgs),
 
-    /// Get dataset details
+    /// List dataset versions for a dataset
     #[command(after_help = r#"Examples:
-  # Show dataset details
-  aosctl dataset get dataset-001
-
-  # Show with metadata
-  aosctl dataset get dataset-001 --show-metadata
-
-  # Output as JSON
-  aosctl dataset get dataset-001 --json
+  aosctl dataset versions ds-123
+  aosctl dataset versions ds-123 --json
 "#)]
-    Get(GetArgs),
+    Versions(VersionsArgs),
 
-    /// Validate dataset
+    /// Show manifest/validation/trust for a dataset version
     #[command(after_help = r#"Examples:
-  # Validate dataset
-  aosctl dataset validate dataset-001
+  aosctl dataset show dsv-abc123
+  aosctl dataset show dsv-abc123 --json
+"#)]
+    Show(ShowArgs),
 
-  # Validate and show detailed results
-  aosctl dataset validate dataset-001 --detailed
-
-  # Validate and auto-fix issues
-  aosctl dataset validate dataset-001 --auto-fix
+    /// Trigger validation for a dataset (creates/uses latest version)
+    #[command(after_help = r#"Examples:
+  aosctl dataset validate ds-123
+  aosctl dataset validate --dataset-version-id dsv-abc123
 "#)]
     Validate(ValidateArgs),
-
-    /// Preview dataset contents
-    #[command(after_help = r#"Examples:
-  # Preview first 10 records
-  aosctl dataset preview dataset-001
-
-  # Preview with custom limit
-  aosctl dataset preview dataset-001 --limit 50
-
-  # Preview from specific offset
-  aosctl dataset preview dataset-001 --offset 20 --limit 10
-
-  # Preview with JSON output
-  aosctl dataset preview dataset-001 --json
-"#)]
-    Preview(PreviewArgs),
-
-    /// Delete dataset
-    #[command(after_help = r#"Examples:
-  # Delete dataset with confirmation
-  aosctl dataset delete dataset-001
-
-  # Force delete without confirmation
-  aosctl dataset delete dataset-001 --force
-
-  # Dry-run deletion
-  aosctl dataset delete dataset-001 --dry-run
-"#)]
-    Delete(DeleteArgs),
 }
 
-/// Arguments for `aosctl dataset upload`
 #[derive(Debug, Args, Clone)]
-pub struct UploadArgs {
-    /// Input files (JSONL, CSV, JSON, or Parquet)
+pub struct CreateArgs {
+    /// Dataset name
+    #[arg(long)]
+    pub name: Option<String>,
+    /// Dataset type (freeform, e.g. training, evaluation)
+    #[arg(long)]
+    pub dataset_type: Option<String>,
+    /// Purpose (e.g. chat-finetune, safety-eval)
+    #[arg(long)]
+    pub purpose: Option<String>,
+    /// Source location hint (e.g. bucket path or URL)
+    #[arg(long)]
+    pub source_location: Option<String>,
+    /// Optional tags
+    #[arg(long, value_delimiter = ',')]
+    pub tags: Vec<String>,
+    /// Single document id
+    #[arg(long)]
+    pub document_id: Option<String>,
+    /// Multiple document ids
+    #[arg(long)]
+    pub document_ids: Vec<String>,
+    /// Collection id
+    #[arg(long)]
+    pub collection_id: Option<String>,
+    /// Optional description
+    #[arg(long)]
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Args, Clone)]
+pub struct IngestArgs {
+    /// Files to upload (JSONL/CSV/TXT)
     #[arg(required = true)]
     pub files: Vec<PathBuf>,
-
-    /// Dataset name (auto-generated if not provided)
-    #[arg(short, long)]
+    /// Existing dataset id (omit to create new)
+    #[arg(long)]
+    pub dataset_id: Option<String>,
+    /// Format hint passed to backend (jsonl,csv,txt,patches)
+    #[arg(long)]
+    pub format: Option<String>,
+    /// Optional dataset name when creating
+    #[arg(long)]
     pub name: Option<String>,
-
-    /// Dataset description
-    #[arg(short, long)]
+    /// Optional description
+    #[arg(long)]
     pub description: Option<String>,
-
-    /// Tenant ID
-    #[arg(short, long, default_value = "default")]
-    pub tenant: String,
-
-    /// Validate after upload
-    #[arg(long)]
-    pub validate: bool,
-
-    /// Dry-run (report actions without uploading)
-    #[arg(long)]
-    pub dry_run: bool,
-
-    /// Skip duplicate checking
-    #[arg(long)]
-    pub skip_dedup: bool,
-
-    /// Maximum records to ingest (for testing)
-    #[arg(long)]
-    pub max_records: Option<usize>,
 }
 
-/// Arguments for `aosctl dataset list`
 #[derive(Debug, Args, Clone)]
 pub struct ListArgs {
-    /// Tenant ID
-    #[arg(short, long, default_value = "default")]
-    pub tenant: String,
-
-    /// Filter by status (active, archived, deleted)
+    /// Filter by trust_state (allowed, allowed_with_warning, blocked, needs_approval)
     #[arg(long)]
-    pub status: Option<String>,
-
-    /// Limit number of results
+    pub trust_state: Option<String>,
+    /// Filter by dataset name substring (case-insensitive)
+    #[arg(long)]
+    pub name: Option<String>,
+    /// Limit results
     #[arg(long, default_value = "50")]
     pub limit: u32,
-
-    /// Sort by field (name, created, size)
-    #[arg(long, default_value = "created")]
-    pub sort_by: String,
-
-    /// Sort order (asc, desc)
-    #[arg(long, default_value = "desc")]
-    pub order: String,
 }
 
-/// Arguments for `aosctl dataset get`
 #[derive(Debug, Args, Clone)]
-pub struct GetArgs {
-    /// Dataset ID
+pub struct VersionsArgs {
+    /// Dataset id
     pub dataset_id: String,
-
-    /// Tenant ID
-    #[arg(short, long, default_value = "default")]
-    pub tenant: String,
-
-    /// Show detailed metadata
-    #[arg(long)]
-    pub show_metadata: bool,
-
-    /// Show file list
-    #[arg(long)]
-    pub show_files: bool,
-
-    /// Show statistics
-    #[arg(long)]
-    pub show_stats: bool,
 }
 
-/// Arguments for `aosctl dataset validate`
+#[derive(Debug, Args, Clone)]
+pub struct ShowArgs {
+    /// Dataset version id
+    pub dataset_version_id: String,
+}
+
 #[derive(Debug, Args, Clone)]
 pub struct ValidateArgs {
-    /// Dataset ID
-    pub dataset_id: String,
-
-    /// Tenant ID
-    #[arg(short, long, default_value = "default")]
-    pub tenant: String,
-
-    /// Show detailed validation results
+    /// Dataset id (validated via API)
+    #[arg(long, conflicts_with = "dataset_version_id")]
+    pub dataset_id: Option<String>,
+    /// Dataset version id (resolved to dataset id)
     #[arg(long)]
-    pub detailed: bool,
-
-    /// Auto-fix issues where possible
-    #[arg(long)]
-    pub auto_fix: bool,
-
-    /// Check schema consistency
-    #[arg(long)]
-    pub check_schema: bool,
-
-    /// Check for duplicates
-    #[arg(long)]
-    pub check_duplicates: bool,
-
-    /// Check for missing values
-    #[arg(long)]
-    pub check_missing: bool,
+    pub dataset_version_id: Option<String>,
 }
 
-/// Arguments for `aosctl dataset preview`
-#[derive(Debug, Args, Clone)]
-pub struct PreviewArgs {
-    /// Dataset ID
-    pub dataset_id: String,
-
-    /// Tenant ID
-    #[arg(short, long, default_value = "default")]
-    pub tenant: String,
-
-    /// Number of records to preview
-    #[arg(long, default_value = "10")]
-    pub limit: u32,
-
-    /// Offset in records
-    #[arg(long, default_value = "0")]
-    pub offset: u32,
-
-    /// Show column names
-    #[arg(long)]
-    pub show_columns: bool,
-
-    /// Show data types
-    #[arg(long)]
-    pub show_types: bool,
-}
-
-/// Arguments for `aosctl dataset delete`
-#[derive(Debug, Args, Clone)]
-pub struct DeleteArgs {
-    /// Dataset ID
-    pub dataset_id: String,
-
-    /// Tenant ID
-    #[arg(short, long, default_value = "default")]
-    pub tenant: String,
-
-    /// Force deletion without confirmation
-    #[arg(long)]
-    pub force: bool,
-
-    /// Also delete backups and archives
-    #[arg(long)]
-    pub delete_backups: bool,
-
-    /// Dry-run deletion
-    #[arg(long)]
-    pub dry_run: bool,
-}
-
-// ============================================================================
-// Result Types for Serialization
-// ============================================================================
-
-/// Result of dataset upload
 #[derive(Debug, Serialize)]
-pub struct UploadResult {
-    pub dataset_id: String,
-    pub dataset_name: String,
-    pub files_uploaded: usize,
-    pub total_records: u64,
-    pub total_size_bytes: u64,
-    pub created_at: String,
-    pub status: String,
+struct IngestResult {
+    dataset_id: String,
+    dataset_version_id: String,
+    file_count: i32,
+    total_size_bytes: i64,
+    validation_status: String,
+    trust_state: String,
+    created_at: String,
 }
 
-/// Dataset list result
 #[derive(Debug, Serialize)]
-pub struct DatasetListResult {
-    pub datasets: Vec<DatasetInfo>,
-    pub total: usize,
-    pub limit: u32,
-    pub offset: u32,
+struct DatasetListRow {
+    dataset_id: String,
+    name: String,
+    validation_status: String,
+    trust_state: Option<String>,
+    file_count: i32,
+    total_size_bytes: i64,
+    created_at: String,
+    updated_at: String,
 }
 
-/// Dataset info for listing
 #[derive(Debug, Serialize)]
-pub struct DatasetInfo {
-    pub id: String,
-    pub name: String,
-    pub description: Option<String>,
-    pub status: String,
-    pub created_at: String,
-    pub updated_at: String,
-    pub record_count: u64,
-    pub size_bytes: u64,
-    pub file_count: usize,
+struct VersionRow {
+    dataset_version_id: String,
+    dataset_id: String,
+    version_number: i64,
+    validation_status: String,
+    trust_state: String,
+    created_at: String,
 }
 
-/// Dataset detail result
 #[derive(Debug, Serialize)]
-pub struct DatasetDetailResult {
-    pub id: String,
-    pub name: String,
-    pub description: Option<String>,
-    pub tenant_id: String,
-    pub status: String,
-    pub created_at: String,
-    pub updated_at: String,
-    pub record_count: u64,
-    pub size_bytes: u64,
-    pub files: Option<Vec<FileInfo>>,
-    pub metadata: Option<serde_json::Value>,
-    pub statistics: Option<DatasetStatistics>,
+struct ShowResult {
+    dataset_version_id: String,
+    dataset_id: String,
+    trust_state: String,
+    validation_status: String,
+    hash_b3: String,
+    manifest: Option<DatasetManifest>,
 }
-
-/// File information
-#[derive(Debug, Serialize)]
-pub struct FileInfo {
-    pub name: String,
-    pub size_bytes: u64,
-    pub format: String,
-    pub record_count: u64,
-    pub hash: String,
-}
-
-/// Dataset statistics
-#[derive(Debug, Serialize)]
-pub struct DatasetStatistics {
-    pub total_records: u64,
-    pub total_size_bytes: u64,
-    pub avg_record_size: f64,
-    pub min_record_size: u64,
-    pub max_record_size: u64,
-    pub duplicate_records: u64,
-    pub missing_values: u64,
-    pub format_breakdown: serde_json::Value,
-}
-
-/// Validation result
-#[derive(Debug, Serialize)]
-pub struct ValidationResult {
-    pub dataset_id: String,
-    pub valid: bool,
-    pub checks_passed: u32,
-    pub checks_failed: u32,
-    pub issues: Vec<ValidationIssue>,
-    pub warnings: Vec<String>,
-    pub fixed: u32,
-}
-
-/// Individual validation issue
-#[derive(Debug, Serialize)]
-pub struct ValidationIssue {
-    pub check_type: String,
-    pub severity: String,
-    pub message: String,
-    pub location: Option<String>,
-    pub fixable: bool,
-}
-
-/// Dataset preview result
-#[derive(Debug, Serialize)]
-pub struct PreviewResult {
-    pub dataset_id: String,
-    pub total_records: u64,
-    pub offset: u32,
-    pub limit: u32,
-    pub records_shown: usize,
-    pub columns: Option<Vec<String>>,
-    pub data_types: Option<Vec<String>>,
-    pub records: Vec<serde_json::Value>,
-}
-
-/// Delete result
-#[derive(Debug, Serialize)]
-pub struct DeleteResult {
-    pub dataset_id: String,
-    pub deleted: bool,
-    pub files_deleted: usize,
-    pub size_freed_bytes: u64,
-    pub deleted_at: String,
-}
-
-// ============================================================================
-// Command Execution
-// ============================================================================
 
 /// Execute dataset commands
 pub async fn run(cmd: DatasetCommand, output: &OutputWriter) -> Result<()> {
     match cmd {
-        DatasetCommand::Upload(args) => upload_dataset(args, output).await,
-        DatasetCommand::List(args) => list_datasets(args, output).await,
-        DatasetCommand::Get(args) => get_dataset(args, output).await,
-        DatasetCommand::Validate(args) => validate_dataset(args, output).await,
-        DatasetCommand::Preview(args) => preview_dataset(args, output).await,
-        DatasetCommand::Delete(args) => delete_dataset(args, output).await,
+        DatasetSubcommand::Create(args) => create_dataset(args, output).await,
+        DatasetSubcommand::Ingest(args) => ingest_dataset(args, output).await,
+        DatasetSubcommand::List(args) => list_datasets(args, output).await,
+        DatasetSubcommand::Versions(args) => list_versions(args, output).await,
+        DatasetSubcommand::Show(args) => show_version(args, output).await,
+        DatasetSubcommand::Validate(args) => validate_dataset(args, output).await,
     }
 }
 
-/// Upload dataset from files
-async fn upload_dataset(args: UploadArgs, output: &OutputWriter) -> Result<()> {
-    if args.dry_run {
-        output.info("DRY-RUN: Would upload dataset");
-        for file in &args.files {
-            let file_str = file.display().to_string();
-            output.kv("File", &file_str);
-        }
-        return Ok(());
-    }
+async fn create_dataset(args: CreateArgs, output: &OutputWriter) -> Result<()> {
+    let mut _auth = load_auth()
+        .map_err(|e| AosError::Io(format!("Failed to load auth: {e}")))?
+        .ok_or_else(|| AosError::Validation("No stored auth; run `aosctl auth login`".into()))?;
 
-    let _db = Db::connect_env().await?;
+    warn_if_tenant_mismatch(None, output);
 
-    // Validate file existence
-    for file in &args.files {
-        if !file.exists() {
-            return Err(adapteros_core::AosError::Io(format!("File not found: {}", file.display())));
-        }
-    }
+    let client = Client::builder()
+        .cookie_store(true)
+        .build()
+        .map_err(|e| AosError::Io(format!("HTTP client build failed: {e}")))?;
 
-    output.info("Uploading dataset files");
-    for file in &args.files {
-        let file_str = file.display().to_string();
-        output.kv("File", &file_str);
-    }
+    let request_body = serde_json::json!({
+        "document_id": args.document_id,
+        "document_ids": if args.document_ids.is_empty() { None::<Vec<String>> } else { Some(args.document_ids.clone()) },
+        "collection_id": args.collection_id,
+        "name": args.name,
+        "description": args.description,
+        "dataset_type": args.dataset_type,
+        "purpose": args.purpose,
+        "source_location": args.source_location,
+        "tags": if args.tags.is_empty() { None::<Vec<String>> } else { Some(args.tags.clone()) },
+    });
 
-    if let Some(name) = &args.name {
-        output.kv("Dataset name", name);
-    }
+    let resp = send_with_refresh_from_store(&client, |client, store| {
+        let url = format!(
+            "{}/v1/datasets/from-documents",
+            store.base_url.trim_end_matches('/')
+        );
+        client
+            .post(url)
+            .bearer_auth(&store.token)
+            .json(&request_body)
+    })
+    .await
+    .map_err(|e| AosError::Io(format!("Create request failed: {e}")))?;
 
-    if let Some(desc) = &args.description {
-        output.kv("Description", desc);
-    }
+    let dataset: DatasetResponse = resp
+        .json()
+        .await
+        .map_err(|e| AosError::Io(format!("Failed to parse dataset response: {e}")))?;
 
-    // Generate dataset ID
-    let dataset_id = format!("dataset-{}", uuid::Uuid::new_v4().to_string()[0..8].to_uppercase());
+    let mut db = Db::connect_env().await?;
+    let version_id = db
+        .ensure_dataset_version_exists(&dataset.dataset_id)
+        .await?;
+    let trust_state = db
+        .get_effective_trust_state(&version_id)
+        .await?
+        .unwrap_or_else(|| "unknown".to_string());
 
-    // Calculate total size
-    let mut total_size = 0u64;
-    for file in &args.files {
-        total_size += std::fs::metadata(file)?.len();
-    }
-
-    info!("Uploading dataset: {} with {} files ({} bytes)", dataset_id, args.files.len(), total_size);
-
-    let result = UploadResult {
-        dataset_id: dataset_id.clone(),
-        dataset_name: args.name.unwrap_or_else(|| dataset_id.clone()),
-        files_uploaded: args.files.len(),
-        total_records: 1000, // Placeholder
-        total_size_bytes: total_size,
-        created_at: chrono::Utc::now().to_rfc3339(),
-        status: "completed".to_string(),
-    };
-
-    output.json(&result)?;
-
-    if args.validate {
-        output.info("Validating uploaded dataset");
-        let validate_args = ValidateArgs {
-            dataset_id: result.dataset_id.clone(),
-            tenant: args.tenant,
-            detailed: false,
-            auto_fix: false,
-            check_schema: true,
-            check_duplicates: true,
-            check_missing: true,
-        };
-        validate_dataset(validate_args, output).await?;
-    }
-
-    Ok(())
-}
-
-/// List datasets
-async fn list_datasets(args: ListArgs, output: &OutputWriter) -> Result<()> {
-    let _db = Db::connect_env().await?;
-
-    output.info(&format!("Listing datasets for tenant: {}", args.tenant));
-
-    // Placeholder implementation
-    let datasets = vec![
-        DatasetInfo {
-            id: "dataset-001".to_string(),
-            name: "training_data".to_string(),
-            description: Some("Initial training dataset".to_string()),
-            status: "active".to_string(),
-            created_at: chrono::Utc::now().to_rfc3339(),
-            updated_at: chrono::Utc::now().to_rfc3339(),
-            record_count: 5000,
-            size_bytes: 1_048_576,
-            file_count: 1,
-        },
-        DatasetInfo {
-            id: "dataset-002".to_string(),
-            name: "validation_data".to_string(),
-            description: Some("Validation dataset".to_string()),
-            status: "active".to_string(),
-            created_at: chrono::Utc::now().to_rfc3339(),
-            updated_at: chrono::Utc::now().to_rfc3339(),
-            record_count: 1000,
-            size_bytes: 209_715,
-            file_count: 1,
-        },
-    ];
-
-    let result = DatasetListResult {
-        total: datasets.len(),
-        limit: args.limit,
-        offset: 0,
-        datasets,
-    };
-
-    output.json(&result)?;
-    Ok(())
-}
-
-/// Get dataset details
-async fn get_dataset(args: GetArgs, output: &OutputWriter) -> Result<()> {
-    let _db = Db::connect_env().await?;
-
-    output.info(&format!("Getting dataset: {}", args.dataset_id));
-
-    let result = DatasetDetailResult {
-        id: args.dataset_id.clone(),
-        name: "training_dataset".to_string(),
-        description: Some("Main training dataset".to_string()),
-        tenant_id: args.tenant,
-        status: "active".to_string(),
-        created_at: chrono::Utc::now().to_rfc3339(),
-        updated_at: chrono::Utc::now().to_rfc3339(),
-        record_count: 5000,
-        size_bytes: 1_048_576,
-        files: if args.show_files {
-            Some(vec![FileInfo {
-                name: "data.jsonl".to_string(),
-                size_bytes: 1_048_576,
-                format: "jsonl".to_string(),
-                record_count: 5000,
-                hash: "b3:abc123".to_string(),
-            }])
-        } else {
-            None
-        },
-        metadata: if args.show_metadata {
-            Some(serde_json::json!({
-                "source": "training",
-                "version": "1.0",
-                "tags": ["training", "production"]
-            }))
-        } else {
-            None
-        },
-        statistics: None,
-    };
-
-    output.json(&result)?;
-    Ok(())
-}
-
-/// Validate dataset
-async fn validate_dataset(args: ValidateArgs, output: &OutputWriter) -> Result<()> {
-    let _db = Db::connect_env().await?;
-
-    output.info(&format!("Validating dataset: {}", args.dataset_id));
-
-    let result = ValidationResult {
-        dataset_id: args.dataset_id.clone(),
-        valid: true,
-        checks_passed: 8,
-        checks_failed: 0,
-        issues: vec![],
-        warnings: vec![],
-        fixed: 0,
-    };
-
-    output.json(&result)?;
-
-    if result.valid {
-        output.success("Dataset validation passed");
+    if output.is_json() {
+        output.json(&serde_json::json!({
+            "dataset_id": dataset.dataset_id,
+            "dataset_version_id": version_id,
+            "trust_state": trust_state,
+            "validation_status": dataset.validation_status,
+        }))?;
     } else {
-        output.error("Dataset validation failed");
+        output.section("Dataset created");
+        output.kv("Dataset", &dataset.dataset_id);
+        output.kv("Version", &version_id);
+        output.kv("Validation", &format!("{:?}", dataset.validation_status));
+        output.kv("Trust", &trust_state);
     }
 
     Ok(())
 }
 
-/// Preview dataset
-async fn preview_dataset(args: PreviewArgs, output: &OutputWriter) -> Result<()> {
-    let _db = Db::connect_env().await?;
+async fn ingest_dataset(args: IngestArgs, output: &OutputWriter) -> Result<()> {
+    let mut _auth = load_auth()
+        .map_err(|e| AosError::Io(format!("Failed to load auth: {e}")))?
+        .ok_or_else(|| AosError::Validation("No stored auth; run `aosctl auth login`".into()))?;
 
-    output.info(&format!(
-        "Previewing dataset: {} (limit: {}, offset: {})",
-        args.dataset_id, args.limit, args.offset
-    ));
+    warn_if_tenant_mismatch(None, output);
 
-    let records = vec![
-        serde_json::json!({"id": 1, "text": "Example record 1", "label": "positive"}),
-        serde_json::json!({"id": 2, "text": "Example record 2", "label": "negative"}),
-        serde_json::json!({"id": 3, "text": "Example record 3", "label": "neutral"}),
-    ];
+    let client = Client::builder()
+        .cookie_store(true)
+        .build()
+        .map_err(|e| AosError::Io(format!("HTTP client build failed: {e}")))?;
 
-    let result = PreviewResult {
-        dataset_id: args.dataset_id.clone(),
-        total_records: 5000,
-        offset: args.offset,
-        limit: args.limit,
-        records_shown: records.len(),
-        columns: if args.show_columns {
-            Some(vec!["id".to_string(), "text".to_string(), "label".to_string()])
-        } else {
-            None
-        },
-        data_types: if args.show_types {
-            Some(vec!["integer".to_string(), "string".to_string(), "string".to_string()])
-        } else {
-            None
-        },
-        records,
+    // Pre-read files so we can rebuild the multipart body if refresh is needed.
+    let mut file_payloads: Vec<(String, Vec<u8>)> = Vec::new();
+    for path in &args.files {
+        if !path.exists() {
+            return Err(AosError::Io(format!("File not found: {}", path.display())));
+        }
+        let data = tokio::fs::read(path)
+            .await
+            .map_err(|e| AosError::Io(format!("Failed to read {}: {e}", path.display())))?;
+        let name = path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .ok_or_else(|| AosError::Validation("Invalid file name".into()))?
+            .to_string();
+        file_payloads.push((name, data));
+    }
+
+    let format_hint = args.format.clone();
+    let name_hint = args.name.clone();
+    let desc_hint = args.description.clone();
+
+    let resp = send_with_refresh_from_store(&client, |client, store| {
+        let url = format!(
+            "{}/v1/datasets/upload",
+            store.base_url.trim_end_matches('/')
+        );
+        let mut form = multipart::Form::new();
+        if let Some(ref fmt) = format_hint {
+            form = form.text("format", fmt.clone());
+        }
+        if let Some(ref n) = name_hint {
+            form = form.text("name", n.clone());
+        }
+        if let Some(ref d) = desc_hint {
+            form = form.text("description", d.clone());
+        }
+        for (fname, data) in &file_payloads {
+            let part = multipart::Part::bytes(data.clone()).file_name(fname.clone());
+            form = form.part("file", part);
+        }
+        client.post(url).bearer_auth(&store.token).multipart(form)
+    })
+    .await
+    .map_err(|e| AosError::Io(format!("Upload request failed: {e}")))?;
+
+    let upload: UploadDatasetResponse = resp
+        .json()
+        .await
+        .map_err(|e| AosError::Io(format!("Failed to parse upload response: {e}")))?;
+
+    if let Some(ref expected) = args.dataset_id {
+        if expected != &upload.dataset_id {
+            output.warning(&format!(
+                "Requested dataset {} but backend created {}",
+                expected, upload.dataset_id
+            ));
+        }
+    }
+
+    let mut db = Db::connect_env().await?;
+    let dataset_id = upload.dataset_id.clone();
+    let version_id = db.ensure_dataset_version_exists(&dataset_id).await?;
+    let trust_state = db
+        .get_effective_trust_state(&version_id)
+        .await?
+        .unwrap_or_else(|| "unknown".to_string());
+
+    let result = IngestResult {
+        dataset_id,
+        dataset_version_id: version_id,
+        file_count: upload.file_count,
+        total_size_bytes: upload.total_size_bytes,
+        validation_status: format!("{:?}", upload.validation_status),
+        trust_state,
+        created_at: upload.created_at,
     };
 
-    output.json(&result)?;
+    if output.is_json() {
+        output.json(&result)?;
+    } else {
+        output.section("Ingest completed");
+        output.kv("Dataset", &result.dataset_id);
+        output.kv("Version", &result.dataset_version_id);
+        output.kv("Files", &result.file_count.to_string());
+        output.kv("Size (bytes)", &result.total_size_bytes.to_string());
+        output.kv("Validation", &result.validation_status);
+        output.kv("Trust", &result.trust_state);
+    }
+
     Ok(())
 }
 
-/// Delete dataset
-async fn delete_dataset(args: DeleteArgs, output: &OutputWriter) -> Result<()> {
-    let _db = Db::connect_env().await?;
+async fn list_datasets(args: ListArgs, output: &OutputWriter) -> Result<()> {
+    let mut _auth = load_auth()
+        .map_err(|e| AosError::Io(format!("Failed to load auth: {e}")))?
+        .ok_or_else(|| AosError::Validation("No stored auth; run `aosctl auth login`".into()))?;
 
-    if args.dry_run {
-        output.info(&format!("DRY-RUN: Would delete dataset: {}", args.dataset_id));
+    warn_if_tenant_mismatch(None, output);
+
+    let client = Client::builder()
+        .cookie_store(true)
+        .build()
+        .map_err(|e| AosError::Io(format!("HTTP client build failed: {e}")))?;
+
+    let resp = send_with_refresh_from_store(&client, |client, store| {
+        let url = format!(
+            "{}/v1/datasets?limit={}",
+            store.base_url.trim_end_matches('/'),
+            args.limit
+        );
+        client.get(url).bearer_auth(&store.token)
+    })
+    .await
+    .map_err(|e| AosError::Io(format!("List request failed: {e}")))?;
+
+    let datasets: Vec<DatasetResponse> = resp
+        .json()
+        .await
+        .map_err(|e| AosError::Io(format!("Failed to parse list response: {e}")))?;
+
+    let mut db = Db::connect_env().await?;
+    let mut rows = Vec::new();
+    for ds in datasets {
+        let version_id = db.ensure_dataset_version_exists(&ds.dataset_id).await?;
+        let trust_state = db
+            .get_effective_trust_state(&version_id)
+            .await?
+            .unwrap_or_else(|| "unknown".to_string());
+
+        if let Some(ref filter) = args.trust_state {
+            if !trust_state.eq_ignore_ascii_case(filter) {
+                continue;
+            }
+        }
+        if let Some(ref name_filter) = args.name {
+            if !ds.name.to_lowercase().contains(&name_filter.to_lowercase()) {
+                continue;
+            }
+        }
+
+        rows.push(DatasetListRow {
+            dataset_id: ds.dataset_id,
+            name: ds.name,
+            validation_status: format!("{:?}", ds.validation_status),
+            trust_state: Some(trust_state),
+            file_count: ds.file_count,
+            total_size_bytes: ds.total_size_bytes,
+            created_at: ds.created_at,
+            updated_at: ds.updated_at,
+        });
+    }
+
+    if output.is_json() {
+        output.json(&rows)?;
         return Ok(());
     }
 
-    // Confirmation prompt if not forced
-    if !args.force {
-        output.warning(&format!("About to delete dataset: {}", args.dataset_id));
-        output.info("Use --force to skip confirmation");
+    let mut table = Table::new();
+    table
+        .set_header(vec![
+            "dataset_id",
+            "trust_state",
+            "validation",
+            "files",
+            "size_bytes",
+            "updated_at",
+        ])
+        .load_preset(UTF8_FULL)
+        .apply_modifier(UTF8_ROUND_CORNERS);
+
+    for row in &rows {
+        table.add_row(vec![
+            row.dataset_id.clone(),
+            row.trust_state.clone().unwrap_or_else(|| "unknown".into()),
+            row.validation_status.clone(),
+            row.file_count.to_string(),
+            row.total_size_bytes.to_string(),
+            row.updated_at.clone(),
+        ]);
+    }
+
+    if !output.is_quiet() {
+        println!("{table}");
+    }
+
+    Ok(())
+}
+
+async fn list_versions(args: VersionsArgs, output: &OutputWriter) -> Result<()> {
+    let mut db = Db::connect_env().await?;
+    let versions = db.list_all_dataset_versions().await?;
+    let mut filtered: Vec<TrainingDatasetVersion> = versions
+        .into_iter()
+        .filter(|v| v.dataset_id == args.dataset_id)
+        .collect();
+    filtered.sort_by_key(|v| v.version_number);
+
+    let rows: Vec<VersionRow> = filtered
+        .iter()
+        .map(|v| VersionRow {
+            dataset_version_id: v.id.clone(),
+            dataset_id: v.dataset_id.clone(),
+            version_number: v.version_number,
+            validation_status: v.validation_status.clone(),
+            trust_state: v.trust_state.clone(),
+            created_at: v.created_at.clone(),
+        })
+        .collect();
+
+    if output.is_json() {
+        output.json(&rows)?;
         return Ok(());
     }
 
-    output.info(&format!("Deleting dataset: {}", args.dataset_id));
+    let mut table = Table::new();
+    table
+        .set_header(vec![
+            "version_id",
+            "version",
+            "validation",
+            "trust_state",
+            "created_at",
+        ])
+        .load_preset(UTF8_FULL)
+        .apply_modifier(UTF8_ROUND_CORNERS);
 
-    let result = DeleteResult {
-        dataset_id: args.dataset_id.clone(),
-        deleted: true,
-        files_deleted: 1,
-        size_freed_bytes: 1_048_576,
-        deleted_at: chrono::Utc::now().to_rfc3339(),
+    for row in &rows {
+        table.add_row(vec![
+            row.dataset_version_id.clone(),
+            row.version_number.to_string(),
+            row.validation_status.clone(),
+            row.trust_state.clone(),
+            row.created_at.clone(),
+        ]);
+    }
+
+    if !output.is_quiet() {
+        println!("{table}");
+    }
+
+    Ok(())
+}
+
+async fn show_version(args: ShowArgs, output: &OutputWriter) -> Result<()> {
+    let mut _auth = load_auth()
+        .map_err(|e| AosError::Io(format!("Failed to load auth: {e}")))?
+        .ok_or_else(|| AosError::Validation("No stored auth; run `aosctl auth login`".into()))?;
+
+    let client = Client::builder()
+        .cookie_store(true)
+        .build()
+        .map_err(|e| AosError::Io(format!("HTTP client build failed: {e}")))?;
+
+    let manifest_resp = send_with_refresh_from_store(&client, |client, store| {
+        let url = format!(
+            "{}/v1/training/dataset_versions/{}/manifest",
+            store.base_url.trim_end_matches('/'),
+            args.dataset_version_id
+        );
+        client.get(url).bearer_auth(&store.token)
+    })
+    .await;
+
+    let manifest: Option<DatasetManifest> = match manifest_resp {
+        Ok(resp) => resp.json().await.ok(),
+        Err(_) => None,
     };
 
-    output.json(&result)?;
-    output.success("Dataset deleted successfully");
+    let mut db = Db::connect_env().await?;
+    let version = db
+        .get_training_dataset_version(&args.dataset_version_id)
+        .await?
+        .ok_or_else(|| AosError::NotFound("Dataset version not found".into()))?;
+    let trust_state = db
+        .get_effective_trust_state(&version.id)
+        .await?
+        .unwrap_or_else(|| version.trust_state.clone());
+
+    let result = ShowResult {
+        dataset_version_id: version.id.clone(),
+        dataset_id: version.dataset_id.clone(),
+        trust_state,
+        validation_status: version.validation_status.clone(),
+        hash_b3: version.hash_b3.clone(),
+        manifest,
+    };
+
+    if output.is_json() {
+        output.json(&result)?;
+    } else {
+        output.section("Dataset version");
+        output.kv("Dataset", &result.dataset_id);
+        output.kv("Version", &result.dataset_version_id);
+        output.kv("Trust", &result.trust_state);
+        output.kv("Validation", &result.validation_status);
+        output.kv("Hash", &result.hash_b3);
+        if let Some(m) = &result.manifest {
+            output.kv("Rows", &m.total_rows.to_string());
+            output.kv(
+                "Splits",
+                &m.splits.keys().cloned().collect::<Vec<_>>().join(","),
+            );
+        }
+    }
+
+    Ok(())
+}
+
+async fn validate_dataset(args: ValidateArgs, output: &OutputWriter) -> Result<()> {
+    let mut _auth = load_auth()
+        .map_err(|e| AosError::Io(format!("Failed to load auth: {e}")))?
+        .ok_or_else(|| AosError::Validation("No stored auth; run `aosctl auth login`".into()))?;
+
+    let mut db = Db::connect_env().await?;
+
+    let (dataset_id, version_id) = if let Some(ref vid) = args.dataset_version_id {
+        let v = db
+            .get_training_dataset_version(vid)
+            .await?
+            .ok_or_else(|| AosError::NotFound("Dataset version not found".into()))?;
+        (v.dataset_id.clone(), v.id.clone())
+    } else if let Some(ref did) = args.dataset_id {
+        let vid = db.ensure_dataset_version_exists(did).await?;
+        (did.clone(), vid)
+    } else {
+        return Err(AosError::Validation(
+            "Provide either --dataset-id or --dataset-version-id".into(),
+        ));
+    };
+
+    let client = Client::builder()
+        .cookie_store(true)
+        .build()
+        .map_err(|e| AosError::Io(format!("HTTP client build failed: {e}")))?;
+
+    let resp = send_with_refresh_from_store(&client, |client, store| {
+        let url = format!(
+            "{}/v1/datasets/{}/validate",
+            store.base_url.trim_end_matches('/'),
+            dataset_id
+        );
+        client
+            .post(url)
+            .bearer_auth(&store.token)
+            .json(&serde_json::json!({"check_format": true}))
+    })
+    .await
+    .map_err(|e| AosError::Io(format!("Validate request failed: {e}")))?;
+
+    let validation: ValidateDatasetResponse = resp
+        .json()
+        .await
+        .map_err(|e| AosError::Io(format!("Failed to parse validation response: {e}")))?;
+
+    // Refresh trust state after validation
+    let trust_state = db
+        .get_effective_trust_state(&version_id)
+        .await?
+        .unwrap_or_else(|| "unknown".to_string());
+
+    if output.is_json() {
+        output.json(&serde_json::json!({
+            "dataset_id": dataset_id,
+            "dataset_version_id": version_id,
+            "is_valid": validation.is_valid,
+            "validation_status": validation.validation_status,
+            "trust_state": trust_state
+        }))?;
+    } else {
+        output.section("Validation");
+        output.kv("Dataset", &dataset_id);
+        output.kv("Version", &version_id);
+        output.kv("Valid", &validation.is_valid.to_string());
+        output.kv("Validation", &format!("{:?}", validation.validation_status));
+        output.kv("Trust", &trust_state);
+    }
 
     Ok(())
 }
@@ -673,32 +690,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_upload_args_creation() {
-        let args = UploadArgs {
-            files: vec![PathBuf::from("data.jsonl")],
-            name: Some("test_dataset".to_string()),
-            description: Some("Test description".to_string()),
-            tenant: "default".to_string(),
-            validate: true,
-            dry_run: false,
-            skip_dedup: false,
-            max_records: Some(1000),
+    fn ingest_args_allow_multiple_files() {
+        let args = IngestArgs {
+            files: vec![PathBuf::from("a.jsonl"), PathBuf::from("b.jsonl")],
+            dataset_id: None,
+            format: Some("jsonl".into()),
+            name: Some("ds".into()),
+            description: None,
         };
-        assert_eq!(args.files.len(), 1);
-        assert_eq!(args.name, Some("test_dataset".to_string()));
-        assert!(args.validate);
-    }
-
-    #[test]
-    fn test_delete_args_defaults() {
-        let args = DeleteArgs {
-            dataset_id: "dataset-001".to_string(),
-            tenant: "default".to_string(),
-            force: false,
-            delete_backups: false,
-            dry_run: false,
-        };
-        assert!(!args.force);
-        assert!(!args.dry_run);
+        assert_eq!(args.files.len(), 2);
+        assert_eq!(args.format.as_deref(), Some("jsonl"));
     }
 }

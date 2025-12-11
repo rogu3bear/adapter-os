@@ -3,16 +3,26 @@
 //! Handles scheduling, executing, and monitoring adapter training jobs.
 //! Integrates with MLX backend for actual training operations.
 
-use adapteros_core::AosError;
+use adapteros_config::CoreMLComputePreference;
+use adapteros_core::{backend::BackendKind, AosError, B3Hash};
+use adapteros_db::CreateCoremlFusionPairParams;
 use adapteros_deterministic_exec::spawn_deterministic;
 use adapteros_lora_worker::training::trainer::EpochMetrics as WorkerEpochMetrics;
 use adapteros_lora_worker::training::{
     MicroLoRATrainer as WorkerTrainer, TrainingBackend as WorkerTrainingBackend,
     TrainingConfig as WorkerTrainingConfig, TrainingExample as WorkerTrainingExample,
 };
+use adapteros_lora_worker::{run_coreml_export, ComputeUnits, CoreMLExportJob, CoreMLExportRecord};
 use anyhow::Result;
+use blake3;
+use chrono::Utc;
 use std::collections::HashMap;
+use std::collections::VecDeque;
+use std::ffi::OsStr;
+use std::fs::{self, OpenOptions};
+use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -20,8 +30,123 @@ use tracing::{error, info, warn};
 
 // Re-export canonical types from adapteros_types
 pub use adapteros_types::training::{
-    LoraTier, TrainingConfig, TrainingJob, TrainingJobStatus, TrainingTemplate,
+    DataLineageMode, DatasetVersionSelection, DatasetVersionTrustSnapshot, LoraTier,
+    TrainingBackendKind, TrainingBackendPolicy, TrainingConfig, TrainingJob, TrainingJobStatus,
+    TrainingTemplate,
 };
+
+// Deterministic weighted round-robin merge for multi-dataset training.
+fn weighted_round_robin_merge(
+    datasets: Vec<(Vec<WorkerTrainingExample>, f32)>,
+) -> Vec<WorkerTrainingExample> {
+    let weights: Vec<f32> = datasets.iter().map(|(_, w)| *w).collect();
+    let mut queues: Vec<VecDeque<WorkerTrainingExample>> = datasets
+        .into_iter()
+        .map(|(examples, _)| VecDeque::from(examples))
+        .collect();
+
+    let mut schedule: Vec<usize> = Vec::new();
+    for (idx, queue) in queues.iter().enumerate() {
+        let weight = (*weights.get(idx).unwrap_or(&1.0)).max(0.0);
+        let slots = weight.round() as usize;
+        let slots = if slots == 0 { 1 } else { slots };
+        if !queue.is_empty() {
+            for _ in 0..slots {
+                schedule.push(idx);
+            }
+        }
+    }
+
+    if schedule.is_empty() {
+        return Vec::new();
+    }
+
+    let mut merged = Vec::new();
+    loop {
+        let mut progressed = false;
+        for &idx in schedule.iter() {
+            if let Some(ex) =
+                queues
+                    .get_mut(idx)
+                    .and_then(|q| if q.is_empty() { None } else { q.pop_front() })
+            {
+                merged.push(ex);
+                progressed = true;
+            }
+        }
+        if !progressed {
+            break;
+        }
+    }
+
+    merged
+}
+
+/// Versioning context for training output.
+#[derive(Debug, Clone)]
+pub struct TrainingVersioningContext {
+    pub adapter_version_id: String,
+    pub version_label: String,
+    pub branch: String,
+    pub repo_id: String,
+    pub repo_name: String,
+    pub parent_version_id: Option<String>,
+    pub draft_version_id: Option<String>,
+    pub code_commit_sha: Option<String>,
+    pub data_spec_json: Option<String>,
+    pub data_spec_hash: Option<String>,
+}
+
+/// Deterministic combined data_spec_hash for multi-dataset jobs.
+///
+/// Input: (dataset_version_id, dataset_manifest_hash, weight)
+/// - Sorted by dataset_version_id for stability.
+/// - Weight hashed via IEEE-754 little-endian bytes to avoid formatting drift.
+pub fn compute_combined_data_spec_hash(entries: &[(String, String, f32)]) -> String {
+    let mut items = entries.to_vec();
+    items.sort_by(|a, b| a.0.cmp(&b.0));
+
+    let mut hasher = blake3::Hasher::new();
+    for (id, hash, weight) in items {
+        hasher.update(id.as_bytes());
+        hasher.update(b":");
+        hasher.update(hash.as_bytes());
+        hasher.update(b":");
+        hasher.update(&weight.to_le_bytes());
+        hasher.update(b";");
+    }
+
+    hasher.finalize().to_hex().to_string()
+}
+
+fn canonical_trust_state(raw: &str) -> String {
+    const CANONICAL_TRUST_STATES: &[&str] = &[
+        "allowed",
+        "allowed_with_warning",
+        "needs_approval",
+        "blocked",
+        "unknown",
+    ];
+
+    let normalized = match raw.trim().to_ascii_lowercase().as_str() {
+        "allowed" => "allowed",
+        "allowed_with_warning" | "warn" => "allowed_with_warning",
+        "needs_approval" => "needs_approval",
+        "blocked" | "blocked_regressed" => "blocked",
+        "unknown" => "unknown",
+        other => {
+            warn!(state = %other, "Unknown trust_state; normalizing to unknown");
+            "unknown"
+        }
+    };
+
+    if !CANONICAL_TRUST_STATES.contains(&normalized) {
+        warn!(state = %normalized, "Non-canonical trust_state emitted; forcing unknown");
+        "unknown".to_string()
+    } else {
+        normalized.to_string()
+    }
+}
 
 /// Training service for managing jobs
 pub struct TrainingService {
@@ -175,7 +300,12 @@ impl TrainingService {
         config: TrainingConfig,
         template_id: Option<String>,
         repo_id: Option<String>,
+        target_branch: Option<String>,
+        base_version_id: Option<String>,
         dataset_id: Option<String>,
+        dataset_version_ids: Option<Vec<DatasetVersionSelection>>,
+        synthetic_mode: bool,
+        data_lineage_mode: DataLineageMode,
         tenant_id: Option<String>,
         initiated_by: Option<String>,
         initiated_by_role: Option<String>,
@@ -193,9 +323,113 @@ impl TrainingService {
         post_actions_json: Option<String>,
         // Retry tracking: ID of the original job this is a retry of
         retry_of_job_id: Option<String>,
+        // Versioning context (adapter_versions table)
+        versioning: Option<TrainingVersioningContext>,
+        // Source control + data provenance
+        code_commit_sha: Option<String>,
+        data_spec_json: Option<String>,
+        data_spec_hash: Option<String>,
     ) -> Result<TrainingJob> {
         let job_id = format!("train-{}", uuid::Uuid::new_v4());
-        let scope_value = scope.clone().unwrap_or_else(|| "project".to_string());
+        // Default to tenant scope to satisfy adapter scope trigger.
+        let scope_value = scope.clone().unwrap_or_else(|| "tenant".to_string());
+
+        // Preserve caller intent and record deterministic CoreML fallback for auditability
+        let mut config = config;
+        if let Some(policy) = config.backend_policy {
+            match policy {
+                TrainingBackendPolicy::CoremlOnly => {
+                    config.preferred_backend = Some(TrainingBackendKind::CoreML);
+                    config.coreml_training_fallback = None;
+                    config.require_gpu = true;
+                }
+                TrainingBackendPolicy::CoremlElseFallback => {
+                    config.preferred_backend = Some(TrainingBackendKind::CoreML);
+                    if config.coreml_training_fallback.is_none() {
+                        config.coreml_training_fallback = Some(TrainingBackendKind::Mlx);
+                    }
+                }
+                TrainingBackendPolicy::Auto => {}
+            }
+        }
+        if config.preferred_backend == Some(TrainingBackendKind::CoreML)
+            && config.coreml_training_fallback.is_none()
+        {
+            config.coreml_training_fallback = Some(TrainingBackendKind::Mlx);
+        }
+        let export_opt_in = config.enable_coreml_export.unwrap_or(false);
+        // Normalize to Some(false) so downstream snapshots capture caller intent.
+        config.enable_coreml_export = Some(export_opt_in);
+        let mut data_spec_hash = data_spec_hash;
+
+        let dataset_versions_empty = dataset_version_ids
+            .as_ref()
+            .map(|v| v.is_empty())
+            .unwrap_or(true);
+        if synthetic_mode && !dataset_versions_empty {
+            return Err(AosError::Validation(
+                "synthetic_mode=true requires dataset_version_ids to be empty".to_string(),
+            )
+            .into());
+        }
+        if !synthetic_mode && dataset_versions_empty {
+            return Err(AosError::Validation(
+                "dataset_version_ids are required for non-synthetic training jobs".to_string(),
+            )
+            .into());
+        }
+
+        let mut combined_inputs: Vec<(String, String, f32)> = Vec::new();
+        if let (Some(ref db), Some(versions)) = (&self.db, dataset_version_ids.as_ref()) {
+            for sel in versions.iter() {
+                let ds_version = db
+                    .get_training_dataset_version(&sel.dataset_version_id)
+                    .await
+                    .map_err(|e| AosError::Database(e.to_string()))?
+                    .ok_or_else(|| {
+                        AosError::Validation(format!(
+                            "dataset version {} not found",
+                            sel.dataset_version_id
+                        ))
+                    })?;
+
+                let trust_state = canonical_trust_state(&ds_version.trust_state);
+                if trust_state == "blocked" {
+                    return Err(AosError::Validation(format!(
+                        "dataset version {} trust_state={} blocks training",
+                        sel.dataset_version_id, trust_state
+                    ))
+                    .into());
+                }
+                if trust_state == "needs_approval" || trust_state == "unknown" {
+                    return Err(AosError::Validation(format!(
+                        "dataset version {} trust_state={} blocks training",
+                        sel.dataset_version_id, trust_state
+                    ))
+                    .into());
+                }
+
+                let weight = if sel.weight <= 0.0 { 1.0 } else { sel.weight };
+                combined_inputs.push((
+                    sel.dataset_version_id.clone(),
+                    ds_version.hash_b3.clone(),
+                    weight,
+                ));
+            }
+        }
+        if !combined_inputs.is_empty() {
+            let combined_hash = if combined_inputs.len() == 1 && data_spec_hash.is_none() {
+                combined_inputs[0].1.clone()
+            } else {
+                compute_combined_data_spec_hash(&combined_inputs)
+            };
+            if let Some(ref provided) = data_spec_hash {
+                if provided != &combined_hash {
+                    return Err(AosError::Validation("DATA_SPEC_HASH_MISMATCH".to_string()).into());
+                }
+            }
+            data_spec_hash = Some(combined_hash);
+        }
 
         // Compute config hash for reproducibility tracking
         let config_params = adapteros_db::training_jobs::TrainingConfigParams {
@@ -209,15 +443,81 @@ impl TrainingService {
         let config_hash = adapteros_db::training_jobs::compute_config_hash(&config_params).ok();
 
         // Get build ID from environment or use default
-        let build_id = std::env::var("BUILD_ID")
-            .or_else(|_| std::env::var("GIT_COMMIT"))
-            .ok()
+        let build_id = code_commit_sha
+            .clone()
+            .or_else(|| std::env::var("BUILD_ID").ok())
+            .or_else(|| std::env::var("GIT_COMMIT").ok())
             .or_else(|| Some("dev".to_string()));
 
         let mut job = TrainingJob::new(job_id.clone(), adapter_name.clone(), config.clone());
         job.template_id = template_id;
         job.repo_id = repo_id.clone();
+        job.target_branch = target_branch.clone();
+        job.base_version_id = base_version_id.clone();
+        if let Some(ref ver) = versioning {
+            job.repo_name = Some(ver.repo_name.clone());
+            job.target_branch = Some(ver.branch.clone());
+            job.base_version_id = ver.parent_version_id.clone();
+            job.adapter_version_id = Some(ver.adapter_version_id.clone());
+            job.version_label = Some(ver.version_label.clone());
+            job.draft_version_id = ver.draft_version_id.clone();
+            job.code_commit_sha = ver.code_commit_sha.clone();
+            job.data_spec_json = ver.data_spec_json.clone();
+            job.data_spec_hash = ver.data_spec_hash.clone();
+        }
+        if job.code_commit_sha.is_none() {
+            job.code_commit_sha = code_commit_sha.clone();
+        }
+        if job.data_spec_json.is_none() {
+            job.data_spec_json = data_spec_json.clone();
+        }
+        if job.data_spec_hash.is_none() {
+            job.data_spec_hash = data_spec_hash.clone().or_else(|| {
+                job.data_spec_json
+                    .as_ref()
+                    .map(|spec| blake3::hash(spec.as_bytes()).to_hex().to_string())
+            });
+        }
         job.dataset_id = dataset_id.clone();
+        job.dataset_version_ids = dataset_version_ids.clone();
+        if let (Some(ref db), Some(versions)) = (&self.db, dataset_version_ids.as_ref()) {
+            let mut trust_snapshots = Vec::new();
+            for sel in versions.iter() {
+                let trust_state = db
+                    .get_effective_trust_state(&sel.dataset_version_id)
+                    .await
+                    .ok()
+                    .flatten()
+                    .map(|t| canonical_trust_state(&t));
+                trust_snapshots.push(DatasetVersionTrustSnapshot {
+                    dataset_version_id: sel.dataset_version_id.clone(),
+                    trust_at_training_time: trust_state,
+                });
+            }
+            // #region agent log
+            if let Ok(mut f) = OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open("/Users/mln-dev/Dev/adapter-os/.cursor/debug.log")
+            {
+                let _ = writeln!(
+                    f,
+                    r#"{{"sessionId":"debug-session","runId":"pre-fix","hypothesisId":"H3","location":"training.rs:trust_snapshots","message":"collected trust snapshots","data":{{"count":{},"dataset_version_ids":{:?}}},"timestamp":{}}}"#,
+                    trust_snapshots.len(),
+                    versions
+                        .iter()
+                        .map(|v| &v.dataset_version_id)
+                        .collect::<Vec<_>>(),
+                    Utc::now().timestamp_millis()
+                );
+            }
+            // #endregion
+            if !trust_snapshots.is_empty() {
+                job.dataset_version_trust = Some(trust_snapshots);
+            }
+        }
+        job.synthetic_mode = synthetic_mode;
+        job.data_lineage_mode = Some(data_lineage_mode);
         job.tenant_id = tenant_id.clone();
         job.initiated_by = initiated_by.clone();
         job.initiated_by_role = initiated_by_role;
@@ -225,6 +525,12 @@ impl TrainingService {
         job.collection_id = collection_id.clone();
         job.build_id = build_id.clone();
         job.config_hash_b3 = config_hash.clone();
+        job.requested_backend = config.preferred_backend.map(|b| b.as_str().to_string());
+        job.backend_policy = config.backend_policy.map(|p| p.as_str().to_string());
+        job.coreml_training_fallback = config
+            .coreml_training_fallback
+            .map(|b| b.as_str().to_string());
+        job.coreml_export_requested = Some(export_opt_in);
         // Category metadata
         job.category = category.clone();
         job.description = description;
@@ -259,6 +565,13 @@ impl TrainingService {
                     build_id.as_deref(),
                     None, // source_documents_json - not tracked at job level
                     retry_of_job_id.as_deref(),
+                    job.target_branch.as_deref(),
+                    job.base_version_id.as_deref(),
+                    job.draft_version_id.as_deref(),
+                    job.code_commit_sha.as_deref(),
+                    job.data_spec_json.as_deref(),
+                    synthetic_mode,
+                    job.data_lineage_mode.as_ref().map(|m| m.as_str()),
                 )
                 .await
             {
@@ -344,6 +657,8 @@ impl TrainingService {
         let job_id_for_fallback = job_id_for_run.clone();
         let adapter_name_for_fallback = adapter_name_for_run.clone();
         let cfg_for_fallback = cfg_for_run.clone();
+        let synthetic_mode_for_run = synthetic_mode;
+        let data_lineage_mode_for_run = data_lineage_mode;
         // Clone Arc handles for each spawned task to avoid move-after-use
         let cancel_token_for_run = cancel_token.clone();
         let cancel_tokens_for_det = cancel_tokens_ref.clone();
@@ -355,6 +670,8 @@ impl TrainingService {
                     adapter_name_det,
                     cfg_for_det,
                     dataset_id_for_det,
+                    synthetic_mode_for_run,
+                    data_lineage_mode_for_run,
                     tenant_id_for_det,
                     db_for_det,
                     storage_for_det,
@@ -391,6 +708,8 @@ impl TrainingService {
                         adapter_name_for_fallback.clone(),
                         cfg_for_fallback.clone(),
                         dataset_id_for_fallback,
+                        synthetic_mode_for_run,
+                        data_lineage_mode_for_run,
                         tenant_id_for_fallback,
                         db_for_fallback,
                         storage_for_fallback,
@@ -480,7 +799,7 @@ impl TrainingService {
                 );
                 std::path::PathBuf::from(socket)
             } else {
-                let resolved = adapteros_config::resolve_worker_socket_for_cp();
+                let resolved = adapteros_config::resolve_worker_socket_for_cp()?;
                 info!(
                     job_id = %job_id,
                     socket_path = %resolved.path.display(),
@@ -612,6 +931,70 @@ impl TrainingService {
         }
     }
 
+    /// Trigger a CoreML export for a completed training job.
+    pub async fn export_coreml_for_job(&self, job_id: &str) -> Result<TrainingJob> {
+        let snapshot = self.get_job(job_id).await?;
+        if snapshot.status != TrainingJobStatus::Completed {
+            return Err(AosError::Validation(
+                "CoreML export requires a completed training job".to_string(),
+            )
+            .into());
+        }
+
+        let adapter_id = snapshot.adapter_id.clone().ok_or_else(|| {
+            AosError::Validation("Adapter ID missing; cannot export CoreML package".to_string())
+        })?;
+        let aos_path = snapshot
+            .aos_path
+            .clone()
+            .or(snapshot.artifact_path.clone())
+            .ok_or_else(|| {
+                AosError::Validation(
+                    "Adapter artifact path missing; cannot export CoreML".to_string(),
+                )
+            })?;
+        let base_model_id = snapshot
+            .manifest_base_model
+            .clone()
+            .or(snapshot.base_model_id.clone())
+            .ok_or_else(|| {
+                AosError::Validation("Base model id missing for CoreML export".to_string())
+            })?;
+        let weights_hash = snapshot
+            .package_hash_b3
+            .clone()
+            .or(snapshot.weights_hash_b3.clone())
+            .ok_or_else(|| {
+                AosError::Validation("Weights hash missing; cannot export CoreML".to_string())
+            })?;
+
+        let adapters_root = adapteros_core::paths::AdapterPaths::from_config(None)
+            .root()
+            .to_path_buf();
+        let tenant = snapshot
+            .tenant_id
+            .clone()
+            .unwrap_or_else(|| "default".to_string());
+
+        if let Err(e) = run_coreml_export_flow(
+            self.jobs.clone(),
+            job_id,
+            &adapter_id,
+            Path::new(&aos_path),
+            &base_model_id,
+            &weights_hash,
+            &adapters_root,
+            Some(tenant.as_str()),
+            self.db.as_ref(),
+        )
+        .await
+        {
+            return Err(e);
+        }
+
+        self.get_job(job_id).await
+    }
+
     /// Mark job as failed
     pub async fn fail_job(&self, job_id: &str, error: String) -> Result<()> {
         let mut jobs = self.jobs.write().await;
@@ -619,12 +1002,32 @@ impl TrainingService {
             job.status = TrainingJobStatus::Failed;
             job.error_message = Some(error.clone());
             job.completed_at = Some(chrono::Utc::now().to_rfc3339());
+            let adapter_id = job.adapter_id.clone();
             error!("Training job failed: {}", job_id);
 
             // Persist failure status to database
             if let Some(ref database) = self.db {
                 if let Err(e) = database.update_training_status(job_id, "failed").await {
                     warn!(job_id = %job_id, error = %e, "Failed to persist training failure status to DB (non-fatal)");
+                }
+
+                if let Some(adapter_id) = adapter_id {
+                    if let Err(e) = database
+                        .transition_adapter_lifecycle(
+                            &adapter_id,
+                            "failed",
+                            "training_failed",
+                            "system",
+                        )
+                        .await
+                    {
+                        warn!(
+                            job_id = %job_id,
+                            adapter_id = %adapter_id,
+                            error = %e,
+                            "Failed to mark adapter failed after training error"
+                        );
+                    }
                 }
             }
 
@@ -755,21 +1158,72 @@ fn default_tier() -> String {
     "warm".to_string()
 }
 
-/// Map API/DB preferred backend string into the worker enum
-fn map_preferred_backend(preferred: Option<&str>) -> Option<WorkerTrainingBackend> {
-    preferred.and_then(|p| match p.to_ascii_lowercase().as_str() {
-        "coreml" | "ane" => Some(WorkerTrainingBackend::CoreML),
-        "mlx" => Some(WorkerTrainingBackend::Mlx),
-        "metal" => Some(WorkerTrainingBackend::Metal),
-        "cpu" => Some(WorkerTrainingBackend::Cpu),
-        _ => {
-            warn!(
-                backend = p,
-                "Unknown preferred backend, falling back to auto-select"
-            );
-            None
+fn to_core_backend(kind: TrainingBackendKind) -> BackendKind {
+    match kind {
+        TrainingBackendKind::Auto => BackendKind::Auto,
+        TrainingBackendKind::CoreML => BackendKind::CoreML,
+        TrainingBackendKind::Mlx => BackendKind::Mlx,
+        TrainingBackendKind::Metal => BackendKind::Metal,
+        TrainingBackendKind::Cpu => BackendKind::CPU,
+    }
+}
+
+/// Preferred backend mapping for worker config (preserves CoreML intent + fallback)
+#[derive(Debug, Clone, Copy, Default)]
+struct PreferredBackendSelection {
+    preferred: Option<WorkerTrainingBackend>,
+    coreml_fallback: Option<WorkerTrainingBackend>,
+}
+
+/// Map API/DB preferred backend into worker enums (uses BackendKind for parsing)
+fn map_preferred_backend(
+    preferred: Option<TrainingBackendKind>,
+    coreml_fallback: Option<TrainingBackendKind>,
+) -> PreferredBackendSelection {
+    let mut preferred_backend = None;
+    let mut fallback_backend = None;
+
+    if let Some(kind) = preferred {
+        let core_kind = to_core_backend(kind);
+        match WorkerTrainingBackend::try_from(core_kind) {
+            Ok(mapped) => {
+                preferred_backend = Some(mapped);
+
+                // If the caller provided a CoreML fallback, keep it explicit; otherwise, do not
+                // silently redirect. Fallbacks are handled downstream with explicit telemetry.
+                if mapped == WorkerTrainingBackend::CoreML {
+                    fallback_backend = coreml_fallback
+                        .and_then(|fb| WorkerTrainingBackend::try_from(to_core_backend(fb)).ok());
+                }
+            }
+            Err(err) => {
+                warn!(
+                    backend = %kind,
+                    error = %err,
+                    "Non-concrete preferred backend ignored; using auto-select"
+                );
+            }
         }
-    })
+    }
+
+    // Validate explicit fallback even if preferred backend isn't CoreML (defensive)
+    if fallback_backend.is_none() {
+        if let Some(fb) = coreml_fallback {
+            match WorkerTrainingBackend::try_from(to_core_backend(fb)) {
+                Ok(mapped) => fallback_backend = Some(mapped),
+                Err(err) => warn!(
+                    backend = %fb.as_str(),
+                    error = %err,
+                    "Invalid CoreML fallback backend ignored"
+                ),
+            }
+        }
+    }
+
+    PreferredBackendSelection {
+        preferred: preferred_backend,
+        coreml_fallback: fallback_backend,
+    }
 }
 
 /// Load plan/model bytes for GPU initialization.
@@ -895,6 +1349,8 @@ async fn run_training_job(
     adapter_name: String,
     orchestrator_cfg: TrainingConfig,
     dataset_id: Option<String>,
+    synthetic_mode: bool,
+    data_lineage_mode: DataLineageMode,
     tenant_id: Option<String>,
     db: Option<adapteros_db::Db>,
     storage_root: Option<PathBuf>,
@@ -907,9 +1363,130 @@ async fn run_training_job(
         AdapterPackager, LoRAQuantizer, TrainingConfig as WorkerTrainingConfigType,
     };
 
-    // GPU init policy: honor preferred_backend/require_gpu, resolve plan bytes from AOS_MODEL_PATH,
-    // call init_kernels() before entering the training loop, and fall back to CPU when GPU is
-    // optional or unavailable (see docs/GPU_TRAINING_INTEGRATION.md).
+    #[derive(Clone, Debug)]
+    struct VersioningSnapshot {
+        adapter_version_id: Option<String>,
+        version_label: Option<String>,
+        target_branch: Option<String>,
+        repo_name: Option<String>,
+        repo_id: Option<String>,
+        base_version_id: Option<String>,
+        code_commit_sha: Option<String>,
+        data_spec_json: Option<String>,
+        data_spec_hash: Option<String>,
+        dataset_version_ids: Option<Vec<DatasetVersionSelection>>,
+        synthetic_mode: bool,
+        data_lineage_mode: Option<DataLineageMode>,
+    }
+
+    let versioning_snapshot = {
+        let jobs = jobs_ref.read().await;
+        jobs.get(&job_id).map(|job| VersioningSnapshot {
+            adapter_version_id: job.adapter_version_id.clone(),
+            version_label: job.version_label.clone(),
+            target_branch: job.target_branch.clone(),
+            repo_name: job.repo_name.clone(),
+            repo_id: job.repo_id.clone(),
+            base_version_id: job.base_version_id.clone(),
+            code_commit_sha: job.code_commit_sha.clone(),
+            data_spec_json: job.data_spec_json.clone(),
+            data_spec_hash: job.data_spec_hash.clone(),
+            dataset_version_ids: job.dataset_version_ids.clone(),
+            synthetic_mode: job.synthetic_mode,
+            data_lineage_mode: job.data_lineage_mode,
+        })
+    };
+
+    // Mark version as training when applicable
+    if let (Some(database), Some(version_id)) = (
+        db.clone(),
+        versioning_snapshot
+            .as_ref()
+            .and_then(|v| v.adapter_version_id.clone()),
+    ) {
+        if let Err(e) = database
+            .set_adapter_version_state_with_metadata(
+                &version_id,
+                "training",
+                None,
+                Some("orchestrator"),
+                Some("training_start"),
+                Some(&job_id),
+            )
+            .await
+        {
+            warn!(
+                version_id = %version_id,
+                error = %e,
+                "Failed to mark adapter version as training (non-fatal)"
+            );
+        }
+    }
+
+    // Fetch base adapter artifact if provided
+    let base_aos_path: Option<PathBuf> = match (
+        versioning_snapshot
+            .as_ref()
+            .and_then(|v| v.base_version_id.clone()),
+        db.clone(),
+    ) {
+        (Some(base_version_id), Some(database)) => {
+            let tenant_lookup = tenant_id.as_deref().unwrap_or("default");
+            match database
+                .get_adapter_version(tenant_lookup, &base_version_id)
+                .await
+            {
+                Ok(Some(version)) => {
+                    if let Some(path) = version.aos_path {
+                        Some(PathBuf::from(path))
+                    } else {
+                        return Err(anyhow::anyhow!(format!(
+                            "Base adapter version {} missing aos_path",
+                            base_version_id
+                        )));
+                    }
+                }
+                Ok(None) => {
+                    return Err(anyhow::anyhow!(format!(
+                        "Base adapter version {} not found",
+                        base_version_id
+                    )));
+                }
+                Err(e) => return Err(anyhow::anyhow!(e)),
+            }
+        }
+        _ => None,
+    };
+
+    if let Some(ref base_path) = base_aos_path {
+        info!(
+            job_id = %job_id,
+            base_version = ?versioning_snapshot.as_ref().and_then(|v| v.base_version_id.clone()),
+            base_aos_path = %base_path.display(),
+            "Fetched base adapter artifact for training"
+        );
+    }
+
+    if let Some(ref ver) = versioning_snapshot {
+        if let Some(ref sha) = ver.code_commit_sha {
+            info!(job_id = %job_id, commit = %sha, "Resolved training code commit");
+        }
+        if let Some(ref spec) = ver.data_spec_hash {
+            info!(job_id = %job_id, data_spec_hash = %spec, "Resolved training data spec hash");
+        }
+    }
+
+    let version_id_for_state = versioning_snapshot
+        .as_ref()
+        .and_then(|v| v.adapter_version_id.clone());
+    let db_for_state = db.clone();
+    let job_id_for_run = job_id.clone();
+
+    let outcome: Result<()> = async move {
+        let job_id = job_id_for_run;
+        // GPU init policy: honor preferred_backend/require_gpu, resolve plan bytes from AOS_MODEL_PATH,
+        // call init_kernels() before entering the training loop, and fall back to CPU when GPU is
+        // optional or unavailable (see docs/GPU_TRAINING_INTEGRATION.md).
 
     // Parse post-actions configuration (defaults if not provided or invalid)
     let post_actions: PostActions = post_actions_json
@@ -944,8 +1521,11 @@ async fn run_training_job(
     }
 
     // Map orchestrator config to worker trainer config
-    let preferred_backend = map_preferred_backend(orchestrator_cfg.preferred_backend.as_deref());
-    let worker_cfg = WorkerTrainingConfig {
+    let preferred_backend = map_preferred_backend(
+        orchestrator_cfg.preferred_backend,
+        orchestrator_cfg.coreml_training_fallback,
+    );
+    let mut worker_cfg = WorkerTrainingConfig {
         rank: orchestrator_cfg.rank as usize,
         alpha: orchestrator_cfg.alpha as f32,
         learning_rate: orchestrator_cfg.learning_rate,
@@ -953,51 +1533,130 @@ async fn run_training_job(
         epochs: orchestrator_cfg.epochs as usize,
         hidden_dim: 768, // default; can be made configurable via orchestrator config later
         vocab_size: 32000, // default LLaMA/Mistral vocab size
-        preferred_backend,
+        coreml_placement: orchestrator_cfg.coreml_placement.clone(),
+        preferred_backend: preferred_backend.preferred,
+        backend_policy: orchestrator_cfg.backend_policy,
+        coreml_fallback_backend: preferred_backend.coreml_fallback,
         require_gpu: orchestrator_cfg.require_gpu,
         max_gpu_memory_mb: orchestrator_cfg.max_gpu_memory_mb.unwrap_or(0),
+        max_tokens_per_batch: None,
+        device_policy: None,
         checkpoint_interval: Some(5), // Save checkpoint every 5 epochs
         warmup_steps: orchestrator_cfg.warmup_steps,
         max_seq_length: orchestrator_cfg.max_seq_length,
         gradient_accumulation_steps: orchestrator_cfg.gradient_accumulation_steps,
+        determinism: None,
     };
+
+    // If a CoreML placement is provided, align hidden_dim to the placement shapes for training.
+    if let Some(placement) = orchestrator_cfg.coreml_placement.as_ref() {
+        if let Some(first) = placement.bindings.first() {
+            let placement_hidden = first.shape.output_dim as usize;
+            if placement_hidden > 0 {
+                if worker_cfg.hidden_dim != placement_hidden {
+                    tracing::info!(
+                        worker_hidden_dim = worker_cfg.hidden_dim,
+                        placement_hidden_dim = placement_hidden,
+                        "Adjusting worker hidden_dim to CoreML placement output_dim"
+                    );
+                    worker_cfg.hidden_dim = placement_hidden;
+                }
+            }
+        }
+    }
 
     // Clone db for later use in packaging/registration
     let db_for_packaging = db.clone();
 
-    // Load training examples from dataset if available, otherwise use synthetic fallback
-    let examples: Vec<WorkerTrainingExample> =
-        match (dataset_id.clone(), db.clone(), storage_root.clone()) {
-            (Some(ds_id), Some(database), Some(storage)) => {
-                use crate::training_dataset_integration::TrainingDatasetManager;
-                let dataset_manager = TrainingDatasetManager::new(database, storage, None);
-                dataset_manager
-                    .load_dataset_examples(&ds_id)
-                    .await
-                    .map_err(|e| anyhow::anyhow!("Failed to load dataset: {}", e))?
-            }
-            _ => {
-                // Fallback: tiny synthetic batch for testing
-                tracing::warn!(
-                    "No dataset configured for job {}, using synthetic training data",
+    let dataset_version_ids_for_training = versioning_snapshot
+        .as_ref()
+        .and_then(|v| v.dataset_version_ids.clone());
+    let data_spec_hash_for_training = versioning_snapshot
+        .as_ref()
+        .and_then(|v| v.data_spec_hash.clone());
+
+    // Load training examples from dataset versions (if provided) or dataset_id, otherwise synthetic
+    let examples: Vec<WorkerTrainingExample> = match (
+        dataset_version_ids_for_training.clone(),
+        dataset_id.clone(),
+        db.clone(),
+        storage_root.clone(),
+    ) {
+        (Some(version_selections), _, Some(database), Some(storage)) => {
+            use crate::training_dataset_integration::TrainingDatasetManager;
+            let dataset_manager = TrainingDatasetManager::new(database, storage, None);
+
+            if version_selections.is_empty() {
+                return Err(anyhow::anyhow!(
+                    "dataset_version_ids provided but empty for job {}",
                     job_id
-                );
-                vec![
-                    WorkerTrainingExample {
-                        input: vec![1, 2, 3],
-                        target: vec![4, 5, 6],
-                        metadata: Default::default(),
-                        weight: 1.0,
-                    },
-                    WorkerTrainingExample {
-                        input: vec![7, 8, 9],
-                        target: vec![10, 11, 12],
-                        metadata: Default::default(),
-                        weight: 1.0,
-                    },
-                ]
+                ));
             }
-        };
+
+            let mut per_version: Vec<(Vec<WorkerTrainingExample>, f32)> = Vec::new();
+            for sel in version_selections.iter() {
+                let (examples, hash_b3, _dataset_id_for_ver) = dataset_manager
+                    .load_dataset_version_examples(&sel.dataset_version_id)
+                    .await
+                    .map_err(|e| {
+                        anyhow::anyhow!(
+                            "Failed to load dataset version {}: {}",
+                            sel.dataset_version_id,
+                            e
+                        )
+                    })?;
+
+                if let Some(ref expected_hash) = data_spec_hash_for_training {
+                    if expected_hash != &hash_b3 {
+                        return Err(anyhow::anyhow!(format!(
+                            "Dataset version {} hash mismatch vs data_spec_hash (expected {}, got {})",
+                            sel.dataset_version_id, expected_hash, hash_b3
+                        )));
+                    }
+                }
+
+                let weight = if sel.weight <= 0.0 { 1.0 } else { sel.weight };
+                per_version.push((examples, weight));
+            }
+
+            tracing::info!(
+                job_id = %job_id,
+                versions = ?version_selections,
+                "Loaded dataset versions for training"
+            );
+
+            weighted_round_robin_merge(per_version)
+        }
+        (_, Some(ds_id), Some(database), Some(storage)) => {
+            use crate::training_dataset_integration::TrainingDatasetManager;
+            let dataset_manager = TrainingDatasetManager::new(database, storage, None);
+            dataset_manager
+                .load_dataset_examples(&ds_id)
+                .await
+                .map_err(|e| anyhow::anyhow!("Failed to load dataset: {}", e))?
+        }
+        _ => {
+            // Fallback: tiny synthetic batch for testing
+            tracing::warn!(
+                "No dataset configured for job {}, using synthetic training data",
+                job_id
+            );
+            vec![
+                WorkerTrainingExample {
+                    input: vec![1, 2, 3],
+                    target: vec![4, 5, 6],
+                    metadata: Default::default(),
+                    weight: 1.0,
+                },
+                WorkerTrainingExample {
+                    input: vec![7, 8, 9],
+                    target: vec![10, 11, 12],
+                    metadata: Default::default(),
+                    weight: 1.0,
+                },
+            ]
+        }
+    };
 
     let mut trainer = WorkerTrainer::new(worker_cfg.clone())?;
 
@@ -1126,12 +1785,25 @@ async fn run_training_job(
             let tokens_processed = training_result.tokens_processed.unwrap_or(0);
             let tokens_per_second = training_result.tokens_per_sec;
             let examples_per_sec = training_result.examples_per_sec;
+            // Observability: log CoreML forward metrics if available
+            if let Some(samples) = perf.coreml_forward_samples.checked_sub(0) {
+                tracing::info!(
+                    job_id = %job_id,
+                    backend = ?backend_selected,
+                    coreml_forward_samples = samples,
+                    coreml_forward_mean_us = ?perf.coreml_forward_mean_us,
+                    coreml_forward_p95_us = ?perf.coreml_forward_p95_us,
+                    total_tokens = tokens_processed,
+                    "CoreML forward metrics recorded"
+                );
+            }
 
             {
                 let mut jobs = jobs_ref.write().await;
                 if let Some(job) = jobs.get_mut(&job_id) {
                     job.backend = backend_selected.clone();
                     job.backend_device = training_result.backend_device.clone();
+                    job.backend_reason = trainer.backend_reason().map(|s| s.to_string());
                     job.determinism_mode = job
                         .determinism_mode
                         .clone()
@@ -1249,6 +1921,31 @@ async fn run_training_job(
                     }
                 }
 
+                if let (Some(database), Some(version_id)) = (
+                    db.clone(),
+                    versioning_snapshot
+                        .as_ref()
+                        .and_then(|v| v.adapter_version_id.clone()),
+                ) {
+                    if let Err(e) = database
+                        .set_adapter_version_state_with_metadata(
+                            &version_id,
+                            "failed",
+                            Some("cancelled"),
+                            Some("orchestrator"),
+                            Some("training_cancelled"),
+                            Some(&job_id),
+                        )
+                        .await
+                    {
+                        warn!(
+                            version_id = %version_id,
+                            error = %e,
+                            "Failed to mark adapter version cancelled (non-fatal)"
+                        );
+                    }
+                }
+
                 return Ok(());
             }
 
@@ -1290,14 +1987,15 @@ async fn run_training_job(
             let quantized_weights = LoRAQuantizer::quantize_to_q15(&training_result.weights);
 
             // Build packaging metadata for auditability
-            let (scope_value, lora_tier_meta) = {
+            let (scope_value, lora_tier_meta, backend_policy_meta) = {
                 let jobs = jobs_ref.read().await;
                 let scope_val = jobs
                     .get(&job_id)
                     .and_then(|j| j.scope.clone())
                     .unwrap_or_else(|| "project".to_string());
                 let tier_val = jobs.get(&job_id).and_then(|j| j.lora_tier);
-                (scope_val, tier_val)
+                let backend_policy = jobs.get(&job_id).and_then(|j| j.backend_policy.clone());
+                (scope_val, tier_val, backend_policy)
             };
 
             let mut package_metadata = HashMap::new();
@@ -1312,6 +2010,14 @@ async fn run_training_job(
             package_metadata.insert("scope".to_string(), scope_value.clone());
             // Allow downstream consumers to treat lora_scope separately if needed
             package_metadata.insert("lora_scope".to_string(), scope_value.clone());
+            package_metadata.insert(
+                "data_lineage_mode".to_string(),
+                data_lineage_mode.as_str().to_string(),
+            );
+            package_metadata.insert(
+                "synthetic_mode".to_string(),
+                synthetic_mode.to_string(),
+            );
             if let Some(ref base_model) = base_model_id {
                 package_metadata.insert("base_model_id".to_string(), base_model.clone());
             }
@@ -1328,6 +2034,16 @@ async fn run_training_job(
             }
             let backend_label = trainer.backend_info().unwrap_or("CPU").to_ascii_lowercase();
             package_metadata.insert("training_backend".to_string(), backend_label);
+            if let Some(reason) = trainer.backend_reason() {
+                package_metadata
+                    .insert("training_backend_reason".to_string(), reason.to_string());
+            }
+            if let Some(device) = training_result.backend_device.clone() {
+                package_metadata.insert("training_backend_device".to_string(), device);
+            }
+            if let Some(ref policy) = backend_policy_meta {
+                package_metadata.insert("backend_policy".to_string(), policy.clone());
+            }
             package_metadata.insert(
                 "determinism".to_string(),
                 if cfg!(feature = "deterministic-only") {
@@ -1341,6 +2057,22 @@ async fn run_training_job(
                 "gate_q15_denominator".to_string(),
                 adapteros_lora_router::ROUTER_GATE_Q15_DENOM.to_string(),
             );
+            if let Some(ref hash) = data_spec_hash_for_training {
+                package_metadata.insert("data_spec_hash".to_string(), hash.clone());
+            }
+            package_metadata.insert(
+                "synthetic_mode".to_string(),
+                synthetic_mode.to_string(),
+            );
+            package_metadata.insert(
+                "data_lineage_mode".to_string(),
+                data_lineage_mode.as_str().to_string(),
+            );
+            if let Some(ref versions) = dataset_version_ids_for_training {
+                if let Ok(json) = serde_json::to_string(versions) {
+                    package_metadata.insert("dataset_version_ids".to_string(), json);
+                }
+            }
 
             // Step 2: Package the adapter
             // Use adapters_root (already resolved with ENV > Config > Default precedence)
@@ -1355,19 +2087,38 @@ async fn run_training_job(
                 epochs: worker_cfg.epochs,
                 hidden_dim: worker_cfg.hidden_dim,
                 vocab_size: worker_cfg.vocab_size,
+                coreml_placement: worker_cfg.coreml_placement.clone(),
                 preferred_backend: worker_cfg.preferred_backend,
+                backend_policy: worker_cfg.backend_policy,
+                coreml_fallback_backend: worker_cfg.coreml_fallback_backend,
                 require_gpu: worker_cfg.require_gpu,
                 max_gpu_memory_mb: worker_cfg.max_gpu_memory_mb,
+                max_tokens_per_batch: worker_cfg.max_tokens_per_batch,
+                device_policy: worker_cfg.device_policy.clone(),
                 checkpoint_interval: worker_cfg.checkpoint_interval,
                 warmup_steps: worker_cfg.warmup_steps,
                 max_seq_length: worker_cfg.max_seq_length,
                 gradient_accumulation_steps: worker_cfg.gradient_accumulation_steps,
+                determinism: None,
             };
 
             // Generate unique adapter ID from job_id
             let adapter_id = format!("adapter-{}", job_id.trim_start_matches("train-"));
 
             let base_model_for_manifest = base_model_id.as_deref().unwrap_or("unknown-base-model");
+
+            let artifact_metadata = serde_json::json!({
+                "backend": training_result.backend,
+                "backend_device": training_result.backend_device,
+                "requested_backend": worker_cfg.preferred_backend.map(|b| b.tag().to_string()),
+                "coreml_training_fallback": worker_cfg
+                    .coreml_fallback_backend
+                    .map(|b| b.tag().to_string()),
+                "data_spec_hash": data_spec_hash_for_training,
+                "dataset_version_ids": dataset_version_ids_for_training,
+                "synthetic_mode": synthetic_mode,
+                "data_lineage_mode": data_lineage_mode.as_str(),
+            });
 
             let packaged = match packager
                 .package_aos_with_metadata(
@@ -1412,6 +2163,48 @@ async fn run_training_job(
                 "Adapter packaged successfully"
             );
 
+            let (final_aos_path, final_aos_hash) = {
+                let target = if let (Some(ref repo_name), Some(ref version_label)) = (
+                    versioning_snapshot
+                        .as_ref()
+                        .and_then(|v| v.repo_name.clone()),
+                    versioning_snapshot
+                        .as_ref()
+                        .and_then(|v| v.version_label.clone()),
+                ) {
+                    let repo_dir = adapters_root.join(tenant).join(repo_name);
+                    if let Err(e) = tokio::fs::create_dir_all(&repo_dir).await {
+                        warn!(
+                            job_id = %job_id,
+                            error = %e,
+                            "Failed to create repo directory for versioned artifact"
+                        );
+                    }
+                    let dest = repo_dir.join(format!("{}.aos", version_label));
+                    if dest != packaged.weights_path {
+                        if let Err(e) = tokio::fs::copy(&packaged.weights_path, &dest).await {
+                            warn!(
+                                job_id = %job_id,
+                                error = %e,
+                                dest = %dest.display(),
+                                "Failed to copy packaged artifact to versioned path"
+                            );
+                        }
+                    }
+                    dest
+                } else {
+                    packaged.weights_path.clone()
+                };
+
+                let hash = tokio::fs::read(&target)
+                    .await
+                    .map(|bytes| blake3::hash(&bytes).to_hex().to_string())
+                    .unwrap_or_else(|_| packaged.hash_b3.clone());
+
+                (target, hash)
+            };
+            let final_aos_path_str = final_aos_path.to_string_lossy().to_string();
+
             // Step 3: Register adapter in database (if db available and register is enabled)
             if let Some(database) = &db_for_packaging {
                 if !post_actions.register {
@@ -1426,12 +2219,11 @@ async fn run_training_job(
                         job.status = TrainingJobStatus::Completed;
                         job.progress_pct = 100.0;
                         job.completed_at = Some(chrono::Utc::now().to_rfc3339());
-                        job.artifact_path =
-                            Some(packaged.weights_path.to_string_lossy().to_string());
+                        job.artifact_path = Some(final_aos_path_str.clone());
                         job.adapter_id = Some(packaged.adapter_id.clone());
                         job.weights_hash_b3 = Some(packaged.hash_b3.clone());
-                        job.aos_path = Some(packaged.weights_path.to_string_lossy().to_string());
-                        job.package_hash_b3 = Some(packaged.hash_b3.clone());
+                        job.aos_path = Some(final_aos_path_str.clone());
+                        job.package_hash_b3 = Some(final_aos_hash.clone());
                         job.manifest_rank = Some(packaged.manifest.rank as u32);
                         job.manifest_base_model = Some(packaged.manifest.base_model.clone());
                         job.manifest_per_layer_hashes =
@@ -1443,6 +2235,84 @@ async fn run_training_job(
                     // Persist completion status to database
                     if let Err(e) = database.update_training_status(&job_id, "completed").await {
                         warn!(job_id = %job_id, error = %e, "Failed to persist training completion status to DB (non-fatal)");
+                    }
+
+                    if let Some(version_id) =
+                        versioning_snapshot.as_ref().and_then(|v| v.adapter_version_id.clone())
+                    {
+                            let backend_lower = training_result
+                                .backend
+                                .as_deref()
+                                .map(|b| b.to_ascii_lowercase());
+                            let coreml_used = training_result
+                                .backend
+                                .as_deref()
+                                .map(|b| b.eq_ignore_ascii_case("coreml"));
+                        let artifact_result = database
+                            .update_adapter_version_artifact(
+                                &version_id,
+                                "ready",
+                                Some(final_aos_path_str.as_str()),
+                                Some(&final_aos_hash),
+                                    data_spec_hash_for_training.as_deref(),
+                                    backend_lower.as_deref(),
+                                    coreml_used,
+                                    training_result.backend_device.as_deref(),
+                                None,
+                                None,
+                                Some("orchestrator"),
+                                Some("training_complete"),
+                                Some(&job_id),
+                            )
+                            .await;
+                        if let Err(e) = artifact_result {
+                            warn!(
+                                version_id = %version_id,
+                                error = %e,
+                                "Failed to mark adapter version ready (non-fatal)"
+                            );
+                        } else if let Err(e) = database
+                            .set_training_produced_version(&job_id, &version_id, None)
+                            .await
+                        {
+                            warn!(
+                                job_id = %job_id,
+                                version_id = %version_id,
+                                error = %e,
+                                "Failed to record produced version for training job (non-fatal)"
+                            );
+                        }
+
+                        if coreml_used.unwrap_or(false) {
+                            if let Some(repo_id) =
+                                versioning_snapshot.as_ref().and_then(|v| v.repo_id.clone())
+                            {
+                                let tenant_for_repo = tenant_id.as_deref().unwrap_or("default");
+                                if let Ok(Some(policy)) = database
+                                    .get_adapter_repository_policy(tenant_for_repo, &repo_id)
+                                    .await
+                                {
+                                    if policy.autopromote_coreml {
+                                        let _ = database
+                                            .promote_adapter_version(
+                                                tenant_for_repo,
+                                                &repo_id,
+                                                &version_id,
+                                                Some("orchestrator"),
+                                                Some("auto_coreml_promotion"),
+                                            )
+                                            .await;
+                                    }
+                                }
+                            }
+                        }
+
+                        info!(
+                            job_id = %job_id,
+                            version_id = %version_id,
+                            branch = ?versioning_snapshot.as_ref().and_then(|v| v.target_branch.clone()),
+                            "history event: training_succeeded"
+                        );
                     }
 
                     return Ok(());
@@ -1478,6 +2348,10 @@ async fn run_training_job(
                     .base_model_id(base_model_id.as_deref())
                     .manifest_schema_version(Some(packaged.manifest.version.clone()))
                     .content_hash_b3(Some(packaged.hash_b3.clone()))
+                    .aos_file_path(Some(
+                        packaged.weights_path.to_string_lossy().to_string(),
+                    ))
+                    .aos_file_hash(Some(packaged.hash_b3.clone()))
                     .provenance_json(serde_json::to_string(&packaged.manifest.metadata).ok())
                     .build()
                     .map_err(|e| anyhow::anyhow!("Failed to build registration params: {}", e))?;
@@ -1495,9 +2369,10 @@ async fn run_training_job(
                         if let Err(e) = database
                             .update_training_job_artifact(
                                 &job_id,
-                                packaged.weights_path.to_string_lossy().as_ref(),
+                                final_aos_path_str.as_str(),
                                 &packaged.adapter_id,
-                                &packaged.hash_b3,
+                                &final_aos_hash,
+                                Some(artifact_metadata.clone()),
                             )
                             .await
                         {
@@ -1506,6 +2381,23 @@ async fn run_training_job(
                                 job_id = %job_id,
                                 error = %e,
                                 "Failed to update job artifact metadata (non-fatal)"
+                            );
+                        }
+
+                        if let Err(e) = database
+                            .transition_adapter_lifecycle(
+                                &packaged.adapter_id,
+                                "ready",
+                                "training_completed",
+                                "system",
+                            )
+                            .await
+                        {
+                            warn!(
+                                job_id = %job_id,
+                                adapter_id = %packaged.adapter_id,
+                                error = %e,
+                                "Failed to mark adapter ready after training"
                             );
                         }
 
@@ -1663,11 +2555,11 @@ async fn run_training_job(
                     job.status = TrainingJobStatus::Completed;
                     job.progress_pct = 100.0;
                     job.completed_at = Some(chrono::Utc::now().to_rfc3339());
-                    job.artifact_path = Some(packaged.weights_path.to_string_lossy().to_string());
+                    job.artifact_path = Some(final_aos_path_str.clone());
                     job.adapter_id = Some(packaged.adapter_id.clone());
                     job.weights_hash_b3 = Some(packaged.hash_b3.clone());
-                    job.aos_path = Some(packaged.weights_path.to_string_lossy().to_string());
-                    job.package_hash_b3 = Some(packaged.hash_b3.clone());
+                    job.aos_path = Some(final_aos_path_str.clone());
+                    job.package_hash_b3 = Some(final_aos_hash.clone());
                     job.manifest_rank = Some(packaged.manifest.rank as u32);
                     job.manifest_base_model = Some(packaged.manifest.base_model.clone());
                     job.manifest_per_layer_hashes =
@@ -1689,6 +2581,112 @@ async fn run_training_job(
             if let Some(database) = &db_for_packaging {
                 if let Err(e) = database.update_training_status(&job_id, "completed").await {
                     warn!(job_id = %job_id, error = %e, "Failed to persist training completion status to DB (non-fatal)");
+                }
+
+                if let Some(version_id) =
+                    versioning_snapshot.as_ref().and_then(|v| v.adapter_version_id.clone())
+                {
+                    let backend_lower = training_result
+                        .backend
+                        .as_deref()
+                        .map(|b| b.to_ascii_lowercase());
+                    let coreml_used = training_result
+                        .backend
+                        .as_deref()
+                        .map(|b| b.eq_ignore_ascii_case("coreml"));
+                    let artifact_result = database
+                        .update_adapter_version_artifact(
+                            &version_id,
+                            "ready",
+                            Some(final_aos_path_str.as_str()),
+                            Some(&final_aos_hash),
+                            data_spec_hash_for_training.as_deref(),
+                            backend_lower.as_deref(),
+                            coreml_used,
+                            training_result.backend_device.as_deref(),
+                            None,
+                            None,
+                            Some("orchestrator"),
+                            Some("training_complete"),
+                            Some(&job_id),
+                        )
+                        .await;
+                    if let Err(e) = artifact_result {
+                        warn!(
+                            version_id = %version_id,
+                            error = %e,
+                            "Failed to mark adapter version ready (non-fatal)"
+                        );
+                    } else if let Err(e) = database
+                        .set_training_produced_version(&job_id, &version_id, None)
+                        .await
+                    {
+                        warn!(
+                            job_id = %job_id,
+                            version_id = %version_id,
+                            error = %e,
+                            "Failed to record produced version for training job (non-fatal)"
+                        );
+                    }
+
+                    if coreml_used.unwrap_or(false) {
+                        if let Some(repo_id) =
+                            versioning_snapshot.as_ref().and_then(|v| v.repo_id.clone())
+                        {
+                            let tenant_for_repo = tenant_id.as_deref().unwrap_or("default");
+                            if let Ok(Some(policy)) = database
+                                .get_adapter_repository_policy(tenant_for_repo, &repo_id)
+                                .await
+                            {
+                                if policy.autopromote_coreml {
+                                    let _ = database
+                                        .promote_adapter_version(
+                                            tenant_for_repo,
+                                            &repo_id,
+                                            &version_id,
+                                            Some("orchestrator"),
+                                            Some("auto_coreml_promotion"),
+                                        )
+                                        .await;
+                                }
+                            }
+                        }
+                    }
+
+                    info!(
+                        job_id = %job_id,
+                        version_id = %version_id,
+                        branch = ?versioning_snapshot.as_ref().and_then(|v| v.target_branch.clone()),
+                        "history event: training_succeeded"
+                    );
+                }
+            }
+
+            // Optional CoreML export (post-training) - best-effort, does not change training status
+            if orchestrator_cfg.enable_coreml_export.unwrap_or(false) {
+                if let Err(e) = run_coreml_export_flow(
+                    jobs_ref.clone(),
+                    &job_id,
+                    &packaged.adapter_id,
+                    &final_aos_path,
+                    &packaged.manifest.base_model,
+                    &packaged.hash_b3,
+                    adapters_root.as_path(),
+                    tenant_id.as_deref(),
+                    db_for_packaging.as_ref(),
+                )
+                .await
+                {
+                    warn!(
+                        job_id = %job_id,
+                        error = %e,
+                        "CoreML export failed (non-fatal)"
+                    );
+                }
+            } else {
+                let mut jobs = jobs_ref.write().await;
+                if let Some(job) = jobs.get_mut(&job_id) {
+                    job.coreml_export_requested = Some(false);
                 }
             }
 
@@ -1799,28 +2797,376 @@ async fn run_training_job(
             Err(e.into())
         }
     }
+    }
+    .await;
+
+    if outcome.is_err() {
+        if let (Some(database), Some(version_id)) = (db_for_state, version_id_for_state) {
+            let reason = outcome.as_ref().err().map(|e| e.to_string());
+            let _ = database
+                .set_adapter_version_state_with_metadata(
+                    &version_id,
+                    "failed",
+                    reason.as_deref(),
+                    Some("orchestrator"),
+                    Some("training_failed"),
+                    Some(&job_id),
+                )
+                .await;
+            warn!(
+                job_id = %job_id,
+                version_id = %version_id,
+                reason = ?reason,
+                "history event: training_failed"
+            );
+        }
+    }
+
+    return outcome;
+}
+
+async fn run_coreml_export_flow(
+    jobs_ref: Arc<RwLock<HashMap<String, TrainingJob>>>,
+    job_id: &str,
+    adapter_id: &str,
+    aos_path: &Path,
+    base_model_id: &str,
+    weights_hash_b3: &str,
+    adapters_root: &Path,
+    tenant_id: Option<&str>,
+    db_for_packaging: Option<&adapteros_db::Db>,
+) -> Result<()> {
+    {
+        let mut jobs = jobs_ref.write().await;
+        if let Some(job) = jobs.get_mut(job_id) {
+            job.coreml_export_requested = Some(true);
+            job.coreml_export_status = Some("running".to_string());
+            job.coreml_export_reason = None;
+        }
+    }
+
+    let export_outcome = (|| -> Result<CoreMLExportRecord> {
+        let base_package = adapteros_config::model::get_model_path_with_fallback()
+            .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+        let fused_root = adapters_root.join("coreml").join(adapter_id);
+        let output_package = if base_package.is_dir() {
+            fused_root
+        } else {
+            let filename = base_package
+                .file_name()
+                .unwrap_or_else(|| OsStr::new("fused.mlpackage"));
+            fused_root.join(filename)
+        };
+
+        let export_job = CoreMLExportJob {
+            base_package,
+            adapter_aos: aos_path.to_path_buf(),
+            output_package,
+            compute_units: resolve_coreml_compute_units(),
+            base_model_id: Some(base_model_id.to_string()),
+            adapter_id: Some(adapter_id.to_string()),
+        };
+
+        perform_coreml_export(export_job)
+    })();
+
+    match export_outcome {
+        Ok(record) => {
+            let fused_hash = record.fused_manifest_hash.to_string();
+            let base_hash = record.base_manifest_hash.to_string();
+            let adapter_hash = record.adapter_hash.to_string();
+            let metadata_path_str = record.metadata_path.to_string_lossy().to_string();
+            let fused_path_str = record.fused_package.to_string_lossy().to_string();
+
+            {
+                let mut jobs = jobs_ref.write().await;
+                if let Some(job) = jobs.get_mut(job_id) {
+                    job.coreml_export_status = Some("succeeded".to_string());
+                    job.coreml_export_reason = None;
+                    job.coreml_fused_package_hash = Some(fused_hash.clone());
+                    job.coreml_package_path = Some(fused_path_str.clone());
+                    job.coreml_metadata_path = Some(metadata_path_str.clone());
+                    job.coreml_base_manifest_hash = Some(base_hash.clone());
+                    job.coreml_adapter_hash_b3 = Some(adapter_hash.clone());
+                }
+            }
+
+            if let Some(database) = db_for_packaging {
+                let tenant_for_fusion = tenant_id.unwrap_or("default").to_string();
+                let params = CreateCoremlFusionPairParams {
+                    tenant_id: tenant_for_fusion,
+                    base_model_id: base_model_id.to_string(),
+                    adapter_id: adapter_id.to_string(),
+                    fused_manifest_hash: fused_hash.clone(),
+                    coreml_package_hash: fused_hash.clone(),
+                    adapter_hash_b3: Some(adapter_hash.clone()),
+                    base_model_hash_b3: Some(base_hash.clone()),
+                    metadata_path: Some(metadata_path_str.clone()),
+                };
+
+                if let Err(e) = database.upsert_coreml_fusion_pair(params).await {
+                    warn!(
+                        job_id = %job_id,
+                        error = %e,
+                        "Failed to upsert coreml_fusion_pairs record"
+                    );
+                }
+
+                let export_meta = serde_json::json!({
+                    "coreml_export": {
+                        "requested": true,
+                        "status": "succeeded",
+                        "fused_manifest_hash": fused_hash,
+                        "base_manifest_hash": base_hash,
+                        "adapter_hash_b3": adapter_hash,
+                        "package_path": fused_path_str,
+                        "metadata_path": metadata_path_str
+                    }
+                });
+
+                if let Err(e) = database
+                    .update_training_job_artifact(
+                        job_id,
+                        aos_path.to_string_lossy().as_ref(),
+                        adapter_id,
+                        weights_hash_b3,
+                        Some(export_meta),
+                    )
+                    .await
+                {
+                    warn!(
+                        job_id = %job_id,
+                        error = %e,
+                        "Failed to persist CoreML export metadata (non-fatal)"
+                    );
+                }
+            }
+        }
+        Err(e) => {
+            let reason = e.to_string();
+            {
+                let mut jobs = jobs_ref.write().await;
+                if let Some(job) = jobs.get_mut(job_id) {
+                    job.coreml_export_status = Some("failed".to_string());
+                    job.coreml_export_reason = Some(reason.clone());
+                }
+            }
+
+            if let Some(database) = db_for_packaging {
+                let export_meta = serde_json::json!({
+                    "coreml_export": {
+                        "requested": true,
+                        "status": "failed",
+                        "reason": reason
+                    }
+                });
+                if let Err(err) = database
+                    .update_training_job_artifact(
+                        job_id,
+                        aos_path.to_string_lossy().as_ref(),
+                        adapter_id,
+                        weights_hash_b3,
+                        Some(export_meta),
+                    )
+                    .await
+                {
+                    warn!(
+                        job_id = %job_id,
+                        error = %err,
+                        "Failed to persist failed CoreML export metadata (non-fatal)"
+                    );
+                }
+            }
+
+            return Err(e);
+        }
+    }
+
+    Ok(())
+}
+
+fn resolve_coreml_compute_units() -> ComputeUnits {
+    let pref = std::env::var("AOS_COREML_COMPUTE_UNITS")
+        .ok()
+        .and_then(|v| CoreMLComputePreference::from_str(&v).ok())
+        .unwrap_or_default();
+    match pref {
+        CoreMLComputePreference::CpuOnly => ComputeUnits::CpuOnly,
+        CoreMLComputePreference::CpuAndGpu => ComputeUnits::CpuAndGpu,
+        CoreMLComputePreference::CpuAndNe => ComputeUnits::CpuAndNeuralEngine,
+        CoreMLComputePreference::All => ComputeUnits::All,
+    }
+}
+
+#[cfg(all(target_os = "macos", feature = "coreml-backend"))]
+fn perform_coreml_export(job: CoreMLExportJob) -> Result<CoreMLExportRecord> {
+    run_coreml_export(job).map_err(|e| anyhow::anyhow!(e.to_string()))
+}
+
+#[cfg(not(all(target_os = "macos", feature = "coreml-backend")))]
+fn perform_coreml_export(job: CoreMLExportJob) -> Result<CoreMLExportRecord> {
+    if std::env::var("AOS_ALLOW_COREML_EXPORT_STUB").is_err() && !cfg!(test) {
+        return Err(anyhow::anyhow!(
+            "CoreML export not supported on this platform (enable AOS_ALLOW_COREML_EXPORT_STUB=1 to stub)"
+        ));
+    }
+
+    if let Some(parent) = job.output_package.parent() {
+        fs::create_dir_all(parent).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+    }
+    if job.output_package.is_dir() || job.base_package.is_dir() {
+        fs::create_dir_all(&job.output_package).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+    }
+
+    let base_manifest_path = if job.base_package.is_dir() {
+        job.base_package.join("Manifest.json")
+    } else {
+        job.base_package.clone()
+    };
+    let manifest_bytes = fs::read(&base_manifest_path).unwrap_or_default();
+    let base_manifest_hash = B3Hash::hash(&manifest_bytes);
+    let fused_manifest_hash = base_manifest_hash;
+
+    let adapter_bytes = fs::read(&job.adapter_aos)
+        .map_err(|e| anyhow::anyhow!(format!("Failed to read adapter bundle: {}", e)))?;
+    let adapter_hash = B3Hash::hash(&adapter_bytes);
+
+    let metadata_path = if job.output_package.is_dir() {
+        job.output_package.join("adapteros_coreml_fusion.json")
+    } else {
+        job.output_package.with_extension("fusion.json")
+    };
+    let metadata = serde_json::json!({
+        "base_manifest_hash": base_manifest_hash.to_string(),
+        "fused_manifest_hash": fused_manifest_hash.to_string(),
+        "adapter_hash": adapter_hash.to_string(),
+        "base_package": job.base_package,
+        "fused_package": job.output_package,
+        "adapter_path": job.adapter_aos,
+        "stub": true
+    });
+    fs::write(&metadata_path, serde_json::to_vec_pretty(&metadata)?)
+        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+
+    Ok(CoreMLExportRecord {
+        fused_package: job.output_package.clone(),
+        metadata_path,
+        base_manifest_hash,
+        fused_manifest_hash,
+        adapter_hash,
+        base_model_id: job.base_model_id,
+        adapter_id: job.adapter_id,
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use adapteros_lora_worker::training::TrainingExample as WorkerTrainingExample;
     use tempfile::TempDir;
 
-    #[tokio::test]
-    async fn test_create_and_list_jobs() {
-        let service = TrainingService::new();
+    #[test]
+    fn map_preferred_backend_coreml_does_not_inject_default_fallback() {
+        let mapped = map_preferred_backend(Some(TrainingBackendKind::CoreML), None);
+        assert_eq!(mapped.preferred, Some(WorkerTrainingBackend::CoreML));
+        assert_eq!(mapped.coreml_fallback, None);
+    }
 
-        let config = TrainingConfig::default();
+    #[test]
+    fn map_preferred_backend_coreml_respects_explicit_fallback() {
+        let mapped = map_preferred_backend(
+            Some(TrainingBackendKind::CoreML),
+            Some(TrainingBackendKind::Metal),
+        );
+        assert_eq!(mapped.preferred, Some(WorkerTrainingBackend::CoreML));
+        assert_eq!(mapped.coreml_fallback, Some(WorkerTrainingBackend::Metal));
+    }
+
+    #[test]
+    fn weighted_round_robin_is_deterministic() {
+        let ds1 = vec![
+            WorkerTrainingExample {
+                input: vec![1],
+                target: vec![2],
+                metadata: Default::default(),
+                weight: 1.0,
+            },
+            WorkerTrainingExample {
+                input: vec![3],
+                target: vec![4],
+                metadata: Default::default(),
+                weight: 1.0,
+            },
+        ];
+        let ds2 = vec![WorkerTrainingExample {
+            input: vec![5],
+            target: vec![6],
+            metadata: Default::default(),
+            weight: 1.0,
+        }];
+
+        let merged = weighted_round_robin_merge(vec![(ds1.clone(), 2.0), (ds2.clone(), 1.0)]);
+        // Expect pattern: ds1, ds1, ds2 (since ds1 weight rounds to 2 slots)
+        assert_eq!(merged.len(), 3);
+        assert_eq!(merged[0].input, vec![1]);
+        assert_eq!(merged[1].input, vec![3]);
+        assert_eq!(merged[2].input, vec![5]);
+
+        let merged_again = weighted_round_robin_merge(vec![(ds1, 2.0), (ds2, 1.0)]);
+        assert_eq!(
+            merged.iter().map(|e| &e.input).collect::<Vec<_>>(),
+            merged_again.iter().map(|e| &e.input).collect::<Vec<_>>()
+        );
+    }
+
+    #[cfg(not(all(target_os = "macos", feature = "coreml-backend")))]
+    #[test]
+    fn stub_coreml_export_path_is_invokable_when_allowed() {
+        use std::fs;
+
+        let tmp = TempDir::new().expect("tempdir");
+        let base = tmp.path().join("base.json");
+        let adapter = tmp.path().join("adapter.aos");
+        fs::write(&base, b"base-bytes").unwrap();
+        fs::write(&adapter, b"adapter-bytes").unwrap();
+
+        std::env::set_var("AOS_ALLOW_COREML_EXPORT_STUB", "1");
+        let record = perform_coreml_export(CoreMLExportJob {
+            base_package: base.clone(),
+            adapter_aos: adapter.clone(),
+            output_package: tmp.path().join("fused"),
+            compute_units: ComputeUnits::All,
+            base_model_id: None,
+            adapter_id: None,
+        })
+        .expect("stub export should be allowed when env enabled");
+        std::env::remove_var("AOS_ALLOW_COREML_EXPORT_STUB");
+
+        assert!(record.metadata_path.exists());
+    }
+
+    #[tokio::test]
+    async fn start_training_records_coreml_intent_and_fallback() {
+        let service = TrainingService::new();
+        let mut config = TrainingConfig::default();
+        config.preferred_backend = Some(TrainingBackendKind::CoreML);
+        config.coreml_training_fallback = Some(TrainingBackendKind::Mlx);
+
         let job = service
             .start_training(
-                "test-adapter".to_string(),
+                "coreml-intent".to_string(),
                 config,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
+                None, // template_id
+                None, // repo_id
+                None, // target_branch
+                None, // base_version_id
+                None, // dataset_id
+                None, // dataset_version_ids
+                true, // synthetic_mode
+                DataLineageMode::Synthetic,
+                None, // tenant_id
+                None, // initiated_by
+                None, // initiated_by_role
                 None, // base_model_id
                 None, // collection_id
                 None, // scope
@@ -1832,6 +3178,98 @@ mod tests {
                 None, // framework_version
                 None, // post_actions_json
                 None, // retry_of_job_id
+                None, // versioning
+                None, // code_commit_sha
+                None, // data_spec_json
+                None, // data_spec_hash
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(job.requested_backend.as_deref(), Some("coreml"));
+        assert_eq!(job.coreml_training_fallback.as_deref(), Some("mlx"));
+        assert!(job.backend.is_none(), "backend is recorded post-selection");
+    }
+
+    #[tokio::test]
+    async fn start_training_rejects_missing_dataset_versions_when_non_synthetic() {
+        let service = TrainingService::new();
+        let config = TrainingConfig::default();
+
+        let result = service
+            .start_training(
+                "missing-datasets".to_string(),
+                config,
+                None,  // template_id
+                None,  // repo_id
+                None,  // target_branch
+                None,  // base_version_id
+                None,  // dataset_id
+                None,  // dataset_version_ids
+                false, // synthetic_mode
+                DataLineageMode::Synthetic,
+                None, // tenant_id
+                None, // initiated_by
+                None, // initiated_by_role
+                None, // base_model_id
+                None, // collection_id
+                None, // scope
+                None, // lora_tier
+                None, // category
+                None, // description
+                None, // language
+                None, // framework_id
+                None, // framework_version
+                None, // post_actions_json
+                None, // retry_of_job_id
+                None, // versioning
+                None, // code_commit_sha
+                None, // data_spec_json
+                None, // data_spec_hash
+            )
+            .await;
+
+        assert!(
+            result.is_err(),
+            "non-synthetic training without datasets must fail"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_create_and_list_jobs() {
+        let service = TrainingService::new();
+
+        let config = TrainingConfig::default();
+        let job = service
+            .start_training(
+                "test-adapter".to_string(),
+                config,
+                None, // template_id
+                None, // repo_id
+                None, // target_branch
+                None, // base_version_id
+                None, // dataset_id
+                None, // dataset_version_ids
+                true, // synthetic_mode
+                DataLineageMode::Synthetic,
+                None, // tenant_id
+                None, // initiated_by
+                None, // initiated_by_role
+                None, // base_model_id
+                None, // collection_id
+                None, // scope
+                None, // lora_tier
+                None, // category
+                None, // description
+                None, // language
+                None, // framework_id
+                None, // framework_version
+                None, // post_actions_json
+                None, // retry_of_job_id
+                None, // versioning
+                None, // code_commit_sha
+                None, // data_spec_json
+                None, // data_spec_hash
             )
             .await
             .unwrap();
@@ -1852,12 +3290,17 @@ mod tests {
             .start_training(
                 "test-adapter".to_string(),
                 config,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
+                None, // template_id
+                None, // repo_id
+                None, // target_branch
+                None, // base_version_id
+                None, // dataset_id
+                None, // dataset_version_ids
+                true, // synthetic_mode
+                DataLineageMode::Synthetic,
+                None, // tenant_id
+                None, // initiated_by
+                None, // initiated_by_role
                 None, // base_model_id
                 None, // collection_id
                 None, // scope
@@ -1869,6 +3312,10 @@ mod tests {
                 None, // framework_version
                 None, // post_actions_json
                 None, // retry_of_job_id
+                None, // versioning
+                None, // code_commit_sha
+                None, // data_spec_json
+                None, // data_spec_hash
             )
             .await
             .unwrap();
@@ -1890,12 +3337,17 @@ mod tests {
             .start_training(
                 "test-adapter".to_string(),
                 config,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
+                None, // template_id
+                None, // repo_id
+                None, // target_branch
+                None, // base_version_id
+                None, // dataset_id
+                None, // dataset_version_ids
+                true, // synthetic_mode
+                DataLineageMode::Synthetic,
+                None, // tenant_id
+                None, // initiated_by
+                None, // initiated_by_role
                 None, // base_model_id
                 None, // collection_id
                 None, // scope
@@ -1907,6 +3359,10 @@ mod tests {
                 None, // framework_version
                 None, // post_actions_json
                 None, // retry_of_job_id
+                None, // versioning
+                None, // code_commit_sha
+                None, // data_spec_json
+                None, // data_spec_hash
             )
             .await
             .unwrap();
@@ -1962,6 +3418,57 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn coreml_export_flow_updates_job_and_registry() {
+        std::env::set_var("AOS_ALLOW_COREML_EXPORT_STUB", "1");
+        let temp = TempDir::new().unwrap();
+        let base_dir = temp.path().join("base");
+        std::fs::create_dir_all(&base_dir).unwrap();
+        std::fs::write(base_dir.join("Manifest.json"), "{}").unwrap();
+        std::env::set_var("AOS_MODEL_PATH", base_dir.to_string_lossy().to_string());
+        let aos_path = temp.path().join("adapter.aos");
+        std::fs::write(&aos_path, b"adapter-bytes").unwrap();
+
+        let mut db = adapteros_db::factory::DbFactory::create_in_memory()
+            .await
+            .expect("db");
+        db.migrate().await.expect("migrate");
+
+        let service = TrainingService::with_db(db.clone(), temp.path().to_path_buf());
+        let mut job = TrainingJob::new(
+            "job-export".into(),
+            "adapter-export".into(),
+            TrainingConfig::default(),
+        );
+        job.status = TrainingJobStatus::Completed;
+        job.adapter_id = Some("adapter-export".into());
+        job.aos_path = Some(aos_path.to_string_lossy().to_string());
+        job.manifest_base_model = Some("base-model-x".into());
+        job.package_hash_b3 = Some("hash123".into());
+        job.tenant_id = Some("tenant-test".into());
+        {
+            let mut jobs = service.jobs.write().await;
+            jobs.insert(job.id.clone(), job);
+        }
+
+        let updated = service
+            .export_coreml_for_job("job-export")
+            .await
+            .expect("export");
+
+        assert_eq!(updated.coreml_export_status.as_deref(), Some("succeeded"));
+        assert!(updated.coreml_fused_package_hash.is_some());
+
+        let pair = db
+            .get_coreml_fusion_pair("tenant-test", "base-model-x", "adapter-export")
+            .await
+            .expect("pair lookup");
+        assert!(pair.is_some(), "fusion pair should be recorded");
+
+        std::env::remove_var("AOS_MODEL_PATH");
+        std::env::remove_var("AOS_ALLOW_COREML_EXPORT_STUB");
+    }
+
+    #[tokio::test]
     async fn cpu_training_succeeds_without_gpu_init() {
         std::env::set_var("AOS_FORCE_GPU_BACKEND", "none");
         let jobs = Arc::new(RwLock::new(HashMap::new()));
@@ -1976,6 +3483,8 @@ mod tests {
             "adapter-cpu".to_string(),
             config,
             None,
+            false,
+            DataLineageMode::Synthetic,
             None,
             None,
             None,
@@ -2003,6 +3512,61 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn coreml_preference_records_fallback_reason() {
+        std::env::set_var("AOS_FORCE_GPU_BACKEND", "none");
+        let jobs = Arc::new(RwLock::new(HashMap::new()));
+        let job_id = "coreml-pref-job".to_string();
+        let mut config = cpu_only_config();
+        config.preferred_backend = Some(TrainingBackendKind::CoreML);
+        config.coreml_training_fallback = Some(TrainingBackendKind::Mlx);
+        let job = TrainingJob::new(
+            job_id.clone(),
+            "adapter-coreml-pref".to_string(),
+            config.clone(),
+        );
+        jobs.write().await.insert(job_id.clone(), job);
+
+        let result = run_training_job(
+            jobs.clone(),
+            job_id.clone(),
+            "adapter-coreml-pref".to_string(),
+            config,
+            None,
+            false,
+            DataLineageMode::Synthetic,
+            None,
+            None,
+            None,
+            None,
+            no_package_actions(),
+            None,
+            Arc::new(AtomicBool::new(false)),
+        )
+        .await;
+
+        assert!(
+            result.is_ok(),
+            "CoreML request should fall back deterministically"
+        );
+        let jobs_guard = jobs.read().await;
+        let finished = jobs_guard.get(&job_id).unwrap();
+        let reason = finished.backend_reason.clone().unwrap_or_default();
+        assert!(
+            reason.contains("coreml_training_not_supported"),
+            "expected backend_reason to mention CoreML fallback, got: {reason}"
+        );
+        assert_eq!(
+            finished
+                .backend
+                .as_deref()
+                .unwrap_or("")
+                .to_ascii_lowercase(),
+            "cpu"
+        );
+        std::env::remove_var("AOS_FORCE_GPU_BACKEND");
+    }
+
+    #[tokio::test]
     async fn gpu_optional_falls_back_when_init_fails() {
         std::env::set_var("AOS_FORCE_GPU_BACKEND", "metal");
         let temp_model = TempDir::new().unwrap();
@@ -2013,7 +3577,7 @@ mod tests {
         let jobs = Arc::new(RwLock::new(HashMap::new()));
         let job_id = "gpu-fallback-job".to_string();
         let mut config = cpu_only_config();
-        config.preferred_backend = Some("metal".to_string());
+        config.preferred_backend = Some(TrainingBackendKind::Metal);
         let job = TrainingJob::new(
             job_id.clone(),
             "adapter-gpu-fallback".to_string(),
@@ -2027,6 +3591,8 @@ mod tests {
             "adapter-gpu-fallback".to_string(),
             config,
             None,
+            false,
+            DataLineageMode::Synthetic,
             None,
             None,
             None,
@@ -2077,6 +3643,8 @@ mod tests {
             "adapter-gpu-required".to_string(),
             config,
             None,
+            false,
+            DataLineageMode::Synthetic,
             None,
             None,
             None,

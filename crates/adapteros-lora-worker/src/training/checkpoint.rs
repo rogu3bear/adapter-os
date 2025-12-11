@@ -361,13 +361,19 @@ mod tests {
             epochs: 10,
             hidden_dim: 768,
             vocab_size: 32000,
+            coreml_placement: None,
             preferred_backend: None,
+            backend_policy: None,
+            coreml_fallback_backend: None,
             require_gpu: false,
             max_gpu_memory_mb: 0,
+            max_tokens_per_batch: None,
+            device_policy: None,
             checkpoint_interval: Some(5),
             warmup_steps: None,
             max_seq_length: None,
             gradient_accumulation_steps: None,
+            determinism: None,
         };
 
         let weights = LoRAWeights {
