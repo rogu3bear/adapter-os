@@ -26,8 +26,18 @@
 //! `ModelCache` support the `get_or_load` pattern and type-erased values.
 
 use crate::{base_model_state::BaseModelState, model_key::ModelKey};
-use adapteros_core::{constants::BYTES_PER_MB, AosError, Result};
-use adapteros_telemetry::metrics::critical_components::CriticalComponentMetrics;
+use adapteros_core::{
+    constants::BYTES_PER_MB,
+    identity::IdentityEnvelope,
+    singleflight::SingleFlightSync,
+    AosError, Result,
+};
+use adapteros_lora_kernel_api::attestation::BackendType;
+use adapteros_telemetry::{
+    build_model_eviction_budget_error_event, build_model_load_failed_event,
+    make_model_eviction_budget_error_payload, make_model_load_failed_payload,
+    metrics::critical_components::CriticalComponentMetrics, TelemetryWriter,
+};
 use parking_lot::RwLock;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -171,8 +181,8 @@ pub struct CachedModelEntry {
 ///
 /// This cache ensures that the same model is only loaded once per worker
 /// process, even if multiple code paths request it. The cache key is
-/// `(backend_type, manifest_hash)` to ensure different backends and
-/// model versions are cached separately.
+/// `(backend_type, manifest_hash, kernel_version, quantization, fusion_mode)`
+/// to ensure different backends, builds, and execution modes cache separately.
 ///
 /// # Pinning
 ///
@@ -185,6 +195,11 @@ pub struct ModelHandleCache {
     cache: RwLock<HashMap<ModelKey, CachedModelEntry>>,
     /// Active usage counts for eviction guards
     active_counts: RwLock<HashMap<ModelKey, u64>>,
+    /// Optional telemetry writer for failure events
+    telemetry: RwLock<Option<TelemetryWriter>>,
+    /// SingleFlight for deduplicating concurrent model loads
+    /// Uses String error type since AosError is not Clone
+    singleflight: SingleFlightSync<ModelKey, ModelHandle, String>,
     /// Maximum memory usage in bytes
     max_memory_bytes: u64,
     /// Cache statistics
@@ -210,6 +225,9 @@ pub struct CacheStats {
     pub eviction_skip_active_count: u64,
 }
 
+/// Operation label for SingleFlight metrics
+const MODEL_LOAD_OPERATION: &str = "model_load";
+
 impl CacheStats {
     /// Calculate hit ratio (0.0 to 1.0)
     pub fn hit_ratio(&self) -> f64 {
@@ -228,6 +246,8 @@ impl ModelHandleCache {
         Self {
             cache: RwLock::new(HashMap::new()),
             active_counts: RwLock::new(HashMap::new()),
+            telemetry: RwLock::new(None),
+            singleflight: SingleFlightSync::new(MODEL_LOAD_OPERATION),
             max_memory_bytes,
             stats: RwLock::new(CacheStats::default()),
             pinned_keys: RwLock::new(HashSet::new()),
@@ -241,6 +261,9 @@ impl ModelHandleCache {
         Self {
             cache: RwLock::new(HashMap::new()),
             active_counts: RwLock::new(HashMap::new()),
+            telemetry: RwLock::new(None),
+            // CriticalComponentMetrics implements SingleFlightMetrics for Prometheus reporting
+            singleflight: SingleFlightSync::with_metrics(MODEL_LOAD_OPERATION, metrics.clone()),
             max_memory_bytes,
             stats: RwLock::new(CacheStats::default()),
             pinned_keys: RwLock::new(HashSet::new()),
@@ -252,6 +275,11 @@ impl ModelHandleCache {
     /// Set telemetry metrics after construction
     pub fn set_metrics(&mut self, metrics: Arc<CriticalComponentMetrics>) {
         self.metrics = Some(metrics);
+    }
+
+    /// Set telemetry writer after construction for failure reporting.
+    pub fn set_telemetry(&self, telemetry: TelemetryWriter) {
+        *self.telemetry.write() = Some(telemetry);
     }
 
     /// Register a lifecycle listener for a specific key.
@@ -349,10 +377,10 @@ impl ModelHandleCache {
     ///
     /// # Thread Safety
     ///
-    /// This function uses a read-lock fast path for cache hits, and
-    /// upgrades to a write-lock only on cache miss. Multiple concurrent
-    /// cache misses for the same key may result in multiple loads, but
-    /// only one will be stored (the first to acquire the write lock).
+    /// This function uses a read-lock fast path for cache hits and a
+    /// SingleFlightSync guard for cache misses. Only one concurrent miss
+    /// runs the loader; other callers wait on the in-flight entry and
+    /// observe the same success or error without re-running the loader.
     pub fn get_or_load<F>(&self, key: &ModelKey, loader: F) -> Result<ModelHandle>
     where
         F: FnOnce() -> Result<(ModelHandle, u64)>,
@@ -361,47 +389,85 @@ impl ModelHandleCache {
         {
             let cache = self.cache.read();
             if let Some(entry) = cache.get(key) {
+                return Ok(self.cache_hit(key, entry, "Model cache hit"));
+            }
+        }
+
+        // Use SingleFlightSync for load deduplication.
+        // The closure handles the full load + cache insert operation.
+        let key_clone = key.clone();
+        let handle = self.singleflight.get_or_load(key.clone(), || {
+            self.load_and_cache_model(&key_clone, loader)
+        }).map_err(|e| AosError::Worker(e))?;
+
+        Ok(handle)
+    }
+
+    /// Internal helper: performs the actual model load and cache insertion.
+    /// Called by SingleFlightSync - only the leader executes this.
+    fn load_and_cache_model<F>(
+        &self,
+        key: &ModelKey,
+        loader: F,
+    ) -> std::result::Result<ModelHandle, String>
+    where
+        F: FnOnce() -> Result<(ModelHandle, u64)>,
+    {
+        // Re-check cache before loading. This handles the race where:
+        // 1. Multiple threads pass the fast-path cache check
+        // 2. One becomes SingleFlight leader and completes very quickly
+        // 3. Another becomes a NEW leader (because entry was removed)
+        // Without this check, the second leader would run the loader again.
+        {
+            let cache = self.cache.read();
+            if let Some(entry) = cache.get(key) {
+                tracing::debug!(
+                    key = %key.short_hex(),
+                    "Model found in cache during SingleFlight leader re-check"
+                );
+                // Record as hit since we're returning cached value
                 let mut stats = self.stats.write();
                 stats.hits += 1;
                 if let Some(ref m) = self.metrics {
                     m.record_model_cache_hit();
                 }
-                self.notify_reuse(key);
-                tracing::debug!(
-                    key = %key.short_hex(),
-                    access_count = entry.access_count,
-                    "Model cache hit"
-                );
                 return Ok(entry.handle.clone());
             }
         }
 
-        // Slow path: cache miss, need to load
         tracing::info!(key = %key.short_hex(), "Model cache miss, loading from disk");
 
+        // Run the loader
         let loader_result = loader();
         if let Err(ref e) = loader_result {
             self.notify_error(key, e);
+            self.emit_model_load_failure(key, e);
         }
-        let (handle, memory_bytes) = loader_result?;
+
+        let (handle, memory_bytes) = match loader_result {
+            Ok(v) => v,
+            Err(e) => {
+                return Err(e.to_string());
+            }
+        };
 
         // Acquire write lock and insert
         let mut cache = self.cache.write();
 
         // Double-check: another thread may have loaded while we were loading
+        // (This can happen if there's a race with a non-SingleFlight path)
         if let Some(existing) = cache.get(key) {
-            tracing::debug!(key = %key.short_hex(), "Model loaded by another thread, reusing");
-            let mut stats = self.stats.write();
-            stats.hits += 1;
-            if let Some(ref m) = self.metrics {
-                m.record_model_cache_hit();
-            }
-            self.notify_reuse(key);
+            tracing::debug!(
+                key = %key.short_hex(),
+                "Model loaded by another thread, reusing existing entry"
+            );
             return Ok(existing.handle.clone());
         }
 
         // Evict if necessary to make room
-        self.evict_for_size_locked(&mut cache, memory_bytes)?;
+        if let Err(e) = self.evict_for_size_locked(&mut cache, memory_bytes, Some(key)) {
+            return Err(e.to_string());
+        }
 
         // Insert the new entry
         cache.insert(
@@ -544,6 +610,7 @@ impl ModelHandleCache {
         &self,
         cache: &mut HashMap<ModelKey, CachedModelEntry>,
         needed_bytes: u64,
+        model_key: Option<&ModelKey>,
     ) -> Result<()> {
         let current: u64 = cache.values().map(|e| e.memory_bytes).sum();
         if current + needed_bytes <= self.max_memory_bytes {
@@ -632,6 +699,15 @@ impl ModelHandleCache {
         }
 
         if freed < target {
+            if let Some(key) = model_key {
+                self.emit_eviction_budget_error(
+                    key,
+                    needed_bytes,
+                    freed,
+                    pinned_in_cache,
+                    active_in_cache,
+                );
+            }
             return Err(AosError::Config(format!(
                 "Model cache budget exceeded: needed {} MB, freed {} MB (pinned={}, active={}), max {} MB",
                 needed_bytes / BYTES_PER_MB,
@@ -674,11 +750,110 @@ impl ModelHandleCache {
         pinned.clear();
         self.active_counts.write().clear();
         self.listeners.write().clear();
+        // Note: SingleFlightSync manages its own state and cleans up automatically
         if let Some(ref m) = self.metrics {
             m.set_pinned_entries_count(0);
         }
         let mut stats = self.stats.write();
         *stats = CacheStats::default();
+    }
+
+    fn telemetry_identity(&self) -> IdentityEnvelope {
+        IdentityEnvelope::new(
+            "system".to_string(),
+            "worker".to_string(),
+            "model_cache".to_string(),
+            env!("CARGO_PKG_VERSION").to_string(),
+        )
+    }
+
+    fn telemetry_writer(&self) -> Option<TelemetryWriter> {
+        self.telemetry.read().clone()
+    }
+
+    fn backend_label(key: &ModelKey) -> &'static str {
+        match key.backend_type {
+            BackendType::Metal => "metal",
+            BackendType::Mlx => "mlx",
+            BackendType::CoreML => "coreml",
+            BackendType::Mock => "mock",
+        }
+    }
+
+    fn emit_model_load_failure(&self, key: &ModelKey, error: &AosError) {
+        let Some(writer) = self.telemetry_writer() else {
+            return;
+        };
+
+        let payload = make_model_load_failed_payload(
+            key.short_hex(),
+            Self::backend_label(key),
+            error.to_string(),
+        );
+        match build_model_load_failed_event(self.telemetry_identity(), payload) {
+            Ok(event) => {
+                if let Err(e) = writer.log_event(event) {
+                    tracing::warn!(error = %e, "Failed to emit model load failure telemetry");
+                }
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "Failed to build model load failure telemetry");
+            }
+        }
+    }
+
+    fn emit_eviction_budget_error(
+        &self,
+        key: &ModelKey,
+        needed_bytes: u64,
+        freed_bytes: u64,
+        pinned_entries: usize,
+        active_entries: usize,
+    ) {
+        let Some(writer) = self.telemetry_writer() else {
+            return;
+        };
+
+        let payload = make_model_eviction_budget_error_payload(
+            key.short_hex(),
+            Self::backend_label(key),
+            needed_bytes,
+            freed_bytes,
+            pinned_entries,
+            active_entries,
+            self.max_memory_bytes,
+        );
+
+        match build_model_eviction_budget_error_event(self.telemetry_identity(), payload) {
+            Ok(event) => {
+                if let Err(e) = writer.log_event(event) {
+                    tracing::warn!(error = %e, "Failed to emit eviction budget telemetry");
+                }
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "Failed to build eviction budget telemetry");
+            }
+        }
+    }
+
+    fn cache_hit(
+        &self,
+        key: &ModelKey,
+        entry: &CachedModelEntry,
+        message: &'static str,
+    ) -> ModelHandle {
+        let mut stats = self.stats.write();
+        stats.hits += 1;
+        if let Some(ref m) = self.metrics {
+            m.record_model_cache_hit();
+        }
+        self.notify_reuse(key);
+        tracing::debug!(
+            key = %key.short_hex(),
+            access_count = entry.access_count,
+            "{message}"
+        );
+        entry.handle.clone()
     }
 }
 
@@ -755,9 +930,25 @@ mod tests {
     use super::*;
     use adapteros_core::B3Hash;
     use adapteros_lora_kernel_api::attestation::BackendType;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Arc, Barrier};
+    use std::thread;
+    use std::time::Duration;
+
+    fn make_identity(
+        kernel: &str,
+        quant: &str,
+        fusion: &str,
+    ) -> crate::model_key::ModelCacheIdentity {
+        crate::model_key::ModelCacheIdentity::new(kernel, quant, fusion)
+    }
 
     fn make_key(backend: BackendType, data: &[u8]) -> ModelKey {
-        ModelKey::new(backend, B3Hash::hash(data))
+        ModelKey::new(
+            backend,
+            B3Hash::hash(data),
+            crate::model_key::ModelCacheIdentity::for_backend(backend),
+        )
     }
 
     #[test]
@@ -952,6 +1143,56 @@ mod tests {
     }
 
     #[test]
+    fn test_identity_fields_cause_cache_miss() {
+        let cache = ModelHandleCache::new(1024);
+        let base_hash = B3Hash::hash(b"model_identity_v2");
+
+        let key_kernel = ModelKey::new(
+            BackendType::Metal,
+            base_hash,
+            make_identity("k1", "fp16", "per_request"),
+        );
+        let key_kernel_changed = ModelKey::new(
+            BackendType::Metal,
+            base_hash,
+            make_identity("k2", "fp16", "per_request"),
+        );
+        let key_quant_changed = ModelKey::new(
+            BackendType::Metal,
+            base_hash,
+            make_identity("k2", "int4", "per_request"),
+        );
+        let key_fusion_changed = ModelKey::new(
+            BackendType::Metal,
+            base_hash,
+            make_identity("k2", "int4", "per_token"),
+        );
+
+        let mut load_count = 0;
+        for key in [
+            key_kernel,
+            key_kernel_changed,
+            key_quant_changed,
+            key_fusion_changed,
+        ] {
+            cache
+                .get_or_load(&key, || {
+                    load_count += 1;
+                    Ok((ModelHandle::Metal(Arc::new(vec![1, 2, 3])), 3))
+                })
+                .unwrap();
+        }
+
+        assert_eq!(
+            load_count, 4,
+            "each identity variant should trigger a unique cache load"
+        );
+        let stats = cache.stats();
+        assert_eq!(stats.misses, 4);
+        assert_eq!(cache.len(), 4);
+    }
+
+    #[test]
     fn test_pin_unpin() {
         let cache = ModelHandleCache::new(1024);
         let key = make_key(BackendType::Metal, b"model");
@@ -1033,6 +1274,77 @@ mod tests {
     }
 
     #[test]
+    fn test_pinned_eviction_returns_budget_error() {
+        let cache = ModelHandleCache::new(80);
+        let base_key = make_key(BackendType::Metal, b"pinned_base");
+        let new_key = make_key(BackendType::Metal, b"new_model");
+
+        cache
+            .get_or_load_base_model(&base_key, || {
+                Ok((ModelHandle::Metal(Arc::new(vec![0; 60])), 60))
+            })
+            .unwrap();
+        assert!(cache.is_pinned(&base_key));
+
+        let err = cache
+            .get_or_load(&new_key, || {
+                Ok((ModelHandle::Metal(Arc::new(vec![0; 40])), 40))
+            })
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("Model cache budget exceeded"),
+            "should surface budget error"
+        );
+        assert_eq!(cache.len(), 1, "pinned entry should remain");
+    }
+
+    #[test]
+    fn test_base_model_load_recovers_after_failure() {
+        let cache = ModelHandleCache::new(1024);
+        let key = make_key(BackendType::Metal, b"base_recover");
+
+        let err = cache
+            .get_or_load_base_model(&key, || Err(AosError::Internal("boom".to_string())))
+            .unwrap_err();
+        assert!(err.to_string().contains("boom"));
+        assert_eq!(cache.len(), 0);
+        assert_eq!(cache.pinned_count(), 0);
+
+        let handle = cache
+            .get_or_load_base_model(&key, || {
+                Ok((ModelHandle::Metal(Arc::new(vec![1, 2, 3])), 3))
+            })
+            .expect("recovery should succeed");
+        assert!(matches!(handle, ModelHandle::Metal(_)));
+        assert_eq!(cache.len(), 1);
+        assert_eq!(cache.pinned_count(), 1);
+    }
+
+    #[test]
+    fn test_adapter_load_recovers_after_failure() {
+        let cache = ModelHandleCache::new(1024);
+        let key = make_key(BackendType::Metal, b"adapter_recover");
+
+        let err = cache
+            .get_or_load(&key, || Err(AosError::Internal("adapter-fail".to_string())))
+            .unwrap_err();
+        assert!(err.to_string().contains("adapter-fail"));
+        assert_eq!(cache.len(), 0);
+
+        let handle = cache
+            .get_or_load(&key, || Ok((ModelHandle::Metal(Arc::new(vec![7, 8])), 2)))
+            .expect("adapter reload should succeed");
+        assert!(matches!(handle, ModelHandle::Metal(_)));
+        assert_eq!(cache.len(), 1);
+
+        let stats = cache.stats();
+        assert_eq!(
+            stats.misses, 1,
+            "first successful load should count as miss"
+        );
+    }
+
+    #[test]
     fn test_unpinned_entry_evicted_first() {
         let cache = ModelHandleCache::new(100); // 100 bytes
 
@@ -1100,6 +1412,155 @@ mod tests {
     }
 
     #[test]
+    fn test_concurrent_loads_single_flight() {
+        let cache = Arc::new(ModelHandleCache::new(1024 * 1024));
+        let key = make_key(BackendType::Metal, b"concurrent");
+        let load_count = Arc::new(AtomicUsize::new(0));
+        let barrier = Arc::new(Barrier::new(8));
+
+        let mut threads = Vec::new();
+        for _ in 0..8 {
+            let cache_cloned = Arc::clone(&cache);
+            let key_cloned = key.clone();
+            let load_count_cloned = Arc::clone(&load_count);
+            let barrier_cloned = Arc::clone(&barrier);
+            threads.push(thread::spawn(move || {
+                barrier_cloned.wait();
+                cache_cloned
+                    .get_or_load(&key_cloned, || {
+                        load_count_cloned.fetch_add(1, Ordering::SeqCst);
+                        Ok((ModelHandle::Metal(Arc::new(vec![1, 2, 3])), 3))
+                    })
+                    .unwrap();
+            }));
+        }
+
+        for handle in threads {
+            handle.join().unwrap();
+        }
+
+        assert_eq!(
+            load_count.load(Ordering::SeqCst),
+            1,
+            "loader should execute only once"
+        );
+        assert_eq!(cache.len(), 1);
+        // With SingleFlightSync, waiters receive the handle directly rather than
+        // reading from cache, so hits/misses tracking differs from the old impl.
+        // The key invariant is: loader called once, cache has 1 entry.
+        assert_eq!(cache.stats().misses, 1, "should record exactly one cache miss");
+    }
+
+    #[test]
+    fn test_concurrent_failures_propagate() {
+        let cache = Arc::new(ModelHandleCache::new(1024 * 1024));
+        let key = make_key(BackendType::Metal, b"fail");
+        let load_count = Arc::new(AtomicUsize::new(0));
+        let barrier = Arc::new(Barrier::new(4));
+
+        let mut threads = Vec::new();
+        for _ in 0..4 {
+            let cache_cloned = Arc::clone(&cache);
+            let key_cloned = key.clone();
+            let load_count_cloned = Arc::clone(&load_count);
+            let barrier_cloned = Arc::clone(&barrier);
+            threads.push(thread::spawn(move || {
+                barrier_cloned.wait();
+                cache_cloned
+                    .get_or_load(&key_cloned, || {
+                        load_count_cloned.fetch_add(1, Ordering::SeqCst);
+                        Err(AosError::Worker("expected failure".to_string()))
+                    })
+                    .expect_err("all callers should receive failure");
+            }));
+        }
+
+        for handle in threads {
+            handle.join().unwrap();
+        }
+
+        // With instant-fail loaders, the SingleFlight entry may be removed
+        // before all threads register as waiters, allowing multiple loads.
+        // The key invariant is that failures don't poison the cache.
+        assert!(
+            load_count.load(Ordering::SeqCst) >= 1,
+            "at least one loader should run on failure"
+        );
+        assert_eq!(cache.len(), 0, "failed load must not poison cache");
+        let stats = cache.stats();
+        assert_eq!(stats.hits, 0);
+        assert_eq!(stats.misses, 0);
+    }
+
+    #[test]
+    fn test_retry_after_failure_succeeds_once() {
+        let cache = Arc::new(ModelHandleCache::new(1024 * 1024));
+        let key = make_key(BackendType::Metal, b"retry");
+
+        // First attempt: deliberate failure
+        // Note: With instant-fail loaders, the SingleFlight entry may be removed
+        // before all threads register as waiters, allowing multiple loads.
+        // The key invariants are: all threads receive error, no cache entry.
+        let fail_barrier = Arc::new(Barrier::new(3));
+        let fail_count = Arc::new(AtomicUsize::new(0));
+        let mut fail_threads = Vec::new();
+        for _ in 0..3 {
+            let cache_cloned = Arc::clone(&cache);
+            let key_cloned = key.clone();
+            let count_cloned = Arc::clone(&fail_count);
+            let barrier_cloned = Arc::clone(&fail_barrier);
+            fail_threads.push(thread::spawn(move || {
+                barrier_cloned.wait();
+                cache_cloned
+                    .get_or_load(&key_cloned, || {
+                        count_cloned.fetch_add(1, Ordering::SeqCst);
+                        Err(AosError::Worker("first attempt failed".to_string()))
+                    })
+                    .expect_err("failure should propagate to waiters");
+            }));
+        }
+        for handle in fail_threads {
+            handle.join().unwrap();
+        }
+        // With instant-fail, fail_count may be > 1 due to timing (entry removed before waiters register)
+        assert!(fail_count.load(Ordering::SeqCst) >= 1, "at least one loader should run");
+        assert!(cache.is_empty(), "failure must not insert cache entry");
+
+        // Second attempt: success, still single-flight
+        let success_barrier = Arc::new(Barrier::new(5));
+        let success_count = Arc::new(AtomicUsize::new(0));
+        let mut success_threads = Vec::new();
+        for _ in 0..5 {
+            let cache_cloned = Arc::clone(&cache);
+            let key_cloned = key.clone();
+            let count_cloned = Arc::clone(&success_count);
+            let barrier_cloned = Arc::clone(&success_barrier);
+            success_threads.push(thread::spawn(move || {
+                barrier_cloned.wait();
+                cache_cloned
+                    .get_or_load(&key_cloned, || {
+                        count_cloned.fetch_add(1, Ordering::SeqCst);
+                        Ok((ModelHandle::Metal(Arc::new(vec![9, 9, 9])), 3))
+                    })
+                    .unwrap();
+            }));
+        }
+        for handle in success_threads {
+            handle.join().unwrap();
+        }
+
+        assert_eq!(
+            success_count.load(Ordering::SeqCst),
+            1,
+            "retry load should run only once"
+        );
+        assert_eq!(cache.len(), 1, "successful retry must insert cache entry");
+        // With SingleFlightSync, waiters receive the handle directly rather than
+        // reading from cache, so we only check that misses == 1 (loader ran once).
+        assert_eq!(cache.stats().misses, 1, "should record exactly one cache miss");
+    }
+
+    #[test]
     fn test_base_model_state_listener_receives_events() {
         use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -1141,5 +1602,110 @@ mod tests {
 
         assert_eq!(listener.loads.load(Ordering::SeqCst), 1);
         assert_eq!(listener.evicts.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn test_loader_failure_then_success() {
+        let cache = ModelHandleCache::new(1024);
+        let key = make_key(BackendType::Metal, b"flaky");
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let attempts_fail = attempts.clone();
+
+        let err = cache
+            .get_or_load(&key, || {
+                attempts_fail.fetch_add(1, Ordering::SeqCst);
+                Err(AosError::Worker("first failure".to_string()))
+            })
+            .unwrap_err();
+        assert!(format!("{err}").contains("first failure"));
+        assert_eq!(attempts.load(Ordering::SeqCst), 1);
+
+        let success = cache
+            .get_or_load(&key, || {
+                attempts.fetch_add(1, Ordering::SeqCst);
+                Ok((ModelHandle::Metal(Arc::new(vec![1, 2, 3])), 3))
+            })
+            .expect("second attempt should succeed");
+        assert_eq!(attempts.load(Ordering::SeqCst), 2);
+        assert!(matches!(success, ModelHandle::Metal(_)));
+    }
+
+    #[test]
+    fn test_single_flight_dedupes_parallel_loads() {
+        let cache = Arc::new(ModelHandleCache::new(1024));
+        let key = make_key(BackendType::Metal, b"parallel");
+        let barrier = Arc::new(Barrier::new(2));
+        let calls = Arc::new(AtomicUsize::new(0));
+
+        let cache_a = cache.clone();
+        let key_a = key.clone();
+        let barrier_a = barrier.clone();
+        let calls_a = calls.clone();
+        let t1 = thread::spawn(move || {
+            barrier_a.wait();
+            cache_a.get_or_load(&key_a, || {
+                calls_a.fetch_add(1, Ordering::SeqCst);
+                std::thread::sleep(Duration::from_millis(50));
+                Ok((ModelHandle::Metal(Arc::new(vec![1])), 1))
+            })
+        });
+
+        let cache_b = cache.clone();
+        let key_b = key.clone();
+        let barrier_b = barrier.clone();
+        let calls_b = calls.clone();
+        let t2 = thread::spawn(move || {
+            barrier_b.wait();
+            cache_b.get_or_load(&key_b, || {
+                calls_b.fetch_add(1, Ordering::SeqCst);
+                Ok((ModelHandle::Metal(Arc::new(vec![2])), 1))
+            })
+        });
+
+        t1.join().expect("thread 1 join").expect("load 1");
+        t2.join().expect("thread 2 join").expect("load 2");
+
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            1,
+            "single-flight should allow only one loader"
+        );
+        assert_eq!(cache.len(), 1);
+    }
+
+    #[test]
+    fn test_eviction_after_active_guard_released_under_pressure() {
+        let cache = ModelHandleCache::new(100);
+        let active_key = make_key(BackendType::Metal, b"active-guard");
+        let new_key = make_key(BackendType::Metal, b"new-model");
+
+        cache
+            .get_or_load(&active_key, || {
+                Ok((ModelHandle::Metal(Arc::new(vec![0; 80])), 80))
+            })
+            .unwrap();
+        let guard = cache.begin_use(&active_key).expect("guard should start");
+
+        let blocked = cache.get_or_load(&new_key, || {
+            Ok((ModelHandle::Metal(Arc::new(vec![0; 50])), 50))
+        });
+        assert!(
+            blocked.is_err(),
+            "active guard should block eviction while held"
+        );
+
+        drop(guard); // releases active mark
+        let after_release = cache.get_or_load(&new_key, || {
+            Ok((ModelHandle::Metal(Arc::new(vec![0; 50])), 50))
+        });
+        assert!(
+            after_release.is_ok(),
+            "eviction should succeed after release"
+        );
+        assert_eq!(cache.len(), 1, "old entry should evict under pressure");
+        assert!(
+            cache.stats().evictions >= 1,
+            "eviction count should reflect pressure"
+        );
     }
 }

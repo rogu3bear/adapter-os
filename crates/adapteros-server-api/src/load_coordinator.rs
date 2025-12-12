@@ -6,105 +6,28 @@
 //!
 //! ## Architecture
 //!
-//! - **DashMap**: Lock-free concurrent hash map for pending loads
-//! - **LoadWaiter**: Coordination structure using tokio::sync primitives
-//! - **OnceCell**: Ensures load result is set exactly once
-//! - **Notify**: Wakes all waiting tasks when load completes
+//! Uses the unified `SingleFlight` utility from `adapteros_core::singleflight` for
+//! deduplication. This ensures consistent behavior across model loads, adapter loads,
+//! and prefix KV builds.
 //!
 //! ## Metrics
 //!
-//! Logs include:
-//! - Number of waiters coalesced for each load
-//! - Wait times for concurrent requests
-//! - Load completion success/failure
+//! Prometheus metrics are recorded via `SingleFlightMetrics`:
+//! - `singleflight_leader_count_total{operation="adapter_load"}` - Requests that triggered loads
+//! - `singleflight_waiter_count{operation="adapter_load"}` - Current waiters
+//! - `singleflight_error_count_total{operation="adapter_load"}` - Load errors
 //!
 //! [source: crates/adapteros-server-api/src/load_coordinator.rs]
 //! [related: CLAUDE.md#core-standards]
 
+use adapteros_core::singleflight::{SingleFlight, SingleFlightMetrics, SingleFlightStats};
 use adapteros_core::AosError;
 use adapteros_db::Db;
 use adapteros_lora_lifecycle::loader::AdapterHandle;
-use dashmap::DashMap;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use tokio::sync::{Notify, OnceCell};
 
-/// Coordination structure for a single adapter load operation
-struct LoadWaiter {
-    /// Notify all waiters when load completes
-    notify: Notify,
-    /// Load result (set exactly once by first requester)
-    result: OnceCell<Result<AdapterHandle, AosError>>,
-    /// Number of concurrent waiters
-    waiter_count: AtomicUsize,
-    /// Timestamp when first request arrived
-    first_request_at: std::time::Instant,
-}
-
-impl LoadWaiter {
-    fn new() -> Self {
-        Self {
-            notify: Notify::new(),
-            result: OnceCell::new(),
-            waiter_count: AtomicUsize::new(0),
-            first_request_at: std::time::Instant::now(),
-        }
-    }
-
-    /// Increment waiter count and return new count
-    fn add_waiter(&self) -> usize {
-        self.waiter_count.fetch_add(1, Ordering::SeqCst) + 1
-    }
-
-    /// Get current waiter count
-    fn get_waiter_count(&self) -> usize {
-        self.waiter_count.load(Ordering::SeqCst)
-    }
-
-    /// Set the load result (can only be called once)
-    fn set_result(&self, result: Result<AdapterHandle, AosError>) -> Result<(), ()> {
-        self.result.set(result).map_err(|_| ())
-    }
-
-    /// Get the load result (blocking if not set yet)
-    async fn get_result(&self) -> Result<AdapterHandle, AosError> {
-        // Wait for notification that result is available
-        self.notify.notified().await;
-
-        // Clone the result from OnceCell
-        match self.result.get() {
-            Some(Ok(handle)) => {
-                // Clone the handle for this waiter
-                Ok(AdapterHandle {
-                    adapter_id: handle.adapter_id,
-                    path: handle.path.clone(),
-                    memory_bytes: handle.memory_bytes,
-                    metadata: handle.metadata.clone(),
-                })
-            }
-            Some(Err(e)) => {
-                // Clone the error
-                Err(AosError::Lifecycle(format!("Load failed: {}", e)))
-            }
-            None => {
-                // This should never happen if notify was called
-                Err(AosError::Lifecycle(
-                    "Load result not available despite notification".to_string(),
-                ))
-            }
-        }
-    }
-
-    /// Notify all waiters that result is available
-    fn notify_all(&self) {
-        self.notify.notify_waiters();
-    }
-
-    /// Get elapsed time since first request
-    fn elapsed(&self) -> std::time::Duration {
-        self.first_request_at.elapsed()
-    }
-}
+/// Operation label for SingleFlight metrics
+const OPERATION_LABEL: &str = "adapter_load";
 
 /// Coordinator for handling concurrent adapter load requests
 ///
@@ -123,15 +46,23 @@ impl LoadWaiter {
 /// }).await?;
 /// ```
 pub struct LoadCoordinator {
-    /// Pending load operations by model_id
-    pending_loads: DashMap<String, Arc<LoadWaiter>>,
+    /// SingleFlight for deduplication
+    /// Uses String error type since AosError is not Clone
+    singleflight: Arc<SingleFlight<String, AdapterHandle, String>>,
 }
 
 impl LoadCoordinator {
-    /// Create a new load coordinator
+    /// Create a new load coordinator without metrics
     pub fn new() -> Self {
         Self {
-            pending_loads: DashMap::new(),
+            singleflight: Arc::new(SingleFlight::new(OPERATION_LABEL)),
+        }
+    }
+
+    /// Create a new load coordinator with metrics
+    pub fn with_metrics(metrics: Arc<dyn SingleFlightMetrics>) -> Self {
+        Self {
+            singleflight: Arc::new(SingleFlight::with_metrics(OPERATION_LABEL, metrics)),
         }
     }
 
@@ -152,9 +83,7 @@ impl LoadCoordinator {
     ///
     /// ## Metrics
     ///
-    /// Logs info-level messages when multiple requests coalesce, including:
-    /// - Number of waiters
-    /// - Total wait time for waiters
+    /// Records leader/waiter/error counts via Prometheus metrics when configured.
     pub async fn load_or_wait<F, Fut>(
         &self,
         model_id: &str,
@@ -164,96 +93,16 @@ impl LoadCoordinator {
         F: FnOnce() -> Fut,
         Fut: std::future::Future<Output = Result<AdapterHandle, AosError>>,
     {
-        let model_id_owned = model_id.to_string();
-
-        // Try to insert a new waiter, or get existing one
-        let waiter = self
-            .pending_loads
-            .entry(model_id_owned.clone())
-            .or_insert_with(|| Arc::new(LoadWaiter::new()))
-            .clone();
-
-        let waiter_num = waiter.add_waiter();
-
-        if waiter_num == 1 {
-            // First request - we perform the load
-            tracing::debug!(
-                model_id = %model_id,
-                "First request for adapter, triggering load"
-            );
-
-            let load_result = load_fn().await;
-            let is_success = load_result.is_ok();
-
-            // Store result for all waiters (convert error to string for sharing)
-            let shared_result = match &load_result {
-                Ok(handle) => Ok(AdapterHandle {
-                    adapter_id: handle.adapter_id,
-                    path: handle.path.clone(),
-                    memory_bytes: handle.memory_bytes,
-                    metadata: handle.metadata.clone(),
-                }),
-                Err(e) => Err(AosError::Lifecycle(format!("Load failed: {}", e))),
-            };
-
-            if waiter.set_result(shared_result).is_err() {
-                // Result was already set by another task (race condition)
-                tracing::warn!(
-                    model_id = %model_id,
-                    "Load result was set by another task (unexpected race)"
-                );
-            }
-
-            // Notify all waiters
-            waiter.notify_all();
-
-            let elapsed = waiter.elapsed();
-            let final_waiter_count = waiter.get_waiter_count();
-
-            if final_waiter_count > 1 {
-                tracing::info!(
-                    model_id = %model_id,
-                    waiters = final_waiter_count - 1,
-                    load_time_ms = elapsed.as_millis(),
-                    success = is_success,
-                    "Load completed with {} waiting requests",
-                    final_waiter_count - 1
-                );
-            } else {
-                tracing::debug!(
-                    model_id = %model_id,
-                    load_time_ms = elapsed.as_millis(),
-                    success = is_success,
-                    "Load completed with no waiters"
-                );
-            }
-
-            // Clean up entry from pending_loads
-            self.pending_loads.remove(&model_id_owned);
-
-            load_result
-        } else {
-            // Subsequent request - wait for first request to complete
-            let wait_start = std::time::Instant::now();
-
-            tracing::debug!(
-                model_id = %model_id,
-                waiter_position = waiter_num,
-                "Waiting for in-progress load"
-            );
-
-            let result = waiter.get_result().await;
-
-            let wait_time = wait_start.elapsed();
-            tracing::info!(
-                model_id = %model_id,
-                wait_time_ms = wait_time.as_millis(),
-                success = result.is_ok(),
-                "Load wait completed"
-            );
-
-            result
-        }
+        // Delegate to SingleFlight, converting errors at boundaries
+        self.singleflight
+            .get_or_load(model_id.to_string(), || async move {
+                // Run the load function, converting AosError to String for sharing
+                load_fn()
+                    .await
+                    .map_err(|e| format!("Load failed: {}", e))
+            })
+            .await
+            .map_err(|e| AosError::Lifecycle(e))
     }
 
     /// Load model or wait for in-progress load, with archive/purge safety check
@@ -316,7 +165,7 @@ impl LoadCoordinator {
     ///
     /// Returns `true` if there's an active load operation for the given model_id.
     pub fn is_loading(&self, model_id: &str) -> bool {
-        self.pending_loads.contains_key(model_id)
+        self.singleflight.is_loading(&model_id.to_string())
     }
 
     /// Get count of waiters for a model
@@ -324,53 +173,24 @@ impl LoadCoordinator {
     /// Returns the number of requests currently waiting for the model to load.
     /// Returns 0 if the model is not being loaded.
     pub fn waiter_count(&self, model_id: &str) -> usize {
-        self.pending_loads
-            .get(model_id)
-            .map(|waiter| waiter.get_waiter_count())
-            .unwrap_or(0)
-    }
-
-    /// Cancel a pending load
-    ///
-    /// Removes the load waiter from the pending map. This does not stop
-    /// the actual load operation if it's in progress, but prevents new
-    /// waiters from joining.
-    ///
-    /// All existing waiters will still receive the result when the load completes.
-    pub fn cancel(&self, model_id: &str) {
-        if let Some((_, waiter)) = self.pending_loads.remove(model_id) {
-            let count = waiter.get_waiter_count();
-            tracing::warn!(
-                model_id = %model_id,
-                waiters = count,
-                "Cancelled pending load with {} waiters",
-                count
-            );
-        }
+        self.singleflight.waiter_count(&model_id.to_string())
     }
 
     /// Get metrics for monitoring
     ///
     /// Returns information about currently pending loads for observability.
     pub fn metrics(&self) -> LoadCoordinatorMetrics {
-        let mut total_waiters = 0;
-        let mut oldest_load_age_ms = 0u128;
-        let pending_count = self.pending_loads.len();
-
-        for entry in self.pending_loads.iter() {
-            let waiter = entry.value();
-            total_waiters += waiter.get_waiter_count();
-            let age = waiter.elapsed().as_millis();
-            if age > oldest_load_age_ms {
-                oldest_load_age_ms = age;
-            }
-        }
-
+        let stats = self.singleflight.stats();
         LoadCoordinatorMetrics {
-            pending_loads: pending_count,
-            total_waiters,
-            oldest_load_age_ms,
+            pending_loads: stats.pending_loads,
+            total_waiters: stats.total_waiters,
+            oldest_load_age_ms: stats.oldest_load_age_ms,
         }
+    }
+
+    /// Get the underlying SingleFlight stats directly
+    pub fn singleflight_stats(&self) -> SingleFlightStats {
+        self.singleflight.stats()
     }
 }
 
@@ -396,7 +216,7 @@ mod tests {
     use super::*;
     use adapteros_lora_lifecycle::loader::AdapterMetadata;
     use std::path::PathBuf;
-    use std::sync::atomic::{AtomicBool, AtomicU32};
+    use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
     fn create_test_handle(id: u16) -> AdapterHandle {
         AdapterHandle {
@@ -534,32 +354,6 @@ mod tests {
 
         assert!(!coordinator.is_loading("test-adapter"));
         assert_eq!(coordinator.waiter_count("test-adapter"), 0);
-    }
-
-    #[tokio::test]
-    async fn test_cancel() {
-        let coordinator = Arc::new(LoadCoordinator::new());
-
-        // Start a load
-        let coord_clone = coordinator.clone();
-        let _load_handle = tokio::spawn(async move {
-            coord_clone
-                .load_or_wait("test-adapter", || async move {
-                    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-                    Ok(create_test_handle(42))
-                })
-                .await
-        });
-
-        // Wait a bit for load to start
-        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
-
-        assert!(coordinator.is_loading("test-adapter"));
-
-        // Cancel the load
-        coordinator.cancel("test-adapter");
-
-        assert!(!coordinator.is_loading("test-adapter"));
     }
 
     #[tokio::test]

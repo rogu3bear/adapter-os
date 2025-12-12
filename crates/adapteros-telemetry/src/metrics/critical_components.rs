@@ -18,6 +18,7 @@ use std::sync::Arc;
 use std::time::Instant;
 use tracing::{error, info, warn};
 
+use adapteros_core::singleflight::SingleFlightMetrics;
 use adapteros_core::Result;
 
 /// Critical component metrics collector
@@ -87,6 +88,20 @@ pub struct CriticalComponentMetrics {
     pub gpu_fingerprint_mismatches_total: Counter,
     pub gpu_fingerprint_sample_time_us: HistogramVec,
     pub gpu_buffer_corruption_detections: CounterVec,
+
+    // KV cache residency metrics (Phase 8)
+    pub kv_hot_entries: Gauge,
+    pub kv_cold_entries: Gauge,
+    pub kv_hot_bytes: Gauge,
+    pub kv_cold_bytes: Gauge,
+    pub kv_evictions_by_residency_total: CounterVec,
+    pub kv_quota_exceeded_total: Counter,
+    pub kv_purgeable_failures_total: Counter,
+
+    // SingleFlight deduplication metrics
+    pub singleflight_leader_count: CounterVec,
+    pub singleflight_waiter_count: GaugeVec,
+    pub singleflight_error_count: CounterVec,
 }
 
 impl CriticalComponentMetrics {
@@ -524,6 +539,88 @@ impl CriticalComponentMetrics {
             adapteros_core::AosError::Telemetry(format!("Counter creation failed: {}", e))
         })?;
 
+        // KV cache residency metrics (Phase 8)
+        let kv_hot_entries = Gauge::new("kv_hot_entries", "Current count of HOT KV cache entries")
+            .map_err(|e| {
+                adapteros_core::AosError::Telemetry(format!("Gauge creation failed: {}", e))
+            })?;
+
+        let kv_cold_entries =
+            Gauge::new("kv_cold_entries", "Current count of COLD KV cache entries").map_err(
+                |e| adapteros_core::AosError::Telemetry(format!("Gauge creation failed: {}", e)),
+            )?;
+
+        let kv_hot_bytes = Gauge::new("kv_hot_bytes", "Total bytes in HOT KV cache entries")
+            .map_err(|e| {
+                adapteros_core::AosError::Telemetry(format!("Gauge creation failed: {}", e))
+            })?;
+
+        let kv_cold_bytes = Gauge::new("kv_cold_bytes", "Total bytes in COLD KV cache entries")
+            .map_err(|e| {
+                adapteros_core::AosError::Telemetry(format!("Gauge creation failed: {}", e))
+            })?;
+
+        let kv_evictions_by_residency_total = CounterVec::new(
+            Opts::new(
+                "kv_evictions_by_residency_total",
+                "Total KV cache evictions by residency state (hot/cold)",
+            ),
+            &["residency_type"],
+        )
+        .map_err(|e| {
+            adapteros_core::AosError::Telemetry(format!("Counter creation failed: {}", e))
+        })?;
+
+        let kv_quota_exceeded_total = Counter::new(
+            "kv_quota_exceeded_total",
+            "Total KV cache quota exceeded events",
+        )
+        .map_err(|e| {
+            adapteros_core::AosError::Telemetry(format!("Counter creation failed: {}", e))
+        })?;
+
+        let kv_purgeable_failures_total = Counter::new(
+            "kv_purgeable_failures_total",
+            "Total KV cache purgeable state failures",
+        )
+        .map_err(|e| {
+            adapteros_core::AosError::Telemetry(format!("Counter creation failed: {}", e))
+        })?;
+
+        // SingleFlight deduplication metrics
+        let singleflight_leader_count = CounterVec::new(
+            Opts::new(
+                "singleflight_leader_count_total",
+                "Total SingleFlight leaders (requests that triggered loads)",
+            ),
+            &["operation"],
+        )
+        .map_err(|e| {
+            adapteros_core::AosError::Telemetry(format!("Counter creation failed: {}", e))
+        })?;
+
+        let singleflight_waiter_count = GaugeVec::new(
+            Opts::new(
+                "singleflight_waiter_count",
+                "Current number of SingleFlight waiters by operation",
+            ),
+            &["operation"],
+        )
+        .map_err(|e| {
+            adapteros_core::AosError::Telemetry(format!("Gauge creation failed: {}", e))
+        })?;
+
+        let singleflight_error_count = CounterVec::new(
+            Opts::new(
+                "singleflight_error_count_total",
+                "Total SingleFlight errors by operation and error type",
+            ),
+            &["operation", "error_type"],
+        )
+        .map_err(|e| {
+            adapteros_core::AosError::Telemetry(format!("Counter creation failed: {}", e))
+        })?;
+
         // Register all metrics
         let registry_arc = Arc::new(registry);
 
@@ -761,6 +858,68 @@ impl CriticalComponentMetrics {
                 adapteros_core::AosError::Telemetry(format!("Registration failed: {}", e))
             })?;
 
+        // Register KV cache residency metrics
+        registry_arc
+            .register(Box::new(kv_hot_entries.clone()))
+            .map_err(|e| {
+                adapteros_core::AosError::Telemetry(format!("Registration failed: {}", e))
+            })?;
+
+        registry_arc
+            .register(Box::new(kv_cold_entries.clone()))
+            .map_err(|e| {
+                adapteros_core::AosError::Telemetry(format!("Registration failed: {}", e))
+            })?;
+
+        registry_arc
+            .register(Box::new(kv_hot_bytes.clone()))
+            .map_err(|e| {
+                adapteros_core::AosError::Telemetry(format!("Registration failed: {}", e))
+            })?;
+
+        registry_arc
+            .register(Box::new(kv_cold_bytes.clone()))
+            .map_err(|e| {
+                adapteros_core::AosError::Telemetry(format!("Registration failed: {}", e))
+            })?;
+
+        registry_arc
+            .register(Box::new(kv_evictions_by_residency_total.clone()))
+            .map_err(|e| {
+                adapteros_core::AosError::Telemetry(format!("Registration failed: {}", e))
+            })?;
+
+        registry_arc
+            .register(Box::new(kv_quota_exceeded_total.clone()))
+            .map_err(|e| {
+                adapteros_core::AosError::Telemetry(format!("Registration failed: {}", e))
+            })?;
+
+        registry_arc
+            .register(Box::new(kv_purgeable_failures_total.clone()))
+            .map_err(|e| {
+                adapteros_core::AosError::Telemetry(format!("Registration failed: {}", e))
+            })?;
+
+        // Register SingleFlight metrics
+        registry_arc
+            .register(Box::new(singleflight_leader_count.clone()))
+            .map_err(|e| {
+                adapteros_core::AosError::Telemetry(format!("Registration failed: {}", e))
+            })?;
+
+        registry_arc
+            .register(Box::new(singleflight_waiter_count.clone()))
+            .map_err(|e| {
+                adapteros_core::AosError::Telemetry(format!("Registration failed: {}", e))
+            })?;
+
+        registry_arc
+            .register(Box::new(singleflight_error_count.clone()))
+            .map_err(|e| {
+                adapteros_core::AosError::Telemetry(format!("Registration failed: {}", e))
+            })?;
+
         info!("Critical component metrics initialized");
 
         Ok(Self {
@@ -816,6 +975,18 @@ impl CriticalComponentMetrics {
             // Residency probe metrics
             residency_probe_ok,
             residency_probe_runs_total,
+            // KV cache residency metrics
+            kv_hot_entries,
+            kv_cold_entries,
+            kv_hot_bytes,
+            kv_cold_bytes,
+            kv_evictions_by_residency_total,
+            kv_quota_exceeded_total,
+            kv_purgeable_failures_total,
+            // SingleFlight metrics
+            singleflight_leader_count,
+            singleflight_waiter_count,
+            singleflight_error_count,
         })
     }
 
@@ -1267,11 +1438,166 @@ impl CriticalComponentMetrics {
     pub fn get_residency_probe_runs(&self) -> f64 {
         self.residency_probe_runs_total.get()
     }
+
+    // ========================================
+    // KV cache residency metrics helper functions (Phase 8)
+    // ========================================
+
+    /// Set KV cache HOT entries count
+    pub fn set_kv_hot_entries(&self, count: usize) {
+        self.kv_hot_entries.set(count as f64);
+    }
+
+    /// Set KV cache COLD entries count
+    pub fn set_kv_cold_entries(&self, count: usize) {
+        self.kv_cold_entries.set(count as f64);
+    }
+
+    /// Set KV cache HOT bytes
+    pub fn set_kv_hot_bytes(&self, bytes: u64) {
+        self.kv_hot_bytes.set(bytes as f64);
+    }
+
+    /// Set KV cache COLD bytes
+    pub fn set_kv_cold_bytes(&self, bytes: u64) {
+        self.kv_cold_bytes.set(bytes as f64);
+    }
+
+    /// Record KV cache eviction by residency type
+    pub fn record_kv_eviction(&self, residency_type: &str) {
+        self.kv_evictions_by_residency_total
+            .with_label_values(&[residency_type])
+            .inc();
+    }
+
+    /// Record KV cache evictions by residency type with count
+    pub fn record_kv_evictions(&self, residency_type: &str, count: u64) {
+        self.kv_evictions_by_residency_total
+            .with_label_values(&[residency_type])
+            .inc_by(count as f64);
+    }
+
+    /// Record KV cache quota exceeded event
+    pub fn record_kv_quota_exceeded(&self) {
+        self.kv_quota_exceeded_total.inc();
+    }
+
+    /// Record KV cache purgeable state failure
+    pub fn record_kv_purgeable_failure(&self) {
+        self.kv_purgeable_failures_total.inc();
+    }
+
+    /// Get current KV HOT entries count
+    pub fn get_kv_hot_entries(&self) -> usize {
+        self.kv_hot_entries.get() as usize
+    }
+
+    /// Get current KV COLD entries count
+    pub fn get_kv_cold_entries(&self) -> usize {
+        self.kv_cold_entries.get() as usize
+    }
+
+    /// Get current KV HOT bytes
+    pub fn get_kv_hot_bytes(&self) -> u64 {
+        self.kv_hot_bytes.get() as u64
+    }
+
+    /// Get current KV COLD bytes
+    pub fn get_kv_cold_bytes(&self) -> u64 {
+        self.kv_cold_bytes.get() as u64
+    }
+
+    /// Get total KV quota exceeded events
+    pub fn get_kv_quota_exceeded_total(&self) -> u64 {
+        self.kv_quota_exceeded_total.get() as u64
+    }
+
+    /// Get total KV purgeable failures
+    pub fn get_kv_purgeable_failures_total(&self) -> u64 {
+        self.kv_purgeable_failures_total.get() as u64
+    }
+
+    /// Residency type label for HOT KV cache entries
+    pub fn kv_residency_hot() -> &'static str {
+        "hot"
+    }
+
+    /// Residency type label for COLD KV cache entries
+    pub fn kv_residency_cold() -> &'static str {
+        "cold"
+    }
+
+    // ========================================
+    // SingleFlight deduplication metrics helper functions
+    // ========================================
+
+    /// Record a SingleFlight leader (request that triggered the load)
+    pub fn record_singleflight_leader(&self, operation: &str) {
+        self.singleflight_leader_count
+            .with_label_values(&[operation])
+            .inc();
+    }
+
+    /// Record a SingleFlight waiter (request waiting for in-progress load)
+    pub fn record_singleflight_waiter(&self, operation: &str) {
+        self.singleflight_waiter_count
+            .with_label_values(&[operation])
+            .inc();
+    }
+
+    /// Set the current number of SingleFlight waiters for an operation
+    pub fn set_singleflight_waiters(&self, operation: &str, count: usize) {
+        self.singleflight_waiter_count
+            .with_label_values(&[operation])
+            .set(count as f64);
+    }
+
+    /// Record a SingleFlight error
+    pub fn record_singleflight_error(&self, operation: &str, error_type: &str) {
+        self.singleflight_error_count
+            .with_label_values(&[operation, error_type])
+            .inc();
+    }
+
+    /// Operation label for model load deduplication
+    pub fn singleflight_op_model_load() -> &'static str {
+        "model_load"
+    }
+
+    /// Operation label for adapter load deduplication
+    pub fn singleflight_op_adapter_load() -> &'static str {
+        "adapter_load"
+    }
+
+    /// Operation label for prefix KV build deduplication
+    pub fn singleflight_op_prefix_kv() -> &'static str {
+        "prefix_kv_build"
+    }
 }
 
 impl Default for CriticalComponentMetrics {
     fn default() -> Self {
         Self::new().expect("Failed to create default CriticalComponentMetrics")
+    }
+}
+
+/// Implement SingleFlightMetrics trait for CriticalComponentMetrics
+/// This allows CriticalComponentMetrics to be used as a metrics backend for SingleFlight
+impl SingleFlightMetrics for CriticalComponentMetrics {
+    fn record_leader(&self, operation: &str) {
+        self.record_singleflight_leader(operation);
+    }
+
+    fn record_waiter(&self, operation: &str) {
+        self.record_singleflight_waiter(operation);
+    }
+
+    fn set_waiter_gauge(&self, operation: &str, count: usize) {
+        self.set_singleflight_waiters(operation, count);
+    }
+
+    fn record_error(&self, operation: &str, error_type: &str) {
+        self.record_singleflight_error(operation, error_type);
     }
 }
 
@@ -1573,5 +1899,98 @@ mod tests {
         let export = metrics.export().expect("Failed to export");
         assert!(export.contains("residency_probe_ok"));
         assert!(export.contains("residency_probe_runs_total"));
+    }
+
+    #[test]
+    fn test_kv_residency_metrics() {
+        let metrics = Arc::new(CriticalComponentMetrics::new().expect("Failed to create metrics"));
+
+        // Set HOT and COLD entry counts
+        metrics.set_kv_hot_entries(42);
+        metrics.set_kv_cold_entries(128);
+        assert_eq!(metrics.get_kv_hot_entries(), 42);
+        assert_eq!(metrics.get_kv_cold_entries(), 128);
+
+        // Set HOT and COLD byte counts
+        metrics.set_kv_hot_bytes(1024 * 1024 * 100); // 100 MB
+        metrics.set_kv_cold_bytes(1024 * 1024 * 500); // 500 MB
+        assert_eq!(metrics.get_kv_hot_bytes(), 1024 * 1024 * 100);
+        assert_eq!(metrics.get_kv_cold_bytes(), 1024 * 1024 * 500);
+
+        // Record evictions
+        metrics.record_kv_eviction(CriticalComponentMetrics::kv_residency_hot());
+        metrics.record_kv_eviction(CriticalComponentMetrics::kv_residency_cold());
+        metrics.record_kv_evictions(CriticalComponentMetrics::kv_residency_cold(), 5);
+
+        // Record quota and purgeable failures
+        metrics.record_kv_quota_exceeded();
+        metrics.record_kv_quota_exceeded();
+        metrics.record_kv_purgeable_failure();
+
+        assert_eq!(metrics.get_kv_quota_exceeded_total(), 2);
+        assert_eq!(metrics.get_kv_purgeable_failures_total(), 1);
+
+        let export = metrics.export().expect("Failed to export");
+        assert!(export.contains("kv_hot_entries"));
+        assert!(export.contains("kv_cold_entries"));
+        assert!(export.contains("kv_hot_bytes"));
+        assert!(export.contains("kv_cold_bytes"));
+        assert!(export.contains("kv_evictions_by_residency_total"));
+        assert!(export.contains("kv_quota_exceeded_total"));
+        assert!(export.contains("kv_purgeable_failures_total"));
+    }
+
+    #[test]
+    fn test_kv_residency_type_labels() {
+        assert_eq!(CriticalComponentMetrics::kv_residency_hot(), "hot");
+        assert_eq!(CriticalComponentMetrics::kv_residency_cold(), "cold");
+    }
+
+    #[test]
+    fn test_singleflight_metrics() {
+        let metrics = Arc::new(CriticalComponentMetrics::new().expect("Failed to create metrics"));
+
+        // Record leaders
+        metrics.record_singleflight_leader(CriticalComponentMetrics::singleflight_op_model_load());
+        metrics.record_singleflight_leader(CriticalComponentMetrics::singleflight_op_adapter_load());
+        metrics.record_singleflight_leader(CriticalComponentMetrics::singleflight_op_prefix_kv());
+
+        // Record waiters
+        metrics.record_singleflight_waiter(CriticalComponentMetrics::singleflight_op_model_load());
+        metrics.set_singleflight_waiters(CriticalComponentMetrics::singleflight_op_model_load(), 5);
+
+        // Record errors
+        metrics.record_singleflight_error(
+            CriticalComponentMetrics::singleflight_op_model_load(),
+            "timeout",
+        );
+        metrics.record_singleflight_error(
+            CriticalComponentMetrics::singleflight_op_adapter_load(),
+            "load_error",
+        );
+
+        let export = metrics.export().expect("Failed to export");
+        assert!(export.contains("singleflight_leader_count_total"));
+        assert!(export.contains("singleflight_waiter_count"));
+        assert!(export.contains("singleflight_error_count_total"));
+        assert!(export.contains("model_load"));
+        assert!(export.contains("adapter_load"));
+        assert!(export.contains("prefix_kv_build"));
+    }
+
+    #[test]
+    fn test_singleflight_operation_labels() {
+        assert_eq!(
+            CriticalComponentMetrics::singleflight_op_model_load(),
+            "model_load"
+        );
+        assert_eq!(
+            CriticalComponentMetrics::singleflight_op_adapter_load(),
+            "adapter_load"
+        );
+        assert_eq!(
+            CriticalComponentMetrics::singleflight_op_prefix_kv(),
+            "prefix_kv_build"
+        );
     }
 }

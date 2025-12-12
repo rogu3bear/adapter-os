@@ -35,6 +35,8 @@ pub mod context_manifest;
 pub mod determinism;
 pub mod determinism_mode;
 pub mod error;
+pub mod evidence_envelope;
+pub mod evidence_verifier;
 pub mod error_helpers;
 pub mod fusion_interval;
 pub mod hash;
@@ -48,8 +50,10 @@ pub mod paths;
 pub mod plugin_events;
 pub mod plugins;
 pub mod policy;
+pub mod prefix_kv_key;
 pub mod retry_policy;
 pub mod seed;
+pub mod singleflight;
 pub mod stack;
 pub mod status;
 pub mod telemetry;
@@ -66,7 +70,9 @@ pub use adapter_repo_paths::{
     AdapterPaths as RepoAdapterPaths, ResolveError, VersionStrategy, DEFAULT_CACHE_DIR,
     DEFAULT_REPO_DIR,
 };
-pub use adapter_store::{AdapterPins, AdapterRecord, AdapterSnapshot, AdapterStore};
+pub use adapter_store::{
+    AdapterCacheKey, AdapterPins, AdapterRecord, AdapterSnapshot, AdapterStore,
+};
 pub use backend::BackendKind;
 pub use circuit_breaker::{
     CircuitBreaker, CircuitBreakerConfig, CircuitBreakerMetrics, CircuitState,
@@ -98,6 +104,10 @@ pub use plugin_events::{
 };
 pub use plugins::{EventHookType, Plugin, PluginConfig, PluginHealth, PluginStatus};
 pub use policy::DriftPolicy;
+pub use prefix_kv_key::{
+    compute_prefix_kv_key, compute_tokenizer_manifest_hash, encode_prefix_tokens,
+    PrefixKvKeyBuilder,
+};
 pub use seed::{
     clear_seed_registry, derive_adapter_seed, derive_request_seed, derive_seed, derive_seed_full,
     derive_seed_indexed, derive_seed_typed, hash_adapter_dir, ExecutionProfile, SeedLabel,
@@ -106,10 +116,21 @@ pub use seed::{
 pub use stack::compute_stack_hash;
 pub use status::{AdapterOSStatus, HealthCheckResult, HealthStatus, ServiceStatus};
 pub use telemetry::{
-    audit_export_tamper_event, determinism_violation_event, dual_write_divergence_event,
-    emit_observability_event, receipt_mismatch_event, strict_mode_failure_event,
-    DeterminismViolationKind, ObservabilityDetail, ObservabilityEvent, ObservabilityEventKind,
-    ObservabilitySeverity, DETERMINISM_VIOLATION_METRIC,
+    audit_chain_divergence_event, audit_export_tamper_event, determinism_violation_event,
+    dual_write_divergence_event, emit_observability_event, policy_override_event,
+    receipt_mismatch_event, strict_mode_failure_event, DeterminismViolationKind,
+    ObservabilityDetail, ObservabilityEvent, ObservabilityEventKind, ObservabilitySeverity,
+    AUDIT_DIVERGENCE_ERROR, AUDIT_DIVERGENCE_METRIC, DETERMINISM_VIOLATION_METRIC,
+    POLICY_DENY_OVERRIDE_ERROR, POLICY_OVERRIDE_METRIC, RECEIPT_MISMATCH_ERROR,
+    RECEIPT_MISMATCH_METRIC, STRICT_DETERMINISM_ERROR, STRICT_DETERMINISM_METRIC,
+};
+pub use evidence_envelope::{
+    compute_key_id, BundleMetadataRef, EvidenceEnvelopeV1, EvidenceScope, InferenceReceiptRef,
+    PolicyAuditRef, EVIDENCE_ENVELOPE_SCHEMA_VERSION,
+};
+pub use evidence_verifier::{
+    evidence_chain_divergence, is_evidence_chain_divergence, ChainVerificationResult,
+    EnvelopeVerificationResult, EvidenceVerifier, EVIDENCE_CHAIN_DIVERGED_CODE,
 };
 pub use timeout::TimeoutExt;
 pub use training::{TrainingConfig, TrainingJob, TrainingJobStatus, TrainingTemplate};
