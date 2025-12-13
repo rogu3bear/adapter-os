@@ -20,8 +20,9 @@ import { ErrorRecovery } from '@/components/ui/error-recovery';
 import { useSessionTelemetry } from '@/hooks/useSessionTelemetry';
 import { CHART_COLORS } from '@/constants/chart-colors';
 import { cn } from '@/components/ui/utils';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { buildReplayRunsLink } from '@/utils/navLinks';
+import { ProofBar } from '@/components/receipts/ProofBar';
 
 interface TelemetryViewerProps {
   initialRequestId?: string | null;
@@ -43,6 +44,7 @@ export function TelemetryViewer({
   sourceType,
 }: TelemetryViewerProps) {
   const [manualId, setManualId] = useState(initialRequestId ?? '');
+  const navigate = useNavigate();
   const {
     sessions,
     sessionsLoading,
@@ -107,6 +109,10 @@ export function TelemetryViewer({
   const totalTokensDisplay = liveTokens?.length ?? totalTokens;
 
   const timelineTitle = selectedRequestId ? `Session ${selectedRequestId}` : 'Select a session';
+  const handleOpenTrace = () => {
+    if (!selectedRequestId) return;
+    navigate(`/telemetry/viewer?requestId=${encodeURIComponent(selectedRequestId)}`);
+  };
 
   return (
     <div className="space-y-4">
@@ -123,6 +129,16 @@ export function TelemetryViewer({
           )}
         </CardHeader>
         <CardContent className="space-y-3">
+          {selectedRequestId && (
+            <ProofBar
+              traceId={selectedRequestId}
+              backendUsed={backendName}
+              determinismMode={undefined}
+              evidenceAvailable={false}
+              onOpenTrace={handleOpenTrace}
+              className="text-xs"
+            />
+          )}
           <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
             <div className="space-y-2">
               <div className="text-sm font-medium">Recent sessions</div>

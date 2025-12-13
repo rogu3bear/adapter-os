@@ -129,11 +129,11 @@ function TelemetryAlertsTab() {
           <TableBody>
             {alerts.map((alert: Alert) => (
               <TableRow key={alert.id}>
-                <TableCell className="font-medium">{alert.type}</TableCell>
+                <TableCell className="font-medium">{alert.source ?? 'system'}</TableCell>
                 <TableCell>
                   <Badge variant="outline">{alert.severity ?? 'info'}</Badge>
                 </TableCell>
-                <TableCell>{alert.status}</TableCell>
+                <TableCell>{alert.status ?? (alert.acknowledged ? 'acknowledged' : 'active')}</TableCell>
                 <TableCell className="text-sm text-muted-foreground">{alert.message}</TableCell>
                 <TableCell>
                   <Link to="/replay" className="text-xs underline underline-offset-4">

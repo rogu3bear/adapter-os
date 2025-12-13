@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import apiClient from '@/api/client';
 import { logger, toError } from '@/utils/logger';
 import { usePolling } from '@/hooks/usePolling';
+import type { TraceResponseV1 } from '@/api/types';
 
 interface Span {
   span_id: string;
@@ -29,7 +30,7 @@ interface Trace {
 
 export function TraceTimeline() {
   const [traces, setTraces] = useState<string[]>([]);
-  const [selectedTrace, setSelectedTrace] = useState<Trace | null>(null);
+  const [selectedTrace, setSelectedTrace] = useState<Trace | TraceResponseV1 | null>(null);
   const [searchParams, setSearchParams] = useState({
     span_name: '',
     status: '',
@@ -77,7 +78,11 @@ export function TraceTimeline() {
   const handleTraceSelect = async (traceId: string) => {
     try {
       const trace = await apiClient.getTrace(traceId);
-      setSelectedTrace(trace);
+      if (trace && 'spans' in trace) {
+        setSelectedTrace(trace as Trace);
+      } else {
+        setSelectedTrace(trace as TraceResponseV1 | null);
+      }
     } catch (err) {
       logger.error('Failed to fetch trace', { component: 'TraceTimeline', operation: 'fetchTrace' }, toError(err));
     }
@@ -167,59 +172,73 @@ export function TraceTimeline() {
         </CardHeader>
         <CardContent>
           {selectedTrace ? (
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+            'spans' in selectedTrace ? (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <div className="font-semibold text-sm text-muted-foreground">Trace ID</div>
+                    <div className="font-mono text-sm break-all">{selectedTrace.trace_id}</div>
+                  </div>
+                  <div>
+                    <div className="font-semibold text-sm text-muted-foreground">Root Span</div>
+                    <div className="font-mono text-sm">{selectedTrace.root_span_id || 'N/A'}</div>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="font-semibold">Span Timeline ({selectedTrace.spans.length} spans)</div>
+                  <div className="space-y-1">
+                    {selectedTrace.spans
+                      .sort((a, b) => a.start_ns - b.start_ns)
+                      .map((span) => {
+                        const duration = span.end_ns ? (span.end_ns - span.start_ns) / 1_000_000 : 0;
+                        const startTime = new Date(span.start_ns / 1_000_000).toLocaleTimeString();
+                        const statusColor = span.status === 'error' ? 'border-red-500' :
+                                          span.status === 'ok' ? 'border-green-500' : 'border-gray-500';
+
+                        return (
+                          <div key={span.span_id} className={`border-l-4 pl-4 py-3 ${statusColor} bg-muted/20`}>
+                            <div className="flex items-center justify-between">
+                              <div className="font-medium">{span.name}</div>
+                              <div className="text-xs text-muted-foreground">
+                                {duration.toFixed(2)}ms
+                              </div>
+                            </div>
+                            <div className="text-sm text-muted-foreground mt-1">
+                              Started: {startTime}
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              ID: {span.span_id.substring(0, 16)}... | Status: {span.status}
+                            </div>
+                            {span.attributes && Object.keys(span.attributes).length > 0 && (
+                              <div className="mt-2 text-xs">
+                                <div className="font-medium text-muted-foreground">Attributes:</div>
+                                <div className="font-mono bg-muted p-2 rounded mt-1 max-h-20 overflow-y-auto">
+                                  {Object.entries(span.attributes).map(([key, value]) => (
+                                    <div key={key}>{key}: {String(value)}</div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3">
                 <div>
                   <div className="font-semibold text-sm text-muted-foreground">Trace ID</div>
                   <div className="font-mono text-sm break-all">{selectedTrace.trace_id}</div>
                 </div>
-                <div>
-                  <div className="font-semibold text-sm text-muted-foreground">Root Span</div>
-                  <div className="font-mono text-sm">{selectedTrace.root_span_id || 'N/A'}</div>
-                </div>
+                {'tokens' in selectedTrace && (
+                  <div className="text-sm text-muted-foreground">
+                    Tokens recorded: {selectedTrace.tokens.length}
+                  </div>
+                )}
               </div>
-
-              <div className="space-y-2">
-                <div className="font-semibold">Span Timeline ({selectedTrace.spans.length} spans)</div>
-                <div className="space-y-1">
-                  {selectedTrace.spans
-                    .sort((a, b) => a.start_ns - b.start_ns)
-                    .map((span, index) => {
-                      const duration = span.end_ns ? (span.end_ns - span.start_ns) / 1_000_000 : 0;
-                      const startTime = new Date(span.start_ns / 1_000_000).toLocaleTimeString();
-                      const statusColor = span.status === 'error' ? 'border-red-500' :
-                                        span.status === 'ok' ? 'border-green-500' : 'border-gray-500';
-
-                      return (
-                        <div key={span.span_id} className={`border-l-4 pl-4 py-3 ${statusColor} bg-muted/20`}>
-                          <div className="flex items-center justify-between">
-                            <div className="font-medium">{span.name}</div>
-                            <div className="text-xs text-muted-foreground">
-                              {duration.toFixed(2)}ms
-                            </div>
-                          </div>
-                          <div className="text-sm text-muted-foreground mt-1">
-                            Started: {startTime}
-                          </div>
-                          <div className="text-xs text-muted-foreground">
-                            ID: {span.span_id.substring(0, 16)}... | Status: {span.status}
-                          </div>
-                          {span.attributes && Object.keys(span.attributes).length > 0 && (
-                            <div className="mt-2 text-xs">
-                              <div className="font-medium text-muted-foreground">Attributes:</div>
-                              <div className="font-mono bg-muted p-2 rounded mt-1 max-h-20 overflow-y-auto">
-                                {Object.entries(span.attributes).map(([key, value]) => (
-                                  <div key={key}>{key}: {String(value)}</div>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                </div>
-              </div>
-            </div>
+            )
           ) : (
             <div className="text-center py-8 text-muted-foreground">
               Select a trace to view its span timeline and details

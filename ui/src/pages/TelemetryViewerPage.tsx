@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { useLocation, useSearchParams } from 'react-router-dom';
+import { useLocation, useParams, useSearchParams } from 'react-router-dom';
 import FeatureLayout from '@/layout/FeatureLayout';
 import { DensityProvider } from '@/contexts/DensityContext';
 import { SectionErrorBoundary } from '@/components/ui/section-error-boundary';
@@ -12,8 +12,12 @@ export default function TelemetryViewerPage() {
   const { selectedTenant } = useTenant();
   const [params] = useSearchParams();
   const location = useLocation();
+  const { traceId } = useParams<{ traceId?: string }>();
 
-  const requestId = useMemo(() => params.get('requestId') || undefined, [params]);
+  const requestId = useMemo(
+    () => traceId || params.get('requestId') || undefined,
+    [params, traceId]
+  );
   const sourceType = useMemo(() => {
     const hash = location.hash?.replace('#', '');
     return params.get('source_type') || (hash?.startsWith('source_type=') ? hash.split('=')[1] : undefined);

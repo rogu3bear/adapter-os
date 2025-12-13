@@ -105,7 +105,7 @@ export function useSessionTelemetry(options: UseSessionTelemetryOptions = {}): U
     isLoading: sessionsLoading,
     error: sessionsErrorRaw,
     refetch: refetchSessions,
-  } = useQuery({
+  } = useQuery<TransformedRoutingDecision[]>({
     queryKey: ['session-telemetry', 'sessions', tenantId, page, pageSize, filterRequestId, sourceType],
     queryFn: async () =>
       apiClient.getRoutingDecisions({
