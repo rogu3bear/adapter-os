@@ -313,6 +313,7 @@ async fn generate_streaming_response<
         effective_adapter_ids: None,
         placement: None,
         routing_policy: None,
+        stop_policy: None,
     };
 
     debug!(
@@ -435,6 +436,7 @@ pub async fn completion_handler<K: FusedKernels + StrictnessControl + Send + Syn
         top_p: None,
         seed: None,
         router_seed: None,
+        fusion_interval: None,
         seed_mode: None,
         request_seed: None,
         backend_profile: None,
@@ -447,6 +449,7 @@ pub async fn completion_handler<K: FusedKernels + StrictnessControl + Send + Syn
         effective_adapter_ids: None,
         placement: None,
         routing_policy: None,
+        stop_policy: None,
     };
 
     // Run inference

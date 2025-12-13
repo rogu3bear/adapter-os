@@ -227,9 +227,144 @@ pub fn make_health_payload(
     }
 }
 
+/// Payload for model load failures.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelLoadFailedEvent {
+    pub model_key: String,
+    pub backend: String,
+    pub error: String,
+    pub timestamp_us: u64,
+}
+
+/// Payload for adapter load failures.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AdapterLoadFailedEvent {
+    pub adapter_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub backend: Option<String>,
+    pub error: String,
+    pub timestamp_us: u64,
+}
+
+/// Payload for model cache eviction budget errors.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelEvictionBudgetErrorEvent {
+    pub model_key: String,
+    pub backend: String,
+    pub needed_bytes: u64,
+    pub freed_bytes: u64,
+    pub pinned_entries: usize,
+    pub active_entries: usize,
+    pub max_bytes: u64,
+    pub timestamp_us: u64,
+}
+
+/// Build telemetry event for model load failures.
+pub fn build_model_load_failed_event(
+    identity: IdentityEnvelope,
+    payload: ModelLoadFailedEvent,
+) -> Result<UnifiedTelemetryEvent, AosError> {
+    TelemetryEventBuilder::new(
+        EventType::Custom("model.load_failed".to_string()),
+        LogLevel::Error,
+        format!("model load failed for {}", payload.model_key),
+        identity,
+    )
+    .component("model_cache".to_string())
+    .metadata(serde_json::to_value(payload)?)
+    .build()
+}
+
+/// Build telemetry event for adapter load failures.
+pub fn build_adapter_load_failed_event(
+    identity: IdentityEnvelope,
+    payload: AdapterLoadFailedEvent,
+) -> Result<UnifiedTelemetryEvent, AosError> {
+    TelemetryEventBuilder::new(
+        EventType::Custom("adapter.load_failed".to_string()),
+        LogLevel::Error,
+        format!("adapter load failed for {}", payload.adapter_id),
+        identity,
+    )
+    .component("adapter_loader".to_string())
+    .metadata(serde_json::to_value(payload)?)
+    .build()
+}
+
+/// Build telemetry event for eviction budget errors when pinned/active entries block eviction.
+pub fn build_model_eviction_budget_error_event(
+    identity: IdentityEnvelope,
+    payload: ModelEvictionBudgetErrorEvent,
+) -> Result<UnifiedTelemetryEvent, AosError> {
+    TelemetryEventBuilder::new(
+        EventType::Custom("model.eviction_budget_error".to_string()),
+        LogLevel::Error,
+        format!(
+            "eviction budget blocked for {} (needed {} bytes)",
+            payload.model_key, payload.needed_bytes
+        ),
+        identity,
+    )
+    .component("model_cache".to_string())
+    .metadata(serde_json::to_value(payload)?)
+    .build()
+}
+
+/// Convenience helper to create a ModelLoadFailedEvent with timestamp.
+pub fn make_model_load_failed_payload(
+    model_key: impl Into<String>,
+    backend: impl Into<String>,
+    error: impl Into<String>,
+) -> ModelLoadFailedEvent {
+    ModelLoadFailedEvent {
+        model_key: model_key.into(),
+        backend: backend.into(),
+        error: error.into(),
+        timestamp_us: now_us(),
+    }
+}
+
+/// Convenience helper to create an AdapterLoadFailedEvent with timestamp.
+pub fn make_adapter_load_failed_payload(
+    adapter_id: impl Into<String>,
+    backend: Option<String>,
+    error: impl Into<String>,
+) -> AdapterLoadFailedEvent {
+    AdapterLoadFailedEvent {
+        adapter_id: adapter_id.into(),
+        backend,
+        error: error.into(),
+        timestamp_us: now_us(),
+    }
+}
+
+/// Convenience helper to create a ModelEvictionBudgetErrorEvent with timestamp.
+#[allow(clippy::too_many_arguments)]
+pub fn make_model_eviction_budget_error_payload(
+    model_key: impl Into<String>,
+    backend: impl Into<String>,
+    needed_bytes: u64,
+    freed_bytes: u64,
+    pinned_entries: usize,
+    active_entries: usize,
+    max_bytes: u64,
+) -> ModelEvictionBudgetErrorEvent {
+    ModelEvictionBudgetErrorEvent {
+        model_key: model_key.into(),
+        backend: backend.into(),
+        needed_bytes,
+        freed_bytes,
+        pinned_entries,
+        active_entries,
+        max_bytes,
+        timestamp_us: now_us(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use adapteros_core::B3Hash;
 
     fn test_identity() -> IdentityEnvelope {
         IdentityEnvelope::new(
@@ -305,9 +440,14 @@ mod tests {
                 tau: 1.0,
                 entropy_floor: 0.01,
                 stack_hash: None,
+                allowed_mask: Some(vec![true]),
                 interval_id: None,
-                policy_mask_digest: None,
-                policy_overrides_applied: None,
+                policy_mask_digest: Some(*B3Hash::hash(b"mask").as_bytes()),
+                policy_overrides_applied: Some(adapteros_types::routing::PolicyOverrideFlags {
+                    allow_list: true,
+                    deny_list: false,
+                    trust_state: false,
+                }),
             }],
             router_decision_chain: None,
             is_replay: false,
@@ -327,6 +467,47 @@ mod tests {
         assert_eq!(meta["principal_id"], "user-1");
         assert_eq!(meta["flow_type"], "login");
         assert_eq!(meta["success"], true);
+    }
+
+    #[test]
+    fn builds_model_load_failed_event() {
+        let payload =
+            make_model_load_failed_payload("model-123", "metal", "disk read failure".to_string());
+        let event =
+            build_model_load_failed_event(test_identity(), payload).expect("model load event");
+        assert_eq!(event.event_type, "model.load_failed");
+        let meta = event.metadata.expect("metadata present");
+        assert_eq!(meta["model_key"], "model-123");
+        assert_eq!(meta["backend"], "metal");
+        assert_eq!(meta["error"], "disk read failure");
+    }
+
+    #[test]
+    fn builds_adapter_load_failed_event() {
+        let payload =
+            make_adapter_load_failed_payload("adapter-9", Some("metal".into()), "oom".to_string());
+        let event =
+            build_adapter_load_failed_event(test_identity(), payload).expect("adapter event");
+        assert_eq!(event.event_type, "adapter.load_failed");
+        let meta = event.metadata.expect("metadata present");
+        assert_eq!(meta["adapter_id"], "adapter-9");
+        assert_eq!(meta["backend"], "metal");
+        assert_eq!(meta["error"], "oom");
+    }
+
+    #[test]
+    fn builds_model_eviction_budget_error_event() {
+        let payload =
+            make_model_eviction_budget_error_payload("model-abc", "mlx", 1000, 128, 2, 1, 2048);
+        let event = build_model_eviction_budget_error_event(test_identity(), payload)
+            .expect("budget event");
+        assert_eq!(event.event_type, "model.eviction_budget_error");
+        let meta = event.metadata.expect("metadata present");
+        assert_eq!(meta["model_key"], "model-abc");
+        assert_eq!(meta["backend"], "mlx");
+        assert_eq!(meta["needed_bytes"], 1000);
+        assert_eq!(meta["pinned_entries"], 2);
+        assert_eq!(meta["active_entries"], 1);
     }
 }
 

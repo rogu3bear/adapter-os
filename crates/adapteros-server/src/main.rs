@@ -3,6 +3,7 @@ mod assets;
 const DEFAULT_MANIFEST_HASH: &str =
     "756be0c4434c3fe5e1198fcf417c52a662e7a24d0716dbf12aae6246bea84f9e";
 
+use adapteros_api_types::FailureCode;
 use adapteros_config::{
     init_effective_config, resolve_base_model_location, resolve_manifest_path,
     try_effective_config, ConfigLoader, ConfigSnapshot,
@@ -222,7 +223,7 @@ async fn main() -> Result<()> {
     }
 
     // Initialize tracing with config-based settings
-    let _guard = {
+    let _guard: Option<tracing_appender::non_blocking::WorkerGuard> = {
         let cfg = server_config
             .read()
             .map_err(|e| {
@@ -231,14 +232,15 @@ async fn main() -> Result<()> {
             })
             .unwrap();
 
-        initialize_logging(&cfg.logging)?
+        initialize_logging(&cfg.logging)
+            .map_err(|e| anyhow::anyhow!("Failed to initialize logging: {}", e))?
     };
 
     // Derive effective JWT mode and session lifetime from auth config
     {
         let mut cfg = server_config
             .write()
-            .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?;
+            .map_err(|e| anyhow::anyhow!("Config lock poisoned: {}", e))?;
 
         let desired_mode = if cfg!(debug_assertions) {
             cfg.auth.dev_algo.clone()
@@ -254,7 +256,7 @@ async fn main() -> Result<()> {
     {
         let cfg = server_config
             .read()
-            .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?;
+            .map_err(|e| anyhow::anyhow!("Config lock poisoned: {}", e))?;
 
         if cfg.logging.capture_panics {
             let default_hook = std::panic::take_hook();
@@ -318,7 +320,7 @@ async fn main() -> Result<()> {
     {
         let cfg = server_config.read().map_err(|e| {
             error!("Config lock poisoned at startup: {}", e);
-            AosError::Config("config lock poisoned at startup".into())
+            anyhow::anyhow!("config lock poisoned at startup")
         })?;
         info!(
             port = cfg.server.port,
@@ -369,7 +371,7 @@ async fn main() -> Result<()> {
 
     let manifest_resolution =
         resolve_manifest_path(cli.manifest_path.as_ref(), config_manifest_path.as_ref())
-            .map_err(|e| AosError::Config(format!("Failed to resolve manifest path: {}", e)))?;
+            .map_err(|e| anyhow::anyhow!("Failed to resolve manifest path: {}", e))?;
     let manifest_path = manifest_resolution.path.clone();
     info!(
         path = %manifest_path.display(),
@@ -448,7 +450,7 @@ async fn main() -> Result<()> {
     {
         let cfg = server_config
             .read()
-            .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?;
+            .map_err(|e| anyhow::anyhow!("Config lock poisoned: {}", e))?;
 
         if cfg.security.require_pf_deny && manifest_hash.is_none() {
             return Err(AosError::Config(
@@ -484,7 +486,8 @@ async fn main() -> Result<()> {
 
     // Note: Tick ledger will be initialized after DB connection and attached via init_global_executor_with_ledger
     // For now, initialize executor without ledger
-    init_global_executor(executor_config.clone())?;
+    init_global_executor(executor_config.clone())
+        .map_err(|e| anyhow::anyhow!("Deterministic executor init failed: {}", e))?;
     info!("Deterministic executor initialized with manifest-derived seed");
 
     // Initialize MLX runtime (idempotent, safe to call multiple times)
@@ -505,7 +508,7 @@ async fn main() -> Result<()> {
     {
         let cfg = server_config
             .read()
-            .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?;
+            .map_err(|e| anyhow::anyhow!("Config lock poisoned: {}", e))?;
         let require_pf_deny = cfg.security.require_pf_deny;
 
         if require_pf_deny {
@@ -555,7 +558,7 @@ async fn main() -> Result<()> {
         let (production_mode, drift_policy) = {
             let cfg = server_config
                 .read()
-                .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?;
+                .map_err(|e| anyhow::anyhow!("Config lock poisoned: {}", e))?;
             (
                 cfg.server.production_mode || cfg.security.require_pf_deny,
                 cfg.policies.drift.clone(),
@@ -563,23 +566,23 @@ async fn main() -> Result<()> {
         };
 
         let current_fp = DeviceFingerprint::capture_current()
-            .map_err(|e| AosError::Validation(format!("Failed to capture fingerprint: {}", e)))?;
+            .map_err(|e| anyhow::anyhow!("Failed to capture fingerprint: {}", e))?;
 
         let baseline_path = std::path::PathBuf::from("var/baseline_fingerprint.json");
 
         if baseline_path.exists() {
             // Load baseline and compare
             let keypair = get_or_create_fingerprint_keypair().map_err(|e| {
-                AosError::Crypto(format!("Failed to get fingerprint keypair: {}", e))
+                anyhow::anyhow!("Failed to get fingerprint keypair: {}", e)
             })?;
             let baseline = DeviceFingerprint::load_verified(&baseline_path, &keypair.public_key())
                 .map_err(|e| {
-                    AosError::Validation(format!("Failed to load baseline fingerprint: {}", e))
+                    anyhow::anyhow!("Failed to load baseline fingerprint: {}", e)
                 })?;
 
             let evaluator = DriftEvaluator::from_policy(&drift_policy);
             let drift_report = evaluator.compare(&baseline, &current_fp).map_err(|e| {
-                AosError::Validation(format!("Failed to compare fingerprints: {}", e))
+                anyhow::anyhow!("Failed to compare fingerprints: {}", e)
             })?;
 
             if drift_report.should_block() {
@@ -628,19 +631,19 @@ async fn main() -> Result<()> {
             // First run: auto-create baseline
             warn!("No baseline fingerprint found, creating initial baseline");
             let keypair = get_or_create_fingerprint_keypair().map_err(|e| {
-                AosError::Crypto(format!("Failed to get fingerprint keypair: {}", e))
+                anyhow::anyhow!("Failed to get fingerprint keypair: {}", e)
             })?;
 
             // Ensure directory exists
             if let Some(parent) = baseline_path.parent() {
                 std::fs::create_dir_all(parent).map_err(|e| {
-                    AosError::Io(format!("Failed to create baseline directory: {}", e))
+                    anyhow::anyhow!("Failed to create baseline directory: {}", e)
                 })?;
             }
 
             current_fp
                 .save_signed(&baseline_path, &keypair)
-                .map_err(|e| AosError::Io(format!("Failed to save baseline fingerprint: {}", e)))?;
+                .map_err(|e| anyhow::anyhow!("Failed to save baseline fingerprint: {}", e))?;
             info!("Baseline fingerprint created at {:?}", baseline_path);
         }
     } else {
@@ -651,7 +654,7 @@ async fn main() -> Result<()> {
     boot_state.init_db().await;
     let db_cfg = server_config
         .read()
-        .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?
+        .map_err(|e| anyhow::anyhow!("Config lock poisoned: {}", e))?
         .db
         .clone();
 
@@ -745,11 +748,10 @@ async fn main() -> Result<()> {
         if let Err(e) = init_effective_config(Some(&cli.config), vec![]) {
             if is_production {
                 error!(error = %e, "FATAL: Failed to initialize effective config in production mode");
-                return Err(adapteros_core::AosError::Config(format!(
+                anyhow::bail!(
                     "Failed to initialize config: {}. Production mode requires valid configuration.",
                     e
-                ))
-                .into());
+                );
             }
             warn!(error = %e, "Failed to initialize effective config, continuing with legacy config");
         }
@@ -857,7 +859,7 @@ async fn main() -> Result<()> {
     let runtime_mode = {
         let production_mode = server_config
             .read()
-            .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?
+            .map_err(|e| anyhow::anyhow!("Config lock poisoned: {}", e))?
             .server
             .production_mode;
 
@@ -938,7 +940,7 @@ async fn main() -> Result<()> {
 
         RuntimeModeResolver::resolve(&api_cfg, &db)
             .await
-            .map_err(|e| AosError::Config(format!("Failed to resolve runtime mode: {}", e)))?
+            .map_err(|e| anyhow::anyhow!("Failed to resolve runtime mode: {}", e))?
     };
 
     info!(
@@ -953,7 +955,7 @@ async fn main() -> Result<()> {
     {
         let production_mode = server_config
             .read()
-            .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?
+            .map_err(|e| anyhow::anyhow!("Config lock poisoned: {}", e))?
             .server
             .production_mode;
 
@@ -1034,14 +1036,14 @@ async fn main() -> Result<()> {
 
         RuntimeModeResolver::validate(runtime_mode, &api_cfg, &db)
             .await
-            .map_err(|e| AosError::Config(format!("Runtime mode validation failed: {}", e)))?;
+            .map_err(|e| anyhow::anyhow!("Runtime mode validation failed: {}", e))?;
     }
 
     // Audit log: Executor bootstrap event
     {
         let cfg = server_config
             .read()
-            .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?;
+            .map_err(|e| anyhow::anyhow!("Config lock poisoned: {}", e))?;
 
         let metadata = serde_json::json!({
             "manifest_path": manifest_path.display().to_string(),
@@ -1077,11 +1079,23 @@ async fn main() -> Result<()> {
     if sql_enabled {
         // Run migrations with Ed25519 signature verification
         info!("Running database migrations...");
-        db.migrate().await?;
+        if let Err(e) = db.migrate().await {
+            error!(
+                target: "boot",
+                code = %FailureCode::MigrationInvalid.as_str(),
+                request_id = "-",
+                tenant_id = "system",
+                error = %e,
+                "Database migrations failed"
+            );
+            return Err(e.into());
+        }
 
         // Recover from any previous crash (orphaned adapters, stale state)
         info!("Running crash recovery checks...");
-        db.recover_from_crash().await?;
+        db.recover_from_crash()
+            .await
+            .map_err(|e| anyhow::anyhow!("Crash recovery failed: {}", e))?;
 
         // Seed development data
         if let Err(e) = db.seed_dev_data().await {
@@ -1116,7 +1130,7 @@ async fn main() -> Result<()> {
     let api_config = {
         let cfg = server_config
             .read()
-            .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?;
+            .map_err(|e| anyhow::anyhow!("Config lock poisoned: {}", e))?;
         Arc::new(RwLock::new(adapteros_server_api::state::ApiConfig {
             metrics: adapteros_server_api::state::MetricsConfig {
                 enabled: cfg.metrics.enabled,
@@ -1274,7 +1288,7 @@ async fn main() -> Result<()> {
     {
         let cfg = server_config
             .read()
-            .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?;
+            .map_err(|e| anyhow::anyhow!("Config lock poisoned: {}", e))?;
         if cfg.alerting.enabled {
             info!("Starting alert watcher");
             // Convert server AlertingConfig to API AlertingConfig
@@ -1284,7 +1298,8 @@ async fn main() -> Result<()> {
                 max_alerts_per_file: cfg.alerting.max_alerts_per_file,
                 rotate_size_mb: cfg.alerting.rotate_size_mb,
             };
-            let alert_handle = alerting::spawn_alert_watcher(db.clone(), api_alerting_config)?;
+            let alert_handle = alerting::spawn_alert_watcher(db.clone(), api_alerting_config)
+                .map_err(|e| anyhow::anyhow!("Failed to spawn alert watcher: {}", e))?;
             shutdown_coordinator.set_alert_handle(alert_handle);
         }
     }
@@ -1297,19 +1312,22 @@ async fn main() -> Result<()> {
         // Create telemetry writer
         let bundles_path = server_config
             .read()
-            .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?
+            .map_err(|e| anyhow::anyhow!("Config lock poisoned: {}", e))?
             .paths
             .bundles_root
             .clone();
 
         std::fs::create_dir_all(&bundles_path)
-            .map_err(|e| AosError::Io(format!("Failed to create bundles directory: {}", e)))?;
+            .map_err(|e| anyhow::anyhow!("Failed to create bundles directory: {}", e))?;
 
-        let telemetry = Arc::new(adapteros_telemetry::TelemetryWriter::new(
-            &bundles_path,
-            10000,            // max_events_per_bundle
-            50 * 1024 * 1024, // max_bundle_size (50MB)
-        )?);
+        let telemetry = Arc::new(
+            adapteros_telemetry::TelemetryWriter::new(
+                &bundles_path,
+                10000,            // max_events_per_bundle
+                50 * 1024 * 1024, // max_bundle_size (50MB)
+            )
+            .map_err(|e| anyhow::anyhow!("Failed to create telemetry writer: {}", e))?,
+        );
 
         // Create policy hash watcher
         let policy_watcher = Arc::new(adapteros_policy::PolicyHashWatcher::new(
@@ -1339,11 +1357,14 @@ async fn main() -> Result<()> {
     info!("Initializing federation daemon");
 
     let federation_keypair = adapteros_crypto::Keypair::generate();
-    let federation_manager = Arc::new(adapteros_federation::FederationManager::new(
-        db.clone(),
-        federation_keypair,
-        "default".to_string(),
-    )?);
+    let federation_manager = Arc::new(
+        adapteros_federation::FederationManager::new(
+            db.clone(),
+            federation_keypair,
+            "default".to_string(),
+        )
+        .map_err(|e| anyhow::anyhow!("Failed to create federation manager: {}", e))?,
+    );
 
     // Create federation daemon config (5 minute interval per spec)
     let federation_config = adapteros_orchestrator::FederationDaemonConfig {
@@ -1376,11 +1397,12 @@ async fn main() -> Result<()> {
         // Ensure directory exists
         if let Some(parent) = socket_path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| {
-                AosError::Io(format!("Failed to create metrics socket directory: {}", e))
+                anyhow::anyhow!("Failed to create metrics socket directory: {}", e)
             })?;
         }
 
-        let mut uds_exporter = adapteros_telemetry::UdsMetricsExporter::new(socket_path.clone())?;
+        let mut uds_exporter = adapteros_telemetry::UdsMetricsExporter::new(socket_path.clone())
+            .map_err(|e| anyhow::anyhow!("Failed to create UDS metrics exporter: {}", e))?;
 
         // Register default metrics
         uds_exporter
@@ -1522,7 +1544,7 @@ async fn main() -> Result<()> {
     let metrics_exporter = {
         let cfg = server_config
             .read()
-            .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?;
+            .map_err(|e| anyhow::anyhow!("Config lock poisoned: {}", e))?;
         Arc::new(adapteros_metrics_exporter::MetricsExporter::new(
             cfg.metrics.histogram_buckets.clone(),
         )?)
@@ -1532,7 +1554,7 @@ async fn main() -> Result<()> {
     let jwt_secret = {
         let cfg = server_config
             .read()
-            .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?;
+            .map_err(|e| anyhow::anyhow!("Config lock poisoned: {}", e))?;
         let mode = cfg
             .security
             .jwt_mode
@@ -1543,8 +1565,8 @@ async fn main() -> Result<()> {
             #[cfg(debug_assertions)]
             {
                 let dev_secret = std::env::var("AOS_DEV_JWT_SECRET").map_err(|_| {
-                    AosError::Config(
-                        "AOS_DEV_JWT_SECRET must be set in debug HMAC mode".to_string(),
+                    anyhow::anyhow!(
+                        "AOS_DEV_JWT_SECRET must be set in debug HMAC mode"
                     )
                 })?;
                 if dev_secret.is_empty() {
@@ -1627,7 +1649,7 @@ async fn main() -> Result<()> {
     let training_storage_root = {
         let cfg = server_config
             .read()
-            .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?;
+            .map_err(|e| anyhow::anyhow!("Config lock poisoned: {}", e))?;
         PathBuf::from(&cfg.paths.datasets_root)
     };
     if let Err(e) = std::fs::create_dir_all(&training_storage_root) {
@@ -1702,7 +1724,7 @@ async fn main() -> Result<()> {
         let adapters_root: PathBuf = {
             let cfg = api_config
                 .read()
-                .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?;
+                .map_err(|e| anyhow::anyhow!("Config lock poisoned: {}", e))?;
             let paths = adapteros_core::paths::AdapterPaths::from_config(Some(
                 cfg.paths.adapters_root.as_str(),
             ));
@@ -1825,7 +1847,7 @@ async fn main() -> Result<()> {
     // Git subsystem initialization
     let git_enabled = server_config
         .read()
-        .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?
+        .map_err(|e| anyhow::anyhow!("Config lock poisoned: {}", e))?
         .git
         .as_ref()
         .map(|c| c.enabled)
@@ -1835,7 +1857,7 @@ async fn main() -> Result<()> {
         info!("Initializing Git subsystem");
         let git_config = server_config
             .read()
-            .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?
+            .map_err(|e| anyhow::anyhow!("Config lock poisoned: {}", e))?
             .git
             .clone()
             .unwrap_or_default();
@@ -1843,7 +1865,7 @@ async fn main() -> Result<()> {
         // Initialize Git subsystem
         let git_subsystem = adapteros_git::GitSubsystem::new(git_config.clone(), db.clone())
             .await
-            .map_err(|e| AosError::Config(format!("Failed to initialize Git subsystem: {}", e)))?;
+            .map_err(|e| anyhow::anyhow!("Failed to initialize Git subsystem: {}", e))?;
 
         let git_arc = Arc::new(git_subsystem);
 
@@ -2174,7 +2196,7 @@ async fn main() -> Result<()> {
     let (production_mode, uds_socket, port, drain_timeout) = {
         let cfg = server_config
             .read()
-            .map_err(|e| AosError::Config(format!("Config lock poisoned: {}", e)))?;
+            .map_err(|e| anyhow::anyhow!("Config lock poisoned: {}", e))?;
 
         // Environment variable takes precedence over config file
         let server_port = std::env::var("AOS_SERVER_PORT")
@@ -2193,8 +2215,8 @@ async fn main() -> Result<()> {
     // Egress policy: production_mode requires UDS-only
     if production_mode {
         let socket_path: String = uds_socket.ok_or_else(|| {
-            AosError::PolicyViolation(
-                "Egress policy violation: production_mode requires uds_socket configuration".into(),
+            anyhow::anyhow!(
+                "Egress policy violation: production_mode requires uds_socket configuration"
             )
         })?;
 

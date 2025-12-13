@@ -48,6 +48,10 @@ pub struct RouterDecision {
     /// Entropy floor to prevent single-adapter collapse
     pub entropy_floor: f64,
 
+    /// Optional per-adapter allow mask aligned with adapter ordering.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allowed_mask: Option<Vec<bool>>,
+
     /// BLAKE3 hash of the active adapter stack (for verification)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stack_hash: Option<String>,
@@ -81,6 +85,7 @@ impl RouterDecision {
             entropy,
             tau,
             entropy_floor,
+            allowed_mask: None,
             stack_hash: None,
             interval_id: None,
             policy_mask_digest: None,
@@ -110,7 +115,10 @@ impl RouterDecision {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct PolicyOverrideFlags {
+    /// True when an allowlist restricted the effective set.
     pub allow_list: bool,
+    /// True when a denylist removed adapters from the effective set.
     pub deny_list: bool,
+    /// True when trust-state rules blocked adapters.
     pub trust_state: bool,
 }

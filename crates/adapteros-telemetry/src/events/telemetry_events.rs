@@ -1015,3 +1015,286 @@ impl ResidencyProbeEvent {
         self
     }
 }
+
+// ============================================================
+// KV Residency Telemetry Events (Phase 8)
+// ============================================================
+
+/// KV cache residency state transition event
+///
+/// Tracks KV cache entry transitions between COLD and HOT states
+/// for memory pressure management and purgeable state optimization.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KvResidencyEvent {
+    /// Timestamp (microseconds since epoch)
+    pub timestamp_us: u64,
+    /// KV cache entry identifier (e.g., prompt hash or session ID)
+    pub entry_id: String,
+    /// Previous residency state
+    pub from_state: KvResidencyState,
+    /// New residency state
+    pub to_state: KvResidencyState,
+    /// Reason for state transition
+    pub reason: KvResidencyTransitionReason,
+    /// Entry size in bytes
+    pub size_bytes: u64,
+    /// Total HOT entries count after transition
+    pub hot_entries_count: usize,
+    /// Total COLD entries count after transition
+    pub cold_entries_count: usize,
+    /// Current memory pressure ratio (0.0-1.0)
+    pub memory_pressure: f32,
+    /// Whether purgeable state was successfully set
+    pub purgeable_state_success: bool,
+}
+
+/// KV cache residency states
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "UPPERCASE")]
+pub enum KvResidencyState {
+    /// Entry is actively used, non-purgeable
+    Hot,
+    /// Entry is inactive, marked purgeable
+    Cold,
+}
+
+/// Reasons for KV residency state transitions
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum KvResidencyTransitionReason {
+    /// Entry was accessed, promoting to HOT
+    Accessed,
+    /// Entry became idle, demoting to COLD
+    IdleTimeout { idle_duration_us: u64 },
+    /// Memory pressure triggered demotion to COLD
+    MemoryPressure { pressure_ratio: f32 },
+    /// Manual state change (e.g., admin command)
+    Manual,
+}
+
+impl KvResidencyEvent {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        entry_id: String,
+        from_state: KvResidencyState,
+        to_state: KvResidencyState,
+        reason: KvResidencyTransitionReason,
+        size_bytes: u64,
+        hot_entries_count: usize,
+        cold_entries_count: usize,
+        memory_pressure: f32,
+        purgeable_state_success: bool,
+    ) -> Self {
+        Self {
+            timestamp_us: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_micros() as u64,
+            entry_id,
+            from_state,
+            to_state,
+            reason,
+            size_bytes,
+            hot_entries_count,
+            cold_entries_count,
+            memory_pressure,
+            purgeable_state_success,
+        }
+    }
+}
+
+/// KV cache eviction event with residency breakdown
+///
+/// Tracks KV cache evictions and provides residency state information
+/// for analyzing eviction patterns and memory management effectiveness.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KvEvictionEvent {
+    /// Timestamp (microseconds since epoch)
+    pub timestamp_us: u64,
+    /// Evicted entry identifier
+    pub entry_id: String,
+    /// Residency state at eviction time
+    pub residency_state: KvResidencyState,
+    /// Entry size in bytes
+    pub size_bytes: u64,
+    /// Reason for eviction
+    pub reason: KvEvictionReason,
+    /// Number of HOT entries evicted in this operation
+    pub hot_entries_evicted: usize,
+    /// Number of COLD entries evicted in this operation
+    pub cold_entries_evicted: usize,
+    /// Total bytes freed from HOT entries
+    pub hot_bytes_freed: u64,
+    /// Total bytes freed from COLD entries
+    pub cold_bytes_freed: u64,
+    /// Memory pressure before eviction
+    pub pressure_before: f32,
+    /// Memory pressure after eviction
+    pub pressure_after: f32,
+    /// Whether entry was successfully purged (for COLD entries)
+    pub purged_successfully: bool,
+}
+
+/// Reasons for KV cache eviction
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum KvEvictionReason {
+    /// LRU eviction due to capacity limit
+    LruCapacity,
+    /// Memory pressure exceeded threshold
+    MemoryPressure { threshold_exceeded: f32 },
+    /// Entry TTL expired
+    TtlExpired,
+    /// Manual eviction (e.g., admin command)
+    Manual,
+}
+
+impl KvEvictionEvent {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        entry_id: String,
+        residency_state: KvResidencyState,
+        size_bytes: u64,
+        reason: KvEvictionReason,
+        hot_entries_evicted: usize,
+        cold_entries_evicted: usize,
+        hot_bytes_freed: u64,
+        cold_bytes_freed: u64,
+        pressure_before: f32,
+        pressure_after: f32,
+        purged_successfully: bool,
+    ) -> Self {
+        Self {
+            timestamp_us: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_micros() as u64,
+            entry_id,
+            residency_state,
+            size_bytes,
+            reason,
+            hot_entries_evicted,
+            cold_entries_evicted,
+            hot_bytes_freed,
+            cold_bytes_freed,
+            pressure_before,
+            pressure_after,
+            purged_successfully,
+        }
+    }
+}
+
+/// KV cache quota event
+///
+/// Tracks quota violations and warnings for KV cache memory limits.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KvQuotaEvent {
+    /// Timestamp (microseconds since epoch)
+    pub timestamp_us: u64,
+    /// Quota event type
+    pub event_type: KvQuotaEventType,
+    /// Current KV cache usage in bytes
+    pub current_usage_bytes: u64,
+    /// Configured quota limit in bytes
+    pub quota_limit_bytes: u64,
+    /// Usage percentage (0.0-1.0+)
+    pub usage_percentage: f32,
+    /// HOT entries count at time of event
+    pub hot_entries: usize,
+    /// COLD entries count at time of event
+    pub cold_entries: usize,
+    /// HOT entries bytes at time of event
+    pub hot_bytes: u64,
+    /// COLD entries bytes at time of event
+    pub cold_bytes: u64,
+}
+
+/// KV quota event types
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum KvQuotaEventType {
+    /// Quota exceeded, eviction triggered
+    QuotaExceeded { overage_bytes: u64 },
+    /// Quota warning threshold reached
+    QuotaWarning { threshold_percentage: f32 },
+    /// Quota restored to normal after pressure event
+    QuotaNormal,
+}
+
+impl KvQuotaEvent {
+    pub fn quota_exceeded(
+        current_usage_bytes: u64,
+        quota_limit_bytes: u64,
+        overage_bytes: u64,
+        hot_entries: usize,
+        cold_entries: usize,
+        hot_bytes: u64,
+        cold_bytes: u64,
+    ) -> Self {
+        Self {
+            timestamp_us: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_micros() as u64,
+            event_type: KvQuotaEventType::QuotaExceeded { overage_bytes },
+            current_usage_bytes,
+            quota_limit_bytes,
+            usage_percentage: current_usage_bytes as f32 / quota_limit_bytes as f32,
+            hot_entries,
+            cold_entries,
+            hot_bytes,
+            cold_bytes,
+        }
+    }
+
+    pub fn quota_warning(
+        current_usage_bytes: u64,
+        quota_limit_bytes: u64,
+        threshold_percentage: f32,
+        hot_entries: usize,
+        cold_entries: usize,
+        hot_bytes: u64,
+        cold_bytes: u64,
+    ) -> Self {
+        Self {
+            timestamp_us: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_micros() as u64,
+            event_type: KvQuotaEventType::QuotaWarning {
+                threshold_percentage,
+            },
+            current_usage_bytes,
+            quota_limit_bytes,
+            usage_percentage: current_usage_bytes as f32 / quota_limit_bytes as f32,
+            hot_entries,
+            cold_entries,
+            hot_bytes,
+            cold_bytes,
+        }
+    }
+
+    pub fn quota_normal(
+        current_usage_bytes: u64,
+        quota_limit_bytes: u64,
+        hot_entries: usize,
+        cold_entries: usize,
+        hot_bytes: u64,
+        cold_bytes: u64,
+    ) -> Self {
+        Self {
+            timestamp_us: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_micros() as u64,
+            event_type: KvQuotaEventType::QuotaNormal,
+            current_usage_bytes,
+            quota_limit_bytes,
+            usage_percentage: current_usage_bytes as f32 / quota_limit_bytes as f32,
+            hot_entries,
+            cold_entries,
+            hot_bytes,
+            cold_bytes,
+        }
+    }
+}

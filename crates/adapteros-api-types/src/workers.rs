@@ -56,6 +56,12 @@ pub struct WorkerRegistrationResponse {
     pub rejection_reason: Option<String>,
     /// Heartbeat interval in seconds
     pub heartbeat_interval_secs: u32,
+    /// KV cache quota in bytes (None = unlimited)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kv_quota_bytes: Option<u64>,
+    /// KV residency policy ID
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kv_residency_policy_id: Option<String>,
 }
 
 /// Manifest fetch response for workers

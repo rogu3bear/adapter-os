@@ -791,8 +791,14 @@ pub struct ChatBootstrapResponse {
     pub status: String,
     /// Primary adapter ID from training job (set after training completes)
     pub adapter_id: Option<String>,
+    /// Adapter version ID for display (e.g., adapter@version)
+    pub adapter_version_id: Option<String>,
     /// Training dataset ID
     pub dataset_id: Option<String>,
+    /// Dataset version ID for citation scoping (immutable snapshot)
+    pub dataset_version_id: Option<String>,
+    /// Dataset name for display
+    pub dataset_name: Option<String>,
 }
 
 /// Request for POST /v1/chats/from_training_job
@@ -829,4 +835,159 @@ pub struct CreateChatFromJobResponse {
     pub dataset_id: Option<String>,
     /// RAG collection ID if linked
     pub collection_id: Option<String>,
+}
+
+// ============================================================================
+// Adapter Publish + Attach Modes v1
+// ============================================================================
+
+/// Attach mode for adapter versions.
+///
+/// Controls how an adapter can be attached to inference stacks:
+/// - `Free`: Adapter can be attached without specific dataset context
+/// - `RequiresDataset`: Adapter requires a specific dataset version context for inference
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, ToSchema, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum AttachMode {
+    /// Adapter can be attached without specific dataset context
+    #[default]
+    Free,
+    /// Adapter requires specific dataset version context for inference
+    RequiresDataset,
+}
+
+impl AttachMode {
+    /// Convert to database string representation
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            AttachMode::Free => "free",
+            AttachMode::RequiresDataset => "requires_dataset",
+        }
+    }
+
+    /// Parse from database string representation
+    pub fn from_db_string(value: &str) -> Self {
+        match value.to_ascii_lowercase().as_str() {
+            "requires_dataset" => AttachMode::RequiresDataset,
+            _ => AttachMode::Free,
+        }
+    }
+}
+
+impl std::fmt::Display for AttachMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
+/// Request to publish an adapter version.
+///
+/// Publishing makes an adapter version available for use in inference stacks
+/// and configures its attach mode behavior.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct PublishAdapterVersionRequest {
+    /// Display name for the published adapter (optional, defaults to repo name + version)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+
+    /// Short description for the adapter version (max 280 chars)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub short_description: Option<String>,
+
+    /// Attach mode: "free" (default) or "requires_dataset"
+    #[serde(default)]
+    pub attach_mode: AttachMode,
+
+    /// Required dataset version ID when attach_mode is "requires_dataset".
+    /// Must be a dataset version that was used in training this adapter.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub required_scope_dataset_version_id: Option<String>,
+}
+
+/// Response from publishing an adapter version
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct PublishAdapterVersionResponse {
+    #[serde(default = "schema_version")]
+    pub schema_version: String,
+
+    /// The published adapter version ID
+    pub version_id: String,
+
+    /// Repository ID
+    pub repo_id: String,
+
+    /// The configured attach mode
+    pub attach_mode: AttachMode,
+
+    /// Required dataset version ID (if attach_mode is requires_dataset)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub required_scope_dataset_version_id: Option<String>,
+
+    /// Timestamp when the adapter was published
+    pub published_at: String,
+
+    /// Short description (echoed from request)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub short_description: Option<String>,
+}
+
+/// Request to archive an adapter version
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, Default)]
+#[serde(rename_all = "snake_case")]
+pub struct ArchiveAdapterVersionRequest {
+    /// Reason for archiving (optional, for audit trail)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+/// Response from archive/unarchive operations
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct ArchiveAdapterVersionResponse {
+    /// The adapter version ID
+    pub version_id: String,
+
+    /// Current archive state
+    pub is_archived: bool,
+
+    /// Timestamp of the operation
+    pub updated_at: String,
+}
+
+// ============================================================================
+// Start Training From Version Types
+// ============================================================================
+
+/// Request to start training from an existing adapter version
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, Default)]
+#[serde(rename_all = "snake_case")]
+pub struct StartTrainingFromVersionRequest {
+    /// Optional training config ID to use (overrides version's config)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub training_config_id: Option<String>,
+
+    /// Optional hyperparameters override
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hyperparams: Option<serde_json::Value>,
+
+    /// Optional target branch (defaults to version's branch)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_branch: Option<String>,
+}
+
+/// Response from starting training from a version
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct StartTrainingResponse {
+    /// The created training job ID
+    pub job_id: String,
+
+    /// Initial job status
+    pub status: String,
+
+    /// Draft version ID created for this training run
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub draft_version_id: Option<String>,
 }

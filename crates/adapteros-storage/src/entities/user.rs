@@ -8,12 +8,14 @@ use serde::{Deserialize, Serialize};
 
 /// User role enumeration
 ///
-/// Defines the five canonical roles in AdapterOS RBAC.
+/// Defines the canonical roles in AdapterOS RBAC.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Role {
     #[serde(rename = "admin")]
     Admin,
+    #[serde(rename = "developer")]
+    Developer,
     #[serde(rename = "operator")]
     Operator,
     #[serde(rename = "sre")]
@@ -29,6 +31,7 @@ impl Role {
     pub fn as_str(&self) -> &'static str {
         match self {
             Role::Admin => "admin",
+            Role::Developer => "developer",
             Role::Operator => "operator",
             Role::SRE => "sre",
             Role::Compliance => "compliance",
@@ -40,6 +43,7 @@ impl Role {
     pub fn from_str(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "admin" => Some(Role::Admin),
+            "developer" => Some(Role::Developer),
             "operator" => Some(Role::Operator),
             "sre" => Some(Role::SRE),
             "compliance" => Some(Role::Compliance),
@@ -75,6 +79,7 @@ impl std::str::FromStr for Role {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
             "admin" => Ok(Role::Admin),
+            "developer" => Ok(Role::Developer),
             "operator" => Ok(Role::Operator),
             "sre" => Ok(Role::SRE),
             "compliance" => Ok(Role::Compliance),
@@ -151,19 +156,29 @@ impl UserKv {
         self.role == Role::Admin
     }
 
+    /// Check if the user has developer role (full access like admin)
+    pub fn is_developer(&self) -> bool {
+        self.role == Role::Developer
+    }
+
+    /// Check if the user has admin or developer role (full access)
+    pub fn has_full_access(&self) -> bool {
+        matches!(self.role, Role::Admin | Role::Developer)
+    }
+
     /// Check if the user has operator role or higher
     pub fn is_operator_or_higher(&self) -> bool {
-        matches!(self.role, Role::Admin | Role::Operator)
+        matches!(self.role, Role::Admin | Role::Developer | Role::Operator)
     }
 
     /// Check if the user has SRE role or higher
     pub fn is_sre_or_higher(&self) -> bool {
-        matches!(self.role, Role::Admin | Role::SRE)
+        matches!(self.role, Role::Admin | Role::Developer | Role::SRE)
     }
 
     /// Check if the user can perform compliance operations
     pub fn can_access_compliance(&self) -> bool {
-        matches!(self.role, Role::Admin | Role::SRE | Role::Compliance)
+        matches!(self.role, Role::Admin | Role::Developer | Role::SRE | Role::Compliance)
     }
 }
 

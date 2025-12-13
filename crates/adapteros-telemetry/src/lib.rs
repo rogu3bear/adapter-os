@@ -58,8 +58,9 @@ pub use compression::{
 };
 pub use event::Event;
 pub use events::{
-    InferenceEvent, PolicyHashValidationEvent, ResidencyProbeEvent, ResidencyProbeResult,
-    RngSnapshot, RouterDecisionEvent, ValidationStatus,
+    InferenceEvent, KvEvictionEvent, KvEvictionReason, KvQuotaEvent, KvQuotaEventType,
+    KvResidencyEvent, KvResidencyState, KvResidencyTransitionReason, PolicyHashValidationEvent,
+    ResidencyProbeEvent, ResidencyProbeResult, RngSnapshot, RouterDecisionEvent, ValidationStatus,
 };
 pub use health_monitoring::{HealthCheck, HealthMonitor, HealthReport, HealthState, HealthStatus};
 pub use merkle::{compute_merkle_root, generate_proof, verify_proof, MerkleProof};
@@ -415,6 +416,29 @@ impl TelemetryWriter {
     /// Emitted by the hardware residency harness and admin debug endpoints.
     pub fn log_residency_probe(&self, event: crate::events::ResidencyProbeEvent) -> Result<()> {
         self.log("residency.probe", event)
+    }
+
+    /// Log a KV cache residency state transition event
+    ///
+    /// Tracks KV cache entry transitions between COLD and HOT states
+    /// for memory pressure management and purgeable state optimization.
+    pub fn log_kv_residency(&self, event: crate::events::KvResidencyEvent) -> Result<()> {
+        self.log("kv.residency", event)
+    }
+
+    /// Log a KV cache eviction event
+    ///
+    /// Tracks KV cache evictions with residency breakdown for analyzing
+    /// eviction patterns and memory management effectiveness.
+    pub fn log_kv_eviction(&self, event: crate::events::KvEvictionEvent) -> Result<()> {
+        self.log("kv.eviction", event)
+    }
+
+    /// Log a KV cache quota event
+    ///
+    /// Tracks quota violations and warnings for KV cache memory limits.
+    pub fn log_kv_quota(&self, event: crate::events::KvQuotaEvent) -> Result<()> {
+        self.log("kv.quota", event)
     }
 }
 
