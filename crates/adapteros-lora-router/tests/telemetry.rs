@@ -2,7 +2,7 @@
 //!
 //! Tests for 2-PRD[01]: Telemetry RouterDecision v1
 
-use adapteros_lora_router::{AdapterInfo, PolicyMask, Router, RouterWeights};
+use adapteros_lora_router::{policy_mask::PolicyMask, AdapterInfo, Router, RouterWeights};
 use adapteros_telemetry::writer::RouterDecisionWriter;
 
 fn allow_all_mask(adapters: &[AdapterInfo]) -> PolicyMask {

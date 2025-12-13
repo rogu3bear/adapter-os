@@ -2,7 +2,7 @@
 //!
 //! Tests for PRD-ROUTER-01: Policy hooks and validation
 
-use adapteros_lora_router::{AdapterInfo, PolicyMask, Router, RouterWeights};
+use adapteros_lora_router::{policy_mask::PolicyMask, AdapterInfo, Router, RouterWeights};
 use adapteros_policy::packs::router::{
     AdapterMetadata, RouterConfig, RouterPolicy, StackConfiguration,
 };
@@ -350,7 +350,8 @@ fn test_policy_integration_with_telemetry() {
         })
         .collect();
 
-    let decision = router.route_with_adapter_info(&features, &priors, &adapter_info, None);
+    let mask = allow_all_mask(&adapter_info);
+    let decision = router.route_with_adapter_info(&features, &priors, &adapter_info, &mask);
 
     // Verify telemetry event was emitted
     let event = receiver

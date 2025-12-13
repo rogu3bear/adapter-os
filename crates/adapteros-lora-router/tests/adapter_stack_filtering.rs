@@ -14,7 +14,7 @@
 //! - Q15 quantization: Fixed-point representation with 15 fractional bits
 
 use adapteros_core::B3Hash;
-use adapteros_lora_router::{AdapterInfo, PolicyMask, Router, RouterWeights};
+use adapteros_lora_router::{policy_mask::PolicyMask, AdapterInfo, Router, RouterWeights};
 use std::time::Instant;
 
 // ============================================================================
@@ -261,8 +261,7 @@ fn test_k_sparse_respects_k_value() {
         let features = python_features();
         let policy_mask = allow_all_mask(&adapters);
 
-        let decision =
-            router.route_with_adapter_info(&features, &priors, &adapters, Some(&policy_mask));
+        let decision = router.route_with_adapter_info(&features, &priors, &adapters, &policy_mask);
 
         assert_eq!(
             decision.indices.len(),
@@ -334,8 +333,7 @@ fn test_q15_quantization_under_stack_filtering() {
     let features = python_features();
     let policy_mask = allow_all_mask(&adapters);
 
-    let decision =
-        router.route_with_adapter_info(&features, &priors, &adapters, Some(&policy_mask));
+    let decision = router.route_with_adapter_info(&features, &priors, &adapters, &policy_mask);
 
     verify_q15_quantization(&decision.gates_q15);
     verify_gate_normalization(&decision.gates_q15, 0.01);
@@ -361,8 +359,7 @@ fn test_q15_saturation_with_uneven_scores() {
     let features = python_features();
     let policy_mask = allow_all_mask(&adapters);
 
-    let decision =
-        router.route_with_adapter_info(&features, &priors, &adapters, Some(&policy_mask));
+    let decision = router.route_with_adapter_info(&features, &priors, &adapters, &policy_mask);
 
     verify_q15_quantization(&decision.gates_q15);
     verify_gate_normalization(&decision.gates_q15, 0.01);
@@ -631,7 +628,7 @@ fn test_stack_with_duplicate_adapters() {
     let priors = vec![1.0, 1.0, 1.0];
     let policy_mask = allow_all_mask(&adapters);
     let decision =
-        router.route_with_adapter_info(&python_features(), &priors, &adapters, Some(&policy_mask));
+        router.route_with_adapter_info(&python_features(), &priors, &adapters, &policy_mask);
 
     // Should still work (adapters A and B are in stack)
     for &idx in decision.indices.iter() {
@@ -667,7 +664,7 @@ fn test_stack_with_zero_priors() {
     let priors = vec![0.0, 1.0, 0.0, 1.0];
     let policy_mask = allow_all_mask(&adapters);
     let decision =
-        router.route_with_adapter_info(&python_features(), &priors, &adapters, Some(&policy_mask));
+        router.route_with_adapter_info(&python_features(), &priors, &adapters, &policy_mask);
 
     // Should handle gracefully
     verify_q15_quantization(&decision.gates_q15);
@@ -747,7 +744,7 @@ fn bench_routing_with_large_stack() {
     // Measure routing time
     let start = Instant::now();
     for _ in 0..10 {
-        let _ = router.route_with_adapter_info(&features, &priors, &adapters, Some(&policy_mask));
+        let _ = router.route_with_adapter_info(&features, &priors, &adapters, &policy_mask);
     }
     let elapsed = start.elapsed();
 
@@ -788,8 +785,7 @@ fn bench_routing_k_values() {
 
         let start = Instant::now();
         for _ in 0..20 {
-            let _ =
-                router.route_with_adapter_info(&features, &priors, &adapters, Some(&policy_mask));
+            let _ = router.route_with_adapter_info(&features, &priors, &adapters, &policy_mask);
         }
         let elapsed = start.elapsed();
 
@@ -811,13 +807,15 @@ fn bench_stack_filtering_overhead() {
 
     let priors = skewed_priors(adapter_count);
     let features = python_features();
+    let policy_mask = allow_all_mask(&adapters);
 
     // Routing without stack filtering
     let mut router_no_filter = Router::new_with_weights(RouterWeights::default(), 4, 1.0, 0.02);
 
     let start = Instant::now();
     for _ in 0..50 {
-        let _ = router_no_filter.route_with_adapter_info(&features, &priors, &adapters, None);
+        let _ =
+            router_no_filter.route_with_adapter_info(&features, &priors, &adapters, &policy_mask);
     }
     let time_no_filter = start.elapsed().as_secs_f64();
 
@@ -828,7 +826,8 @@ fn bench_stack_filtering_overhead() {
 
     let start = Instant::now();
     for _ in 0..50 {
-        let _ = router_with_filter.route_with_adapter_info(&features, &priors, &adapters, None);
+        let _ =
+            router_with_filter.route_with_adapter_info(&features, &priors, &adapters, &policy_mask);
     }
     let time_with_filter = start.elapsed().as_secs_f64();
 
@@ -911,8 +910,9 @@ fn test_stack_with_varied_tiers() {
 
     let priors = vec![1.0, 0.8, 0.6, 0.4, 0.2];
     let features = python_features();
+    let policy_mask = allow_all_mask(&adapters);
 
-    let decision = router.route_with_adapter_info(&features, &priors, &adapters, None);
+    let decision = router.route_with_adapter_info(&features, &priors, &adapters, &policy_mask);
 
     // Should successfully route through all tiers
     assert!(
@@ -948,6 +948,7 @@ fn test_no_memory_leak_on_stack_changes() {
 
     // Record initial stack hash count (should be stable)
     let mut seen_hashes = std::collections::HashSet::new();
+    let policy_mask = allow_all_mask(&adapters);
 
     // Perform 1000 stack changes with different configurations
     for iteration in 0..1000 {
@@ -968,7 +969,7 @@ fn test_no_memory_leak_on_stack_changes() {
         // Perform a routing decision
         let priors = skewed_priors(adapters.len());
         let features = python_features();
-        let _decision = router.route_with_adapter_info(&features, &priors, &adapters, None);
+        let _decision = router.route_with_adapter_info(&features, &priors, &adapters, &policy_mask);
     }
 
     // Verify we maintained different stack hashes (no leaking by reusing old ones)
@@ -1086,10 +1087,11 @@ fn test_large_stack_memory_efficiency() {
     // Perform routing decisions with large stack
     let priors = skewed_priors(adapter_count);
     let features = python_features();
+    let policy_mask = allow_all_mask(&adapters);
 
     let start = Instant::now();
     for _ in 0..5 {
-        let _decision = router.route_with_adapter_info(&features, &priors, &adapters, None);
+        let _decision = router.route_with_adapter_info(&features, &priors, &adapters, &policy_mask);
     }
     let routing_time = start.elapsed();
 
@@ -1122,6 +1124,7 @@ fn test_stack_reuse_memory_efficiency() {
     let mut router = Router::new_with_weights(RouterWeights::default(), 4, 1.0, 0.02);
     let priors = skewed_priors(adapter_count);
     let features = python_features();
+    let policy_mask = allow_all_mask(&adapters);
 
     let mut allocation_counts = vec![];
 
@@ -1139,7 +1142,7 @@ fn test_stack_reuse_memory_efficiency() {
         );
 
         // Perform routing
-        let decision = router.route_with_adapter_info(&features, &priors, &adapters, None);
+        let decision = router.route_with_adapter_info(&features, &priors, &adapters, &policy_mask);
 
         // Track allocation size as proxy (number of indices * size)
         allocation_counts.push(decision.indices.len());
@@ -1189,9 +1192,10 @@ fn test_stack_member_deduplication_memory() {
 
     let features = python_features();
     let priors = skewed_priors(adapters.len());
+    let policy_mask = allow_all_mask(&adapters);
 
     // Should still route correctly despite duplicates
-    let decision = router.route_with_adapter_info(&features, &priors, &adapters, None);
+    let decision = router.route_with_adapter_info(&features, &priors, &adapters, &policy_mask);
 
     // Should select K=3 adapters
     assert_eq!(
@@ -1252,6 +1256,7 @@ fn bench_memory_usage_vs_stack_size() {
         .map(|i| create_adapter(&format!("adapter-{}", i), None, vec![0], "persistent"))
         .collect();
 
+    let policy_mask = allow_all_mask(&adapters);
     let mut results = Vec::new();
 
     // Test with different stack sizes
@@ -1276,7 +1281,8 @@ fn bench_memory_usage_vs_stack_size() {
 
         let start = Instant::now();
         for _ in 0..10 {
-            let _decision = router.route_with_adapter_info(&features, &priors, &adapters, None);
+            let _decision =
+                router.route_with_adapter_info(&features, &priors, &adapters, &policy_mask);
         }
         let routing_time = start.elapsed().as_micros() as f64 / 10.0;
 
@@ -1313,6 +1319,7 @@ fn bench_concurrent_stack_updates() {
     let mut router = Router::new_with_weights(RouterWeights::default(), 4, 1.0, 0.02);
     let features = python_features();
     let priors = skewed_priors(adapters.len());
+    let policy_mask = allow_all_mask(&adapters);
 
     let start = Instant::now();
 
@@ -1331,7 +1338,8 @@ fn bench_concurrent_stack_updates() {
 
         // Occasional routing to simulate real usage
         if i % 10 == 0 {
-            let _decision = router.route_with_adapter_info(&features, &priors, &adapters, None);
+            let _decision =
+                router.route_with_adapter_info(&features, &priors, &adapters, &policy_mask);
         }
     }
 

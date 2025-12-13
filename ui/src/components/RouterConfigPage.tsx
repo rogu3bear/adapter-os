@@ -276,7 +276,15 @@ export function RouterConfigPage({ selectedTenant, focusAdapterId, onClearFocus 
                         </TableCell>
                         <TableCell className="space-x-2">
                           {isAllowed && <Badge variant="secondary" title="Adapter is permitted by policy or defaults">allowed</Badge>}
-                          {isDenied && <Badge variant="destructive" title="Adapter denied by policy">denied</Badge>}
+                          {isDenied && (
+                            <Badge
+                              variant="destructive"
+                              title="Adapter denied by policy"
+                              data-testid={`policy-deny-toggle-${adapter.adapter_id}`}
+                            >
+                              denied
+                            </Badge>
+                          )}
                         </TableCell>
                         <TableCell>
                           <Badge variant="outline" title={policy ? 'Tenant routing policy in effect' : 'Fallback to manifest routing'}>

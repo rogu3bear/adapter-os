@@ -13,7 +13,7 @@
 //! - Q15 quantization: Fixed-point representation with 15 fractional bits
 
 use adapteros_core::B3Hash;
-use adapteros_lora_router::{AdapterInfo, Router, RouterWeights};
+use adapteros_lora_router::{policy_mask::PolicyMask, AdapterInfo, Router, RouterWeights};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Barrier, Mutex};
 use std::thread;
@@ -38,6 +38,11 @@ fn create_adapter(
         lora_tier: None,
         scope_path: None,
     }
+}
+
+fn allow_all_mask(adapters: &[AdapterInfo]) -> PolicyMask {
+    let ids: Vec<String> = adapters.iter().map(|a| a.id.clone()).collect();
+    PolicyMask::allow_all(&ids, None)
 }
 
 /// Create a skewed prior vector (some adapters much stronger)
@@ -541,6 +546,7 @@ fn test_stack_persistence_across_restart() {
 
     let priors = skewed_priors(10);
     let features = python_features();
+    let policy_mask = allow_all_mask(&adapters);
 
     // First router instance
     let mut router1 = Router::new_with_weights(RouterWeights::default(), 2, 1.0, 0.02);
@@ -550,7 +556,7 @@ fn test_stack_persistence_across_restart() {
         Some(stack_hash),
     );
 
-    let decision1 = router1.route_with_adapter_info(&features, &priors, &adapters, None);
+    let decision1 = router1.route_with_adapter_info(&features, &priors, &adapters, &policy_mask);
 
     // Verify stack hash and name are set
     assert_eq!(router1.active_stack(), Some(&stack_name.to_string()));
@@ -564,7 +570,7 @@ fn test_stack_persistence_across_restart() {
         Some(stack_hash),
     );
 
-    let decision2 = router2.route_with_adapter_info(&features, &priors, &adapters, None);
+    let decision2 = router2.route_with_adapter_info(&features, &priors, &adapters, &policy_mask);
 
     // Decisions should be identical (deterministic routing)
     assert_eq!(

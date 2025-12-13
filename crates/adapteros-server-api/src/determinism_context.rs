@@ -165,6 +165,7 @@ mod tests {
             replay_guarantee: Some("exact".to_string()),
             execution_policy_id: None,
             execution_policy_version: None,
+            stop_policy_json: None,
             created_at: "now".to_string(),
         };
 
@@ -253,6 +254,7 @@ mod tests {
             replay_guarantee: Some("exact".to_string()),
             execution_policy_id: None,
             execution_policy_version: None,
+            stop_policy_json: None,
             created_at: "now".to_string(),
         };
 
@@ -319,6 +321,7 @@ mod tests {
             replay_guarantee: Some("approximate".to_string()),
             execution_policy_id: None,
             execution_policy_version: None,
+            stop_policy_json: None,
             created_at: "now".to_string(),
         };
 

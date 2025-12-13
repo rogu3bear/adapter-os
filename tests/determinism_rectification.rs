@@ -146,7 +146,7 @@ fn test_router_determinism_with_decision_hash() {
     // Make routing decisions
     let mask = {
         let ids: Vec<String> = adapter_info.iter().map(|a| a.id.clone()).collect();
-        adapteros_lora_router::PolicyMask::allow_all(&ids, None)
+        adapteros_lora_router::policy_mask::PolicyMask::allow_all(&ids, None)
     };
     let decision1 = router1.route_with_adapter_info(&features, &priors, &adapter_info, &mask);
     let decision2 = router2.route_with_adapter_info(&features, &priors, &adapter_info, &mask);

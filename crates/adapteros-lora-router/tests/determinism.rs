@@ -10,7 +10,8 @@
 //! Routing determinism comes from stable sorting (score desc, then index asc).
 
 use adapteros_lora_router::{
-    AdapterInfo, Decision, PolicyMask, Router, ROUTER_GATE_Q15_DENOM, ROUTER_GATE_Q15_MAX,
+    policy_mask::PolicyMask, AdapterInfo, Decision, Router, ROUTER_GATE_Q15_DENOM,
+    ROUTER_GATE_Q15_MAX,
 };
 use proptest::prelude::*;
 use smallvec::smallvec;
@@ -124,6 +125,8 @@ fn gates_f32_uses_q15_denominator_constant() {
         entropy: 0.0,
         candidates: Vec::new(),
         decision_hash: None,
+        policy_mask_digest: None,
+        policy_overrides_applied: None,
     };
 
     let gates = decision.gates_f32();
@@ -248,6 +251,7 @@ fn test_repeated_routing_returns_identical_indices_and_gates() {
         })
         .collect();
 
+    let mask = allow_all_mask(&adapter_info);
     let mut baseline_indices = None;
     let mut baseline_gates = None;
 

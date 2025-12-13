@@ -5,7 +5,9 @@
 //! 2. Orthogonality penalties applied during scoring
 //! 3. MPLoRA diversity controls actually working
 
-use adapteros_lora_router::{AdapterInfo, CodeFeatures, PolicyMask, Router, RouterWeights};
+use adapteros_lora_router::{
+    policy_mask::PolicyMask, AdapterInfo, CodeFeatures, Router, RouterWeights,
+};
 
 fn allow_all_mask(adapters: &[AdapterInfo]) -> PolicyMask {
     let ids: Vec<String> = adapters.iter().map(|a| a.id.clone()).collect();

@@ -87,9 +87,9 @@
 //! ```
 
 use adapteros_api_types::inference::ReplayGuarantee;
+use adapteros_core::determinism_mode::DeterminismMode;
 use adapteros_server_api::inference_core::{
     compute_replay_guarantee, resolve_determinism_mode, validate_strict_mode_constraints,
-    DeterminismMode,
 };
 
 // =============================================================================
@@ -303,6 +303,9 @@ fn test_inference_result_determinism_fields_flow_through() {
         determinism_mode_applied: Some("besteffort".to_string()),
         replay_guarantee: Some(ReplayGuarantee::Approximate),
         placement_trace: None,
+        stop_reason_code: None,
+        stop_reason_token_index: None,
+        stop_policy_digest_b3: None,
     };
 
     // Convert to InferResponse
@@ -350,6 +353,9 @@ fn test_inference_result_strict_mode_exact_guarantee() {
         determinism_mode_applied: Some("strict".to_string()),
         replay_guarantee: Some(ReplayGuarantee::Exact),
         placement_trace: None,
+        stop_reason_code: None,
+        stop_reason_token_index: None,
+        stop_policy_digest_b3: None,
     };
 
     let response: InferResponse = result.into();
@@ -392,6 +398,9 @@ fn test_inference_result_direct_mode_no_fallback() {
         determinism_mode_applied: Some("strict".to_string()),
         replay_guarantee: Some(ReplayGuarantee::Exact),
         placement_trace: None,
+        stop_reason_code: None,
+        stop_reason_token_index: None,
+        stop_policy_digest_b3: None,
     };
 
     let response: InferResponse = result.into();

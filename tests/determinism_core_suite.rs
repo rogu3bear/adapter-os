@@ -4,7 +4,9 @@
 
 use adapteros_core::B3Hash;
 use adapteros_db::{CreateReplayMetadataParams, Db};
-use adapteros_lora_router::{AdapterInfo, PolicyMask, Router, RouterDeterminismConfig, RouterWeights};
+use adapteros_lora_router::{
+    policy_mask::PolicyMask, AdapterInfo, Router, RouterDeterminismConfig, RouterWeights,
+};
 use adapteros_lora_worker::services::determinism_policy::{HkdfSeedExpander, SeedDomain};
 use adapteros_policy::{DeterminismConfig, DeterminismPolicy, RngSeedingMethod};
 use rand::{Rng, SeedableRng};
@@ -174,6 +176,7 @@ async fn test_replay_metadata_round_trip() {
         replay_guarantee: Some("exact".to_string()),
         execution_policy_id: Some("policy-001".to_string()),
         execution_policy_version: Some(1),
+        stop_policy_json: None,
     };
 
     db.create_replay_metadata(params)

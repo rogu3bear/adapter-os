@@ -1514,7 +1514,13 @@ impl Router {
         let feature_vec = code_features.to_vector();
 
         // Route using the computed priors with adapter info
-        let mask = PolicyMask::allow_all(&adapter_info.iter().map(|a| a.id.clone()).collect::<Vec<_>>(), None);
+        let mask = PolicyMask::allow_all(
+            &adapter_info
+                .iter()
+                .map(|a| a.id.clone())
+                .collect::<Vec<_>>(),
+            None,
+        );
         self.route_with_adapter_info(&feature_vec, &priors, adapter_info, &mask)
     }
 
@@ -2241,18 +2247,20 @@ mod tests {
             })
             .collect();
 
+        let policy_mask = mask_all(&adapter_info);
+
         let decision_a = router_a.route_with_adapter_info_with_ctx(
             &features,
             &priors,
             &adapter_info,
-            None,
+            &policy_mask,
             Some(&determinism_ctx),
         );
         let decision_b = router_b.route_with_adapter_info_with_ctx(
             &features,
             &priors,
             &adapter_info,
-            None,
+            &policy_mask,
             Some(&determinism_ctx),
         );
 
@@ -2509,10 +2517,13 @@ mod tests {
             },
         ];
 
+        let adapter_ids: Vec<String> = adapter_info.iter().map(|a| a.id.clone()).collect();
+        let policy_mask = PolicyMask::allow_all(&adapter_ids, None);
         let decision = router.route_with_adapter_info_and_scope(
             &features,
             &priors,
             &adapter_info,
+            &policy_mask,
             Some(scope_hint),
         );
 

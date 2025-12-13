@@ -14,7 +14,7 @@
 //! - Router Decision: adapteros-lora-router/src/lib.rs:1010-1032
 
 use adapteros_lora_router::{
-    AdapterInfo, Decision, DecisionCandidate, PolicyMask, Router, RouterWeights,
+    policy_mask::PolicyMask, AdapterInfo, Decision, DecisionCandidate, Router, RouterWeights,
 };
 use smallvec::SmallVec;
 
@@ -36,6 +36,8 @@ fn golden_decision_k3_typical() {
         gates_q15: SmallVec::from_slice(&[19660, 9830, 3276]),
         entropy: 0.8472,
         decision_hash: None,
+        policy_mask_digest: None,
+        policy_overrides_applied: None,
         candidates: vec![
             DecisionCandidate {
                 adapter_idx: 0,
@@ -115,6 +117,8 @@ fn golden_decision_k8_maximum() {
         gates_q15: SmallVec::from_slice(&gates_q15),
         entropy: 1.95,
         decision_hash: None,
+        policy_mask_digest: None,
+        policy_overrides_applied: None,
         candidates: vec![],
     };
 
@@ -145,6 +149,8 @@ fn golden_decision_k0_empty() {
         gates_q15: SmallVec::new(),
         entropy: 0.0,
         decision_hash: None,
+        policy_mask_digest: None,
+        policy_overrides_applied: None,
         candidates: vec![],
     };
 
@@ -171,6 +177,8 @@ fn golden_decision_negative_gates() {
         gates_q15: SmallVec::from_slice(&[16383, -8191, -4095]), // Mix of positive/negative
         entropy: 0.6,
         decision_hash: None,
+        policy_mask_digest: None,
+        policy_overrides_applied: None,
         candidates: vec![],
     };
 
@@ -196,6 +204,8 @@ fn golden_decision_high_entropy() {
         gates_q15: SmallVec::from_slice(&[8191, 8191, 8191, 8191]), // All ~0.25
         entropy: 1.386, // ln(4) ≈ 1.386 for uniform distribution
         decision_hash: None,
+        policy_mask_digest: None,
+        policy_overrides_applied: None,
         candidates: vec![],
     };
 
@@ -216,6 +226,8 @@ fn golden_decision_low_entropy() {
         gates_q15: SmallVec::from_slice(&[29491, 1638, 1638]), // 0.9, 0.05, 0.05
         entropy: 0.325,                                        // Low entropy, one dominant gate
         decision_hash: None,
+        policy_mask_digest: None,
+        policy_overrides_applied: None,
         candidates: vec![],
     };
 
@@ -350,6 +362,8 @@ fn golden_q15_max_values() {
         gates_q15: SmallVec::from_slice(&[32767, -32767]), // Max positive/negative
         entropy: 0.0,
         decision_hash: None,
+        policy_mask_digest: None,
+        policy_overrides_applied: None,
         candidates: vec![],
     };
 
