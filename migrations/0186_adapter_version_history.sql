@@ -3,6 +3,11 @@
 
 PRAGMA foreign_keys = ON;
 
+-- Drop views that depend on the old adapter_version_history schema
+-- (created in migrations 0071 and 0107 with different column names)
+DROP VIEW IF EXISTS recent_adapter_lifecycle_changes;
+DROP VIEW IF EXISTS adapters_lifecycle_summary;
+
 -- Drop legacy history table to align with new schema.
 DROP TABLE IF EXISTS adapter_version_history;
 

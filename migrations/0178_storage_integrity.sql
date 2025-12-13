@@ -17,3 +17,4 @@ CREATE INDEX IF NOT EXISTS idx_storage_issues_owner ON storage_issues(owner_type
 CREATE INDEX IF NOT EXISTS idx_storage_issues_tenant ON storage_issues(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_storage_issues_issue ON storage_issues(issue_type);
 
+
