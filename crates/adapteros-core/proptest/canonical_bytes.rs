@@ -58,7 +58,7 @@ proptest! {
     fn canonical_bytes_stable(manifest in manifest_strategy()) {
         let bytes_a = manifest.to_bytes();
         let bytes_b = manifest.to_bytes();
-        prop_assert_eq!(bytes_a, bytes_b);
+        prop_assert_eq!(&bytes_a, &bytes_b);
 
         let digest = manifest.digest();
         prop_assert_eq!(digest, B3Hash::hash(&bytes_a));

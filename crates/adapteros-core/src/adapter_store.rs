@@ -4,6 +4,40 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
+/// Cache key for adapter residency aligned with context manifest identity.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct AdapterCacheKey {
+    pub adapter_id: String,
+    pub adapter_hash: B3Hash,
+    pub base_manifest_hash: Option<B3Hash>,
+    pub backend_type: String,
+    pub kernel_version_id: String,
+    pub tenant_id: Option<String>,
+    pub adapter_dir_hash: Option<B3Hash>,
+}
+
+impl AdapterCacheKey {
+    pub fn new(
+        adapter_id: impl Into<String>,
+        adapter_hash: B3Hash,
+        base_manifest_hash: Option<B3Hash>,
+        backend_type: impl Into<String>,
+        kernel_version_id: impl Into<String>,
+        tenant_id: Option<String>,
+        adapter_dir_hash: Option<B3Hash>,
+    ) -> Self {
+        Self {
+            adapter_id: adapter_id.into(),
+            adapter_hash,
+            base_manifest_hash,
+            backend_type: backend_type.into(),
+            kernel_version_id: kernel_version_id.into(),
+            tenant_id,
+            adapter_dir_hash,
+        }
+    }
+}
+
 /// Ref-counted adapter entry keyed by adapter id.
 #[derive(Clone, Debug)]
 pub struct AdapterRecord {
@@ -12,17 +46,17 @@ pub struct AdapterRecord {
 }
 
 /// Snapshot of the current adapter index at a generation boundary.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct AdapterSnapshot {
     pub generation: u64,
-    pub entries: Arc<HashMap<String, AdapterRecord>>,
+    pub entries: Arc<HashMap<AdapterCacheKey, AdapterRecord>>,
 }
 
 /// Guard that holds references for a request; decrements on drop.
 #[derive(Debug)]
 pub struct AdapterPins {
     snapshot: AdapterSnapshot,
-    pinned: Vec<(String, Arc<AtomicUsize>)>,
+    pinned: Vec<(AdapterCacheKey, Arc<AtomicUsize>)>,
 }
 
 impl AdapterPins {
@@ -31,8 +65,8 @@ impl AdapterPins {
         self.snapshot.generation
     }
 
-    /// Adapter hashes pinned for the request.
-    pub fn hashes(&self) -> &Arc<HashMap<String, AdapterRecord>> {
+    /// Adapter cache entries pinned for the request (identity + hash).
+    pub fn hashes(&self) -> &Arc<HashMap<AdapterCacheKey, AdapterRecord>> {
         &self.snapshot.entries
     }
 }
@@ -79,7 +113,7 @@ impl AdapterStore {
     pub fn install(
         &self,
         generation: u64,
-        entries: HashMap<String, AdapterRecord>,
+        entries: HashMap<AdapterCacheKey, AdapterRecord>,
     ) -> AdapterSnapshot {
         let mut guard = self.current.write();
         let new_snapshot = AdapterSnapshot {
@@ -97,9 +131,9 @@ impl AdapterStore {
     pub fn pin_current(&self) -> AdapterPins {
         let snapshot = self.snapshot();
         let mut pinned = Vec::with_capacity(snapshot.entries.len());
-        for (id, record) in snapshot.entries.iter() {
+        for (key, record) in snapshot.entries.iter() {
             record.refcount.fetch_add(1, Ordering::AcqRel);
-            pinned.push((id.clone(), record.refcount.clone()));
+            pinned.push((key.clone(), record.refcount.clone()));
         }
         AdapterPins { snapshot, pinned }
     }
@@ -133,8 +167,10 @@ mod tests {
         let store = AdapterStore::new();
         let rc = Arc::new(AtomicUsize::new(0));
         let mut entries = HashMap::new();
+        let cache_key =
+            AdapterCacheKey::new("a", B3Hash::hash(b"a"), None, "mock", "k1", None, None);
         entries.insert(
-            "a".to_string(),
+            cache_key,
             AdapterRecord {
                 hash: B3Hash::hash(b"a"),
                 refcount: rc.clone(),

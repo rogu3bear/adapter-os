@@ -165,6 +165,13 @@ pub enum AosError {
     #[error("Memory error: {0}")]
     Memory(String),
 
+    #[error("Quota exceeded for resource '{resource}'")]
+    QuotaExceeded {
+        resource: String,
+        /// Failure code string (e.g., "KV_QUOTA_EXCEEDED")
+        failure_code: Option<String>,
+    },
+
     #[error("Resource unavailable: {0}")]
     Unavailable(String),
 

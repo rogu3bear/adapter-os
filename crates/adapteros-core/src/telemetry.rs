@@ -13,6 +13,23 @@ use tracing::{event, Level};
 
 /// Metric name for determinism violation counters.
 pub const DETERMINISM_VIOLATION_METRIC: &str = "determinism_violation_total";
+/// Metric name for audit chain divergence counters.
+pub const AUDIT_DIVERGENCE_METRIC: &str = "audit_divergence_total";
+/// Metric name for receipt mismatch counters.
+pub const RECEIPT_MISMATCH_METRIC: &str = "receipt_mismatch_total";
+/// Metric name for strict determinism violation counters.
+pub const STRICT_DETERMINISM_METRIC: &str = "strict_determinism_violation_total";
+/// Metric name for policy deny override counters.
+pub const POLICY_OVERRIDE_METRIC: &str = "policy_deny_override_total";
+
+/// Error code when the policy audit chain diverges.
+pub const AUDIT_DIVERGENCE_ERROR: &str = "OBS_AUDIT_DIVERGENCE";
+/// Error code when receipts fail integrity validation.
+pub const RECEIPT_MISMATCH_ERROR: &str = "OBS_RECEIPT_MISMATCH";
+/// Error code for strict determinism violations.
+pub const STRICT_DETERMINISM_ERROR: &str = "OBS_STRICT_DETERMINISM_VIOLATION";
+/// Error code for policy deny override or fail-open.
+pub const POLICY_DENY_OVERRIDE_ERROR: &str = "OBS_POLICY_DENY_OVERRIDE";
 
 /// Observability severity used for both tracing and telemetry.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -49,6 +66,8 @@ pub enum ObservabilityEventKind {
     DeterminismViolation,
     StrictModeFailure,
     AuditExportTamper,
+    AuditChainDivergence,
+    PolicyOverride,
 }
 
 /// Specific determinism violation categories for metrics and alerting.
@@ -114,6 +133,18 @@ pub enum ObservabilityDetail {
         #[serde(skip_serializing_if = "Option::is_none")]
         export_path: Option<String>,
     },
+    AuditChainDivergence {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        chain_sequence: Option<i64>,
+        reason: String,
+    },
+    PolicyOverride {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        hook: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        policy_pack_id: Option<String>,
+        reason: String,
+    },
 }
 
 /// Canonical observability event envelope for structured logs and telemetry.
@@ -134,6 +165,8 @@ pub struct ObservabilityEvent {
     pub detail: ObservabilityDetail,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metric: Option<DeterminismViolationMetric>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub counter: Option<&'static str>,
     /// Lightweight labels to support metrics/tag enrichment.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub labels: BTreeMap<String, String>,
@@ -151,20 +184,33 @@ impl ObservabilityEvent {
     /// telemetry sinks if available; this is the minimal "make it loud" path.
     pub fn emit_tracing(&self) {
         let level = self.severity.as_tracing_level();
-        event!(
-            level,
-            event_kind = ?self.kind,
-            severity = ?self.severity,
-            component = %self.component,
-            tenant_id = self.tenant_id.as_deref().unwrap_or(""),
-            request_id = self.request_id.as_deref().unwrap_or(""),
-            correlation_id = self.correlation_id.as_deref().unwrap_or(""),
-            metric = self.metric.as_ref().map(|m| m.counter).unwrap_or(""),
-            labels = ?self.labels,
-            detail = ?self.detail,
-            "observability.event: {}",
-            self.message
-        );
+        macro_rules! emit_with_level {
+            ($lvl:expr) => {
+                event!(
+                    $lvl,
+                    event_kind = ?self.kind,
+                    severity = ?self.severity,
+                    component = %self.component,
+                    tenant_id = self.tenant_id.as_deref().unwrap_or(""),
+                    request_id = self.request_id.as_deref().unwrap_or(""),
+                    correlation_id = self.correlation_id.as_deref().unwrap_or(""),
+                    metric = self.metric.as_ref().map(|m| m.counter).unwrap_or(""),
+                    counter = self.counter.unwrap_or(""),
+                    labels = ?self.labels,
+                    detail = ?self.detail,
+                    "observability.event: {}",
+                    self.message
+                )
+            };
+        }
+
+        match level {
+            tracing::Level::TRACE => emit_with_level!(tracing::Level::TRACE),
+            tracing::Level::DEBUG => emit_with_level!(tracing::Level::DEBUG),
+            tracing::Level::INFO => emit_with_level!(tracing::Level::INFO),
+            tracing::Level::WARN => emit_with_level!(tracing::Level::WARN),
+            tracing::Level::ERROR => emit_with_level!(tracing::Level::ERROR),
+        }
     }
 
     fn base(
@@ -185,6 +231,7 @@ impl ObservabilityEvent {
             timestamp_us: Self::now_us(),
             detail,
             metric: None,
+            counter: None,
             labels: BTreeMap::new(),
         }
     }
@@ -202,6 +249,13 @@ impl ObservabilityEvent {
     }
 }
 
+fn with_error_code(mut event: ObservabilityEvent, code: &'static str) -> ObservabilityEvent {
+    event
+        .labels
+        .insert("error_code".to_string(), code.to_string());
+    event
+}
+
 /// Emit a receipt mismatch alert. Must be called whenever signature/receipt
 /// validation fails (tamper, wrong key, or replayed receipt).
 pub fn receipt_mismatch_event(
@@ -212,7 +266,7 @@ pub fn receipt_mismatch_event(
     tenant_id: Option<String>,
     request_id: Option<String>,
 ) -> ObservabilityEvent {
-    ObservabilityEvent::base(
+    let event = ObservabilityEvent::base(
         ObservabilityEventKind::ReceiptMismatch,
         ObservabilitySeverity::Alert,
         "audit",
@@ -224,7 +278,11 @@ pub fn receipt_mismatch_event(
             evidence_hash,
         },
     )
-    .with_common_ids(tenant_id, request_id, None)
+    .with_common_ids(tenant_id, request_id, None);
+
+    let mut event = with_error_code(event, RECEIPT_MISMATCH_ERROR);
+    event.counter = Some(RECEIPT_MISMATCH_METRIC);
+    event
 }
 
 /// Emit a dual-write divergence alert. Fires whenever SQL and KV disagree.
@@ -275,12 +333,17 @@ pub fn determinism_violation_event(
         labels.insert("strict_mode".to_string(), "true".to_string());
     }
 
-    ObservabilityEvent {
+    let mut event = ObservabilityEvent {
         labels,
         metric: Some(DeterminismViolationMetric {
             counter: DETERMINISM_VIOLATION_METRIC,
             violation: violation.clone(),
             strict_mode,
+        }),
+        counter: Some(if strict_mode {
+            STRICT_DETERMINISM_METRIC
+        } else {
+            DETERMINISM_VIOLATION_METRIC
         }),
         ..ObservabilityEvent::base(
             ObservabilityEventKind::DeterminismViolation,
@@ -296,7 +359,13 @@ pub fn determinism_violation_event(
             },
         )
         .with_common_ids(tenant_id, request_id, None)
+    };
+
+    if strict_mode {
+        event = with_error_code(event, STRICT_DETERMINISM_ERROR);
     }
+
+    event
 }
 
 /// Emit when strict mode fails closed (policy, routing, or sampler guard).
@@ -307,7 +376,7 @@ pub fn strict_mode_failure_event(
     tenant_id: Option<String>,
     request_id: Option<String>,
 ) -> ObservabilityEvent {
-    ObservabilityEvent::base(
+    let event = ObservabilityEvent::base(
         ObservabilityEventKind::StrictModeFailure,
         ObservabilitySeverity::Alert,
         "determinism",
@@ -318,7 +387,11 @@ pub fn strict_mode_failure_event(
             fallback_used,
         },
     )
-    .with_common_ids(tenant_id, request_id, None)
+    .with_common_ids(tenant_id, request_id, None);
+
+    let mut event = with_error_code(event, STRICT_DETERMINISM_ERROR);
+    event.counter = Some(STRICT_DETERMINISM_METRIC);
+    event
 }
 
 /// Emit when audit export integrity checks detect tampering.
@@ -342,6 +415,56 @@ pub fn audit_export_tamper_event(
         },
     )
     .with_common_ids(tenant_id, None, None)
+}
+
+/// Emit when the policy audit chain diverges (hash mismatch or broken linkage).
+pub fn audit_chain_divergence_event(
+    reason: impl Into<String>,
+    chain_sequence: Option<i64>,
+    tenant_id: Option<String>,
+    request_id: Option<String>,
+) -> ObservabilityEvent {
+    let event = ObservabilityEvent::base(
+        ObservabilityEventKind::AuditChainDivergence,
+        ObservabilitySeverity::Alert,
+        "policy_audit",
+        "Policy audit chain divergence detected",
+        ObservabilityDetail::AuditChainDivergence {
+            chain_sequence,
+            reason: reason.into(),
+        },
+    )
+    .with_common_ids(tenant_id, request_id, None);
+
+    let mut event = with_error_code(event, AUDIT_DIVERGENCE_ERROR);
+    event.counter = Some(AUDIT_DIVERGENCE_METRIC);
+    event
+}
+
+/// Emit when a policy deny would be overridden (fail-open path).
+pub fn policy_override_event(
+    hook: Option<String>,
+    policy_pack_id: Option<String>,
+    reason: impl Into<String>,
+    tenant_id: Option<String>,
+    request_id: Option<String>,
+) -> ObservabilityEvent {
+    let event = ObservabilityEvent::base(
+        ObservabilityEventKind::PolicyOverride,
+        ObservabilitySeverity::Alert,
+        "policy",
+        "Policy deny override attempted",
+        ObservabilityDetail::PolicyOverride {
+            hook,
+            policy_pack_id,
+            reason: reason.into(),
+        },
+    )
+    .with_common_ids(tenant_id, request_id, None);
+
+    let mut event = with_error_code(event, POLICY_DENY_OVERRIDE_ERROR);
+    event.counter = Some(POLICY_OVERRIDE_METRIC);
+    event
 }
 
 /// Convenience helper: emit to tracing immediately.
@@ -411,5 +534,40 @@ mod tests {
             }
             _ => panic!("wrong detail"),
         }
+    }
+
+    #[test]
+    fn audit_chain_divergence_carries_error_code_and_counter() {
+        let event = audit_chain_divergence_event(
+            "hash mismatch",
+            Some(5),
+            Some("tenant-x".into()),
+            Some("req-77".into()),
+        );
+
+        assert_eq!(event.kind, ObservabilityEventKind::AuditChainDivergence);
+        assert_eq!(event.counter, Some(AUDIT_DIVERGENCE_METRIC));
+        assert_eq!(
+            event.labels.get("error_code"),
+            Some(&AUDIT_DIVERGENCE_ERROR.to_string())
+        );
+    }
+
+    #[test]
+    fn policy_override_carries_error_code_and_counter() {
+        let event = policy_override_event(
+            Some("hook".into()),
+            Some("policy-pack".into()),
+            "validator error",
+            Some("tenant-y".into()),
+            Some("req-11".into()),
+        );
+
+        assert_eq!(event.kind, ObservabilityEventKind::PolicyOverride);
+        assert_eq!(event.counter, Some(POLICY_OVERRIDE_METRIC));
+        assert_eq!(
+            event.labels.get("error_code"),
+            Some(&POLICY_DENY_OVERRIDE_ERROR.to_string())
+        );
     }
 }

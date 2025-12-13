@@ -162,7 +162,16 @@ pub fn derive_seed_indexed(global: &B3Hash, label: &str, index: usize) -> [u8; 3
     derive_seed(global, &indexed_label)
 }
 
-/// Derive a request-scoped seed with configurable determinism mode
+/// Derive a request-scoped seed with configurable determinism mode.
+///
+/// Seed label includes:
+/// - manifest hash (or tenant-scoped fallback when absent)
+/// - tenant id
+/// - request id
+/// - worker id
+/// - nonce
+/// This makes it explicit that re-running the same request on a different
+/// worker yields a different seed, while the exact same tuple reproduces.
 pub fn derive_request_seed(
     global: &B3Hash,
     manifest: Option<&B3Hash>,
@@ -309,6 +318,32 @@ mod tests {
         let seed1 = derive_seed(&global, "component_a");
         let seed2 = derive_seed(&global, "component_a");
         assert_eq!(seed1, seed2);
+    }
+
+    #[test]
+    fn derive_seed_typed_same_tuple_is_stable() {
+        let global = B3Hash::hash(b"global-seed");
+        let manifest = B3Hash::hash(b"manifest-a");
+        let seed_a = derive_seed_typed(&global, SeedLabel::Router, &manifest, 42, 7);
+        let seed_b = derive_seed_typed(&global, SeedLabel::Router, &manifest, 42, 7);
+
+        assert_eq!(
+            seed_a, seed_b,
+            "Identical derivation tuple must yield identical seed bytes"
+        );
+    }
+
+    #[test]
+    fn derive_seed_typed_nonce_changes_output() {
+        let global = B3Hash::hash(b"global-seed");
+        let manifest = B3Hash::hash(b"manifest-a");
+        let seed_a = derive_seed_typed(&global, SeedLabel::Router, &manifest, 42, 7);
+        let seed_b = derive_seed_typed(&global, SeedLabel::Router, &manifest, 42, 8);
+
+        assert_ne!(
+            seed_a, seed_b,
+            "Changing nonce must change derived seed bytes"
+        );
     }
 
     #[test]
@@ -462,6 +497,38 @@ mod tests {
 
         assert_eq!(seed_a, seed_b, "Same tenant uses stable fallback hash");
         assert_ne!(seed_a, seed_c, "Different tenant fallback differs");
+    }
+
+    #[test]
+    fn request_seed_varies_by_worker_id() {
+        let global = B3Hash::hash(b"global");
+        let manifest = B3Hash::hash(b"manifest");
+
+        let worker_a = derive_request_seed(
+            &global,
+            Some(&manifest),
+            "tenant",
+            "req-1",
+            7,
+            0,
+            SeedMode::Strict,
+        )
+        .expect("worker A seed derives");
+        let worker_b = derive_request_seed(
+            &global,
+            Some(&manifest),
+            "tenant",
+            "req-1",
+            8,
+            0,
+            SeedMode::Strict,
+        )
+        .expect("worker B seed derives");
+
+        assert_ne!(
+            worker_a, worker_b,
+            "Changing worker id must change derived request seed"
+        );
     }
 
     #[cfg(debug_assertions)]
