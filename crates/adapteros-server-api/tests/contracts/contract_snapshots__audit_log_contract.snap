@@ -1,0 +1,14 @@
+---
+source: crates/adapteros-server-api/tests/contract_snapshots.rs
+assertion_line: 354
+expression: "json!({ \"status\": audit_status.as_u16(), \"body\": audit_body })"
+---
+{
+  "body": {
+    "limit": 100,
+    "logs": [],
+    "offset": 0,
+    "total": 0
+  },
+  "status": 200
+}

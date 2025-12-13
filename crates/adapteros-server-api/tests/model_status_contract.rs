@@ -145,6 +145,7 @@ fn minimal_request(tenant_id: &str, model_id: &str) -> InferenceRequestInternal 
         seed: None,
         router_seed: None,
         require_evidence: false,
+        stop_policy: None,
         session_id: None,
         pinned_adapter_ids: None,
         chat_context_hash: None,

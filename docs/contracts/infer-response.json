@@ -1,0 +1,86 @@
+{
+  "schema_version": "1.0",
+  "id": "inf_dev_sample_001",
+  "text": "Deterministic router returned audited tokens with verified gates.",
+  "tokens_generated": 18,
+  "latency_ms": 128,
+  "adapters_used": [
+    "adapter.router.guardrails.v1",
+    "adapter.qwen.math.v1"
+  ],
+  "run_receipt": {
+    "trace_id": "trace_dev_sample_001",
+    "run_head_hash": "e4f6b8c4e6c24d7dbb3c5aa0c0114e28",
+    "output_digest": "c9bc3f5256d3492fa2280b74c7d6d388",
+    "receipt_digest": "e7a8c4975a3f4dd497e1bafbeffc98b4",
+    "signature": null,
+    "attestation": null,
+    "logical_prompt_tokens": 12,
+    "prefix_cached_token_count": 0,
+    "billed_input_tokens": 12,
+    "logical_output_tokens": 18,
+    "billed_output_tokens": 18,
+    "stop_reason_code": null,
+    "stop_reason_token_index": null,
+    "stop_policy_digest_b3": null,
+    "tenant_kv_quota_bytes": 0,
+    "tenant_kv_bytes_used": 0,
+    "kv_evictions": 0,
+    "kv_residency_policy_id": null,
+    "kv_quota_enforced": false,
+    "prefix_kv_key_b3": null,
+    "prefix_cache_hit": false,
+    "prefix_kv_bytes": 0,
+    "model_cache_identity_v2_digest_b3": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"
+  },
+  "citations": [
+    {
+      "adapter_id": "adapter.router.guardrails.v1",
+      "file_path": "policies/determinism.md",
+      "chunk_id": "chunk-0021",
+      "offset_start": 0,
+      "offset_end": 120,
+      "preview": "Routing decisions are audit-logged with deterministic tie-breaking."
+    }
+  ],
+  "finish_reason": "stop",
+  "backend": "coreml",
+  "trace": {
+    "latency_ms": 128,
+    "steps": [
+      {
+        "adapter": "adapter.router.guardrails.v1",
+        "latency_ms": 44,
+        "tokens": 4
+      },
+      {
+        "adapter": "adapter.qwen.math.v1",
+        "latency_ms": 74,
+        "tokens": 14
+      }
+    ],
+    "router_decisions": [
+      {
+        "adapter": "adapter.router.guardrails.v1",
+        "score": 0.62
+      }
+    ],
+    "evidence_spans": [
+      {
+        "text": "receipt_digest:e7a8c4975a3f4dd497e1bafbeffc98b4",
+        "relevance": 0.93
+      }
+    ]
+  },
+  "token_count": 18,
+  "model": "qwen2.5-7b",
+  "prompt_tokens": 12,
+  "backend_used": "coreml",
+  "coreml_compute_preference": "fast",
+  "coreml_compute_units": "cpu_and_gpu",
+  "coreml_gpu_used": true,
+  "fallback_backend": null,
+  "fallback_triggered": false,
+  "determinism_mode_applied": "strict",
+  "replay_guarantee": "exact"
+}

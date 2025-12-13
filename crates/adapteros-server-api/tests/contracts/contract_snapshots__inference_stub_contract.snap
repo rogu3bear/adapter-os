@@ -1,0 +1,44 @@
+---
+source: crates/adapteros-server-api/tests/contract_snapshots.rs
+assertion_line: 281
+expression: "json!({ \"status\": infer_status.as_u16(), \"body\": infer_body })"
+---
+{
+  "body": {
+    "adapters_used": [
+      "adapter-test"
+    ],
+    "backend": "coreml",
+    "backend_used": "coreml",
+    "finish_reason": "stop",
+    "id": "resp-e2e",
+    "latency_ms": 42,
+    "run_receipt": {
+      "billed_input_tokens": 16,
+      "billed_output_tokens": 8,
+      "logical_output_tokens": 8,
+      "logical_prompt_tokens": 16,
+      "output_digest": "<redacted>",
+      "prefix_cache_hit": false,
+      "prefix_cached_token_count": 0,
+      "prefix_kv_bytes": 0,
+      "prefix_kv_key_b3": null,
+      "receipt_digest": "<redacted>",
+      "run_head_hash": "<redacted>",
+      "trace_id": "trace-e2e"
+    },
+    "schema_version": "1.0",
+    "text": "Echo: contract snapshot",
+    "token_count": 8,
+    "tokens_generated": 8,
+    "trace": {
+      "adapters_used": [
+        "adapter-test"
+      ],
+      "evidence_spans": [],
+      "latency_ms": 42,
+      "router_decisions": []
+    }
+  },
+  "status": 200
+}
