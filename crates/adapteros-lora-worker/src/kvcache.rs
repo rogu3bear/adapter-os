@@ -37,6 +37,8 @@ use adapteros_core::{constants::BYTES_PER_MB, AosError, Result};
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use crate::TenantKvQuotaManager;
+
 /// Unique identifier for a sequence
 pub type SequenceId = u64;
 
@@ -133,6 +135,8 @@ pub struct KvCache {
     stack_generation: u64,
     /// Active sequence guards
     active_guards: HashMap<SequenceId, u64>,
+    /// Optional quota manager for per-tenant KV cache limits
+    quota_manager: Option<Arc<TenantKvQuotaManager>>,
 }
 
 impl KvCache {
@@ -153,6 +157,31 @@ impl KvCache {
             free_regions: Vec::new(),
             stack_generation: 0,
             active_guards: HashMap::new(),
+            quota_manager: None,
+        }
+    }
+
+    /// Create new KV cache with quota manager
+    pub fn new_with_quota(
+        capacity_bytes: u64,
+        quota_manager: Option<Arc<TenantKvQuotaManager>>,
+    ) -> Self {
+        Self {
+            #[cfg(target_os = "macos")]
+            _device: None,
+            #[cfg(target_os = "macos")]
+            k_buffer: None,
+            #[cfg(target_os = "macos")]
+            v_buffer: None,
+            capacity_bytes,
+            used_bytes: 0,
+            allocations: HashMap::new(),
+            next_seq_id: 1,
+            bytes_per_token: 8192, // Default: 32 layers * 128 heads * 2 bytes (fp16)
+            free_regions: Vec::new(),
+            stack_generation: 0,
+            active_guards: HashMap::new(),
+            quota_manager,
         }
     }
 
@@ -187,6 +216,43 @@ impl KvCache {
             free_regions: Vec::new(),
             stack_generation: 0,
             active_guards: HashMap::new(),
+            quota_manager: None,
+        })
+    }
+
+    /// Create new KV cache with Metal device and quota manager
+    #[cfg(target_os = "macos")]
+    pub fn new_with_metal_and_quota(
+        device: Arc<metal::Device>,
+        capacity_bytes: u64,
+        bytes_per_token: u64,
+        quota_manager: Option<Arc<TenantKvQuotaManager>>,
+    ) -> Result<Self> {
+        use metal::MTLResourceOptions;
+
+        // Allocate Metal buffers for K and V states
+        let k_buffer = device.new_buffer(capacity_bytes, MTLResourceOptions::StorageModeShared);
+
+        let v_buffer = device.new_buffer(capacity_bytes, MTLResourceOptions::StorageModeShared);
+
+        tracing::info!(
+            "Initialized KV cache with Metal: {} MB capacity",
+            capacity_bytes / BYTES_PER_MB
+        );
+
+        Ok(Self {
+            _device: Some(device),
+            k_buffer: Some(k_buffer),
+            v_buffer: Some(v_buffer),
+            capacity_bytes,
+            used_bytes: 0,
+            allocations: HashMap::new(),
+            next_seq_id: 1,
+            bytes_per_token,
+            free_regions: Vec::new(),
+            stack_generation: 0,
+            active_guards: HashMap::new(),
+            quota_manager,
         })
     }
 
@@ -321,8 +387,31 @@ impl KvCache {
         } as u64;
         let required_bytes = rounded_len * self.bytes_per_token;
 
+        // Reserve quota if quota manager is present
+        let reservation = if let Some(ref quota_manager) = self.quota_manager {
+            match quota_manager.reserve(required_bytes * 2) {
+                Ok(res) => Some(res),
+                Err(AosError::MemoryPressure(msg)) if msg.contains("KV quota exceeded") => {
+                    // Return specific error for quota exhaustion
+                    return Err(AosError::QuotaExceeded {
+                        resource: "kv_cache".to_string(),
+                        failure_code: Some("KV_QUOTA_EXCEEDED".to_string()),
+                    });
+                }
+                Err(e) => return Err(e),
+            }
+        } else {
+            None
+        };
+
         // Check capacity
         if self.used_bytes + required_bytes * 2 > self.capacity_bytes {
+            // Rollback reservation on capacity failure
+            if let Some(res) = reservation {
+                if let Some(ref quota_manager) = self.quota_manager {
+                    quota_manager.rollback(res);
+                }
+            }
             return Err(AosError::MemoryPressure(format!(
                 "KV cache full: {} / {} bytes used",
                 self.used_bytes, self.capacity_bytes
@@ -374,6 +463,20 @@ impl KvCache {
             self.used_bytes = end_pos;
         }
 
+        // Finalize quota reservation after successful allocation
+        if let Some(res) = reservation {
+            if let Some(ref quota_manager) = self.quota_manager {
+                if let Err(e) = quota_manager.finalize(res) {
+                    // If finalization fails, rollback the allocation
+                    self.allocations.remove(&seq_id);
+                    if end_pos == self.used_bytes {
+                        self.used_bytes -= k_size + v_size;
+                    }
+                    return Err(e);
+                }
+            }
+        }
+
         tracing::debug!(
             "Allocated KV cache for seq {}: {} tokens, {} bytes (K: {}+{}, V: {}+{})",
             seq_id,
@@ -398,6 +501,11 @@ impl KvCache {
             // Mark the region as free and coalesce
             self.free_regions.push((allocation.k_offset, freed_bytes));
             self.coalesce_free_regions();
+
+            // Release quota if quota manager is present
+            if let Some(ref quota_manager) = self.quota_manager {
+                quota_manager.release(freed_bytes);
+            }
 
             tracing::debug!(
                 "Freed KV cache for seq {}: {} bytes (offset {})",

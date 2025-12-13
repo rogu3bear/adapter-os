@@ -8,7 +8,7 @@ use adapteros_core::B3Hash;
 use adapteros_lora_kernel_api::attestation::BackendType;
 use adapteros_lora_lifecycle::AdapterLoader;
 use adapteros_lora_worker::model_handle_cache::{ModelHandle, ModelHandleCache};
-use adapteros_lora_worker::model_key::ModelKey;
+use adapteros_lora_worker::model_key::{ModelCacheIdentity, ModelKey};
 use safetensors::tensor::TensorView;
 use std::collections::HashMap;
 use std::path::Path;
@@ -225,8 +225,16 @@ async fn base_model_pinning_prevents_eviction() {
     // Create a small cache to force eviction pressure
     let cache = ModelHandleCache::new(100); // 100 bytes - very small
 
-    let base_key = ModelKey::new(BackendType::Metal, B3Hash::hash(b"base-model"));
-    let adapter_key = ModelKey::new(BackendType::Metal, B3Hash::hash(b"adapter"));
+    let base_key = ModelKey::new(
+        BackendType::Metal,
+        B3Hash::hash(b"base-model"),
+        ModelCacheIdentity::for_backend(BackendType::Metal),
+    );
+    let adapter_key = ModelKey::new(
+        BackendType::Metal,
+        B3Hash::hash(b"adapter"),
+        ModelCacheIdentity::for_backend(BackendType::Metal),
+    );
 
     // Load base model using get_or_load_base_model (auto-pins)
     cache
@@ -270,8 +278,16 @@ async fn base_model_pinning_prevents_eviction() {
 async fn cache_lifecycle_invariants() {
     let cache = ModelHandleCache::new(1024 * 1024); // 1MB
 
-    let key1 = ModelKey::new(BackendType::Metal, B3Hash::hash(b"model1"));
-    let key2 = ModelKey::new(BackendType::Metal, B3Hash::hash(b"model2"));
+    let key1 = ModelKey::new(
+        BackendType::Metal,
+        B3Hash::hash(b"model1"),
+        ModelCacheIdentity::for_backend(BackendType::Metal),
+    );
+    let key2 = ModelKey::new(
+        BackendType::Metal,
+        B3Hash::hash(b"model2"),
+        ModelCacheIdentity::for_backend(BackendType::Metal),
+    );
 
     // Load and verify initial state
     cache

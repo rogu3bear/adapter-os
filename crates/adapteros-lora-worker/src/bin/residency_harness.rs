@@ -27,7 +27,7 @@
 use adapteros_core::{B3Hash, Result};
 use adapteros_lora_kernel_api::attestation::BackendType;
 use adapteros_lora_worker::model_handle_cache::{CacheStats, ModelHandle, ModelHandleCache};
-use adapteros_lora_worker::model_key::ModelKey;
+use adapteros_lora_worker::model_key::{ModelCacheIdentity, ModelKey};
 use clap::Parser;
 use serde::Serialize;
 use std::path::PathBuf;
@@ -176,7 +176,11 @@ fn main() -> Result<()> {
     // 4. Warmup: load base model (auto-pins)
     let base_model_size = args.base_model_size_mb * 1024 * 1024;
     let base_hash = B3Hash::hash(args.model_id.as_bytes());
-    let base_key = ModelKey::new(backend_type, base_hash);
+    let base_key = ModelKey::new(
+        backend_type,
+        base_hash,
+        ModelCacheIdentity::for_backend(backend_type),
+    );
 
     info!(
         model_id = %args.model_id,
@@ -215,7 +219,11 @@ fn main() -> Result<()> {
         for j in 0..num_adapters {
             let adapter_name = format!("adapter_{}_{}", i, j);
             let adapter_hash = B3Hash::hash(adapter_name.as_bytes());
-            let adapter_key = ModelKey::new(backend_type, adapter_hash);
+            let adapter_key = ModelKey::new(
+                backend_type,
+                adapter_hash,
+                ModelCacheIdentity::for_backend(backend_type),
+            );
 
             cache
                 .get_or_load(&adapter_key, || {
