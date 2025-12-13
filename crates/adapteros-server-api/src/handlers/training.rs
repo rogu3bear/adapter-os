@@ -1328,6 +1328,145 @@ pub async fn promote_version(
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// Publish an adapter version with attach mode configuration.
+///
+/// This endpoint publishes a trained adapter version, making it available
+/// for use in inference stacks. The attach mode controls whether the adapter
+/// requires specific dataset context when attached.
+#[utoipa::path(
+    post,
+    path = "/v1/training/repos/{repo_id}/versions/{version_id}/publish",
+    params(
+        ("repo_id" = String, Path, description = "Repository ID"),
+        ("version_id" = String, Path, description = "Adapter version ID to publish"),
+    ),
+    request_body = adapteros_api_types::training::PublishAdapterVersionRequest,
+    responses(
+        (status = 200, description = "Version published successfully", body = adapteros_api_types::training::PublishAdapterVersionResponse),
+        (status = 400, description = "Invalid request", body = ErrorResponse),
+        (status = 404, description = "Version not found", body = ErrorResponse),
+        (status = 500, description = "Internal error", body = ErrorResponse)
+    ),
+    tag = "training"
+)]
+pub async fn publish_version(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path((repo_id, version_id)): Path<(String, String)>,
+    Json(req): Json<adapteros_api_types::training::PublishAdapterVersionRequest>,
+) -> Result<Json<adapteros_api_types::training::PublishAdapterVersionResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::TrainingStart)?;
+
+    // Verify version exists and belongs to tenant/repo
+    let version = state
+        .db
+        .get_adapter_version(&claims.tenant_id, &version_id)
+        .await
+        .map_err(|e| {
+            error!(
+                version_id = %version_id,
+                error = %e,
+                "Failed to load adapter version for publish"
+            );
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to load adapter version")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(
+                    ErrorResponse::new("Adapter version not found")
+                        .with_code("NOT_FOUND")
+                        .with_string_details(version_id.clone()),
+                ),
+            )
+        })?;
+
+    if version.repo_id != repo_id {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new("Version does not belong to repository")
+                    .with_code("VALIDATION_ERROR"),
+            ),
+        ));
+    }
+
+    // Validate tenant isolation
+    validate_tenant_isolation(&claims, &version.tenant_id)?;
+
+    let attach_mode_str = req.attach_mode.as_str();
+
+    // Call database publish method
+    state
+        .db
+        .publish_adapter_version(
+            &claims.tenant_id,
+            &repo_id,
+            &version_id,
+            attach_mode_str,
+            req.required_scope_dataset_version_id.as_deref(),
+            req.short_description.as_deref(),
+            Some(&claims.sub),
+        )
+        .await
+        .map_err(|e| {
+            error!(
+                repo_id = %repo_id,
+                version_id = %version_id,
+                error = %e,
+                "Failed to publish adapter version"
+            );
+            match &e {
+                AosError::NotFound(_) => (
+                    StatusCode::NOT_FOUND,
+                    Json(
+                        ErrorResponse::new(&e.to_string())
+                            .with_code("NOT_FOUND"),
+                    ),
+                ),
+                AosError::Validation(_) => (
+                    StatusCode::BAD_REQUEST,
+                    Json(
+                        ErrorResponse::new(&e.to_string())
+                            .with_code("VALIDATION_ERROR"),
+                    ),
+                ),
+                _ => (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("Failed to publish version")
+                            .with_code("DATABASE_ERROR")
+                            .with_string_details(e.to_string()),
+                    ),
+                ),
+            }
+        })?;
+
+    info!(
+        repo_id = %repo_id,
+        version_id = %version_id,
+        attach_mode = %attach_mode_str,
+        "Published adapter version"
+    );
+
+    Ok(Json(adapteros_api_types::training::PublishAdapterVersionResponse {
+        schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
+        version_id,
+        repo_id,
+        attach_mode: req.attach_mode,
+        required_scope_dataset_version_id: req.required_scope_dataset_version_id,
+        published_at: Utc::now().to_rfc3339(),
+        short_description: req.short_description,
+    }))
+}
+
 /// Cancel a running training job
 #[utoipa::path(
     post,
@@ -1663,9 +1802,16 @@ pub async fn get_chat_bootstrap(
         adapter_id,
         dataset_id,
         status_str,
+        adapter_version_id,
+        dataset_version_id,
     ) = match state.training_service.get_job(&job_id).await {
         Ok(job) => {
             let status_str = format!("{:?}", job.status).to_lowercase();
+            // Extract first dataset_version_id from the list if available
+            let dataset_ver_id = job
+                .dataset_version_ids
+                .as_ref()
+                .and_then(|v| v.first().map(|s| s.dataset_version_id.clone()));
             (
                 job.stack_id,
                 job.adapter_name,
@@ -1676,6 +1822,8 @@ pub async fn get_chat_bootstrap(
                 job.adapter_id,
                 job.dataset_id,
                 status_str,
+                job.adapter_version_id,
+                dataset_ver_id,
             )
         }
         Err(_) => {
@@ -1711,6 +1859,10 @@ pub async fn get_chat_bootstrap(
                 job.adapter_id,
                 job.dataset_id,
                 job.status.clone(),
+                // Use produced_version_id as adapter_version_id from DB record
+                job.produced_version_id,
+                // dataset_version_id not directly stored on DB record, will be None
+                None,
             )
         }
     };
@@ -1741,6 +1893,16 @@ pub async fn get_chat_bootstrap(
 
     let suggested_title = format!("Chat with {}", adapter_name);
 
+    // Fetch dataset name if dataset_id is available
+    let dataset_name = if let Some(ref did) = dataset_id {
+        match state.db.get_training_dataset(did).await {
+            Ok(Some(dataset)) => Some(dataset.name),
+            _ => None,
+        }
+    } else {
+        None
+    };
+
     Ok(Json(adapteros_api_types::ChatBootstrapResponse {
         ready,
         stack_id,
@@ -1752,7 +1914,10 @@ pub async fn get_chat_bootstrap(
         training_job_id: job_id,
         status: status_str,
         adapter_id,
+        adapter_version_id,
         dataset_id,
+        dataset_version_id,
+        dataset_name,
     }))
 }
 

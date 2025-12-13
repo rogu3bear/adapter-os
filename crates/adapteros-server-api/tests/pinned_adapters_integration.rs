@@ -187,6 +187,7 @@ fn test_inference_request_internal_with_pinned_adapters() {
         created_at: std::time::Instant::now(),
         router_seed: None,
         worker_auth_token: None,
+        stop_policy: None,
     };
 
     assert_eq!(request.pinned_adapter_ids, Some(pinned));
@@ -227,6 +228,9 @@ fn test_inference_result_with_unavailable_pinned_adapters() {
         determinism_mode_applied: None,
         replay_guarantee: None,
         placement_trace: None,
+        stop_reason_code: None,
+        stop_reason_token_index: None,
+        stop_policy_digest_b3: None,
     };
 
     assert_eq!(result.unavailable_pinned_adapters, Some(unavailable));
@@ -258,6 +262,9 @@ fn test_inference_result_without_unavailable_pinned_adapters() {
         determinism_mode_applied: None,
         replay_guarantee: None,
         placement_trace: None,
+        stop_reason_code: None,
+        stop_reason_token_index: None,
+        stop_policy_digest_b3: None,
     };
 
     assert!(result.unavailable_pinned_adapters.is_none());
@@ -296,6 +303,9 @@ fn test_inference_result_all_pins_unavailable_stack_only_fallback() {
         determinism_mode_applied: None,
         replay_guarantee: None,
         placement_trace: None,
+        stop_reason_code: None,
+        stop_reason_token_index: None,
+        stop_policy_digest_b3: None,
     };
 
     assert_eq!(result.unavailable_pinned_adapters, Some(unavailable));
@@ -333,6 +343,9 @@ fn test_inference_result_partial_pins_unavailable() {
         determinism_mode_applied: None,
         replay_guarantee: None,
         placement_trace: None,
+        stop_reason_code: None,
+        stop_reason_token_index: None,
+        stop_policy_digest_b3: None,
     };
 
     assert_eq!(result.unavailable_pinned_adapters, Some(unavailable));
@@ -650,6 +663,9 @@ fn test_inference_event_done_serializes_pinned_fields() {
         unavailable_pinned_adapters: Some(vec!["missing-1".to_string(), "missing-2".to_string()]),
         pinned_routing_fallback: Some("partial".to_string()),
         citations: None,
+        stop_reason_code: None,
+        stop_reason_token_index: None,
+        stop_policy_digest_b3: None,
     };
 
     let json = serde_json::to_string(&event).expect("Failed to serialize");
@@ -682,6 +698,9 @@ fn test_inference_event_done_skips_none_fields() {
         unavailable_pinned_adapters: None,
         pinned_routing_fallback: None,
         citations: None,
+        stop_reason_code: None,
+        stop_reason_token_index: None,
+        stop_policy_digest_b3: None,
     };
 
     let json = serde_json::to_string(&event).expect("Failed to serialize");

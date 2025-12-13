@@ -434,6 +434,7 @@ pub async fn execute_replay(
         None, // No adapter selected yet
     );
     if let Err(violation) = enforce_at_hook(&state, &routing_hook_ctx).await {
+        let code = violation.code.as_deref().unwrap_or("POLICY_HOOK_VIOLATION");
         warn!(
             inference_id = %inference_id,
             policy_violation = %violation.message,
@@ -443,7 +444,7 @@ pub async fn execute_replay(
             StatusCode::FORBIDDEN,
             Json(
                 ErrorResponse::new("Policy violation (pre-routing)")
-                    .with_code("POLICY_HOOK_VIOLATION")
+                    .with_code(code)
                     .with_string_details(&violation.message),
             ),
         ));
@@ -626,6 +627,12 @@ pub async fn execute_replay(
         )
     })?;
 
+    // Restore stop_policy from metadata for deterministic replay
+    let stop_policy = metadata
+        .stop_policy_json
+        .as_ref()
+        .and_then(|json| serde_json::from_str::<adapteros_api_types::inference::StopPolicySpec>(json).ok());
+
     let inference_request = InferenceRequestInternal {
         request_id: replay_id.clone(),
         cpid: claims.tenant_id.clone(),
@@ -663,6 +670,7 @@ pub async fn execute_replay(
         pinned_adapter_ids: None, // Not used in replay
         chat_context_hash: None,
         model: None,
+        stop_policy, // Restored from original inference for deterministic replay
         created_at: std::time::Instant::now(),
         worker_auth_token: None,
     };
@@ -705,6 +713,7 @@ pub async fn execute_replay(
         adapters_for_hook.as_deref(),
     );
     if let Err(violation) = enforce_at_hook(&state, &before_hook_ctx).await {
+        let code = violation.code.as_deref().unwrap_or("POLICY_HOOK_VIOLATION");
         warn!(
             inference_id = %inference_id,
             policy_violation = %violation.message,
@@ -714,7 +723,7 @@ pub async fn execute_replay(
             StatusCode::FORBIDDEN,
             Json(
                 ErrorResponse::new("Policy violation (pre-inference)")
-                    .with_code("POLICY_HOOK_VIOLATION")
+                    .with_code(code)
                     .with_string_details(&violation.message),
             ),
         ));
@@ -763,6 +772,7 @@ pub async fn execute_replay(
         adapters_for_hook.as_deref(),
     );
     if let Err(violation) = enforce_at_hook(&state, &after_hook_ctx).await {
+        let code = violation.code.as_deref().unwrap_or("POLICY_HOOK_VIOLATION");
         warn!(
             inference_id = %inference_id,
             policy_violation = %violation.message,
@@ -772,7 +782,7 @@ pub async fn execute_replay(
             StatusCode::FORBIDDEN,
             Json(
                 ErrorResponse::new("Policy violation (post-inference)")
-                    .with_code("POLICY_HOOK_VIOLATION")
+                    .with_code(code)
                     .with_string_details(&violation.message),
             ),
         ));

@@ -116,6 +116,11 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::get_training_template,
         handlers::get_chat_bootstrap,
         handlers::create_chat_from_training_job,
+        // Repository handlers (new /v1/repos API)
+        handlers::repos::list_repos,
+        handlers::repos::get_repo,
+        handlers::repos::create_repo,
+        handlers::repos::update_repo,
         // Git integration handlers
         handlers::git::git_status,
         handlers::git::start_git_session,
@@ -437,6 +442,15 @@ use utoipa_swagger_ui::SwaggerUi;
         crate::types::TrainingJobResponse,
         crate::types::TrainingMetricsResponse,
         crate::types::TrainingTemplateResponse,
+        // Repository types (new /v1/repos API)
+        handlers::repos::RepoSummaryResponse,
+        handlers::repos::RepoDetailResponse,
+        handlers::repos::CreateRepoRequest,
+        handlers::repos::CreateRepoResponse,
+        handlers::repos::UpdateRepoRequest,
+        handlers::repos::RepoTimelineEventResponse,
+        handlers::repos::RepoTrainingJobLinkResponse,
+        handlers::repos::BranchSummary,
         // Domain adapter types
         crate::types::DomainAdapterResponse,
         crate::types::EpsilonStatsResponse,
@@ -1411,26 +1425,6 @@ pub fn build(state: AppState) -> Router {
             "/v1/adapter-stacks/deactivate",
             post(handlers::adapter_stacks::deactivate_stack),
         )
-        // Adapter packages routes
-        .route(
-            "/v1/packages",
-            get(handlers::packages::list_packages).post(handlers::packages::create_package),
-        )
-        .route(
-            "/v1/tenants/{tenant_id}/packages",
-            get(handlers::packages::list_packages_for_tenant),
-        )
-        .route(
-            "/v1/tenants/{tenant_id}/packages/{package_id}/install",
-            post(handlers::packages::install_package_for_tenant)
-                .delete(handlers::packages::uninstall_package_for_tenant),
-        )
-        .route(
-            "/v1/packages/{id}",
-            get(handlers::packages::get_package)
-                .patch(handlers::packages::update_package)
-                .delete(handlers::packages::delete_package),
-        )
         // Domain adapter routes
         .route(
             "/v1/domain-adapters",
@@ -1814,6 +1808,47 @@ pub fn build(state: AppState) -> Router {
             "/v1/training/templates/{template_id}",
             get(handlers::get_training_template),
         )
+        // Repository routes (new /v1/repos API)
+        .route(
+            "/v1/repos",
+            get(handlers::repos::list_repos).post(handlers::repos::create_repo),
+        )
+        .route(
+            "/v1/repos/{repo_id}",
+            get(handlers::repos::get_repo).patch(handlers::repos::update_repo),
+        )
+        .route(
+            "/v1/repos/{repo_id}/versions",
+            get(handlers::repos::list_versions),
+        )
+        .route(
+            "/v1/repos/{repo_id}/versions/{version_id}",
+            get(handlers::repos::get_version),
+        )
+        .route(
+            "/v1/repos/{repo_id}/versions/{version_id}/promote",
+            post(handlers::repos::promote_version),
+        )
+        .route(
+            "/v1/repos/{repo_id}/versions/{version_id}/tag",
+            post(handlers::repos::tag_version),
+        )
+        .route(
+            "/v1/repos/{repo_id}/versions/{version_id}/train",
+            post(handlers::repos::start_training),
+        )
+        .route(
+            "/v1/repos/{repo_id}/rollback/{branch}",
+            post(handlers::repos::rollback_version),
+        )
+        .route(
+            "/v1/repos/{repo_id}/timeline",
+            get(handlers::repos::get_timeline),
+        )
+        .route(
+            "/v1/repos/{repo_id}/training-jobs",
+            get(handlers::repos::list_training_jobs),
+        )
         // Git integration routes
         .route("/v1/git/status", get(handlers::git::git_status))
         .route(
@@ -2088,14 +2123,21 @@ pub fn build(state: AppState) -> Router {
                 )), // Automatic audit logging (needs RequestContext)
         );
 
-    // Combine routes and apply security middleware layers
-    // (layers are applied in reverse order - first layer applied processes last)
-    Router::new()
+    // Testkit routes (E2E testing endpoints)
+    let mut app = Router::new()
         .merge(public_routes)
         .merge(metrics_route)
         .merge(optional_auth_routes)
-        .merge(protected_routes)
-        .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
+        .merge(protected_routes);
+
+    // Add testkit routes if E2E_MODE is enabled
+    if handlers::testkit::e2e_enabled() {
+        app = app.merge(handlers::testkit::register_routes().with_state(state.clone()));
+    }
+
+    // Combine routes and apply security middleware layers
+    // (layers are applied in reverse order - first layer applied processes last)
+    app.merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
         // Apply layers (innermost to outermost):
         .layer(TraceLayer::new_for_http()) // Request tracing (innermost)
         .layer(CompressionLayer::new()) // Response compression (gzip, br, deflate)

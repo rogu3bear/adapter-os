@@ -38,7 +38,7 @@ use axum::{
     Json,
 };
 use std::borrow::Cow;
-use tracing::error;
+use tracing::{error, warn};
 
 /// Unified API error type implementing IntoResponse
 ///
@@ -148,6 +148,11 @@ impl ApiError {
         Self::new(StatusCode::SERVICE_UNAVAILABLE, "SERVICE_UNAVAILABLE", msg)
     }
 
+    /// Too many requests - 429 Too Many Requests
+    pub fn too_many_requests(msg: impl Into<String>) -> Self {
+        Self::new(StatusCode::TOO_MANY_REQUESTS, "TOO_MANY_REQUESTS", msg)
+    }
+
     /// Gateway timeout - 504 Gateway Timeout
     pub fn gateway_timeout(msg: impl Into<String>) -> Self {
         Self::new(StatusCode::GATEWAY_TIMEOUT, "GATEWAY_TIMEOUT", msg)
@@ -223,6 +228,67 @@ impl ApiError {
         let msg = msg.into();
         error!("Export failed: {}", msg);
         Self::new(StatusCode::INTERNAL_SERVER_ERROR, "EXPORT_FAILED", msg)
+    }
+
+    // --- Repository-specific error codes ---
+
+    /// Repository not found - 404 Not Found
+    pub fn repo_not_found(repo_id: impl Into<String>) -> Self {
+        Self::new(
+            StatusCode::NOT_FOUND,
+            "REPO_NOT_FOUND",
+            format!("Repository '{}' not found", repo_id.into()),
+        )
+    }
+
+    /// Version not found - 404 Not Found
+    pub fn version_not_found(repo_id: impl Into<String>, version_id: impl Into<String>) -> Self {
+        Self::new(
+            StatusCode::NOT_FOUND,
+            "VERSION_NOT_FOUND",
+            format!(
+                "Version '{}' not found in repository '{}'",
+                version_id.into(),
+                repo_id.into()
+            ),
+        )
+    }
+
+    /// Repository already exists - 409 Conflict
+    pub fn repo_already_exists(name: impl Into<String>) -> Self {
+        Self::new(
+            StatusCode::CONFLICT,
+            "REPO_ALREADY_EXISTS",
+            format!("Repository with name '{}' already exists", name.into()),
+        )
+    }
+
+    /// Repository archived - 403 Forbidden
+    pub fn repo_archived(repo_id: impl Into<String>) -> Self {
+        Self::new(
+            StatusCode::FORBIDDEN,
+            "REPO_ARCHIVED",
+            format!(
+                "Repository '{}' is archived and cannot be modified",
+                repo_id.into()
+            ),
+        )
+    }
+
+    /// Version not promotable - 400 Bad Request
+    pub fn version_not_promotable(
+        version_id: impl Into<String>,
+        reason: impl Into<String>,
+    ) -> Self {
+        Self::new(
+            StatusCode::BAD_REQUEST,
+            "VERSION_NOT_PROMOTABLE",
+            format!(
+                "Version '{}' cannot be promoted: {}",
+                version_id.into(),
+                reason.into()
+            ),
+        )
     }
 }
 
@@ -532,6 +598,12 @@ impl From<AosError> for ApiError {
             AosError::WithContext { context, source } => {
                 error!("Error with context '{}': {}", context, source);
                 ApiError::internal(err.to_string())
+            }
+
+            // KV Quota exceeded - return 429 Too Many Requests
+            AosError::QuotaExceeded { resource, .. } => {
+                warn!("Quota exceeded for resource '{}': {}", resource, err);
+                ApiError::too_many_requests(format!("Quota exceeded for {}", resource))
             }
         }
     }

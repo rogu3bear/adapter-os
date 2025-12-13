@@ -69,6 +69,7 @@ pub async fn persist_chunk(
                     expected_chunks
                 ),
                 code: "INVALID_CHUNK_INDEX".to_string(),
+                failure_code: None,
                 details: None,
             }),
         ));
@@ -81,6 +82,7 @@ pub async fn persist_chunk(
                 schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
                 error: format!("Chunk {} has already been uploaded", chunk_index),
                 code: "DUPLICATE_CHUNK".to_string(),
+                failure_code: None,
                 details: None,
             }),
         ));

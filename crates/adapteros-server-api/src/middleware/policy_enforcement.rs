@@ -22,6 +22,11 @@ use crate::auth::Claims;
 use crate::middleware::request_id::RequestId;
 use crate::state::AppState;
 use crate::types::ErrorResponse;
+use adapteros_core::telemetry::{
+    audit_chain_divergence_event, emit_observability_event, policy_override_event,
+    AUDIT_DIVERGENCE_METRIC, POLICY_OVERRIDE_METRIC,
+};
+use adapteros_db::policy_audit::{is_audit_chain_divergence, AUDIT_CHAIN_DIVERGED_CODE};
 use adapteros_policy::hooks::{Decision, HookContext, PolicyDecision, PolicyHook};
 use adapteros_policy::policy_packs::{PolicyContext, PolicyRequest, Priority, RequestType};
 use adapteros_policy::{PolicyViolation, ViolationSeverity};
@@ -37,6 +42,37 @@ use std::io::Write;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{debug, error, info, warn};
+
+fn stable_metadata_json_for_audit(ctx: &HookContext) -> Option<String> {
+    // P0 audit-correctness: include adapter set deterministically when present.
+    // Do NOT serialize the full ctx.metadata HashMap; HashMap iteration order is nondeterministic.
+    let adapter_ids = match ctx.metadata.get("adapter_ids") {
+        Some(serde_json::Value::Array(arr)) => {
+            let mut ids: Vec<String> = arr
+                .iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect();
+            ids.sort();
+            ids
+        }
+        Some(serde_json::Value::String(s)) => {
+            // Back-compat: treat a single string as one adapter id.
+            vec![s.clone()]
+        }
+        _ => Vec::new(),
+    };
+
+    if adapter_ids.is_empty() {
+        return None;
+    }
+
+    Some(
+        serde_json::json!({
+            "adapter_ids": adapter_ids,
+        })
+        .to_string(),
+    )
+}
 
 /// Policy enforcement middleware
 ///
@@ -284,7 +320,6 @@ fn determine_request_type(path: &str) -> RequestType {
         RequestType::Inference
     } else if path.starts_with("/v1/adapters")
         || path.starts_with("/v1/adapter-stacks")
-        || path.starts_with("/v1/packages")
     {
         RequestType::AdapterOperation
     } else if path.starts_with("/v1/training") || path.starts_with("/v1/datasets") {
@@ -385,6 +420,7 @@ fn log_violation(request_id: &str, operation: &str, violation: &PolicyViolation)
 pub struct PolicyHookViolationError {
     pub violations: Vec<PolicyDecision>,
     pub message: String,
+    pub code: Option<String>,
 }
 
 impl std::fmt::Display for PolicyHookViolationError {
@@ -497,18 +533,25 @@ pub async fn enforce_at_hook(
                 }
             }
             Err(e) => {
-                warn!(
-                    tenant_id = %ctx.tenant_id,
-                    policy_id = %policy_id,
-                    error = %e,
-                    "Policy validation error, treating as allow"
+                let reason = format!("Validation error (fail-closed): {}", e);
+                let event = policy_override_event(
+                    Some(hook_name.to_string()),
+                    Some(policy_id.clone()),
+                    reason.clone(),
+                    Some(ctx.tenant_id.clone()),
+                    Some(ctx.request_id.clone()),
                 );
-                PolicyDecision {
-                    policy_pack_id: policy_id.clone(),
-                    hook: ctx.hook,
-                    decision: Decision::Allow,
-                    reason: format!("Validation error (fail-open): {}", e),
-                }
+                emit_observability_event(&event);
+                let _ = state
+                    .metrics_registry
+                    .record_metric(POLICY_OVERRIDE_METRIC.to_string(), 1.0)
+                    .await;
+
+                return Err(PolicyHookViolationError {
+                    code: Some("policy_hook_violation".to_string()),
+                    violations: vec![],
+                    message: reason,
+                });
             }
         };
 
@@ -516,6 +559,7 @@ pub async fn enforce_at_hook(
     }
 
     // 3. Log ALL decisions to audit (allow AND deny)
+    let metadata_json = stable_metadata_json_for_audit(ctx);
     for decision in &decisions {
         let decision_str = match decision.decision {
             Decision::Allow => "allow",
@@ -535,17 +579,42 @@ pub async fn enforce_at_hook(
                 ctx.user_id.as_deref(),
                 Some(&ctx.resource_type),
                 ctx.resource_id.as_deref(),
-                None, // metadata_json
+                metadata_json.as_deref(),
             )
             .await
         {
+            if is_audit_chain_divergence(&e) {
+                let event = audit_chain_divergence_event(
+                    e.to_string(),
+                    None,
+                    Some(ctx.tenant_id.clone()),
+                    Some(ctx.request_id.clone()),
+                );
+                emit_observability_event(&event);
+                let _ = state
+                    .metrics_registry
+                    .record_metric(AUDIT_DIVERGENCE_METRIC.to_string(), 1.0)
+                    .await;
+
+                error!(
+                    tenant_id = %ctx.tenant_id,
+                    policy_pack_id = %decision.policy_pack_id,
+                    error = %e,
+                    "Policy audit chain divergence detected while logging decision"
+                );
+                return Err(PolicyHookViolationError {
+                    violations: vec![],
+                    message: format!("policy audit chain diverged: {e}"),
+                    code: Some(AUDIT_CHAIN_DIVERGED_CODE.to_string()),
+                });
+            }
             error!(
                 tenant_id = %ctx.tenant_id,
                 policy_pack_id = %decision.policy_pack_id,
                 error = %e,
                 "Failed to log policy decision to audit"
             );
-            // Continue despite audit failure - don't block on audit
+            // Continue despite non-divergence audit failure - don't block on audit
         }
     }
 
@@ -577,6 +646,7 @@ pub async fn enforce_at_hook(
                 hook_name,
                 denial_messages.join("; ")
             ),
+            code: None,
         });
     }
 
@@ -612,6 +682,7 @@ pub fn create_hook_context(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
     fn test_determine_request_type() {
@@ -651,5 +722,20 @@ mod tests {
             determine_priority(&RequestType::TrainingOperation, None),
             Priority::Normal
         ));
+    }
+
+    #[test]
+    fn test_stable_metadata_json_for_audit_sorts_adapter_ids() {
+        let ctx = HookContext::new(
+            "test-tenant".to_string(),
+            "req-1".to_string(),
+            PolicyHook::OnBeforeInference,
+            "inference".to_string(),
+        )
+        .with_metadata("adapter_ids", json!(["b", "a"]));
+
+        let metadata_json = stable_metadata_json_for_audit(&ctx).expect("expected metadata");
+        let parsed: serde_json::Value = serde_json::from_str(&metadata_json).unwrap();
+        assert_eq!(parsed["adapter_ids"], json!(["a", "b"]));
     }
 }

@@ -8,7 +8,7 @@
 use adapteros_api_types::{
     CreateExecutionPolicyRequest, DeterminismPolicy, GoldenPolicy, RoutingPolicy,
 };
-use adapteros_core::{BackendKind, Result, SeedMode};
+use adapteros_core::{determinism_mode::DeterminismMode, BackendKind, Result, SeedMode};
 use adapteros_db::Db;
 use adapteros_server_api::config::PathsConfig;
 use adapteros_server_api::state::{ApiConfig, GeneralConfig, MetricsConfig};
@@ -338,7 +338,8 @@ async fn test_policy_update_creates_new_version() {
 
 #[test]
 fn test_strict_mode_derives_from_allow_fallback() {
-    use adapteros_server_api::inference_core::{compute_strict_mode, DeterminismMode};
+    use adapteros_core::determinism_mode::DeterminismMode;
+    use adapteros_server_api::inference_core::compute_strict_mode;
 
     // This test uses the PRODUCTION function compute_strict_mode()
     // which is called by route_and_infer() in inference_core.rs
@@ -477,7 +478,7 @@ fn create_test_config(global_determinism: Option<&str>, use_session_stack: bool)
             system_name: None,
             environment: None,
             api_base_url: None,
-            determinism_mode: Some(mode.to_string()),
+            determinism_mode: Some(DeterminismMode::from(mode)),
         }),
         server: Default::default(),
         security: Default::default(),
@@ -505,7 +506,8 @@ fn create_test_config(global_determinism: Option<&str>, use_session_stack: bool)
 
 #[tokio::test]
 async fn test_resolve_policy_global_only() {
-    use adapteros_server_api::inference_core::{resolve_tenant_execution_policy, DeterminismMode};
+    use adapteros_core::determinism_mode::DeterminismMode;
+    use adapteros_server_api::inference_core::resolve_tenant_execution_policy;
 
     let db = match setup_test_db().await {
         Ok(db) => db,
@@ -550,7 +552,8 @@ async fn test_resolve_policy_global_only() {
 
 #[tokio::test]
 async fn test_resolve_policy_tenant_override() {
-    use adapteros_server_api::inference_core::{resolve_tenant_execution_policy, DeterminismMode};
+    use adapteros_core::determinism_mode::DeterminismMode;
+    use adapteros_server_api::inference_core::resolve_tenant_execution_policy;
 
     let db = match setup_test_db().await {
         Ok(db) => db,
@@ -621,7 +624,8 @@ async fn test_resolve_policy_tenant_override() {
 
 #[tokio::test]
 async fn test_resolve_policy_stack_override() {
-    use adapteros_server_api::inference_core::{resolve_tenant_execution_policy, DeterminismMode};
+    use adapteros_core::determinism_mode::DeterminismMode;
+    use adapteros_server_api::inference_core::resolve_tenant_execution_policy;
 
     let db = match setup_test_db().await {
         Ok(db) => db,
@@ -735,7 +739,8 @@ async fn test_routing_knobs_derived() {
 
 #[tokio::test]
 async fn test_resolved_policy_struct_fields() {
-    use adapteros_server_api::inference_core::{resolve_tenant_execution_policy, DeterminismMode};
+    use adapteros_core::determinism_mode::DeterminismMode;
+    use adapteros_server_api::inference_core::resolve_tenant_execution_policy;
 
     let db = match setup_test_db().await {
         Ok(db) => db,

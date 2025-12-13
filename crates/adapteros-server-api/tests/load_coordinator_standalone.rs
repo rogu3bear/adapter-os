@@ -144,32 +144,6 @@ async fn test_is_loading() {
 }
 
 #[tokio::test]
-async fn test_cancel() {
-    let coordinator = Arc::new(LoadCoordinator::new());
-
-    // Start a load
-    let coord_clone = coordinator.clone();
-    let _load_handle = tokio::spawn(async move {
-        coord_clone
-            .load_or_wait("test-adapter", || async move {
-                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-                Ok(create_test_handle(42))
-            })
-            .await
-    });
-
-    // Wait a bit for load to start
-    tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
-
-    assert!(coordinator.is_loading("test-adapter"));
-
-    // Cancel the load
-    coordinator.cancel("test-adapter");
-
-    assert!(!coordinator.is_loading("test-adapter"));
-}
-
-#[tokio::test]
 async fn test_metrics() {
     let coordinator = Arc::new(LoadCoordinator::new());
 

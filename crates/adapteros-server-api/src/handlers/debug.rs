@@ -199,11 +199,15 @@ pub async fn debug_infer_with_mode(
         None,
     );
     if let Err(violation) = enforce_at_hook(&state, &routing_hook_ctx).await {
+        let code = violation
+            .code
+            .as_deref()
+            .unwrap_or("POLICY_HOOK_VIOLATION");
         return Err((
             StatusCode::FORBIDDEN,
             Json(
                 ErrorResponse::new("policy hook violation (pre-routing)")
-                    .with_code("POLICY_HOOK_VIOLATION")
+                    .with_code(code)
                     .with_string_details(violation.message),
             ),
         ));
@@ -218,11 +222,15 @@ pub async fn debug_infer_with_mode(
         adapters_requested.as_deref(),
     );
     if let Err(violation) = enforce_at_hook(&state, &hook_ctx).await {
+        let code = violation
+            .code
+            .as_deref()
+            .unwrap_or("POLICY_HOOK_VIOLATION");
         return Err((
             StatusCode::FORBIDDEN,
             Json(
                 ErrorResponse::new("policy hook violation")
-                    .with_code("POLICY_HOOK_VIOLATION")
+                    .with_code(code)
                     .with_string_details(violation.message),
             ),
         ));
@@ -288,11 +296,15 @@ pub async fn debug_infer_with_mode(
         adapters_requested.as_deref(),
     );
     if let Err(violation) = enforce_at_hook(&state, &after_hook_ctx).await {
+        let code = violation
+            .code
+            .as_deref()
+            .unwrap_or("POLICY_HOOK_VIOLATION");
         return Err((
             StatusCode::FORBIDDEN,
             Json(
                 ErrorResponse::new("policy hook violation (post-inference)")
-                    .with_code("POLICY_HOOK_VIOLATION")
+                    .with_code(code)
                     .with_string_details(violation.message),
             ),
         ));

@@ -20,23 +20,37 @@ use tracing::warn;
 // Routing Guard - Ensures all inference goes through the router
 // ============================================================================
 
-thread_local! {
-    static ROUTING_GUARD: std::cell::Cell<bool> = std::cell::Cell::new(false);
+// Use task-local storage instead of thread-local to survive async task migrations
+tokio::task_local! {
+    static ROUTING_GUARD: std::cell::Cell<bool>;
 }
 
 /// Mark that we're in a routed context (called by InferenceCore)
 pub fn enter_routed_context() {
-    ROUTING_GUARD.with(|g| g.set(true));
+    // For task-local, we set via scope() in run_with_routing_context
+    // This is kept for backward compatibility but is a no-op
+    let _ = ROUTING_GUARD.try_with(|g| g.set(true));
 }
 
 /// Clear routed context after request completes
 pub fn exit_routed_context() {
-    ROUTING_GUARD.with(|g| g.set(false));
+    // For task-local, context is cleared when scope exits
+    // This is kept for backward compatibility but is a no-op
+    let _ = ROUTING_GUARD.try_with(|g| g.set(false));
 }
 
 /// Check if currently in routed context
 pub fn is_routed_context() -> bool {
-    ROUTING_GUARD.with(|g| g.get())
+    ROUTING_GUARD.try_with(|g| g.get()).unwrap_or(false)
+}
+
+/// Run a future within a routed context. This ensures the routing guard
+/// is properly propagated across async task migrations.
+pub async fn run_with_routing_context<F, T>(f: F) -> T
+where
+    F: std::future::Future<Output = T>,
+{
+    ROUTING_GUARD.scope(std::cell::Cell::new(true), f).await
 }
 
 /// Error types for UDS client operations
@@ -824,6 +838,7 @@ mod tests {
             prompt: "Hello worker".to_string(),
             max_tokens: 128,
             require_evidence: true,
+            stop_policy: None,
             stack_id: Some("stack-42".to_string()),
             stack_version: Some(7),
             domain_hint: Some("aerospace".to_string()),

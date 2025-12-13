@@ -494,13 +494,19 @@ async fn try_adapter_response(state: &AppState, user_message: &str) -> Option<St
         placement: None,
         routing_policy: None,
         adapter_strength_overrides: None,
+        stop_policy: None,
     };
 
     // Send inference request via UDS
     let client = UdsClient::new(Duration::from_secs(60)); // Increased timeout for inference
     let adapter_desc = adapter_id.as_deref().unwrap_or("base_model");
 
-    match client.infer(&uds_path, request, None).await {
+    // Wrap in routing context to ensure task-local guard is set
+    match crate::uds_client::run_with_routing_context(
+        client.infer(&uds_path, request, None),
+    )
+    .await
+    {
         Ok(response) => {
             if response.status == "success" {
                 if let Some(text) = response.text {

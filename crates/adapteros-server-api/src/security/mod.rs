@@ -603,7 +603,7 @@ pub async fn upsert_user_session(
             device_id, rot_id, refresh_hash, locked, ip_address, user_agent, last_activity
          )
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-         ON CONFLICT(session_id) DO UPDATE SET
+         ON CONFLICT(jti) DO UPDATE SET
             device_id=excluded.device_id,
             rot_id=excluded.rot_id,
             refresh_hash=excluded.refresh_hash,

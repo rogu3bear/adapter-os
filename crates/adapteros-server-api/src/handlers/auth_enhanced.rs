@@ -1939,6 +1939,7 @@ pub async fn switch_tenant_handler(
             Json(
                 ErrorResponse::new("tenant access denied")
                     .with_code("TENANT_ACCESS_DENIED")
+                    .with_failure_code(adapteros_api_types::FailureCode::TenantAccessDenied)
                     .with_string_details(
                         "You have no role in this tenant. Request access from an admin.",
                     ),

@@ -1124,6 +1124,10 @@ pub struct WorkerInferRequest {
     /// Values multiply the adapter's configured lora_strength (default 1.0).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub adapter_strength_overrides: Option<std::collections::HashMap<String, f32>>,
+
+    /// Stop policy specification (PRD: Hard Deterministic Stop Controller)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stop_policy: Option<adapteros_api_types::inference::StopPolicySpec>,
 }
 
 /// Placement decision trace entry (per token)
@@ -1189,6 +1193,17 @@ pub struct WorkerInferResponse {
     /// Placement trace emitted by the worker (optional)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub placement_trace: Option<Vec<PlacementTraceEntry>>,
+
+    // Stop Controller Fields (PRD: Hard Deterministic Stop Controller)
+    /// Stop reason code explaining why generation terminated
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stop_reason_code: Option<adapteros_api_types::inference::StopReasonCode>,
+    /// Token index at which the stop decision was made
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stop_reason_token_index: Option<u32>,
+    /// BLAKE3 digest of the StopPolicySpec used (hex encoded)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stop_policy_digest_b3: Option<String>,
 }
 
 /// Worker trace
@@ -2787,6 +2802,10 @@ pub struct InferenceRequestInternal {
     /// Model identifier (if specific model requested)
     pub model: Option<String>,
 
+    // === Stop Controller ===
+    /// Stop policy specification (PRD: Hard Deterministic Stop Controller)
+    pub stop_policy: Option<adapteros_api_types::inference::StopPolicySpec>,
+
     // === Timing ===
     /// Request creation timestamp
     pub created_at: std::time::Instant,
@@ -2831,6 +2850,7 @@ impl InferenceRequestInternal {
             pinned_adapter_ids: None,
             chat_context_hash: None,
             model: None,
+            stop_policy: None,
             created_at: std::time::Instant::now(),
             worker_auth_token: None,
         }
@@ -2912,6 +2932,17 @@ pub struct InferenceResult {
     /// Placement trace returned by worker (optional)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub placement_trace: Option<Vec<PlacementTraceEntry>>,
+
+    // Stop Controller Fields (PRD: Hard Deterministic Stop Controller)
+    /// Stop reason code explaining why generation terminated
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stop_reason_code: Option<adapteros_api_types::inference::StopReasonCode>,
+    /// Token index at which the stop decision was made
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stop_reason_token_index: Option<u32>,
+    /// BLAKE3 digest of the StopPolicySpec used (hex encoded)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stop_policy_digest_b3: Option<String>,
 }
 
 /// Router decision record for audit trail
@@ -3066,6 +3097,38 @@ impl InferenceError {
             Self::AdapterNotFound(_) => "ADAPTER_NOT_FOUND",
         }
     }
+
+    /// Map to structured failure codes for observability.
+    pub fn failure_code(&self) -> Option<FailureCode> {
+        match self {
+            Self::PermissionDenied(_) => Some(FailureCode::TenantAccessDenied),
+            Self::BackpressureError(_) => Some(FailureCode::OutOfMemory),
+            Self::RoutingBypass(_) | Self::ModelNotReady(_) => Some(FailureCode::PolicyDivergence),
+            Self::WorkerError(msg) | Self::WorkerNotAvailable(msg) => {
+                let lower = msg.to_lowercase();
+                if lower.contains("out of memory") || lower.contains("oom") {
+                    Some(FailureCode::OutOfMemory)
+                } else if lower.contains("load") || lower.contains("model") {
+                    Some(FailureCode::ModelLoadFailed)
+                } else if lower.contains("fallback") {
+                    Some(FailureCode::BackendFallback)
+                } else {
+                    None
+                }
+            }
+            Self::Timeout(_) => None,
+            Self::ValidationError(_) => None,
+            Self::RagError(msg) => {
+                if msg.to_lowercase().contains("trace") {
+                    Some(FailureCode::TraceWriteFailed)
+                } else {
+                    None
+                }
+            }
+            Self::NoCompatibleWorker { .. } => Some(FailureCode::BackendFallback),
+            Self::AdapterNotFound(_) => None,
+        }
+    }
 }
 
 // ===== From Implementations for InferenceRequestInternal =====
@@ -3109,6 +3172,7 @@ impl From<(&InferRequest, &Claims)> for InferenceRequestInternal {
             pinned_adapter_ids: None, // Populated by InferenceCore from session
             chat_context_hash: None,
             model: req.model.clone(),
+            stop_policy: req.stop_policy.clone(),
             created_at: std::time::Instant::now(),
             worker_auth_token: None,
         }
@@ -3135,6 +3199,7 @@ impl From<InferenceResult> for InferResponse {
             tokens_generated: result.tokens_generated,
             finish_reason: result.finish_reason,
             latency_ms: result.latency_ms,
+            run_receipt: None,
             adapters_used: result.adapters_used.clone(),
             citations: result.citations,
             trace: InferenceTrace {
@@ -3160,6 +3225,7 @@ impl From<InferenceResult> for InferResponse {
                             entropy_floor: 0.02, // Default entropy floor
                             stack_hash: None,
                             interval_id: rd.interval_id.clone(),
+                            allowed_mask: None,
                             policy_mask_digest: None,
                             policy_overrides_applied: None,
                         }
@@ -3167,6 +3233,7 @@ impl From<InferenceResult> for InferResponse {
                     .collect(),
                 router_decision_chain: result.router_decision_chain,
                 latency_ms: result.latency_ms,
+                fusion_intervals: None,
             },
             model: None,
             prompt_tokens: None,
@@ -3181,6 +3248,10 @@ impl From<InferenceResult> for InferResponse {
             fallback_triggered: result.fallback_triggered,
             determinism_mode_applied: result.determinism_mode_applied,
             replay_guarantee: result.replay_guarantee,
+            // Stop Controller fields
+            stop_reason_code: result.stop_reason_code,
+            stop_reason_token_index: result.stop_reason_token_index,
+            stop_policy_digest_b3: result.stop_policy_digest_b3,
         }
     }
 }
@@ -3191,10 +3262,12 @@ impl From<InferenceError> for (axum::http::StatusCode, axum::Json<ErrorResponse>
         let status = err.status_code();
         let code = err.error_code();
         let message = err.to_string();
-        (
-            status,
-            axum::Json(ErrorResponse::new(&message).with_code(code)),
-        )
+        let failure_code = err.failure_code();
+        let mut response = ErrorResponse::new(&message).with_code(code);
+        if let Some(fc) = failure_code {
+            response = response.with_failure_code(fc);
+        }
+        (status, axum::Json(response))
     }
 }
 

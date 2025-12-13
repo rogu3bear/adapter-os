@@ -569,6 +569,77 @@ pub async fn activate_stack(
         internal_error(format!("Invalid adapter list in stack '{}': {}", name, e))
     })?;
 
+    // Validate attach mode for each adapter in the stack
+    // If an adapter requires dataset scope, check that the stack provides it
+    for adapter_id in &adapter_ids {
+        if let Some((attach_mode, required_scope_id)) = state
+            .db
+            .get_adapter_version_attach_mode(&tenant_id, adapter_id)
+            .await
+            .map_err(|e| {
+                warn!(
+                    adapter_id = %adapter_id,
+                    error = %e,
+                    "Failed to get attach mode for adapter"
+                );
+                db_error(e)
+            })?
+        {
+            if attach_mode == "requires_dataset" {
+                // Check if stack has dataset context configured in metadata
+                let stack_dataset_version_id = stack
+                    .metadata_json
+                    .as_ref()
+                    .and_then(|m| serde_json::from_str::<serde_json::Value>(m).ok())
+                    .and_then(|v| v.get("dataset_version_id").and_then(|d| d.as_str()).map(|s| s.to_string()))
+                    .filter(|s| !s.is_empty());
+
+                match (stack_dataset_version_id, &required_scope_id) {
+                    (None, Some(required)) => {
+                        warn!(
+                            adapter_id = %adapter_id,
+                            required_scope = %required,
+                            stack_id = %id,
+                            "Adapter requires dataset scope but stack has none configured"
+                        );
+                        return Err((
+                            StatusCode::BAD_REQUEST,
+                            Json(
+                                ErrorResponse::new(&format!(
+                                    "Adapter '{}' requires dataset context (dataset_version_id: {}). \
+                                     Configure stack metadata with dataset_version_id to activate.",
+                                    adapter_id, required
+                                ))
+                                .with_code("ATTACH_MODE_VIOLATION"),
+                            ),
+                        ));
+                    }
+                    (Some(provided), Some(required)) if &provided != required => {
+                        warn!(
+                            adapter_id = %adapter_id,
+                            required_scope = %required,
+                            provided_scope = %provided,
+                            stack_id = %id,
+                            "Adapter requires specific dataset version but stack provides different one"
+                        );
+                        return Err((
+                            StatusCode::BAD_REQUEST,
+                            Json(
+                                ErrorResponse::new(&format!(
+                                    "Adapter '{}' requires dataset version '{}'. \
+                                     Stack is configured with '{}'.",
+                                    adapter_id, required, provided
+                                ))
+                                .with_code("ATTACH_MODE_MISMATCH"),
+                            ),
+                        ));
+                    }
+                    _ => {} // OK: free mode, or dataset context matches
+                }
+            }
+        }
+    }
+
     // Persist lifecycle transition to Active for this stack
     state
         .db
@@ -798,6 +869,107 @@ pub async fn activate_stack(
         "adapter_count": adapter_ids.len(),
         "previous_stack": previous_stack,
     })))
+}
+
+/// Response for clearing adapters from a stack
+#[derive(Serialize, ToSchema)]
+pub struct ClearStackAdaptersResponse {
+    pub message: String,
+    pub stack_id: String,
+    pub previous_adapter_count: usize,
+    pub adapters_removed: Vec<String>,
+}
+
+/// Clear all adapters from a stack
+#[utoipa::path(
+    post,
+    path = "/v1/adapter-stacks/{id}/clear-adapters",
+    params(
+        ("id" = String, Path, description = "Stack ID")
+    ),
+    responses(
+        (status = 200, description = "Adapters cleared from stack", body = ClearStackAdaptersResponse),
+        (status = 404, description = "Stack not found"),
+        (status = 500, description = "Internal server error")
+    )
+)]
+pub async fn clear_stack_adapters(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(id): Path<String>,
+) -> Result<Json<ClearStackAdaptersResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::AdapterRegister)?;
+
+    let tenant_id = claims.tenant_id.clone();
+
+    // First verify the stack exists and get current adapter list
+    let stack = state
+        .db
+        .get_stack(&tenant_id, &id)
+        .await
+        .map_err(db_error)?
+        .ok_or_else(|| not_found("Stack"))?;
+
+    // CRITICAL: Validate tenant isolation to prevent cross-tenant access
+    validate_tenant_isolation(&claims, &stack.tenant_id)?;
+
+    // Parse current adapter IDs
+    let previous_adapter_ids: Vec<String> = serde_json::from_str(&stack.adapter_ids_json)
+        .map_err(|e| internal_error(format!("Failed to parse adapter IDs: {}", e)))?;
+
+    let previous_adapter_count = previous_adapter_ids.len();
+
+    info!(
+        tenant_id = %tenant_id,
+        stack_id = %id,
+        adapter_count = previous_adapter_count,
+        "Clearing adapters from stack"
+    );
+
+    // Create update request with empty adapter list
+    let update_req = adapteros_db::traits::CreateStackRequest {
+        tenant_id: tenant_id.clone(),
+        name: stack.name.clone(),
+        description: stack.description.clone(),
+        adapter_ids: vec![], // Empty adapter list
+        workflow_type: stack.workflow_type.clone(),
+        determinism_mode: stack.determinism_mode.clone(),
+        routing_determinism_mode: stack.routing_determinism_mode.clone(),
+    };
+
+    // Update the stack with empty adapters
+    state
+        .db
+        .update_stack(&id, &update_req)
+        .await
+        .map_err(db_error)?;
+
+    info!(
+        tenant_id = %tenant_id,
+        stack_id = %id,
+        removed_count = previous_adapter_count,
+        "Cleared adapters from stack"
+    );
+
+    // Audit log: stack adapters cleared
+    let _ = crate::audit_helper::log_success(
+        &state.db,
+        &claims,
+        "stack.clear_adapters",
+        crate::audit_helper::resources::ADAPTER_STACK,
+        Some(&id),
+    )
+    .await;
+
+    Ok(Json(ClearStackAdaptersResponse {
+        message: format!(
+            "Cleared {} adapter(s) from stack '{}'",
+            previous_adapter_count, stack.name
+        ),
+        stack_id: id,
+        previous_adapter_count,
+        adapters_removed: previous_adapter_ids,
+    }))
 }
 
 /// Deactivate the current adapter stack

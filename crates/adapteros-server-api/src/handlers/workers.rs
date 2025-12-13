@@ -469,6 +469,8 @@ pub async fn register_worker(
                 worker_id: req.worker_id,
                 rejection_reason: Some(format!("Plan not found: {}", req.plan_id)),
                 heartbeat_interval_secs: 30,
+                kv_quota_bytes: None,
+                kv_residency_policy_id: None,
             }));
         }
     };
@@ -500,6 +502,8 @@ pub async fn register_worker(
                 plan.manifest_hash_b3, req.manifest_hash
             )),
             heartbeat_interval_secs: 30,
+            kv_quota_bytes: None,
+            kv_residency_policy_id: None,
         }));
     }
 
@@ -519,13 +523,37 @@ pub async fn register_worker(
                 req.schema_version, API_SCHEMA_VERSION
             )),
             heartbeat_interval_secs: 30,
+            kv_quota_bytes: None,
+            kv_residency_policy_id: None,
         }));
     }
 
-    // 5. Get node_id from plan's tenant (for single-node, use "local")
+    // 5. Get tenant for KV quota information
+    let tenant = state
+        .db
+        .get_tenant(&req.tenant_id)
+        .await
+        .map_err(|e| db_error_msg("failed to fetch tenant", e))?;
+
+    let (kv_quota_bytes, kv_residency_policy_id) = match tenant {
+        Some(t) => {
+            let quota = t.max_kv_cache_bytes.map(|bytes| bytes as u64);
+            (quota, t.kv_residency_policy_id)
+        }
+        None => {
+            warn!(
+                worker_id = %req.worker_id,
+                tenant_id = %req.tenant_id,
+                "Tenant not found during worker registration, using default KV quota (unlimited)"
+            );
+            (None, None)
+        }
+    };
+
+    // 6. Get node_id from plan's tenant (for single-node, use "local")
     let node_id = "local".to_string();
 
-    // 6. Register worker in database
+    // 7. Register worker in database
     let params = WorkerRegistrationParams {
         worker_id: req.worker_id.clone(),
         tenant_id: req.tenant_id.clone(),
@@ -551,7 +579,7 @@ pub async fn register_worker(
         "Worker registered successfully with status 'registered'"
     );
 
-    // 7. Log successful registration (via tracing since no Claims available)
+    // 8. Log successful registration (via tracing since no Claims available)
     info!(
         event = "worker.registered",
         worker_id = %req.worker_id,
@@ -561,6 +589,8 @@ pub async fn register_worker(
         schema_version = %req.schema_version,
         api_version = %req.api_version,
         capabilities = ?req.capabilities,
+        kv_quota_bytes = ?kv_quota_bytes,
+        kv_residency_policy_id = ?kv_residency_policy_id,
         "Worker registration successful"
     );
 
@@ -580,6 +610,8 @@ pub async fn register_worker(
         worker_id: req.worker_id,
         rejection_reason: None,
         heartbeat_interval_secs: 30,
+        kv_quota_bytes,
+        kv_residency_policy_id,
     }))
 }
 

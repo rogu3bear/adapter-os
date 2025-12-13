@@ -208,6 +208,9 @@ pub fn has_permission(role: &Role, permission: Permission) -> bool {
         // Admin has all permissions
         (Role::Admin, _) => true,
 
+        // Developer has all permissions (full access for development)
+        (Role::Developer, _) => true,
+
         // ========== VIEWER ROLE ==========
         // Strict read-only access - no write operations
         (Role::Viewer, Permission::AdapterList) => true,
@@ -388,10 +391,10 @@ pub fn require_permission(claims: &Claims, permission: Permission) -> Result<(),
         warn!(
             user_id = %claims.sub,
             role = %claims.role,
-            "Invalid role in JWT claims - valid roles are: admin, operator, sre, compliance, viewer"
+            "Invalid role in JWT claims - valid roles are: admin, developer, operator, sre, compliance, viewer"
         );
         ApiError::bad_request("invalid role in authentication token").with_details(format!(
-            "role '{}' is not valid, expected one of: admin, operator, sre, compliance, viewer",
+            "role '{}' is not valid, expected one of: admin, developer, operator, sre, compliance, viewer",
             claims.role
         ))
     })?;
@@ -439,10 +442,10 @@ pub fn require_any_permission(claims: &Claims, permissions: &[Permission]) -> Re
         warn!(
             user_id = %claims.sub,
             role = %claims.role,
-            "Invalid role in JWT claims - valid roles are: admin, operator, sre, compliance, viewer"
+            "Invalid role in JWT claims - valid roles are: admin, developer, operator, sre, compliance, viewer"
         );
         ApiError::bad_request("invalid role in authentication token").with_details(format!(
-            "role '{}' is not valid, expected one of: admin, operator, sre, compliance, viewer",
+            "role '{}' is not valid, expected one of: admin, developer, operator, sre, compliance, viewer",
             claims.role
         ))
     })?;
@@ -469,15 +472,16 @@ pub fn require_any_role(claims: &Claims, roles: &[Role]) -> Result<(), ApiError>
         warn!(
             user_id = %claims.sub,
             role = %claims.role,
-            "Invalid role in JWT claims - valid roles are: admin, operator, sre, compliance, viewer"
+            "Invalid role in JWT claims - valid roles are: admin, developer, operator, sre, compliance, viewer"
         );
         ApiError::bad_request("invalid role in authentication token").with_details(format!(
-            "role '{}' is not valid, expected one of: admin, operator, sre, compliance, viewer",
+            "role '{}' is not valid, expected one of: admin, developer, operator, sre, compliance, viewer",
             claims.role
         ))
     })?;
 
-    if user_role == Role::Admin || roles.contains(&user_role) {
+    // Admin and Developer bypass all role checks
+    if user_role == Role::Admin || user_role == Role::Developer || roles.contains(&user_role) {
         return Ok(());
     }
 

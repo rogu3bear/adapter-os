@@ -2478,6 +2478,7 @@ pub async fn complete_chunked_upload(
                     }
                 ),
                 code: "UPLOAD_INCOMPLETE".to_string(),
+                failure_code: None,
                 details: None,
             }),
         ));

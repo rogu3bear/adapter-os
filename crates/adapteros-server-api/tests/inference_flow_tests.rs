@@ -161,6 +161,9 @@ async fn ready_model_happy_path_inference_and_routing() {
         unavailable_pinned_adapters: Some(vec!["missing-pin".to_string()]),
         pinned_routing_fallback: Some("stack_only".to_string()),
         placement_trace: None,
+        stop_reason_code: None,
+        stop_reason_token_index: None,
+        stop_policy_digest_b3: None,
     };
 
     let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();

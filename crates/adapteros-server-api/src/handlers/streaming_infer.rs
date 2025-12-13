@@ -106,6 +106,9 @@ pub struct StreamingInferRequest {
     /// Effective adapter IDs (control-plane computed; ignored from clients)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub effective_adapter_ids: Option<Vec<String>>,
+    /// Stop policy specification (PRD: Hard Deterministic Stop Controller)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stop_policy: Option<adapteros_api_types::inference::StopPolicySpec>,
 }
 
 impl From<(&StreamingInferRequest, &Claims)> for InferenceRequestInternal {
@@ -143,6 +146,7 @@ impl From<(&StreamingInferRequest, &Claims)> for InferenceRequestInternal {
             pinned_adapter_ids: None, // Looked up from session in route_and_infer if session_id is set
             chat_context_hash: None,  // Set later after build_chat_prompt
             model: req.model.clone(),
+            stop_policy: req.stop_policy.clone(),
             created_at: std::time::Instant::now(),
             router_seed: None, // Use default router behavior for streaming
             worker_auth_token: None,
@@ -186,6 +190,15 @@ pub struct StreamingChoice {
     /// Finish reason (null until complete)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub finish_reason: Option<String>,
+    /// Stop reason code explaining why generation terminated (PRD: Hard Deterministic Stop Controller)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stop_reason_code: Option<adapteros_api_types::inference::StopReasonCode>,
+    /// Token index at which the stop decision was made
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stop_reason_token_index: Option<u32>,
+    /// BLAKE3 digest of the StopPolicySpec used (hex encoded)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stop_policy_digest_b3: Option<String>,
 }
 
 /// Delta containing new content
@@ -239,6 +252,15 @@ pub enum InferenceEvent {
         /// Citations attached to the response
         #[serde(skip_serializing_if = "Option::is_none")]
         citations: Option<Vec<adapteros_api_types::inference::Citation>>,
+        /// Stop reason code (PRD: Hard Deterministic Stop Controller)
+        #[serde(skip_serializing_if = "Option::is_none")]
+        stop_reason_code: Option<adapteros_api_types::inference::StopReasonCode>,
+        /// Token index at which the stop decision was made
+        #[serde(skip_serializing_if = "Option::is_none")]
+        stop_reason_token_index: Option<u32>,
+        /// BLAKE3 digest of the StopPolicySpec used (hex encoded)
+        #[serde(skip_serializing_if = "Option::is_none")]
+        stop_policy_digest_b3: Option<String>,
     },
     /// Error occurred
     Error { message: String, recoverable: bool },
@@ -377,11 +399,12 @@ pub async fn streaming_infer_with_progress(
         None, // No adapter selected yet
     );
     if let Err(violation) = enforce_at_hook(&state, &routing_hook_ctx).await {
+        let code = violation.code.as_deref().unwrap_or("POLICY_HOOK_VIOLATION");
         return Err((
             StatusCode::FORBIDDEN,
             Json(
                 ErrorResponse::new("policy hook violation (pre-routing)")
-                    .with_code("POLICY_HOOK_VIOLATION")
+                    .with_code(code)
                     .with_string_details(violation.message),
             ),
         ));
@@ -396,11 +419,12 @@ pub async fn streaming_infer_with_progress(
         Some(&adapter_id),
     );
     if let Err(violation) = enforce_at_hook(&state, &hook_ctx).await {
+        let code = violation.code.as_deref().unwrap_or("POLICY_HOOK_VIOLATION");
         return Err((
             StatusCode::FORBIDDEN,
             Json(
                 ErrorResponse::new("policy hook violation")
-                    .with_code("POLICY_HOOK_VIOLATION")
+                    .with_code(code)
                     .with_string_details(violation.message),
             ),
         ));
@@ -564,11 +588,12 @@ pub async fn streaming_infer(
         None, // No adapter selected yet
     );
     if let Err(violation) = enforce_at_hook(&state, &routing_hook_ctx).await {
+        let code = violation.code.as_deref().unwrap_or("POLICY_HOOK_VIOLATION");
         return Err((
             StatusCode::FORBIDDEN,
             Json(
                 ErrorResponse::new("policy hook violation (pre-routing)")
-                    .with_code("POLICY_HOOK_VIOLATION")
+                    .with_code(code)
                     .with_string_details(violation.message),
             ),
         ));
@@ -576,19 +601,32 @@ pub async fn streaming_infer(
 
     // Enforce policies at OnBeforeInference hook
     let adapter_id = req.adapters.as_ref().and_then(|a| a.first()).cloned();
+    let adapter_ids_sorted: Option<Vec<String>> = req.adapters.as_ref().map(|ids| {
+        let mut ids = ids.clone();
+        ids.sort();
+        ids
+    });
+
     let hook_ctx = create_hook_context(
         &claims,
         &request_id,
         PolicyHook::OnBeforeInference,
         "inference",
         adapter_id.as_deref(),
+    )
+    // P0 audit-correctness: preserve full adapter ID set deterministically.
+    // This avoids weakening policy auditability when multiple adapters are requested.
+    .with_metadata(
+        "adapter_ids",
+        serde_json::json!(adapter_ids_sorted.clone().unwrap_or_default()),
     );
     if let Err(violation) = enforce_at_hook(&state, &hook_ctx).await {
+        let code = violation.code.as_deref().unwrap_or("POLICY_HOOK_VIOLATION");
         return Err((
             StatusCode::FORBIDDEN,
             Json(
                 ErrorResponse::new("policy hook violation")
-                    .with_code("POLICY_HOOK_VIOLATION")
+                    .with_code(code)
                     .with_string_details(violation.message),
             ),
         ));
@@ -869,6 +907,12 @@ struct LoadingStreamState {
     unavailable_pinned_adapters: Option<Vec<String>>,
     /// Routing fallback mode
     pinned_routing_fallback: Option<String>,
+    /// Stop reason code (PRD: Hard Deterministic Stop Controller)
+    stop_reason_code: Option<adapteros_api_types::inference::StopReasonCode>,
+    /// Token index at which the stop decision was made
+    stop_reason_token_index: Option<u32>,
+    /// BLAKE3 digest of the StopPolicySpec used (hex encoded)
+    stop_policy_digest_b3: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -901,6 +945,9 @@ impl LoadingStreamState {
             request_id,
             unavailable_pinned_adapters: None,
             pinned_routing_fallback: None,
+            stop_reason_code: None,
+            stop_reason_token_index: None,
+            stop_policy_digest_b3: None,
         }
     }
 
@@ -1056,6 +1103,9 @@ impl LoadingStreamState {
                             } else {
                                 Some(citations)
                             },
+                            stop_reason_code: self.stop_reason_code.clone(),
+                            stop_reason_token_index: self.stop_reason_token_index,
+                            stop_policy_digest_b3: self.stop_policy_digest_b3.clone(),
                         })
                     }
                     Err(e) => {
@@ -1266,6 +1316,11 @@ impl LoadingStreamState {
                 self.unavailable_pinned_adapters = result.unavailable_pinned_adapters.clone();
                 self.pinned_routing_fallback = result.pinned_routing_fallback.clone();
 
+                // Store stop controller metadata (PRD: Hard Deterministic Stop Controller)
+                self.stop_reason_code = result.stop_reason_code.clone();
+                self.stop_reason_token_index = result.stop_reason_token_index;
+                self.stop_policy_digest_b3 = result.stop_policy_digest_b3.clone();
+
                 // Mark as complete after returning the response
                 self.phase = LoadingPhase::Complete;
                 Ok(Some(result.text))
@@ -1316,6 +1371,10 @@ struct StreamState {
     after_hook_fired: bool,
     // BLAKE3 hash of chat context for replay metadata
     chat_context_hash: Option<String>,
+    // Stop controller metadata (PRD: Hard Deterministic Stop Controller)
+    stop_reason_code: Option<adapteros_api_types::inference::StopReasonCode>,
+    stop_reason_token_index: Option<u32>,
+    stop_policy_digest_b3: Option<String>,
 }
 
 /// Maximum size for words buffer to prevent unbounded growth
@@ -1365,6 +1424,9 @@ impl StreamState {
             session_id,
             adapters,
             chat_context_hash,
+            stop_reason_code: None,
+            stop_reason_token_index: None,
+            stop_policy_digest_b3: None,
         }
     }
 
@@ -1469,7 +1531,7 @@ impl StreamState {
         }
     }
 
-    async fn generate_response(&self) -> Result<String, String> {
+    async fn generate_response(&mut self) -> Result<String, String> {
         // Use InferenceCore for all inference - single unified path
         // This ensures routing enforcement, RAG, evidence recording, and session activity
         // are all handled consistently.
@@ -1509,6 +1571,7 @@ impl StreamState {
             chat_context_hash: self.chat_context_hash.clone(),
             adapter_strength_overrides: None,
             model: Some(self.model_name.clone()),
+            stop_policy: None, // StreamState doesn't carry stop_policy yet
             created_at: std::time::Instant::now(),
             worker_auth_token: None,
         };
@@ -1523,6 +1586,12 @@ impl StreamState {
                     adapters_used = ?result.adapters_used,
                     "Received inference response via InferenceCore"
                 );
+
+                // Store stop controller metadata (PRD: Hard Deterministic Stop Controller)
+                self.stop_reason_code = result.stop_reason_code.clone();
+                self.stop_reason_token_index = result.stop_reason_token_index;
+                self.stop_policy_digest_b3 = result.stop_policy_digest_b3.clone();
+
                 Ok(result.text)
             }
             Err(e) => {
@@ -1548,6 +1617,9 @@ impl StreamState {
                             content: None,
                         },
                         finish_reason: None,
+                        stop_reason_code: None,
+                        stop_reason_token_index: None,
+                        stop_policy_digest_b3: None,
                     }],
                 };
                 Event::default().data(serialize_safe(&chunk, "stream_start"))
@@ -1566,6 +1638,9 @@ impl StreamState {
                             content: Some(content),
                         },
                         finish_reason: None,
+                        stop_reason_code: None,
+                        stop_reason_token_index: None,
+                        stop_policy_digest_b3: None,
                     }],
                 };
                 Event::default().data(serialize_safe(&chunk, "stream_token"))
@@ -1581,6 +1656,14 @@ impl StreamState {
                 let user_id = self.user_id.clone();
                 let request_id = self.request_id.clone();
                 let adapter_id = self.adapters.as_ref().and_then(|a| a.first()).cloned();
+                let adapter_ids_sorted: Vec<String> = self
+                    .adapters
+                    .clone()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .collect();
+                let mut adapter_ids_sorted = adapter_ids_sorted;
+                adapter_ids_sorted.sort();
 
                 tokio::spawn(async move {
                     let hook_ctx = create_hook_context(
@@ -1607,7 +1690,9 @@ impl StreamState {
                         PolicyHook::OnAfterInference,
                         "streaming_inference",
                         adapter_id.as_deref(),
-                    );
+                    )
+                    // P0 audit-correctness: include the full adapter ID set deterministically.
+                    .with_metadata("adapter_ids", serde_json::json!(adapter_ids_sorted));
 
                     if let Err(violation) = enforce_at_hook(&state_clone, &hook_ctx).await {
                         // Log but don't fail - tokens already sent to client
@@ -1633,6 +1718,9 @@ impl StreamState {
                             content: None,
                         },
                         finish_reason: Some(finish_reason),
+                        stop_reason_code: self.stop_reason_code.clone(),
+                        stop_reason_token_index: self.stop_reason_token_index,
+                        stop_policy_digest_b3: self.stop_policy_digest_b3.clone(),
                     }],
                 };
                 let chunk_json = serialize_safe(&chunk, "stream_done");
@@ -1689,6 +1777,9 @@ mod tests {
                     content: Some("Hello".to_string()),
                 },
                 finish_reason: None,
+                stop_reason_code: None,
+                stop_reason_token_index: None,
+                stop_policy_digest_b3: None,
             }],
         };
 
@@ -1712,6 +1803,9 @@ mod tests {
                     content: None,
                 },
                 finish_reason: Some("stop".to_string()),
+                stop_reason_code: None,
+                stop_reason_token_index: None,
+                stop_policy_digest_b3: None,
             }],
         };
 
@@ -1789,6 +1883,9 @@ mod tests {
             unavailable_pinned_adapters: None,
             pinned_routing_fallback: None,
             citations: None,
+            stop_reason_code: None,
+            stop_reason_token_index: None,
+            stop_policy_digest_b3: None,
         };
 
         let json = serde_json::to_string(&event).unwrap();
@@ -1805,6 +1902,9 @@ mod tests {
             unavailable_pinned_adapters: Some(vec!["pin-1".to_string(), "pin-2".to_string()]),
             pinned_routing_fallback: Some("stack_only".to_string()),
             citations: None,
+            stop_reason_code: None,
+            stop_reason_token_index: None,
+            stop_policy_digest_b3: None,
         };
 
         let json = serde_json::to_string(&event).unwrap();
@@ -1940,6 +2040,7 @@ mod tests {
             routing_determinism_mode: None,
             session_id: Some("test-session".to_string()),
             effective_adapter_ids: None,
+            stop_policy: None,
         };
 
         // Create mock claims
@@ -2016,6 +2117,7 @@ mod tests {
             routing_determinism_mode: None,
             session_id: None,
             effective_adapter_ids: None,
+            stop_policy: None,
         };
 
         let claims = Claims {

@@ -29,6 +29,7 @@ pub mod middleware_security;
 pub mod model_status;
 pub mod operation_tracker;
 pub mod permissions;
+pub mod prefix_resolver;
 pub mod plugin_registry;
 pub mod reconciler;
 pub mod request_id;
@@ -69,7 +70,9 @@ pub use telemetry::{
 };
 pub use telemetry_ext::StackMetadataExt;
 pub use types::*;
-pub use uds_client::{enter_routed_context, exit_routed_context, UdsClient, UdsClientError};
+pub use uds_client::{
+    enter_routed_context, exit_routed_context, run_with_routing_context, UdsClient, UdsClientError,
+};
 pub use worker_health::{
     HealthConfig, WorkerHealthMonitor, WorkerHealthStatus, WorkerHealthSummary,
 };

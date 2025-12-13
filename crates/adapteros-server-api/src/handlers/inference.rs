@@ -19,7 +19,12 @@ use crate::middleware::ApiKeyToken;
 use crate::permissions::Permission;
 use crate::state::AppState;
 use crate::types::{ErrorResponse, InferRequest, InferResponse, InferenceRequestInternal};
+use adapteros_api_types::FailureCode;
 use adapteros_core::identity::IdentityEnvelope;
+use adapteros_core::telemetry::{
+    determinism_violation_event, emit_observability_event, STRICT_DETERMINISM_METRIC,
+};
+use adapteros_core::DeterminismViolationKind;
 use adapteros_policy::hooks::PolicyHook;
 use axum::{extract::State, http::StatusCode, Extension, Json};
 use tracing::{info, warn};
@@ -88,11 +93,13 @@ pub async fn infer(
         None, // No adapter selected yet
     );
     if let Err(violation) = enforce_at_hook(&state, &routing_hook_ctx).await {
+        let code = violation.code.as_deref().unwrap_or("POLICY_HOOK_VIOLATION");
         return Err((
             StatusCode::FORBIDDEN,
             Json(
                 ErrorResponse::new("policy hook violation (pre-routing)")
-                    .with_code("POLICY_HOOK_VIOLATION")
+                    .with_code(code)
+                    .with_failure_code(FailureCode::PolicyDivergence)
                     .with_string_details(violation.message),
             ),
         ));
@@ -107,11 +114,13 @@ pub async fn infer(
         adapters_requested.as_deref(),
     );
     if let Err(violation) = enforce_at_hook(&state, &hook_ctx).await {
+        let code = violation.code.as_deref().unwrap_or("POLICY_HOOK_VIOLATION");
         return Err((
             StatusCode::FORBIDDEN,
             Json(
                 ErrorResponse::new("policy hook violation")
-                    .with_code("POLICY_HOOK_VIOLATION")
+                    .with_code(code)
+                    .with_failure_code(FailureCode::PolicyDivergence)
                     .with_string_details(violation.message),
             ),
         ));
@@ -158,21 +167,58 @@ pub async fn infer(
 
     // Execute via InferenceCore - this is the single entry point for all inference
     let core = InferenceCore::new(&state);
-    let result = core.route_and_infer(internal, None).await.map_err(|e| {
-        // Log failure to audit trail
-        let _ = crate::audit_helper::log_failure(
-            &state.db,
-            &claims,
-            crate::audit_helper::actions::INFERENCE_EXECUTE,
-            crate::audit_helper::resources::ADAPTER,
-            adapters_requested.as_deref(),
-            &e.to_string(),
-        );
-        // Don't await the audit log, just fire and forget
+    let result = match core.route_and_infer(internal, None).await {
+        Ok(result) => result,
+        Err(e) => {
+            let failure_code = e.failure_code().map(|c| c.as_str().to_string());
+            tracing::error!(
+                target: "inference",
+                code = %failure_code.as_deref().unwrap_or("INTERNAL_ERROR"),
+                request_id = %request_id_str,
+                tenant_id = %claims.tenant_id,
+                error = %e,
+                "Inference failed"
+            );
 
-        // Convert InferenceError to HTTP error response
-        <(StatusCode, Json<ErrorResponse>)>::from(e)
-    })?;
+            // Log failure to audit trail
+            let _ = crate::audit_helper::log_failure(
+                &state.db,
+                &claims,
+                crate::audit_helper::actions::INFERENCE_EXECUTE,
+                crate::audit_helper::resources::ADAPTER,
+                adapters_requested.as_deref(),
+                &e.to_string(),
+            );
+
+            if matches!(
+                e,
+                crate::types::InferenceError::WorkerError(_)
+                    | crate::types::InferenceError::RoutingBypass(_)
+            ) {
+                let msg = e.to_string();
+                if msg.contains("DeterminismViolation") || msg.contains("strict") {
+                    let event = determinism_violation_event(
+                        DeterminismViolationKind::Unknown,
+                        None,
+                        None,
+                        None,
+                        true,
+                        Some(claims.tenant_id.clone()),
+                        Some(request_id_str.clone()),
+                    );
+                    emit_observability_event(&event);
+                    let metrics_registry = state.metrics_registry.clone();
+                    tokio::spawn(async move {
+                        let _ = metrics_registry
+                            .record_metric(STRICT_DETERMINISM_METRIC.to_string(), 1.0)
+                            .await;
+                    });
+                }
+            }
+
+            return Err(<(StatusCode, Json<ErrorResponse>)>::from(e));
+        }
+    };
 
     // PRD-06: Enforce policies at OnAfterInference hook (e.g., Evidence, Refusal)
     let after_hook_ctx = create_hook_context(
@@ -183,11 +229,13 @@ pub async fn infer(
         adapters_requested.as_deref(),
     );
     if let Err(violation) = enforce_at_hook(&state, &after_hook_ctx).await {
+        let code = violation.code.as_deref().unwrap_or("POLICY_HOOK_VIOLATION");
         return Err((
             StatusCode::FORBIDDEN,
             Json(
                 ErrorResponse::new("policy hook violation (post-inference)")
-                    .with_code("POLICY_HOOK_VIOLATION")
+                    .with_code(code)
+                    .with_failure_code(FailureCode::PolicyDivergence)
                     .with_string_details(violation.message),
             ),
         ));

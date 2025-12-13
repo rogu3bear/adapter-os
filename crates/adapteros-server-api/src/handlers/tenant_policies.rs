@@ -11,6 +11,7 @@ use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
 use crate::types::ErrorResponse;
+use adapteros_db::policy_audit::{is_audit_chain_divergence, AUDIT_CHAIN_DIVERGED_CODE};
 use axum::{
     extract::{Extension, Path, Query, State},
     http::StatusCode,
@@ -214,6 +215,16 @@ pub async fn toggle_tenant_policy(
         .toggle_tenant_policy(&tenant_id, &policy_pack_id, req.enabled, &claims.sub)
         .await
         .map_err(|e| {
+            if is_audit_chain_divergence(&e) {
+                return (
+                    StatusCode::CONFLICT,
+                    Json(
+                        ErrorResponse::new("policy audit chain diverged")
+                            .with_code(AUDIT_CHAIN_DIVERGED_CODE)
+                            .with_string_details(e.to_string()),
+                    ),
+                );
+            }
             // Check if it's a "not found" case
             if e.to_string().contains("not found") || e.to_string().contains("0 rows") {
                 (

@@ -91,8 +91,9 @@ fn map_router_decisions(events: &[ApiRouterDecision]) -> Vec<RouterDecision> {
             entropy_floor: d.entropy_floor as f64,
             stack_hash: d.stack_hash.clone(),
             interval_id: d.interval_id.clone(),
-            policy_mask_digest: d.policy_mask_digest,
-            policy_overrides_applied: d.policy_overrides_applied.clone(),
+            allowed_mask: None,
+            policy_mask_digest: None,
+            policy_overrides_applied: None,
         })
         .collect()
 }
@@ -120,8 +121,6 @@ fn map_router_decision_chain(
                 }),
                 previous_hash: e.previous_hash,
                 entry_hash: e.entry_hash,
-                policy_mask_digest: e.policy_mask_digest,
-                policy_overrides_applied: e.policy_overrides_applied,
             })
             .collect()
     })
@@ -147,9 +146,6 @@ fn validate_pinned_within_effective_set(
     }
     Ok(())
 }
-
-// Re-export shared DeterminismMode to preserve public API surface.
-pub use adapteros_core::determinism_mode::DeterminismMode;
 
 /// Resolve determinism mode using stack > tenant > global precedence
 pub fn resolve_determinism_mode(
@@ -712,14 +708,6 @@ impl<'a> InferenceCore<'a> {
         }
         let base_model_id = aggregated.latest.map(|s| s.model_id.clone());
 
-        // Set the routing guard - this allows the UDS client to proceed
-        crate::uds_client::enter_routed_context();
-
-        // Use scopeguard to ensure we always exit the routed context
-        let _guard = scopeguard::guard((), |_| {
-            crate::uds_client::exit_routed_context();
-        });
-
         // 1. Resolve worker UDS path and capture worker identifier for telemetry
         // For replay: enforce manifest/backend constraints first, then reuse standard selection.
         let (uds_path, selected_worker_id) = if let Some(ref ctx) = replay_context {
@@ -854,29 +842,35 @@ impl<'a> InferenceCore<'a> {
             routing_policy: execution_policy.routing.clone(),
             placement: None,
             adapter_strength_overrides: request.adapter_strength_overrides.clone(),
+            stop_policy: request.stop_policy.clone(),
         };
 
         // 4. Call worker via UDS
         // Longer timeout for replay to account for cold worker startup
         let timeout_secs = if is_replay { 120 } else { 60 };
         let uds_client = UdsClient::new(Duration::from_secs(timeout_secs));
-        let worker_response = uds_client
-            .infer(
-                &uds_path,
-                worker_request,
-                request.worker_auth_token.as_deref(),
-            )
-            .await
-            .map_err(|e| match e {
-                crate::uds_client::UdsClientError::WorkerNotAvailable(msg) => {
-                    InferenceError::WorkerNotAvailable(msg)
-                }
-                crate::uds_client::UdsClientError::Timeout(msg) => InferenceError::Timeout(msg),
-                crate::uds_client::UdsClientError::RoutingBypass(msg) => {
-                    InferenceError::RoutingBypass(msg)
-                }
-                other => InferenceError::WorkerError(other.to_string()),
-            })?;
+
+        // Wrap the UDS call in routing context to ensure task-local guard is set
+        let worker_response = crate::uds_client::run_with_routing_context(async {
+            uds_client
+                .infer(
+                    &uds_path,
+                    worker_request,
+                    request.worker_auth_token.as_deref(),
+                )
+                .await
+        })
+        .await
+        .map_err(|e| match e {
+            crate::uds_client::UdsClientError::WorkerNotAvailable(msg) => {
+                InferenceError::WorkerNotAvailable(msg)
+            }
+            crate::uds_client::UdsClientError::Timeout(msg) => InferenceError::Timeout(msg),
+            crate::uds_client::UdsClientError::RoutingBypass(msg) => {
+                InferenceError::RoutingBypass(msg)
+            }
+            other => InferenceError::WorkerError(other.to_string()),
+        })?;
 
         // 5. Extract routing decisions from worker response
         let router_decisions = self.extract_router_decisions(&worker_response);
@@ -1243,6 +1237,10 @@ impl<'a> InferenceCore<'a> {
             determinism_mode_applied: Some(determinism_mode_applied),
             replay_guarantee: Some(replay_guarantee),
             placement_trace: worker_response.placement_trace.clone(),
+            // Stop Controller fields
+            stop_reason_code: worker_response.stop_reason_code.clone(),
+            stop_reason_token_index: worker_response.stop_reason_token_index,
+            stop_policy_digest_b3: worker_response.stop_policy_digest_b3.clone(),
         })
     }
 
@@ -1496,90 +1494,6 @@ impl<'a> InferenceCore<'a> {
                 parse_routing_mode(&stack.routing_determinism_mode);
             request.effective_adapter_ids = Some(adapter_ids);
             return Ok(());
-        }
-
-        // 2b. Domain package preference when no explicit stack/adapters provided
-        if request.effective_adapter_ids.is_none() {
-            if let Some(domain_hint) = request.domain_hint.as_deref() {
-                let installed_packages = self
-                    .state
-                    .db
-                    .list_installed_packages_for_domain(&request.cpid, Some(domain_hint))
-                    .await
-                    .map_err(|e| {
-                        InferenceError::AdapterNotFound(format!(
-                            "Failed to list installed packages for tenant {}: {}",
-                            request.cpid, e
-                        ))
-                    })?;
-
-                if !installed_packages.is_empty() {
-                    let mut adapter_ids: Vec<String> = Vec::new();
-                    let mut stack_id_hint: Option<String> = None;
-                    let mut stack_version_hint: Option<i64> = None;
-                    let mut stack_det_hint: Option<String> = None;
-                    let mut routing_det_hint: Option<String> = None;
-
-                    for pkg in installed_packages {
-                        let stack = self
-                            .state
-                            .db
-                            .get_stack(&pkg.tenant_id, &pkg.stack_id)
-                            .await
-                            .map_err(|e| {
-                                InferenceError::AdapterNotFound(format!(
-                                    "Failed to load stack {} for package {}: {}",
-                                    pkg.stack_id, pkg.id, e
-                                ))
-                            })?
-                            .ok_or_else(|| {
-                                InferenceError::AdapterNotFound(format!(
-                                    "Stack {} for package {} not found",
-                                    pkg.stack_id, pkg.id
-                                ))
-                            })?;
-
-                        let ids: Vec<String> = serde_json::from_str(&stack.adapter_ids_json)
-                            .map_err(|e| {
-                                InferenceError::ValidationError(format!(
-                                    "Invalid adapter_ids_json for package {} stack {}: {}",
-                                    pkg.id, stack.id, e
-                                ))
-                            })?;
-
-                        if stack_id_hint.is_none() {
-                            stack_id_hint = Some(stack.id.clone());
-                            stack_version_hint = Some(stack.version);
-                            stack_det_hint = stack.determinism_mode.clone();
-                            routing_det_hint = stack.routing_determinism_mode.clone();
-                        }
-
-                        adapter_ids.extend(ids);
-                    }
-
-                    if let Some(pins) = request.pinned_adapter_ids.as_ref() {
-                        for pin in pins {
-                            if !adapter_ids.contains(pin) {
-                                adapter_ids.push(pin.clone());
-                            }
-                        }
-                    }
-
-                    if !adapter_ids.is_empty() {
-                        adapter_ids.sort();
-                        adapter_ids.dedup();
-                        request.effective_adapter_ids = Some(adapter_ids);
-                        if request.stack_id.is_none() {
-                            request.stack_id = stack_id_hint;
-                            request.stack_version = stack_version_hint;
-                            request.stack_determinism_mode = stack_det_hint;
-                            request.stack_routing_determinism_mode =
-                                parse_routing_mode(&routing_det_hint);
-                        }
-                        return Ok(());
-                    }
-                }
-            }
         }
 
         // 3. Tenant default stack fallback (persisted routing configuration)
@@ -2423,6 +2337,12 @@ impl<'a> InferenceCore<'a> {
         // Estimate tokens (rough: ~4 chars per token)
         let tokens_generated = Some((response_text.len() / 4).max(1) as i32);
 
+        // Serialize stop_policy if present
+        let stop_policy_json = request
+            .stop_policy
+            .as_ref()
+            .and_then(|sp| serde_json::to_string(sp).ok());
+
         // Build params for DB storage
         let params = CreateReplayMetadataParams {
             inference_id: request.request_id.clone(),
@@ -2458,6 +2378,7 @@ impl<'a> InferenceCore<'a> {
             replay_guarantee: Some(replay_guarantee_str.to_string()),
             execution_policy_id: execution_policy_id.map(|s| s.to_string()),
             execution_policy_version: execution_policy_version.map(|v| v as i32),
+            stop_policy_json,
         };
 
         // Store to database (best effort - don't fail inference on capture error)

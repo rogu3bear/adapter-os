@@ -8,7 +8,7 @@
 //! - Error response enhancement: Extends existing ErrorResponse pattern【2†adapteros-server-api/src/handlers.rs】
 //! - Retry logic: Implements exponential backoff for transient errors【3†demo_ux_improvements.rs:6-10】
 
-use adapteros_api_types::{ErrorResponse, API_SCHEMA_VERSION};
+use adapteros_api_types::{ErrorResponse, FailureCode, API_SCHEMA_VERSION};
 use adapteros_core::AosError;
 use axum::http::StatusCode;
 use axum::Json;
@@ -162,6 +162,7 @@ impl ErrorResponseExt for adapteros_api_types::ErrorResponse {
             schema_version: API_SCHEMA_VERSION.to_string(),
             error: user_friendly_message,
             code: error_code.to_string(),
+            failure_code: None,
             details: Some(Value::Object(details)),
         }
     }
@@ -171,6 +172,7 @@ impl ErrorResponseExt for adapteros_api_types::ErrorResponse {
         request_id: Option<String>,
     ) -> adapteros_api_types::ErrorResponse {
         let (status, error_code, technical_message) = error_to_components(error);
+        let failure_code = failure_code_from_error(error);
         let user_message =
             UserFriendlyErrorMapper::map_error_message(&error_code, &technical_message);
 
@@ -191,6 +193,7 @@ impl ErrorResponseExt for adapteros_api_types::ErrorResponse {
             schema_version: API_SCHEMA_VERSION.to_string(),
             error: user_message,
             code: error_code,
+            failure_code,
             details: Some(Value::Object(details)),
         }
     }
@@ -214,6 +217,7 @@ impl ErrorResponseExt for adapteros_api_types::ErrorResponse {
             schema_version: API_SCHEMA_VERSION.to_string(),
             error: user_message.into(),
             code: error_code.to_string(),
+            failure_code: None,
             details: if details.is_empty() {
                 None
             } else {
@@ -409,6 +413,68 @@ pub fn error_to_components(error: &AosError) -> (axum::http::StatusCode, String,
             error.to_string(),
         ),
     }
+}
+
+/// Map core errors to structured failure codes for smoke-test observability.
+pub fn failure_code_from_error(error: &AosError) -> Option<FailureCode> {
+    use FailureCode::*;
+
+    // Fast-path on strongly typed variants
+    match error {
+        AosError::PolicyViolation(_)
+        | AosError::Policy(_)
+        | AosError::PolicyHashMismatch { .. }
+        | AosError::Quarantined(_) => return Some(PolicyDivergence),
+        AosError::Authz(_) | AosError::IsolationViolation(_) => return Some(TenantAccessDenied),
+        AosError::MemoryPressure(_) | AosError::Memory(_) | AosError::ResourceExhaustion(_) => {
+            return Some(OutOfMemory)
+        }
+        AosError::Replay(msg) | AosError::Verification(msg) => {
+            let msg = msg.to_lowercase();
+            if msg.contains("receipt") || msg.contains("trace") {
+                return Some(ReceiptMismatch);
+            }
+        }
+        AosError::Telemetry(msg) => {
+            let msg = msg.to_lowercase();
+            if msg.contains("trace") || msg.contains("telemetry") {
+                return Some(TraceWriteFailed);
+            }
+        }
+        _ => {}
+    }
+
+    // String-based heuristics for broader coverage
+    let msg = error.to_string().to_lowercase();
+    if msg.contains("migration") || msg.contains("schema mismatch") {
+        return Some(MigrationInvalid);
+    }
+    if msg.contains("receipt mismatch") || msg.contains("receipt invalid") {
+        return Some(ReceiptMismatch);
+    }
+    if msg.contains("policy") && msg.contains("diverg") {
+        return Some(PolicyDivergence);
+    }
+    if msg.contains("fallback") {
+        return Some(BackendFallback);
+    }
+    if msg.contains("out of memory") || msg.contains("oom") {
+        return Some(OutOfMemory);
+    }
+    if msg.contains("trace write") || msg.contains("trace save") {
+        return Some(TraceWriteFailed);
+    }
+    if msg.contains("tenant access denied") || msg.contains("cross-tenant") {
+        return Some(TenantAccessDenied);
+    }
+    if msg.contains("model load failed")
+        || msg.contains("failed to load model")
+        || msg.contains("model load error")
+    {
+        return Some(ModelLoadFailed);
+    }
+
+    None
 }
 
 /// Determine if an error is retryable
