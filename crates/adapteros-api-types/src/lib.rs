@@ -17,14 +17,15 @@ pub mod dashboard;
 pub mod dataset_domain;
 pub mod domain_adapters;
 pub mod execution_policy;
+pub mod failure_code;
 pub mod git;
 pub mod inference;
 pub mod metrics;
 pub mod model_status;
 pub mod nodes;
 pub mod orchestration;
-pub mod packages;
 pub mod plans;
+pub mod prefix_templates;
 pub mod provenance;
 pub mod repositories;
 pub mod settings;
@@ -47,13 +48,14 @@ pub use dashboard::*;
 pub use dataset_domain::*;
 pub use domain_adapters::*;
 pub use execution_policy::*;
+pub use failure_code::FailureCode;
 pub use git::*;
 pub use inference::*;
 pub use metrics::*;
 pub use nodes::*;
 pub use orchestration::*;
-pub use packages::*;
 pub use plans::*;
+pub use prefix_templates::*;
 pub use provenance::*;
 pub use repositories::*;
 pub use settings::*;
@@ -74,6 +76,8 @@ pub struct ErrorResponse {
     #[serde(default)]
     pub code: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub failure_code: Option<FailureCode>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub details: Option<serde_json::Value>,
 }
 
@@ -84,13 +88,18 @@ impl ErrorResponse {
             schema_version: schema_version(),
             error: error.into(),
             code: "INTERNAL_ERROR".to_string(),
+            failure_code: None,
             details: None,
         }
     }
 
     /// Set the error code
     pub fn with_code(mut self, code: impl Into<String>) -> Self {
-        self.code = code.into();
+        let code_string = code.into();
+        if self.failure_code.is_none() {
+            self.failure_code = FailureCode::from_str(&code_string);
+        }
+        self.code = code_string;
         self
     }
 
@@ -103,6 +112,18 @@ impl ErrorResponse {
     /// Set the error details from string
     pub fn with_string_details(mut self, details: impl Into<String>) -> Self {
         self.details = Some(serde_json::json!(details.into()));
+        self
+    }
+
+    /// Set a structured failure code (smoke-test and UI facing)
+    pub fn with_failure_code(mut self, code: FailureCode) -> Self {
+        self.failure_code = Some(code);
+        self
+    }
+
+    /// Attach a failure code when present (no-op on None)
+    pub fn with_failure_code_opt(mut self, code: Option<FailureCode>) -> Self {
+        self.failure_code = code;
         self
     }
 

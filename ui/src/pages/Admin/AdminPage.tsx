@@ -10,9 +10,8 @@ import { TenantsTab } from './TenantsTab';
 import { AdapterStacksTab } from './AdapterStacksTab';
 import { UsersTab } from './UsersTab';
 import { CapacityTab } from './CapacityTab';
-import { PackagesTab } from './PackagesTab';
 import { AdminBanner } from '@/components/AdminBanner';
-import { Users, Layers, UserCog, HardDrive, Package } from 'lucide-react';
+import { Users, Layers, UserCog, HardDrive } from 'lucide-react';
 
 export default function AdminPage() {
   const { selectedTenant } = useTenant();
@@ -59,10 +58,6 @@ export default function AdminPage() {
               <Layers className="h-4 w-4" />
               Adapter Stacks
             </TabsTrigger>
-            <TabsTrigger value="packages" className="flex items-center gap-2">
-              <Package className="h-4 w-4" />
-              Packages
-            </TabsTrigger>
             <TabsTrigger value="capacity" className="flex items-center gap-2">
               <HardDrive className="h-4 w-4" />
               Capacity
@@ -84,12 +79,6 @@ export default function AdminPage() {
           <TabsContent value="adapter-stacks" className="space-y-4">
             <SectionErrorBoundary sectionName="Adapter Stacks">
               <AdapterStacksTab />
-            </SectionErrorBoundary>
-          </TabsContent>
-
-          <TabsContent value="packages" className="space-y-4">
-            <SectionErrorBoundary sectionName="Packages">
-              <PackagesTab />
             </SectionErrorBoundary>
           </TabsContent>
 

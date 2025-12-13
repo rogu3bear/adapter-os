@@ -74,13 +74,14 @@ pub mod notifications;
 pub mod orchestration;
 pub mod owner_chat;
 pub mod owner_cli;
-pub mod packages;
+// pub mod packages; // Feature removed in migration 0200
 pub mod plugins;
 pub mod promotion;
 pub mod rag_common;
 pub mod registry;
 pub mod replay;
 pub mod replay_inference;
+pub mod repos;
 pub mod router_config;
 pub mod routing_decisions;
 pub mod runtime;
