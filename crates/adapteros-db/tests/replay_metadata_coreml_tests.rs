@@ -60,6 +60,7 @@ async fn replay_metadata_persists_coreml_hashes() {
         replay_guarantee: Some("exact".to_string()),
         execution_policy_id: None,
         execution_policy_version: None,
+        stop_policy_json: None,
     };
 
     let meta_id = db

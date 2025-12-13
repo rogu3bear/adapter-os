@@ -11,6 +11,8 @@ use uuid::Uuid;
 pub enum Role {
     #[serde(rename = "admin")]
     Admin,
+    #[serde(rename = "developer")]
+    Developer,
     #[serde(rename = "operator")]
     Operator,
     #[serde(rename = "sre")]
@@ -25,6 +27,7 @@ impl std::fmt::Display for Role {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Role::Admin => write!(f, "admin"),
+            Role::Developer => write!(f, "developer"),
             Role::Operator => write!(f, "operator"),
             Role::SRE => write!(f, "sre"),
             Role::Compliance => write!(f, "compliance"),
@@ -40,6 +43,7 @@ impl std::str::FromStr for Role {
         // Case-insensitive parsing for defense-in-depth
         match s.to_lowercase().as_str() {
             "admin" => Ok(Role::Admin),
+            "developer" => Ok(Role::Developer),
             "operator" => Ok(Role::Operator),
             "sre" => Ok(Role::SRE),
             "compliance" => Ok(Role::Compliance),
@@ -109,6 +113,7 @@ fn default_tenant_id() -> String {
 fn to_kv_role(role: &Role) -> KvRole {
     match role {
         Role::Admin => KvRole::Admin,
+        Role::Developer => KvRole::Developer,
         Role::Operator => KvRole::Operator,
         Role::SRE => KvRole::SRE,
         Role::Compliance => KvRole::Compliance,

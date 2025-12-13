@@ -94,6 +94,7 @@ impl DatabaseBackend for SqliteBackend {
             created_by: r.10,
             determinism_mode: r.11,
             routing_determinism_mode: r.12,
+            metadata_json: None,
         }))
     }
 
@@ -139,6 +140,7 @@ impl DatabaseBackend for SqliteBackend {
                 created_by: r.10,
                 determinism_mode: r.11,
                 routing_determinism_mode: r.12,
+                metadata_json: None,
             })
             .collect())
     }
@@ -309,6 +311,7 @@ impl DatabaseBackend for SqliteBackend {
                 created_by: r.get::<Option<String>, _>(10),
                 determinism_mode: r.get::<Option<String>, _>(11),
                 routing_determinism_mode: r.get::<Option<String>, _>(12),
+                metadata_json: None,
             })
             .collect())
     }

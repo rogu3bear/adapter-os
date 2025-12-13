@@ -827,6 +827,7 @@ pub fn kv_to_stack_record(kv: &AdapterStackKv) -> Result<StackRecord> {
         version,
         determinism_mode: kv.determinism_mode.clone(),
         routing_determinism_mode,
+        metadata_json: None,
     })
 }
 
@@ -850,6 +851,7 @@ mod tests {
             version: 1,
             determinism_mode: None,
             routing_determinism_mode: None,
+            metadata_json: None,
         };
 
         let kv = stack_record_to_kv(&record).unwrap();

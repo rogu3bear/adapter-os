@@ -280,6 +280,13 @@ impl From<AdapterKv> for Adapter {
             manifest_schema_version: None,
             content_hash_b3: None,
             provenance_json: None,
+            // Drift fields (not stored in KV)
+            drift_tier: None,
+            drift_metric: None,
+            drift_loss_metric: None,
+            drift_reference_backend: None,
+            drift_baseline_backend: None,
+            drift_test_backend: None,
         }
     }
 }
@@ -851,6 +858,12 @@ mod tests {
             content_hash_b3: None,
             provenance_json: None,
             metadata_json: None,
+            drift_tier: None,
+            drift_metric: None,
+            drift_loss_metric: None,
+            drift_reference_backend: None,
+            drift_baseline_backend: None,
+            drift_test_backend: None,
         };
 
         // Convert to KV (models::AdapterKv uses same types as SQL Adapter)
@@ -930,6 +943,12 @@ mod tests {
                 archived_by: None,
                 archive_reason: None,
                 purged_at: None,
+                drift_tier: None,
+                drift_metric: None,
+                drift_loss_metric: None,
+                drift_reference_backend: None,
+                drift_baseline_backend: None,
+                drift_test_backend: None,
             },
             Adapter {
                 id: "a".into(),
@@ -984,6 +1003,12 @@ mod tests {
                 archived_by: None,
                 archive_reason: None,
                 purged_at: None,
+                drift_tier: None,
+                drift_metric: None,
+                drift_loss_metric: None,
+                drift_reference_backend: None,
+                drift_baseline_backend: None,
+                drift_test_backend: None,
             },
         ];
 

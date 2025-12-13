@@ -45,6 +45,8 @@ pub mod tenant_policies;
 pub mod tenant_policy_bindings_kv;
 pub mod tenant_settings;
 pub mod traits;
+pub mod prefix_templates;
+pub mod evidence_envelopes;
 
 // Re-export commonly used types
 pub use adapter_repositories::{
@@ -56,9 +58,8 @@ pub use coreml_fusion_pairs::{CoremlFusionPair, CreateCoremlFusionPairParams};
 pub use factory::{DbFactory, StorageBackend as DbStorageBackend};
 pub use repository_training_policies::RepositoryTrainingPolicy;
 pub use traits::{
-    AdapterRecord, AdapterStrengthOverride, CreatePackageRequest, CreateStackRequest,
-    DatabaseBackend, DatabaseBackendType, DatabaseConfig, PackageRecord, StackRecord,
-    UpdatePackageRequest,
+    AdapterRecord, CreateStackRequest, DatabaseBackend, DatabaseBackendType, DatabaseConfig,
+    StackRecord,
 };
 
 // Re-export KV backend types
@@ -631,17 +632,34 @@ impl Db {
             }
         }
 
+        let is_memory = database_url.contains(":memory:");
+
         let options = SqliteConnectOptions::from_str(&database_url)?
             .create_if_missing(true)
-            .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
+            // Use Memory journal mode for in-memory DBs (WAL not supported), WAL for disk
+            .journal_mode(if is_memory {
+                sqlx::sqlite::SqliteJournalMode::Memory
+            } else {
+                sqlx::sqlite::SqliteJournalMode::Wal
+            })
             .synchronous(sqlx::sqlite::SqliteSynchronous::Normal)
             .busy_timeout(Duration::from_secs(30)) // 30s timeout for busy database
             .statement_cache_capacity(100) // Cache up to 100 prepared statements
             .foreign_keys(true); // CRITICAL: Enable foreign key constraints
 
-        let pool = SqlitePool::connect_with(options)
-            .await
-            .map_err(|e| AosError::Database(format!("Failed to connect to database: {}", e)))?;
+        // For in-memory databases, limit pool to 1 connection to ensure data consistency
+        // (each new connection to :memory: creates a separate database)
+        let pool = if is_memory {
+            sqlx::pool::PoolOptions::new()
+                .max_connections(1)
+                .connect_with(options)
+                .await
+                .map_err(|e| AosError::Database(format!("Failed to connect to database: {}", e)))?
+        } else {
+            SqlitePool::connect_with(options)
+                .await
+                .map_err(|e| AosError::Database(format!("Failed to connect to database: {}", e)))?
+        };
 
         Ok(Self::new_with_pool(Some(pool), None, StorageMode::SqlOnly))
     }
@@ -1513,343 +1531,6 @@ impl Db {
         Ok(updated)
     }
 
-    /// Create a new adapter package (SQL only)
-    pub async fn create_package(&self, req: &CreatePackageRequest) -> Result<String> {
-        if !self.storage_mode().write_to_sql() {
-            return Err(AosError::Database(
-                "SQL backend unavailable for create_package".to_string(),
-            ));
-        }
-
-        let pool = self.pool_opt().ok_or_else(|| {
-            AosError::Database("SQL pool not configured for create_package".to_string())
-        })?;
-
-        let tags_json = req
-            .tags
-            .as_ref()
-            .map(|t| serde_json::to_string(t).map_err(AosError::Serialization))
-            .transpose()?;
-        let strengths_json = req
-            .adapter_strengths
-            .as_ref()
-            .map(|s| serde_json::to_string(s).map_err(AosError::Serialization))
-            .transpose()?;
-
-        let id = uuid::Uuid::now_v7().to_string();
-        sqlx::query(
-            r#"
-            INSERT INTO adapter_packages (
-                id, tenant_id, name, description, stack_id, tags_json, domain, scope_path,
-                adapter_strengths_json, determinism_mode, routing_determinism_mode, created_at, updated_at
-            ) VALUES (
-                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now')
-            )
-            "#,
-        )
-        .bind(&id)
-        .bind(&req.tenant_id)
-        .bind(&req.name)
-        .bind(&req.description)
-        .bind(&req.stack_id)
-        .bind(&tags_json)
-        .bind(&req.domain)
-        .bind(&req.scope_path)
-        .bind(&strengths_json)
-        .bind(&req.determinism_mode)
-        .bind(&req.routing_determinism_mode)
-        .execute(pool)
-        .await
-        .map_err(|e| AosError::Database(format!("Failed to insert package: {}", e)))?;
-
-        Ok(id)
-    }
-
-    /// List packages for a tenant
-    pub async fn list_packages_for_tenant(&self, tenant_id: &str) -> Result<Vec<PackageRecord>> {
-        let pool = match self.pool_opt() {
-            Some(p) => p,
-            None => return Ok(Vec::new()),
-        };
-
-        let rows = sqlx::query_as::<_, PackageRecord>(
-            r#"
-            SELECT id, tenant_id, name, description, stack_id, tags_json, domain, scope_path,
-                   adapter_strengths_json, determinism_mode, routing_determinism_mode, created_at, updated_at
-            FROM adapter_packages
-            WHERE tenant_id = ?
-            ORDER BY created_at DESC
-            "#,
-        )
-        .bind(tenant_id)
-        .fetch_all(pool)
-        .await
-        .map_err(|e| AosError::Database(format!("Failed to list packages: {}", e)))?;
-
-        Ok(rows)
-    }
-
-    /// Get a package by ID and tenant
-    pub async fn get_package(&self, tenant_id: &str, id: &str) -> Result<Option<PackageRecord>> {
-        let pool = match self.pool_opt() {
-            Some(p) => p,
-            None => return Ok(None),
-        };
-
-        let row = sqlx::query_as::<_, PackageRecord>(
-            r#"
-            SELECT id, tenant_id, name, description, stack_id, tags_json, domain, scope_path,
-                   adapter_strengths_json, determinism_mode, routing_determinism_mode, created_at, updated_at
-            FROM adapter_packages
-            WHERE tenant_id = ? AND id = ?
-            "#,
-        )
-        .bind(tenant_id)
-        .bind(id)
-        .fetch_optional(pool)
-        .await
-        .map_err(|e| AosError::Database(format!("Failed to fetch package: {}", e)))?;
-
-        Ok(row)
-    }
-
-    /// Update an existing package
-    pub async fn update_package(&self, id: &str, req: &UpdatePackageRequest) -> Result<bool> {
-        if !self.storage_mode().write_to_sql() {
-            return Err(AosError::Database(
-                "SQL backend unavailable for update_package".to_string(),
-            ));
-        }
-
-        let pool = self.pool_opt().ok_or_else(|| {
-            AosError::Database("SQL pool not configured for update_package".to_string())
-        })?;
-
-        let tags_json = req
-            .tags
-            .as_ref()
-            .map(|t| serde_json::to_string(t).map_err(AosError::Serialization))
-            .transpose()?;
-        let strengths_json = req
-            .adapter_strengths
-            .as_ref()
-            .map(|s| serde_json::to_string(s).map_err(AosError::Serialization))
-            .transpose()?;
-
-        let result = sqlx::query(
-            r#"
-            UPDATE adapter_packages
-            SET name = ?,
-                description = ?,
-                stack_id = ?,
-                tags_json = ?,
-                domain = ?,
-                scope_path = ?,
-                adapter_strengths_json = ?,
-                determinism_mode = ?,
-                routing_determinism_mode = ?,
-                updated_at = datetime('now')
-            WHERE tenant_id = ? AND id = ?
-            "#,
-        )
-        .bind(&req.name)
-        .bind(&req.description)
-        .bind(&req.stack_id)
-        .bind(&tags_json)
-        .bind(&req.domain)
-        .bind(&req.scope_path)
-        .bind(&strengths_json)
-        .bind(&req.determinism_mode)
-        .bind(&req.routing_determinism_mode)
-        .bind(&req.tenant_id)
-        .bind(id)
-        .execute(pool)
-        .await
-        .map_err(|e| AosError::Database(format!("Failed to update package: {}", e)))?;
-
-        Ok(result.rows_affected() > 0)
-    }
-
-    /// Delete a package
-    pub async fn delete_package(&self, tenant_id: &str, id: &str) -> Result<bool> {
-        if !self.storage_mode().write_to_sql() {
-            return Err(AosError::Database(
-                "SQL backend unavailable for delete_package".to_string(),
-            ));
-        }
-
-        let pool = self.pool_opt().ok_or_else(|| {
-            AosError::Database("SQL pool not configured for delete_package".to_string())
-        })?;
-
-        let result = sqlx::query(
-            r#"
-            DELETE FROM adapter_packages
-            WHERE tenant_id = ? AND id = ?
-            "#,
-        )
-        .bind(tenant_id)
-        .bind(id)
-        .execute(pool)
-        .await
-        .map_err(|e| AosError::Database(format!("Failed to delete package: {}", e)))?;
-
-        Ok(result.rows_affected() > 0)
-    }
-
-    /// Check if a package is installed for a tenant
-    pub async fn package_install_timestamp(
-        &self,
-        tenant_id: &str,
-        package_id: &str,
-    ) -> Result<Option<String>> {
-        let pool = match self.pool_opt() {
-            Some(p) => p,
-            None => return Ok(None),
-        };
-
-        let installed_at = sqlx::query_scalar::<_, String>(
-            r#"
-            SELECT installed_at
-            FROM tenant_package_installs
-            WHERE tenant_id = ? AND package_id = ?
-            "#,
-        )
-        .bind(tenant_id)
-        .bind(package_id)
-        .fetch_optional(pool)
-        .await
-        .map_err(|e| AosError::Database(format!("Failed to read package install state: {}", e)))?;
-
-        Ok(installed_at)
-    }
-
-    /// Install (enable) a package for a tenant
-    pub async fn install_package_for_tenant(
-        &self,
-        tenant_id: &str,
-        package_id: &str,
-    ) -> Result<()> {
-        if !self.storage_mode().write_to_sql() {
-            return Err(AosError::Database(
-                "SQL backend unavailable for install_package_for_tenant".to_string(),
-            ));
-        }
-
-        let pool = self.pool_opt().ok_or_else(|| {
-            AosError::Database("SQL pool not configured for install_package_for_tenant".to_string())
-        })?;
-
-        sqlx::query(
-            r#"
-            INSERT INTO tenant_package_installs (tenant_id, package_id)
-            VALUES (?, ?)
-            ON CONFLICT(tenant_id, package_id) DO NOTHING
-            "#,
-        )
-        .bind(tenant_id)
-        .bind(package_id)
-        .execute(pool)
-        .await
-        .map_err(|e| AosError::Database(format!("Failed to install package: {}", e)))?;
-
-        Ok(())
-    }
-
-    /// Uninstall (disable) a package for a tenant
-    pub async fn uninstall_package_for_tenant(
-        &self,
-        tenant_id: &str,
-        package_id: &str,
-    ) -> Result<()> {
-        if !self.storage_mode().write_to_sql() {
-            return Err(AosError::Database(
-                "SQL backend unavailable for uninstall_package_for_tenant".to_string(),
-            ));
-        }
-
-        let pool = self.pool_opt().ok_or_else(|| {
-            AosError::Database(
-                "SQL pool not configured for uninstall_package_for_tenant".to_string(),
-            )
-        })?;
-
-        sqlx::query(
-            r#"
-            DELETE FROM tenant_package_installs
-            WHERE tenant_id = ? AND package_id = ?
-            "#,
-        )
-        .bind(tenant_id)
-        .bind(package_id)
-        .execute(pool)
-        .await
-        .map_err(|e| AosError::Database(format!("Failed to uninstall package: {}", e)))?;
-
-        Ok(())
-    }
-
-    /// List packages for a tenant with install status (installed_at when enabled)
-    pub async fn list_packages_with_install_status(
-        &self,
-        tenant_id: &str,
-        domain: Option<&str>,
-    ) -> Result<Vec<(PackageRecord, Option<String>)>> {
-        let mut packages = self.list_packages_for_tenant(tenant_id).await?;
-        if let Some(domain_filter) = domain {
-            packages.retain(|p| p.domain.as_deref() == Some(domain_filter));
-        }
-
-        let mut results = Vec::with_capacity(packages.len());
-        for pkg in packages {
-            let installed_at = self.package_install_timestamp(tenant_id, &pkg.id).await?;
-            results.push((pkg, installed_at));
-        }
-
-        Ok(results)
-    }
-
-    /// List installed packages for a tenant filtered by domain (if provided)
-    pub async fn list_installed_packages_for_domain(
-        &self,
-        tenant_id: &str,
-        domain: Option<&str>,
-    ) -> Result<Vec<PackageRecord>> {
-        let pool = match self.pool_opt() {
-            Some(p) => p,
-            None => return Ok(Vec::new()),
-        };
-
-        let mut query = String::from(
-            r#"
-            SELECT p.id, p.tenant_id, p.name, p.description, p.stack_id, p.tags_json,
-                   p.domain, p.scope_path, p.adapter_strengths_json, p.determinism_mode,
-                   p.routing_determinism_mode, p.created_at, p.updated_at
-            FROM tenant_package_installs tpi
-            INNER JOIN adapter_packages p ON p.id = tpi.package_id
-            WHERE tpi.tenant_id = ?
-            "#,
-        );
-
-        if domain.is_some() {
-            query.push_str(" AND p.domain = ?");
-        }
-
-        query.push_str(" ORDER BY p.created_at DESC");
-
-        let mut stmt = sqlx::query_as::<_, PackageRecord>(&query).bind(tenant_id);
-        if let Some(domain_filter) = domain {
-            stmt = stmt.bind(domain_filter);
-        }
-
-        let packages = stmt
-            .fetch_all(pool)
-            .await
-            .map_err(|e| AosError::Database(format!("Failed to list installed packages: {}", e)))?;
-
-        Ok(packages)
-    }
-
     /// Activate a stack by setting lifecycle_state to 'active' (SQL + KV)
     pub async fn activate_stack(&self, tenant_id: &str, id: &str) -> Result<()> {
         let mut activated = false;
@@ -2512,8 +2193,8 @@ pub mod inference_evidence;
 pub use inference_evidence::{CreateEvidenceParams, InferenceEvidence};
 pub mod inference_trace;
 pub use inference_trace::{
-    recompute_receipt, SqlTraceSink, TraceReceipt, TraceReceiptVerification, TraceSink, TraceStart,
-    TraceTokenInput,
+    recompute_receipt, SqlTraceSink, TraceFinalization, TraceReceipt, TraceReceiptVerification,
+    TraceSink, TraceStart, TraceTokenInput,
 };
 pub mod batch_jobs;
 pub use batch_jobs::{
@@ -2549,6 +2230,7 @@ pub use audit::AuditLog;
 pub mod audits;
 pub mod policy_audit;
 pub use policy_audit::{ChainVerificationResult, PolicyAuditDecision, PolicyDecisionFilters};
+pub use evidence_envelopes::EvidenceEnvelopeFilter;
 pub mod chat_sessions;
 pub use chat_sessions::{
     AddMessageParams, ChatCategory, ChatMessage, ChatProvenance, ChatSearchResult, ChatSession,

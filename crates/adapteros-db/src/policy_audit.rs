@@ -13,6 +13,17 @@ use std::sync::Arc;
 use tracing::warn;
 use uuid::Uuid;
 
+/// Error code used when the policy audit chain diverges
+pub const AUDIT_CHAIN_DIVERGED_CODE: &str = "AUDIT_CHAIN_DIVERGED";
+
+fn audit_chain_divergence(msg: impl Into<String>) -> AosError {
+    AosError::Validation(format!("{}: {}", AUDIT_CHAIN_DIVERGED_CODE, msg.into()))
+}
+
+pub fn is_audit_chain_divergence(err: &AosError) -> bool {
+    matches!(err, AosError::Validation(msg) if msg.contains(AUDIT_CHAIN_DIVERGED_CODE))
+}
+
 /// Policy audit decision record
 ///
 /// Represents a single policy decision (allow/deny) in the audit trail.
@@ -79,6 +90,134 @@ impl Db {
         } else {
             None
         }
+    }
+
+    fn compute_policy_entry_hash(entry: &PolicyAuditDecision) -> String {
+        let entry_data = format!(
+            "{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}",
+            entry.id,
+            entry.timestamp,
+            entry.tenant_id,
+            entry.policy_pack_id,
+            entry.hook,
+            entry.decision,
+            entry.reason.as_deref().unwrap_or(""),
+            entry.request_id.as_deref().unwrap_or(""),
+            entry.user_id.as_deref().unwrap_or(""),
+            entry.resource_type.as_deref().unwrap_or(""),
+            entry.resource_id.as_deref().unwrap_or(""),
+            entry.metadata_json.as_deref().unwrap_or(""),
+            entry.previous_hash.as_deref().unwrap_or(""),
+        );
+        adapteros_core::B3Hash::hash(entry_data.as_bytes()).to_string()
+    }
+
+    /// Validate the tail of the policy audit chain for a tenant.
+    ///
+    /// Returns the last entry hash and sequence if present.
+    async fn validate_policy_audit_tail(&self, tenant_id: &str) -> Result<Option<(String, i64)>> {
+        // Fetch the last two entries to validate linkage and hashes
+        let tail: Vec<PolicyAuditDecision> = sqlx::query_as::<_, PolicyAuditDecision>(
+            "SELECT id, tenant_id, policy_pack_id, hook, decision, reason, request_id, user_id,
+                    resource_type, resource_id, metadata_json, timestamp, entry_hash, previous_hash, chain_sequence
+             FROM policy_audit_decisions
+             WHERE tenant_id = ?
+             ORDER BY chain_sequence DESC
+             LIMIT 2",
+        )
+        .bind(tenant_id)
+        .fetch_all(&*self.pool())
+        .await
+        .db_err("fetch policy audit tail")?;
+
+        if tail.is_empty() {
+            return Ok(None);
+        }
+
+        let latest = &tail[0];
+        let latest_hash = Self::compute_policy_entry_hash(latest);
+        if latest_hash != latest.entry_hash {
+            return Err(audit_chain_divergence(format!(
+                "tail hash mismatch at seq {} (expected {}, found {})",
+                latest.chain_sequence, latest_hash, latest.entry_hash
+            )));
+        }
+
+        if latest.chain_sequence == 1 {
+            if latest.previous_hash.is_some() {
+                return Err(audit_chain_divergence(
+                    "first entry unexpectedly has previous_hash",
+                ));
+            }
+            return Ok(Some((latest.entry_hash.clone(), latest.chain_sequence)));
+        }
+
+        if tail.len() < 2 {
+            return Err(audit_chain_divergence(
+                "missing predecessor for latest audit entry",
+            ));
+        }
+
+        let prev = &tail[1];
+        let prev_hash = Self::compute_policy_entry_hash(prev);
+        if prev_hash != prev.entry_hash {
+            return Err(audit_chain_divergence(format!(
+                "previous entry hash mismatch at seq {}",
+                prev.chain_sequence
+            )));
+        }
+
+        match (&latest.previous_hash, Some(&prev.entry_hash)) {
+            (Some(stored), Some(expected)) if stored == expected => {
+                Ok(Some((latest.entry_hash.clone(), latest.chain_sequence)))
+            }
+            (Some(stored), Some(expected)) => Err(audit_chain_divergence(format!(
+                "previous_hash mismatch at seq {} (expected {}, found {})",
+                latest.chain_sequence, expected, stored
+            ))),
+            _ => Err(audit_chain_divergence(
+                "latest entry missing previous_hash linkage",
+            )),
+        }
+    }
+
+    /// Forcefully corrupt the tail of the policy audit chain for testing.
+    ///
+    /// Only intended for E2E/testkit usage guarded by environment flags.
+    pub async fn force_corrupt_policy_audit_tail(
+        &self,
+        tenant_id: &str,
+    ) -> Result<(String, String, i64)> {
+        let latest = sqlx::query_as::<_, PolicyAuditDecision>(
+            "SELECT id, previous_hash, entry_hash, chain_sequence
+             FROM policy_audit_decisions
+             WHERE tenant_id = ?
+             ORDER BY chain_sequence DESC
+             LIMIT 1",
+        )
+        .bind(tenant_id)
+        .fetch_optional(&*self.pool())
+        .await
+        .db_err("fetch latest policy audit entry")?;
+
+        let Some(entry) = latest else {
+            return Err(audit_chain_divergence(
+                "no audit entries available to corrupt",
+            ));
+        };
+
+        // Corrupt the linkage by mutating previous_hash without updating entry_hash.
+        sqlx::query(
+            "UPDATE policy_audit_decisions
+             SET previous_hash = 'corrupted-e2e-divergence'
+             WHERE id = ?",
+        )
+        .bind(&entry.id)
+        .execute(&*self.pool())
+        .await
+        .db_err("corrupt policy audit tail")?;
+
+        Ok((entry.id, entry.entry_hash, entry.chain_sequence))
     }
 
     /// Log a policy decision to the audit trail
@@ -151,24 +290,15 @@ impl Db {
             None
         };
 
-        let id = Uuid::now_v7().to_string();
-        let timestamp = chrono::Utc::now().to_rfc3339();
-
-        let latest_entry = sqlx::query_as::<_, (Option<String>, Option<i64>)>(
-            "SELECT entry_hash, chain_sequence FROM policy_audit_decisions
-             WHERE tenant_id = ?
-             ORDER BY chain_sequence DESC LIMIT 1",
-        )
-        .bind(tenant_id)
-        .fetch_optional(&*self.pool())
-        .await
-        .map_err(|e| AosError::Database(e.to_string()))?;
-
-        let (previous_hash, previous_seq) = match latest_entry {
-            Some((hash_opt, seq_opt)) => (hash_opt, seq_opt.unwrap_or(0)),
+        let tail_state = self.validate_policy_audit_tail(tenant_id).await?;
+        let (previous_hash, previous_seq) = match tail_state {
+            Some((hash, seq)) => (Some(hash), seq),
             None => (None, 0),
         };
         let chain_sequence = previous_seq + 1;
+
+        let id = Uuid::now_v7().to_string();
+        let timestamp = chrono::Utc::now().to_rfc3339();
 
         // Ensure KV is aligned before writing when KV is enabled.
         if let Some(repo) = kv_repo.as_ref() {
@@ -211,23 +341,7 @@ impl Db {
             chain_sequence,
         };
 
-        let entry_data = format!(
-            "{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}",
-            entry.id,
-            entry.timestamp,
-            entry.tenant_id,
-            entry.policy_pack_id,
-            entry.hook,
-            entry.decision,
-            entry.reason.as_deref().unwrap_or(""),
-            entry.request_id.as_deref().unwrap_or(""),
-            entry.user_id.as_deref().unwrap_or(""),
-            entry.resource_type.as_deref().unwrap_or(""),
-            entry.resource_id.as_deref().unwrap_or(""),
-            entry.metadata_json.as_deref().unwrap_or(""),
-            entry.previous_hash.as_deref().unwrap_or(""),
-        );
-        entry.entry_hash = adapteros_core::B3Hash::hash(entry_data.as_bytes()).to_string();
+        entry.entry_hash = Self::compute_policy_entry_hash(&entry);
 
         sqlx::query(
             "INSERT INTO policy_audit_decisions

@@ -112,6 +112,19 @@ pub struct AdapterVersion {
     pub metrics_snapshot_id: Option<String>,
     pub evaluation_summary: Option<String>,
     pub created_at: String,
+    // Publish + Attach Mode fields (v1)
+    /// Attach mode: 'free' or 'requires_dataset'
+    #[sqlx(default)]
+    pub attach_mode: String,
+    /// Required dataset version ID when attach_mode = 'requires_dataset'
+    pub required_scope_dataset_version_id: Option<String>,
+    /// Archive flag: true = hidden from normal use
+    #[sqlx(default)]
+    pub is_archived: bool,
+    /// Timestamp when adapter was published (NULL = unpublished)
+    pub published_at: Option<String>,
+    /// Short description for published adapter
+    pub short_description: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -2296,6 +2309,230 @@ impl Db {
                 .await
                 .unwrap_or(0);
         Ok(count)
+    }
+
+    // ========================================================================
+    // Adapter Publish + Attach Modes v1
+    // ========================================================================
+
+    /// Publish an adapter version with attach mode configuration.
+    ///
+    /// This marks the adapter version as published and configures its attach mode.
+    /// - If `attach_mode` is "requires_dataset", validates the dataset version exists
+    ///   and was used in training this adapter.
+    /// - Sets `published_at` timestamp and `release_state` to "active".
+    pub async fn publish_adapter_version(
+        &self,
+        tenant_id: &str,
+        repo_id: &str,
+        version_id: &str,
+        attach_mode: &str,
+        required_scope_dataset_version_id: Option<&str>,
+        short_description: Option<&str>,
+        _actor: Option<&str>,
+    ) -> Result<()> {
+        // Validate attach_mode
+        if attach_mode != "free" && attach_mode != "requires_dataset" {
+            return Err(AosError::Validation(format!(
+                "invalid attach_mode: '{}', must be 'free' or 'requires_dataset'",
+                attach_mode
+            )));
+        }
+
+        // Validate requires_dataset constraints
+        if attach_mode == "requires_dataset" {
+            let ds_version_id = required_scope_dataset_version_id.ok_or_else(|| {
+                AosError::Validation(
+                    "required_scope_dataset_version_id is required when attach_mode is 'requires_dataset'".to_string()
+                )
+            })?;
+
+            // Verify dataset version exists and belongs to tenant
+            let ds_exists: Option<(String,)> = sqlx::query_as(
+                "SELECT id FROM training_dataset_versions WHERE id = ? AND tenant_id = ?"
+            )
+            .bind(ds_version_id)
+            .bind(tenant_id)
+            .fetch_optional(&*self.pool())
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
+
+            if ds_exists.is_none() {
+                return Err(AosError::NotFound(format!(
+                    "dataset version '{}' not found for tenant",
+                    ds_version_id
+                )));
+            }
+
+            // Verify dataset version was used in training this adapter
+            let linked: Option<(String,)> = sqlx::query_as(
+                r#"
+                SELECT adapter_version_id
+                FROM adapter_version_dataset_versions
+                WHERE adapter_version_id = ? AND dataset_version_id = ?
+                "#
+            )
+            .bind(version_id)
+            .bind(ds_version_id)
+            .fetch_optional(&*self.pool())
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
+
+            if linked.is_none() {
+                return Err(AosError::Validation(
+                    "required_scope_dataset_version_id must be a dataset version used in training this adapter".to_string()
+                ));
+            }
+        } else if required_scope_dataset_version_id.is_some() {
+            return Err(AosError::Validation(
+                "required_scope_dataset_version_id must be NULL when attach_mode is 'free'".to_string()
+            ));
+        }
+
+        // Validate short_description length
+        if let Some(desc) = short_description {
+            if desc.len() > 280 {
+                return Err(AosError::Validation(
+                    "short_description must be 280 characters or less".to_string()
+                ));
+            }
+        }
+
+        // Update version with publish fields
+        let result = sqlx::query(
+            r#"
+            UPDATE adapter_versions
+            SET attach_mode = ?,
+                required_scope_dataset_version_id = ?,
+                short_description = ?,
+                published_at = datetime('now'),
+                release_state = 'active'
+            WHERE id = ? AND tenant_id = ? AND repo_id = ?
+            "#,
+        )
+        .bind(attach_mode)
+        .bind(required_scope_dataset_version_id)
+        .bind(short_description)
+        .bind(version_id)
+        .bind(tenant_id)
+        .bind(repo_id)
+        .execute(&*self.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to publish adapter version: {}", e)))?;
+
+        if result.rows_affected() == 0 {
+            return Err(AosError::NotFound(format!(
+                "adapter version '{}' not found",
+                version_id
+            )));
+        }
+
+        Ok(())
+    }
+
+    /// Archive an adapter version.
+    ///
+    /// Sets `is_archived = true`. Archived versions are hidden from normal use
+    /// but retain their lifecycle_state for audit purposes.
+    pub async fn archive_adapter_version(
+        &self,
+        tenant_id: &str,
+        version_id: &str,
+    ) -> Result<()> {
+        let result = sqlx::query(
+            "UPDATE adapter_versions SET is_archived = 1 WHERE id = ? AND tenant_id = ?"
+        )
+        .bind(version_id)
+        .bind(tenant_id)
+        .execute(&*self.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to archive adapter version: {}", e)))?;
+
+        if result.rows_affected() == 0 {
+            return Err(AosError::NotFound(format!(
+                "adapter version '{}' not found",
+                version_id
+            )));
+        }
+
+        Ok(())
+    }
+
+    /// Unarchive an adapter version.
+    ///
+    /// Sets `is_archived = false`, making the version visible again.
+    pub async fn unarchive_adapter_version(
+        &self,
+        tenant_id: &str,
+        version_id: &str,
+    ) -> Result<()> {
+        let result = sqlx::query(
+            "UPDATE adapter_versions SET is_archived = 0 WHERE id = ? AND tenant_id = ?"
+        )
+        .bind(version_id)
+        .bind(tenant_id)
+        .execute(&*self.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to unarchive adapter version: {}", e)))?;
+
+        if result.rows_affected() == 0 {
+            return Err(AosError::NotFound(format!(
+                "adapter version '{}' not found",
+                version_id
+            )));
+        }
+
+        Ok(())
+    }
+
+    /// Get the attach mode for an adapter version.
+    ///
+    /// Returns `(attach_mode, required_scope_dataset_version_id)` or None if not found.
+    pub async fn get_adapter_version_attach_mode(
+        &self,
+        tenant_id: &str,
+        version_id: &str,
+    ) -> Result<Option<(String, Option<String>)>> {
+        let result: Option<(String, Option<String>)> = sqlx::query_as(
+            r#"
+            SELECT attach_mode, required_scope_dataset_version_id
+            FROM adapter_versions
+            WHERE id = ? AND tenant_id = ?
+            "#
+        )
+        .bind(version_id)
+        .bind(tenant_id)
+        .fetch_optional(&*self.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to get attach mode: {}", e)))?;
+
+        Ok(result)
+    }
+
+    /// Get a single adapter version by ID with all publish fields.
+    pub async fn get_adapter_version_full(
+        &self,
+        tenant_id: &str,
+        version_id: &str,
+    ) -> Result<Option<AdapterVersion>> {
+        let result = sqlx::query_as::<_, AdapterVersion>(
+            r#"
+            SELECT id, repo_id, tenant_id, version, branch, branch_classification, aos_path, aos_hash,
+                   manifest_schema_version, parent_version_id, code_commit_sha,
+                   data_spec_hash, training_backend, coreml_used, coreml_device_type,
+                   adapter_trust_state, release_state, metrics_snapshot_id, evaluation_summary, created_at,
+                   attach_mode, required_scope_dataset_version_id, is_archived, published_at, short_description
+            FROM adapter_versions
+            WHERE id = ? AND tenant_id = ?
+            "#
+        )
+        .bind(version_id)
+        .bind(tenant_id)
+        .fetch_optional(&*self.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to get adapter version: {}", e)))?;
+
+        Ok(result)
     }
 }
 

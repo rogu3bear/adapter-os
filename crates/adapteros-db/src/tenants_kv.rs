@@ -552,6 +552,8 @@ mod tests {
             max_training_jobs: Some(10),
             max_storage_gb: Some(500.0),
             rate_limit_rpm: Some(1000),
+            max_kv_cache_bytes: None,
+            kv_residency_policy_id: None,
         };
 
         let kv_tenant: TenantKv = sql_tenant.clone().into();

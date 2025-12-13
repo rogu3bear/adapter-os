@@ -88,6 +88,7 @@ impl Db {
             replay_guarantee: params.replay_guarantee.clone(),
             execution_policy_id: params.execution_policy_id.clone(),
             execution_policy_version: params.execution_policy_version,
+            stop_policy_json: params.stop_policy_json.clone(),
             created_at: Utc::now().to_rfc3339(),
         }
     }
@@ -131,6 +132,7 @@ impl Db {
             replay_guarantee: meta.replay_guarantee,
             execution_policy_id: meta.execution_policy_id,
             execution_policy_version: meta.execution_policy_version,
+            stop_policy_json: meta.stop_policy_json,
             created_at: meta.created_at,
         })
     }

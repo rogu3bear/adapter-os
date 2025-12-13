@@ -529,6 +529,7 @@ mod tests {
             replay_guarantee: Some("exact".to_string()),
             execution_policy_id: None,
             execution_policy_version: None,
+            stop_policy_json: None,
         })
         .await
         .expect("Failed to create inference metadata");

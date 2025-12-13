@@ -2,6 +2,7 @@
 //!
 //! Manages per-tenant policy pack enable/disable state with full audit trail.
 
+use crate::policy_audit::is_audit_chain_divergence;
 use crate::tenant_policy_bindings_kv::{
     kv_to_binding, PolicyBindingKvRepository, TenantPolicyBindingKv,
 };
@@ -267,7 +268,10 @@ impl Db {
             )
             .await
         {
-            // Log but don't fail - audit should not block operations
+            if is_audit_chain_divergence(&e) {
+                return Err(e);
+            }
+            // Log but don't fail for non-divergence cases - audit should not block operations
             tracing::error!(
                 tenant_id = %tenant_id,
                 policy_pack_id = %policy_pack_id,

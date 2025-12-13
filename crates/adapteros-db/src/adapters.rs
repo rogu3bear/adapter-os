@@ -530,6 +530,20 @@ pub struct Adapter {
     pub metadata_json: Option<String>,
     pub provenance_json: Option<String>,
 
+    // Drift tracking fields (for CLI diagnostics)
+    #[sqlx(default)]
+    pub drift_tier: Option<String>,
+    #[sqlx(default)]
+    pub drift_metric: Option<f64>,
+    #[sqlx(default)]
+    pub drift_loss_metric: Option<f64>,
+    #[sqlx(default)]
+    pub drift_reference_backend: Option<String>,
+    #[sqlx(default)]
+    pub drift_baseline_backend: Option<String>,
+    #[sqlx(default)]
+    pub drift_test_backend: Option<String>,
+
     pub created_at: String,
     pub updated_at: String,
 }

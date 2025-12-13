@@ -424,6 +424,12 @@ mod tests {
             metadata_json: None,
             provenance_json: None,
             purged_at: None,
+            drift_tier: None,
+            drift_metric: None,
+            drift_loss_metric: None,
+            drift_reference_backend: None,
+            drift_baseline_backend: None,
+            drift_test_backend: None,
             created_at: "2024-01-01T00:00:00Z".to_string(),
             updated_at: "2024-01-01T00:00:00Z".to_string(),
         }

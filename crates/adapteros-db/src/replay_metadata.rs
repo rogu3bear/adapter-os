@@ -3,7 +3,9 @@
 //! Records the replay key and content for each inference operation,
 //! enabling exact reproduction of model outputs under identical conditions.
 
-use crate::crypto_at_rest::{crypto_from_env_runtime, redact_for_log, CryptoAtRest, EncryptedField};
+use crate::crypto_at_rest::{
+    crypto_from_env_runtime, redact_for_log, CryptoAtRest, EncryptedField,
+};
 use crate::replay_kv::record_replay_drift;
 use crate::{Db, Result};
 use adapteros_core::AosError;
@@ -80,6 +82,8 @@ pub struct InferenceReplayMetadata {
     pub execution_policy_id: Option<String>,
     /// Execution policy version applied (if any)
     pub execution_policy_version: Option<i32>,
+    /// Stop policy JSON for deterministic replay
+    pub stop_policy_json: Option<String>,
     pub created_at: String,
 }
 
@@ -123,6 +127,8 @@ pub struct CreateReplayMetadataParams {
     pub replay_guarantee: Option<String>,
     pub execution_policy_id: Option<String>,
     pub execution_policy_version: Option<i32>,
+    /// JSON-serialized StopPolicySpec for deterministic replay
+    pub stop_policy_json: Option<String>,
 }
 
 impl Db {
@@ -201,11 +207,11 @@ impl Db {
                 replay_status, latency_ms, tokens_generated, determinism_mode,
                 fallback_triggered, coreml_compute_preference, coreml_compute_units,
                 coreml_gpu_used, fallback_backend, replay_guarantee, execution_policy_id,
-                execution_policy_version, created_at
+                execution_policy_version, stop_policy_json, created_at
             )
             VALUES (
                 ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                 datetime('now')
             )
             "#,
@@ -244,6 +250,7 @@ impl Db {
         .bind(&params.replay_guarantee)
         .bind(&params.execution_policy_id)
         .bind(&params.execution_policy_version)
+        .bind(&params.stop_policy_json)
         .execute(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to create replay metadata: {}", e)))?;
@@ -287,7 +294,7 @@ impl Db {
         response_text: Option<String>,
     ) -> Result<(String, Option<String>)> {
         async fn decode_single(tenant_id: &str, raw: String) -> Result<String> {
-            if let Some(field) = EncryptedField::decode(&raw) {
+            if let Some(field) = CryptoAtRest::decode(&raw) {
                 if let Some(crypto) = crypto_from_env_runtime() {
                     return match crypto.unseal(tenant_id, &field).await? {
                         Some(plaintext) => Ok(plaintext),
@@ -332,7 +339,7 @@ impl Db {
                                        replay_status, latency_ms, tokens_generated, determinism_mode,
                                        fallback_triggered, coreml_compute_preference, coreml_compute_units,
                                        coreml_gpu_used, fallback_backend, replay_guarantee, execution_policy_id,
-                                       execution_policy_version, created_at
+                                       execution_policy_version, stop_policy_json, created_at
                                 FROM inference_replay_metadata
                                 WHERE inference_id = ?
                                 "#,
@@ -398,7 +405,7 @@ impl Db {
                    replay_status, latency_ms, tokens_generated, determinism_mode,
                    fallback_triggered, coreml_compute_preference, coreml_compute_units,
                    coreml_gpu_used, fallback_backend, replay_guarantee, execution_policy_id,
-                   execution_policy_version, created_at
+                   execution_policy_version, stop_policy_json, created_at
             FROM inference_replay_metadata
             WHERE inference_id = ?
             "#,
@@ -446,7 +453,7 @@ impl Db {
                                        replay_status, latency_ms, tokens_generated, determinism_mode,
                                        fallback_triggered, coreml_compute_preference, coreml_compute_units,
                                        coreml_gpu_used, fallback_backend, replay_guarantee, execution_policy_id,
-                                       execution_policy_version, created_at
+                                       execution_policy_version, stop_policy_json, created_at
                                 FROM inference_replay_metadata
                                 WHERE id = ?
                                 "#,
@@ -508,7 +515,7 @@ impl Db {
                    replay_status, latency_ms, tokens_generated, determinism_mode,
                    fallback_triggered, coreml_compute_preference, coreml_compute_units,
                    coreml_gpu_used, fallback_backend, replay_guarantee, execution_policy_id,
-                   execution_policy_version, created_at
+                   execution_policy_version, stop_policy_json, created_at
             FROM inference_replay_metadata
             WHERE id = ?
             "#,
@@ -600,7 +607,7 @@ impl Db {
                                        replay_status, latency_ms, tokens_generated, determinism_mode,
                                        fallback_triggered, coreml_compute_preference, coreml_compute_units,
                                        coreml_gpu_used, fallback_backend, replay_guarantee, execution_policy_id,
-                                       execution_policy_version, created_at
+                                       execution_policy_version, stop_policy_json, created_at
                                 FROM inference_replay_metadata
                                 WHERE tenant_id = ?
                                 ORDER BY created_at DESC, inference_id DESC
@@ -654,7 +661,7 @@ impl Db {
                    replay_status, latency_ms, tokens_generated, determinism_mode,
                    fallback_triggered, coreml_compute_preference, coreml_compute_units,
                    coreml_gpu_used, fallback_backend, replay_guarantee, execution_policy_id,
-                   execution_policy_version, created_at
+                   execution_policy_version, stop_policy_json, created_at
             FROM inference_replay_metadata
             WHERE tenant_id = ?
             ORDER BY created_at DESC, inference_id DESC
@@ -723,6 +730,7 @@ struct InferenceReplayMetadataRow {
     replay_guarantee: Option<String>,
     execution_policy_id: Option<String>,
     execution_policy_version: Option<i32>,
+    stop_policy_json: Option<String>,
     created_at: String,
 }
 
@@ -763,6 +771,7 @@ impl From<InferenceReplayMetadataRow> for InferenceReplayMetadata {
             replay_guarantee: row.replay_guarantee,
             execution_policy_id: row.execution_policy_id,
             execution_policy_version: row.execution_policy_version,
+            stop_policy_json: row.stop_policy_json,
             created_at: row.created_at,
         }
     }
@@ -828,6 +837,7 @@ mod tests {
             replay_guarantee: Some("exact".to_string()),
             execution_policy_id: None,
             execution_policy_version: None,
+            stop_policy_json: None,
         };
 
         let id = db.create_replay_metadata(params).await.unwrap();
@@ -918,6 +928,7 @@ mod tests {
             replay_guarantee: Some("exact".to_string()),
             execution_policy_id: None,
             execution_policy_version: None,
+            stop_policy_json: None,
         };
 
         db.create_replay_metadata(params).await.unwrap();
@@ -977,6 +988,7 @@ mod tests {
                 replay_guarantee: Some("exact".to_string()),
                 execution_policy_id: None,
                 execution_policy_version: None,
+                stop_policy_json: None,
             };
 
             db.create_replay_metadata(params).await.unwrap();
@@ -1043,6 +1055,7 @@ mod tests {
             replay_guarantee: None,
             execution_policy_id: None,
             execution_policy_version: None,
+            stop_policy_json: None,
         };
 
         db.create_replay_metadata(params).await.unwrap();
@@ -1096,6 +1109,7 @@ mod tests {
             replay_guarantee: Some("exact".to_string()),
             execution_policy_id: None,
             execution_policy_version: None,
+            stop_policy_json: None,
         };
 
         let id = db.create_replay_metadata(params).await.unwrap();

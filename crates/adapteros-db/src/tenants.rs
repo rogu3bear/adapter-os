@@ -41,6 +41,12 @@ pub struct Tenant {
     /// Default pinned adapter IDs for new chat sessions (JSON array)
     #[sqlx(default)]
     pub default_pinned_adapter_ids: Option<String>,
+    /// KV cache quota in bytes (None = unlimited)
+    #[sqlx(default)]
+    pub max_kv_cache_bytes: Option<i64>,
+    /// KV residency policy ID for cache management
+    #[sqlx(default)]
+    pub kv_residency_policy_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -71,6 +77,9 @@ impl From<TenantKv> for Tenant {
             max_storage_gb: kv.max_storage_gb,
             rate_limit_rpm: kv.rate_limit_rpm,
             default_pinned_adapter_ids: kv.default_pinned_adapter_ids,
+            // KV quota fields - default to None for KV backend (not yet supported in KV)
+            max_kv_cache_bytes: None,
+            kv_residency_policy_id: None,
         }
     }
 }
@@ -276,7 +285,8 @@ impl Db {
 
         let tenant = sqlx::query_as::<_, Tenant>(
             "SELECT id, name, itar_flag, created_at, status, updated_at, default_stack_id,
-                    max_adapters, max_training_jobs, max_storage_gb, rate_limit_rpm
+                    max_adapters, max_training_jobs, max_storage_gb, rate_limit_rpm,
+                    default_pinned_adapter_ids, max_kv_cache_bytes, kv_residency_policy_id
              FROM tenants WHERE id = ?",
         )
         .bind(id)
@@ -317,7 +327,8 @@ impl Db {
 
         let tenants = sqlx::query_as::<_, Tenant>(
             "SELECT id, name, itar_flag, created_at, status, updated_at, default_stack_id,
-                    max_adapters, max_training_jobs, max_storage_gb, rate_limit_rpm
+                    max_adapters, max_training_jobs, max_storage_gb, rate_limit_rpm,
+                    default_pinned_adapter_ids, max_kv_cache_bytes, kv_residency_policy_id
              FROM tenants ORDER BY created_at DESC",
         )
         .fetch_all(pool)
@@ -380,7 +391,8 @@ impl Db {
         // Get paginated results
         let tenants = sqlx::query_as::<_, Tenant>(
             "SELECT id, name, itar_flag, created_at, status, updated_at, default_stack_id,
-                    max_adapters, max_training_jobs, max_storage_gb, rate_limit_rpm
+                    max_adapters, max_training_jobs, max_storage_gb, rate_limit_rpm,
+                    default_pinned_adapter_ids, max_kv_cache_bytes, kv_residency_policy_id
              FROM tenants ORDER BY created_at DESC LIMIT ? OFFSET ?",
         )
         .bind(limit)
@@ -623,6 +635,38 @@ impl Db {
                 warn!(error = %e, tenant_id = %id, "Failed to update tenant limits in KV backend (dual-write)");
             }
         }
+
+        Ok(())
+    }
+
+    /// Update tenant KV cache quota and residency policy
+    ///
+    /// Pass `None` to clear/disable quota enforcement (unlimited).
+    pub async fn update_tenant_kv_quota(
+        &self,
+        id: &str,
+        max_kv_cache_bytes: Option<i64>,
+        kv_residency_policy_id: Option<&str>,
+    ) -> Result<()> {
+        sqlx::query(
+            "UPDATE tenants
+             SET max_kv_cache_bytes = ?, kv_residency_policy_id = ?,
+                 updated_at = datetime('now')
+             WHERE id = ?",
+        )
+        .bind(max_kv_cache_bytes)
+        .bind(kv_residency_policy_id)
+        .bind(id)
+        .execute(&*self.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to update tenant KV quota: {}", e)))?;
+
+        info!(
+            tenant_id = %id,
+            max_kv_cache_bytes = ?max_kv_cache_bytes,
+            kv_residency_policy_id = ?kv_residency_policy_id,
+            "Updated tenant KV cache quota"
+        );
 
         Ok(())
     }

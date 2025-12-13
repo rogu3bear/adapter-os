@@ -79,65 +79,12 @@ pub struct StackRecord {
     pub determinism_mode: Option<String>,
     /// Routing determinism mode for adapter selection
     pub routing_determinism_mode: Option<String>,
+    /// Optional JSON metadata for stack configuration
+    pub metadata_json: Option<String>,
 }
 
 fn default_version() -> i64 {
     1
-}
-
-/// Per-adapter strength override for packages
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AdapterStrengthOverride {
-    pub adapter_id: String,
-    pub strength: Option<f32>,
-}
-
-/// Package record from database
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct PackageRecord {
-    pub id: String,
-    pub tenant_id: String,
-    pub name: String,
-    pub description: Option<String>,
-    pub stack_id: String,
-    pub tags_json: Option<String>,
-    pub domain: Option<String>,
-    pub scope_path: Option<String>,
-    pub adapter_strengths_json: Option<String>,
-    pub determinism_mode: Option<String>,
-    pub routing_determinism_mode: Option<String>,
-    pub created_at: String,
-    pub updated_at: String,
-}
-
-/// Request to create a new package
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CreatePackageRequest {
-    pub tenant_id: String,
-    pub name: String,
-    pub description: Option<String>,
-    pub stack_id: String,
-    pub tags: Option<Vec<String>>,
-    pub domain: Option<String>,
-    pub scope_path: Option<String>,
-    pub adapter_strengths: Option<Vec<AdapterStrengthOverride>>,
-    pub determinism_mode: Option<String>,
-    pub routing_determinism_mode: Option<String>,
-}
-
-/// Request to update an existing package
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UpdatePackageRequest {
-    pub tenant_id: String,
-    pub name: String,
-    pub description: Option<String>,
-    pub stack_id: String,
-    pub tags: Option<Vec<String>>,
-    pub domain: Option<String>,
-    pub scope_path: Option<String>,
-    pub adapter_strengths: Option<Vec<AdapterStrengthOverride>>,
-    pub determinism_mode: Option<String>,
-    pub routing_determinism_mode: Option<String>,
 }
 
 /// Request to create a new adapter stack
