@@ -31,8 +31,11 @@ use std::sync::OnceLock;
 use tracing::info;
 
 /// Lazily initialized global schema
+/// TODO: Used by planned per-variable validation feature
+#[allow(dead_code)]
 static SCHEMA: OnceLock<ConfigSchema> = OnceLock::new();
 
+#[allow(dead_code)]
 fn get_schema() -> &'static ConfigSchema {
     SCHEMA.get_or_init(default_schema)
 }
@@ -73,6 +76,8 @@ pub const SENSITIVE_VARS: &[&str] = &[
 ];
 
 /// Removal version for deprecated variables
+/// TODO: Used by planned per-variable validation feature
+#[allow(dead_code)]
 const REMOVAL_VERSION: &str = "v0.03";
 
 // ============================================================================
@@ -531,6 +536,14 @@ pub async fn validate(args: ValidateArgs, output: &OutputWriter) -> Result<()> {
     }
 }
 
+// ============================================================================
+// Per-Variable Validation (Planned Feature)
+// ============================================================================
+// TODO: These functions implement a more detailed per-variable validation system
+// that's planned for future use. Currently, validation uses the simplified
+// `perform_validation` function above. Keep these for the planned enhancement.
+
+#[allow(dead_code)]
 fn validate_variable(name: &str, value: &str, source: ConfigSource) -> ValidationResult {
     let schema = get_schema();
 
@@ -617,6 +630,7 @@ fn validate_variable(name: &str, value: &str, source: ConfigSource) -> Validatio
 }
 
 /// Convert ConfigType to display string
+#[allow(dead_code)]
 fn config_type_to_string(ct: &ConfigType) -> String {
     match ct {
         ConfigType::String => "string".to_string(),
@@ -632,6 +646,7 @@ fn config_type_to_string(ct: &ConfigType) -> String {
 }
 
 /// Fallback validation for variables not in schema (uses heuristics)
+#[allow(dead_code)]
 fn validate_unknown_variable(name: &str, value: &str) -> std::result::Result<(), String> {
     // Apply heuristic validation based on variable name patterns
     if name.ends_with("_PATH") || name.ends_with("_FILE") || name.ends_with("_DIR") {
@@ -656,6 +671,7 @@ fn validate_unknown_variable(name: &str, value: &str) -> std::result::Result<(),
     Ok(())
 }
 
+#[allow(dead_code)]
 fn validate_production_requirements(vars: &HashMap<String, String>) -> Vec<ValidationResult> {
     let mut results = Vec::new();
 
@@ -787,6 +803,7 @@ fn validate_production_requirements(vars: &HashMap<String, String>) -> Vec<Valid
     results
 }
 
+#[allow(dead_code)]
 fn validate_required_variables(
     vars: &HashMap<String, String>,
     production: bool,
@@ -813,6 +830,9 @@ fn validate_required_variables(
 // ============================================================================
 // Validation Helper Functions
 // ============================================================================
+// Note: These helpers are used in tests and by the planned per-variable
+// validation feature. They are not marked as dead_code because they have
+// active test coverage.
 
 fn validate_path(value: &str, must_exist: bool) -> std::result::Result<(), String> {
     if value.is_empty() {
@@ -827,6 +847,7 @@ fn validate_path(value: &str, must_exist: bool) -> std::result::Result<(), Strin
     Ok(())
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 fn validate_enum(value: &str, allowed: &[&str]) -> std::result::Result<(), String> {
     if allowed.contains(&value) {
         Ok(())
@@ -847,6 +868,7 @@ fn validate_port(value: &str) -> std::result::Result<(), String> {
     }
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 fn validate_integer(value: &str, min: i64, max: i64) -> std::result::Result<(), String> {
     match value.parse::<i64>() {
         Ok(n) if n >= min && n <= max => Ok(()),
@@ -914,6 +936,7 @@ fn validate_url(value: &str) -> std::result::Result<(), String> {
     }
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 fn validate_database_url(value: &str) -> std::result::Result<(), String> {
     if value.starts_with("sqlite:") || value.contains(".sqlite") {
         Ok(())
@@ -925,6 +948,7 @@ fn validate_database_url(value: &str) -> std::result::Result<(), String> {
     }
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 fn validate_jwt_secret(value: &str) -> std::result::Result<(), String> {
     if value.len() < 16 {
         Err("JWT secret must be at least 16 characters".to_string())
@@ -967,9 +991,12 @@ fn get_var_type(name: &str) -> String {
 }
 
 // ============================================================================
-// Output Formatting Functions
+// Output Formatting Functions (Planned Feature)
 // ============================================================================
+// TODO: These output functions are for the planned per-variable validation
+// feature which will support multiple output formats (text, JSON, SARIF).
 
+#[allow(dead_code)]
 fn output_validation_text(
     args: &ValidateArgs,
     results: &[ValidationResult],
@@ -1039,6 +1066,7 @@ fn output_validation_text(
     Ok(())
 }
 
+#[allow(dead_code)]
 fn output_validation_json(
     args: &ValidateArgs,
     results: &[ValidationResult],
@@ -1064,6 +1092,7 @@ fn output_validation_json(
     Ok(())
 }
 
+#[allow(dead_code)]
 fn output_validation_sarif(args: &ValidateArgs, results: &[ValidationResult]) -> Result<()> {
     let sarif_results: Vec<serde_json::Value> = results
         .iter()

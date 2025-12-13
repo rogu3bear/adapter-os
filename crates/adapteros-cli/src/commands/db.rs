@@ -5,13 +5,29 @@ use clap::Subcommand;
 use std::path::PathBuf;
 
 use crate::output::OutputWriter;
+use adapteros_core::policy::DriftPolicy;
 use adapteros_db::{
     adapters::AdapterRegistrationBuilder,
     chat_sessions::{AddMessageParams, CreateChatSessionParams},
+    migration_verify::MigrationVerifier,
     models::ModelRegistrationBuilder,
+    policies::TenantPolicies,
+    sqlx,
+    users::Role,
     Db,
 };
+use argon2::{
+    password_hash::{PasswordHasher, SaltString},
+    Algorithm as Argon2Algorithm, Argon2, Params, Version,
+};
+use blake3;
+use rand::rngs::OsRng;
 use serde_json::json;
+
+// Match server auth hashing parameters for deterministic fixture users
+const ARGON2_MEMORY_KIB: u32 = 64 * 1024; // 64 MiB
+const ARGON2_ITERATIONS: u32 = 3;
+const ARGON2_PARALLELISM: u32 = 1;
 
 #[derive(Debug, Clone, Subcommand)]
 pub enum DbCommand {
@@ -84,6 +100,17 @@ WARNING: This command DELETES the database file and recreates it with all migrat
         #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
         chat: bool,
     },
+
+    /// Health check for migration signatures and DB integrity
+    Health {
+        /// Database path (defaults to DATABASE_URL or ./var/aos-cp.sqlite3)
+        #[arg(long)]
+        db_path: Option<PathBuf>,
+
+        /// Emit JSON instead of human-readable output
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 /// Handle database commands
@@ -99,6 +126,7 @@ pub async fn handle_db_command(cmd: DbCommand, output: &OutputWriter) -> Result<
             skip_reset,
             chat,
         } => run_seed_fixtures(db_path, skip_reset, chat, output).await,
+        DbCommand::Health { db_path, json } => run_health(db_path, json, output).await,
     }
 }
 
@@ -152,6 +180,71 @@ async fn run_migrate(
     db.migrate().await?;
 
     output.success("Database migrations completed successfully");
+    Ok(())
+}
+
+async fn run_health(db_path: Option<PathBuf>, json: bool, output: &OutputWriter) -> Result<()> {
+    // Resolve DB URL (matches migrate/reset behavior)
+    let db_url = if let Some(path) = db_path.clone() {
+        format!("sqlite://{}", path.display())
+    } else if let Ok(url) = std::env::var("DATABASE_URL") {
+        url
+    } else {
+        "sqlite://./var/aos-cp.sqlite3".to_string()
+    };
+
+    // Verify migration signatures (stale or missing signatures fail fast)
+    let manifest_dir = env!("CARGO_MANIFEST_DIR");
+    let workspace_root = std::path::Path::new(manifest_dir)
+        .parent()
+        .and_then(|p| p.parent())
+        .ok_or_else(|| anyhow::anyhow!("Failed to find workspace root"))?;
+    let migrations_path = workspace_root.join("migrations");
+
+    if !migrations_path.exists() {
+        anyhow::bail!(
+            "Migrations directory not found at {}",
+            migrations_path.display()
+        );
+    }
+
+    let verifier = MigrationVerifier::new(&migrations_path)?;
+    verifier.verify_all()?;
+
+    // Connectivity + integrity check
+    let db = Db::connect(&db_url).await?;
+    let integrity: String = sqlx::query_scalar("PRAGMA integrity_check")
+        .fetch_one(db.pool())
+        .await?;
+
+    let integrity_result = integrity.trim();
+    let status = if integrity_result == "ok" {
+        "healthy"
+    } else {
+        "unhealthy"
+    };
+
+    let payload = json!({
+        "status": status,
+        "integrity_check": integrity_result,
+        "db_url": db_url,
+    });
+
+    if json {
+        output.json(&payload)?;
+    } else {
+        output.info(&format!(
+            "Database URL: {}",
+            payload["db_url"].as_str().unwrap_or_default()
+        ));
+        output.info(&format!("Integrity check result: {}", integrity_result));
+        output.success("Migration signatures verified");
+    }
+
+    if status != "healthy" {
+        anyhow::bail!("Database integrity check failed: {}", integrity_result);
+    }
+
     Ok(())
 }
 
@@ -237,6 +330,24 @@ async fn run_reset(db_path: Option<PathBuf>, force: bool, output: &OutputWriter)
     Ok(())
 }
 
+fn hash_fixture_password(password: &str) -> Result<String> {
+    let params = Params::new(
+        ARGON2_MEMORY_KIB,
+        ARGON2_ITERATIONS,
+        ARGON2_PARALLELISM,
+        None,
+    )
+    .map_err(|e| anyhow::anyhow!("invalid Argon2 params for seed fixtures: {}", e))?;
+
+    let argon2 = Argon2::new(Argon2Algorithm::Argon2id, Version::V0x13, params);
+    let salt = SaltString::generate(&mut OsRng);
+
+    argon2
+        .hash_password(password.as_bytes(), &salt)
+        .map(|hash| hash.to_string())
+        .map_err(|e| anyhow::anyhow!("failed to hash seed fixture password: {}", e))
+}
+
 async fn run_seed_fixtures(
     db_path: Option<PathBuf>,
     skip_reset: bool,
@@ -252,6 +363,18 @@ async fn run_seed_fixtures(
     const STACK_NAME: &str = "stack.test";
     const ADAPTER_ID: &str = "adapter-test";
     const ADAPTER_NAME: &str = "Test Adapter";
+    const E2E_USER_ID: &str = "user-e2e";
+    const E2E_USER_EMAIL: &str = "test@example.com";
+    const E2E_USER_NAME: &str = "E2E Test User";
+    const E2E_USER_PASSWORD: &str = "password";
+    const POLICY_ID: &str = "policy-e2e-default";
+    const REPO_ID: &str = "repo-e2e";
+    const REPO_NAME: &str = "e2e-repo";
+    const VERSION_ID: &str = "adapter-version-e2e";
+    const VERSION_LABEL: &str = "1.0.0";
+    const VERSION_BRANCH: &str = "main";
+    const VERSION_BRANCH_CLASS: &str = "protected";
+    const VERSION_HISTORY_ID: &str = "avh-e2e";
     const CHAT_SESSION_ID: &str = "chat-session-test";
     const CHAT_MESSAGE_ID: &str = "chat-message-test";
     const FIXED_TS: &str = "2025-01-01T00:00:00Z";
@@ -318,6 +441,52 @@ async fn run_seed_fixtures(
     .bind(FIXED_TS)
     .bind(STACK_ID)
     .bind(&pinned)
+    .execute(&*pool)
+    .await?;
+
+    // Seed deterministic admin user for Cypress flows
+    sqlx::query("DELETE FROM users WHERE email = ? OR id = ?")
+        .bind(E2E_USER_EMAIL)
+        .bind(E2E_USER_ID)
+        .execute(&*pool)
+        .await?;
+
+    let user_pw_hash = hash_fixture_password(E2E_USER_PASSWORD)?;
+    let inserted_user_id = db
+        .create_user(
+            E2E_USER_EMAIL,
+            E2E_USER_NAME,
+            &user_pw_hash,
+            Role::Admin,
+            TENANT_ID,
+        )
+        .await?;
+
+    if inserted_user_id != E2E_USER_ID {
+        sqlx::query("UPDATE users SET id = ? WHERE id = ?")
+            .bind(E2E_USER_ID)
+            .bind(&inserted_user_id)
+            .execute(&*pool)
+            .await?;
+    }
+
+    sqlx::query(
+        r#"
+        UPDATE users SET
+            tenant_id = ?,
+            role = 'admin',
+            display_name = ?,
+            pw_hash = ?,
+            disabled = 0,
+            created_at = ?
+        WHERE id = ?
+        "#,
+    )
+    .bind(TENANT_ID)
+    .bind(E2E_USER_NAME)
+    .bind(&user_pw_hash)
+    .bind(FIXED_TS)
+    .bind(E2E_USER_ID)
     .execute(&*pool)
     .await?;
 
@@ -430,6 +599,150 @@ async fn run_seed_fixtures(
     .execute(&*pool)
     .await?;
 
+    // Seed deterministic tenant policy
+    sqlx::query("UPDATE policies SET active = 0 WHERE tenant_id = ?")
+        .bind(TENANT_ID)
+        .execute(&*pool)
+        .await?;
+
+    let policy_body = serde_json::to_string(&TenantPolicies {
+        drift: DriftPolicy::default(),
+    })?;
+    let policy_hash = blake3::hash(policy_body.as_bytes()).to_hex().to_string();
+
+    sqlx::query("INSERT INTO policies (id, tenant_id, hash_b3, body_json, active, created_at) VALUES (?, ?, ?, ?, 1, ?) ON CONFLICT(id) DO UPDATE SET hash_b3 = excluded.hash_b3, body_json = excluded.body_json, active = excluded.active, created_at = excluded.created_at")
+        .bind(POLICY_ID)
+        .bind(TENANT_ID)
+        .bind(&policy_hash)
+        .bind(&policy_body)
+        .bind(FIXED_TS)
+        .execute(&*pool)
+        .await?;
+
+    // Seed deterministic adapter repository + version
+    sqlx::query("DELETE FROM adapter_version_runtime_state WHERE version_id = ?")
+        .bind(VERSION_ID)
+        .execute(&*pool)
+        .await?;
+    sqlx::query("DELETE FROM adapter_versions WHERE id = ? OR repo_id = ?")
+        .bind(VERSION_ID)
+        .bind(REPO_ID)
+        .execute(&*pool)
+        .await?;
+    sqlx::query("DELETE FROM adapter_repositories WHERE id = ?")
+        .bind(REPO_ID)
+        .execute(&*pool)
+        .await?;
+
+    sqlx::query(
+        r#"
+        INSERT INTO adapter_repositories (id, tenant_id, name, base_model_id, default_branch, archived, created_by, created_at, description)
+        VALUES (?, ?, ?, ?, 'main', 0, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+            tenant_id = excluded.tenant_id,
+            name = excluded.name,
+            base_model_id = excluded.base_model_id,
+            default_branch = excluded.default_branch,
+            archived = excluded.archived,
+            created_by = excluded.created_by,
+            created_at = excluded.created_at,
+            description = excluded.description
+        "#,
+    )
+    .bind(REPO_ID)
+    .bind(TENANT_ID)
+    .bind(REPO_NAME)
+    .bind(MODEL_ID)
+    .bind(E2E_USER_ID)
+    .bind(FIXED_TS)
+    .bind("Seeded E2E repository")
+    .execute(&*pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+        INSERT INTO adapter_versions (
+            id, repo_id, tenant_id, version, branch, branch_classification, aos_path, aos_hash,
+            manifest_schema_version, parent_version_id, code_commit_sha, data_spec_hash,
+            training_backend, coreml_used, coreml_device_type, adapter_trust_state, release_state,
+            metrics_snapshot_id, evaluation_summary, created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, NULL, ?, NULL, ?, 1, NULL, 'allowed', 'ready', NULL, 'seeded e2e version', ?)
+        ON CONFLICT(id) DO UPDATE SET
+            repo_id = excluded.repo_id,
+            tenant_id = excluded.tenant_id,
+            version = excluded.version,
+            branch = excluded.branch,
+            branch_classification = excluded.branch_classification,
+            aos_hash = excluded.aos_hash,
+            manifest_schema_version = excluded.manifest_schema_version,
+            code_commit_sha = excluded.code_commit_sha,
+            training_backend = excluded.training_backend,
+            adapter_trust_state = excluded.adapter_trust_state,
+            release_state = excluded.release_state,
+            evaluation_summary = excluded.evaluation_summary,
+            created_at = excluded.created_at
+        "#,
+    )
+    .bind(VERSION_ID)
+    .bind(REPO_ID)
+    .bind(TENANT_ID)
+    .bind(VERSION_LABEL)
+    .bind(VERSION_BRANCH)
+    .bind(VERSION_BRANCH_CLASS)
+    .bind("b3_adapter_version_seed")
+    .bind("1.0.0")
+    .bind("deadbeef")
+    .bind("coreml")
+    .bind(FIXED_TS)
+    .execute(&*pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+        INSERT INTO adapter_version_runtime_state (version_id, runtime_state, updated_at, worker_id, last_error)
+        VALUES (?, 'unloaded', ?, NULL, NULL)
+        ON CONFLICT(version_id) DO UPDATE SET
+            runtime_state = excluded.runtime_state,
+            updated_at = excluded.updated_at,
+            worker_id = excluded.worker_id,
+            last_error = excluded.last_error
+        "#,
+    )
+    .bind(VERSION_ID)
+    .bind(FIXED_TS)
+    .execute(&*pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+        INSERT INTO adapter_version_history (
+            id, repo_id, tenant_id, version_id, branch, old_state, new_state, actor, reason, train_job_id, created_at
+        )
+        VALUES (?, ?, ?, ?, ?, NULL, 'ready', ?, 'seed-fixtures', NULL, ?)
+        ON CONFLICT(id) DO UPDATE SET
+            repo_id = excluded.repo_id,
+            tenant_id = excluded.tenant_id,
+            version_id = excluded.version_id,
+            branch = excluded.branch,
+            old_state = excluded.old_state,
+            new_state = excluded.new_state,
+            actor = excluded.actor,
+            reason = excluded.reason,
+            train_job_id = excluded.train_job_id,
+            created_at = excluded.created_at
+        "#,
+    )
+    .bind(VERSION_HISTORY_ID)
+    .bind(REPO_ID)
+    .bind(TENANT_ID)
+    .bind(VERSION_ID)
+    .bind(VERSION_BRANCH)
+    .bind(E2E_USER_ID)
+    .bind(FIXED_TS)
+    .execute(&*pool)
+    .await?;
+
     // Optionally seed a starter chat session + message for assertions
     if chat {
         // Clear any prior seeded session/messages to keep the command idempotent
@@ -485,6 +798,10 @@ async fn run_seed_fixtures(
     output.kv("Model", MODEL_ID);
     output.kv("Adapter", ADAPTER_ID);
     output.kv("Stack", STACK_ID);
+    output.kv("Adapter repo", REPO_ID);
+    output.kv("Adapter version", VERSION_ID);
+    output.kv("Policy", POLICY_ID);
+    output.kv("User", E2E_USER_ID);
     if chat {
         output.kv("Chat session", CHAT_SESSION_ID);
     }

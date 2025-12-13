@@ -43,6 +43,7 @@ mod cmd_trace_export;
 mod commands;
 mod error_codes;
 mod formatting;
+mod http_client;
 mod logging;
 mod output;
 
@@ -522,6 +523,24 @@ Examples:
 ")]
     Verify {
         /// Bundle path
+        bundle: PathBuf,
+    },
+
+    /// Verify an offline run receipt bundle
+    #[command(
+        name = "verify-receipt",
+        after_help = "\
+Examples:
+  # Verify a run receipt bundle from a directory
+  aosctl verify-receipt --bundle ./var/receipts/run-123
+
+  # Verify a single bundle file directly
+  aosctl verify-receipt --bundle ./run_receipt.json
+"
+    )]
+    VerifyReceipt {
+        /// Receipt bundle directory (or JSON file)
+        #[arg(long)]
         bundle: PathBuf,
     },
 
@@ -1622,6 +1641,9 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
         Commands::Verify { bundle } => {
             verify::run(&bundle, &output).await?;
         }
+        Commands::VerifyReceipt { bundle } => {
+            commands::verify_receipt::run(&bundle, &output)?;
+        }
         Commands::VerifyDeterminismLoop => {
             let exit_code = verify_determinism_loop::run(&output).await?;
             std::process::exit(exit_code);
@@ -1844,7 +1866,7 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
             commands::manual::run_manual(args.clone())?;
         }
 
-        Commands::Train { cmd } => {
+        Commands::Train(cmd) => {
             commands::train_cli::run(cmd.clone(), &output).await?;
         }
 
@@ -2167,6 +2189,7 @@ fn get_command_name(command: &Commands) -> String {
         Commands::Secd(_) => "secd",
         Commands::Import { .. } => "import",
         Commands::Verify { .. } => "verify",
+        Commands::VerifyReceipt { .. } => "verify-receipt",
         Commands::VerifyAdapters { .. } => "verify-adapters",
         Commands::Policy(_) => "policy",
         Commands::Serve { .. } => "serve",
@@ -2190,7 +2213,7 @@ fn get_command_name(command: &Commands) -> String {
         Commands::ErrorCodes { .. } => "error-codes",
         Commands::Tutorial { .. } => "tutorial",
         Commands::Manual { .. } => "manual",
-        Commands::Train { .. } => "train",
+        Commands::Train(_) => "train",
         Commands::TrainDocs { .. } => "train-docs",
         Commands::Code(_) => "code",
         Commands::BackendStatus(_) => "backend-status",

@@ -1,9 +1,7 @@
 //! System diagnostics command
 
-use adapteros_core::{derive_seed, B3Hash};
 use adapteros_core::{AosError, Result};
 use anyhow::Context;
-use clap::Subcommand;
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use std::path::{Path, PathBuf};
@@ -125,7 +123,7 @@ impl DiagnosticRunner {
         self.check_permissions();
 
         // Database check
-        self.check_database().await;
+        let _ = self.check_database().await;
 
         // Kernel check
         self.check_kernels();
@@ -432,7 +430,7 @@ impl DiagnosticRunner {
         };
 
         // Check tenant registry
-        self.check_tenant_registry(&tenant_id).await;
+        let _ = self.check_tenant_registry(&tenant_id).await;
 
         // Check telemetry
         self.check_telemetry(&tenant_id);
@@ -985,6 +983,17 @@ async fn create_diag_bundle(bundle_path: &Path, results: &[DiagResult]) -> Resul
     Ok(())
 }
 
+fn truncate_snippet(s: &str, max_len: usize) -> String {
+    let mut cleaned = s.replace('\n', " ").replace('\r', " ");
+    if cleaned.len() <= max_len {
+        return cleaned;
+    }
+
+    cleaned.truncate(max_len);
+    cleaned.push_str("…");
+    cleaned
+}
+
 /// Run determinism check: 3 fixed prompts, N runs, compare outputs
 pub async fn run_determinism_check(
     stack_id: Option<String>,
@@ -1107,24 +1116,46 @@ pub async fn run_determinism_check(
                 .await
                 .map_err(|e| AosError::Config(format!("Inference request failed: {}", e)))?;
 
-            if !response.status().is_success() {
-                error!(
-                    "Inference failed for prompt {}: {}",
-                    prompt_idx,
-                    response.status()
-                );
-                return Err(AosError::Config(format!(
-                    "Inference failed: {}",
-                    response.status()
-                )));
+            let status = response.status();
+
+            if !status.is_success() {
+                error!("Inference failed for prompt {}: {}", prompt_idx, status);
+                return Err(AosError::Config(format!("Inference failed: {}", status)));
             }
 
-            let json_response: serde_json::Value = response
-                .json()
+            // Read body as text so we can provide a useful error message (status + snippet)
+            // when contract fields are missing.
+            let response_body = response
+                .text()
                 .await
-                .map_err(|e| AosError::Config(format!("Failed to parse response: {}", e)))?;
+                .map_err(|e| AosError::Config(format!("Failed to read response body: {}", e)))?;
 
-            let output_text = json_response["text"].as_str().unwrap_or("").to_string();
+            let json_response: serde_json::Value =
+                serde_json::from_str(&response_body).map_err(|e| {
+                    AosError::Config(format!(
+                        "Failed to parse response JSON (status: {}): {}. Response snippet: {}",
+                        status,
+                        e,
+                        truncate_snippet(&response_body, 512)
+                    ))
+                })?;
+
+            let output_text = json_response
+                .get("text")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| {
+                    let got = json_response
+                        .get("text")
+                        .map(|v| v.to_string())
+                        .unwrap_or_else(|| "<missing>".to_string());
+                    AosError::Config(format!(
+                        "Inference response missing expected string field 'text' (status: {}). got: {}. Response snippet: {}",
+                        status,
+                        got,
+                        truncate_snippet(&response_body, 512)
+                    ))
+                })?
+                .to_string();
 
             results
                 .entry(format!("prompt_{}", prompt_idx))

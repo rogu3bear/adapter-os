@@ -1,8 +1,8 @@
-use crate::output::{create_styled_table, OutputWriter, Table};
+use crate::output::{create_styled_table, OutputWriter};
 use anyhow::{Context, Result};
 use clap::{Args, Subcommand};
 use reqwest::StatusCode;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
 #[derive(Debug, Subcommand, Clone)]
@@ -34,12 +34,12 @@ pub struct CoremlStatusArgs {
     pub timeout: u64,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 struct CoremlVerificationStatusResponse {
     workers: Vec<WorkerCoremlStatus>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 struct WorkerCoremlStatus {
     worker_id: String,
     tenant_id: String,
@@ -72,11 +72,11 @@ async fn status(args: CoremlStatusArgs, output: &OutputWriter) -> Result<()> {
 
     let resp = client.get(url).send().await.context("request failed")?;
     if resp.status() == StatusCode::NOT_FOUND {
-        output.error("CoreML verification endpoint not available on server")?;
+        output.error("CoreML verification endpoint not available on server");
         return Ok(());
     }
     if !resp.status().is_success() {
-        output.error(format!("Server returned {}", resp.status()))?;
+        output.error(format!("Server returned {}", resp.status()));
         return Ok(());
     }
 
@@ -101,7 +101,7 @@ async fn status(args: CoremlStatusArgs, output: &OutputWriter) -> Result<()> {
     }
 
     if payload.workers.is_empty() {
-        output.warning("No CoreML verification data available")?;
+        output.warning("No CoreML verification data available");
         return Ok(());
     }
 

@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use tracing::{info, warn};
 
 /// Train a LoRA adapter
-#[derive(Args, Debug)]
+#[derive(Args, Debug, Clone)]
 pub struct TrainArgs {
     /// Training configuration file (JSON)
     #[arg(short, long)]
@@ -132,6 +132,11 @@ impl TrainArgs {
                 max_seq_length: None,
                 gradient_accumulation_steps: None,
                 determinism: None,
+                coreml_placement: None,
+                backend_policy: None,
+                coreml_fallback_backend: None,
+                max_tokens_per_batch: None,
+                device_policy: None,
             };
 
             info!("Using command-line training configuration");
@@ -157,7 +162,10 @@ impl TrainArgs {
                     .metadata
                     .unwrap_or_default()
                     .into_iter()
-                    .map(|(k, v)| (k, v.as_str().unwrap_or("").to_string()))
+                    // Preserve metadata deterministically:
+                    // - if JSON string => use raw string (no quotes)
+                    // - else => stringify JSON value (numbers/bools/null/objects/arrays)
+                    .map(|(k, v)| (k, stringify_metadata_value(v)))
                     .collect(),
                 weight: 1.0,
             })
@@ -201,6 +209,13 @@ impl TrainArgs {
         info!("  Weights: {}", weights_path.display());
 
         Ok(())
+    }
+}
+
+fn stringify_metadata_value(v: serde_json::Value) -> String {
+    match v {
+        serde_json::Value::String(s) => s,
+        other => other.to_string(),
     }
 }
 
@@ -253,6 +268,11 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let data_path = temp_dir.path().join("data.json");
 
+        let mut metadata = HashMap::new();
+        metadata.insert("str".to_string(), serde_json::json!("hello"));
+        metadata.insert("num".to_string(), serde_json::json!(123));
+        metadata.insert("bool".to_string(), serde_json::json!(true));
+
         let training_data = TrainingData {
             examples: vec![
                 TrainingExampleData {
@@ -263,7 +283,7 @@ mod tests {
                 TrainingExampleData {
                     input: vec![7, 8, 9],
                     target: vec![10, 11, 12],
-                    metadata: Some(HashMap::new()),
+                    metadata: Some(metadata),
                 },
             ],
         };
@@ -291,5 +311,10 @@ mod tests {
         assert_eq!(examples.len(), 2);
         assert_eq!(examples[0].input, vec![1, 2, 3]);
         assert_eq!(examples[0].target, vec![4, 5, 6]);
+
+        // Non-string metadata must not be silently coerced to empty string.
+        assert_eq!(examples[1].metadata.get("str").unwrap(), "hello");
+        assert_eq!(examples[1].metadata.get("num").unwrap(), "123");
+        assert_eq!(examples[1].metadata.get("bool").unwrap(), "true");
     }
 }

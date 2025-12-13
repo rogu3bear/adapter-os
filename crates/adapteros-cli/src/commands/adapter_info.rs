@@ -1,7 +1,6 @@
 //! Adapter info command - show provenance and signer information
 
 use anyhow::Result;
-use std::ops::Deref;
 
 /// Show adapter information including signer and provenance
 pub async fn run(adapter_id: &str) -> Result<()> {
@@ -75,7 +74,7 @@ struct ProvenanceInfo {
 
 /// Get provenance information from database
 async fn get_provenance(db: &adapteros_db::Db, adapter_id: &str) -> Result<Option<ProvenanceInfo>> {
-    let pool = db.deref().pool();
+    let pool = db.pool();
     get_provenance_sqlite(pool, adapter_id).await
 }
 

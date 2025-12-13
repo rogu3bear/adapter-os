@@ -377,7 +377,7 @@ async fn ingest_dataset(args: IngestArgs, output: &OutputWriter) -> Result<()> {
         dataset_version_id: version_id,
         file_count: upload.file_count,
         total_size_bytes: upload.total_size_bytes,
-        validation_status: format!("{:?}", upload.validation_status),
+        validation_status: "pending".to_string(),
         trust_state,
         created_at: upload.created_at,
     };

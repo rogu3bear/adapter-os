@@ -3,7 +3,7 @@
 use adapteros_core::{AosError, Result};
 use adapteros_lora_worker::training::DatasetSubsample;
 use adapteros_lora_worker::training::{
-    compute_drift, deterministic_slice, run_backend_with_examples, BackendRun, DriftMetrics,
+    compute_drift, deterministic_slice, run_backend_with_examples, DriftMetrics,
     HarnessHyperparams, TrainingBackend, TrainingExample, TrainingResult,
 };
 use adapteros_manifest::{AssuranceTier, ManifestV3};
@@ -273,12 +273,22 @@ fn load_dataset(path: &Path) -> Result<Vec<TrainingExample>> {
                 .metadata
                 .unwrap_or_default()
                 .into_iter()
-                .map(|(k, v)| (k, v.as_str().unwrap_or("").to_string()))
+                // Preserve metadata deterministically:
+                // - if JSON string => use raw string (no quotes)
+                // - else => stringify JSON value (numbers/bools/null/objects/arrays)
+                .map(|(k, v)| (k, stringify_metadata_value(v)))
                 .collect(),
             weight: 1.0,
         })
         .collect();
     Ok(examples)
+}
+
+fn stringify_metadata_value(v: serde_json::Value) -> String {
+    match v {
+        serde_json::Value::String(s) => s,
+        other => other.to_string(),
+    }
 }
 
 fn persist_manifest(
@@ -297,17 +307,27 @@ fn persist_manifest(
         .map_err(|e| AosError::Io(format!("Failed to read manifest: {}", e)))?;
     let mut manifest = ManifestV3::from_json(&content)?;
 
-    let adapter = if let Some(id) = &cfg.adapter_id {
-        manifest
+    let adapter = match cfg.adapter_id.as_deref() {
+        Some(id) => manifest
             .adapters
             .iter_mut()
-            .find(|a| &a.id == id)
-            .ok_or_else(|| AosError::Validation(format!("Adapter id {} not in manifest", id)))?
-    } else {
-        manifest
-            .adapters
-            .first_mut()
-            .ok_or_else(|| AosError::Validation("Manifest contains no adapters".into()))?
+            .find(|a| a.id == id)
+            .ok_or_else(|| AosError::Validation(format!("Adapter '{id}' not found in manifest")))?,
+        None => {
+            if manifest.adapters.is_empty() {
+                return Err(AosError::Validation("No adapter entries in manifest".into()));
+            }
+            if manifest.adapters.len() == 1 {
+                manifest
+                    .adapters
+                    .first_mut()
+                    .ok_or_else(|| AosError::Validation("No adapter entries in manifest".into()))?
+            } else {
+                return Err(AosError::Validation(
+                    "Manifest contains multiple adapters; pass --adapter-id to select one".into(),
+                ));
+            }
+        }
     };
 
     adapter.determinism_seed = Some(cfg.seed);

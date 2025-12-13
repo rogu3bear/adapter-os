@@ -94,6 +94,7 @@ pub mod verify;
 pub mod verify_adapter;
 pub mod verify_adapters;
 pub mod verify_determinism_loop;
+pub mod verify_receipt;
 // Legacy federation command - consolidated into federation.rs
 // pub mod verify_federation;  // Consolidated into federation.rs
 pub mod behavior_export;

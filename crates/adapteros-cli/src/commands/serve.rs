@@ -407,16 +407,47 @@ pub async fn run(
 
     // 5. Create worker with all components
     output.info("Creating worker instance...");
+
+    // Convert BackendType to BackendKind for AvailableBackends
+    let backend_kind = match backend {
+        BackendType::Metal => adapteros_core::BackendKind::Metal,
+        BackendType::Mlx => adapteros_core::BackendKind::Mlx,
+        BackendType::CoreML => adapteros_core::BackendKind::CoreML,
+    };
+
+    let available_backends = adapteros_lora_worker::AvailableBackends {
+        primary: backend_kind,
+        fallback: None,
+        coreml_primary: None,
+        coreml_fallback: None,
+    };
+
+    // PRD-06: Generate a default worker_id for CLI serve using BLAKE3
+    // Combines tenant with timestamp for per-session uniqueness while maintaining determinism
+    let cli_worker_id: u32 = {
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let input = format!("{}:{}", tenant, timestamp);
+        let hash = adapteros_core::B3Hash::hash(input.as_bytes());
+        let bytes: [u8; 4] = hash.as_bytes()[0..4].try_into().unwrap_or([0; 4]);
+        u32::from_le_bytes(bytes)
+    };
+
     let worker = adapteros_lora_worker::Worker::new(
         manifest.clone(),
         tenant,
         kernels,
+        available_backends,
         rag,
         &tokenizer_path,
         &model_path,
         telemetry,
         None,
         None,
+        None, // No quota manager for CLI serve command
+        cli_worker_id,
     )
     .await?;
     output.success("Worker initialized");

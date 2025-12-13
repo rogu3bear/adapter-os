@@ -194,7 +194,7 @@ pub async fn run(cmd: HealthCommand, output: &OutputWriter) -> Result<()> {
     Ok(())
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 struct DriftMetricRow {
     backend: String,
     weight_l_inf: f32,
@@ -361,10 +361,33 @@ async fn show_drift(
         let manifest_str = fs::read_to_string(&path)
             .map_err(|e| AosError::Io(format!("Failed to read manifest: {e}")))?;
         let manifest = ManifestV3::from_json(&manifest_str)?;
-        let adapter = adapter_id
-            .and_then(|id| manifest.adapters.iter().find(|a| a.id == id).cloned())
-            .or_else(|| manifest.adapters.first().cloned())
-            .ok_or_else(|| AosError::Validation("No adapter entries in manifest".into()))?;
+        let adapter = match adapter_id {
+            Some(id) => manifest
+                .adapters
+                .iter()
+                .find(|a| a.id == id)
+                .cloned()
+                .ok_or_else(|| {
+                    AosError::Validation(format!("Adapter '{id}' not found in manifest"))
+                })?,
+            None => {
+                if manifest.adapters.is_empty() {
+                    return Err(AosError::Validation(
+                        "No adapter entries in manifest".into(),
+                    ));
+                }
+                if manifest.adapters.len() == 1 {
+                    manifest.adapters.first().cloned().ok_or_else(|| {
+                        AosError::Validation("No adapter entries in manifest".into())
+                    })?
+                } else {
+                    return Err(AosError::Validation(
+                        "Manifest contains multiple adapters; pass --adapter-id to select one"
+                            .into(),
+                    ));
+                }
+            }
+        };
         let summary = DriftShowSummary::from_manifest(adapter, path.to_string_lossy());
         render_drift_show(summary, json, output)?;
         return Ok(());
@@ -385,6 +408,7 @@ async fn show_drift(
 struct DriftShowSummary {
     adapter_id: String,
     repo_id: Option<String>,
+    source: Option<String>,
     reference_backend: Option<String>,
     baseline_backend: Option<String>,
     test_backend: Option<String>,
@@ -396,33 +420,19 @@ struct DriftShowSummary {
 
 impl DriftShowSummary {
     fn from_adapter_record(adapter: adapteros_db::adapters::Adapter) -> Self {
-        let tier = adapter.drift_tier.clone();
-        let decision = adapter
-            .drift_metric
-            .zip(adapter.drift_loss_metric)
-            .map(|(w, l)| {
-                let metrics = adapteros_lora_worker::training::DriftMetrics {
-                    backend: adapter
-                        .drift_test_backend
-                        .clone()
-                        .unwrap_or_else(|| "unknown".into()),
-                    weight_l_inf: w as f32,
-                    loss_l_inf: l as f32,
-                    cosine_similarity: None,
-                };
-                let tier_enum = parse_assurance_tier(tier.as_deref());
-                format!("{:?}", evaluate_drift(&metrics, tier_enum))
-            });
+        // NOTE: the SQL/KV `adapters` record does not currently store drift metrics.
+        // Drift metrics are surfaced via .aos manifests and/or worker harness outputs.
         Self {
             adapter_id: adapter.adapter_id.unwrap_or(adapter.id),
             repo_id: adapter.repo_id,
-            reference_backend: adapter.drift_reference_backend,
-            baseline_backend: adapter.drift_baseline_backend,
-            test_backend: adapter.drift_test_backend,
-            weight_l_inf: adapter.drift_metric,
-            loss_l_inf: adapter.drift_loss_metric,
-            tier: adapter.drift_tier,
-            decision,
+            source: None,
+            reference_backend: None,
+            baseline_backend: None,
+            test_backend: None,
+            weight_l_inf: None,
+            loss_l_inf: None,
+            tier: None,
+            decision: None,
         }
     }
 
@@ -430,6 +440,7 @@ impl DriftShowSummary {
         adapter: adapteros_manifest::Adapter,
         manifest_path: std::borrow::Cow<str>,
     ) -> Self {
+        let tier = adapter.drift_tier.unwrap_or(AssuranceTier::Standard);
         let decision = adapter
             .drift_metric
             .zip(adapter.drift_loss_metric)
@@ -443,19 +454,19 @@ impl DriftShowSummary {
                     loss_l_inf: l as f32,
                     cosine_similarity: None,
                 };
-                let tier_enum = parse_assurance_tier(adapter.drift_tier.as_deref());
-                format!("{:?}", evaluate_drift(&metrics, tier_enum))
+                format!("{:?}", evaluate_drift(&metrics, tier))
             });
         Self {
             adapter_id: adapter.id.clone(),
             repo_id: adapter.repo_id.clone(),
+            source: Some(manifest_path.into_owned()),
             reference_backend: adapter.drift_reference_backend.clone(),
             baseline_backend: adapter.drift_baseline_backend.clone(),
             test_backend: adapter.drift_test_backend.clone(),
             weight_l_inf: adapter.drift_metric.map(|v| v as f64),
             loss_l_inf: adapter.drift_loss_metric.map(|v| v as f64),
-            tier: adapter.drift_tier.clone(),
-            decision: decision.or_else(|| Some(format!("source={}", manifest_path))),
+            tier: Some(format!("{:?}", tier).to_lowercase()),
+            decision,
         }
     }
 }
@@ -470,6 +481,9 @@ fn render_drift_show(summary: DriftShowSummary, json: bool, output: &OutputWrite
     output.kv("Adapter", &summary.adapter_id);
     if let Some(repo) = &summary.repo_id {
         output.kv("Repo", repo);
+    }
+    if let Some(source) = &summary.source {
+        output.kv("Source", source);
     }
     if let Some(ref b) = summary.reference_backend {
         output.kv("Reference backend", b);
@@ -510,17 +524,6 @@ fn display_trust_state(state: &str) -> &'static str {
         "blocked_regressed" => "Blocked",
         "needs_approval" => "Needs approval",
         _ => "Unknown",
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::display_trust_state;
-
-    #[test]
-    fn display_trust_state_maps_warn_and_blocked_regressed() {
-        assert_eq!(display_trust_state("warn"), "Allowed w/ warning");
-        assert_eq!(display_trust_state("blocked_regressed"), "Blocked");
     }
 }
 
@@ -823,72 +826,6 @@ async fn list_storage_issues(limit: i64, json: bool, output: &OutputWriter) -> R
     Ok(())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::output::{OutputMode, OutputWriter};
-    use std::sync::{Arc, Mutex};
-
-    #[test]
-    fn render_adapter_health_uses_ui_labels_and_order() {
-        let sink = Arc::new(Mutex::new(Vec::new()));
-        let writer = OutputWriter::with_sink(OutputMode::Text, true, sink.clone());
-        let body = AdapterHealthResponse {
-            schema_version: "v1".to_string(),
-            adapter_id: "adapter-1".to_string(),
-            health: AdapterHealthFlag::Unsafe,
-            primary_subcode: None,
-            subcodes: vec![],
-            drift_summary: None,
-            datasets: vec![AdapterDatasetHealth {
-                dataset_version_id: "dsv-1".to_string(),
-                trust_state: "needs_approval".to_string(),
-                overall_trust_status: Some("needs_approval".to_string()),
-            }],
-            storage: None,
-            backend: None,
-            recent_activations: vec![],
-            total_activations: 0,
-            selected_count: 0,
-            avg_gate_value: 0.0,
-            memory_usage_mb: 0.0,
-            policy_violations: vec![],
-        };
-
-        render_adapter_health_text(&body, &writer);
-
-        let lines = sink.lock().unwrap();
-        assert_eq!(lines[0], "section:Adapter health");
-        assert!(lines.contains(&"Health:Unsafe".to_string()));
-        assert!(lines.contains(&"dsv-1:Needs approval (needs_approval)".to_string()));
-    }
-
-    #[test]
-    fn render_dataset_health_uses_ui_labels_and_order() {
-        let sink = Arc::new(Mutex::new(Vec::new()));
-        let writer = OutputWriter::with_sink(OutputMode::Text, true, sink.clone());
-        let health = DatasetHealth {
-            dataset_version_id: "dsv-2",
-            validation_status: "valid",
-            trust_state: "allowed",
-            overall_trust_status: "allowed",
-            validation_errors: None,
-        };
-
-        render_dataset_health_text(&health, &writer);
-
-        let lines = sink.lock().unwrap().clone();
-        let expected = vec![
-            "section:Dataset".to_string(),
-            "Version:dsv-2".to_string(),
-            "Validation:valid".to_string(),
-            "Trust:Allowed (allowed)".to_string(),
-            "Overall trust:Allowed (allowed)".to_string(),
-        ];
-        assert!(lines.starts_with(&expected));
-    }
-}
-
 fn load_dataset(path: &PathBuf) -> Result<Vec<TrainingExample>> {
     #[derive(Deserialize)]
     struct TrainingData {
@@ -916,12 +853,22 @@ fn load_dataset(path: &PathBuf) -> Result<Vec<TrainingExample>> {
                 .metadata
                 .unwrap_or_default()
                 .into_iter()
-                .map(|(k, v)| (k, v.as_str().unwrap_or("").to_string()))
+                // Preserve metadata deterministically:
+                // - if JSON string => use raw string (no quotes)
+                // - else => stringify JSON value (numbers/bools/null/objects/arrays)
+                .map(|(k, v)| (k, stringify_metadata_value(v)))
                 .collect(),
             weight: 1.0,
         })
         .collect();
     Ok(examples)
+}
+
+fn stringify_metadata_value(v: serde_json::Value) -> String {
+    match v {
+        serde_json::Value::String(s) => s,
+        other => other.to_string(),
+    }
 }
 
 fn parse_backend(raw: &str) -> Result<TrainingBackend> {
@@ -1016,10 +963,36 @@ fn persist_drift_metadata(manifest_path: &PathBuf, report: &DriftRunReport) -> R
     let content = fs::read_to_string(manifest_path)
         .map_err(|e| AosError::Io(format!("Failed to read manifest: {e}")))?;
     let mut manifest = ManifestV3::from_json(&content)?;
-    let adapter = manifest
-        .adapters
-        .first_mut()
-        .ok_or_else(|| AosError::Validation("No adapter entries in manifest".into()))?;
+
+    let adapter = match report.adapter_id.as_deref() {
+        Some(id) => manifest
+            .adapters
+            .iter_mut()
+            .find(|a| a.id == id)
+            .ok_or_else(|| {
+                AosError::Validation(format!(
+                    "Adapter '{id}' not found in manifest; pass a manifest containing that adapter"
+                ))
+            })?,
+        None => {
+            if manifest.adapters.is_empty() {
+                return Err(AosError::Validation(
+                    "No adapter entries in manifest".into(),
+                ));
+            }
+            if manifest.adapters.len() == 1 {
+                manifest
+                    .adapters
+                    .first_mut()
+                    .ok_or_else(|| AosError::Validation("No adapter entries in manifest".into()))?
+            } else {
+                return Err(AosError::Validation(
+                    "Manifest contains multiple adapters; pass --adapter-id so drift metadata can be persisted"
+                        .into(),
+                ));
+            }
+        }
+    };
 
     if let Some(first_metric) = report.metrics.first() {
         adapter.drift_reference_backend = Some(report.reference_backend.clone());
@@ -1027,7 +1000,7 @@ fn persist_drift_metadata(manifest_path: &PathBuf, report: &DriftRunReport) -> R
         adapter.drift_test_backend = Some(first_metric.backend.clone());
         adapter.drift_metric = Some(first_metric.weight_l_inf.into());
         adapter.drift_loss_metric = Some(first_metric.loss_l_inf.into());
-        adapter.drift_tier = Some(report.assurance_tier.to_lowercase());
+        adapter.drift_tier = Some(parse_assurance_tier(Some(report.assurance_tier.as_str())));
     }
 
     let serialized = manifest.to_json()?;
@@ -1057,6 +1030,73 @@ async fn resolve_adapter_id(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::output::{OutputMode, OutputWriter};
+    use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn display_trust_state_maps_warn_and_blocked_regressed() {
+        assert_eq!(display_trust_state("warn"), "Allowed w/ warning");
+        assert_eq!(display_trust_state("blocked_regressed"), "Blocked");
+    }
+
+    #[test]
+    fn render_adapter_health_uses_ui_labels_and_order() {
+        let sink = Arc::new(Mutex::new(Vec::new()));
+        let writer = OutputWriter::with_sink(OutputMode::Text, true, sink.clone());
+        let body = AdapterHealthResponse {
+            schema_version: "v1".to_string(),
+            adapter_id: "adapter-1".to_string(),
+            health: AdapterHealthFlag::Unsafe,
+            primary_subcode: None,
+            subcodes: vec![],
+            drift_summary: None,
+            datasets: vec![AdapterDatasetHealth {
+                dataset_version_id: "dsv-1".to_string(),
+                trust_state: "needs_approval".to_string(),
+                overall_trust_status: Some("needs_approval".to_string()),
+            }],
+            storage: None,
+            backend: None,
+            recent_activations: vec![],
+            total_activations: 0,
+            selected_count: 0,
+            avg_gate_value: 0.0,
+            memory_usage_mb: 0.0,
+            policy_violations: vec![],
+        };
+
+        render_adapter_health_text(&body, &writer);
+
+        let lines = sink.lock().unwrap();
+        assert_eq!(lines[0], "section:Adapter health");
+        assert!(lines.contains(&"Health:Unsafe".to_string()));
+        assert!(lines.contains(&"dsv-1:Needs approval (needs_approval)".to_string()));
+    }
+
+    #[test]
+    fn render_dataset_health_uses_ui_labels_and_order() {
+        let sink = Arc::new(Mutex::new(Vec::new()));
+        let writer = OutputWriter::with_sink(OutputMode::Text, true, sink.clone());
+        let health = DatasetHealth {
+            dataset_version_id: "dsv-2",
+            validation_status: "valid",
+            trust_state: "allowed",
+            overall_trust_status: "allowed",
+            validation_errors: None,
+        };
+
+        render_dataset_health_text(&health, &writer);
+
+        let lines = sink.lock().unwrap().clone();
+        let expected = vec![
+            "section:Dataset".to_string(),
+            "Version:dsv-2".to_string(),
+            "Validation:valid".to_string(),
+            "Trust:Allowed (allowed)".to_string(),
+            "Overall trust:Allowed (allowed)".to_string(),
+        ];
+        assert!(lines.starts_with(&expected));
+    }
 
     #[test]
     fn drift_decision_thresholds() {

@@ -150,11 +150,12 @@ async fn start(args: TrainStartArgs, output: &OutputWriter) -> Result<()> {
                 .await?;
 
         if !resp.status().is_success() {
+            let status = resp.status();
             let body = resp.text().await.unwrap_or_default();
             bail!(
                 "dataset_version_id {} failed validation: {} {}",
                 ds,
-                resp.status(),
+                status,
                 body
             );
         }
@@ -232,6 +233,7 @@ async fn start(args: TrainStartArgs, output: &OutputWriter) -> Result<()> {
         symbol_targets: None,
         framework_id: None,
         framework_version: None,
+        api_patterns: None,
         repo_scope: None,
         file_patterns: None,
         exclude_patterns: None,
@@ -555,6 +557,7 @@ mod tests {
             error: "Dataset version dsv-1 is not trainable (trust_state: blocked)".into(),
             code: "DATASET_TRUST_BLOCKED".into(),
             details: None,
+            failure_code: None,
         };
         let msg = map_trust_error(&err, Some(&"dsv-1".to_string())).unwrap();
         assert!(msg.contains("dsv-1"));
@@ -568,6 +571,7 @@ mod tests {
             error: "dataset version dsv-2 trust_state=needs_approval blocks training".into(),
             code: "DATASET_TRUST_NEEDS_APPROVAL".into(),
             details: None,
+            failure_code: None,
         };
         let msg = map_trust_error(&err, Some(&"dsv-2".to_string())).unwrap();
         assert!(msg.contains("needs approval"));
@@ -581,12 +585,14 @@ mod tests {
             error: "dataset_version_ids are required for non-synthetic training jobs".into(),
             code: "LINEAGE_REQUIRED".into(),
             details: None,
+            failure_code: None,
         };
         let hash = ErrorResponse {
             schema_version: "v1".into(),
             error: "data_spec_hash mismatch".into(),
             code: "DATA_SPEC_HASH_MISMATCH".into(),
             details: None,
+            failure_code: None,
         };
         let lineage_msg = map_trust_error(&lineage, None).unwrap();
         assert!(lineage_msg.contains("--dataset-version-ids"));

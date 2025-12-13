@@ -4,7 +4,7 @@ use crate::http_client::send_with_refresh_from_store;
 use crate::output::OutputWriter;
 use adapteros_aos::{parse_segments, AosWriter};
 use adapteros_api_types::adapters::RegisterAdapterRequest;
-use adapteros_client::{AdapterOSClient, UdsClient};
+use adapteros_client::AdapterOSClient;
 use adapteros_core::validation;
 use adapteros_core::AosError;
 use adapteros_core::B3Hash;
@@ -932,13 +932,13 @@ pub async fn handle_adapter_command(cmd: AdapterCommand, output: &OutputWriter) 
             repo_id,
             base_url,
             json,
-        } => list_adapter_versions(&repo_id, &base_url, *json, output).await,
+        } => list_adapter_versions(&repo_id, &base_url, json, output).await,
         AdapterCommand::PromoteVersion {
             repo_id,
             version_id,
             base_url,
             json,
-        } => promote_adapter_version(&repo_id, &version_id, &base_url, *json, output).await,
+        } => promote_adapter_version(&repo_id, &version_id, &base_url, json, output).await,
         AdapterCommand::RollbackVersion {
             repo_id,
             branch,
@@ -951,7 +951,7 @@ pub async fn handle_adapter_command(cmd: AdapterCommand, output: &OutputWriter) 
                 &branch,
                 version_id.as_deref(),
                 &base_url,
-                *json,
+                json,
                 output,
             )
             .await

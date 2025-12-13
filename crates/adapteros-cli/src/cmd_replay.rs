@@ -34,9 +34,17 @@ pub struct ContextManifest {
     pub plan_id: String,
     pub worker_id: Option<String>,
     #[serde(default)]
+    pub worker_id_included: bool,
+    #[serde(default)]
     pub allow_cross_worker: bool,
     pub base_model: ModelHash,
     pub adapters: Vec<AdapterHash>,
+    #[serde(default)]
+    pub policy_mask_digest: Option<String>,
+    #[serde(default)]
+    pub backend_used: Option<String>,
+    #[serde(default)]
+    pub kernel_version_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -111,6 +119,13 @@ pub fn compute_context_digest(manifest: &ContextManifest) -> Result<B3Hash> {
     let mut adapters = manifest.adapters.clone();
     adapters.sort_by(|a, b| a.id.cmp(&b.id));
 
+    let worker_id_included = manifest.worker_id_included || manifest.worker_id.is_some();
+    let worker_component = if worker_id_included {
+        manifest.worker_id.clone().unwrap_or_default()
+    } else {
+        String::new()
+    };
+
     let digest_payload = serde_json::json!({
         "base_model": {
             "id": manifest.base_model.id,
@@ -120,6 +135,11 @@ pub fn compute_context_digest(manifest: &ContextManifest) -> Result<B3Hash> {
             .iter()
             .map(|a| serde_json::json!({"id": a.id, "hash": a.hash}))
             .collect::<Vec<_>>(),
+        "policy_mask_digest": manifest.policy_mask_digest.as_deref().unwrap_or(""),
+        "worker_id_included": worker_id_included,
+        "worker_id": worker_component,
+        "backend_used": manifest.backend_used.as_deref().unwrap_or(""),
+        "kernel_version_id": manifest.kernel_version_id.as_deref().unwrap_or(""),
     });
 
     let serialized = serde_json::to_vec(&digest_payload)?;
@@ -160,7 +180,10 @@ pub fn load_json<T: DeserializeOwned>(path: &Path) -> Result<T> {
     Ok(parsed)
 }
 
-fn metadata_mismatch(manifest: &ContextManifest, expectation: &ReplayExpectation) -> Option<String> {
+fn metadata_mismatch(
+    manifest: &ContextManifest,
+    expectation: &ReplayExpectation,
+) -> Option<String> {
     if manifest.request_id != expectation.request_id {
         return Some("metadata_mismatch:request_id".to_string());
     }
@@ -269,4 +292,56 @@ pub fn run(
     }
 
     Ok(report)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_manifest() -> ContextManifest {
+        ContextManifest {
+            request_id: "req-1".to_string(),
+            cpid: "tenant-a".to_string(),
+            plan_id: "plan-1".to_string(),
+            worker_id: None,
+            worker_id_included: false,
+            allow_cross_worker: false,
+            base_model: ModelHash {
+                id: "base".to_string(),
+                hash: "base-hash".to_string(),
+            },
+            adapters: vec![AdapterHash {
+                id: "adapter-a".to_string(),
+                hash: "adapter-hash".to_string(),
+            }],
+            policy_mask_digest: None,
+            backend_used: Some("coreml".to_string()),
+            kernel_version_id: Some("kernel-v1".to_string()),
+        }
+    }
+
+    #[test]
+    fn context_digest_changes_with_worker_presence() {
+        let mut manifest = sample_manifest();
+        manifest.worker_id_included = true;
+        manifest.worker_id = Some("worker-a".to_string());
+        let digest_a = compute_context_digest(&manifest).expect("digest a");
+
+        let mut manifest_worker_b = manifest.clone();
+        manifest_worker_b.worker_id = Some("worker-b".to_string());
+        let digest_b = compute_context_digest(&manifest_worker_b).expect("digest b");
+        assert_ne!(
+            digest_a, digest_b,
+            "context digest must change when worker id changes"
+        );
+
+        let mut manifest_flagged_off = manifest.clone();
+        manifest_flagged_off.worker_id_included = false;
+        manifest_flagged_off.worker_id = None;
+        let digest_c = compute_context_digest(&manifest_flagged_off).expect("digest c");
+        assert_ne!(
+            digest_a, digest_c,
+            "removing worker presence should change the digest"
+        );
+    }
 }

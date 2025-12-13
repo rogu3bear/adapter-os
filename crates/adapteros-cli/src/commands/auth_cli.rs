@@ -67,11 +67,11 @@ pub async fn handle_auth_command(cmd: AuthCommand, output: &OutputWriter) -> Res
                 .error_for_status()
                 .context("Login failed")?;
 
+            let refresh_token = extract_cookie(resp.headers(), "refresh_token");
             let login: adapteros_api_types::auth::LoginResponse = resp
                 .json()
                 .await
                 .context("Failed to parse login response")?;
-            let refresh_token = extract_cookie(resp.headers(), "refresh_token");
 
             let effective_tenant = tenant_id.unwrap_or_else(|| login.tenant_id.clone());
             let expires_at = Some(Utc::now().timestamp() + login.expires_in as i64);
