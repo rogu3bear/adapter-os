@@ -14,6 +14,7 @@
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { logger, toError } from '@/utils/logger';
+import { TENANT_SWITCH_EVENT } from '@/utils/tenant';
 
 // ============================================================================
 // Types
@@ -549,6 +550,41 @@ export function useLiveData<T>(options: UseLiveDataOptions<T>): UseLiveDataRetur
       }
     };
   }, [enabled, sseEndpoint, sseEnabled, fetchData, connectSSE]);
+
+  useEffect(() => {
+    const handleTenantSwitch = () => {
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+        eventSourceRef.current = null;
+      }
+      if (sseReconnectTimeoutRef.current) {
+        clearTimeout(sseReconnectTimeoutRef.current);
+        sseReconnectTimeoutRef.current = null;
+      }
+      if (pollingTimeoutRef.current) {
+        clearTimeout(pollingTimeoutRef.current);
+        pollingTimeoutRef.current = null;
+      }
+      if (circuitBreakerTimeoutRef.current) {
+        clearTimeout(circuitBreakerTimeoutRef.current);
+        circuitBreakerTimeoutRef.current = null;
+      }
+      setSseConnected(false);
+      setData(null);
+      setLastUpdated(null);
+      setError(null);
+      sseReconnectAttemptsRef.current = 0;
+      pollingFailureCountRef.current = 0;
+      pollingBackoffMultiplierRef.current = 1;
+      if (sseConnectRef.current && sseEndpoint && sseEnabled) {
+        sseConnectRef.current();
+      } else {
+        void fetchData();
+      }
+    };
+    window.addEventListener(TENANT_SWITCH_EVENT, handleTenantSwitch);
+    return () => window.removeEventListener(TENANT_SWITCH_EVENT, handleTenantSwitch);
+  }, [fetchData, sseEndpoint, sseEnabled]);
 
   // ============================================================================
   // Public API

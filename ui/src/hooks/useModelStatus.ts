@@ -69,7 +69,6 @@ export function useModelStatus(
       // Map backend status to our state
       switch (response.status) {
         case 'ready':
-        case 'loaded':
           setStatus('ready');
           break;
         case 'loading':
@@ -82,7 +81,6 @@ export function useModelStatus(
           setStatus('error');
           break;
         case 'no-model':
-        case 'unloaded':
           setStatus('no-model');
           break;
         case 'checking':

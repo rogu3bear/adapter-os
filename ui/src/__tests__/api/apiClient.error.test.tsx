@@ -9,7 +9,7 @@ vi.unmock('@/api/client');
 describe('ApiClient error handling', () => {
   let apiClient: typeof import('@/api/client').apiClient;
   let fetchMock: ReturnType<typeof vi.fn>;
-  let originalEnv: typeof import.meta.env;
+  let originalEnv: ImportMetaEnv;
 
   beforeEach(async () => {
     vi.resetModules();
@@ -17,8 +17,8 @@ describe('ApiClient error handling', () => {
     (globalThis as { fetch?: unknown }).fetch = fetchMock;
 
     // Force dev-mode so captureException runs
-    originalEnv = (import.meta as { env: typeof import.meta.env }).env;
-    (import.meta as { env: typeof import.meta.env }).env = {
+    originalEnv = import.meta.env;
+    (import.meta as any).env = {
       ...originalEnv,
       DEV: true,
     };
@@ -28,7 +28,7 @@ describe('ApiClient error handling', () => {
   });
 
   afterEach(() => {
-    (import.meta as { env: typeof import.meta.env }).env = originalEnv;
+    (import.meta as any).env = originalEnv;
     vi.restoreAllMocks();
   });
 

@@ -16,6 +16,31 @@ import { HealthBadge } from '@/components/shared/TrustHealthBadge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
 
+export interface ReposByBaseModel {
+  baseModel: string;
+  repos: RepoSummary[];
+}
+
+export function groupReposByBaseModel(repos?: RepoSummary[]): ReposByBaseModel[] {
+  if (!repos || repos.length === 0) {
+    return [];
+  }
+
+  const grouped = repos.reduce((acc, repo) => {
+    const baseModel = repo.base_model;
+    if (!acc[baseModel]) {
+      acc[baseModel] = [];
+    }
+    acc[baseModel].push(repo);
+    return acc;
+  }, {} as Record<string, RepoSummary[]>);
+
+  return Object.entries(grouped).map(([baseModel, repos]) => ({
+    baseModel,
+    repos,
+  }));
+}
+
 function CreateRepoDialog({
   open,
   onOpenChange,
@@ -45,6 +70,8 @@ function CreateRepoDialog({
             <Label htmlFor="repo-name">Repository name</Label>
             <Input
               id="repo-name"
+              data-cy="repo-name-input"
+              data-testid="repo-name"
               placeholder="research-notebook"
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -54,6 +81,7 @@ function CreateRepoDialog({
             <Label htmlFor="repo-base-model">Base model</Label>
             <Input
               id="repo-base-model"
+              data-cy="repo-base-model-input"
               placeholder="qwen2.5-7b"
               value={baseModel}
               onChange={(e) => setBaseModel(e.target.value)}
@@ -63,6 +91,7 @@ function CreateRepoDialog({
             <Label htmlFor="repo-default-branch">Default branch</Label>
             <Input
               id="repo-default-branch"
+              data-cy="repo-default-branch-input"
               placeholder="main"
               value={defaultBranch}
               onChange={(e) => setDefaultBranch(e.target.value)}
@@ -76,6 +105,8 @@ function CreateRepoDialog({
           <Button
             onClick={() => onCreate({ name, base_model: baseModel, default_branch: defaultBranch })}
             disabled={submitDisabled}
+            data-cy="repo-create-submit"
+            data-testid="repo-submit"
           >
             {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
             Create
@@ -93,6 +124,7 @@ export default function RepositoriesPage() {
   const [search, setSearch] = useState('');
   const [baseModelFilter, setBaseModelFilter] = useState<string>('all');
   const [healthFilter, setHealthFilter] = useState<AdapterHealthFlag | 'all'>('all');
+  const [tenantFilter, setTenantFilter] = useState<string>('all');
 
   const createRepo = useCreateRepo({
     onSuccess: (repo) => {
@@ -109,6 +141,11 @@ export default function RepositoriesPage() {
 
   const baseModelOptions = useMemo(
     () => Array.from(new Set(repoList.map(r => r.base_model))).filter(Boolean),
+    [repoList]
+  );
+
+  const tenantOptions = useMemo(
+    () => Array.from(new Set(repoList.map(r => r.tenant_id ?? 'unknown'))),
     [repoList]
   );
 
@@ -129,10 +166,14 @@ export default function RepositoriesPage() {
           const health = (activeVersion?.health_state ?? 'unknown') as AdapterHealthFlag | 'unknown';
           if (health !== healthFilter) return false;
         }
+        if (tenantFilter !== 'all') {
+          const tenantId = repo.tenant_id ?? 'unknown';
+          if (tenantId !== tenantFilter) return false;
+        }
         return true;
       })
       .sort((a, b) => new Date(b.updated_at || b.created_at).getTime() - new Date(a.updated_at || a.created_at).getTime());
-  }, [repoList, search, baseModelFilter, healthFilter]);
+  }, [repoList, search, baseModelFilter, healthFilter, tenantFilter]);
 
   const openDetail = (id: string) => navigate(`/repos/${id}`);
 
@@ -147,13 +188,14 @@ export default function RepositoriesPage() {
         onClick: () => setDialogOpen(true),
       }}
     >
+      <div data-cy="repos-page" className="space-y-4">
       <Card className="mb-4">
         <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <CardTitle className="text-lg">Repository overview</CardTitle>
             <CardDescription>Filter by base model, health, tenant, or name.</CardDescription>
           </div>
-          <Button onClick={() => setDialogOpen(true)}>
+          <Button data-cy="create-repo-btn" data-testid="repo-create" onClick={() => setDialogOpen(true)}>
             <PlusCircle className="h-4 w-4 mr-2" />
             Create repository
           </Button>
@@ -200,7 +242,7 @@ export default function RepositoriesPage() {
             <CardDescription>Create your first repo to track versions.</CardDescription>
           </CardHeader>
           <CardContent>
-            <Button onClick={() => setDialogOpen(true)}>
+            <Button data-cy="create-repo-btn" data-testid="repo-create" onClick={() => setDialogOpen(true)}>
               <PlusCircle className="h-4 w-4 mr-2" />
               Create repository
             </Button>
@@ -217,6 +259,7 @@ export default function RepositoriesPage() {
           <CardContent className="space-y-3">
             <div className="flex flex-wrap items-center gap-3 rounded-md border bg-card/50 p-3">
               <Input
+                data-cy="repo-search"
                 placeholder="Search by name or id"
                 className="w-56"
                 value={search}
@@ -261,7 +304,7 @@ export default function RepositoriesPage() {
                 </SelectContent>
               </Select>
             </div>
-            <PageTable>
+            <PageTable data-cy="repo-table">
               <table className="min-w-full text-sm">
                 <thead>
                   <tr className="text-left text-muted-foreground">
@@ -280,13 +323,19 @@ export default function RepositoriesPage() {
                       repo.branches?.map(b => b.latest_active_version).find(Boolean) ||
                       null;
                     const health = (activeVersion?.health_state ?? 'unknown') as AdapterHealthFlag | 'unknown';
+                    const healthForBadge = health === 'unknown' ? ('healthy' as AdapterHealthFlag) : health as AdapterHealthFlag;
                     const lastTraining =
                       activeVersion?.updated_at ||
                       activeVersion?.created_at ||
                       repo.updated_at ||
                       repo.created_at;
                     return (
-                      <tr key={repo.id} className="align-top">
+                      <tr
+                        key={repo.id}
+                        className="align-top"
+                        data-cy={`repo-row-${repo.id}`}
+                        data-testid={`repo-row-${repo.id}`}
+                      >
                         <td className="px-3 py-3">
                           <div className="font-medium">{repo.name}</div>
                           <div className="text-xs text-muted-foreground break-all">{repo.id}</div>
@@ -296,13 +345,19 @@ export default function RepositoriesPage() {
                           {activeVersion?.id || activeVersion?.version || '—'}
                         </td>
                         <td className="px-3 py-3">
-                          <HealthBadge state={health} size="sm" />
+                          <HealthBadge state={healthForBadge} size="sm" />
                         </td>
                         <td className="px-3 py-3 text-sm text-muted-foreground">
                           {lastTraining ? new Date(lastTraining).toLocaleString() : '—'}
                         </td>
                         <td className="px-3 py-3 text-right">
-                          <Button variant="ghost" size="sm" onClick={() => openDetail(repo.id)} className="gap-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => openDetail(repo.id)}
+                            className="gap-1"
+                            data-cy={`repo-open-${repo.id}`}
+                          >
                             Open
                             <ArrowRight className="h-4 w-4" />
                           </Button>
@@ -323,6 +378,7 @@ export default function RepositoriesPage() {
         isSubmitting={createRepo.isPending}
         onCreate={(payload) => createRepo.mutate(payload)}
       />
+      </div>
     </PageWrapper>
   );
 }

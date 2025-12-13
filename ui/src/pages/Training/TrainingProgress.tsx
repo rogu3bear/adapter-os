@@ -22,12 +22,15 @@ import {
   Download,
   Loader2,
   Radio,
+  MessageSquare,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { useNavigate } from 'react-router-dom';
 import apiClient from '@/api/client';
 import type { TrainingJob, TrainingStatus, TrainingArtifact } from '@/api/training-types';
 import { isTrainingProgressEvent, TrainingProgressEvent } from '@/api/streaming-types';
 import { formatTimestamp } from '@/utils/format';
+import { useCreateChatFromJob } from '@/hooks/useTraining';
 
 interface TrainingProgressProps {
   jobId: string;
@@ -74,9 +77,26 @@ const STATUS_CONFIG: Record<TrainingStatus, {
 export function TrainingProgress({ jobId, onClose }: TrainingProgressProps) {
   const [activeTab, setActiveTab] = useState('progress');
   const [downloadingArtifacts, setDownloadingArtifacts] = useState<Set<string>>(new Set());
+  const navigate = useNavigate();
 
   // Streaming state for real-time updates
   const [streamingJob, setStreamingJob] = useState<Partial<TrainingJob> | null>(null);
+
+  // Mutation for creating chat from training job
+  const createChatMutation = useCreateChatFromJob({
+    onSuccess: (data) => {
+      toast.success('Chat session created', {
+        description: 'Opening chat with your trained adapter...',
+      });
+      navigate(`/chat?session=${data.session_id}&stack=${data.stack_id}`);
+      onClose();
+    },
+    onError: (error) => {
+      toast.error('Failed to create chat session', {
+        description: error.message || 'An error occurred',
+      });
+    },
+  });
 
   const {
     data: job,
@@ -206,6 +226,10 @@ export function TrainingProgress({ jobId, onClose }: TrainingProgressProps) {
     }
   }, [jobId]);
 
+  const handleOpenChat = useCallback(() => {
+    createChatMutation.mutate({ training_job_id: jobId });
+  }, [jobId, createChatMutation]);
+
   if (isJobLoading) {
     return (
       <>
@@ -307,6 +331,20 @@ export function TrainingProgress({ jobId, onClose }: TrainingProgressProps) {
               <div>
                 <span className="text-muted-foreground">Completed</span>
                 <p>{formatTimestamp(effectiveJob.completed_at, 'long')}</p>
+              </div>
+            )}
+            {effectiveJob.status === 'failed' && (effectiveJob.error_message || effectiveJob.error_detail || effectiveJob.error_category) && (
+              <div className="col-span-2 flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-3">
+                <XCircle className="h-4 w-4 text-destructive mt-0.5" />
+                <div className="space-y-1">
+                  <p className="font-medium text-destructive">
+                    Failure
+                    {effectiveJob.error_category ? ` [${effectiveJob.error_category}]` : ''}
+                  </p>
+                  <p className="text-muted-foreground break-words">
+                    {effectiveJob.error_detail || effectiveJob.error_message || 'Training failed'}
+                  </p>
+                </div>
               </div>
             )}
           </CardContent>
@@ -496,8 +534,29 @@ export function TrainingProgress({ jobId, onClose }: TrainingProgressProps) {
           </TabsContent>
         </Tabs>
 
-        <div className="flex justify-end pt-4">
-          <Button onClick={onClose}>Close</Button>
+        <div className="flex justify-between pt-4">
+          <div>
+            {effectiveJob?.status === 'completed' && effectiveJob?.stack_id && (
+              <Button
+                onClick={handleOpenChat}
+                disabled={createChatMutation.isPending}
+                variant="default"
+              >
+                {createChatMutation.isPending ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Creating Chat...
+                  </>
+                ) : (
+                  <>
+                    <MessageSquare className="h-4 w-4 mr-2" />
+                    Open Chat
+                  </>
+                )}
+              </Button>
+            )}
+          </div>
+          <Button onClick={onClose} variant="outline">Close</Button>
         </div>
       </div>
     </>

@@ -324,8 +324,8 @@ class Logger {
     this.log(LogLevel.INFO, message, context);
   }
 
-  warn(message: string, context?: LogContext) {
-    this.log(LogLevel.WARN, message, context);
+  warn(message: string, context?: LogContext, error?: Error) {
+    this.log(LogLevel.WARN, message, context, error);
   }
 
   error(message: string, context?: LogContext, error?: Error) {

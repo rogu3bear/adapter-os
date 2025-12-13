@@ -1,5 +1,5 @@
 // Audit Page - Security and system audit events with RBAC and real-time polling
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import PageWrapper from '@/layout/PageWrapper';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { apiClient } from '@/api/client';
-import { TelemetryEvent } from '@/api/types';
+import { PolicyAuditChainVerification, PolicyAuditDecision, TelemetryEvent } from '@/api/types';
 import { useDensity } from '@/contexts/DensityContext';
 import { DensityControls } from '@/components/ui/density-controls';
 import { AdvancedFilter, type FilterConfig, type FilterValues } from '@/components/ui/advanced-filter';
@@ -20,6 +20,7 @@ import { formatTimestamp } from '@/utils/format';
 import { SectionErrorBoundary } from '@/components/ui/section-error-boundary';
 import { Link } from 'react-router-dom';
 import PageTable from '@/components/ui/PageTable';
+import { toast } from 'sonner';
 
 type BadgeVariant = NonNullable<React.ComponentProps<typeof Badge>['variant']>;
 
@@ -28,6 +29,11 @@ const LoadingSpinner = () => (
     <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-primary"></div>
   </div>
 );
+
+const hashPreview = (value?: string | null) => {
+  if (!value) return '—';
+  return `${value.substring(0, 12)}…`;
+};
 
 function PermissionDeniedView() {
   return (
@@ -291,11 +297,18 @@ function AuditTableCard({
 
 function AuditPageInner() {
   const { density, setDensity } = useDensity();
-  const { can, userRole } = useRBAC();
+  const { can } = useRBAC();
   const [auditLogs, setAuditLogs] = useState<TelemetryEvent[]>([]);
   const [allAuditLogs, setAllAuditLogs] = useState<TelemetryEvent[]>([]);
   const [limit, setLimit] = useState(50);
   const [offset, setOffset] = useState(0);
+  const [policyDecisions, setPolicyDecisions] = useState<PolicyAuditDecision[]>([]);
+  const [chainStatus, setChainStatus] = useState<PolicyAuditChainVerification | null>(null);
+  const [chainLoading, setChainLoading] = useState(false);
+  const [chainError, setChainError] = useState<string | null>(null);
+  const [lastChainUpdated, setLastChainUpdated] = useState<Date | undefined>(undefined);
+  const [diverging, setDiverging] = useState(false);
+  const isE2EMode = import.meta.env.VITE_E2E_MODE === '1';
 
   // Filtering state
   const [filterValues, setFilterValues] = useState<FilterValues>({});
@@ -505,6 +518,54 @@ function AuditPageInner() {
     URL.revokeObjectURL(url);
   }, [filteredAuditLogs, allAuditLogs]);
 
+  const fetchPolicyAuditChain = useCallback(async () => {
+    setChainLoading(true);
+    try {
+      const [decisions, verification] = await Promise.all([
+        apiClient.getPolicyAuditDecisions({ limit: 200 }),
+        apiClient.verifyPolicyAuditChain(),
+      ]);
+      const ordered = decisions.slice().sort((a, b) => a.chain_sequence - b.chain_sequence);
+      setPolicyDecisions(ordered);
+      setChainStatus(verification);
+      setChainError(null);
+      setLastChainUpdated(new Date());
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to load policy audit chain';
+      setChainError(message);
+      toast.error(message);
+    } finally {
+      setChainLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchPolicyAuditChain();
+  }, [fetchPolicyAuditChain]);
+
+  const handleTriggerDivergence = useCallback(async () => {
+    if (!isE2EMode) {
+      toast.error('E2E_MODE=1 required to force divergence');
+      return;
+    }
+    setDiverging(true);
+    try {
+      await apiClient.triggerAuditDivergence();
+      toast.error('Audit chain forcibly diverged for testing; actions should now fail closed.');
+      await fetchPolicyAuditChain();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to trigger audit divergence';
+      toast.error(message);
+    } finally {
+      setDiverging(false);
+    }
+  }, [fetchPolicyAuditChain, isE2EMode]);
+
+  const brokenSequences = useMemo(
+    () => new Set(chainStatus?.broken_links.map((link) => link.sequence) ?? []),
+    [chainStatus],
+  );
+
   return (
     <PageWrapper
       pageKey="audit"
@@ -539,6 +600,113 @@ function AuditPageInner() {
             canExport={can('audit:view') && allAuditLogs.length > 0}
             lastUpdated={lastUpdated}
           />
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-center gap-2">
+                  Policy Audit Chain
+                  <Badge variant={chainStatus?.valid === false ? 'destructive' : 'default'}>
+                    {chainStatus?.valid === false ? 'Diverged' : 'Healthy'}
+                  </Badge>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  {lastChainUpdated && (
+                    <span className="text-xs text-muted-foreground">
+                      Last checked: {lastChainUpdated.toLocaleTimeString()}
+                    </span>
+                  )}
+                  <Button variant="outline" onClick={fetchPolicyAuditChain} disabled={chainLoading}>
+                    <RefreshCw className={`mr-2 h-4 w-4 ${chainLoading ? 'animate-spin' : ''}`} />
+                    Refresh chain
+                  </Button>
+                  {isE2EMode && (
+                    <Button variant="destructive" onClick={handleTriggerDivergence} disabled={diverging}>
+                      {diverging ? 'Forcing…' : 'Force divergence'}
+                    </Button>
+                  )}
+                </div>
+              </CardTitle>
+            </CardHeader>
+          <CardContent className="space-y-3" data-cy="audit-chain-status">
+              {chainError && (
+                <div className="text-sm text-destructive">
+                  {chainError}
+                </div>
+              )}
+              {chainStatus && (
+                <div className="text-sm text-muted-foreground">
+                  {chainStatus.valid
+                    ? 'Chain verified'
+                    : 'Chain verification failed'}{' '}
+                  ({chainStatus.verified_entries} of {chainStatus.total_entries} linked){' '}
+                  {chainStatus.broken_links.length > 0 && (
+                    <span className="text-destructive">
+                      • {chainStatus.broken_links.length} broken link(s) detected
+                    </span>
+                  )}
+                </div>
+              )}
+              {chainStatus?.broken_links.length ? (
+                <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm">
+                  <div className="font-semibold text-destructive">Broken links</div>
+                  <ul className="mt-2 space-y-1">
+                    {chainStatus.broken_links.map((link) => (
+                      <li key={`${link.sequence}-${link.entry_id}`} className="font-mono text-xs text-destructive">
+                        seq {link.sequence}: expected {link.expected_hash.substring(0, 12)}… got {link.actual_hash.substring(0, 12)}…
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+              <PageTable minWidth="lg">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Seq</TableHead>
+                      <TableHead>Entry Hash</TableHead>
+                      <TableHead>Previous Hash</TableHead>
+                      <TableHead>Policy</TableHead>
+                      <TableHead>Hook</TableHead>
+                      <TableHead>Decision</TableHead>
+                      <TableHead>Timestamp</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {policyDecisions.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={7} className="py-4 text-center text-sm text-muted-foreground">
+                          No policy audit entries
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      policyDecisions.map((entry) => (
+                        <TableRow
+                          key={entry.id}
+                          className={brokenSequences.has(entry.chain_sequence) ? 'bg-destructive/5' : undefined}
+                          data-cy="policy-audit-row"
+                          data-seq={entry.chain_sequence}
+                        >
+                          <TableCell className="font-mono text-xs">{entry.chain_sequence}</TableCell>
+                          <TableCell className="font-mono text-xs">{hashPreview(entry.entry_hash)}</TableCell>
+                          <TableCell className="font-mono text-xs">{hashPreview(entry.previous_hash)}</TableCell>
+                          <TableCell className="text-xs">{entry.policy_pack_id}</TableCell>
+                          <TableCell className="text-xs">{entry.hook}</TableCell>
+                          <TableCell>
+                            <Badge variant={entry.decision === 'deny' ? 'destructive' : 'outline'}>
+                              {entry.decision.toUpperCase()}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-xs text-muted-foreground">
+                            {formatTimestamp(entry.timestamp, 'long')}
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              </PageTable>
+            </CardContent>
+          </Card>
           <AuditTableCard
             auditLogs={auditLogs}
             filteredAuditLogs={filteredAuditLogs}

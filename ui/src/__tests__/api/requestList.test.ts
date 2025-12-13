@@ -27,11 +27,13 @@ describe('ApiClient.requestList', () => {
   });
 
   const mockFetchResponse = (data: unknown, status = 200) => {
+    const jsonString = JSON.stringify(data);
     fetchMock.mockResolvedValueOnce({
       ok: status >= 200 && status < 300,
       status,
       statusText: status === 200 ? 'OK' : 'Error',
       json: () => Promise.resolve(data),
+      text: () => Promise.resolve(jsonString),
       headers: new Headers(),
     });
   };

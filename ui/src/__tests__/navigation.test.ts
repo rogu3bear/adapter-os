@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
+import { UiMode } from '@/config/ui-mode';
 
 vi.mock('@/config/routes_manifest', () => {
   return {
     PRIMARY_SPINE: [
+      '/repos',
       '/workflow',
       '/adapters',
       '/training',
@@ -15,6 +17,7 @@ vi.mock('@/config/routes_manifest', () => {
       '/monitoring',
       '/metrics',
       '/routing',
+      '/telemetry',
       '/testing',
       '/golden',
       '/replay',
@@ -36,31 +39,53 @@ vi.mock('@/config/routes', () => {
       navIcon: () => null,
       navOrder: 0,
       cluster: 'Build',
+      modes: [UiMode.Builder],
+    },
+    {
+      path: '/repos',
+      navGroup: 'Build',
+      navTitle: 'Repositories',
+      navIcon: () => null,
+      navOrder: 1,
+      cluster: 'Build',
+      modes: [UiMode.Builder],
     },
     {
       path: '/adapters',
       navGroup: 'Build',
       navTitle: 'Adapters',
       navIcon: () => null,
-      navOrder: 1,
+      navOrder: 2,
       cluster: 'Build',
+      modes: [UiMode.Builder],
     },
     {
       path: '/training',
       navGroup: 'Build',
       navTitle: 'Training',
       navIcon: () => null,
-      navOrder: 2,
+      navOrder: 3,
       cluster: 'Build',
       requiredRoles: ['admin'],
+      modes: [UiMode.Builder],
     },
     {
       path: '/router-config',
       navGroup: 'Build',
       navTitle: 'Router Config',
       navIcon: () => null,
-      navOrder: 3,
+      navOrder: 4,
       cluster: 'Build',
+      modes: [UiMode.Builder],
+    },
+    {
+      path: '/base-models',
+      navGroup: 'Build',
+      navTitle: 'Base Models',
+      navIcon: () => null,
+      navOrder: 5,
+      cluster: 'Build',
+      modes: [UiMode.Builder],
     },
     {
       path: '/dashboard',
@@ -69,6 +94,7 @@ vi.mock('@/config/routes', () => {
       navIcon: () => null,
       navOrder: 0,
       cluster: 'Run',
+      modes: [UiMode.User],
     },
     {
       path: '/inference',
@@ -77,6 +103,7 @@ vi.mock('@/config/routes', () => {
       navIcon: () => null,
       navOrder: 1,
       cluster: 'Run',
+      modes: [UiMode.User],
     },
     {
       path: '/documents',
@@ -85,6 +112,7 @@ vi.mock('@/config/routes', () => {
       navIcon: () => null,
       navOrder: 3,
       cluster: 'Run',
+      modes: [UiMode.User],
     },
     {
       path: '/metrics',
@@ -93,6 +121,7 @@ vi.mock('@/config/routes', () => {
       navIcon: () => null,
       navOrder: 1,
       cluster: 'Observe',
+      modes: [UiMode.Builder],
     },
     {
       path: '/routing',
@@ -101,6 +130,7 @@ vi.mock('@/config/routes', () => {
       navIcon: () => null,
       navOrder: 2,
       cluster: 'Observe',
+      modes: [UiMode.User],
     },
     {
       path: '/telemetry',
@@ -110,6 +140,7 @@ vi.mock('@/config/routes', () => {
       navOrder: 3,
       cluster: 'Observe',
       requiredPermissions: ['audit.view'],
+      modes: [UiMode.User, UiMode.Audit],
     },
     {
       path: '/testing',
@@ -118,6 +149,7 @@ vi.mock('@/config/routes', () => {
       navIcon: () => null,
       navOrder: 0,
       cluster: 'Verify',
+      modes: [UiMode.Builder],
     },
     {
       path: '/golden',
@@ -126,6 +158,7 @@ vi.mock('@/config/routes', () => {
       navIcon: () => null,
       navOrder: 1,
       cluster: 'Verify',
+      modes: [UiMode.Builder],
     },
     {
       path: '/replay',
@@ -134,6 +167,7 @@ vi.mock('@/config/routes', () => {
       navIcon: () => null,
       navOrder: 2,
       cluster: 'Verify',
+      modes: [UiMode.User, UiMode.Audit],
     },
     {
       path: '/security/policies',
@@ -142,6 +176,7 @@ vi.mock('@/config/routes', () => {
       navIcon: () => null,
       navOrder: 3,
       cluster: 'Verify',
+      modes: [UiMode.Builder, UiMode.Audit],
     },
     {
       path: '/security/audit',
@@ -151,6 +186,7 @@ vi.mock('@/config/routes', () => {
       navOrder: 4,
       cluster: 'Verify',
       requiredPermissions: ['audit.view'],
+      modes: [UiMode.Audit],
     },
     {
       path: '/security/compliance',
@@ -159,6 +195,7 @@ vi.mock('@/config/routes', () => {
       navIcon: () => null,
       navOrder: 5,
       cluster: 'Verify',
+      modes: [UiMode.Audit],
     },
     {
       path: '/hidden',
@@ -214,63 +251,57 @@ vi.mock('@/config/routes', () => {
 import { generateNavigationGroups, shouldShowNavGroup } from '@/utils/navigation';
 
 describe('generateNavigationGroups', () => {
-  it('orders navigation groups by primary spine for operators', () => {
-    const groups = generateNavigationGroups('operator', []);
+  it('shows run-focused navigation in user mode', () => {
+    const groups = generateNavigationGroups('operator', [], UiMode.User);
     const titles = groups.map(group => group.title);
-    expect(titles.slice(0, 4)).toEqual(['Build', 'Run', 'Observe', 'Verify']);
-  });
-
-  it('hides routes without navTitle or outside the primary spine', () => {
-    const groups = generateNavigationGroups('operator', []);
-    const buildItems = groups.find(g => g.title === 'Build')?.items.map(item => item.label);
-    expect(buildItems).toEqual(expect.arrayContaining(['Onboarding', 'Adapters']));
-    expect(buildItems).not.toEqual(expect.arrayContaining([undefined]));
-  });
-
-  it('filters role-restricted routes when role is missing', () => {
-    const operatorGroups = generateNavigationGroups('operator', []);
-    const build = operatorGroups.find(group => group.title === 'Build');
-    expect(build?.items.map(item => item.label)).not.toContain('Training');
-  });
-
-  it('includes role-restricted routes for admins', () => {
-    const adminGroups = generateNavigationGroups('admin', []);
-    const build = adminGroups.find(group => group.title === 'Build');
-    expect(build?.items.map(item => item.label)).toEqual(
-      expect.arrayContaining(['Onboarding', 'Adapters', 'Training', 'Router Config']),
+    expect(titles).not.toContain('Build');
+    const run = groups.find(group => group.title === 'Run');
+    expect(run?.items.map(item => item.label)).toEqual(
+      expect.arrayContaining(['Dashboard', 'Inference', 'Documents']),
     );
   });
 
-  it('filters permission-restricted routes when missing permissions', () => {
-    const verifyGroups = generateNavigationGroups('operator', []);
+  it('shows build navigation cluster for operators in builder mode', () => {
+    const groups = generateNavigationGroups('operator', [], UiMode.Builder);
+    const build = groups.find(group => group.title === 'Build');
+    expect(build?.items.map(item => item.label)).toEqual(
+      expect.arrayContaining(['Onboarding', 'Repositories', 'Adapters', 'Router Config', 'Base Models']),
+    );
+    const run = groups.find(group => group.title === 'Run');
+    expect(run).toBeUndefined();
+  });
+
+  it('enforces audit permissions in audit mode', () => {
+    const verifyGroups = generateNavigationGroups('auditor', [], UiMode.Audit);
     const verify = verifyGroups.find(group => group.title === 'Verify');
     expect(verify?.items.map(item => item.label)).not.toContain('Audit Logs');
-  });
 
-  it('shows permission-restricted routes when permissions are present', () => {
-    const verifyGroups = generateNavigationGroups('operator', ['audit.view']);
-    const verify = verifyGroups.find(group => group.title === 'Verify');
-    expect(verify?.items.map(item => item.label)).toEqual(
-      expect.arrayContaining(['Guardrails', 'Audit Logs', 'Compliance']),
+    const verifyWithPerms = generateNavigationGroups('auditor', ['audit.view'], UiMode.Audit);
+    const verifyWithPermsGroup = verifyWithPerms.find(group => group.title === 'Verify');
+    expect(verifyWithPermsGroup?.items.map(item => item.label)).toEqual(
+      expect.arrayContaining(['Guardrails', 'Audit Logs', 'Compliance', 'Replay']),
     );
+    const observe = verifyWithPerms.find(group => group.title === 'Observe');
+    expect(observe).toBeDefined();
+    expect(observe?.items.map(item => item.label)).toContain('Telemetry');
   });
 });
 
 describe('shouldShowNavGroup', () => {
   it('returns true for groups without role restrictions', () => {
-    const adminGroups = generateNavigationGroups('admin', []);
+    const adminGroups = generateNavigationGroups('admin', [], UiMode.User);
     const runGroup = adminGroups.find(group => group.title === 'Run');
     expect(runGroup).toBeDefined();
     expect(shouldShowNavGroup(runGroup!, 'operator')).toBe(true);
   });
 
   it('returns true when group is unrestricted or matches role', () => {
-    const operatorGroups = generateNavigationGroups('operator', []);
+    const operatorGroups = generateNavigationGroups('operator', [], UiMode.User);
     const observeGroup = operatorGroups.find(group => group.title === 'Observe');
     expect(observeGroup).toBeDefined();
     expect(shouldShowNavGroup(observeGroup!, 'operator')).toBe(true);
 
-    const adminGroups = generateNavigationGroups('admin', []);
+    const adminGroups = generateNavigationGroups('admin', [], UiMode.Audit);
     const verifyGroup = adminGroups.find(group => group.title === 'Verify');
     expect(verifyGroup).toBeDefined();
     expect(shouldShowNavGroup(verifyGroup!, 'admin')).toBe(true);

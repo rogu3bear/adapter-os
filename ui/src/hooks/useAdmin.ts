@@ -314,6 +314,31 @@ export function useDeactivateAdapterStack() {
   });
 }
 
+export function useClearStackAdapters() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (stackId: string) => apiClient.clearStackAdapters(stackId),
+    onSuccess: (response) => {
+      queryClient.invalidateQueries({ queryKey: ['adapter-stacks'] });
+      toast.success(`Cleared ${response.previous_adapter_count} adapter(s) from stack`);
+      logger.info('Stack adapters cleared', {
+        component: 'useAdmin',
+        operation: 'clearStackAdapters',
+        stackId: response.stack_id,
+        previousCount: response.previous_adapter_count,
+      });
+    },
+    onError: (error: Error) => {
+      toast.error(`Failed to clear adapters: ${error.message}`);
+      logger.error('Failed to clear stack adapters', {
+        component: 'useAdmin',
+        operation: 'clearStackAdapters',
+      }, error);
+    },
+  });
+}
+
 export function useGetDefaultStack(tenantId: string | undefined) {
   return useQuery({
     queryKey: ['default-stack', tenantId],
@@ -369,140 +394,6 @@ export function useClearDefaultStack(tenantId: string | undefined) {
       logger.error('Failed to clear default stack', {
         component: 'useAdmin',
         operation: 'clearDefaultStack',
-      }, error);
-    },
-  });
-}
-
-// Packages
-export function usePackages(params?: { tenantId?: string; domain?: string }) {
-  return useQuery({
-    queryKey: ['packages', params],
-    queryFn: () => apiClient.listPackages(params),
-    staleTime: 30000,
-  });
-}
-
-export function useCreatePackage() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: (data: CreatePackageRequest) => apiClient.createPackage(data),
-    onSuccess: (pkg) => {
-      queryClient.invalidateQueries({ queryKey: ['packages'] });
-      toast.success(`Package "${pkg.name}" created`);
-      logger.info('Package created', {
-        component: 'useAdmin',
-        operation: 'createPackage',
-        packageId: pkg.id,
-      });
-    },
-    onError: (error: Error) => {
-      toast.error(`Failed to create package: ${error.message}`);
-      logger.error('Failed to create package', {
-        component: 'useAdmin',
-        operation: 'createPackage',
-      }, error);
-    },
-  });
-}
-
-export function useUpdatePackage() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: ({ packageId, data }: { packageId: string; data: UpdatePackageRequest }) =>
-      apiClient.updatePackage(packageId, data),
-    onSuccess: (pkg) => {
-      queryClient.invalidateQueries({ queryKey: ['packages'] });
-      toast.success(`Package "${pkg.name}" updated`);
-      logger.info('Package updated', {
-        component: 'useAdmin',
-        operation: 'updatePackage',
-        packageId: pkg.id,
-      });
-    },
-    onError: (error: Error) => {
-      toast.error(`Failed to update package: ${error.message}`);
-      logger.error('Failed to update package', {
-        component: 'useAdmin',
-        operation: 'updatePackage',
-      }, error);
-    },
-  });
-}
-
-export function useDeletePackage() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: (packageId: string) => apiClient.deletePackage(packageId),
-    onSuccess: (_, packageId) => {
-      queryClient.invalidateQueries({ queryKey: ['packages'] });
-      toast.success('Package deleted');
-      logger.info('Package deleted', {
-        component: 'useAdmin',
-        operation: 'deletePackage',
-        packageId,
-      });
-    },
-    onError: (error: Error) => {
-      toast.error(`Failed to delete package: ${error.message}`);
-      logger.error('Failed to delete package', {
-        component: 'useAdmin',
-        operation: 'deletePackage',
-      }, error);
-    },
-  });
-}
-
-export function useInstallPackage() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: ({ tenantId, packageId }: { tenantId: string; packageId: string }) =>
-      apiClient.installTenantPackage(tenantId, packageId),
-    onSuccess: (pkg, { tenantId }) => {
-      queryClient.invalidateQueries({ queryKey: ['packages'] });
-      toast.success(`Package "${pkg.name}" installed`);
-      logger.info('Package installed', {
-        component: 'useAdmin',
-        operation: 'installPackage',
-        packageId: pkg.id,
-        tenantId,
-      });
-    },
-    onError: (error: Error) => {
-      toast.error(`Failed to install package: ${error.message}`);
-      logger.error('Failed to install package', {
-        component: 'useAdmin',
-        operation: 'installPackage',
-      }, error);
-    },
-  });
-}
-
-export function useUninstallPackage() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: ({ tenantId, packageId }: { tenantId: string; packageId: string }) =>
-      apiClient.uninstallTenantPackage(tenantId, packageId),
-    onSuccess: (pkg, { tenantId }) => {
-      queryClient.invalidateQueries({ queryKey: ['packages'] });
-      toast.success(`Package "${pkg.name}" uninstalled`);
-      logger.info('Package uninstalled', {
-        component: 'useAdmin',
-        operation: 'uninstallPackage',
-        packageId: pkg.id,
-        tenantId,
-      });
-    },
-    onError: (error: Error) => {
-      toast.error(`Failed to uninstall package: ${error.message}`);
-      logger.error('Failed to uninstall package', {
-        component: 'useAdmin',
-        operation: 'uninstallPackage',
       }, error);
     },
   });

@@ -93,6 +93,74 @@ const ERROR_CODE_MAP: Record<string, (context?: ErrorContext) => UserFriendlyErr
     variant: 'warning'
   }),
 
+  'OUT_OF_MEMORY': (context) => ({
+    title: 'Not Enough Memory',
+    message: context?.memoryRequired && context?.memoryAvailable
+      ? `Could not load the model: need ${context.memoryRequired}MB, but only ${context.memoryAvailable}MB available.`
+      : 'Could not load the model because the system is out of memory. Try unloading other models or closing applications.',
+    actionText: 'Free Memory',
+    helpUrl: '/docs/models#memory-management',
+    variant: 'error'
+  }),
+
+  'MIGRATION_INVALID': () => ({
+    title: 'Database Migration Error',
+    message: 'Schema or signature mismatch detected. Re-run migrations before continuing.',
+    actionText: 'Run migrations',
+    helpUrl: '/docs/troubleshooting#database',
+    variant: 'error'
+  }),
+
+  'TRACE_WRITE_FAILED': () => ({
+    title: 'Trace Persistence Failed',
+    message: 'Could not persist trace or telemetry for this request. Check database and disk space.',
+    actionText: 'Retry request',
+    helpUrl: '/docs/troubleshooting#observability',
+    variant: 'warning'
+  }),
+
+  'RECEIPT_MISMATCH': () => ({
+    title: 'Receipt Verification Failed',
+    message: 'The run receipt did not match the recorded trace. Re-run with matching manifest and backend.',
+    actionText: 'Retry with same manifest',
+    helpUrl: '/docs/troubleshooting#replay',
+    variant: 'error'
+  }),
+
+  'POLICY_DIVERGENCE': () => ({
+    title: 'Policy Divergence Detected',
+    message: 'A policy check failed or diverged from expected state. Review active policy packs.',
+    actionText: 'Review policies',
+    helpUrl: '/docs/policies',
+    variant: 'warning'
+  }),
+
+  'BACKEND_FALLBACK': () => ({
+    title: 'Backend Fallback Triggered',
+    message: 'Execution fell back to a different backend. Performance or determinism may differ.',
+    actionText: 'Review backend settings',
+    helpUrl: '/docs/backends',
+    variant: 'info'
+  }),
+
+  'TENANT_ACCESS_DENIED': () => ({
+    title: 'Tenant Access Denied',
+    message: 'You do not have access to this tenant. Switch to an allowed tenant.',
+    actionText: 'Select tenant',
+    helpUrl: '/docs/administration#tenants',
+    variant: 'warning'
+  }),
+
+  'LOAD_FAILED': (context) => ({
+    title: 'Model Loading Failed',
+    message: context?.modelId
+      ? `We couldn't load the model "${context.modelId}". This might be temporary; please try again.`
+      : 'We couldn\'t load the model. This might be temporary; please try again.',
+    actionText: 'Try Again',
+    helpUrl: '/docs/troubleshooting#loading-issues',
+    variant: 'error'
+  }),
+
   'DISK_FULL': () => ({
     title: 'Storage Full',
     message: 'There\'s not enough disk space to complete this operation.',
@@ -445,8 +513,9 @@ export function getUserFriendlyError(
 export function enhanceError(
   originalError: unknown,
   context?: ErrorContext
-): Error & { userFriendly: UserFriendlyError; originalError: unknown } {
-  const errorCode = (originalError as { code?: string }).code;
+): Error & { userFriendly: UserFriendlyError; originalError: unknown; requestId?: string } {
+  const failureCode = (originalError as { failure_code?: string }).failure_code;
+  const errorCode = failureCode ?? (originalError as { code?: string }).code;
   const httpStatus = (originalError as { status?: number }).status;
   const backendMessage = (originalError as { message?: string }).message;
   
@@ -471,6 +540,7 @@ export function enhanceError(
     originalError: unknown;
     code?: string;
     status?: number;
+    failure_code?: string;
   };
 
   enhancedError.name = 'UserFriendlyError';
@@ -478,6 +548,9 @@ export function enhanceError(
   enhancedError.originalError = originalError;
   enhancedError.code = errorCode;
   enhancedError.status = httpStatus;
+  if (failureCode) {
+    enhancedError.failure_code = failureCode;
+  }
 
   return enhancedError;
 }
@@ -486,7 +559,7 @@ export function enhanceError(
  * Checks if an error is transient and should be retried
  */
 export function isTransientError(error: unknown): boolean {
-  const errorCode = (error as { code?: string }).code;
+  const errorCode = (error as { failure_code?: string }).failure_code ?? (error as { code?: string }).code;
   const httpStatus = (error as { status?: number }).status;
 
   // Error codes that indicate transient failures

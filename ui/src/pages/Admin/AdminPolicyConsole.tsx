@@ -31,7 +31,7 @@ import {
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
-import { useToast } from '@/components/ui/use-toast';
+import { toast } from 'sonner';
 import { formatBytes } from '@/utils/format';
 import apiClient from '@/api/client';
 import type {
@@ -58,7 +58,6 @@ const coremlModes: CoreMLMode[] = ['coreml_strict', 'coreml_preferred', 'backend
 const repoTiers: RepoAssuranceTier[] = ['high_assurance', 'normal', 'experimental'];
 
 export function AdminPolicyConsole() {
-  const { toast } = useToast();
 
   // Repository policies
   const [repos, setRepos] = useState<AdapterRepositorySummary[]>([]);
@@ -139,18 +138,11 @@ export function AdminPolicyConsole() {
             : r
         )
       );
-      toast({
-        title: 'Policy updated',
-        description: `${editingRepo.name} policy saved`,
-      });
+      toast.success(`${editingRepo.name} policy saved`);
       setEditingRepo(null);
       setPolicyDraft(null);
     } catch (err) {
-      toast({
-        title: 'Failed to update policy',
-        description: err instanceof Error ? err.message : 'Unknown error',
-        variant: 'destructive',
-      });
+      toast.error(err instanceof Error ? err.message : 'Failed to update policy');
     } finally {
       setSavingPolicy(false);
       setShowPolicyConfirm(false);
@@ -173,18 +165,11 @@ export function AdminPolicyConsole() {
             : d
         )
       );
-      toast({
-        title: 'Override applied',
-        description: `${selectedDataset.name} trust set to ${payload.override_state}`,
-      });
+      toast.success(`${selectedDataset.name} trust set to ${payload.override_state}`);
       setSelectedDataset(null);
       setOverrideReason('');
     } catch (err) {
-      toast({
-        title: 'Failed to apply override',
-        description: err instanceof Error ? err.message : 'Unknown error',
-        variant: 'destructive',
-      });
+      toast.error(err instanceof Error ? err.message : 'Failed to apply override');
     } finally {
       setApplyingOverride(false);
     }

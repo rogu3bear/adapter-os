@@ -36,7 +36,17 @@ export function AddDocumentsDialog({ collectionId, onDocumentsAdded }: Props) {
     setLoading(true);
     try {
       const data = await apiClient.listAvailableDocuments(collectionId);
-      setDocuments(data as Document[]);
+      // Ensure data is properly mapped to Document type
+      const mappedDocuments: Document[] = Array.isArray(data)
+        ? data.map((doc: any) => ({
+            id: doc.id ?? doc.document_id ?? '',
+            name: doc.name ?? '',
+            type: doc.type ?? doc.mime_type ?? '',
+            size: doc.size ?? 0,
+            created_at: doc.created_at ?? new Date().toISOString(),
+          }))
+        : [];
+      setDocuments(mappedDocuments);
       setFeatureUnavailable(null);
     } catch (error) {
       // Surface feature gating separately; all other failures are logged

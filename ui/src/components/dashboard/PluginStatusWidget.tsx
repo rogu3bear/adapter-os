@@ -68,7 +68,6 @@ export function PluginStatusWidget() {
       lastUpdated={lastUpdated}
       errorMessage={error?.message}
       emptyMessage="No plugins found"
-      isRefreshing={isRefreshing}
     >
       {plugins.map((p, index) => (
         <div key={index} className="flex justify-between items-center py-2 border-b">

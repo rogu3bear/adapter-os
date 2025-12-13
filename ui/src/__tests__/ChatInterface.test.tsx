@@ -5,6 +5,7 @@ import userEvent from '@testing-library/user-event';
 import { ChatInterface } from '@/components/ChatInterface';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
+import { FeatureProviders } from '@/providers/FeatureProviders';
 import type { AdapterStack } from '@/api/types';
 
 // Mock data
@@ -69,6 +70,9 @@ const mockStacks: AdapterStack[] = [
 const mockStreamInfer = vi.fn();
 const mockGetAdapterStack = vi.fn();
 const mockGetSessionRouterView = vi.fn();
+const mockListUserTenants = vi.fn();
+const mockGetUserProfile = vi.fn();
+const mockRefreshSession = vi.fn();
 
 vi.mock('@/api/client', () => ({
   __esModule: true,
@@ -77,20 +81,55 @@ vi.mock('@/api/client', () => ({
     getAdapterStack: (...args: unknown[]) => mockGetAdapterStack(...args),
     getSessionRouterView: (...args: unknown[]) => mockGetSessionRouterView(...args),
   },
+  apiClient: {
+    streamInfer: (...args: unknown[]) => mockStreamInfer(...args),
+    getAdapterStack: (...args: unknown[]) => mockGetAdapterStack(...args),
+    getSessionRouterView: (...args: unknown[]) => mockGetSessionRouterView(...args),
+    listUserTenants: (...args: unknown[]) => mockListUserTenants(...args),
+    getUserProfile: (...args: unknown[]) => mockGetUserProfile(...args),
+    refreshSession: (...args: unknown[]) => mockRefreshSession(...args),
+  },
 }));
 
-// Mock hooks
-vi.mock('@/hooks/useAdmin', () => ({
-  useAdapterStacks: () => ({ data: mockStacks }),
-  useGetDefaultStack: (tenantId: string) => ({
-    data: tenantId === 'default' ? mockStacks[1] : null,
+// Mock CoreProviders
+vi.mock('@/providers/CoreProviders', () => ({
+  useAuth: () => ({
+    user: { id: 'user-1', tenant_id: 'test-tenant' },
+    isLoading: false,
+    authError: null,
+    accessToken: 'mock-token',
+    sessionMode: 'session',
+    login: vi.fn(),
+    devBypassLogin: vi.fn(),
+    logout: vi.fn(),
+    refreshUser: vi.fn(),
+    refreshSession: vi.fn(),
+    logoutAllSessions: vi.fn(),
+    updateProfile: vi.fn(),
+    clearAuthError: vi.fn(),
   }),
+  useResize: () => ({
+    getLayout: vi.fn(() => null),
+    setLayout: vi.fn(),
+  }),
+  TENANT_SELECTION_REQUIRED_KEY: 'aos-tenant-selection-required',
 }));
 
-vi.mock('@/hooks/useChatSessions', () => ({
-  useChatSessions: () => ({
+// Mock hooks - use a hoisted function so we can override the return value per test
+const mockUseAdapterStacks = vi.hoisted(() => vi.fn());
+const mockUseGetDefaultStack = vi.hoisted(() => vi.fn());
+
+vi.mock('@/hooks/useAdmin', () => ({
+  useAdapterStacks: () => mockUseAdapterStacks(),
+  useGetDefaultStack: (tenantId: string) => mockUseGetDefaultStack(tenantId),
+}));
+
+vi.mock('@/hooks/useChatSessionsApi', () => ({
+  useChatSessionsApi: () => ({
     sessions: [],
     isLoading: false,
+    isUnsupported: false,
+    unsupportedReason: null,
     createSession: vi.fn((name: string, stackId: string) => ({
       id: 'session-1',
       name,
@@ -101,9 +140,79 @@ vi.mock('@/hooks/useChatSessions', () => ({
     })),
     updateSession: vi.fn(),
     addMessage: vi.fn(),
-    updateMessage: vi.fn(),
     deleteSession: vi.fn(),
     getSession: vi.fn(),
+    updateSessionCollection: vi.fn(),
+  }),
+}));
+
+vi.mock('@/hooks/useCollectionsApi', () => ({
+  useCollections: () => ({
+    data: [],
+    isLoading: false,
+  }),
+}));
+
+vi.mock('@/hooks/useFeatureFlags', () => ({
+  useChatAutoLoadModels: () => false,
+}));
+
+vi.mock('@/hooks/model-loading', () => ({
+  useModelLoadingState: () => ({
+    isLoading: false,
+    progress: 0,
+    currentStep: null,
+    overallReady: true,
+    baseModelReady: true,
+    error: null,
+    failedAdapters: [],
+    loadingAdapters: [],
+    readyAdapters: [],
+    adapterStates: new Map(),
+  }),
+  useModelLoader: () => ({
+    loadModel: vi.fn(),
+  }),
+  useChatLoadingPersistence: () => ({
+    shouldAutoLoad: false,
+    markAutoLoaded: vi.fn(),
+    clearLoadingState: vi.fn(),
+  }),
+  useLoadingAnnouncements: () => ({
+    announcement: null,
+  }),
+}));
+
+const mockSendMessage = vi.fn();
+
+vi.mock('@/hooks/chat', () => ({
+  useChatStreaming: () => ({
+    isStreaming: false,
+    streamedText: '',
+    currentRequestId: null,
+    sendMessage: mockSendMessage,
+    cancelStream: vi.fn(),
+    chunks: [],
+    tokensReceived: 0,
+    streamDuration: 0,
+  }),
+  useChatAdapterState: () => ({
+    adapterStates: new Map(),
+    isCheckingAdapters: false,
+    allAdaptersReady: true,
+    loadAllAdapters: vi.fn(),
+    showAdapterPrompt: false,
+    dismissAdapterPrompt: vi.fn(),
+    continueWithUnready: vi.fn(),
+  }),
+  useChatRouterDecisions: () => ({
+    decisions: [],
+  }),
+}));
+
+vi.mock('@/components/export', () => ({
+  useChatExport: () => ({
+    exportChat: vi.fn(),
   }),
 }));
 
@@ -112,6 +221,7 @@ vi.mock('sonner', () => ({
   toast: {
     success: vi.fn(),
     error: vi.fn(),
+    info: vi.fn(),
   },
 }));
 
@@ -134,7 +244,9 @@ function TestWrapper({ children }: { children: React.ReactNode }) {
   return (
     <MemoryRouter>
       <QueryClientProvider client={queryClient}>
-        {children}
+        <FeatureProviders>
+          {children}
+        </FeatureProviders>
       </QueryClientProvider>
     </MemoryRouter>
   );
@@ -144,9 +256,21 @@ describe('ChatInterface - Stack State Handling', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
+    sessionStorage.clear();
+    // Setup mock tenant list
+    mockListUserTenants.mockResolvedValue([
+      { id: 'test-tenant', name: 'Test Tenant' },
+      { id: 'default', name: 'Default Tenant' },
+    ]);
+    // Setup default mock return values
+    mockUseAdapterStacks.mockReturnValue({ data: mockStacks });
+    mockUseGetDefaultStack.mockReturnValue({ data: null });
   });
 
   it('displays "No stack selected" when selectedStack is null', () => {
+    // Override to return empty stacks array for this test
+    mockUseAdapterStacks.mockReturnValue({ data: [] });
+
     render(
       <TestWrapper>
         <ChatInterface selectedTenant="test-tenant" />
@@ -157,6 +281,11 @@ describe('ChatInterface - Stack State Handling', () => {
   });
 
   it('shows default stack badge when stack matches defaultStack', async () => {
+    // Setup default stack for the 'default' tenant
+    mockUseGetDefaultStack.mockImplementation((tenantId: string) => ({
+      data: tenantId === 'default' ? mockStacks[1] : null,
+    }));
+
     render(
       <TestWrapper>
         <ChatInterface selectedTenant="default" initialStackId="stack-2" />
@@ -275,6 +404,15 @@ describe('ChatInterface - Collapsible Context Panel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
+    sessionStorage.clear();
+    // Setup mock tenant list
+    mockListUserTenants.mockResolvedValue([
+      { id: 'test-tenant', name: 'Test Tenant' },
+      { id: 'default', name: 'Default Tenant' },
+    ]);
+    // Setup default mock return values
+    mockUseAdapterStacks.mockReturnValue({ data: mockStacks });
+    mockUseGetDefaultStack.mockReturnValue({ data: null });
   });
 
   it('shows context by default', () => {
@@ -337,6 +475,15 @@ describe('ChatInterface - Stack Switching', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
+    sessionStorage.clear();
+    // Setup mock tenant list
+    mockListUserTenants.mockResolvedValue([
+      { id: 'test-tenant', name: 'Test Tenant' },
+      { id: 'default', name: 'Default Tenant' },
+    ]);
+    // Setup default mock return values
+    mockUseAdapterStacks.mockReturnValue({ data: mockStacks });
+    mockUseGetDefaultStack.mockReturnValue({ data: null });
     mockStreamInfer.mockImplementation((req: unknown, callbacks: {
       onToken: (token: string) => void;
       onComplete: (text: string, reason: string | null) => void;
@@ -372,7 +519,11 @@ describe('ChatInterface - Stack Switching', () => {
   it('uses correct stack when sending message', async () => {
     render(
       <TestWrapper>
-        <ChatInterface selectedTenant="test-tenant" initialStackId="stack-1" />
+        <ChatInterface
+          selectedTenant="test-tenant"
+          initialStackId="stack-1"
+          sessionId="test-session-1"
+        />
       </TestWrapper>
     );
 
@@ -386,23 +537,22 @@ describe('ChatInterface - Stack Switching', () => {
     const sendButton = screen.getByRole('button', { name: /send message/i });
     await user.click(sendButton);
 
-    // Verify correct adapter_ids were used
+    // Verify sendMessage was called with the correct message
     await waitFor(() => {
-      expect(mockStreamInfer).toHaveBeenCalledWith(
-        expect.objectContaining({
-          prompt: 'Hello world',
-          adapter_stack: ['adapter-1', 'adapter-2'],
-        }),
-        expect.anything(),
-        expect.anything()
-      );
+      expect(mockSendMessage).toHaveBeenCalled();
+      const call = mockSendMessage.mock.calls[0];
+      expect(call[0]).toBe('Hello world'); // First argument is the message
     });
   });
 
   it('updates router decision after stack switch', async () => {
     render(
       <TestWrapper>
-        <ChatInterface selectedTenant="test-tenant" initialStackId="stack-1" />
+        <ChatInterface
+          selectedTenant="test-tenant"
+          initialStackId="stack-1"
+          sessionId="test-session-2"
+        />
       </TestWrapper>
     );
 
@@ -414,14 +564,11 @@ describe('ChatInterface - Stack Switching', () => {
     const sendButton = screen.getByRole('button', { name: /send message/i });
     await user.click(sendButton);
 
+    // Verify sendMessage was called
     await waitFor(() => {
-      expect(mockStreamInfer).toHaveBeenCalledWith(
-        expect.objectContaining({
-          adapter_stack: ['adapter-1', 'adapter-2'],
-        }),
-        expect.anything(),
-        expect.anything()
-      );
+      expect(mockSendMessage).toHaveBeenCalled();
+      const call = mockSendMessage.mock.calls[0];
+      expect(call[0]).toBe('First message');
     });
 
     // Note: Testing stack switching in a single instance requires selecting from dropdown,

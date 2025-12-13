@@ -617,7 +617,7 @@ function FederationPageInner() {
         onConfirm={handleReleaseQuarantine}
         isLoading={releasing}
       />
-    </FeatureLayout>
+    </PageWrapper>
   );
 }
 

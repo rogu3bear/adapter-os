@@ -82,7 +82,7 @@ export interface User {
   admin_tenants?: string[]; // Tenant IDs the admin can manage; "*" wildcard is dev-only (debug / dev-bypass)
 }
 
-export type UserRole = 'admin' | 'operator' | 'sre' | 'compliance' | 'auditor' | 'viewer';
+export type UserRole = 'admin' | 'developer' | 'operator' | 'sre' | 'compliance' | 'auditor' | 'viewer';
 
 export interface RegisterUserRequest {
   email: string;

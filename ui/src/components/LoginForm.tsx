@@ -514,6 +514,8 @@ export function LoginForm({ onLogin, onDevBypass, error, lockoutMessage, onConfi
                             <Input
                               id="email"
                               type="email"
+                              data-testid="login-email"
+                              data-cy="login-email"
                               placeholder="you@example.com"
                               autoComplete="email"
                               aria-describedby={errors.email ? 'email-error' : undefined}
@@ -533,6 +535,8 @@ export function LoginForm({ onLogin, onDevBypass, error, lockoutMessage, onConfi
                             <Input
                               id="password"
                               type="password"
+                              data-testid="login-password"
+                              data-cy="login-password"
                               placeholder="Enter your password"
                               autoComplete="current-password"
                               aria-describedby={errors.password ? 'password-error' : undefined}
@@ -555,6 +559,7 @@ export function LoginForm({ onLogin, onDevBypass, error, lockoutMessage, onConfi
                               id="totp"
                               type="text"
                               inputMode="numeric"
+                              data-cy="login-totp"
                               placeholder="6-digit code"
                               autoComplete="one-time-code"
                               aria-describedby={errors.totp ? 'totp-error' : undefined}
@@ -584,6 +589,8 @@ export function LoginForm({ onLogin, onDevBypass, error, lockoutMessage, onConfi
                           <Button
                             type="submit"
                             className="w-full sm:w-auto"
+                            data-testid="login-submit"
+                            data-cy="login-submit"
                             disabled={
                               isLoading ||
                               isDevBypassLoading ||

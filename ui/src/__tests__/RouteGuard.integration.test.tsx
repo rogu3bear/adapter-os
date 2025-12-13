@@ -4,10 +4,16 @@ import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { RouteGuard } from '@/components/route-guard';
 import { routes } from '@/config/routes';
 import * as CoreProviders from '@/providers/CoreProviders';
+import * as FeatureProviders from '@/providers/FeatureProviders';
 
 // Mock useAuth hook
 vi.mock('@/providers/CoreProviders', () => ({
   useAuth: vi.fn(),
+}));
+
+// Mock useTenant hook
+vi.mock('@/providers/FeatureProviders', () => ({
+  useTenant: vi.fn(),
 }));
 
 // Mock PageSkeleton
@@ -18,12 +24,21 @@ vi.mock('@/components/ui/page-skeleton', () => ({
 }));
 
 const mockUseAuth = CoreProviders.useAuth as ReturnType<typeof vi.fn>;
+const mockUseTenant = FeatureProviders.useTenant as ReturnType<typeof vi.fn>;
 
 const TestComponent = () => <div>Protected Content</div>;
 
 describe('RouteGuard', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Set up default useTenant mock
+    mockUseTenant.mockReturnValue({
+      selectedTenant: 'test-tenant-id',
+      setSelectedTenant: vi.fn(),
+      tenants: [{ id: 'test-tenant-id', name: 'Test Tenant' }],
+      isLoading: false,
+      refreshTenants: vi.fn(),
+    });
   });
 
   describe('Authentication', () => {

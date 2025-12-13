@@ -42,6 +42,22 @@ export {
   default as DocumentViewerContext,
 } from './DocumentViewerContext';
 
+// Dataset chat - Dataset-scoped chat context
+export {
+  DatasetChatProvider,
+  useDatasetChat,
+  useDatasetChatOptional,
+  default as DatasetChatContext,
+} from './DatasetChatContext';
+
+// Evidence drawer - Evidence and router decision display
+export {
+  EvidenceDrawerProvider,
+  useEvidenceDrawer,
+  useEvidenceDrawerOptional,
+  default as EvidenceDrawerContext,
+} from './EvidenceDrawerContext';
+
 // Action history - Global action tracking and replay
 export {
   HistoryProvider,
@@ -61,3 +77,13 @@ export {
   useUndoRedoContext,
   default as UndoRedoContext,
 } from './UndoRedoContext';
+
+// Workbench - Unified chat hub state management
+export {
+  WorkbenchProvider,
+  useWorkbench,
+  useWorkbenchOptional,
+  default as WorkbenchContext,
+  type LeftRailTab,
+  type UndoAction,
+} from './WorkbenchContext';

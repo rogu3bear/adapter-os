@@ -121,7 +121,6 @@ export function AdapterTable({
             onEvict={onEvict}
             onViewHealth={onViewHealth}
             onDownloadManifest={onDownloadManifest}
-            isNewest={newestAdapterIds?.has(adapter.adapter_id)}
             canLoad={canLoad}
             canUnload={canUnload}
             canDelete={canDelete}

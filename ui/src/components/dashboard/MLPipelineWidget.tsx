@@ -114,8 +114,8 @@ export function MLPipelineWidget() {
       title="ML Pipeline"
       subtitle="Training through deploy steps"
       state={state}
-      onRefresh={() => refetch()}
-      onRetry={() => refetch()}
+      onRefresh={async () => { await refetch(); }}
+      onRetry={async () => { await refetch(); }}
       lastUpdated={lastUpdated}
       errorMessage={error ? 'Failed to load training jobs' : undefined}
       emptyMessage="No training jobs yet"

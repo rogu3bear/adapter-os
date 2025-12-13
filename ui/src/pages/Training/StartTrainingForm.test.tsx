@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { resolveDatasetPrefill, StartTrainingForm } from './StartTrainingForm';
 import type { Dataset, DatasetVersionSelection } from '@/api/training-types';
@@ -66,9 +66,9 @@ describe('StartTrainingForm dataset version handling', () => {
     source_type: 'uploaded_files',
     total_size_bytes: 10,
     validation_status: 'valid',
+    trust_state: 'allowed',
     created_at: 'now',
     updated_at: 'now',
-    trust_state: 'allowed',
   };
 
   beforeEach(() => {
@@ -99,12 +99,11 @@ describe('StartTrainingForm dataset version handling', () => {
     listDatasetsMock.mockResolvedValue({ datasets: [datasetWithVersion] });
     startTrainingMock.mockResolvedValue({ id: 'job-123' });
 
-    const { container } = render(
+    render(
       <StartTrainingForm
         onSuccess={vi.fn()}
         onCancel={() => {}}
-        preselectedDatasetId={datasetWithVersion.id}
-      />,
+      />
     );
 
     await waitFor(() => expect(listDatasetsMock).toHaveBeenCalled());
@@ -113,10 +112,9 @@ describe('StartTrainingForm dataset version handling', () => {
     await userEvent.clear(adapterInput);
     await userEvent.type(adapterInput, 'tenant/domain/task/r001');
 
-    await userEvent.click(screen.getByRole('tab', { name: /data/i }));
-    const form = container.querySelector('form');
-    expect(form).not.toBeNull();
-    fireEvent.submit(form!);
+    const submit = screen.getByRole('button', { name: /start training/i });
+    expect(submit).toBeEnabled();
+    await userEvent.click(submit);
 
     await waitFor(() => expect(startTrainingMock).toHaveBeenCalled());
     const payload = startTrainingMock.mock.calls[0][0] as {
@@ -144,8 +142,7 @@ describe('StartTrainingForm dataset version handling', () => {
       <StartTrainingForm
         onSuccess={vi.fn()}
         onCancel={() => {}}
-        preselectedDatasetId={datasetWithoutVersion.id}
-      />,
+      />
     );
 
     await waitFor(() => expect(listDatasetsMock).toHaveBeenCalled());
@@ -154,11 +151,18 @@ describe('StartTrainingForm dataset version handling', () => {
     await userEvent.clear(adapterInput);
     await userEvent.type(adapterInput, 'tenant/domain/task/r001');
 
-    await userEvent.click(screen.getByRole('tab', { name: /data/i }));
+    // Click the "Data" tab to see the dataset version error
+    const dataTab = screen.getByRole('tab', { name: /data/i });
+    await userEvent.click(dataTab);
+
+    await waitFor(() => {
+      expect(
+        screen.getByText('This dataset has no version bound. Please create a dataset version before training.'),
+      ).toBeInTheDocument();
+    });
+
     const submit = screen.getByRole('button', { name: /start training/i });
-    await waitFor(() => expect(submit).toBeDisabled());
-    const error = await screen.findByText(/dataset has no version bound/i);
-    expect(error).toBeInTheDocument();
+    expect(submit).toBeDisabled();
     expect(startTrainingMock).not.toHaveBeenCalled();
   });
 });

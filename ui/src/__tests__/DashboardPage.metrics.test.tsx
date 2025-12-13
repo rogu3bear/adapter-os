@@ -10,6 +10,27 @@ vi.mock('@/hooks/useSystem', () => ({
   useMetricsSnapshot: vi.fn(),
 }));
 
+vi.mock('@/providers/FeatureProviders', () => ({
+  useTenant: () => ({
+    selectedTenant: 'test-tenant',
+    setSelectedTenant: vi.fn(),
+    tenants: [],
+    isLoading: false,
+    refreshTenants: vi.fn(),
+  }),
+}));
+
+vi.mock('@/hooks/useTraining', () => ({
+  useTraining: {
+    useDatasets: () => ({ data: null, isLoading: false, error: null }),
+    useTrainingJobs: () => ({ data: null, isLoading: false, error: null }),
+  },
+}));
+
+vi.mock('@/hooks/useReposApi', () => ({
+  useRepos: () => ({ data: null, isLoading: false, error: null }),
+}));
+
 vi.mock('@/components/ModelSelector', () => ({
   ModelSelector: () => <div data-testid="model-selector" />,
 }));

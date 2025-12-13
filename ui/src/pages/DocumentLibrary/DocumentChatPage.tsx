@@ -37,7 +37,7 @@ export default function DocumentChatPage() {
   const { data: document, isLoading, error } = useDocument(documentId);
   const mainContentRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLElement>(null);
-  const collectionId = searchParams.get('collectionId') || undefined;
+  const collectionIdFromParam = searchParams.get('collectionId') || undefined;
 
   // Set page title dynamically
   useEffect(() => {
@@ -152,7 +152,8 @@ export default function DocumentChatPage() {
     );
   }
 
-  const collectionId = document.collection_id ?? undefined;
+  // Use collectionId from URL param, or fall back to undefined
+  const collectionId = collectionIdFromParam;
 
   return (
     <div className="h-full flex flex-col">

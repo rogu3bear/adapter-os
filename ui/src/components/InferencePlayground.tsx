@@ -13,6 +13,8 @@ import { InferenceOutput } from './inference/InferenceOutput';
 import { TemplateManager } from './inference/TemplateManager';
 import { BatchProcessor } from './inference/BatchProcessor';
 import { ComparisonMode } from './inference/ComparisonMode';
+import { RunReceiptPanel } from '@/components/receipts/RunReceiptPanel';
+import { EvidencePanel as TraceEvidencePanel } from '@/components/evidence/EvidencePanel';
 import { PageErrorsProvider, PageErrors, usePageErrors } from '@/components/ui/page-error-boundary';
 import { SectionErrorBoundary } from '@/components/ui/section-error-boundary';
 import {
@@ -1724,6 +1726,7 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
                   </div>
                   <Textarea
                     id="prompt"
+                    data-testid="inference-input"
                     data-cy="prompt-input"
                     placeholder="Enter your prompt here..."
                     value={configA.prompt}
@@ -1812,6 +1815,7 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
                 <div className="flex gap-2">
                   <Button
                     className={`flex-1 ${!can('inference:execute') ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    data-testid="inference-submit"
                     data-cy="run-inference-btn"
                     onClick={() => {
                       if (inferenceMode === 'streaming') {
@@ -1899,7 +1903,7 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
           </div>
 
           {/* Response Panel */}
-          <div className="lg:col-span-2">
+          <div className="lg:col-span-2 space-y-4">
             <Card className="min-h-[calc(var(--base-unit)*150)]">
               <CardHeader>
                 <CardTitle className="text-base">Output</CardTitle>
@@ -1910,6 +1914,19 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
                 </SectionErrorBoundary>
               </CardContent>
             </Card>
+
+            <RunReceiptPanel
+              response={responseA}
+              requestedBackend={configA.backend}
+              requestedDeterminismMode={configA.routing_determinism_mode}
+            />
+            {responseA?.run_receipt?.trace_id && (
+              <TraceEvidencePanel
+                traceId={responseA.run_receipt.trace_id}
+                tenantId={selectedTenant}
+                receiptDigest={responseA.run_receipt.receipt_digest}
+              />
+            )}
           </div>
         </div>
       ) : (

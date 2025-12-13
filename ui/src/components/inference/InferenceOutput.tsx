@@ -39,9 +39,39 @@ export function InferenceOutput({
   isStreaming = false,
   onCopy
 }: InferenceOutputProps) {
+  const traceSectionRef = React.useRef<HTMLDivElement | null>(null);
+
   const handleCopy = (text: string) => {
     navigator.clipboard.writeText(text);
     onCopy?.(text);
+  };
+
+  const handleOpenTrace = () => {
+    if (traceSectionRef.current) {
+      traceSectionRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      traceSectionRef.current.focus?.();
+    }
+  };
+
+  const handleExportEvidence = () => {
+    if (!response?.run_receipt) return;
+    const bundle = {
+      receipt: response.run_receipt,
+      output_text: response.text,
+      adapters_used: response.adapters_used,
+      citations: response.citations ?? [],
+      trace: response.trace ?? null,
+    };
+    const digest = response.run_receipt.receipt_digest || response.id;
+    const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `evidence-bundle-${digest}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
   if (isLoading) {
@@ -68,7 +98,7 @@ export function InferenceOutput({
   const isActivelyStreaming = isStreaming && response.finish_reason === null;
 
   return (
-    <div className="space-y-4" data-cy="inference-output">
+    <div className="space-y-4" data-cy="inference-output" data-testid="inference-output">
       <Card data-cy="inference-result">
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
@@ -121,6 +151,69 @@ export function InferenceOutput({
         </CardContent>
       </Card>
 
+      {(response.adapters_used?.length || response.run_receipt) && (
+        <Card data-cy="inference-audit-summary">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between gap-2">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Target className="h-4 w-4" />
+                Routing & Receipt
+              </CardTitle>
+              <div className="flex items-center gap-2">
+                {response.run_receipt && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    data-cy="export-evidence-btn"
+                    onClick={handleExportEvidence}
+                  >
+                    Export evidence bundle
+                  </Button>
+                )}
+                {response.trace && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    data-cy="open-trace-btn"
+                    onClick={handleOpenTrace}
+                  >
+                    Open trace
+                  </Button>
+                )}
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="space-y-1" data-cy="adapter-list" data-testid="adapter-list">
+              <div className="text-sm font-medium">Adapters Used</div>
+              <div className="flex flex-wrap gap-2">
+                {response.adapters_used && response.adapters_used.length > 0 ? (
+                  response.adapters_used.map((adapter) => (
+                    <Badge key={adapter} variant="secondary" className="text-xs">
+                      {adapter}
+                    </Badge>
+                  ))
+                ) : (
+                  <span className="text-xs text-muted-foreground">Base model only</span>
+                )}
+              </div>
+            </div>
+
+            {response.run_receipt && (
+              <div className="space-y-1" data-cy="receipt-digest" data-testid="receipt-digest">
+                <div className="text-sm font-medium">Receipt Digest</div>
+                <div className="font-mono text-xs break-all">
+                  {response.run_receipt.receipt_digest}
+                </div>
+                <div className="text-xs text-muted-foreground" data-cy="receipt-trace-meta">
+                  Trace {response.run_receipt.trace_id} · Output {response.run_receipt.output_digest}
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       {response.citations && response.citations.length > 0 && (
         <Card>
           <CardHeader className="pb-2">
@@ -154,7 +247,14 @@ export function InferenceOutput({
       )}
 
       {response.trace && typeof response.trace === 'object' && response.trace !== null && 'latency_ms' in response.trace && (
-        <TraceVisualizer trace={response.trace as { latency_ms: number }} />
+        <div
+          ref={traceSectionRef}
+          data-cy="trace-viewer"
+          tabIndex={-1}
+          className="outline-none focus-visible:ring-2 focus-visible:ring-primary/70 focus-visible:ring-offset-2"
+        >
+          <TraceVisualizer trace={response.trace as { latency_ms: number }} />
+        </div>
       )}
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">

@@ -19,6 +19,7 @@ import { cn } from '@/lib/utils';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
 import { logger, toError } from '@/utils/logger';
+import { HighlightOverlay, type Highlight } from './HighlightOverlay';
 
 // Set worker path for pdf.js
 pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
@@ -37,6 +38,8 @@ interface PDFViewerEmbeddedProps {
   onPageChange?: (page: number) => void;
   /** Text to highlight in the document */
   highlightText?: string;
+  /** Array of highlights to render on the PDF */
+  highlights?: Highlight[];
   /** Additional class name */
   className?: string;
   /** Document name for download */
@@ -44,7 +47,7 @@ interface PDFViewerEmbeddedProps {
 }
 
 const PDFViewerEmbedded = forwardRef<PDFViewerEmbeddedRef, PDFViewerEmbeddedProps>(
-  ({ src, currentPage = 1, onPageChange, highlightText, className, documentName = 'document.pdf' }, ref) => {
+  ({ src, currentPage = 1, onPageChange, highlightText, highlights = [], className, documentName = 'document.pdf' }, ref) => {
     const [page, setPage] = useState(currentPage);
     const [numPages, setNumPages] = useState<number>(0);
     const [scale, setScale] = useState(1.0);
@@ -312,20 +315,29 @@ const PDFViewerEmbedded = forwardRef<PDFViewerEmbeddedRef, PDFViewerEmbeddedProp
             </div>
           )}
           {!error && (
-            <Document
-              file={src}
-              onLoadSuccess={onDocumentLoadSuccess}
-              onLoadError={onDocumentLoadError}
-              loading={<div className="text-muted-foreground" role="status" aria-live="polite">Loading PDF...</div>}
-            >
-              <Page
-                pageNumber={page}
-                scale={scale}
-                renderTextLayer={true}
-                renderAnnotationLayer={true}
-                aria-label={`Page ${page} of ${numPages}`}
-              />
-            </Document>
+            <div className="relative">
+              <Document
+                file={src}
+                onLoadSuccess={onDocumentLoadSuccess}
+                onLoadError={onDocumentLoadError}
+                loading={<div className="text-muted-foreground" role="status" aria-live="polite">Loading PDF...</div>}
+              >
+                <Page
+                  pageNumber={page}
+                  scale={scale}
+                  renderTextLayer={true}
+                  renderAnnotationLayer={true}
+                  aria-label={`Page ${page} of ${numPages}`}
+                />
+              </Document>
+              {highlights.length > 0 && (
+                <HighlightOverlay
+                  highlights={highlights}
+                  currentPage={page}
+                  scale={scale}
+                />
+              )}
+            </div>
           )}
         </div>
 

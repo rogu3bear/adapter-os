@@ -4,7 +4,7 @@
 // These helpers extract common patterns for JSON parsing, error handling, and status checks.
 
 import { logger, toError } from '@/utils/logger';
-import type { ErrorResponse, PaginatedResponse } from '@/api/api-types';
+import type { ErrorResponse, FailureCode, PaginatedResponse } from '@/api/api-types';
 
 /**
  * API error with extended properties for better error handling
@@ -13,6 +13,7 @@ export interface ApiError extends Error {
   code?: string;
   status?: number;
   details?: Record<string, unknown>;
+  failure_code?: FailureCode;
 }
 
 /**
@@ -149,16 +150,21 @@ async function throwOnError(
 ): Promise<never> {
   let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
   let errorCode: string | undefined;
+  let failureCode: FailureCode | undefined;
   let errorDetails: Record<string, unknown> = {};
 
   // Try to parse error response as JSON
   try {
     const error: ErrorResponse = await response.json();
     errorMessage = error.error || errorMessage;
-    errorCode = error.code;
+    failureCode = error.failure_code;
+    errorCode = failureCode ?? error.code;
     // ErrorResponse.details is a string, convert to object for ApiError
     if (error.details) {
-      errorDetails = { message: error.details };
+      errorDetails =
+        typeof error.details === 'string'
+          ? { message: error.details }
+          : error.details;
     }
   } catch {
     // If JSON parsing fails, use status text
@@ -168,6 +174,7 @@ async function throwOnError(
   apiError.code = errorCode;
   apiError.status = response.status;
   apiError.details = errorDetails;
+  apiError.failure_code = failureCode;
 
   logger.error('API request HTTP error', {
     component: 'ApiClient',
@@ -178,6 +185,7 @@ async function throwOnError(
     status: response.status,
     statusText: response.statusText,
     errorCode,
+    failureCode,
   }, apiError);
 
   throw apiError;

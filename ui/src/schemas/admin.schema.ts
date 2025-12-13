@@ -102,7 +102,7 @@ export const UserFormSchema = z.object({
     .max(100, 'Display name must be at most 100 characters')
     .optional(),
 
-  role: z.enum(['admin', 'operator', 'sre', 'compliance', 'auditor', 'viewer']),
+  role: z.enum(['developer', 'admin', 'operator', 'sre', 'compliance', 'auditor', 'viewer']),
 
   tenant_id: z
     .string()

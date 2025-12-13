@@ -34,6 +34,8 @@ export function UserMenu({ email, role, onLogout, className }: UserMenuProps) {
           variant="ghost"
           size="icon"
           className={cn('h-10 w-10 p-0', className)}
+          data-cy="user-menu-trigger"
+          aria-label="User menu"
         >
           <Avatar className="h-8 w-8">
             <AvatarFallback className="text-xs font-medium">{initials}</AvatarFallback>
@@ -51,7 +53,7 @@ export function UserMenu({ email, role, onLogout, className }: UserMenuProps) {
           </div>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={onLogout} className="text-destructive">
+        <DropdownMenuItem onClick={onLogout} className="text-destructive" data-cy="logout-action">
           <LogOut className="mr-2 h-4 w-4" />
           Logout
         </DropdownMenuItem>

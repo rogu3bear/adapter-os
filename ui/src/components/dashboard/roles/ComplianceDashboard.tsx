@@ -22,7 +22,7 @@ import {
   ResponsiveContainer,
   BarChart,
   Bar,
-} from 'recharts@2.15.2';
+} from 'recharts';
 import {
   Shield,
   FileText,

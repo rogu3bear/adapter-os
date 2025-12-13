@@ -95,8 +95,6 @@ const DialogContent = React.forwardRef<
       if (typeof ref === 'function') {
         ref(node);
       } else if (ref) {
-        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-        // @ts-expect-error - React.Ref accepts null assignment
         ref.current = node;
       }
     },

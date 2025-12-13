@@ -18,6 +18,7 @@
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import { isE2EMode } from '@/utils/e2e';
 
 export interface UseDebouncedValueOptions {
   /** Delay in milliseconds (default: 300) */
@@ -111,7 +112,19 @@ export function useDebouncedValue<T>(
     invokeFunc(pendingValueRef.current);
   }, [invokeFunc]);
 
+  // E2E mode: remove debounce jitter by short-circuiting below.
+  const e2eMode = useMemo(() => isE2EMode(), []);
+
   useEffect(() => {
+    if (e2eMode) {
+      setDebouncedValue(value);
+      setIsPending(false);
+      return () => {
+        if (timeoutRef.current) clearTimeout(timeoutRef.current);
+        if (maxWaitTimeoutRef.current) clearTimeout(maxWaitTimeoutRef.current);
+      };
+    }
+
     const now = Date.now();
     lastCallTimeRef.current = now;
     pendingValueRef.current = value;
@@ -156,7 +169,7 @@ export function useDebouncedValue<T>(
         clearTimeout(timeoutRef.current);
       }
     };
-  }, [value, delay, leading, trailing, maxWait, invokeFunc, debouncedValue]);
+  }, [value, delay, leading, trailing, maxWait, invokeFunc, debouncedValue, e2eMode]);
 
   // Cleanup on unmount
   useEffect(() => {

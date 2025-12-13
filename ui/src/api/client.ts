@@ -2078,7 +2078,7 @@ class ApiClient {
     data: types.StreamingInferRequest,
     callbacks: {
       onToken: (token: string, chunk: types.StreamingChunk) => void;
-      onComplete: (fullText: string, finishReason: string | null, metadata?: { unavailable_pinned_adapters?: string[], pinned_routing_fallback?: string, citations?: types.Citation[] }) => void;
+      onComplete: (fullText: string, finishReason: string | null, metadata?: { request_id?: string, unavailable_pinned_adapters?: string[], pinned_routing_fallback?: string, citations?: types.Citation[] }) => void;
       onError: (error: Error) => void;
     },
     cancelToken?: AbortSignal
@@ -2093,6 +2093,7 @@ class ApiClient {
 
     const MAX_RESPONSE_SIZE = 10 * 1024 * 1024; // 10MB limit
     let fullText = '';
+    let requestId: string | undefined = undefined;
 
     try {
       const response = await fetch(url, {
@@ -2162,7 +2163,8 @@ class ApiClient {
 
             // Check for stream termination
             if (data === '[DONE]') {
-              const metadata = (unavailablePinnedAdapters || pinnedRoutingFallback || citations) ? {
+              const metadata = (requestId || unavailablePinnedAdapters || pinnedRoutingFallback || citations) ? {
+                request_id: requestId,
                 unavailable_pinned_adapters: unavailablePinnedAdapters,
                 pinned_routing_fallback: pinnedRoutingFallback,
                 citations,
@@ -2173,6 +2175,11 @@ class ApiClient {
 
             try {
               const chunk = JSON.parse(data) as types.StreamingChunk;
+
+              // Capture request_id from first chunk (it's the trace ID)
+              if (!requestId && chunk.id) {
+                requestId = chunk.id;
+              }
 
               // Extract token from delta
               const choice = chunk.choices?.[0];
@@ -2218,7 +2225,8 @@ class ApiClient {
       }
 
       // Stream ended normally (without [DONE])
-      const metadata = (unavailablePinnedAdapters || pinnedRoutingFallback || citations) ? {
+      const metadata = (requestId || unavailablePinnedAdapters || pinnedRoutingFallback || citations) ? {
+        request_id: requestId,
         unavailable_pinned_adapters: unavailablePinnedAdapters,
         pinned_routing_fallback: pinnedRoutingFallback,
         citations,
@@ -2230,7 +2238,7 @@ class ApiClient {
           component: 'ApiClient',
           operation: 'streamInfer',
         });
-        callbacks.onComplete(fullText || '', 'cancelled', undefined);
+        callbacks.onComplete(fullText || '', 'cancelled', requestId ? { request_id: requestId } : undefined);
         return;
       }
 
@@ -2480,6 +2488,13 @@ class ApiClient {
     });
   }
 
+  async clearStackAdapters(stackId: string): Promise<types.ClearStackAdaptersResponse> {
+    return this.request<types.ClearStackAdaptersResponse>(
+      `/v1/adapter-stacks/${encodeURIComponent(stackId)}/clear-adapters`,
+      { method: 'POST' }
+    );
+  }
+
   /**
    * Get policies assigned to a stack with compliance summary
    * Stack-Policy API
@@ -2488,67 +2503,6 @@ class ApiClient {
     return this.request<policyTypes.StackPoliciesResponse>(
       `/v1/adapter-stacks/${encodeURIComponent(stackId)}/policies`
     );
-  }
-
-  // Packages API
-  async listPackages(params?: { tenantId?: string; domain?: string }): Promise<types.AdapterPackage[]> {
-    const qs = new URLSearchParams();
-    if (params?.domain) {
-      qs.append('domain', params.domain);
-    }
-    const query = qs.toString() ? `?${qs.toString()}` : '';
-    const basePath = params?.tenantId
-      ? `/v1/tenants/${encodeURIComponent(params.tenantId)}/packages`
-      : '/v1/packages';
-
-    const response = await this.request<types.PackageListResponse>(`${basePath}${query}`);
-    if ('packages' in response && Array.isArray((response as types.PackageListResponse).packages)) {
-      return (response as types.PackageListResponse).packages;
-    }
-    return [];
-  }
-
-  async createPackage(payload: types.CreatePackageRequest): Promise<types.AdapterPackage> {
-    const response = await this.request<types.PackageResponse>('/v1/packages', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    });
-    return response.package;
-  }
-
-  async getPackage(id: string): Promise<types.AdapterPackage> {
-    const response = await this.request<types.PackageResponse>(`/v1/packages/${id}`);
-    return response.package;
-  }
-
-  async updatePackage(id: string, payload: types.UpdatePackageRequest): Promise<types.AdapterPackage> {
-    const response = await this.request<types.PackageResponse>(`/v1/packages/${id}`, {
-      method: 'PATCH',
-      body: JSON.stringify(payload),
-    });
-    return response.package;
-  }
-
-  async deletePackage(id: string): Promise<void> {
-    return this.request<void>(`/v1/packages/${id}`, {
-      method: 'DELETE',
-    });
-  }
-
-  async installTenantPackage(tenantId: string, packageId: string): Promise<types.AdapterPackage> {
-    const response = await this.request<types.PackageResponse>(
-      `/v1/tenants/${encodeURIComponent(tenantId)}/packages/${encodeURIComponent(packageId)}/install`,
-      { method: 'POST' }
-    );
-    return response.package;
-  }
-
-  async uninstallTenantPackage(tenantId: string, packageId: string): Promise<types.AdapterPackage> {
-    const response = await this.request<types.PackageResponse>(
-      `/v1/tenants/${encodeURIComponent(tenantId)}/packages/${encodeURIComponent(packageId)}/install`,
-      { method: 'DELETE' }
-    );
-    return response.package;
   }
 
   async getDefaultAdapterStack(tenantId: string = 'default'): Promise<types.AdapterStack | null> {
@@ -2577,6 +2531,58 @@ class ApiClient {
     return this.request<void>(`/v1/tenants/${tenantId}/default-stack`, {
       method: 'DELETE',
     });
+  }
+
+  // ============================================================================
+  // Adapter Publish + Attach Modes v1
+  // ============================================================================
+
+  /**
+   * Publish an adapter version with attach mode configuration.
+   * Makes the adapter available for use in inference stacks.
+   */
+  async publishAdapterVersion(
+    repoId: string,
+    versionId: string,
+    request: types.PublishAdapterRequest
+  ): Promise<types.PublishAdapterResponse> {
+    return this.request<types.PublishAdapterResponse>(
+      `/v1/training/repos/${encodeURIComponent(repoId)}/versions/${encodeURIComponent(versionId)}/publish`,
+      {
+        method: 'POST',
+        body: JSON.stringify(request),
+      }
+    );
+  }
+
+  /**
+   * Archive an adapter version.
+   * Archived versions are hidden from normal use but retained for audit.
+   */
+  async archiveAdapterVersion(
+    versionId: string,
+    reason?: string
+  ): Promise<types.ArchiveAdapterResponse> {
+    return this.request<types.ArchiveAdapterResponse>(
+      `/v1/adapter-versions/${encodeURIComponent(versionId)}/archive`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ reason }),
+      }
+    );
+  }
+
+  /**
+   * Unarchive an adapter version.
+   * Restores visibility of an archived version.
+   */
+  async unarchiveAdapterVersion(versionId: string): Promise<types.ArchiveAdapterResponse> {
+    return this.request<types.ArchiveAdapterResponse>(
+      `/v1/adapter-versions/${encodeURIComponent(versionId)}/unarchive`,
+      {
+        method: 'POST',
+      }
+    );
   }
 
   async validateStackName(name: string): Promise<types.ValidateStackNameResponse> {
@@ -2673,6 +2679,24 @@ class ApiClient {
   async verifyReplaySession(sessionId: string): Promise<types.ReplayVerificationResponse> {
     return this.request<types.ReplayVerificationResponse>(`/v1/replay/sessions/${sessionId}/verify`, {
       method: 'POST',
+    });
+  }
+
+  async verifyTraceReceipt(traceId: string): Promise<types.ReceiptVerificationResult> {
+    return this.request<types.ReceiptVerificationResult>('/v1/replay/verify/trace', {
+      method: 'POST',
+      body: JSON.stringify({ trace_id: traceId }),
+    });
+  }
+
+  async verifyEvidenceBundle(file: File): Promise<types.ReceiptVerificationResult> {
+    const formData = new FormData();
+    formData.append('bundle', file);
+
+    return this.request<types.ReceiptVerificationResult>('/v1/replay/verify/bundle', {
+      method: 'POST',
+      body: formData,
+      headers: {}, // Let the browser set multipart boundaries
     });
   }
 
@@ -2850,8 +2874,9 @@ class ApiClient {
     return this.requestList<string>(`/v1/traces/search${queryString ? `?${queryString}` : ''}`);
   }
 
-  async getTrace(traceId: string): Promise<types.Trace | null> {
-    return this.request<types.Trace | null>(`/v1/traces/${traceId}`);
+  async getTrace(traceId: string, tenantId?: string): Promise<types.TraceResponseV1 | types.Trace | null> {
+    const query = tenantId ? `?tenant_id=${encodeURIComponent(tenantId)}` : '';
+    return this.request<types.TraceResponseV1 | types.Trace | null>(`/v1/traces/${traceId}${query}`);
   }
 
   // Audit export API method
@@ -2922,6 +2947,35 @@ class ApiClient {
       error_message: log.error_message,
       metadata_json: log.metadata_json,
     }));
+  }
+
+  async getPolicyAuditDecisions(params?: {
+    tenantId?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<types.PolicyAuditDecision[]> {
+    const search = new URLSearchParams();
+    if (params?.tenantId) search.append('tenant_id', params.tenantId);
+    if (params?.limit) search.append('limit', params.limit.toString());
+    if (params?.offset) search.append('offset', params.offset.toString());
+    const query = search.toString();
+    return this.requestList<types.PolicyAuditDecision>(
+      `/v1/audit/policy-decisions${query ? `?${query}` : ''}`,
+    );
+  }
+
+  async verifyPolicyAuditChain(tenantId?: string): Promise<types.PolicyAuditChainVerification> {
+    const query = tenantId ? `?tenant_id=${encodeURIComponent(tenantId)}` : '';
+    return this.request<types.PolicyAuditChainVerification>(
+      `/v1/audit/policy-decisions/verify-chain${query}`,
+    );
+  }
+
+  async triggerAuditDivergence(tenantId?: string): Promise<types.DivergeAuditChainResponse> {
+    return this.request<types.DivergeAuditChainResponse>('/v1/testkit/audit/diverge', {
+      method: 'POST',
+      body: JSON.stringify(tenantId ? { tenant_id: tenantId } : {}),
+    });
   }
 
   // Run tenant isolation test
@@ -5917,10 +5971,14 @@ class ApiClient {
    */
   async listEvidence(query?: documentTypes.ListEvidenceQuery): Promise<documentTypes.Evidence[]> {
     const params = new URLSearchParams();
+    if (query?.tenant_id) params.append('tenant_id', query.tenant_id);
     if (query?.dataset_id) params.append('dataset_id', query.dataset_id);
     if (query?.adapter_id) params.append('adapter_id', query.adapter_id);
+    if (query?.trace_id) params.append('trace_id', query.trace_id);
+    if (query?.message_id) params.append('message_id', query.message_id);
     if (query?.evidence_type) params.append('evidence_type', query.evidence_type);
     if (query?.confidence) params.append('confidence', query.confidence);
+    if (query?.status) params.append('status', query.status);
     if (query?.limit) params.append('limit', query.limit.toString());
 
     const queryString = params.toString();
@@ -6000,6 +6058,44 @@ class ApiClient {
     return this.requestList<documentTypes.Evidence>(
       `/v1/adapters/${encodeURIComponent(adapterId)}/evidence`
     );
+  }
+
+  /**
+   * Download an evidence bundle
+   *
+   * GET /v1/evidence/:id/download
+   *
+   * @param evidenceId - Evidence entry ID
+   * @param options - Optional download options
+   * @returns Blob and filename, triggers download by default
+   */
+  async downloadEvidence(
+    evidenceId: string,
+    options?: { filename?: string; triggerDownload?: boolean }
+  ): Promise<{ blob: Blob; filename: string }> {
+    const path = `/v1/evidence/${encodeURIComponent(evidenceId)}/download`;
+    const url = this.buildUrl(path);
+
+    const response = await fetch(url, {
+      method: 'GET',
+      credentials: 'include',
+    });
+
+    const blob = await handleBlobResponse(response, { method: 'GET', path });
+    const filename = getFilenameFromResponse(response, options?.filename || `${evidenceId}.bin`);
+
+    if (options?.triggerDownload !== false) {
+      const blobUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(blobUrl);
+    }
+
+    return { blob, filename };
   }
 
   /**
@@ -6323,6 +6419,19 @@ class ApiClient {
     return this.request<replayTypes.ReplayAvailabilityResponse>(
       `/v1/replay/check/${inferenceId}`
     );
+  }
+
+  /**
+   * Fetch fully expanded contract samples (dev-only)
+   *
+   * GET /v1/dev/contracts
+   */
+  async getContractSamples(): Promise<apiTypes.ContractSamplesResponse> {
+    if (!import.meta.env.DEV) {
+      throw new Error('Contract samples endpoint is available in development only');
+    }
+
+    return this.request<apiTypes.ContractSamplesResponse>('/v1/dev/contracts');
   }
 
   /**

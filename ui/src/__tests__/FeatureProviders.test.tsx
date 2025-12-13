@@ -1,6 +1,7 @@
 import React from 'react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, waitFor } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { FeatureProviders, useTenant } from '@/providers/FeatureProviders';
 
 const mockListUserTenants = vi.hoisted(() => vi.fn());
@@ -32,6 +33,19 @@ function TenantHarness({ onReady }: { onReady: (ctx: ReturnType<typeof useTenant
   return null;
 }
 
+function createWrapper() {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false },
+      mutations: { retry: false },
+    },
+  });
+
+  return ({ children }: { children: React.ReactNode }) => (
+    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+  );
+}
+
 describe('FeatureProviders / TenantProvider', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -48,10 +62,13 @@ describe('FeatureProviders / TenantProvider', () => {
     mockSwitchTenant.mockResolvedValue({ tenant_id: 't1', tenants: [] });
 
     let ctx: ReturnType<typeof useTenant> | null = null;
+    const Wrapper = createWrapper();
     render(
-      <FeatureProviders>
-        <TenantHarness onReady={(value) => { ctx = value; }} />
-      </FeatureProviders>
+      <Wrapper>
+        <FeatureProviders>
+          <TenantHarness onReady={(value) => { ctx = value; }} />
+        </FeatureProviders>
+      </Wrapper>
     );
 
     await waitFor(() => expect(mockListUserTenants).toHaveBeenCalled());
@@ -80,10 +97,13 @@ describe('FeatureProviders / TenantProvider', () => {
     });
 
     let ctx: ReturnType<typeof useTenant> | null = null;
+    const Wrapper = createWrapper();
     render(
-      <FeatureProviders>
-        <TenantHarness onReady={(value) => { ctx = value; }} />
-      </FeatureProviders>
+      <Wrapper>
+        <FeatureProviders>
+          <TenantHarness onReady={(value) => { ctx = value; }} />
+        </FeatureProviders>
+      </Wrapper>
     );
 
     await waitFor(() => expect(mockListUserTenants).toHaveBeenCalled());

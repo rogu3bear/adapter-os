@@ -1,6 +1,8 @@
 import { toast } from 'sonner';
 import { captureException } from '@/stores/errorStore';
 import { logger, toError } from '@/utils/logger';
+import { enhanceError } from '@/utils/errorMessages';
+import { TENANT_ACCESS_DENIED_EVENT } from '@/utils/tenant';
 
 const IGNORED_ERROR_NAMES = new Set(['AbortError', 'CanceledError']);
 
@@ -20,12 +22,27 @@ export function createQueryErrorHandler() {
       return;
     }
 
-    const message = err.message || 'Request failed';
+    const failureCode = (err as { failure_code?: string }).failure_code ?? (err as { code?: string }).code;
+
+    if (failureCode === 'TENANT_ACCESS_DENIED' || (err as { status?: number }).status === 403) {
+      window.dispatchEvent(new CustomEvent(TENANT_ACCESS_DENIED_EVENT, { detail: err }));
+      toast.error('Tenant access denied', {
+        description: 'Select a permitted tenant and try again. (TENANT_ACCESS_DENIED)',
+      });
+      return;
+    }
+
+    const enhanced = enhanceError(err, { operation: 'query/mutation' });
+    const message = err.message || enhanced.userFriendly.message || 'Request failed';
+    const toastTitle = failureCode
+      ? `${enhanced.userFriendly.title} (${failureCode})`
+      : enhanced.userFriendly.title || 'Request failed';
 
     logger.error('React Query request failed', {
       component: 'react-query',
       operation: 'query/mutation',
       details: message,
+      failureCode,
     }, err);
 
     captureException(err, {
@@ -33,7 +50,7 @@ export function createQueryErrorHandler() {
       operation: 'query error',
     });
 
-    toast.error('Request failed', {
+    toast.error(toastTitle, {
       description: message,
     });
   };

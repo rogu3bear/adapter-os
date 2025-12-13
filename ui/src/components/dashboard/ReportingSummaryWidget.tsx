@@ -86,8 +86,8 @@ export function ReportingSummaryWidget({ selectedTenant }: ReportingSummaryWidge
       }
       subtitle="Summaries across inference, training, adapters, and health"
       state={state}
-      onRefresh={() => refreshMetrics()}
-      onRetry={() => refreshMetrics()}
+      onRefresh={async () => { await refreshMetrics(); }}
+      onRetry={async () => { await refreshMetrics(); }}
       lastUpdated={lastUpdated}
       errorMessage={error ? error.message : undefined}
       loadingContent={<div className="h-32 animate-pulse bg-muted rounded" />}

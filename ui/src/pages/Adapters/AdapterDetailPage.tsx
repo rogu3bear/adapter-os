@@ -672,8 +672,8 @@ export default function AdapterDetailPage() {
               Train jobs for this adapter or configure routing to activate it in the stack.
             </div>
             <div className="flex flex-wrap gap-2">
-              {adapter?.training_job_id && (
-                <Button variant="outline" size="sm" onClick={() => navigate(`/training/jobs/${adapter.training_job_id}`)}>
+              {adapter?.lineage?.training_job_id && (
+                <Button variant="outline" size="sm" onClick={() => navigate(`/training/jobs/${adapter.lineage.training_job_id}`)}>
                   Origin job
                 </Button>
               )}
@@ -742,19 +742,18 @@ export default function AdapterDetailPage() {
               <CardContent className="space-y-3 text-sm text-muted-foreground">
                 <EvidenceRow
                   label="Policy pack version"
-                  value={adapter?.adapter?.policy_pack_version || 'unknown'}
+                  value="unknown"
                   tooltip="Policy pack applied during admission and routing."
                 />
                 <EvidenceRow
                   label="Manifest hash (B3)"
-                  value={manifest?.manifest_hash || adapter?.adapter?.manifest_hash || 'unavailable'}
-                  copyValue={manifest?.manifest_hash || adapter?.adapter?.manifest_hash || undefined}
+                  value={manifest?.hash || adapter?.content_hash_b3 || 'unavailable'}
+                  copyValue={manifest?.hash || adapter?.content_hash_b3 || undefined}
                   tooltip="Adapter manifest integrity hash (BLAKE3)."
                 />
                 <EvidenceRow
                   label="Signature"
-                  value={manifest?.signature || 'not provided'}
-                  copyValue={manifest?.signature || undefined}
+                  value={adapter?.adapter?.signature_valid ? 'Valid' : 'not provided'}
                   tooltip="Signature accompanying the manifest payload."
                 />
               </CardContent>

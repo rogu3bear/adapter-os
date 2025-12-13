@@ -1,8 +1,10 @@
 import { createElement, lazy } from 'react';
+import { useLocation, useParams } from 'react-router-dom';
 import LegacyRedirectNotice from '@/components/LegacyRedirectNotice';
 import { lazyWithRetry } from '@/utils/lazyWithRetry';
 import type { UserRole } from '@/api/types';
 import type { LucideIcon } from 'lucide-react';
+import { UiMode } from './ui-mode';
 import {
   LayoutDashboard,
   Compass,
@@ -19,6 +21,7 @@ import {
   RotateCcw,
   Shield,
   FileText,
+  FileOutput,
   Settings,
   BarChart3,
   Building,
@@ -55,14 +58,12 @@ const AdapterManifestPage = lazy(() => import('@/pages/Adapters/AdapterManifest'
 const AdaptersShellPage = lazyWithRetry(() => import('@/pages/Adapters/AdaptersShell'));
 const PoliciesPage = lazy(() => import('@/pages/PoliciesPage'));
 const MetricsPage = lazy(() => import('@/pages/MetricsPage'));
-const TelemetryPage = lazy(() => import('@/pages/TelemetryPage'));
-const TelemetryViewerPage = lazy(() => import('@/pages/TelemetryViewerPage'));
-const ObservabilityPage = lazy(() => import('@/pages/ObservabilityPage'));
 const InferencePage = lazy(() => import('@/pages/InferencePage'));
 const ChatPage = lazy(() => import('@/pages/ChatPage'));
 const AuditPage = lazy(() => import('@/pages/AuditPage'));
 const RepositoriesShellPage = lazy(() => import('@/pages/Repositories/RepositoriesShell'));
 const CompliancePage = lazy(() => import('@/pages/Security/ComplianceTab').then(m => ({ default: m.ComplianceTab })));
+const EvidencePage = lazy(() => import('@/pages/EvidencePage'));
 const BaseModelsPage = lazy(() => import('@/pages/BaseModelsPage'));
 const WorkflowPage = lazy(() => import('@/pages/WorkflowPage'));
 const TrainingPage = lazy(() => import('@/pages/Training/TrainingPage'));
@@ -70,6 +71,8 @@ const TrainingJobsPage = lazy(() => import('@/pages/Training/TrainingJobsPage'))
 const TrainingJobDetailPage = lazy(() => import('@/pages/Training/TrainingJobDetail'));
 const TrainingDatasetsPage = lazy(() => import('@/pages/Training/DatasetsTab').then(m => ({ default: m.DatasetsTab })));
 const DatasetDetailPage = lazy(() => import('@/pages/Training/DatasetDetailPage'));
+const DatasetChatPage = lazy(() => import('@/pages/Training/DatasetChatPage'));
+const ResultChatPage = lazy(() => import('@/pages/Training/ResultChatPage'));
 const TrainingTemplatesPage = lazy(() => import('@/pages/Training/TemplatesTab').then(m => ({ default: m.TemplatesTab })));
 const TrainingShellPage = lazy(() => import('@/pages/Training/TrainingShell'));
 const CreateAdapterPage = lazy(() => import('@/pages/CreateAdapterPage'));
@@ -97,10 +100,35 @@ const DocumentChatPage = lazy(() => import('@/pages/DocumentLibrary/DocumentChat
 const RouterConfigPage = lazy(() => import('@/pages/RouterConfigPage'));
 const FederationPage = lazy(() => import('@/pages/FederationPage'));
 const DevErrorsPage = lazy(() => import('@/pages/DevErrorsPage'));
+const DevContractsPage = lazy(() => import('@/pages/Dev/ContractsPage'));
 const RoutesDebugPage = lazy(() => import('@/pages/Dev/RoutesDebugPage'));
-const TelemetryShellPage = lazy(() => import('@/pages/Telemetry/TelemetryShell'));
+const TelemetryPage = lazy(() => import('@/pages/TelemetryPage'));
 
 const redirectTo = (to: string, label?: string) => () => createElement(LegacyRedirectNotice, { to, label });
+
+const redirectTelemetry = (tab: 'events' | 'traces' | 'viewer', includeTraceId = false) =>
+  () => createElement(TelemetryRedirect, { tab, includeTraceId });
+
+function TelemetryRedirect({
+  tab,
+  includeTraceId = false,
+}: {
+  tab: 'events' | 'traces' | 'viewer';
+  includeTraceId?: boolean;
+}) {
+  const { traceId } = useParams();
+  const location = useLocation();
+  const searchParams = new URLSearchParams(location.search);
+
+  searchParams.set('tab', tab);
+  if (includeTraceId && traceId) {
+    searchParams.set('trace_id', traceId);
+    searchParams.delete('traceId');
+  }
+
+  const target = `/telemetry?${searchParams.toString()}`;
+  return createElement(LegacyRedirectNotice, { to: target, label: 'Telemetry' });
+}
 
 export type RouteCluster = 'Build' | 'Run' | 'Observe' | 'Verify';
 
@@ -121,18 +149,20 @@ export interface RouteConfig {
   parentPath?: string;
   cluster: RouteCluster;
   roleVisibility?: UserRole[];
+  modes?: UiMode[];
 }
 
 export const routes: RouteConfig[] = [
   {
     path: '/owner',
-    component: redirectTo('/dashboard', 'Dashboard'),
+    component: redirectTo('/admin', 'Admin'),
     requiresAuth: true,
     requiredRoles: ['admin'],
     skeletonVariant: 'dashboard',
     breadcrumb: 'Owner Home (Legacy)',
     cluster: 'Verify',
     roleVisibility: ['admin'],
+    modes: [],
   },
   {
     path: '/dashboard',
@@ -146,6 +176,7 @@ export const routes: RouteConfig[] = [
     breadcrumb: 'Dashboard',
     cluster: 'Run',
     roleVisibility: ['admin', 'operator', 'sre', 'compliance', 'auditor', 'viewer'],
+    modes: [UiMode.User],
   },
   {
     // LEGACY: management panel retained for compatibility; hidden from nav
@@ -156,6 +187,7 @@ export const routes: RouteConfig[] = [
     breadcrumb: 'Management',
     cluster: 'Build',
     roleVisibility: ['admin'],
+    modes: [],
   },
   {
     path: '/workflow',
@@ -164,6 +196,7 @@ export const routes: RouteConfig[] = [
     breadcrumb: 'Onboarding',
     cluster: 'Build',
     roleVisibility: ['admin'],
+    modes: [],
   },
   {
     // LEGACY: personas tour retained; hidden from nav
@@ -174,6 +207,7 @@ export const routes: RouteConfig[] = [
     breadcrumb: 'Personas',
     cluster: 'Build',
     roleVisibility: ['admin'],
+    modes: [],
   },
   {
     // LEGACY: guided flow retained; hidden from nav
@@ -184,6 +218,7 @@ export const routes: RouteConfig[] = [
     breadcrumb: 'Guided Setup',
     cluster: 'Build',
     roleVisibility: ['admin'],
+    modes: [],
   },
   {
     path: '/repos',
@@ -197,6 +232,7 @@ export const routes: RouteConfig[] = [
     breadcrumb: 'Repositories',
     cluster: 'Build',
     roleVisibility: ['admin', 'operator'],
+    modes: [UiMode.Builder],
   },
   {
     path: '/repos/:repoId',
@@ -221,12 +257,13 @@ export const routes: RouteConfig[] = [
   {
     // LEGACY: quick training retained; hidden from nav
     path: '/trainer',
-    component: redirectTo('/training/jobs', 'Training Jobs'),
+    component: redirectTo('/training', 'Training'),
     requiresAuth: true,
     skeletonVariant: 'form',
     breadcrumb: 'Trainer',
     cluster: 'Build',
     roleVisibility: ['admin', 'operator'],
+    modes: [],
   },
   {
     path: '/create-adapter',
@@ -250,6 +287,7 @@ export const routes: RouteConfig[] = [
     breadcrumb: 'Training',
     cluster: 'Build',
     roleVisibility: ['admin', 'operator'],
+    modes: [UiMode.Builder],
   },
   {
     path: '/training/jobs',
@@ -272,6 +310,16 @@ export const routes: RouteConfig[] = [
     roleVisibility: ['admin', 'operator'],
   },
   {
+    path: '/training/jobs/:jobId/chat',
+    component: ResultChatPage,
+    requiresAuth: true,
+    skeletonVariant: 'form',
+    breadcrumb: 'Result Chat',
+    parentPath: '/training/jobs/:jobId',
+    cluster: 'Run',
+    roleVisibility: ['admin', 'operator'],
+  },
+  {
     path: '/training/datasets',
     component: TrainingShellPage,
     requiresAuth: true,
@@ -289,6 +337,16 @@ export const routes: RouteConfig[] = [
     breadcrumb: 'Dataset Detail',
     parentPath: '/training/datasets',
     cluster: 'Build',
+    roleVisibility: ['admin', 'operator'],
+  },
+  {
+    path: '/training/datasets/:datasetId/chat',
+    component: DatasetChatPage,
+    requiresAuth: true,
+    skeletonVariant: 'form',
+    breadcrumb: 'Dataset Chat',
+    parentPath: '/training/datasets/:datasetId',
+    cluster: 'Run',
     roleVisibility: ['admin', 'operator'],
   },
   {
@@ -313,6 +371,7 @@ export const routes: RouteConfig[] = [
     breadcrumb: 'Testing',
     cluster: 'Verify',
     roleVisibility: ['admin', 'operator', 'sre'],
+    modes: [UiMode.Builder],
   },
   {
     path: '/golden',
@@ -326,16 +385,18 @@ export const routes: RouteConfig[] = [
     breadcrumb: 'Verified Runs',
     cluster: 'Verify',
     roleVisibility: ['admin', 'operator', 'compliance', 'auditor'],
+    modes: [UiMode.Builder],
   },
   {
     // LEGACY: promotion flow retained; hidden from nav
     path: '/promotion',
-    component: redirectTo('/training', 'Training'),
+    component: redirectTo('/adapters', 'Adapters'),
     requiresAuth: true,
     skeletonVariant: 'default',
     breadcrumb: 'Promotion',
     cluster: 'Build',
     roleVisibility: ['admin', 'operator'],
+    modes: [],
   },
   {
     path: '/adapters',
@@ -349,6 +410,7 @@ export const routes: RouteConfig[] = [
     breadcrumb: 'Adapters',
     cluster: 'Build',
     roleVisibility: ['admin', 'operator'],
+    modes: [UiMode.Builder],
   },
   {
     path: '/adapters/new',
@@ -423,19 +485,17 @@ export const routes: RouteConfig[] = [
     breadcrumb: 'Metrics',
     cluster: 'Observe',
     roleVisibility: ['admin', 'operator', 'sre', 'viewer'],
+    modes: [UiMode.User],
   },
   {
     path: '/monitoring',
-    component: ObservabilityPage,
+    component: redirectTo('/metrics', 'Metrics'),
     requiresAuth: true,
-    navGroup: 'Observe',
-    navTitle: 'Monitoring',
-    navIcon: Activity,
-    navOrder: 0,
     skeletonVariant: 'dashboard',
     breadcrumb: 'System Health',
     cluster: 'Observe',
     roleVisibility: ['admin', 'operator', 'sre', 'viewer'],
+    modes: [],
   },
   {
     path: '/routing',
@@ -449,6 +509,7 @@ export const routes: RouteConfig[] = [
     breadcrumb: 'Routing History',
     cluster: 'Observe',
     roleVisibility: ['admin', 'operator', 'sre'],
+    modes: [UiMode.User],
   },
   {
     path: '/system',
@@ -462,6 +523,7 @@ export const routes: RouteConfig[] = [
     breadcrumb: 'System',
     cluster: 'Observe',
     roleVisibility: ['admin', 'operator', 'sre'],
+    modes: [UiMode.User],
   },
   {
     path: '/system/nodes',
@@ -476,6 +538,7 @@ export const routes: RouteConfig[] = [
     parentPath: '/system',
     cluster: 'Observe',
     roleVisibility: ['admin', 'operator', 'sre'],
+    modes: [UiMode.User],
   },
   {
     path: '/system/workers',
@@ -490,6 +553,7 @@ export const routes: RouteConfig[] = [
     parentPath: '/system',
     cluster: 'Observe',
     roleVisibility: ['admin', 'operator', 'sre'],
+    modes: [UiMode.User],
   },
   {
     path: '/system/memory',
@@ -504,6 +568,7 @@ export const routes: RouteConfig[] = [
     parentPath: '/system',
     cluster: 'Observe',
     roleVisibility: ['admin', 'operator', 'sre'],
+    modes: [UiMode.User],
   },
   {
     path: '/system/metrics',
@@ -518,6 +583,7 @@ export const routes: RouteConfig[] = [
     parentPath: '/system',
     cluster: 'Observe',
     roleVisibility: ['admin', 'operator', 'sre'],
+    modes: [UiMode.User],
   },
   {
     path: '/inference',
@@ -531,6 +597,7 @@ export const routes: RouteConfig[] = [
     breadcrumb: 'Inference',
     cluster: 'Run',
     roleVisibility: ['admin', 'operator', 'sre', 'viewer'],
+    modes: [UiMode.User],
   },
   {
     path: '/chat',
@@ -544,6 +611,7 @@ export const routes: RouteConfig[] = [
     breadcrumb: 'Chat',
     cluster: 'Run',
     roleVisibility: ['admin', 'operator'],
+    modes: [UiMode.User],
   },
   {
     path: '/documents',
@@ -557,6 +625,7 @@ export const routes: RouteConfig[] = [
     breadcrumb: 'Documents',
     cluster: 'Run',
     roleVisibility: ['admin', 'operator'],
+    modes: [UiMode.User],
   },
   {
     path: '/documents/:documentId/chat',
@@ -570,7 +639,7 @@ export const routes: RouteConfig[] = [
   },
   {
     path: '/telemetry',
-    component: TelemetryShellPage,
+    component: TelemetryPage,
     requiresAuth: true,
     navGroup: 'Observe',
     navTitle: 'Event History',
@@ -580,16 +649,51 @@ export const routes: RouteConfig[] = [
     breadcrumb: 'Event History',
     cluster: 'Observe',
     roleVisibility: ['admin', 'operator', 'sre', 'compliance', 'auditor'],
+    modes: [UiMode.Audit],
   },
   {
     path: '/telemetry/viewer',
-    component: TelemetryShellPage,
+    component: redirectTelemetry('viewer'),
     requiresAuth: true,
     skeletonVariant: 'table',
     breadcrumb: 'Telemetry Viewer',
     parentPath: '/telemetry',
     cluster: 'Observe',
     roleVisibility: ['admin', 'operator', 'sre', 'compliance', 'auditor'],
+    modes: [UiMode.Audit],
+  },
+  {
+    path: '/telemetry/viewer/:traceId',
+    component: redirectTelemetry('viewer', true),
+    requiresAuth: true,
+    skeletonVariant: 'table',
+    breadcrumb: 'Telemetry Viewer',
+    parentPath: '/telemetry',
+    cluster: 'Observe',
+    roleVisibility: ['admin', 'operator', 'sre', 'compliance', 'auditor'],
+    modes: [UiMode.Audit],
+  },
+  {
+    path: '/telemetry/traces',
+    component: redirectTelemetry('traces'),
+    requiresAuth: true,
+    skeletonVariant: 'table',
+    breadcrumb: 'Trace Viewer',
+    parentPath: '/telemetry',
+    cluster: 'Observe',
+    roleVisibility: ['admin', 'operator', 'sre', 'compliance', 'auditor'],
+    modes: [UiMode.Audit],
+  },
+  {
+    path: '/telemetry/traces/:traceId',
+    component: redirectTelemetry('traces', true),
+    requiresAuth: true,
+    skeletonVariant: 'table',
+    breadcrumb: 'Trace Viewer',
+    parentPath: '/telemetry',
+    cluster: 'Observe',
+    roleVisibility: ['admin', 'operator', 'sre', 'compliance', 'auditor'],
+    modes: [UiMode.Audit],
   },
   {
     path: '/replay',
@@ -603,6 +707,7 @@ export const routes: RouteConfig[] = [
     breadcrumb: 'Run History',
     cluster: 'Verify',
     roleVisibility: ['admin', 'operator', 'sre', 'compliance', 'auditor'],
+    modes: [UiMode.Audit],
   },
   {
     path: '/security/policies',
@@ -616,6 +721,7 @@ export const routes: RouteConfig[] = [
     breadcrumb: 'Guardrails',
     cluster: 'Verify',
     roleVisibility: ['admin', 'compliance', 'auditor'],
+    modes: [UiMode.Audit],
   },
   {
     path: '/security/audit',
@@ -630,6 +736,7 @@ export const routes: RouteConfig[] = [
     breadcrumb: 'Audit',
     cluster: 'Verify',
     roleVisibility: ['admin', 'compliance', 'auditor'],
+    modes: [UiMode.Audit],
   },
   {
     path: '/security/compliance',
@@ -644,6 +751,21 @@ export const routes: RouteConfig[] = [
     breadcrumb: 'Compliance',
     cluster: 'Verify',
     roleVisibility: ['admin', 'compliance', 'auditor'],
+    modes: [UiMode.Audit],
+  },
+  {
+    path: '/security/evidence',
+    component: EvidencePage,
+    requiresAuth: true,
+    navGroup: 'Verify',
+    navTitle: 'Evidence',
+    navIcon: FileOutput,
+    navOrder: 3,
+    skeletonVariant: 'table',
+    breadcrumb: 'Evidence',
+    cluster: 'Verify',
+    roleVisibility: ['admin', 'compliance', 'auditor', 'operator'],
+    modes: [UiMode.Audit],
   },
   {
     path: '/admin',
@@ -658,6 +780,7 @@ export const routes: RouteConfig[] = [
     breadcrumb: 'Admin',
     cluster: 'Build',
     roleVisibility: ['admin'],
+    modes: [UiMode.Builder],
   },
   {
     path: '/admin/tenants',
@@ -673,6 +796,7 @@ export const routes: RouteConfig[] = [
     parentPath: '/admin',
     cluster: 'Build',
     roleVisibility: ['admin'],
+    modes: [UiMode.Builder],
   },
   {
     path: '/admin/tenants/:tenantId',
@@ -699,6 +823,7 @@ export const routes: RouteConfig[] = [
     parentPath: '/admin',
     cluster: 'Build',
     roleVisibility: ['admin'],
+    modes: [UiMode.Builder],
   },
   {
     path: '/admin/plugins',
@@ -714,6 +839,7 @@ export const routes: RouteConfig[] = [
     parentPath: '/admin',
     cluster: 'Build',
     roleVisibility: ['admin'],
+    modes: [UiMode.Builder],
   },
   {
     path: '/admin/settings',
@@ -729,6 +855,7 @@ export const routes: RouteConfig[] = [
     parentPath: '/admin',
     cluster: 'Build',
     roleVisibility: ['admin'],
+    modes: [UiMode.Builder],
   },
   {
     path: '/reports',
@@ -738,6 +865,7 @@ export const routes: RouteConfig[] = [
     breadcrumb: 'Reports',
     cluster: 'Observe',
     roleVisibility: ['admin', 'sre', 'compliance', 'auditor'],
+    modes: [],
   },
   {
     path: '/base-models',
@@ -751,15 +879,17 @@ export const routes: RouteConfig[] = [
     breadcrumb: 'Base Models',
     cluster: 'Build',
     roleVisibility: ['admin'],
+    modes: [UiMode.Builder],
   },
   {
     path: '/code-intelligence',
-    component: redirectTo('/telemetry/viewer?source_type=code_intelligence', 'Telemetry Viewer'),
+    component: redirectTo('/telemetry?tab=viewer&source_type=code_intelligence', 'Telemetry'),
     requiresAuth: true,
     skeletonVariant: 'table',
     breadcrumb: 'Code Intelligence',
     cluster: 'Run',
     roleVisibility: ['admin'],
+    modes: [],
   },
   {
     path: '/metrics/advanced',
@@ -769,6 +899,7 @@ export const routes: RouteConfig[] = [
     breadcrumb: 'Advanced Metrics',
     cluster: 'Observe',
     roleVisibility: ['admin', 'operator', 'sre'],
+    modes: [],
   },
   {
     path: '/help',
@@ -777,6 +908,7 @@ export const routes: RouteConfig[] = [
     skeletonVariant: 'default',
     breadcrumb: 'Help Center',
     cluster: 'Observe',
+    modes: [],
   },
   {
     path: '/router-config',
@@ -791,6 +923,7 @@ export const routes: RouteConfig[] = [
     breadcrumb: 'Router Config',
     cluster: 'Build',
     roleVisibility: ['admin', 'operator', 'sre'],
+    modes: [UiMode.Builder],
   },
   {
     // IA-EXTRA: federation route is tooling/advanced and not part of core flows
@@ -798,10 +931,15 @@ export const routes: RouteConfig[] = [
     component: FederationPage,
     requiresAuth: true,
     requiredRoles: ['admin'],
+    navGroup: 'Build',
+    navTitle: 'Federation',
+    navIcon: Network,
+    navOrder: 6,
     skeletonVariant: 'table',
     breadcrumb: 'Federation',
     cluster: 'Build',
     roleVisibility: ['admin'],
+    modes: [UiMode.Builder],
   },
   // Dev-only routes
   ...(import.meta.env.DEV
@@ -813,6 +951,16 @@ export const routes: RouteConfig[] = [
           requiresAuth: false,
           skeletonVariant: 'default' as const,
           breadcrumb: 'API Error Inspector',
+          cluster: 'Verify' as const,
+          roleVisibility: ['admin'] as UserRole[],
+        },
+        {
+          // Dev-only contract viewer with live JSON payloads
+          path: '/dev/contracts',
+          component: DevContractsPage,
+          requiresAuth: true,
+          skeletonVariant: 'default' as const,
+          breadcrumb: 'Contract Samples',
           cluster: 'Verify' as const,
           roleVisibility: ['admin'] as UserRole[],
         },
@@ -901,6 +1049,11 @@ export function getBreadcrumbs(pathname: string): Array<{ path: string; label: s
 
 // Helper to check if user has access to route
 export function canAccessRoute(route: RouteConfig, userRole?: UserRole, userPermissions?: string[]): boolean {
+  // Developer role bypasses all route restrictions
+  if (userRole?.toLowerCase() === 'developer') {
+    return true;
+  }
+
   // Check role-based access (case-insensitive)
   if (route.requiredRoles && route.requiredRoles.length > 0) {
     if (!userRole || !route.requiredRoles.some(role => role.toLowerCase() === userRole.toLowerCase())) {

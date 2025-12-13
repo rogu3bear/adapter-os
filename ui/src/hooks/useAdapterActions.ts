@@ -32,7 +32,7 @@ interface ConfirmationCopy {
   title: string;
   description: string;
   confirmText: string;
-  variant: 'default' | 'outline' | 'destructive';
+  variant: 'default' | 'destructive' | 'success';
 }
 
 export function useAdapterActions(options: UseAdapterActionsOptions = {}) {
@@ -71,7 +71,7 @@ export function useAdapterActions(options: UseAdapterActionsOptions = {}) {
         title: 'Unload adapter',
         description: `Remove ${name} from memory. It can be reloaded later.`,
         confirmText: 'Unload adapter',
-        variant: 'outline',
+        variant: 'default',
       };
     }
     return {

@@ -38,6 +38,9 @@ import { useLayoutDebug } from '@/hooks/useLayoutDebug';
 import { useSessionExpiryHandler } from '@/hooks/useSessionExpiryHandler';
 import type { SessionMode } from '@/api/auth-types';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { TENANT_ACCESS_DENIED_EVENT } from '@/utils/tenant';
+import { useUiMode } from '@/hooks/useUiMode';
+import { UiMode } from '@/config/ui-mode';
 
 const COLLAPSED_GROUPS_KEY = 'aos_sidebar_collapsed_groups';
 
@@ -56,9 +59,19 @@ export function SessionModeBanner({ sessionMode }: { sessionMode: SessionMode })
 
 interface RootLayoutContentProps {
   navigationGroups: ReturnType<typeof generateNavigationGroups>;
+  tenantAccessDenied: boolean;
+  clearTenantAccessDenied: () => void;
+  uiMode: UiMode;
+  onChangeUiMode: (mode: UiMode) => void;
 }
 
-function RootLayoutContent({ navigationGroups }: RootLayoutContentProps) {
+function RootLayoutContent({
+  navigationGroups,
+  tenantAccessDenied,
+  clearTenantAccessDenied,
+  uiMode,
+  onChangeUiMode,
+}: RootLayoutContentProps) {
   const { theme, toggleTheme } = useTheme();
   const { user, logout, sessionMode } = useAuth();
   const location = useLocation();
@@ -126,6 +139,15 @@ function RootLayoutContent({ navigationGroups }: RootLayoutContentProps) {
     });
   };
 
+  const navTestIdMap: Record<string, string> = {
+    '/repos': 'nav-repos',
+    '/training': 'nav-training',
+    '/inference': 'nav-inference',
+    '/security/policies': 'nav-policy',
+    '/security/audit': 'nav-audit',
+    '/security/evidence': 'nav-evidence',
+  };
+
   return (
     <>
       {/* Skip Links for Accessibility */}
@@ -175,6 +197,7 @@ function RootLayoutContent({ navigationGroups }: RootLayoutContentProps) {
                     {group.items.map((item) => {
                       const Icon = item.icon;
                       const isActive = location.pathname === item.to;
+                      const navTestId = navTestIdMap[item.to];
                       return (
                         <SidebarMenuItem key={item.to}>
                           <SidebarMenuButton
@@ -184,6 +207,7 @@ function RootLayoutContent({ navigationGroups }: RootLayoutContentProps) {
                             size={isMobile ? 'lg' : 'default'}
                             aria-label={`Navigate to ${item.label}`}
                             aria-current={isActive ? 'page' : undefined}
+                            data-testid={navTestId}
                           >
                             <Icon className={isMobile ? 'h-5 w-5' : 'h-4 w-4'} />
                             <span>{item.label}</span>
@@ -204,15 +228,17 @@ function RootLayoutContent({ navigationGroups }: RootLayoutContentProps) {
         {/* Header */}
         <header className="flex items-center border-b bg-background/80 backdrop-blur-sm sticky top-0 z-10">
           <AppHeader
-              user={user}
-              theme={theme}
-              onLogout={() => void logout()}
-              onOpenHelp={() => setHelpCenterOpen(true)}
-              onOpenNotifications={setNotificationCenterOpen}
-              onOpenPalette={openPalette}
-              onToggleTheme={toggleTheme}
-              className="flex-1"
-            />
+            user={user}
+            theme={theme}
+            onLogout={() => void logout()}
+            onOpenHelp={() => setHelpCenterOpen(true)}
+            onOpenNotifications={setNotificationCenterOpen}
+            onOpenPalette={openPalette}
+            onToggleTheme={toggleTheme}
+            className="flex-1"
+            uiMode={uiMode}
+            onChangeUiMode={onChangeUiMode}
+          />
           {/* Global connection status indicator */}
           <div className="px-3">
             <ConnectionStatusIndicator />
@@ -234,6 +260,19 @@ function RootLayoutContent({ navigationGroups }: RootLayoutContentProps) {
         >
           <div className="mx-auto w-full" style={{ maxWidth: 'var(--layout-content-width-xl)' }}>
             <SessionModeBanner sessionMode={sessionMode} />
+            {tenantAccessDenied && (
+              <Alert variant="destructive" className="mb-4 flex items-start gap-3">
+                <div className="flex-1">
+                  <AlertTitle>TENANT_ACCESS_DENIED</AlertTitle>
+                  <AlertDescription>
+                    Your session lacks access to this tenant. Switch tenants and retry the action.
+                  </AlertDescription>
+                </div>
+                <Button size="sm" variant="outline" onClick={clearTenantAccessDenied}>
+                  Dismiss
+                </Button>
+              </Alert>
+            )}
             <SectionErrorBoundary sectionName="Page Content">
               <Outlet />
             </SectionErrorBoundary>
@@ -262,11 +301,22 @@ export default function RootLayout() {
   const location = useLocation();
   const [tenantError, setTenantError] = useState<string | null>(null);
   const [isSwitchingTenant, setIsSwitchingTenant] = useState(false);
+  const [tenantAccessDenied, setTenantAccessDenied] = useState(false);
+  const { uiMode, setUiMode } = useUiMode();
 
   useSessionExpiryHandler();
 
+  useEffect(() => {
+    const handler = () => setTenantAccessDenied(true);
+    window.addEventListener(TENANT_ACCESS_DENIED_EVENT, handler);
+    return () => window.removeEventListener(TENANT_ACCESS_DENIED_EVENT, handler);
+  }, []);
+
   // Generate navigation groups from centralized route config
-  const navigationGroups = useMemo(() => generateNavigationGroups(user?.role, user?.permissions), [user?.role, user?.permissions]);
+  const navigationGroups = useMemo(
+    () => generateNavigationGroups(user?.role, user?.permissions, uiMode),
+    [user?.role, user?.permissions, uiMode],
+  );
 
   // Convert navigation groups to command items for command palette
   const commandItems: CommandItem[] = useMemo(() => {
@@ -345,6 +395,7 @@ export default function RootLayout() {
       } catch {
         // ignore storage errors
       }
+      setTenantAccessDenied(false);
     }
     setIsSwitchingTenant(false);
   }, [isSwitchingTenant, setSelectedTenant]);
@@ -487,7 +538,13 @@ if (!user && location.pathname !== '/login') {
     <LiveDataStatusProvider>
       <CommandPaletteProvider routes={commandItems}>
         <SidebarProvider>
-          <RootLayoutContent navigationGroups={navigationGroups} />
+          <RootLayoutContent
+            navigationGroups={navigationGroups}
+            tenantAccessDenied={tenantAccessDenied}
+            clearTenantAccessDenied={() => setTenantAccessDenied(false)}
+            uiMode={uiMode}
+            onChangeUiMode={setUiMode}
+          />
         </SidebarProvider>
       </CommandPaletteProvider>
     </LiveDataStatusProvider>

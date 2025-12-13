@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Progress } from '@/components/ui/progress';
 import type { AdapterStack, LifecycleHistoryEvent, PolicyPreflightResponse } from '@/api/types';
-import { Layers, Calendar, History, ArrowRight, MessageSquare, Power, PowerOff, AlertTriangle, HardDrive, Shield, CheckCircle2, XCircle, AlertCircle } from 'lucide-react';
+import { Layers, Calendar, History, ArrowRight, MessageSquare, Power, PowerOff, AlertTriangle, HardDrive, Shield, CheckCircle2, XCircle, AlertCircle, Trash2 } from 'lucide-react';
 import apiClient from '@/api/client';
 import { formatDistanceToNow, parseISO } from 'date-fns';
 import { useNavigate } from 'react-router-dom';
@@ -19,6 +19,7 @@ import { useChatSessions } from '@/hooks/useChatSessions';
 import { useTenant } from '@/providers/FeatureProviders';
 import { PolicyPreflightDialog } from '@/components/PolicyPreflightDialog';
 import { useStackPolicyStream } from '@/hooks/useStreamingEndpoints';
+import { useClearStackAdapters } from '@/hooks/useAdmin';
 import {
   getComplianceStatusColor,
   getComplianceStatusLabel,
@@ -58,6 +59,8 @@ const StackHeader = ({
   onDeactivate,
   onActivate,
   onUseInChat,
+  onClearAdapters,
+  isClearingAdapters,
 }: {
   stack: AdapterStack;
   isActive: boolean;
@@ -66,6 +69,8 @@ const StackHeader = ({
   onDeactivate: () => void;
   onActivate: () => void;
   onUseInChat: () => void;
+  onClearAdapters: () => void;
+  isClearingAdapters: boolean;
 }) => (
   <div className="flex w-full items-center justify-between">
     <div>
@@ -86,6 +91,14 @@ const StackHeader = ({
           {isActivating ? 'Activating...' : 'Activate'}
         </Button>
       )}
+      <Button
+        variant="destructive"
+        onClick={onClearAdapters}
+        disabled={isClearingAdapters || stack.adapters.length === 0}
+      >
+        <Trash2 className="mr-2 h-4 w-4" />
+        {isClearingAdapters ? 'Clearing...' : 'Detach All'}
+      </Button>
       <Button onClick={onUseInChat}>
         <MessageSquare className="mr-2 h-4 w-4" />
         Use in Chat
@@ -622,6 +635,7 @@ export function StackDetailModal({ stack, open, onClose }: StackDetailModalProps
   const [isDeactivating, setIsDeactivating] = useState(false);
   const [showPreflightDialog, setShowPreflightDialog] = useState(false);
   const [preflightData, setPreflightData] = useState<PolicyPreflightResponse | null>(null);
+  const clearStackAdaptersMutation = useClearStackAdapters();
 
   // Get tenant ID from context
   const tenantId = selectedTenant || 'default';
@@ -766,6 +780,24 @@ export function StackDetailModal({ stack, open, onClose }: StackDetailModalProps
     }
   };
 
+  const handleClearAdapters = async () => {
+    if (stack.adapters.length === 0) {
+      toast.info('Stack has no adapters to clear');
+      return;
+    }
+
+    try {
+      await clearStackAdaptersMutation.mutateAsync(stack.id);
+      onClose(); // Close modal to refresh data
+    } catch (error) {
+      // Error handling is done in the mutation hook
+      logger.error('Failed to clear stack adapters', {
+        component: 'StackDetailModal',
+        stackId: stack.id,
+      }, error instanceof Error ? error : new Error('Unknown error'));
+    }
+  };
+
   useEffect(() => {
     if (open && stack.id) {
       setLoadingHistory(true);
@@ -799,6 +831,8 @@ export function StackDetailModal({ stack, open, onClose }: StackDetailModalProps
               onClose();
               navigate(`/chat?stack=${stack.id}`);
             }}
+            onClearAdapters={handleClearAdapters}
+            isClearingAdapters={clearStackAdaptersMutation.isPending}
           />
         }
         size="xl"

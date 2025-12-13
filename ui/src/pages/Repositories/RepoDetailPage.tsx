@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Loader2, RefreshCw, Rocket, RotateCcw, Tag } from 'lucide-react';
 import PageWrapper from '@/layout/PageWrapper';
+import type { PageHeaderAction } from '@/components/ui/page-header';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -75,13 +76,13 @@ function VersionRow({
   const serveable = version.serveable ?? false;
   const serveableReason = version.serveable_reason ?? (serveable ? undefined : 'Not serveable');
   return (
-    <tr className="align-top">
+    <tr className="align-top" data-cy={`repo-version-row-${version.id}`}>
       <td className="px-3 py-3">
         <div className="font-medium">{version.version}</div>
         <div className="text-xs text-muted-foreground">{version.id}</div>
       </td>
       <td className="px-3 py-3 text-sm"><Badge variant="outline">{version.branch}</Badge></td>
-      <td className="px-3 py-3 text-sm space-y-1">
+      <td className="px-3 py-3 text-sm space-y-1" data-cy={`repo-version-release-${version.id}`}>
         <div className="capitalize">{version.release_state}</div>
         <Badge
           variant={serveable ? 'secondary' : 'destructive'}
@@ -128,7 +129,7 @@ function VersionRow({
       </td>
       <td className="px-3 py-3 text-sm text-muted-foreground">{new Date(version.created_at).toLocaleString()}</td>
       <td className="px-3 py-3 text-right space-x-1">
-        <Button variant="ghost" size="sm" onClick={onView}>View</Button>
+        <Button variant="ghost" size="sm" onClick={onView} data-cy={`version-view-${version.id}`}>View</Button>
         <Button
           variant="outline"
           size="sm"
@@ -195,7 +196,10 @@ export default function RepoDetailPage() {
   const promoteReadyIds = useMemo(
     () =>
       (versions ?? [])
-        .filter(v => (v.release_state === 'ready' || v.release_state === 'deprecated') && v.serveable !== false)
+        .filter(v => {
+          const state = v.release_state as string;
+          return (state === 'ready' || state === 'deprecated') && v.serveable !== false;
+        })
         .map(v => v.id),
     [versions]
   );
@@ -212,14 +216,15 @@ export default function RepoDetailPage() {
   const isBusy = promote.isPending || rollback.isPending || startTrain.isPending;
 
   return (
+    <div data-cy="repo-detail-page">
     <PageWrapper
       pageKey="repo-detail"
       title={repo?.name ?? 'Repository'}
       description="Timeline, versions, and training runs for this repository."
       badges={repo ? [{ label: repo.base_model, variant: 'secondary' }] : undefined}
       secondaryActions={[
-        repo?.default_branch ? { label: `Default: ${repo.default_branch}`, icon: Tag } : undefined,
-      ].filter(Boolean) as { label: string; icon?: React.ComponentType }[]}
+        repo?.default_branch ? { label: `Default: ${repo.default_branch}`, icon: Tag, onClick: () => {} } : undefined,
+      ].filter(Boolean) as PageHeaderAction[]}
     >
       {repoLoading && (
         <div className="flex items-center gap-2 text-muted-foreground">
@@ -249,8 +254,9 @@ export default function RepoDetailPage() {
                   value={repo.default_branch}
                   onValueChange={handleBranchChange}
                   disabled={updateRepo.isPending}
+                  data-cy="repo-branch-select"
                 >
-                  <SelectTrigger className="w-[180px]">
+                  <SelectTrigger className="w-[180px]" data-cy="repo-branch-trigger">
                     <SelectValue placeholder="Choose branch" />
                   </SelectTrigger>
                   <SelectContent>
@@ -292,7 +298,7 @@ export default function RepoDetailPage() {
               </div>
             )}
             {!versionsLoading && (
-              <PageTable>
+              <PageTable data-cy="repo-versions-table">
                 <table className="min-w-full text-sm">
                   <thead>
                     <tr className="text-left text-muted-foreground">
@@ -399,5 +405,6 @@ export default function RepoDetailPage() {
         </CardContent>
       </Card>
     </PageWrapper>
+    </div>
   );
 }

@@ -2,7 +2,7 @@ import { useState, useRef, useCallback } from 'react';
 import { toast } from 'sonner';
 import apiClient from '@/api/client';
 import { logger, toError } from '@/utils/logger';
-import type { ChatMessage } from '@/components/chat/ChatMessage';
+import type { ChatMessage, ThroughputStats } from '@/components/chat/ChatMessage';
 import type { StreamingInferRequest } from '@/api/streaming-types';
 
 /**
@@ -272,6 +272,16 @@ export function useChatStreaming(options: UseChatStreamingOptions): UseChatStrea
               : null;
             setStreamDuration(duration);
 
+            // Calculate throughput stats from local variables (guaranteed accurate)
+            const throughputStats: ThroughputStats | undefined =
+              duration && duration > 0 && tokenCount > 0
+                ? {
+                    tokensGenerated: tokenCount,
+                    latencyMs: duration,
+                    tokensPerSecond: tokenCount / (duration / 1000),
+                  }
+                : undefined;
+
             // Create completed assistant message
             const assistantMessage: ChatMessage = {
               id: `assistant-${Date.now()}`,
@@ -280,6 +290,7 @@ export function useChatStreaming(options: UseChatStreamingOptions): UseChatStrea
               timestamp: new Date(),
               requestId,
               isStreaming: false,
+              throughputStats,
               unavailablePinnedAdapters: metadata?.unavailable_pinned_adapters,
               pinnedRoutingFallback: metadata?.pinned_routing_fallback as 'stack_only' | 'partial' | undefined,
             };

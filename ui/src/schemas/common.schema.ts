@@ -305,6 +305,10 @@ export const errorResponseSchema = z.object({
     .optional()
     .describe('Error code'),
 
+  failure_code: z.string()
+    .optional()
+    .describe('Structured failure code for diagnostics'),
+
   details: z.union([z.string(), z.record(z.string(), z.any())])
     .optional()
     .describe('Additional error details'),
@@ -374,7 +378,7 @@ export const LoginResponseSchema = z.object({
 
   role: z.string()
     .min(1, 'Role is required')
-    .describe('User role (admin, operator, sre, compliance, auditor, viewer)'),
+    .describe('User role (developer, admin, operator, sre, compliance, auditor, viewer)'),
 
   expires_in: z.number()
     .int('Expiration must be an integer')

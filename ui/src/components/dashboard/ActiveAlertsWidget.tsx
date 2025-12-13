@@ -62,7 +62,6 @@ export function ActiveAlertsWidget() {
   const { selectedTenant } = useTenant();
   const [typeFilter, setTypeFilter] = React.useState<EventType>('all');
   const [severityFilter, setSeverityFilter] = React.useState<Severity>('all');
-  const relativeTime = useRelativeTime();
 
   // Fetch service status for service failure alerts (shared subscription)
   const { status } = useServiceStatus();
@@ -160,9 +159,7 @@ export function ActiveAlertsWidget() {
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
         <Clock className="h-3 w-3" aria-hidden />
         <span>
-          {typeof relativeTime === 'function'
-            ? relativeTime(new Date(alert.created_at).toISOString())
-            : relativeTime}
+          {useRelativeTime(new Date(alert.created_at).toISOString())}
         </span>
       </div>
     </div>
@@ -209,8 +206,8 @@ export function ActiveAlertsWidget() {
       }
       subtitle="Unacknowledged alerts and failed services"
       state={state}
-      onRefresh={() => refetch()}
-      onRetry={() => refetch()}
+      onRefresh={async () => { await refetch(); }}
+      onRetry={async () => { await refetch(); }}
       lastUpdated={lastUpdated}
       errorMessage={error ? 'Failed to load alerts' : undefined}
       emptyMessage="No active alerts"

@@ -39,7 +39,9 @@ export function ComplianceScoreWidget() {
     .filter((d): d is Date => Boolean(d))
     .sort((a, b) => b.getTime() - a.getTime())[0] || null;
 
-  const handleRefresh = () => Promise.all([refetchPolicies(), refetchCompliance()]);
+  const handleRefresh = async (): Promise<void> => {
+    await Promise.all([refetchPolicies(), refetchCompliance()]);
+  };
 
   // Calculate compliance metrics from API data
   const totalPacks = policies?.length || 0;

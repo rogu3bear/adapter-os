@@ -7,6 +7,18 @@
 
 import { createContext, useContext, useState, useCallback, ReactNode } from 'react';
 
+export interface HighlightCharRange {
+  start: number;
+  end: number;
+}
+
+export interface HighlightBBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 interface DocumentViewerState {
   /** Currently active document ID */
   activeDocumentId: string | null;
@@ -18,6 +30,12 @@ interface DocumentViewerState {
   highlightedChunkId: string | null;
   /** Text to highlight */
   highlightText: string | null;
+  /** Character range to highlight on current page */
+  highlightCharRange: HighlightCharRange | null;
+  /** Bounding box to highlight on current page */
+  highlightBBox: HighlightBBox | null;
+  /** Page number for the highlight */
+  highlightPage: number | null;
 }
 
 interface DocumentViewerActions {
@@ -31,6 +49,10 @@ interface DocumentViewerActions {
   setScale: (scale: number) => void;
   /** Scroll to and highlight a specific chunk */
   scrollToChunk: (chunkId: string, text?: string, page?: number) => void;
+  /** Highlight a character range on a specific page */
+  highlightRange: (page: number, start: number, end: number) => void;
+  /** Highlight a bounding box on a specific page */
+  highlightBbox: (page: number, bbox: HighlightBBox) => void;
   /** Clear highlight */
   clearHighlight: () => void;
 }
@@ -55,6 +77,9 @@ export function DocumentViewerProvider({
     scale: 1.0,
     highlightedChunkId: null,
     highlightText: null,
+    highlightCharRange: null,
+    highlightBBox: null,
+    highlightPage: null,
   });
 
   const openDocument = useCallback((documentId: string) => {
@@ -64,6 +89,9 @@ export function DocumentViewerProvider({
       currentPage: 1,
       highlightedChunkId: null,
       highlightText: null,
+      highlightCharRange: null,
+      highlightBBox: null,
+      highlightPage: null,
     }));
   }, []);
 
@@ -74,6 +102,9 @@ export function DocumentViewerProvider({
       currentPage: 1,
       highlightedChunkId: null,
       highlightText: null,
+      highlightCharRange: null,
+      highlightBBox: null,
+      highlightPage: null,
     }));
   }, []);
 
@@ -98,16 +129,42 @@ export function DocumentViewerProvider({
         highlightedChunkId: chunkId,
         highlightText: text ?? null,
         currentPage: page ?? prev.currentPage,
+        highlightCharRange: null,
+        highlightBBox: null,
+        highlightPage: page ?? null,
       }));
     },
     []
   );
+
+  const highlightRange = useCallback((page: number, start: number, end: number) => {
+    setState((prev) => ({
+      ...prev,
+      highlightCharRange: { start, end },
+      highlightBBox: null,
+      highlightPage: page,
+      currentPage: page,
+    }));
+  }, []);
+
+  const highlightBbox = useCallback((page: number, bbox: HighlightBBox) => {
+    setState((prev) => ({
+      ...prev,
+      highlightCharRange: null,
+      highlightBBox: bbox,
+      highlightPage: page,
+      currentPage: page,
+    }));
+  }, []);
 
   const clearHighlight = useCallback(() => {
     setState((prev) => ({
       ...prev,
       highlightedChunkId: null,
       highlightText: null,
+      highlightCharRange: null,
+      highlightBBox: null,
+      highlightPage: null,
     }));
   }, []);
 
@@ -118,6 +175,8 @@ export function DocumentViewerProvider({
     setPage,
     setScale,
     scrollToChunk,
+    highlightRange,
+    highlightBbox,
     clearHighlight,
   };
 

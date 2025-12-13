@@ -9,6 +9,10 @@ import {
   collectionKeys,
 } from '@/hooks/useCollectionsApi';
 import type { Collection, CollectionDetail } from '@/api/document-types';
+import { withTenantKey } from '@/utils/tenant';
+
+// Mock tenant ID used in tests
+const MOCK_TENANT_ID = 'tenant-1';
 
 // Mock API client
 const mockListCollections = vi.fn();
@@ -27,6 +31,11 @@ vi.mock('@/api/client', () => ({
     addDocumentToCollection: (...args: unknown[]) => mockAddDocumentToCollection(...args),
     removeDocumentFromCollection: (...args: unknown[]) => mockRemoveDocumentFromCollection(...args),
   },
+}));
+
+// Mock FeatureProviders to provide useTenant context
+vi.mock('@/providers/FeatureProviders', () => ({
+  useTenant: () => ({ selectedTenant: MOCK_TENANT_ID }),
 }));
 
 // Test data
@@ -283,8 +292,9 @@ describe('useCollectionsApi - Mutations', () => {
         <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
       );
 
-      // Pre-populate cache with collection
-      queryClient.setQueryData(collectionKeys.detail('col-1'), mockCollectionDetail);
+      // Pre-populate cache with collection using tenant-scoped key
+      const tenantScopedKey = withTenantKey(collectionKeys.detail('col-1'), MOCK_TENANT_ID);
+      queryClient.setQueryData(tenantScopedKey, mockCollectionDetail);
 
       const { result } = renderHook(() => useCollectionsApi(), { wrapper });
 
@@ -292,8 +302,8 @@ describe('useCollectionsApi - Mutations', () => {
 
       expect(mockDeleteCollection).toHaveBeenCalledWith('col-1');
 
-      // Verify collection removed from cache
-      const cachedCollection = queryClient.getQueryData(collectionKeys.detail('col-1'));
+      // Verify collection removed from cache using tenant-scoped key
+      const cachedCollection = queryClient.getQueryData(tenantScopedKey);
       expect(cachedCollection).toBeUndefined();
     });
 

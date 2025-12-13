@@ -11,6 +11,28 @@ export interface RoleGuidanceItem {
 
 export const roleGuidanceDatabase: RoleGuidanceItem[] = [
   {
+    role: 'developer',
+    title: 'Developer',
+    description: 'Super-role with unrestricted access to all features, pages, and UI modes regardless of restrictions.',
+    capabilities: [
+      'Access all pages in all UI modes (User, Builder, Audit)',
+      'Manage all tenants and users',
+      'Configure system settings',
+      'Access all adapters and policies',
+      'Execute all operations',
+      'View all telemetry and logs',
+      'Manage infrastructure nodes',
+      'Bypass all role restrictions'
+    ],
+    restrictions: [],
+    tips: [
+      'Switch between UI modes to access different features',
+      'All navigation items are visible regardless of mode',
+      'Use for development and testing purposes',
+      'Has equivalent permissions to admin with UI mode bypass'
+    ]
+  },
+  {
     role: 'admin',
     title: 'Administrator',
     description: 'Full system access with complete control over all aspects of the AdapterOS Control Plane.',

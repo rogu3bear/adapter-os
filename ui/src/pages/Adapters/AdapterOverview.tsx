@@ -427,7 +427,7 @@ export default function AdapterOverview({ adapter, health, isLoading }: AdapterO
               <div className="space-y-2">
                 <h4 className="text-sm font-medium">Backend & CoreML</h4>
                 <p className="text-sm text-muted-foreground">
-                  Backend: {health?.backend?.backend || adapterData?.training_backend || 'unknown'}
+                  Backend: {health?.backend?.backend || 'unknown'}
                 </p>
                 <p className="text-sm text-muted-foreground">
                   CoreML: {health?.backend?.coreml_used ? 'used' : 'not used'} {health?.backend?.coreml_device_type && `(${health.backend.coreml_device_type})`}

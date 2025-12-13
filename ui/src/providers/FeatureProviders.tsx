@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import type { TenantSummary } from '@/api/auth-types';
 import { logger, toError } from '@/utils/logger';
@@ -9,6 +10,8 @@ import { HistoryProvider } from '@/contexts/HistoryContext';
 import { BreadcrumbProvider } from '@/contexts/BreadcrumbContext';
 import { UndoRedoProvider } from '@/contexts/UndoRedoContext';
 import { TENANT_SELECTION_REQUIRED_KEY, useAuth } from './CoreProviders';
+import { streamingService } from '@/services/StreamingService';
+import { TENANT_SWITCH_EVENT } from '@/utils/tenant';
 
 const TENANT_BOOTSTRAP_KEY = 'aos-tenant-bootstrap';
 
@@ -35,6 +38,7 @@ export function useTenant(): TenantContextValue {
 // Tenant Provider Component
 function TenantProvider({ children }: { children: ReactNode }) {
   const { user, refreshUser } = useAuth();
+  const queryClient = useQueryClient();
   const [selectedTenant, setSelectedTenantState] = useState<string>(() => {
     return localStorage.getItem('selectedTenant') || '';
   });
@@ -58,6 +62,17 @@ function TenantProvider({ children }: { children: ReactNode }) {
       // ignore storage errors
     }
   }, []);
+
+  const resetTenantCaches = useCallback(async (tenantId: string) => {
+    try {
+      await queryClient.cancelQueries();
+    } catch {
+      // ignore cancellation errors
+    }
+    queryClient.clear();
+    streamingService.unsubscribeAll();
+    window.dispatchEvent(new CustomEvent(TENANT_SWITCH_EVENT, { detail: { tenantId } }));
+  }, [queryClient]);
 
   const refreshTenants = useCallback(async () => {
     try {
@@ -166,12 +181,13 @@ function TenantProvider({ children }: { children: ReactNode }) {
         }
       }
       clearTenantSelectionRequirement();
+      await resetTenantCaches(tenantId);
       await refreshUser().catch(err => {
         logger.warn('Failed to refresh user after tenant switch', { component: 'TenantProvider' }, toError(err));
       });
       return true;
     } catch (error) {
-      const err = toError(error) as { status?: number; code?: string };
+      const err = toError(error) as Error & { status?: number; code?: string; failure_code?: string };
       if (err?.code === 'PARSE_ERROR') {
         logger.warn('Tenant switch returned unparsable payload; assuming success', {
           component: 'TenantProvider',
@@ -179,6 +195,7 @@ function TenantProvider({ children }: { children: ReactNode }) {
         }, err);
         setSelectedTenantState(tenantId);
         clearTenantSelectionRequirement();
+        await resetTenantCaches(tenantId);
         return true;
       }
 
@@ -189,7 +206,7 @@ function TenantProvider({ children }: { children: ReactNode }) {
         return false;
       }
 
-      if (err?.status === 403 || err?.code === 'TENANT_ACCESS_DENIED') {
+      if (err?.status === 403 || err?.code === 'TENANT_ACCESS_DENIED' || err?.failure_code === 'TENANT_ACCESS_DENIED') {
         toast.error('You do not have access to this tenant.');
         return false;
       }
@@ -202,6 +219,7 @@ function TenantProvider({ children }: { children: ReactNode }) {
       });
       setSelectedTenantState(tenantId);
       clearTenantSelectionRequirement();
+      await resetTenantCaches(tenantId);
       return true;
     }
   }, [tenants, isLoading, selectedTenant, user?.tenant_id, clearTenantSelectionRequirement, refreshUser]);

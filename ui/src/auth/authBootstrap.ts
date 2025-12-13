@@ -4,7 +4,7 @@ import { logger } from '@/utils/logger';
 export function isDevBypassEnabled(): boolean {
   // Dev bypass environment matrix: see docs/AUTHENTICATION.md (Dev bypass policy)
   const env = typeof import.meta !== 'undefined' ? import.meta.env : undefined;
-  const devMode = env?.DEV === true || env?.DEV === 'true';
+  const devMode = env?.DEV === true;
   const explicitFlag = env?.VITE_ENABLE_DEV_BYPASS === 'true';
   return Boolean(devMode || explicitFlag);
 }
@@ -41,7 +41,7 @@ export async function tryDevBypassLogin(): Promise<UserInfoResponse | null> {
 
     return null;
   } catch (error) {
-    logger.debug(
+    logger.error(
       'Dev bypass bootstrap check failed; continuing with normal auth',
       { component: 'authBootstrap' },
       error instanceof Error ? error : undefined,

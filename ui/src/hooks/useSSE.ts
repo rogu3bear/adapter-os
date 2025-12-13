@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { logger, toError } from '@/utils/logger';
+import { TENANT_SWITCH_EVENT } from '@/utils/tenant';
 
 //! Strongly typed SSE hook options
 //!
@@ -333,6 +334,33 @@ export function useSSE<T = unknown>(
       connectRef.current();
     }
   }, [enabled]);
+
+  useEffect(() => {
+    const handleTenantSwitch = () => {
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+        eventSourceRef.current = null;
+      }
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
+      if (circuitRecoveryTimeoutRef.current) {
+        clearTimeout(circuitRecoveryTimeoutRef.current);
+        circuitRecoveryTimeoutRef.current = null;
+      }
+      reconnectAttemptsRef.current = 0;
+      setConnected(false);
+      setData(null);
+      setError(null);
+      recordSuccess();
+      if (connectRef.current && enabled) {
+        connectRef.current();
+      }
+    };
+    window.addEventListener(TENANT_SWITCH_EVENT, handleTenantSwitch);
+    return () => window.removeEventListener(TENANT_SWITCH_EVENT, handleTenantSwitch);
+  }, [enabled, recordSuccess]);
 
   return {
     data,

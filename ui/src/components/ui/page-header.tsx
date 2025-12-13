@@ -16,6 +16,7 @@ export interface PageHeaderAction {
   size?: 'default' | 'sm' | 'lg' | 'icon';
   loading?: boolean;
   disabled?: boolean;
+  testId?: string;
 }
 
 export interface PageHeaderBadge {
@@ -153,6 +154,7 @@ export function PageHeader({
                 variant={action.variant || 'outline'}
                 size={action.size || 'default'}
                 disabled={action.disabled || action.loading}
+                data-testid={action.testId}
               >
                 {SecondaryIcon && (
                   <SecondaryIcon className={cn(
@@ -172,6 +174,7 @@ export function PageHeader({
               variant={primaryAction.variant || 'default'}
               size={primaryAction.size || 'default'}
               disabled={primaryAction.disabled || primaryAction.loading}
+              data-testid={primaryAction.testId}
             >
               {PrimaryIcon && (
                 <PrimaryIcon className={cn(

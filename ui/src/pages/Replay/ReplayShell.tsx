@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import FeatureLayout from '@/layout/FeatureLayout';
@@ -202,12 +202,17 @@ function CompareTab({
 }) {
   const [compareSession, setCompareSession] = useState<ReplaySession | null>(null);
 
-  useQuery({
+  const { data: compareData } = useQuery({
     queryKey: ['replay-compare', compareId],
     queryFn: () => apiClient.getReplaySession(compareId),
     enabled: Boolean(compareId),
-    onSuccess: (data) => setCompareSession(data),
   });
+
+  useEffect(() => {
+    if (compareData) {
+      setCompareSession(compareData);
+    }
+  }, [compareData]);
 
   if (!session) {
     return <div className="text-sm text-muted-foreground">Select a replay session from Runs.</div>;

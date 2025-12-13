@@ -106,7 +106,7 @@ export function GitIntegrationPage({ selectedTenant }: GitIntegrationPageProps) 
         error: errorMessage
       });
 
-      setStatusMessage({ message: 'Failed to load repositories.', variant: 'warning' });
+      setStatusMessage({ message: 'Failed to load repositories', variant: 'warning' });
       setErrorRecovery(
         errorRecoveryTemplates.genericError(
           error instanceof Error ? error : new Error('Failed to load repositories'),
@@ -412,8 +412,6 @@ export function GitIntegrationPage({ selectedTenant }: GitIntegrationPageProps) 
                         <span className="font-mono text-sm" title={repo.url}>
                           {formatRepositoryUrl(repo.url, repo.url_is_fallback)}
                         </span>
-
-                        <span className="font-mono text-sm">{repo.url}</span>
                       </div>
                       <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
                         <span className="flex items-center gap-1">
@@ -463,12 +461,12 @@ export function GitIntegrationPage({ selectedTenant }: GitIntegrationPageProps) 
                 Recent Commits
               </CardTitle>
               <CardDescription>
-                {commits.length} commits in {selectedRepo.branch}
+                {commits?.length || 0} commits in {selectedRepo.branch}
               </CardDescription>
             </CardHeader>
             <CardContent>
               <div className="space-y-2 max-h-[600px] overflow-y-auto">
-                {commits.length === 0 ? (
+                {!commits || commits.length === 0 ? (
                   <div className="text-center py-8 text-muted-foreground">
                     <GitCommit className="w-12 h-12 mx-auto mb-3 opacity-20" />
                     <p>No commits found</p>
@@ -598,7 +596,7 @@ export function GitIntegrationPage({ selectedTenant }: GitIntegrationPageProps) 
       )}
 
       {/* Repository Stats */}
-      {selectedRepo && commits.length > 0 && (
+      {selectedRepo && commits && commits.length > 0 && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center">

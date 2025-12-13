@@ -22,8 +22,9 @@ import { toast } from 'sonner';
 import { useAuth } from '@/providers/CoreProviders';
 import PageWrapper from '@/layout/PageWrapper';
 import apiClient from '@/api/client';
-import type { ModelWithStatsResponse } from '@/api/types';
+import type { ModelWithStatsResponse, BaseModelStatus } from '@/api/types';
 import type { MetricsSnapshotEvent } from '@/api/streaming-types';
+import type { SystemOverview } from '@/api/owner-types';
 import { QUERY_FAST, QUERY_STANDARD, QUERY_RARE } from '@/api/queryOptions';
 
 import { Button } from '@/components/ui/button';
@@ -48,7 +49,7 @@ import { CliConsole } from './components/CliConsole';
 import { useSystemState } from '@/hooks/useSystemState';
 import { useLiveData } from '@/hooks/useLiveData';
 
-const MODEL_STATUS_VALUES = ['ready', 'loaded', 'loading', 'error', 'no-model'] as const;
+const MODEL_STATUS_VALUES = ['ready', 'loading', 'error', 'no-model', 'unloading', 'checking', 'available'] as const;
 type ModelStatusValue = (typeof MODEL_STATUS_VALUES)[number];
 
 function parseModelStatus(status?: string | null): ModelStatusValue | undefined {
@@ -56,7 +57,8 @@ function parseModelStatus(status?: string | null): ModelStatusValue | undefined 
     return undefined;
   }
   const normalized = status.trim().toLowerCase();
-  const canonical = normalized === 'loaded' ? 'ready' : normalized;
+  // Map legacy "loaded" to "ready" and "unloaded" to "no-model"
+  const canonical = normalized === 'loaded' ? 'ready' : normalized === 'unloaded' ? 'no-model' : normalized;
   return MODEL_STATUS_VALUES.includes(canonical as ModelStatusValue)
     ? (canonical as ModelStatusValue)
     : undefined;
@@ -73,7 +75,7 @@ export default function OwnerHomePage() {
     isLoading: systemLoading,
     error: systemError,
     refetch: refetchSystem,
-  } = useQuery({
+  } = useQuery<SystemOverview>({
     queryKey: ['owner-system-overview'],
     queryFn: () => apiClient.getSystemOverview(),
     ...QUERY_FAST,
@@ -130,7 +132,7 @@ export default function OwnerHomePage() {
     data: baseModelStatus,
     isLoading: baseModelLoading,
     refetch: refetchBaseModel,
-  } = useQuery({
+  } = useQuery<BaseModelStatus>({
     queryKey: ['owner-base-model-status'],
     queryFn: () => apiClient.getBaseModelStatus(),
     ...QUERY_FAST,
@@ -169,7 +171,7 @@ export default function OwnerHomePage() {
     sseEndpoint: '/v1/stream/metrics',
     sseEventType: 'metrics',
     fetchFn: async () => {
-      return sseMetrics || ({} as MetricsSnapshotEvent);
+      return sseMetrics || null;
     },
     pollingSpeed: 'normal',
     enabled: true,
@@ -393,9 +395,9 @@ export default function OwnerHomePage() {
                 <TabsContent value="chat" className="flex-1 m-0 overflow-hidden">
                   <SectionErrorBoundary sectionName="System Chat">
                     <SystemChatWidget
-                      systemOverview={systemOverview}
+                      systemOverview={systemOverview ?? undefined}
                       adapters={Array.isArray(adapters) ? adapters : []}
-                      baseModelStatus={baseModelStatus}
+                      baseModelStatus={baseModelStatus ?? undefined}
                       activeStack={activeStack}
                     />
                   </SectionErrorBoundary>

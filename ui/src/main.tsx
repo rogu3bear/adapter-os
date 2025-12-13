@@ -16,8 +16,13 @@ import { useToastQueue } from "@/components/toast/ToastProvider";
 import NotFoundPage from "@/pages/NotFoundPage";
 import { consumeSessionExpiredFlag } from "@/auth/session";
 import { isDevBypassEnabled } from "@/auth/authBootstrap";
+import { applyE2EToastGuards, applyE2EVisualGuards } from "@/utils/e2e";
 
 import "./index.css";
+
+applyE2EVisualGuards();
+applyE2EToastGuards();
+import { applyE2EModeStyles, patchToastTestIds } from "@/utils/e2e";
 
 // Global error handlers - always enabled with different behavior for dev vs prod
 window.addEventListener('error', (event) => {
@@ -45,6 +50,10 @@ window.addEventListener('unhandledrejection', (event) => {
     toast.error('An unexpected error occurred');
   }
 });
+
+// Enable E2E stability features early
+applyE2EModeStyles();
+patchToastTestIds();
 
 const FIRST_RUN_KEY = 'aos-first-login-completed';
 const POST_LOGIN_REDIRECT_KEY = 'postLoginRedirect';

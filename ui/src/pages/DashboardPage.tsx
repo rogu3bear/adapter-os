@@ -8,7 +8,7 @@ import { SectionErrorBoundary } from '@/components/ui/section-error-boundary';
 import { PageHeader as IaPageHeader } from '@/components/shared/PageHeader';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { useNavigate, Link } from 'react-router-dom';
 import { useSystemMetrics, useMetricsSnapshot } from '@/hooks/useSystem';
 import { Skeleton } from '@/components/ui/skeleton';

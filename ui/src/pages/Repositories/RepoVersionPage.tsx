@@ -1,6 +1,6 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ExternalLink, Loader2, Rocket, Tag as TagIcon } from 'lucide-react';
+import { Download, ExternalLink, Loader2, Rocket, Tag as TagIcon } from 'lucide-react';
 import PageWrapper from '@/layout/PageWrapper';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -16,6 +16,7 @@ import {
   useStartTrainingFromVersion,
   useTagRepoVersion,
 } from '@/hooks/useReposApi';
+import { downloadTextFile } from '@/utils/export';
 
 const normalizeTrustState = (state?: string): string => {
   switch ((state ?? 'unknown').toLowerCase()) {
@@ -126,6 +127,45 @@ export default function RepoVersionPage() {
   const isBusy = promote.isPending || startTrain.isPending || tagVersion.isPending;
   const normalizedTrust = normalizeTrustState(version?.adapter_trust_state);
 
+  const handleExportVersion = useCallback(() => {
+    if (!version) return;
+
+    const exportData = {
+      schemaVersion: '1.0.0',
+      exportTimestamp: new Date().toISOString(),
+      entityType: 'adapter_version',
+      version: {
+        id: version.id,
+        version: version.version,
+        branch: version.branch,
+        releaseState: version.release_state,
+        baseModel: version.base_model,
+        tags: version.tags ?? [],
+        trustState: normalizedTrust,
+        aosHash: version.aos_hash,
+        aosPath: version.aos_path,
+        trainingBackend: version.training_backend,
+        coremlUsed: version.coreml_used,
+        coremlDeviceType: version.coreml_device_type,
+        commitSha: version.commit_sha,
+        commitUrl: version.commit_url,
+        dataSpecSummary: version.data_spec_summary,
+        datasetVersionIds: version.dataset_version_ids ?? [],
+        metrics: version.metrics,
+        createdAt: version.created_at,
+        updatedAt: version.updated_at,
+      },
+      repository: {
+        id: repoId,
+      },
+    };
+
+    const json = JSON.stringify(exportData, null, 2);
+    const filename = `adapter-version-${version.version}-${version.id?.slice(0, 8)}.json`;
+    downloadTextFile(json, filename, 'application/json');
+    toast.success('Exported version metadata');
+  }, [version, normalizedTrust, repoId]);
+
   return (
     <PageWrapper
       pageKey="repo-version"
@@ -144,12 +184,12 @@ export default function RepoVersionPage() {
 
       {version && (
         <>
-          <Card>
+          <Card data-cy="repo-version-page">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <span>{version.version}</span>
-                <Badge variant="outline" className="capitalize">{version.release_state}</Badge>
-                <Badge variant="secondary">{version.branch}</Badge>
+                <Badge variant="outline" className="capitalize" data-cy="version-release-state">{version.release_state}</Badge>
+                <Badge variant="secondary" data-cy="version-branch">{version.branch}</Badge>
               </CardTitle>
               <CardDescription>ID: {version.id}</CardDescription>
             </CardHeader>
@@ -172,7 +212,7 @@ export default function RepoVersionPage() {
               </div>
 
               <div className="flex flex-wrap gap-3 text-sm">
-                {version.aos_hash && <Badge variant="outline">.aos hash: {version.aos_hash}</Badge>}
+                {version.aos_hash && <Badge variant="outline" data-cy="version-aos-hash">.aos hash: {version.aos_hash}</Badge>}
                 {version.aos_path && <Badge variant="outline">Path: {version.aos_path}</Badge>}
                 {version.training_backend && (
                   <Badge variant="outline" className="gap-1">
@@ -190,7 +230,7 @@ export default function RepoVersionPage() {
                   </Badge>
                 )}
                 {version.commit_sha && (
-                  <Badge variant="outline" className="gap-1">
+                  <Badge variant="outline" className="gap-1" data-cy="version-commit-sha">
                     Commit: {version.commit_sha}
                     {version.commit_url && (
                       <a
@@ -250,6 +290,7 @@ export default function RepoVersionPage() {
               className="gap-2"
               disabled={isBusy}
               onClick={() => versionId && promote.mutate({ versionId })}
+              data-cy="version-promote-btn"
             >
               <Rocket className="h-4 w-4" />
               Promote
@@ -261,6 +302,15 @@ export default function RepoVersionPage() {
               onClick={() => versionId && startTrain.mutate({ versionId, payload: {} })}
             >
               Start training
+            </Button>
+            <Button
+              variant="outline"
+              className="gap-2"
+              onClick={handleExportVersion}
+              data-testid="export-version-btn"
+            >
+              <Download className="h-4 w-4" />
+              Export
             </Button>
           </div>
 

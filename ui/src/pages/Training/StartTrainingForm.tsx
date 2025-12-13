@@ -150,7 +150,6 @@ export function StartTrainingForm({
   const isModelLoaded = useMemo(() => {
     if (!baseModelStatus) return false;
     return baseModelStatus.status === 'ready' ||
-           baseModelStatus.status === 'loaded' || // legacy
            baseModelStatus.is_loaded === true;
   }, [baseModelStatus]);
 

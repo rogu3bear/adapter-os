@@ -12,11 +12,11 @@ interface ModelStatusBadgeProps {
 
 function ModelStatusBadge({ status }: ModelStatusBadgeProps) {
   switch (status) {
-    case 'loaded':
+    case 'ready':
       return (
         <div className="flex items-center gap-1.5 text-green-600">
           <CheckCircle className="h-4 w-4" />
-          <span className="text-sm font-medium">Loaded</span>
+          <span className="text-sm font-medium">Ready</span>
         </div>
       );
     case 'loading':
@@ -33,11 +33,11 @@ function ModelStatusBadge({ status }: ModelStatusBadgeProps) {
           <span className="text-sm font-medium">Unloading</span>
         </div>
       );
-    case 'unloaded':
+    case 'no-model':
       return (
         <div className="flex items-center gap-1.5 text-gray-500">
           <XCircle className="h-4 w-4" />
-          <span className="text-sm font-medium">Unloaded</span>
+          <span className="text-sm font-medium">No Model</span>
         </div>
       );
     case 'error':
@@ -45,6 +45,13 @@ function ModelStatusBadge({ status }: ModelStatusBadgeProps) {
         <div className="flex items-center gap-1.5 text-red-600">
           <AlertCircle className="h-4 w-4" />
           <span className="text-sm font-medium">Error</span>
+        </div>
+      );
+    case 'checking':
+      return (
+        <div className="flex items-center gap-1.5 text-blue-600">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          <span className="text-sm font-medium">Checking</span>
         </div>
       );
   }
@@ -86,8 +93,8 @@ export const MultiModelStatusWidget: React.FC = () => {
       title="Loaded Models"
       subtitle="Model load state and memory usage"
       state={state}
-      onRefresh={() => refetch()}
-      onRetry={() => refetch()}
+      onRefresh={async () => { await refetch(); }}
+      onRetry={async () => { await refetch(); }}
       lastUpdated={lastUpdated}
       errorMessage={error ? 'Failed to fetch model status' : undefined}
       emptyMessage="No models loaded"

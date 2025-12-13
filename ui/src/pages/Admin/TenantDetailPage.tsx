@@ -10,9 +10,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { LoadingState } from '@/components/ui/loading-state';
 import { ErrorRecovery } from '@/components/ui/error-recovery';
-import { useInstallPackage, usePackages, useTenantUsage, useUninstallPackage } from '@/hooks/useAdmin';
-import type { AdapterPackage, Tenant } from '@/api/types';
-import { PackageTable } from './PackageTable';
+import { useTenantUsage } from '@/hooks/useAdmin';
+import type { Tenant } from '@/api/types';
 import {
   Activity,
   Database,
@@ -326,22 +325,6 @@ const PermissionsTab = ({ tenant }: { tenant: Tenant }) => (
 
 export function TenantDetailPage({ tenant, open, onClose }: TenantDetailPageProps) {
   const { data: usage, isLoading, error, refetch } = useTenantUsage(tenant.id);
-  const {
-    data: packages,
-    isLoading: packagesLoading,
-    error: packagesError,
-    refetch: refetchPackages,
-  } = usePackages({ tenantId: tenant.id });
-  const installPackage = useInstallPackage();
-  const uninstallPackage = useUninstallPackage();
-
-  const handleInstall = async (pkg: AdapterPackage) => {
-    await installPackage.mutateAsync({ tenantId: tenant.id, packageId: pkg.id });
-  };
-
-  const handleUninstall = async (pkg: AdapterPackage) => {
-    await uninstallPackage.mutateAsync({ tenantId: tenant.id, packageId: pkg.id });
-  };
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
@@ -354,10 +337,9 @@ export function TenantDetailPage({ tenant, open, onClose }: TenantDetailPageProp
         </DialogHeader>
 
         <Tabs defaultValue="overview" className="w-full">
-          <TabsList className="grid w-full grid-cols-5">
+          <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="usage">Usage Stats</TabsTrigger>
-            <TabsTrigger value="packages">Packages</TabsTrigger>
             <TabsTrigger value="billing">Cost & Billing</TabsTrigger>
             <TabsTrigger value="permissions">Permissions</TabsTrigger>
           </TabsList>
@@ -368,31 +350,6 @@ export function TenantDetailPage({ tenant, open, onClose }: TenantDetailPageProp
           </TabsContent>
 
           <UsageTab usage={usage} isLoading={isLoading} error={error} onRetry={refetch} />
-
-          <TabsContent value="packages" className="space-y-4">
-            {packagesLoading && <LoadingState message="Loading packages..." />}
-            {packagesError && (
-              <ErrorRecovery
-                error={packagesError instanceof Error ? packagesError.message : String(packagesError)}
-                onRetry={refetchPackages}
-              />
-            )}
-            {!packagesLoading && !packagesError && (
-              <Card>
-                <CardHeader>
-                  <CardTitle>Domain Packages</CardTitle>
-                  <CardDescription>Install or remove domain-tagged packages for this tenant</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <PackageTable
-                    packages={packages || []}
-                    onInstall={handleInstall}
-                    onUninstall={handleUninstall}
-                  />
-                </CardContent>
-              </Card>
-            )}
-          </TabsContent>
 
           <BillingTab usage={usage} isLoading={isLoading} error={error} onRetry={refetch} />
 

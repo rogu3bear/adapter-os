@@ -343,7 +343,7 @@ export function AdapterLifecycleManager({
             : record
           )));
       }
-      if (newState !== 'loading') {
+      if (newState !== 'loading' && newState !== 'error') {
         onAdapterUpdate(adapterId, { current_state: newState });
       }
       setErrorRecovery(null);

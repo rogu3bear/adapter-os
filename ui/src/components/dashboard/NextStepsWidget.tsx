@@ -115,13 +115,14 @@ export function NextStepsWidget({
   ].filter((d): d is Date => Boolean(d));
   const lastUpdated = lastUpdatedCandidates.sort((a, b) => b.getTime() - a.getTime())[0] || null;
 
-  const handleRefresh = () =>
-    Promise.all([
+  const handleRefresh = async (): Promise<void> => {
+    await Promise.all([
       refetchMetrics(),
       refetchSystemState(),
       refetchTrainingJobs(),
       refetchAdapters(),
     ]);
+  };
 
   const state: DashboardWidgetState = hasError
     ? 'error'

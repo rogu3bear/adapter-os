@@ -3,7 +3,7 @@
 
 import React, { useState, useCallback, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, RefreshCw, Trash2, CheckCircle, AlertCircle, Play, ExternalLink, Clock } from 'lucide-react';
+import { ArrowLeft, RefreshCw, Trash2, CheckCircle, AlertCircle, Play, ExternalLink, Clock, MessageSquare } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
@@ -18,9 +18,12 @@ import FeatureLayout from '@/layout/FeatureLayout';
 import { useTraining } from '@/hooks/useTraining';
 import { useRBAC } from '@/hooks/useRBAC';
 import { logger } from '@/utils/logger';
-import type { Dataset, DatasetValidationStatus, DatasetVersionSummary, TrustState } from '@/api/training-types';
+import type { Dataset, DatasetValidationStatus, DatasetVersionSummary, TrustState, StartTrainingRequest } from '@/api/training-types';
 import { TrainingWizard } from '@/components/TrainingWizard';
+import { QuickTrainConfirmModal, type QuickTrainConfig } from '@/components/training/QuickTrainConfirmModal';
+import { canUseQuickTrain } from '@/utils/trainingPreflight';
 import { useLineage } from '@/hooks/useLineage';
+import apiClient from '@/api/client';
 import { LineageViewer } from '@/components/lineage/LineageViewer';
 
 import DatasetOverview from './DatasetOverview';
@@ -127,6 +130,7 @@ function HeaderSection({
   onStartTraining,
   onValidate,
   onDelete,
+  onTalkToDataset,
   isValidating,
   isDeleting,
   onNavigateBack,
@@ -141,6 +145,7 @@ function HeaderSection({
   onStartTraining: () => void;
   onValidate: () => void;
   onDelete: () => void;
+  onTalkToDataset: () => void;
   isValidating: boolean;
   isDeleting: boolean;
   onNavigateBack: () => void;
@@ -163,6 +168,16 @@ function HeaderSection({
           <Badge variant="outline" className="text-amber-600 border-amber-400">
             Trust warning
           </Badge>
+        )}
+        {status === 'valid' && (
+          <Button
+            data-cy="dataset-talk"
+            variant="outline"
+            onClick={onTalkToDataset}
+          >
+            <MessageSquare className="mr-2 h-4 w-4" />
+            Talk to this dataset
+          </Button>
         )}
         {status === 'valid' && canStartTraining && (
           <Button
@@ -324,6 +339,8 @@ export default function DatasetDetailPage() {
   const { can } = useRBAC();
   const [activeTab, setActiveTab] = useState<TabValue>('overview');
   const [isTrainingWizardOpen, setIsTrainingWizardOpen] = useState(false);
+  const [isQuickTrainOpen, setIsQuickTrainOpen] = useState(false);
+  const [isStartingTraining, setIsStartingTraining] = useState(false);
   const [lineageDirection, setLineageDirection] = useState<'both' | 'upstream' | 'downstream'>('both');
   const [includeEvidence, setIncludeEvidence] = useState(true);
   const [lineageCursors, setLineageCursors] = useState<Record<string, string>>({});
@@ -399,6 +416,60 @@ export default function DatasetDetailPage() {
     }
   }, [datasetId, deleteDataset]);
 
+  const handleTalkToDataset = useCallback(() => {
+    if (!datasetId) return;
+    navigate(`/training/datasets/${datasetId}/chat`);
+  }, [datasetId, navigate]);
+
+  // Handle "Start Training" - use quick modal for valid datasets, wizard for others
+  const handleStartTraining = useCallback(() => {
+    if (!dataset) return;
+    if (canUseQuickTrain(dataset)) {
+      setIsQuickTrainOpen(true);
+    } else {
+      setIsTrainingWizardOpen(true);
+    }
+  }, [dataset]);
+
+  // Handle quick train confirmation
+  const handleQuickTrainConfirm = useCallback(
+    async (config: QuickTrainConfig) => {
+      if (!dataset) return;
+      setIsStartingTraining(true);
+      try {
+        const request: StartTrainingRequest = {
+          adapter_name: config.adapterName,
+          dataset_id: dataset.id,
+          config: {
+            rank: config.rank,
+            alpha: config.alpha,
+            epochs: config.epochs,
+            learning_rate: config.learningRate,
+            batch_size: config.batchSize,
+            targets: config.targets,
+          },
+        };
+        const job = await apiClient.startTraining(request);
+        setIsQuickTrainOpen(false);
+        toast.success('Training started', {
+          description: `Job created for adapter "${config.adapterName}"`,
+          action: {
+            label: 'View Progress',
+            onClick: () => navigate(`/training/jobs/${job.id}`),
+          },
+        });
+        navigate(`/training/jobs/${job.id}`);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to start training';
+        toast.error(message);
+        logger.error('Failed to start quick training', { component: 'DatasetDetailPage', datasetId }, err);
+      } finally {
+        setIsStartingTraining(false);
+      }
+    },
+    [dataset, datasetId, navigate],
+  );
+
   const handleNavigateLineageNode = useCallback(
     (node: { type?: string; id: string; href?: string }) => {
       if (node.href) {
@@ -455,9 +526,10 @@ export default function DatasetDetailPage() {
           canStartTraining={can('training:start')}
           canValidate={can('dataset:validate')}
           canDelete={can('dataset:delete')}
-          onStartTraining={() => setIsTrainingWizardOpen(true)}
+          onStartTraining={handleStartTraining}
           onValidate={handleValidate}
           onDelete={handleDelete}
+          onTalkToDataset={handleTalkToDataset}
           isValidating={isValidating}
           isDeleting={isDeleting}
           onNavigateBack={() => navigate('/training/datasets')}
@@ -525,6 +597,22 @@ export default function DatasetDetailPage() {
           }}
           onCancel={() => setIsTrainingWizardOpen(false)}
         />
+
+        {/* Quick train modal for valid datasets */}
+        {dataset && (
+          <QuickTrainConfirmModal
+            open={isQuickTrainOpen}
+            onOpenChange={setIsQuickTrainOpen}
+            dataset={dataset}
+            onConfirm={handleQuickTrainConfirm}
+            onCancel={() => setIsQuickTrainOpen(false)}
+            onAdvanced={() => {
+              setIsQuickTrainOpen(false);
+              setIsTrainingWizardOpen(true);
+            }}
+            isLoading={isStartingTraining}
+          />
+        )}
       </div>
     </FeatureLayout>
   );

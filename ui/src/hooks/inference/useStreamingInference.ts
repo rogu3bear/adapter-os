@@ -208,7 +208,6 @@ export function useStreamingInference(
             : stackId
               ? [stackId]
               : (adapterId && adapterId !== 'none' ? [adapterId] : undefined),
-          adapters: overrides?.adapters ?? undefined,
         },
         {
           onToken: (token: string, chunk: StreamingChunk) => {
@@ -228,7 +227,7 @@ export function useStreamingInference(
               onToken(token);
             }
           },
-          onComplete: (fullText: string, finishReason: string | null, metadata?: { unavailable_pinned_adapters?: string[], pinned_routing_fallback?: string, citations?: Citation[] }) => {
+          onComplete: (fullText: string, finishReason: string | null, metadata?: { request_id?: string, unavailable_pinned_adapters?: string[], pinned_routing_fallback?: string, citations?: Citation[] }) => {
             const elapsed = Date.now() - startTime;
 
             // Map streaming finish reason to InferResponse finish reason
@@ -238,10 +237,14 @@ export function useStreamingInference(
               return 'stop';
             };
 
+            // Use request_id from server if available (this is the trace ID)
+            const responseId = metadata?.request_id || `stream-${Date.now()}`;
+
             // Build final response (partial - streaming doesn't have all fields)
+            // Note: The 'id' field contains the server's request_id (trace ID) when available
             const finalResponse: InferResponse = {
               schema_version: '1.0',
-              id: `stream-${Date.now()}`,
+              id: responseId,
               text: fullText,
               tokens_generated: tokenCount,
               token_count: tokenCount,

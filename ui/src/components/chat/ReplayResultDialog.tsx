@@ -20,6 +20,7 @@ import {
   TrendingUp,
   ArrowRight,
   History,
+  Scale,
 } from 'lucide-react';
 import {
   Dialog,
@@ -37,11 +38,11 @@ import type {
   ReplayMatchStatus,
 } from '@/api/replay-types';
 import {
-  getMatchStatusLabel,
-  getMatchStatusBadgeVariant,
   getRagReproducibilityPercent,
   formatLatencyDiff,
 } from '@/api/replay-types';
+import { ProofBar } from '@/components/receipts/ProofBar';
+import { useNavigate } from 'react-router-dom';
 
 interface ReplayResultDialogProps {
   open: boolean;
@@ -51,37 +52,68 @@ interface ReplayResultDialogProps {
 }
 
 /**
+ * Human-facing verification labels for match status
+ * Maps engineering terms to user-friendly labels:
+ * - Verified = exact match
+ * - Balanced = semantic match
+ * - Unverified = divergent
+ */
+const VERIFICATION_LABELS: Record<ReplayMatchStatus, {
+  human: string;
+  engineering: string;
+}> = {
+  exact: { human: 'Verified', engineering: 'Exact' },
+  semantic: { human: 'Balanced', engineering: 'Semantic' },
+  divergent: { human: 'Unverified', engineering: 'Divergent' },
+  error: { human: 'Error', engineering: 'Error' },
+};
+
+/**
  * Get badge variant and color for match status
  */
 function getMatchStatusBadge(status: ReplayMatchStatus): {
   variant: 'success' | 'warning' | 'error' | 'neutral';
   icon: React.ReactNode;
+  humanLabel: string;
+  engineeringLabel: string;
 } {
+  const labels = VERIFICATION_LABELS[status] ?? { human: 'Unknown', engineering: 'Unknown' };
+
   switch (status) {
     case 'exact':
       return {
         variant: 'success',
-        icon: <CheckCircle2 className="size-3" />,
+        icon: <CheckCircle2 className="size-4" />,
+        humanLabel: labels.human,
+        engineeringLabel: labels.engineering,
       };
     case 'semantic':
       return {
         variant: 'warning',
-        icon: <AlertCircle className="size-3" />,
+        icon: <Scale className="size-4" />,
+        humanLabel: labels.human,
+        engineeringLabel: labels.engineering,
       };
     case 'divergent':
       return {
         variant: 'error',
-        icon: <TrendingUp className="size-3" />,
+        icon: <AlertTriangle className="size-4" />,
+        humanLabel: labels.human,
+        engineeringLabel: labels.engineering,
       };
     case 'error':
       return {
         variant: 'error',
-        icon: <XCircle className="size-3" />,
+        icon: <XCircle className="size-4" />,
+        humanLabel: labels.human,
+        engineeringLabel: labels.engineering,
       };
     default:
       return {
         variant: 'neutral',
-        icon: <AlertCircle className="size-3" />,
+        icon: <AlertCircle className="size-4" />,
+        humanLabel: 'Unknown',
+        engineeringLabel: 'Unknown',
       };
   }
 }
@@ -259,10 +291,15 @@ function DetailsTab({ replayResponse }: { replayResponse: ReplayResponse }) {
       <div className="space-y-2">
         <h4 className="text-sm font-medium">Match Status</h4>
         <div className="flex items-center gap-2">
-          <Badge variant={badge.variant}>
-            {badge.icon}
-            {getMatchStatusLabel(match_status)}
-          </Badge>
+          <div className="flex flex-col items-start gap-0.5">
+            <Badge variant={badge.variant} className="gap-1.5">
+              {badge.icon}
+              {badge.humanLabel}
+            </Badge>
+            <span className="text-xs text-muted-foreground">
+              ({badge.engineeringLabel})
+            </span>
+          </div>
           <Badge variant="outline">{replay_mode}</Badge>
         </div>
       </div>
@@ -420,40 +457,40 @@ function StatisticsTab({ replayResponse }: { replayResponse: ReplayResponse }) {
         </div>
       )}
 
-      {/* RAG Reproducibility */}
+      {/* Citation Stability */}
       {rag_reproducibility && (
         <div className="space-y-2">
-          <h4 className="text-sm font-medium">RAG Reproducibility</h4>
+          <h4 className="text-sm font-medium">Citation Stability</h4>
           <div className="bg-muted/50 rounded-md p-3 space-y-3">
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-2">
-                  <Database className="size-4 text-indigo-500" />
-                  <span className="text-sm font-medium">Document Availability</span>
-                </div>
-                <span className="text-sm font-semibold">
-                  {getRagReproducibilityPercent(rag_reproducibility)}%
+            {/* Stability summary */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Database className="size-4 text-indigo-500" />
+                <span className="text-sm">
+                  {rag_reproducibility.matching_docs} of {rag_reproducibility.total_original_docs} citations unchanged
                 </span>
               </div>
-              <Progress
-                value={rag_reproducibility.score * 100}
-                className="h-2"
-                aria-label="RAG reproducibility score"
-              />
-              <div className="flex items-center justify-between mt-2 text-xs text-muted-foreground">
-                <span>
-                  {rag_reproducibility.matching_docs} / {rag_reproducibility.total_original_docs} documents
-                </span>
-                {rag_reproducibility.missing_doc_ids.length > 0 && (
-                  <span className="text-orange-600 dark:text-orange-400">
-                    {rag_reproducibility.missing_doc_ids.length} missing
-                  </span>
-                )}
-              </div>
+              <Badge
+                variant={rag_reproducibility.score === 1 ? 'success' : rag_reproducibility.score >= 0.8 ? 'warning' : 'error'}
+                className="text-xs"
+              >
+                {getRagReproducibilityPercent(rag_reproducibility)}% stable
+              </Badge>
             </div>
+
+            {/* Progress bar */}
+            <Progress
+              value={rag_reproducibility.score * 100}
+              className="h-2"
+              aria-label="Citation stability score"
+            />
+
+            {/* Changed citations list */}
             {rag_reproducibility.missing_doc_ids.length > 0 && (
               <div className="pt-3 border-t border-border">
-                <span className="text-xs font-medium block mb-2">Missing Documents:</span>
+                <span className="text-xs font-medium block mb-2 text-orange-600 dark:text-orange-400">
+                  Changed Citations ({rag_reproducibility.missing_doc_ids.length}):
+                </span>
                 <div className="space-y-1 max-h-[120px] overflow-y-auto">
                   {rag_reproducibility.missing_doc_ids.map((docId) => (
                     <div key={docId} className="text-xs font-mono text-muted-foreground bg-background rounded px-2 py-1">
@@ -461,6 +498,14 @@ function StatisticsTab({ replayResponse }: { replayResponse: ReplayResponse }) {
                     </div>
                   ))}
                 </div>
+              </div>
+            )}
+
+            {/* All citations stable */}
+            {rag_reproducibility.missing_doc_ids.length === 0 && rag_reproducibility.total_original_docs > 0 && (
+              <div className="flex items-center gap-2 text-sm text-green-600 dark:text-green-400">
+                <CheckCircle2 className="size-4" />
+                All citations reproduced exactly
               </div>
             )}
           </div>
@@ -480,6 +525,7 @@ export function ReplayResultDialog({
   onViewHistory,
 }: ReplayResultDialogProps) {
   const [activeTab, setActiveTab] = useState<string>('comparison');
+  const navigate = useNavigate();
 
   // Reset to comparison tab when dialog opens
   React.useEffect(() => {
@@ -493,6 +539,14 @@ export function ReplayResultDialog({
   }
 
   const badge = getMatchStatusBadge(replayResponse.match_status);
+  const handleOpenTrace = () => {
+    const traceId = replayResponse.original_inference_id;
+    if (!traceId) {
+      toast.error('Trace ID is unavailable');
+      return;
+    }
+    navigate(`/telemetry/viewer?requestId=${encodeURIComponent(traceId)}`);
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -501,10 +555,15 @@ export function ReplayResultDialog({
           <div className="flex items-center justify-between">
             <DialogTitle className="flex items-center gap-2">
               Replay Results
-              <Badge variant={badge.variant}>
-                {badge.icon}
-                {getMatchStatusLabel(replayResponse.match_status)}
-              </Badge>
+              <div className="flex flex-col items-start gap-0.5">
+                <Badge variant={badge.variant} className="text-sm px-2.5 py-0.5 gap-1.5">
+                  {badge.icon}
+                  {badge.humanLabel}
+                </Badge>
+                <span className="text-xs text-muted-foreground ml-1">
+                  ({badge.engineeringLabel})
+                </span>
+              </div>
             </DialogTitle>
             {onViewHistory && (
               <Button variant="ghost" size="sm" onClick={onViewHistory}>
@@ -514,6 +573,15 @@ export function ReplayResultDialog({
             )}
           </div>
         </DialogHeader>
+        <ProofBar
+          traceId={replayResponse.original_inference_id}
+          receiptDigest={undefined}
+          backendUsed={undefined}
+          determinismMode={undefined}
+          evidenceAvailable={false}
+          onOpenTrace={handleOpenTrace}
+          className="mt-2"
+        />
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="mt-4">
           <TabsList className="grid w-full grid-cols-3">

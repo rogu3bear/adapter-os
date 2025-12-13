@@ -9,7 +9,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { apiClient } from '@/api/client';
-import type { AdapterDetailResponse, AdapterLineageResponse, LineageNode } from '@/api/types';
+import type { AdapterDetailResponse, AdapterLineageResponse, AdapterLineageNode } from '@/api/types';
 import {
   Card,
   CardContent,

@@ -29,6 +29,8 @@ import {
   UseMutationOptions,
   QueryClient,
 } from '@tanstack/react-query';
+import { useTenant } from '@/providers/FeatureProviders';
+import { withTenantKey } from '@/utils/tenant';
 
 /**
  * Configuration for creating resource hooks
@@ -126,7 +128,7 @@ export interface ResourceHooks<TList, TDetail, TCreate, TUpdate, TCreateResult =
   ) => ReturnType<typeof useMutation<void, Error, string>>;
 
   /** Invalidate all queries for this resource */
-  invalidateAll: (queryClient: QueryClient) => Promise<void>;
+  invalidateAll: (queryClient: QueryClient, tenantId?: string | null) => Promise<void>;
 }
 
 /**
@@ -143,10 +145,11 @@ export function createResourceHooks<
   const keys = createQueryKeys(resourceName);
 
   // Invalidation helper
-  const invalidateRelated = (queryClient: QueryClient) => {
-    queryClient.invalidateQueries({ queryKey: keys.all });
+  const invalidateRelated = (queryClient: QueryClient, tenantId?: string | null) => {
+    const scopedAll = withTenantKey(keys.all, tenantId);
+    queryClient.invalidateQueries({ queryKey: scopedAll });
     invalidatesOnMutate.forEach((key) => {
-      queryClient.invalidateQueries({ queryKey: [key] });
+      queryClient.invalidateQueries({ queryKey: withTenantKey([key], tenantId) });
     });
   };
 
@@ -154,22 +157,24 @@ export function createResourceHooks<
     keys,
 
     useList: (options = {}) => {
+      const { selectedTenant } = useTenant();
       return useQuery({
-        queryKey: keys.list(),
+        queryKey: withTenantKey(keys.list(), selectedTenant),
         queryFn: api.list ?? (() => Promise.resolve([] as TList[])),
         staleTime,
-        enabled: !!api.list,
+        enabled: !!api.list && !!selectedTenant,
         ...(errorMessages.list && { meta: { errorMessage: errorMessages.list } }),
         ...options,
       });
     },
 
     useDetail: (id, options = {}) => {
+      const { selectedTenant } = useTenant();
       return useQuery({
-        queryKey: keys.detail(id ?? ''),
+        queryKey: withTenantKey(keys.detail(id ?? ''), selectedTenant),
         queryFn: () => api.get!(id!),
         staleTime,
-        enabled: !!id && !!api.get,
+        enabled: !!id && !!api.get && !!selectedTenant,
         ...(errorMessages.detail && { meta: { errorMessage: errorMessages.detail } }),
         ...options,
       });
@@ -177,12 +182,13 @@ export function createResourceHooks<
 
     useCreate: (options = {}) => {
       const queryClient = useQueryClient();
+      const { selectedTenant } = useTenant();
       const { onSuccess, ...restOptions } = options;
       return useMutation<TCreateResult, Error, TCreate>({
         mutationFn: api.create ?? (() => Promise.reject(new Error('Create not implemented'))),
         ...restOptions,
         onSuccess: async (...args) => {
-          invalidateRelated(queryClient);
+          invalidateRelated(queryClient, selectedTenant);
           await onSuccess?.(...args);
         },
       });
@@ -190,14 +196,15 @@ export function createResourceHooks<
 
     useUpdate: (options = {}) => {
       const queryClient = useQueryClient();
+      const { selectedTenant } = useTenant();
       const { onSuccess, ...restOptions } = options;
       return useMutation<TDetail, Error, { id: string; data: TUpdate }>({
         mutationFn: ({ id, data }: { id: string; data: TUpdate }) =>
           api.update?.(id, data) ?? Promise.reject(new Error('Update not implemented')),
         ...restOptions,
         onSuccess: async (data, variables, ...rest) => {
-          queryClient.invalidateQueries({ queryKey: keys.detail(variables.id) });
-          invalidateRelated(queryClient);
+          queryClient.invalidateQueries({ queryKey: withTenantKey(keys.detail(variables.id), selectedTenant) });
+          invalidateRelated(queryClient, selectedTenant);
           await onSuccess?.(data, variables, ...rest);
         },
       });
@@ -205,20 +212,21 @@ export function createResourceHooks<
 
     useDelete: (options = {}) => {
       const queryClient = useQueryClient();
+      const { selectedTenant } = useTenant();
       const { onSuccess, ...restOptions } = options;
       return useMutation<void, Error, string>({
         mutationFn: api.delete ?? (() => Promise.reject(new Error('Delete not implemented'))),
         ...restOptions,
         onSuccess: async (data, id, ...rest) => {
-          queryClient.removeQueries({ queryKey: keys.detail(id) });
-          invalidateRelated(queryClient);
+          queryClient.removeQueries({ queryKey: withTenantKey(keys.detail(id), selectedTenant) });
+          invalidateRelated(queryClient, selectedTenant);
           await onSuccess?.(data, id, ...rest);
         },
       });
     },
 
-    invalidateAll: async (queryClient: QueryClient) => {
-      await queryClient.invalidateQueries({ queryKey: keys.all });
+    invalidateAll: async (queryClient: QueryClient, tenantId?: string | null) => {
+      await queryClient.invalidateQueries({ queryKey: withTenantKey(keys.all, tenantId) });
     },
   };
 }

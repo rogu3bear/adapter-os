@@ -25,6 +25,7 @@ export default function Dashboard() {
   const role = (user?.role || 'viewer').toLowerCase();
 
   switch (role) {
+    case 'developer':
     case 'admin':
       return <AdminDashboard />;
     case 'operator':

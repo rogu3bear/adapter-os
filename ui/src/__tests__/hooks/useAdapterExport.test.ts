@@ -614,8 +614,10 @@ describe('useAdapterExport', () => {
         useAdapterExport({ adapters: mockAdapters })
       );
 
-      const exportPromise = act(async () => {
-        await result.current.exportAdapters('json', 'all');
+      // Start export without awaiting to capture progress snapshots
+      let exportPromise: Promise<void>;
+      act(() => {
+        exportPromise = result.current.exportAdapters('json', 'all');
       });
 
       // Capture progress snapshots during export
@@ -625,7 +627,10 @@ describe('useAdapterExport', () => {
         }
       });
 
-      await exportPromise;
+      // Wait for export to complete
+      await act(async () => {
+        await exportPromise!;
+      });
 
       // Final state should have no progress
       expect(result.current.exportProgress).toBeNull();

@@ -2,6 +2,7 @@ import { routes, canAccessRoute, type RouteConfig } from '@/config/routes';
 import { PRIMARY_SPINE } from '@/config/routes_manifest';
 import type { LucideIcon } from 'lucide-react';
 import type { UserRole } from '@/api/types';
+import { UiMode } from '@/config/ui-mode';
 
 export interface NavItem {
   to: string;
@@ -22,9 +23,15 @@ export interface NavGroup {
  * Generate navigation groups from centralized route configuration
  * Filters routes by user role and organizes them into logical groups
  */
-export function generateNavigationGroups(userRole?: string, userPermissions?: string[]): NavGroup[] {
+export function generateNavigationGroups(
+  userRole?: string,
+  userPermissions?: string[],
+  uiMode: UiMode = UiMode.User,
+): NavGroup[] {
   const spineOrder = new Map<string, number>(PRIMARY_SPINE.map((path, index) => [path, index]));
   const groupsMap = new Map<string, NavGroup>();
+
+  const isDeveloper = userRole?.toLowerCase() === 'developer';
 
   // Process each route from the central config
   for (const route of routes) {
@@ -35,6 +42,11 @@ export function generateNavigationGroups(userRole?: string, userPermissions?: st
 
     // Keep sidebar focused on primary spine pages
     if (!spineOrder.has(route.path)) {
+      continue;
+    }
+
+    // Developer bypasses UI mode filtering - sees all routes
+    if (!isDeveloper && route.modes && !route.modes.includes(uiMode)) {
       continue;
     }
 
@@ -98,6 +110,11 @@ export function generateNavigationGroups(userRole?: string, userPermissions?: st
  * Handles role-based access control for entire navigation groups
  */
 export function shouldShowNavGroup(group: NavGroup, userRole?: string): boolean {
+  // Developer role sees all navigation groups
+  if (userRole?.toLowerCase() === 'developer') {
+    return true;
+  }
+
   // If group has no role restrictions, show to everyone
   if (!group.roles || group.roles.length === 0) {
     return true;

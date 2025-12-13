@@ -318,7 +318,7 @@ export const Dashboard = memo(function Dashboard({ user, selectedTenant, onNavig
     }).length;
   }, [trainingJobs, parseTimestamp]);
 
-  const adapterTotal = adapterList?.length ?? 0;
+  const adapterTotal = Array.isArray(adapterList) ? adapterList.length : 0;
   const stackTotal = stacks?.length ?? 0;
   const stackNameLookup = useMemo(
     () => new Map(stacks.map(stack => [stack.id, stack.name])),

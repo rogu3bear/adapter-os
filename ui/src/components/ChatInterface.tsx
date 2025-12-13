@@ -25,6 +25,7 @@ import { ChatSessionActions } from './chat/ChatSessionActions';
 import { ChatTagsManager } from './chat/ChatTagsManager';
 import { ChatShareDialog } from './chat/ChatShareDialog';
 import { ChatArchivePanel } from './chat/ChatArchivePanel';
+import { useChatExport } from '@/components/export';
 import {
   useChatStreaming,
   useChatAdapterState,
@@ -40,6 +41,8 @@ import {
 import { ChatLoadingOverlay } from './chat/ChatLoadingOverlay';
 import { ChatErrorDisplay } from './chat/ChatErrorDisplay';
 import { MissingPinnedAdaptersBanner } from './chat/MissingPinnedAdaptersBanner';
+import { EvidenceDrawerProvider } from '@/contexts/EvidenceDrawerContext';
+import { EvidenceDrawer } from './chat/EvidenceDrawer';
 import apiClient from '@/api/client';
 
 interface ChatInterfaceProps {
@@ -52,12 +55,25 @@ interface ChatInterfaceProps {
     documentName: string;
     collectionId?: string;
   };
+  /** Dataset context for dataset-scoped chat */
+  datasetContext?: {
+    datasetId: string;
+    datasetName: string;
+    collectionId?: string;
+    datasetVersionId?: string;
+  };
   /** Callback when user wants to view a document (for evidence navigation) */
   onViewDocument?: (documentId: string, pageNumber?: number, highlightText?: string) => void;
   /** Streaming render mode (tokens or chunks) */
   streamMode?: 'tokens' | 'chunks';
   /** Developer toggle to show raw traces */
   developerMode?: boolean;
+  /** Callback when a message completes (for workbench right rail auto-update) */
+  onMessageComplete?: (messageId: string, traceId?: string) => void;
+  /** Callback when user selects/clicks a message. Receives traceId for trace fetching. */
+  onMessageSelect?: (messageId: string, traceId?: string) => void;
+  /** Currently selected message ID (for highlighting) */
+  selectedMessageId?: string | null;
 }
 
 export function ChatInterface({
@@ -65,9 +81,13 @@ export function ChatInterface({
   initialStackId,
   sessionId,
   documentContext,
+  datasetContext,
   onViewDocument,
   streamMode = 'tokens',
   developerMode = false,
+  onMessageComplete,
+  onMessageSelect,
+  selectedMessageId,
 }: ChatInterfaceProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
@@ -199,10 +219,10 @@ export function ChatInterface({
   const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null);
   const [isBaseOnlyMode, setIsBaseOnlyMode] = useState(false);
 
-  // Compute effective collection ID (reacts to documentContext changes)
+  // Compute effective collection ID (reacts to documentContext or datasetContext changes)
   const effectiveCollectionId = useMemo(
-    () => documentContext?.collectionId || selectedCollectionId || undefined,
-    [documentContext?.collectionId, selectedCollectionId]
+    () => documentContext?.collectionId || datasetContext?.collectionId || selectedCollectionId || undefined,
+    [documentContext?.collectionId, datasetContext?.collectionId, selectedCollectionId]
   );
 
   // For document chat, keep the collection fixed to the provided context (if any)
@@ -255,14 +275,23 @@ export function ChatInterface({
 
       // Fetch evidence
       const evidence = await fetchMessageEvidence(response.id);
+
+      // Use response.id as traceId - streaming now extracts the server's request_id into id
+      const traceId = response.id;
+
+      // Use throughput stats from response (calculated in useChatStreaming with accurate values)
+      // This avoids timing issues with React state batching
+
       const completedMessage = {
         ...response,
         id: streamingMessageId || response.id,
+        traceId, // Store traceId on message for later trace fetching
         routerDecision: routerDecision as ExtendedRouterDecision | null,
         evidence,
         isVerified: evidence.length > 0,
         verifiedAt: evidence.length > 0 ? new Date().toISOString() : undefined,
         isStreaming: false,
+        // throughputStats comes from response via useChatStreaming
       };
 
       // Replace streaming message with completed message
@@ -279,6 +308,9 @@ export function ChatInterface({
       if (currentSessionId) {
         addMessage(currentSessionId, completedMessage);
       }
+
+      // Notify workbench of message completion (for right rail auto-update)
+      onMessageComplete?.(completedMessage.id, traceId);
     },
     onError: (error) => {
       logger.error('Chat streaming error', { component: 'ChatInterface' }, error);
@@ -411,6 +443,22 @@ export function ChatInterface({
     stackId: selectedStackId,
   });
 
+  // Export hook for chat session
+  const { ExportButton } = useChatExport(
+    {
+      id: currentSessionId || '',
+      name: 'Chat Session',
+      stackId: selectedStackId,
+      stackName: selectedStack?.name,
+      collectionId: selectedCollectionId,
+      messages,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      tenantId,
+    },
+    messages
+  );
+
   // Set default stack on mount
   useEffect(() => {
     if (selectedStackId) {
@@ -531,7 +579,11 @@ export function ChatInterface({
     // Resolve stack to adapter IDs (allow empty when base-only mode is active)
     const adapterIds: string[] = isBaseOnlyMode
       ? []
-      : (selectedStack?.adapter_ids ?? selectedStack?.adapters ?? []);
+      : Array.isArray(selectedStack?.adapter_ids)
+        ? selectedStack.adapter_ids
+        : Array.isArray((selectedStack as any)?.adapters)
+          ? (selectedStack as any).adapters.map((a: any) => a.id ?? a.adapter_id ?? '')
+          : [];
 
     if (!adapterIds || adapterIds.length === 0) {
       if (!isBaseOnlyMode) {
@@ -794,6 +846,7 @@ export function ChatInterface({
   }, [unavailablePinnedAdapters]); // Intentionally exclude bannerDismissed to avoid loop
 
   return (
+    <EvidenceDrawerProvider>
     <div className="flex flex-col h-full relative">
       {/* Screen reader announcements for loading state */}
       {autoLoadEnabled && loadingAnnouncement && (
@@ -1192,6 +1245,12 @@ export function ChatInterface({
               {documentContext.documentName}
             </Badge>
           )}
+          {datasetContext && (
+            <Badge variant="secondary" className="gap-1">
+              <Database className="h-3 w-3" />
+              {datasetContext.datasetName}
+            </Badge>
+          )}
           <div className="flex items-center gap-2">
             <span className="text-sm text-muted-foreground">Stack:</span>
             <Select
@@ -1297,6 +1356,9 @@ export function ChatInterface({
           >
             <Activity className="h-4 w-4" />
           </Button>
+          {currentSessionId && messages.length > 0 && (
+            <ExportButton />
+          )}
           </div>
         </div>
 
@@ -1342,7 +1404,9 @@ export function ChatInterface({
                   <p className="text-sm mt-1">
                     {documentContext
                       ? `I'm ready to help you with "${documentContext.documentName}". Ask me anything about this document.`
-                      : 'Select a stack and send a message to begin'}
+                      : datasetContext
+                        ? `I'm ready to help you with the "${datasetContext.datasetName}" dataset. Ask me anything about this data.`
+                        : 'Select a stack and send a message to begin'}
                   </p>
                 </div>
               </div>
@@ -1357,6 +1421,8 @@ export function ChatInterface({
                       : message
                   }
                   onViewDocument={handleViewDocumentClick}
+                  onSelect={onMessageSelect}
+                  isSelected={selectedMessageId === message.id}
                 />
               ))
             )}
@@ -1401,6 +1467,7 @@ export function ChatInterface({
             disabled={isStreaming || !selectedStackId || !currentSessionId}
             aria-label="Message input"
             aria-describedby={!selectedStackId ? "stack-required-hint" : undefined}
+            data-testid="chat-input"
           />
           {!selectedStackId && (
             <span id="stack-required-hint" className="sr-only">
@@ -1506,6 +1573,10 @@ export function ChatInterface({
           </div>
         </div>
       )}
+
+      {/* Evidence Drawer */}
+      <EvidenceDrawer onViewDocument={handleViewDocumentClick} />
     </div>
+    </EvidenceDrawerProvider>
   );
 }

@@ -15,6 +15,7 @@
  */
 
 import { routes, type RouteConfig } from './routes';
+import { UiMode } from './ui-mode';
 
 /** Route lifecycle status */
 export type RouteStatus =
@@ -67,6 +68,7 @@ export interface RouteManifestEntry {
   parentPath: string | null;       // Parent route for breadcrumbs
   componentFile: string;           // TSX file path (relative to src/)
   minRole: string | null;          // Minimum role required
+  modes: UiMode[];                 // UI mode visibility
   issues: string[];                // Detected problems
   notes: string;                   // Implementation notes
 }
@@ -79,6 +81,16 @@ const STATUS_OVERRIDES: Record<string, RouteStatus> = {
   // Zombie pages from old PRs
   '/personas': 'draft',           // Product tour - partially implemented
   '/federation': 'draft',         // Future feature
+  '/workflow': 'deprecated',      // Legacy onboarding flow, redirects to training
+  '/management': 'deprecated',    // Legacy management shell
+  '/flow/lora': 'deprecated',     // Guided flow superseded by training shell
+  '/trainer': 'deprecated',       // Quick trainer folded into training hub
+  '/promotion': 'deprecated',     // Promotion merged into adapters/activation flows
+  '/monitoring': 'deprecated',    // Folded into metrics
+  '/reports': 'deprecated',       // Folded into metrics
+  '/help': 'deprecated',          // Help surface moved into dashboard
+  '/owner': 'deprecated',         // Owner home replaced by admin hub
+  '/code-intelligence': 'deprecated', // Redirect to telemetry viewer
 };
 
 /**
@@ -372,6 +384,11 @@ export const HUB_DEFINITIONS: Record<string, {
     expectedTabs: ['/system/nodes', '/system/workers', '/system/memory', '/system/metrics'],
     description: 'System infrastructure overview',
   },
+  '/telemetry': {
+    section: 'Monitor',
+    expectedTabs: [],
+    description: 'Telemetry hub (tabs: events, traces, viewer via ?tab=)',
+  },
   '/admin': {
     section: 'Admin',
     expectedTabs: ['/admin/tenants', '/admin/stacks', '/admin/plugins', '/admin/settings'],
@@ -398,34 +415,48 @@ export const HUB_DEFINITIONS: Record<string, {
  * Primary spine - the main navigation pages
  */
 export const PRIMARY_SPINE = [
-  '/workflow',
+  '/dashboard',
+  '/inference',
+  '/chat',
+  '/documents',
+  '/metrics',
+  '/routing',
+  '/system',
+  '/telemetry',
+  '/replay',
+  '/security/policies',
+  '/security/audit',
+  '/security/compliance',
+  '/security/evidence',
   '/repos',
   '/adapters',
   '/training',
   '/router-config',
   '/base-models',
   '/admin',
-  '/dashboard',
-  '/inference',
-  '/chat',
-  '/documents',
-  '/code-intelligence',
-  '/monitoring',
-  '/metrics',
-  '/routing',
-  '/system',
-  '/telemetry',
-  '/reports',
-  '/help',
   '/testing',
   '/golden',
-  '/replay',
-  '/security/policies',
-  '/security/audit',
-  '/security/compliance',
-  '/owner',
   '/dev/api-errors',
   '/_dev/routes',
+] as const;
+
+/**
+ * Legacy Routes - track redirects for cleanup and observability
+ */
+export const LEGACY_ROUTES: Array<{ from: string; to: string; note?: string }> = [
+  { from: '/workflow', to: '/training', note: 'training hub canonical' },
+  { from: '/flow/lora', to: '/training', note: 'guided flow merged into training' },
+  { from: '/trainer', to: '/training', note: 'legacy trainer folded into training hub' },
+  { from: '/promotion', to: '/adapters', note: 'promotion flows live with adapters' },
+  { from: '/monitoring', to: '/metrics', note: 'metrics/monitoring consolidation' },
+  { from: '/reports', to: '/metrics', note: 'reports merged into metrics' },
+  { from: '/telemetry/viewer', to: '/telemetry?tab=viewer', note: 'telemetry tabs consolidated' },
+  { from: '/telemetry/viewer/:traceId', to: '/telemetry?tab=viewer&traceId={traceId}', note: 'trace deep links preserved' },
+  { from: '/telemetry/traces', to: '/telemetry?tab=traces', note: 'telemetry tabs consolidated' },
+  { from: '/telemetry/traces/:traceId', to: '/telemetry?tab=traces&traceId={traceId}', note: 'trace deep links preserved' },
+  { from: '/code-intelligence', to: '/telemetry?tab=viewer&source_type=code_intelligence', note: 'code intel rolls into telemetry' },
+  { from: '/owner', to: '/admin', note: 'owner home replaced by admin hub' },
+  { from: '/help', to: '/dashboard', note: 'help now within dashboard' },
 ] as const;
 
 /**
@@ -475,6 +506,7 @@ export function buildRouteManifest(): RouteManifestEntry[] {
       parentPath: route.parentPath ?? null,
       componentFile: inferComponentFile(route),
       minRole,
+      modes: route.modes ?? [],
       issues,
       notes: generateNotes(route, status),
     };

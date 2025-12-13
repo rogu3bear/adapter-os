@@ -329,63 +329,6 @@ export interface AdapterStrengthSetting {
   strength?: number;
 }
 
-export interface AdapterPackage {
-  schema_version?: string;
-  id: string;
-  tenant_id: string;
-  name: string;
-  description?: string;
-  stack_id: string;
-  tags?: string[];
-  adapter_strengths?: AdapterStrengthSetting[];
-  adapter_ids?: string[];
-  determinism_mode?: string;
-  routing_determinism_mode?: string;
-  domain?: string;
-  scope_path?: string;
-  scope_path_prefix?: string;
-  installed?: boolean;
-  installed_at?: string;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface CreatePackageRequest {
-  name: string;
-  description?: string;
-  tags?: string[];
-  stack_id?: string;
-  adapters?: AdapterStrengthSetting[];
-  determinism_mode?: string;
-  routing_determinism_mode?: string;
-  domain?: string;
-  scope_path?: string;
-  scope_path_prefix?: string;
-}
-
-export interface UpdatePackageRequest {
-  name?: string;
-  description?: string;
-  tags?: string[];
-  stack_id?: string;
-  adapters?: AdapterStrengthSetting[];
-  determinism_mode?: string;
-  routing_determinism_mode?: string;
-  domain?: string;
-  scope_path?: string;
-  scope_path_prefix?: string;
-}
-
-export interface PackageResponse {
-  schema_version: string;
-  package: AdapterPackage;
-}
-
-export interface PackageListResponse {
-  schema_version: string;
-  packages: AdapterPackage[];
-}
-
 export interface ListAdapterStacksResponse {
   schema_version: string;
   stacks: AdapterStack[];
@@ -497,7 +440,7 @@ export interface AdapterLineage {
   dataset_id?: string;
 }
 
-export interface LineageNode {
+export interface AdapterLineageNode {
   adapter_id: string;
   adapter_name?: string;
   revision?: string;
@@ -510,9 +453,9 @@ export interface AdapterLineageResponse {
   adapter_id: string;
   lineage: AdapterLineage;
   history: AdapterHistoryEntry[];
-  descendants?: LineageNode[];
-  ancestors?: LineageNode[];
-  self_node?: LineageNode;
+  descendants?: AdapterLineageNode[];
+  ancestors?: AdapterLineageNode[];
+  self_node?: AdapterLineageNode;
   total_nodes?: number;
 }
 
@@ -656,7 +599,7 @@ export interface AdapterHealthResponse {
   datasets: AdapterDatasetHealth[];
   storage?: AdapterStorageHealth;
   backend?: AdapterBackendHealth;
-  recent_activations: AdapterActivationResponse[];
+  recent_activations: AdapterActivationEvent[];
   total_activations: number;
   selected_count: number;
   avg_gate_value: number;
@@ -932,6 +875,84 @@ export interface TrainingProvenanceExportResponse {
   config_versions: TrainingExportConfigVersions;
   export_timestamp: string;
   export_hash: string;
+}
+
+export interface ClearStackAdaptersResponse {
+  message: string;
+  stack_id: string;
+  previous_adapter_count: number;
+  adapters_removed: string[];
+}
+
+// ============================================================================
+// Adapter Publish + Attach Modes v1
+// ============================================================================
+
+/**
+ * Attach mode controls how an adapter can be attached to inference stacks.
+ * - 'free': Adapter can be attached without specific dataset context
+ * - 'requires_dataset': Adapter requires a specific dataset version context
+ */
+export type AttachMode = 'free' | 'requires_dataset';
+
+/**
+ * Request to publish an adapter version after training.
+ */
+export interface PublishAdapterRequest {
+  /** Display name for the published adapter (optional) */
+  name?: string;
+  /** Short description for the adapter version (max 280 chars) */
+  short_description?: string;
+  /** Attach mode: controls whether dataset context is required */
+  attach_mode: AttachMode;
+  /** Required dataset version ID when attach_mode is 'requires_dataset' */
+  required_scope_dataset_version_id?: string;
+}
+
+/**
+ * Response from publishing an adapter version.
+ */
+export interface PublishAdapterResponse {
+  schema_version: string;
+  version_id: string;
+  repo_id: string;
+  attach_mode: AttachMode;
+  required_scope_dataset_version_id?: string;
+  published_at: string;
+  short_description?: string;
+}
+
+/**
+ * Request to archive an adapter version.
+ */
+export interface ArchiveAdapterRequest {
+  /** Reason for archiving (optional, for audit trail) */
+  reason?: string;
+}
+
+/**
+ * Response from archive/unarchive operations.
+ */
+export interface ArchiveAdapterResponse {
+  version_id: string;
+  is_archived: boolean;
+  updated_at: string;
+}
+
+/**
+ * Extended adapter type with attach mode information.
+ */
+export interface AdapterWithAttachMode extends Adapter {
+  /** Attach mode for this adapter version */
+  attach_mode?: AttachMode;
+  /** Required dataset version ID when attach_mode is 'requires_dataset' */
+  required_scope_dataset_version_id?: string;
+  /** Whether this adapter version is archived */
+  is_archived?: boolean;
+  /** Timestamp when adapter was published */
+  published_at?: string;
+  /** Short description of the adapter */
+  short_description?: string;
 }
 
 // Re-export commonly used types for convenience

@@ -1033,22 +1033,39 @@ export const Adapters = memo(function Adapters({ user, selectedTenant }: Adapter
                 </Badge>
               </div>
               <div>
-                <Label>Last Check</Label>
-                <p>{new Date(healthData.last_check).toLocaleString()}</p>
+                <Label>Adapter ID</Label>
+                <p>{healthData.adapter_id}</p>
               </div>
               <div>
-                <Label>Health Checks</Label>
-                <div className="space-y-2">
-                  {healthData.checks.map((check, idx) => (
-                    <div key={idx} className="flex items-center gap-2">
-                      <Badge variant={check.status === 'passed' ? 'default' : 'destructive'}>
-                        {check.name}
-                      </Badge>
-                      {check.message && <span className="text-sm text-muted-foreground">{check.message}</span>}
-                    </div>
-                  ))}
-                </div>
+                <Label>Schema Version</Label>
+                <p>{healthData.schema_version}</p>
               </div>
+              <div>
+                <Label>Memory Usage</Label>
+                <p>{healthData.memory_usage_mb.toFixed(2)} MB</p>
+              </div>
+              <div>
+                <Label>Total Activations</Label>
+                <p>{healthData.total_activations}</p>
+              </div>
+              <div>
+                <Label>Selected Count</Label>
+                <p>{healthData.selected_count}</p>
+              </div>
+              <div>
+                <Label>Average Gate Value</Label>
+                <p>{healthData.avg_gate_value.toFixed(4)}</p>
+              </div>
+              {healthData.policy_violations.length > 0 && (
+                <div>
+                  <Label>Policy Violations</Label>
+                  <div className="space-y-1">
+                    {healthData.policy_violations.map((violation, idx) => (
+                      <p key={idx} className="text-sm text-destructive">{violation}</p>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
           </SectionErrorBoundary>

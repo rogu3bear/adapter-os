@@ -22,6 +22,17 @@ vi.mock('@/providers/CoreProviders', () => ({
   }),
 }));
 
+// Mock useTenant to prevent "useTenant must be used within FeatureProviders" error
+vi.mock('@/providers/FeatureProviders', () => ({
+  useTenant: () => ({
+    selectedTenant: 'test-tenant',
+    setSelectedTenant: vi.fn(),
+    tenants: [],
+    isLoading: false,
+    refreshTenants: vi.fn(),
+  }),
+}));
+
 // Mock useInformationDensity hook
 vi.mock('@/hooks/useInformationDensity', () => ({
   useInformationDensity: () => ({
@@ -135,7 +146,8 @@ describe('PageWrapper', () => {
     );
 
     // The compact padding class should be applied
-    expect(container.querySelector('.px-4.py-4')).toBeInTheDocument();
+    const element = container.querySelector('.px-\\[var\\(--space-4\\)\\].py-\\[var\\(--space-4\\)\\]');
+    expect(element).not.toBeNull();
   });
 
   it('applies max width constraint', () => {
@@ -147,7 +159,9 @@ describe('PageWrapper', () => {
       </TestWrapper>
     );
 
-    expect(container.querySelector('.max-w-5xl')).toBeInTheDocument();
+    // Check for the max-width class that corresponds to 'lg' setting
+    const element = container.querySelector('.max-w-\\[var\\(--layout-content-width-lg\\)\\]');
+    expect(element).not.toBeNull();
   });
 
   it('provides page errors context to children', () => {

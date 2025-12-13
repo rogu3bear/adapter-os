@@ -12,6 +12,7 @@ import { VirtualizedTableRows } from '@/components/ui/virtualized-table';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { GlossaryTooltip } from '@/components/ui/glossary-tooltip';
+import { PageTable } from '@/components/ui/PageTable';
 import {
   Activity,
   CheckCircle,
@@ -81,6 +82,11 @@ const STATUS_CONFIG: Record<TrainingStatus, {
     icon: Square,
     className: 'text-gray-500',
     description: 'Training was cancelled by user',
+  },
+  paused: {
+    icon: Clock,
+    className: 'text-orange-500',
+    description: 'Training is paused',
   },
 };
 
@@ -208,7 +214,7 @@ export function TrainingJobTable({
                     {typedJob.repo_id || typedJob.config?.repo_id || '—'}
                   </TableCell>
                   <TableCell className="text-muted-foreground">
-                    {typedJob.config?.target_branch || typedJob.branch_classification || typedJob.config?.commit_sha || '—'}
+                    {typedJob.target_branch || typedJob.branch || typedJob.branch_classification || typedJob.config?.commit_sha || '—'}
                   </TableCell>
                   <TableCell>
                     <StatusBadge status={typedJob.status} />

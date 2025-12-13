@@ -1,4 +1,14 @@
-import { Suspense, useState } from 'react';
+/**
+ * ChatPage - Workbench v1
+ *
+ * Three-column layout:
+ * - Left rail: Sessions | Datasets | Stacks tabs
+ * - Center: ChatInterface
+ * - Right rail: Evidence/Trace (collapsible)
+ */
+
+import { Suspense, useState, useEffect, useCallback, useMemo } from 'react';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/providers/CoreProviders';
 import { useTenant } from '@/providers/FeatureProviders';
 import PageWrapper from '@/layout/PageWrapper';
@@ -8,88 +18,339 @@ import { useRBAC } from '@/hooks/useRBAC';
 import { PERMISSIONS } from '@/utils/rbac';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { ShieldAlert } from 'lucide-react';
-import { useSearchParams, Link } from 'react-router-dom';
-import { CollapsibleSidebar } from '@/pages/OwnerHome/components/CollapsibleSidebar';
-import { SimplifiedChatWidget } from '@/components/chat/SimplifiedChatWidget';
 import { ChatSkeleton } from '@/components/skeletons/ChatSkeleton';
 import { Switch } from '@/components/ui/switch';
+import { TooltipProvider } from '@/components/ui/tooltip';
+
+// Workbench imports
+import { WorkbenchProvider, useWorkbench } from '@/contexts/WorkbenchContext';
+import { DatasetChatProvider } from '@/contexts/DatasetChatContext';
+import {
+  WorkbenchLayout,
+  WorkbenchTopBar,
+  LeftRail,
+  SessionsTab,
+  DatasetsTab,
+  StacksTab,
+  RightRail,
+  RightRailToggle,
+  UndoSnackbar,
+} from '@/components/workbench';
+import { useChatSessionsApi } from '@/hooks/useChatSessionsApi';
+import { useAdapterStacks, useGetDefaultStack } from '@/hooks/useAdmin';
+import { EvidencePanel } from '@/components/evidence/EvidencePanel';
+import { TraceSummaryPanel } from '@/components/trace/TraceSummaryPanel';
+import { useTrace } from '@/hooks/useTrace';
 
 export default function ChatPage() {
   const { user } = useAuth();
   const { selectedTenant } = useTenant();
   const { can } = useRBAC();
-  const [searchParams] = useSearchParams();
-  const [streamMode, setStreamMode] = useState<'tokens' | 'chunks'>('tokens');
-  const [developerMode, setDeveloperMode] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
 
   const canExecuteInference = can(PERMISSIONS.INFERENCE_EXECUTE);
   const initialStackId = searchParams.get('stack') || undefined;
+  const sessionId = searchParams.get('session') || undefined;
 
-  return (
-    <PageWrapper
-      pageKey="chat"
-      title="Chat"
-      description="Conversational interface with adapter stacks"
-    >
-      {!canExecuteInference ? (
+  // Mode toggles
+  const [streamMode, setStreamMode] = useState<'tokens' | 'chunks'>('tokens');
+  const [developerMode, setDeveloperMode] = useState(false);
+
+  if (!canExecuteInference) {
+    return (
+      <PageWrapper pageKey="chat" title="Chat">
         <Alert variant="destructive">
           <ShieldAlert className="h-4 w-4" />
           <AlertDescription>
             You do not have permission to execute inference. Required permission: inference:execute
           </AlertDescription>
         </Alert>
-      ) : (
-        <>
-          <div className="flex items-center gap-4 mb-4">
-            <div className="flex items-center gap-2">
-              <Switch
-                id="stream-mode"
-                checked={streamMode === 'tokens'}
-                onCheckedChange={(checked) => setStreamMode(checked ? 'tokens' : 'chunks')}
-              />
-              <label htmlFor="stream-mode" className="text-sm text-muted-foreground">
-                Stream mode: {streamMode === 'tokens' ? 'tokens' : 'chunks'}
-              </label>
-            </div>
-            <div className="flex items-center gap-2">
-              <Switch
-                id="developer-mode"
-                checked={developerMode}
-                onCheckedChange={setDeveloperMode}
-              />
-              <label htmlFor="developer-mode" className="text-sm text-muted-foreground">
-                Developer mode
-              </label>
-            </div>
-          </div>
-          <div className="flex h-[calc(100vh-calc(var(--base-unit)*50))] gap-4">
-          {/* Main Chat Interface */}
-          <div className="flex-1 border rounded-lg overflow-hidden min-w-0">
-              <ChatErrorBoundary>
-                <Suspense fallback={<ChatSkeleton />}>
-                  <ChatInterface
-                    selectedTenant={selectedTenant}
-                    initialStackId={initialStackId}
-                    streamMode={streamMode}
-                    developerMode={developerMode}
-                  />
-                </Suspense>
-              </ChatErrorBoundary>
-          </div>
+      </PageWrapper>
+    );
+  }
 
-          {/* Slide-out Chat Widget */}
-          <CollapsibleSidebar defaultExpanded={false} className="h-full">
-            <SimplifiedChatWidget selectedTenant={selectedTenant} />
-          </CollapsibleSidebar>
-          </div>
-        </>
-      )}
-      <div className="mt-4 text-sm text-muted-foreground">
-        <Link to="/telemetry/viewer" className="underline underline-offset-4">
-          View telemetry for this chat session
-        </Link>
-      </div>
+  return (
+    <PageWrapper
+      pageKey="chat"
+      title="Chat"
+      description="Conversational interface with adapter stacks"
+      contentPadding="none"
+    >
+      <TooltipProvider>
+        <WorkbenchProvider>
+          <DatasetChatProvider>
+            <WorkbenchContent
+              selectedTenant={selectedTenant}
+              initialStackId={initialStackId}
+              sessionId={sessionId}
+              streamMode={streamMode}
+              setStreamMode={setStreamMode}
+              developerMode={developerMode}
+              setDeveloperMode={setDeveloperMode}
+              setSearchParams={setSearchParams}
+            />
+          </DatasetChatProvider>
+        </WorkbenchProvider>
+      </TooltipProvider>
     </PageWrapper>
   );
 }
 
+interface WorkbenchContentProps {
+  selectedTenant: string;
+  initialStackId?: string;
+  sessionId?: string;
+  streamMode: 'tokens' | 'chunks';
+  setStreamMode: (mode: 'tokens' | 'chunks') => void;
+  developerMode: boolean;
+  setDeveloperMode: (mode: boolean) => void;
+  setSearchParams: ReturnType<typeof useSearchParams>[1];
+}
+
+function WorkbenchContent({
+  selectedTenant,
+  initialStackId,
+  sessionId,
+  streamMode,
+  setStreamMode,
+  developerMode,
+  setDeveloperMode,
+  setSearchParams,
+}: WorkbenchContentProps) {
+  const {
+    handleGlobalEscape,
+    selectedMessageId,
+    selectMessage,
+    pinnedMessageId,
+    setStrengthOverrides,
+  } = useWorkbench();
+
+  // Sessions
+  const tenantId = selectedTenant || 'default';
+  const {
+    sessions,
+    isLoading: isLoadingSessions,
+    createSession,
+    deleteSession,
+  } = useChatSessionsApi(tenantId, { sourceType: 'general' });
+
+  // Stacks
+  const { data: stacks = [] } = useAdapterStacks();
+  const { data: defaultStackData } = useGetDefaultStack(selectedTenant);
+  const [activeStackId, setActiveStackId] = useState<string | null>(
+    initialStackId ?? null
+  );
+
+  // Find active stack details
+  const activeStack = useMemo(
+    () => stacks.find((s) => s.id === activeStackId),
+    [stacks, activeStackId]
+  );
+
+  // Trace for right rail
+  const [selectedTraceId, setSelectedTraceId] = useState<string | null>(null);
+  const { data: traceData, isLoading: isLoadingTrace } = useTrace(selectedTraceId ?? undefined, selectedTenant);
+
+  // Keyboard escape handling
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        const handled = handleGlobalEscape();
+        if (handled) {
+          e.preventDefault();
+        }
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [handleGlobalEscape]);
+
+  // Session selection handler
+  const handleSelectSession = useCallback(
+    (sessionId: string) => {
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev);
+        next.set('session', sessionId);
+        return next;
+      });
+    },
+    [setSearchParams]
+  );
+
+  // New session handler
+  const handleCreateSession = useCallback(async () => {
+    try {
+      const session = await createSession('New Chat', activeStackId ?? '');
+      if (session) {
+        handleSelectSession(session.id);
+      }
+    } catch (error) {
+      // Error handling is done in the hook
+    }
+  }, [createSession, handleSelectSession, activeStackId]);
+
+  // Stack activation handler
+  const handleStackActivated = useCallback((stackId: string) => {
+    setActiveStackId(stackId);
+  }, []);
+
+  // Message completion handler (for right rail auto-update)
+  const handleMessageComplete = useCallback(
+    (messageId: string, traceId?: string) => {
+      if (!pinnedMessageId) {
+        selectMessage(messageId);
+        if (traceId) {
+          setSelectedTraceId(traceId);
+        }
+      }
+    },
+    [pinnedMessageId, selectMessage]
+  );
+
+  // Message selection handler (when user clicks a message)
+  const handleMessageSelect = useCallback(
+    (messageId: string, traceId?: string) => {
+      // Update selected message (respects pin state via selectMessage)
+      selectMessage(messageId);
+      // Update trace for right rail (only if not pinned)
+      if (!pinnedMessageId && traceId) {
+        setSelectedTraceId(traceId);
+      }
+    },
+    [pinnedMessageId, selectMessage]
+  );
+
+  // Convert sessions to the format expected by SessionsTab
+  const sessionsList = useMemo(
+    () =>
+      sessions.map((s) => ({
+        id: s.id,
+        name: s.name,
+        stackId: s.stackId,
+        stackName: s.stackName,
+        updatedAt: s.updatedAt,
+        messageCount: s.messages?.length,
+      })),
+    [sessions]
+  );
+
+  return (
+    <>
+      <WorkbenchLayout
+        topBar={
+          <div className="flex items-center justify-between gap-4">
+            {/* Left: Mode toggles */}
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2">
+                <Switch
+                  id="stream-mode"
+                  checked={streamMode === 'tokens'}
+                  onCheckedChange={(checked) =>
+                    setStreamMode(checked ? 'tokens' : 'chunks')
+                  }
+                />
+                <label
+                  htmlFor="stream-mode"
+                  className="text-sm text-muted-foreground"
+                >
+                  Stream: {streamMode}
+                </label>
+              </div>
+              <div className="flex items-center gap-2">
+                <Switch
+                  id="developer-mode"
+                  checked={developerMode}
+                  onCheckedChange={setDeveloperMode}
+                />
+                <label
+                  htmlFor="developer-mode"
+                  className="text-sm text-muted-foreground"
+                >
+                  Developer
+                </label>
+              </div>
+            </div>
+
+            {/* Right: Status chips */}
+            <WorkbenchTopBar
+              stackName={activeStack?.name}
+              stackId={activeStackId}
+              canExport={!!selectedTraceId}
+            />
+          </div>
+        }
+        leftRail={
+          <LeftRail
+            sessionsContent={
+              <SessionsTab
+                sessions={sessionsList}
+                activeSessionId={sessionId}
+                onSelectSession={handleSelectSession}
+                onCreateSession={handleCreateSession}
+                onDeleteSession={deleteSession}
+                isLoading={isLoadingSessions}
+              />
+            }
+            datasetsContent={<DatasetsTab />}
+            stacksContent={
+              <StacksTab
+                activeStackId={activeStackId}
+                onStackActivated={handleStackActivated}
+              />
+            }
+          />
+        }
+        center={
+          <ChatErrorBoundary>
+            <Suspense fallback={<ChatSkeleton />}>
+              <ChatInterface
+                selectedTenant={selectedTenant}
+                initialStackId={initialStackId}
+                sessionId={sessionId}
+                streamMode={streamMode}
+                developerMode={developerMode}
+                onMessageComplete={handleMessageComplete}
+                onMessageSelect={handleMessageSelect}
+                selectedMessageId={selectedMessageId}
+              />
+            </Suspense>
+          </ChatErrorBoundary>
+        }
+        rightRail={
+          <RightRail title="Trace">
+            {isLoadingTrace ? (
+              <div className="flex items-center justify-center py-8">
+                <div className="animate-spin h-5 w-5 border-2 border-primary border-t-transparent rounded-full" />
+                <span className="ml-2 text-sm text-muted-foreground">Loading trace...</span>
+              </div>
+            ) : traceData ? (
+              <div className="space-y-4">
+                <TraceSummaryPanel trace={traceData} />
+                <EvidencePanel
+                  traceId={traceData.trace_id}
+                  tenantId={selectedTenant}
+                />
+              </div>
+            ) : selectedTraceId ? (
+              <div className="text-sm text-muted-foreground text-center py-8">
+                Trace not found
+              </div>
+            ) : (
+              <div className="text-sm text-muted-foreground text-center py-8">
+                Send a message to see trace details
+              </div>
+            )}
+          </RightRail>
+        }
+        className="h-[calc(100vh-calc(var(--base-unit)*24))]"
+      />
+
+      {/* Floating toggle for collapsed right rail */}
+      <RightRailToggle />
+
+      {/* Undo snackbar for detach actions */}
+      <UndoSnackbar onRestoreOverrides={setStrengthOverrides} />
+    </>
+  );
+}

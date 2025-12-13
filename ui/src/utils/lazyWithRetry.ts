@@ -1,4 +1,5 @@
 import { lazy, type ComponentType } from 'react';
+import { logger } from '@/utils/logger';
 
 type Loader<T extends ComponentType> = () => Promise<{ default: T }>;
 
@@ -37,13 +38,21 @@ export function lazyWithRetry<T extends ComponentType>(
       attempt += 1;
       if (isRecoverableChunkError(err) && attempt <= retries) {
         const backoff = delayMs * attempt;
-        console.warn(`[lazyWithRetry] retrying chunk load in ${backoff}ms (attempt ${attempt})`, err);
+        logger.warn(
+          `[lazyWithRetry] retrying chunk load in ${backoff}ms (attempt ${attempt})`,
+          { component: 'lazyWithRetry', details: String(err) },
+          err instanceof Error ? err : new Error(String(err))
+        );
         await wait(backoff);
         return load();
       }
 
       if (isRecoverableChunkError(err) && import.meta.env.DEV && devReload) {
-        console.warn('[lazyWithRetry] reloading page after chunk load failure', err);
+        logger.warn(
+          '[lazyWithRetry] reloading page after chunk load failure',
+          { component: 'lazyWithRetry', details: String(err) },
+          err instanceof Error ? err : new Error(String(err))
+        );
         window.location.reload();
       }
 

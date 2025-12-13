@@ -103,7 +103,9 @@ export function AdapterStatusWidget() {
   ].filter((d): d is Date => Boolean(d));
   const lastUpdated = lastUpdatedCandidates.sort((a, b) => b.getTime() - a.getTime())[0] || null;
 
-  const handleRefresh = () => Promise.all([refetchAdapters(), refetchMemory()]);
+  const handleRefresh = async (): Promise<void> => {
+    await Promise.all([refetchAdapters(), refetchMemory()]);
+  };
 
   const state: DashboardWidgetState = adaptersError
     ? 'error'

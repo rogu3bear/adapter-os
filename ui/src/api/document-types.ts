@@ -113,24 +113,40 @@ export type EvidenceType =
 /** Confidence level for evidence */
 export type ConfidenceLevel = 'high' | 'medium' | 'low';
 
+/** Status for evidence bundle lifecycle */
+export type EvidenceStatus = 'queued' | 'building' | 'ready' | 'failed';
+
 /** Evidence entry response */
 export interface Evidence {
   id: string;
   dataset_id: string | null;
   adapter_id: string | null;
+  tenant_id?: string | null;
   evidence_type: EvidenceType;
   reference: string;
   description: string | null;
   confidence: ConfidenceLevel;
   created_by: string | null;
   created_at: string;
+  updated_at?: string;
   metadata_json: string | null;
+  trace_id?: string | null;
+  message_id?: string | null;
+  status?: EvidenceStatus | null;
+  error_code?: string | null;
+  bundle_size_bytes?: number | null;
+  download_url?: string | null;
+  file_name?: string | null;
+  content_type?: string | null;
 }
 
 /** Request to create an evidence entry */
 export interface CreateEvidenceRequest {
   dataset_id?: string;
   adapter_id?: string;
+  tenant_id?: string;
+  trace_id?: string;
+  message_id?: string;
   evidence_type: EvidenceType;
   reference: string;
   description?: string;
@@ -142,8 +158,12 @@ export interface CreateEvidenceRequest {
 export interface ListEvidenceQuery {
   dataset_id?: string;
   adapter_id?: string;
+  tenant_id?: string;
+  trace_id?: string;
+  message_id?: string;
   evidence_type?: EvidenceType;
   confidence?: ConfidenceLevel;
+  status?: EvidenceStatus;
   limit?: number;
 }
 

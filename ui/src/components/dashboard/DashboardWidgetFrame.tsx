@@ -11,8 +11,12 @@ interface DashboardWidgetFrameProps {
   state: DashboardWidgetState;
   lastUpdated?: Date | string | null;
   onRefresh?: () => void | Promise<void>;
+  onRetry?: () => void | Promise<void>;
   headerRight?: React.ReactNode;
   emptyMessage?: string;
+  errorMessage?: string;
+  emptyAction?: React.ReactNode;
+  toolbar?: React.ReactNode;
   loadingContent?: React.ReactNode;
   errorContent?: React.ReactNode;
   children: React.ReactNode;
@@ -24,8 +28,12 @@ export function DashboardWidgetFrame({
   state,
   lastUpdated,
   onRefresh,
+  onRetry,
   headerRight,
   emptyMessage = 'No data available',
+  errorMessage,
+  emptyAction,
+  toolbar,
   loadingContent = <div className="h-20 animate-pulse bg-muted rounded" />,
   errorContent = <div className="text-sm text-destructive">Failed to load data.</div>,
   children,
@@ -63,12 +71,31 @@ export function DashboardWidgetFrame({
         </div>
       </CardHeader>
       <CardContent>
+        {toolbar && <div className="mb-4">{toolbar}</div>}
         {state === 'loading' ? (
           loadingContent
         ) : state === 'error' ? (
-          errorContent
+          <div className="space-y-3">
+            {errorMessage ? (
+              <div className="text-sm text-destructive">{errorMessage}</div>
+            ) : (
+              errorContent
+            )}
+            {onRetry && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void onRetry()}
+              >
+                Retry
+              </Button>
+            )}
+          </div>
         ) : state === 'empty' ? (
-          <div className="text-sm text-muted-foreground">{emptyMessage}</div>
+          <div className="space-y-3">
+            <div className="text-sm text-muted-foreground">{emptyMessage}</div>
+            {emptyAction}
+          </div>
         ) : (
           children
         )}

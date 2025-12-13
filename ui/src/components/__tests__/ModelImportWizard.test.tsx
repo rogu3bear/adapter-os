@@ -21,16 +21,16 @@ describe('ModelImportWizard', () => {
 
   it('renders the first step (Model Name) initially', () => {
     render(<ModelImportWizard onComplete={onComplete} onCancel={onCancel} />);
-    expect(screen.getByText('Model Name')).toBeInTheDocument();
+    expect(screen.getByLabelText('Model Name')).toBeInTheDocument();
     expect(screen.getByPlaceholderText('e.g., qwen2.5-7b-instruct')).toBeInTheDocument();
   });
 
   it('validates that the model name is required', async () => {
     render(<ModelImportWizard onComplete={onComplete} onCancel={onCancel} />);
     fireEvent.click(screen.getByText('Next'));
-    
+
     await waitFor(() => {
-      expect(toast.error).toHaveBeenCalledWith('Model name is required');
+      expect(screen.getByText('Model name is required')).toBeInTheDocument();
     });
     expect(onComplete).not.toHaveBeenCalled();
   });
@@ -98,17 +98,21 @@ describe('ModelImportWizard', () => {
     fireEvent.click(screen.getByText('Import Model'));
 
     await waitFor(() => {
-      expect(mockedApiClient.importModel).toHaveBeenCalledWith({
-        model_name: 'final-model',
-        weights_path: 'model.safetensors',
-        config_path: 'config.json',
-        tokenizer_path: 'tokenizer.json',
-        tokenizer_config_path: undefined,
-        metadata: {},
-      });
+      expect(mockedApiClient.importModel).toHaveBeenCalledWith(
+        {
+          model_name: 'final-model',
+          weights_path: 'model.safetensors',
+          config_path: 'config.json',
+          tokenizer_path: 'tokenizer.json',
+          tokenizer_config_path: undefined,
+          metadata: {},
+        },
+        {},
+        false,
+        expect.any(AbortSignal)
+      );
     });
 
-    expect(toast.success).toHaveBeenCalledWith('Model import started: import-123');
     expect(onComplete).toHaveBeenCalledWith('import-123');
   });
 

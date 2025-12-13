@@ -62,7 +62,6 @@ export function BaseModelLoader({ status, onRefresh }: BaseModelLoaderProps) {
     if (!status) return <XCircle className="h-5 w-5 text-gray-400" />;
     switch (status.status) {
       case 'ready':
-      case 'loaded': // legacy
         return <CheckCircle className="h-5 w-5 text-green-500" />;
       case 'loading':
       case 'unloading':

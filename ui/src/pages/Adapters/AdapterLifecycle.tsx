@@ -105,6 +105,7 @@ export default function AdapterLifecycle({
     hot: { next: 'resident', prev: 'warm' },
     resident: { prev: 'hot' },
     loading: {},
+    error: {},
   };
 
   const canPromote = !!stateTransitions[currentState as AdapterState]?.next;

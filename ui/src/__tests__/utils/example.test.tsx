@@ -78,7 +78,7 @@ describe('Test Utilities Examples', () => {
     test('gets documents with default data', async () => {
       const response = await mockApi.getDocuments();
 
-      expect(response.items).toHaveLength(5);
+      expect(response.data).toHaveLength(5);
       expect(response.total).toBe(5);
     });
 
@@ -138,8 +138,8 @@ describe('Test Utilities Examples', () => {
         collection_id: 'custom-collection',
       });
 
-      expect(response.items).toHaveLength(1);
-      expect(response.items[0].collection_id).toBe('custom-collection');
+      expect(response.data).toHaveLength(1);
+      expect(response.data[0].collection_id).toBe('custom-collection');
     });
 
     test('searches documents by content', async () => {
@@ -154,9 +154,9 @@ describe('Test Utilities Examples', () => {
         search: 'TypeScript',
       });
 
-      expect(response.items.length).toBeGreaterThan(0);
+      expect(response.data.length).toBeGreaterThan(0);
       expect(
-        response.items.some((doc) => doc.content.includes('TypeScript'))
+        response.data.some((doc) => doc.content.includes('TypeScript'))
       ).toBe(true);
     });
 

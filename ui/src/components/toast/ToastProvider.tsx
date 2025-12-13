@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useMemo, useRef, type ReactNode } from 'react';
 import { toast } from 'sonner';
+import { isE2EMode } from '@/utils/e2e';
 
 type ToastVariant = 'info' | 'success' | 'warning' | 'error';
 
@@ -25,11 +26,20 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     const toastId = idCounter.current;
     const variant = toastRequest.variant ?? 'info';
     const duration = toastRequest.persist ? Number.POSITIVE_INFINITY : undefined;
+    const testId =
+      isE2EMode() && variant === 'success'
+        ? 'toast-success'
+        : isE2EMode() && variant === 'error'
+          ? 'toast-error'
+          : isE2EMode()
+            ? 'toast-default'
+            : undefined;
 
-    const payload = {
+    const payload: Record<string, unknown> = {
       description: toastRequest.description,
       duration,
       dismissible: true,
+      ...(testId ? { 'data-testid': testId, testId } : {}),
     };
 
     switch (variant) {

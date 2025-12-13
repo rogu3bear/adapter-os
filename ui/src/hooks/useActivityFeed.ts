@@ -12,6 +12,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { logger } from '@/utils/logger';
 import apiClient from '@/api/client';
 import type { RecentActivityEvent } from '@/api/types';
+import { TENANT_SWITCH_EVENT } from '@/utils/tenant';
 
 export interface ActivityEvent {
   id: string;
@@ -426,6 +427,18 @@ export function useActivityFeed(options: UseActivityFeedOptions = {}): UseActivi
 
     connectSSE();
 
+    const handleTenantSwitch = () => {
+      clearFallback();
+      clearReconnectTimer();
+      stopSSE();
+      setEvents([]);
+      setLoading(true);
+      fetchEvents();
+      connectSSE();
+    };
+
+    window.addEventListener(TENANT_SWITCH_EVENT, handleTenantSwitch);
+
     return () => {
       isMountedRef.current = false;
 
@@ -436,6 +449,7 @@ export function useActivityFeed(options: UseActivityFeedOptions = {}): UseActivi
       clearFallback();
       clearReconnectTimer();
       stopSSE();
+      window.removeEventListener(TENANT_SWITCH_EVENT, handleTenantSwitch);
     };
   }, [enabled, useSSE, mapRecentEvent, fetchEvents]);
 

@@ -25,6 +25,7 @@ export interface User {
  * Used for hasRoleLevel checks
  */
 const ROLE_HIERARCHY: Record<string, number> = {
+  developer: 7, // Highest - full access to everything
   admin: 6,
   operator: 5,
   sre: 4,
@@ -37,6 +38,7 @@ const ROLE_HIERARCHY: Record<string, number> = {
  * RBAC Role definitions
  */
 export const ROLES = {
+  DEVELOPER: 'developer' as const,
   ADMIN: 'admin' as const,
   OPERATOR: 'operator' as const,
   SRE: 'sre' as const,
@@ -148,6 +150,60 @@ export const PERMISSIONS = {
  * This serves as the source of truth for RBAC throughout the app.
  */
 export const ROLE_PERMISSIONS: Record<UserRole, string[]> = {
+  developer: [
+    // Developer has all permissions (super-role for full system access)
+    PERMISSIONS.ADAPTER_LIST,
+    PERMISSIONS.ADAPTER_VIEW,
+    PERMISSIONS.ADAPTER_REGISTER,
+    PERMISSIONS.ADAPTER_DELETE,
+    PERMISSIONS.ADAPTER_LOAD,
+    PERMISSIONS.ADAPTER_UNLOAD,
+    PERMISSIONS.TRAINING_START,
+    PERMISSIONS.TRAINING_CANCEL,
+    PERMISSIONS.TRAINING_VIEW,
+    PERMISSIONS.TRAINING_VIEW_LOGS,
+    PERMISSIONS.POLICY_VIEW,
+    PERMISSIONS.POLICY_APPLY,
+    PERMISSIONS.POLICY_VALIDATE,
+    PERMISSIONS.POLICY_SIGN,
+    PERMISSIONS.PROMOTION_EXECUTE,
+    PERMISSIONS.PROMOTION_VIEW,
+    PERMISSIONS.AUDIT_VIEW,
+    PERMISSIONS.COMPLIANCE_VIEW,
+    PERMISSIONS.TENANT_MANAGE,
+    PERMISSIONS.NODE_MANAGE,
+    PERMISSIONS.NODE_VIEW,
+    PERMISSIONS.WORKER_MANAGE,
+    PERMISSIONS.WORKER_SPAWN,
+    PERMISSIONS.WORKER_VIEW,
+    PERMISSIONS.INFERENCE_EXECUTE,
+    PERMISSIONS.ACTIVITY_CREATE,
+    PERMISSIONS.ACTIVITY_VIEW,
+    PERMISSIONS.CONTACT_MANAGE,
+    PERMISSIONS.CONTACT_VIEW,
+    PERMISSIONS.NOTIFICATION_MANAGE,
+    PERMISSIONS.NOTIFICATION_VIEW,
+    PERMISSIONS.WORKSPACE_MANAGE,
+    PERMISSIONS.WORKSPACE_MEMBER_MANAGE,
+    PERMISSIONS.WORKSPACE_RESOURCE_MANAGE,
+    PERMISSIONS.WORKSPACE_VIEW,
+    PERMISSIONS.DATASET_DELETE,
+    PERMISSIONS.DATASET_UPLOAD,
+    PERMISSIONS.DATASET_VALIDATE,
+    PERMISSIONS.DATASET_VIEW,
+    PERMISSIONS.CODE_SCAN,
+    PERMISSIONS.CODE_VIEW,
+    PERMISSIONS.FEDERATION_VIEW,
+    PERMISSIONS.GIT_MANAGE,
+    PERMISSIONS.GIT_VIEW,
+    PERMISSIONS.MONITORING_MANAGE,
+    PERMISSIONS.METRICS_VIEW,
+    PERMISSIONS.DASHBOARD_MANAGE,
+    PERMISSIONS.DASHBOARD_VIEW,
+    PERMISSIONS.PLAN_VIEW,
+    PERMISSIONS.REPLAY_MANAGE,
+    PERMISSIONS.TELEMETRY_VIEW,
+  ],
   admin: [
     // Admin has all permissions
     PERMISSIONS.ADAPTER_LIST,
@@ -472,7 +528,9 @@ export function hasRoleLevel(user: User | null | undefined, minRole: UserRole): 
  * Check if user can perform admin operations
  */
 export function canAdmin(user: User | null | undefined): boolean {
-  return user?.role.toLowerCase() === 'admin';
+  if (!user) return false;
+  const role = user.role.toLowerCase();
+  return role === 'admin' || role === 'developer';
 }
 
 /**
@@ -488,14 +546,16 @@ export function canOperate(user: User | null | undefined): boolean {
 export function canViewCompliance(user: User | null | undefined): boolean {
   if (!user) return false;
   const role = user.role.toLowerCase();
-  return ['admin', 'operator', 'sre', 'compliance'].includes(role);
+  return ['developer', 'admin', 'operator', 'sre', 'compliance'].includes(role);
 }
 
 /**
  * Check if user can modify tenants
  */
 export function canModifyTenants(user: User | null | undefined): boolean {
-  return user?.role.toLowerCase() === 'admin';
+  if (!user) return false;
+  const role = user.role.toLowerCase();
+  return role === 'admin' || role === 'developer';
 }
 
 /**
@@ -511,7 +571,7 @@ export function canManageAdapters(user: User | null | undefined): boolean {
 export function canViewAudits(user: User | null | undefined): boolean {
   if (!user) return false;
   const role = user.role.toLowerCase();
-  return ['admin', 'operator', 'sre', 'compliance'].includes(role);
+  return ['developer', 'admin', 'operator', 'sre', 'compliance'].includes(role);
 }
 
 /**
@@ -520,14 +580,16 @@ export function canViewAudits(user: User | null | undefined): boolean {
 export function canExportTelemetry(user: User | null | undefined): boolean {
   if (!user) return false;
   const role = user.role.toLowerCase();
-  return ['admin', 'operator', 'sre', 'compliance'].includes(role);
+  return ['developer', 'admin', 'operator', 'sre', 'compliance'].includes(role);
 }
 
 /**
  * Check if user can promote CPIDs
  */
 export function canPromote(user: User | null | undefined): boolean {
-  return user?.role.toLowerCase() === 'admin';
+  if (!user) return false;
+  const role = user.role.toLowerCase();
+  return role === 'admin' || role === 'developer';
 }
 
 /**
@@ -535,6 +597,7 @@ export function canPromote(user: User | null | undefined): boolean {
  */
 export function getRoleName(role: UserRole): string {
   const names: Record<string, string> = {
+    developer: 'Developer',
     admin: 'Administrator',
     operator: 'Operator',
     sre: 'Site Reliability Engineer',
@@ -550,6 +613,7 @@ export function getRoleName(role: UserRole): string {
  */
 export function getRoleDescription(role: UserRole): string {
   const descriptions: Record<string, string> = {
+    developer: 'Full system access to all features, pages, and UI modes regardless of restrictions',
     admin: 'Full system access including tenant management and CPID promotion',
     operator: 'Can manage adapters, workers, and perform inference operations',
     sre: 'Can view system information, debug, and manage infrastructure',

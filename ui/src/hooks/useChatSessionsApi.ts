@@ -597,15 +597,44 @@ export function useChatSessionsApi(tenantId: string, options: UseChatSessionsOpt
         const updated = await apiClient.updateChatSession(sessionId, payload);
         // Rehydrate session fields but keep existing messages to avoid refetch storm
         setSessions((prev) =>
-          prev.map((session) =>
-            session.id === sessionId
-              ? {
-                  ...session,
-                  ...toLocalSession(updated, session.messages),
-                  messages: session.messages,
-                }
-              : session
-          )
+          prev.map((session) => {
+            if (session.id !== sessionId) {
+              return session;
+            }
+
+            // Merge updated fields from backend without converting messages
+            let metadata: Record<string, unknown> | undefined;
+            try {
+              metadata = updated.metadata_json ? JSON.parse(updated.metadata_json) : undefined;
+            } catch {
+              metadata = undefined;
+            }
+
+            const sourceType =
+              updated.source_type ||
+              (typeof metadata?.source_type === 'string' ? (metadata.source_type as string) : undefined);
+            const documentId =
+              updated.document_id ||
+              (typeof metadata?.documentId === 'string' ? (metadata.documentId as string) : undefined);
+            const documentName =
+              typeof metadata?.documentName === 'string' ? (metadata.documentName as string) : undefined;
+
+            return {
+              ...session,
+              name: updated.name,
+              stackId: updated.stack_id || '',
+              stackName: (metadata?.stackName as string | undefined) || undefined,
+              collectionId: updated.collection_id ?? null,
+              documentId,
+              documentName,
+              sourceType,
+              metadata,
+              updatedAt: new Date(updated.last_activity_at),
+              tenantId: updated.tenant_id,
+              // Keep existing messages to avoid refetch
+              messages: session.messages,
+            };
+          })
         );
       } catch (error) {
         logger.error('Failed to update chat session', {

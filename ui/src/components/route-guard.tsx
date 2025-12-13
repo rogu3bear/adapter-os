@@ -10,6 +10,7 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import ServerErrorPage from '@/pages/ServerErrorPage';
 import { logUIError } from '@/lib/logUIError';
+import { TenantRequiredGate } from '@/components/TenantRequiredGate';
 
 interface ErrorFallbackProps {
   error: Error;
@@ -56,11 +57,9 @@ export function RouteGuard({ route, children, fallbackPath = '/dashboard' }: Rou
   }
 
   const Component = route.component;
-  if (children) {
-    return <>{children}</>;
-  }
-
-  return (
+  const content = children ? (
+    <>{children}</>
+  ) : (
     <ErrorBoundary
       FallbackComponent={ErrorFallback}
       onError={(error) => logUIError(error, { scope: 'page', component: 'RouteGuard', route: route.path, severity: 'error' })}
@@ -70,6 +69,12 @@ export function RouteGuard({ route, children, fallbackPath = '/dashboard' }: Rou
       </Suspense>
     </ErrorBoundary>
   );
+
+  if (!requiresAuth) {
+    return content;
+  }
+
+  return <TenantRequiredGate>{content}</TenantRequiredGate>;
 }
 
 /**

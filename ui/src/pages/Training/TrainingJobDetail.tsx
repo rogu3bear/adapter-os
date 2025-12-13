@@ -26,12 +26,15 @@ import {
   ExternalLink,
   Box,
   Layers,
+  MessageSquare,
+  Send,
 } from 'lucide-react';
 import apiClient from '@/api/client';
 import { useLiveData } from '@/hooks/useLiveData';
 import { logger } from '@/utils/logger';
 import { useToast } from '@/hooks/use-toast';
 import { StackFormModal } from '@/pages/Admin/StackFormModal';
+import { PublishAdapterDialog } from '@/components/training/PublishAdapterDialog';
 import type {
   TrainingJob,
   TrainingMetrics,
@@ -150,6 +153,7 @@ function TrainingJobDetailContent() {
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState('overview');
   const [stackModalOpen, setStackModalOpen] = useState(false);
+  const [publishDialogOpen, setPublishDialogOpen] = useState(false);
 
   // SSE for real-time updates when job is active
   const isJobActive = job?.status === 'running' || job?.status === 'pending';
@@ -387,11 +391,32 @@ function TrainingJobDetailContent() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {job.status === 'completed' && job.stack_id && (
+            <Button
+              onClick={() => navigate(`/training/jobs/${job.id}/chat`)}
+              variant="default"
+              data-testid="open-result-chat"
+            >
+              <MessageSquare className="h-4 w-4 mr-2" />
+              Open Result Chat
+            </Button>
+          )}
           {job.status === 'completed' && job.adapter_id && (
             <>
+              {/* Publish button - show for completed jobs with produced version */}
+              {job.repo_id && job.produced_version_id && (
+                <Button
+                  onClick={() => setPublishDialogOpen(true)}
+                  variant="default"
+                  data-testid="publish-adapter-button"
+                >
+                  <Send className="h-4 w-4 mr-2" />
+                  Publish Adapter
+                </Button>
+              )}
               <Button
                 onClick={() => navigate(`/adapters/${job.adapter_id}`)}
-                variant="default"
+                variant={job.stack_id ? 'outline' : 'default'}
               >
                 <Box className="h-4 w-4 mr-2" />
                 View Adapter
@@ -1011,6 +1036,19 @@ function TrainingJobDetailContent() {
           onOpenChange={setStackModalOpen}
           initialAdapterId={job.adapter_id}
           onStackCreated={handleStackCreated}
+        />
+      )}
+
+      {/* Publish Adapter Dialog */}
+      {job.status === 'completed' && job.repo_id && job.produced_version_id && (
+        <PublishAdapterDialog
+          open={publishDialogOpen}
+          onOpenChange={setPublishDialogOpen}
+          trainingJob={job}
+          onPublished={() => {
+            // Refetch job to update published_at status
+            fetchJobDetails();
+          }}
         />
       )}
     </div>

@@ -30,7 +30,7 @@ interface BaseModel {
   name: string;
   size_bytes?: number;
   format?: string;
-  status?: 'loaded' | 'available' | 'loading' | 'error';
+  status?: 'ready' | 'available' | 'loading' | 'error' | 'no-model' | 'unloading' | 'checking' | 'loaded';
   path?: string;
 }
 
@@ -52,7 +52,7 @@ export function ActiveModelCard({
 
   // Find the currently loaded model
   const loadedModel = useMemo(() => {
-    return models.find((m) => m.status === 'ready' || m.status === 'loaded');
+    return models.find((m) => m.status === 'ready');
   }, [models]);
 
   // Calculate memory usage estimate

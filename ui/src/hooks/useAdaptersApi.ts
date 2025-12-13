@@ -33,7 +33,7 @@ const baseHooks = createResourceHooks<
     delete: (id: string) => apiClient.deleteAdapter(id),
     // Note: There's no generic update endpoint for adapters
   },
-  staleTime: QUERY_FAST.staleTime, // Using QUERY_FAST because adapter state changes frequently and should feel live
+  staleTime: QUERY_FAST.staleTime as number, // Using QUERY_FAST because adapter state changes frequently and should feel live
   invalidatesOnMutate: ['metrics', 'system'], // Invalidate related queries
 });
 

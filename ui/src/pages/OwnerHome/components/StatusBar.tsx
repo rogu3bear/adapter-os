@@ -141,7 +141,7 @@ export function StatusBar({
               <span className="text-slate-400">No model</span>
             )}
           </span>
-          {(baseModelStatus?.status === 'ready' || baseModelStatus?.status === 'loaded') && (
+          {baseModelStatus?.status === 'ready' && (
             <Badge variant="default" className="text-xs hidden sm:inline-flex">
               Ready
             </Badge>

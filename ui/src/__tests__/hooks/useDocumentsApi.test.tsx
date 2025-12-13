@@ -10,6 +10,10 @@ import {
   documentKeys,
 } from '@/hooks/useDocumentsApi';
 import type { Document, DocumentChunk } from '@/api/document-types';
+import { withTenantKey } from '@/utils/tenant';
+
+// Mock tenant ID used in tests
+const MOCK_TENANT_ID = 'tenant-1';
 
 // Mock API client
 const mockListDocuments = vi.fn();
@@ -28,6 +32,11 @@ vi.mock('@/api/client', () => ({
     deleteDocument: (...args: unknown[]) => mockDeleteDocument(...args),
     downloadDocument: (...args: unknown[]) => mockDownloadDocument(...args),
   },
+}));
+
+// Mock FeatureProviders to provide useTenant context
+vi.mock('@/providers/FeatureProviders', () => ({
+  useTenant: () => ({ selectedTenant: MOCK_TENANT_ID }),
 }));
 
 // Test data
@@ -310,8 +319,9 @@ describe('useDocumentsApi - Mutations', () => {
         <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
       );
 
-      // Pre-populate cache with document
-      queryClient.setQueryData(documentKeys.detail('doc-1'), mockDocument);
+      // Pre-populate cache with document using tenant-scoped key
+      const tenantScopedKey = withTenantKey(documentKeys.detail('doc-1'), MOCK_TENANT_ID);
+      queryClient.setQueryData(tenantScopedKey, mockDocument);
 
       const { result } = renderHook(() => useDocumentsApi(), { wrapper });
 
@@ -319,8 +329,8 @@ describe('useDocumentsApi - Mutations', () => {
 
       expect(mockDeleteDocument).toHaveBeenCalledWith('doc-1');
 
-      // Verify document removed from cache
-      const cachedDocument = queryClient.getQueryData(documentKeys.detail('doc-1'));
+      // Verify document removed from cache using tenant-scoped key
+      const cachedDocument = queryClient.getQueryData(tenantScopedKey);
       expect(cachedDocument).toBeUndefined();
     });
 

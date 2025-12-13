@@ -21,7 +21,6 @@ export interface TrainingJob {
   branch_classification?: BranchClassification;
   dataset_version_trust?: DatasetVersionTrustSnapshot[];
   data_spec?: string;
-  data_spec_hash?: string;
   dataset_version_id?: string;
   adapter_id?: string;
   config?: TrainingConfig;
@@ -125,7 +124,7 @@ export interface TrainingJob {
   source_documents_json?: string;
 }
 
-export type TrainingStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
+export type TrainingStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled' | 'paused';
 
 export interface DatasetVersionSelection {
   dataset_version_id: string;
@@ -748,8 +747,14 @@ export interface ChatBootstrapResponse {
   status: string;
   /** Primary adapter ID from training job (set after training completes) */
   adapter_id?: string;
+  /** Adapter version ID for display (e.g., adapter@version) */
+  adapter_version_id?: string;
   /** Training dataset ID */
   dataset_id?: string;
+  /** Dataset version ID for citation scoping (immutable snapshot) */
+  dataset_version_id?: string;
+  /** Dataset name for display */
+  dataset_name?: string;
 }
 
 /** Request for POST /v1/chats/from_training_job */

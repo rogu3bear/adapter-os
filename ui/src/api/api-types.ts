@@ -4,6 +4,7 @@
 // 【2025-01-20†rectification†api_types】
 
 import { Policy } from '@/api/adapter-types';
+import type { Evidence } from '@/api/document-types';
 
 /** Generic paginated response wrapper used by list endpoints */
 export interface PaginatedResponse<T> {
@@ -94,11 +95,22 @@ export interface PromptAnalysisResult {
   timestamp: string;
 }
 
+export type FailureCode =
+  | 'MIGRATION_INVALID'
+  | 'MODEL_LOAD_FAILED'
+  | 'OUT_OF_MEMORY'
+  | 'TRACE_WRITE_FAILED'
+  | 'RECEIPT_MISMATCH'
+  | 'POLICY_DIVERGENCE'
+  | 'BACKEND_FALLBACK'
+  | 'TENANT_ACCESS_DENIED';
+
 export interface ErrorResponse {
   schema_version: string; // Required by backend API
   error: string;
   code?: string;
-  details?: string;
+  failure_code?: FailureCode;
+  details?: string | Record<string, unknown>;
   timestamp?: string;
 }
 
@@ -195,6 +207,39 @@ export interface ReplayVerificationResponse {
     actual_hash: string;
     context: string;
   }>;
+}
+
+export type ReceiptReasonCode =
+  | 'CONTEXT_MISMATCH'
+  | 'TRACE_TAMPER'
+  | 'OUTPUT_MISMATCH'
+  | 'POLICY_MISMATCH'
+  | 'BACKEND_MISMATCH'
+  | 'SIGNATURE_INVALID'
+  | 'MISSING_RECEIPT'
+  | 'TRACE_NOT_FOUND';
+
+export interface ReceiptDigestDiff {
+  field: string;
+  expected_hex: string;
+  computed_hex: string;
+  matches: boolean;
+}
+
+export interface ReceiptVerificationResult {
+  trace_id: string;
+  tenant_id?: string;
+  source: 'trace' | 'bundle';
+  pass: boolean;
+  verified_at: string;
+  reasons: ReceiptReasonCode[];
+  mismatched_token?: number;
+  context_digest: ReceiptDigestDiff;
+  run_head_hash: ReceiptDigestDiff;
+  output_digest: ReceiptDigestDiff;
+  receipt_digest: ReceiptDigestDiff;
+  signature_checked: boolean;
+  signature_valid?: boolean | null;
 }
 
 // Node management types
@@ -612,6 +657,36 @@ export interface InferRequest {
   adapters?: string[];
 }
 
+export interface RunReceipt {
+  trace_id: string;
+  run_head_hash: string;
+  output_digest: string;
+  receipt_digest: string;
+  signature?: string;
+  attestation?: string;
+  logical_prompt_tokens: number;
+  prefix_cached_token_count: number;
+  billed_input_tokens: number;
+  logical_output_tokens: number;
+  billed_output_tokens: number;
+  // Stop controller fields (PRD: Hard Deterministic Stop Controller)
+  stop_reason_code?: string;
+  stop_reason_token_index?: number;
+  stop_policy_digest_b3?: string;
+  // KV quota/residency fields (PRD: KvResidencyAndQuotas v1)
+  tenant_kv_quota_bytes?: number;
+  tenant_kv_bytes_used?: number;
+  kv_evictions?: number;
+  kv_residency_policy_id?: string;
+  kv_quota_enforced?: boolean;
+  // Prefix KV cache fields (PRD: PrefixKvCache v1)
+  prefix_kv_key_b3?: string;
+  prefix_cache_hit?: boolean;
+  prefix_kv_bytes?: number;
+  // Model Cache Identity v2 (PRD-06: ModelCacheIdentity v2 Canonicalization)
+  model_cache_identity_v2_digest_b3?: string;
+}
+
 export interface InferResponse {
   schema_version: string; // Required by backend API
   id: string;
@@ -619,6 +694,7 @@ export interface InferResponse {
   tokens_generated: number;
   latency_ms: number;
   adapters_used: string[];
+  run_receipt?: RunReceipt;
   citations?: Citation[];
   finish_reason: 'stop' | 'length' | 'error';
   backend?: BackendName;
@@ -649,6 +725,18 @@ export interface InferResponse {
   replay_guarantee?: string | null;
 }
 
+export interface CharRange {
+  start: number;
+  end: number;
+}
+
+export interface BoundingBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 export interface Citation {
   adapter_id: string;
   file_path: string;
@@ -656,6 +744,12 @@ export interface Citation {
   offset_start: number;
   offset_end: number;
   preview: string;
+  citation_id?: string;
+  page_number?: number;
+  char_range?: CharRange;
+  bbox?: BoundingBox;
+  relevance_score?: number;
+  rank?: number;
 }
 
 export interface BatchInferRequest {
@@ -1222,6 +1316,32 @@ export interface Trace {
   }>;
 }
 
+// Dev-only contract samples served by /v1/dev/contracts
+export interface ContractSamplesResponse {
+  inference: InferResponse;
+  trace: Trace;
+  evidence: Evidence[];
+}
+
+// Trace v1 response for per-token inspection
+export interface TraceResponseV1 {
+  trace_id: string;
+  context_digest: string;
+  policy_digest: string;
+  backend_id: string;
+  kernel_version_id: string;
+  tokens: Array<{
+    token_index: number;
+    token_id?: string;
+    selected_adapter_ids: string[];
+    gates_q15: number[];
+    decision_hash: string;
+    policy_mask_digest: string;
+    fusion_interval_id?: string;
+    fused_weight_hash?: string;
+  }>;
+}
+
 export interface TroubleshootingResult {
   issue_id: string;
   diagnosis: string;
@@ -1640,6 +1760,7 @@ export interface ExtendedRouterDecision {
   entropy_floor?: number;
   entropy?: number;
   interval_id?: string;
+  allowed_mask?: boolean[];
   candidates?: RouterCandidateInfo[]; // Extended: detailed candidate info instead of string[]
   k_value?: number; // Extended: K-sparse value
   adapter_map?: Map<number, string>; // Extended: For debugging: maps adapter_idx to adapter_id
@@ -1708,6 +1829,47 @@ export interface AuditLogFilters {
   limit?: number;
   offset?: number;
   tenant_id?: string;
+}
+
+export interface PolicyAuditDecision {
+  id: string;
+  tenant_id: string;
+  policy_pack_id: string;
+  hook: string;
+  decision: string;
+  reason?: string | null;
+  request_id?: string | null;
+  user_id?: string | null;
+  resource_type?: string | null;
+  resource_id?: string | null;
+  metadata_json?: string | null;
+  timestamp: string;
+  entry_hash: string;
+  previous_hash?: string | null;
+  chain_sequence: number;
+}
+
+export interface PolicyAuditBrokenLink {
+  sequence: number;
+  entry_id: string;
+  expected_hash: string;
+  actual_hash: string;
+}
+
+export interface PolicyAuditChainVerification {
+  valid: boolean;
+  total_entries: number;
+  verified_entries: number;
+  broken_links: PolicyAuditBrokenLink[];
+  tenant_id?: string | null;
+}
+
+export interface DivergeAuditChainResponse {
+  status: string;
+  tenant_id: string;
+  corrupted_entry_id: string;
+  corrupted_hash: string;
+  chain_sequence: number;
 }
 
 // Isolation test types

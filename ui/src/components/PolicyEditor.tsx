@@ -199,6 +199,7 @@ export function PolicyEditor({
             <Checkbox
               id={`${packId}-${field.name}`}
               checked={value || false}
+              data-cy={`${packId}-${field.name}-toggle`}
               onCheckedChange={(checked) => updatePolicyField(packId, field.name, checked)}
             />
             <Label htmlFor={`${packId}-${field.name}`} className="text-sm">
@@ -464,7 +465,12 @@ export function PolicyEditor({
               <X className="h-4 w-4 mr-2" />
               Cancel
             </Button>
-            <Button onClick={handleSave} disabled={isSaving || !cpid.trim()}>
+            <Button
+              onClick={handleSave}
+              disabled={isSaving || !cpid.trim()}
+              data-testid="policy-save"
+              data-cy="policy-save-btn"
+            >
               <Save className="h-4 w-4 mr-2" />
               {isSaving ? 'Saving...' : 'Save Policy'}
             </Button>

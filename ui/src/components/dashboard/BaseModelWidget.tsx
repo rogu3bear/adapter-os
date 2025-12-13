@@ -89,7 +89,7 @@ function cleanupStaleOperations() {
 function getStatusIcon(status: BaseModelStatus | null) {
   if (!status) return <XCircle className="h-5 w-5 text-gray-400" />;
   switch (status.status) {
-    case 'loaded':
+    case 'ready':
       return <CheckCircle className="h-5 w-5 text-gray-600" />;
     case 'loading':
     case 'unloading':
@@ -132,7 +132,8 @@ export function BaseModelWidget() {
     data: status,
     isLoading,
     refetch: refetchStatus,
-    error: pollingError
+    error: pollingError,
+    lastUpdated
   } = usePolling(
     fetchStatus,
     'normal',
@@ -272,8 +273,8 @@ export function BaseModelWidget() {
         }
         subtitle="Base model lifecycle and actions"
         state={widgetState}
-        onRefresh={() => refetchStatus()}
-        onRetry={() => refetchStatus()}
+        onRefresh={async () => { await refetchStatus(); }}
+        onRetry={async () => { await refetchStatus(); }}
         lastUpdated={lastUpdated}
         errorMessage={pollingError?.message}
         emptyMessage="No base model detected"

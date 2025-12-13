@@ -164,6 +164,7 @@ export function useTrainingNotifications({
       globalNotifiedJobs.add(`global-${jobId}-completed`);
 
       const adapterId = job.adapter_id;
+      const stackId = job.stack_id;
 
       if (persistentNotificationIdRef.current && hasPersistentNotifications) {
         // Update persistent notification to completed state
@@ -176,12 +177,12 @@ export function useTrainingNotifications({
         persistentNotifications.updateNotification(persistentNotificationIdRef.current, {
           status: 'completed',
           title: `Training Complete: ${job.adapter_name || 'Adapter'}`,
-          description: adapterId ? 'Adapter is ready to use' : 'Training finished successfully',
+          description: stackId ? 'Click to open result chat' : (adapterId ? 'Adapter is ready to use' : 'Training finished successfully'),
           progress: 100,
-          resourceType: adapterId ? 'adapter' : 'training_job',
-          resourceId: adapterId || jobId,
+          resourceType: stackId ? 'training_job' : (adapterId ? 'adapter' : 'training_job'),
+          resourceId: stackId ? jobId : (adapterId || jobId),
           resourceName: job.adapter_name,
-          linkPath: adapterId ? `/adapters/${adapterId}` : `/training?job=${jobId}`,
+          linkPath: stackId ? `/training/jobs/${jobId}/chat` : (adapterId ? `/adapters/${adapterId}` : `/training?job=${jobId}`),
           metadata: {
             adapter_name: job.adapter_name,
             adapter_id: adapterId,
@@ -190,6 +191,19 @@ export function useTrainingNotifications({
           },
           persistent: false,
           autoCloseDelay: 15000, // Keep visible for 15 seconds
+        });
+      } else if (stackId) {
+        // If job has a stack_id, show "Open Result Chat" action
+        toast.success('Training completed!', {
+          description: `Adapter "${adapterId || job.adapter_name || 'training output'}" is ready.`,
+          duration: 10000,
+          action: {
+            label: 'Open Result Chat',
+            onClick: () => {
+              // Navigate to result chat page (handles session creation internally)
+              window.location.href = `/training/jobs/${jobId}/chat`;
+            },
+          },
         });
       } else if (adapterId) {
         toast.success('Training completed!', {

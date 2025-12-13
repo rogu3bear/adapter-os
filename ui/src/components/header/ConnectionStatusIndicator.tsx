@@ -95,7 +95,7 @@ const MODEL_STATUS_CONFIG: Record<
     badgeClass: 'text-blue-700 border-blue-300 bg-blue-50 hover:bg-blue-100',
     dotClass: 'bg-blue-500 animate-pulse',
   },
-  loaded: {
+  ready: {
     label: 'Model Ready',
     icon: Cpu,
     badgeClass: 'text-green-700 border-green-300 bg-green-50 hover:bg-green-100',

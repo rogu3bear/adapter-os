@@ -3,6 +3,17 @@
 
 @import "tailwindcss";
 
+/* E2E mode: remove motion to stabilize tests */
+:root[data-e2e="true"], :root[data-e2e="true"] *, :root[data-e2e="true"] *::before, :root[data-e2e="true"] *::after {
+  animation: none !important;
+  animation-duration: 0s !important;
+  animation-iteration-count: 1 !important;
+  transition: none !important;
+  transition-duration: 0s !important;
+  transition-delay: 0s !important;
+  scroll-behavior: auto !important;
+}
+
 @layer base {
   *, :after, :before, ::backdrop {
     box-sizing: border-box;
