@@ -27,10 +27,11 @@ export const evidenceKeys = {
 /**
  * Hook for listing evidence with optional filters
  */
-export function useEvidence(filter?: ListEvidenceQuery) {
+export function useEvidence(filter?: ListEvidenceQuery, options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: evidenceKeys.list(filter),
     queryFn: () => apiClient.listEvidence(filter),
+    enabled: options?.enabled ?? true,
     meta: {
       errorMessage: 'Failed to load evidence entries',
     },
@@ -82,7 +83,7 @@ export function useAdapterEvidence(adapterId: string | undefined) {
 /**
  * Hook providing all evidence CRUD operations with cache invalidation
  */
-export function useEvidenceApi(filter?: ListEvidenceQuery) {
+export function useEvidenceApi(filter?: ListEvidenceQuery, options?: { enabled?: boolean }) {
   const queryClient = useQueryClient();
 
   const createMutation = useMutation({
@@ -135,9 +136,22 @@ export function useEvidenceApi(filter?: ListEvidenceQuery) {
     },
   });
 
+  const downloadMutation = useMutation({
+    mutationFn: (params: { evidenceId: string; filename?: string; triggerDownload?: boolean }) =>
+      apiClient.downloadEvidence(params.evidenceId, {
+        filename: params.filename,
+        triggerDownload: params.triggerDownload,
+      }),
+    onError: (error: unknown) => {
+      const message = error instanceof Error ? error.message : 'Failed to download evidence';
+      const code = (error as any)?.code || (error as any)?.status;
+      toast.error(code ? `Download failed (${code})` : 'Download failed', { description: message });
+    },
+  });
+
   return {
     // Queries
-    evidence: useEvidence(filter),
+    evidence: useEvidence(filter, options),
 
     // Mutations
     createEvidence: createMutation.mutateAsync,
@@ -147,6 +161,10 @@ export function useEvidenceApi(filter?: ListEvidenceQuery) {
     deleteEvidence: deleteMutation.mutateAsync,
     isDeleting: deleteMutation.isPending,
     deleteError: deleteMutation.error,
+
+    downloadEvidence: downloadMutation.mutateAsync,
+    isDownloading: downloadMutation.isPending,
+    downloadError: downloadMutation.error,
 
     // Cache invalidation
     invalidateEvidence: () =>
