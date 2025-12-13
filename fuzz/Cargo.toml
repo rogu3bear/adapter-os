@@ -11,6 +11,7 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
+arbitrary = { version = "1", features = ["derive"] }
 
 # Dependencies from main workspace for fuzzing
 adapteros-core = { path = "../crates/adapteros-core" }
@@ -19,6 +20,8 @@ adapteros-sbom = { path = "../crates/adapteros-sbom" }
 adapteros-policy = { path = "../crates/adapteros-policy" }
 adapteros-lora-router = { path = "../crates/adapteros-lora-router" }
 adapteros-db = { path = "../crates/adapteros-db" }
+adapteros-lora-worker = { path = "../crates/adapteros-lora-worker" }
+adapteros-api-types = { path = "../crates/adapteros-api-types" }
 serde_json = "1.0"
 serde_yaml = "0.9"
 tokio = { version = "1", features = ["rt", "macros"] }
@@ -63,6 +66,12 @@ test = false
 doc = false
 
 [[bin]]
+name = "router_route_with_adapter_info"
+path = "fuzz_targets/router_route_with_adapter_info.rs"
+test = false
+doc = false
+
+[[bin]]
 name = "trace_encoding"
 path = "fuzz_targets/trace_encoding.rs"
 test = false
@@ -71,5 +80,29 @@ doc = false
 [[bin]]
 name = "receipt_verification"
 path = "fuzz_targets/receipt_verification.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "evidence_envelope"
+path = "fuzz_targets/evidence_envelope.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "evidence_chain_verification"
+path = "fuzz_targets/evidence_chain_verification.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "stop_controller"
+path = "fuzz_targets/stop_controller.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "kv_quota_reservation"
+path = "fuzz_targets/kv_quota_reservation.rs"
 test = false
 doc = false

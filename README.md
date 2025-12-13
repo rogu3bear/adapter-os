@@ -182,6 +182,12 @@ cargo run -p adapteros-orchestrator -- db migrate
 cargo run -p adapteros-orchestrator -- init-tenant --id default --uid 1000 --gid 1000
 ```
 
+### Migration Hygiene (dev)
+
+- `bash scripts/check_migrations.sh` to catch duplicate numbers, gaps, and filename collisions before opening a PR.
+- `python -m pip install --quiet blake3 && python scripts/verify_migration_signatures.py` to ensure `migrations/signatures.json` matches on-disk migrations.
+- Regenerate signatures after editing migrations: `./scripts/sign_migrations.sh`.
+
 ### Import a Model
 
 > **Note**: The `import-model` command requires the MLX backend which is currently
@@ -654,3 +660,5 @@ curl -X GET http://localhost:8080/v1/plugins \
 - [CLAUDE.md](CLAUDE.md) - Developer quick reference guide
 - [docs/MLX_INTEGRATION.md](docs/MLX_INTEGRATION.md) - MLX backend integration
 - [docs/COREML_INTEGRATION.md](docs/COREML_INTEGRATION.md) - CoreML backend with ANE acceleration
+
+MLNavigator Inc Thursday Dec 11, 2025.

@@ -1,4 +1,4 @@
-.PHONY: help build prepare test clean fmt clippy metal ui ui-dev menu-bar menu-bar-dev menu-bar-install infra-check dev dev-no-auth build-mlx test-mlx bench-mlx verify-mlx-env cli
+.PHONY: help build prepare test test-rust test-ui test-e2e clean fmt clippy metal ui ui-dev menu-bar menu-bar-dev menu-bar-install infra-check dev dev-no-auth build-mlx test-mlx bench-mlx verify-mlx-env cli
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -40,9 +40,17 @@ download-model: ## Download Qwen 2.5 7B Instruct model (~3.8GB)
 check-system: ## Check system readiness before launch (preflight checks)
 	@./scripts/check-system.sh
 
-test: ## Run all tests (excluding experimental MLX FFI)
-	cargo test --workspace --exclude adapteros-lora-mlx-ffi
-	cargo miri test --lib adapteros_lora_worker
+test: ## Run formatter, lint, Rust, and UI test suites
+	bash scripts/test/all.sh all
+
+test-rust: ## Run formatter, lint, Rust unit/integration tests only
+	bash scripts/test/all.sh rust
+
+test-ui: ## Run UI lint + unit/integration tests only
+	bash scripts/test/all.sh ui
+
+test-e2e: ## Run UI end-to-end tests (optional, starts dev stack)
+	bash scripts/test/all.sh e2e
 
 clean: ## Clean build artifacts
 	cargo clean
@@ -169,6 +177,9 @@ ifeq ($(PROFILE),release)
 	cargo test --release --test determinism_core_suite -- --test-threads=8 --test-timeout=45
 	cargo test --release -p adapteros-lora-router --test determinism
 endif
+
+e2e: ## Start stack, seed, run Cypress headless, then tear down
+	@bash -c 'set -euo pipefail; trap "scripts/e2e/down.sh" EXIT; scripts/e2e/up.sh; scripts/e2e/seed.sh; pnpm --dir ui install --frozen-lockfile || pnpm --dir ui install; pnpm --dir ui exec cypress run --config-file ../cypress.config.ts'
 
 KV_VERIFY_DB ?= ./var/aos-cp.sqlite3
 KV_VERIFY_KV ?= ./var/aos-kv.redb

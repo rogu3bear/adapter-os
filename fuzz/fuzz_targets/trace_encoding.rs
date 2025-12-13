@@ -1,7 +1,9 @@
 #![no_main]
 
 use adapteros_core::B3Hash;
-use adapteros_db::{recompute_receipt, SqlTraceSink, TraceStart, TraceTokenInput};
+use adapteros_db::{
+    recompute_receipt, SqlTraceSink, TraceFinalization, TraceSink, TraceStart, TraceTokenInput,
+};
 use blake3::Hasher;
 use libfuzzer_sys::fuzz_target;
 use rand::{Rng, SeedableRng};
@@ -59,6 +61,8 @@ fuzz_target!(|data: &[u8]| {
                 } else {
                     None
                 },
+                allowed_mask: None,
+                policy_overrides_applied: None,
                 backend_id: Some(if rng.gen_bool(0.5) {
                     "coreml".to_string()
                 } else {
@@ -71,7 +75,28 @@ fuzz_target!(|data: &[u8]| {
         }
 
         let outputs: Vec<u32> = (0..rng.gen_range(0..=5)).map(|_| rng.gen()).collect();
-        let _ = sink.finalize(&outputs).await;
+        let _ = sink
+            .finalize(TraceFinalization {
+                output_tokens: &outputs,
+                logical_prompt_tokens: 0,
+                prefix_cached_token_count: 0,
+                billed_input_tokens: 0,
+                logical_output_tokens: outputs.len() as u32,
+                billed_output_tokens: outputs.len() as u32,
+                stop_reason_code: None,
+                stop_reason_token_index: None,
+                stop_policy_digest_b3: None,
+                tenant_kv_quota_bytes: 0,
+                tenant_kv_bytes_used: 0,
+                kv_evictions: 0,
+                kv_residency_policy_id: None,
+                kv_quota_enforced: false,
+                prefix_kv_key_b3: None,
+                prefix_cache_hit: false,
+                prefix_kv_bytes: 0,
+                model_cache_identity_v2_digest_b3: None,
+            })
+            .await;
 
         // Corrupt one row with arbitrary fuzz data to exercise decode robustness
         let blob: Vec<u8> = data.iter().cloned().take(128).collect();

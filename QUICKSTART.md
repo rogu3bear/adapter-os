@@ -121,7 +121,7 @@ pnpm dev
 
 ## 6. Access the UI
 
-Open http://localhost:5173 in your browser.
+Open http://localhost:3200 in your browser.
 
 **Key Pages:**
 

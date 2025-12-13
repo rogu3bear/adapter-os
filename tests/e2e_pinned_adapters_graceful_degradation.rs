@@ -223,6 +223,9 @@ fn test_inference_result_has_pinned_adapter_fields() {
         determinism_mode_applied: None,
         replay_guarantee: None,
         placement_trace: None,
+        stop_reason_code: None,
+        stop_reason_token_index: None,
+        stop_policy_digest_b3: None,
     };
 
     // Verify fields are present and correct
@@ -269,6 +272,9 @@ fn test_inference_result_omits_none_pinned_fields() {
         determinism_mode_applied: None,
         replay_guarantee: None,
         placement_trace: None,
+        stop_reason_code: None,
+        stop_reason_token_index: None,
+        stop_policy_digest_b3: None,
     };
 
     // Verify None fields are properly set
@@ -378,6 +384,9 @@ fn test_graceful_degradation_http_200_behavior() {
         determinism_mode_applied: None,
         replay_guarantee: None,
         placement_trace: None,
+        stop_reason_code: None,
+        stop_reason_token_index: None,
+        stop_policy_digest_b3: None,
     };
 
     // Key assertions for graceful degradation compliance:

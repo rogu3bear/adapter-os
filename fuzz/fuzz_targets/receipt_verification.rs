@@ -1,7 +1,9 @@
 #![no_main]
 
 use adapteros_core::B3Hash;
-use adapteros_db::{recompute_receipt, SqlTraceSink, TraceStart, TraceTokenInput};
+use adapteros_db::{
+    recompute_receipt, SqlTraceSink, TraceFinalization, TraceSink, TraceStart, TraceTokenInput,
+};
 use blake3::Hasher;
 use libfuzzer_sys::fuzz_target;
 use rand::{Rng, SeedableRng};
@@ -47,11 +49,45 @@ fuzz_target!(|data: &[u8]| {
             adapter_ids: adapter_ids.clone(),
             gates_q15: gates_q15.clone(),
             policy_mask_digest: None,
+            allowed_mask: Some(vec![true, true]),
+            policy_overrides_applied: None,
             backend_id: Some("coreml".to_string()),
             kernel_version_id: Some("k1".to_string()),
         };
         let _ = sink.record_token(token).await;
-        let _ = sink.finalize(&[rng.gen()]).await;
+        let output_tokens = [rng.gen()];
+
+        // PRD-06: Fuzz with random model_cache_identity_v2_digest_b3 values
+        let model_cache_identity_v2_digest_b3 = if rng.gen::<bool>() {
+            // 50% chance of having a V2 digest
+            let digest_bytes: [u8; 32] = rng.gen();
+            Some(B3Hash::from_bytes(digest_bytes))
+        } else {
+            None
+        };
+
+        let _ = sink
+            .finalize(TraceFinalization {
+                output_tokens: &output_tokens,
+                logical_prompt_tokens: 0,
+                prefix_cached_token_count: 0,
+                billed_input_tokens: 0,
+                logical_output_tokens: output_tokens.len() as u32,
+                billed_output_tokens: output_tokens.len() as u32,
+                stop_reason_code: None,
+                stop_reason_token_index: None,
+                stop_policy_digest_b3: None,
+                tenant_kv_quota_bytes: 0,
+                tenant_kv_bytes_used: 0,
+                kv_evictions: 0,
+                kv_residency_policy_id: None,
+                kv_quota_enforced: false,
+                prefix_kv_key_b3: None,
+                prefix_cache_hit: false,
+                prefix_kv_bytes: 0,
+                model_cache_identity_v2_digest_b3,
+            })
+            .await;
 
         // Corrupt stored receipt data to fuzz verification
         let corrupt_hash: Vec<u8> = data.iter().cloned().take(64).collect();
