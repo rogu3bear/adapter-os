@@ -2283,6 +2283,7 @@ mod tests {
     use adapteros_aos::{AosWriter, BackendTag};
     use adapteros_core::B3Hash;
     use adapteros_lora_kernel_api::{attestation, FusedKernels, IoBuffers, RouterRing};
+    use adapteros_types::CoreMLOpKind;
     use safetensors::{serialize, tensor::TensorView};
     use std::path::PathBuf;
     use tempfile::tempdir;

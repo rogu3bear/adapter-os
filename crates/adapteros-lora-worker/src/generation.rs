@@ -1,7 +1,7 @@
 //! Token generation loop with sampling strategies
 
 use adapteros_core::{AosError, Result};
-use adapteros_lora_router::{AdapterInfo, PolicyMask};
+use adapteros_lora_router::{policy_mask::PolicyMask, AdapterInfo};
 use blake3::Hasher;
 use rand::Rng;
 use rand::SeedableRng;

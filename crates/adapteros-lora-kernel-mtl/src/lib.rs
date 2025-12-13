@@ -48,9 +48,11 @@ pub mod fused_qkv;
 pub mod gpu_memory_pool;
 pub mod keys;
 pub mod kv_cache;
+pub mod kv_quota;
 pub mod manifest;
 pub mod memory_integration;
 pub mod noise_tracker;
+pub mod purgeable;
 pub mod recovery;
 pub mod ring_buffer;
 pub mod rms_norm;
@@ -73,9 +75,11 @@ pub use coreml_backend::{
 pub use debug::{KernelDebugger, KernelParams};
 pub use fused_mlp::{FusedMlpKernel, LoraConfig};
 pub use fused_qkv::{FlashAttentionKernel, FusedQkvKernel, GqaConfig};
-pub use kv_cache::{CachedFlashAttention, KVCache, KVCacheConfig, LayerKVCache};
+pub use kv_cache::{CachedFlashAttention, KVCache, KVCacheConfig, KvResidency, LayerKVCache};
+pub use kv_quota::{COLD_DEMOTION_IDLE_TIME, HOT_PROMOTION_THRESHOLD, HOT_RECENCY_WINDOW};
 pub use manifest::{verify_embedded_manifest, KernelManifest};
 pub use noise_tracker::{NoiseTracker, NoiseTrackingConfig};
+pub use purgeable::{PurgeableBuffer, PurgeableResult, PurgeableState};
 #[cfg(target_os = "macos")]
 pub use recovery::RecoveryResult;
 pub use recovery::RecoveryWrapper;

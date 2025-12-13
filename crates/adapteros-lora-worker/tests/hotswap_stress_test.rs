@@ -350,7 +350,7 @@ async fn test_hotswap_concurrent_stress() {
                 for name in stack.active.keys() {
                     refcounts
                         .entry(name.clone())
-                        .or_insert_with(|| std::sync::atomic::AtomicUsize::new(0))
+                        .or_insert_with(|| std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)))
                         .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 }
             }

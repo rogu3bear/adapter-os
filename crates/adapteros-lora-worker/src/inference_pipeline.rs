@@ -15,7 +15,7 @@ use adapteros_core::{
 };
 use adapteros_lora_kernel_api::attestation::BackendType;
 use adapteros_lora_kernel_api::{FusedKernels, IoBuffers};
-use adapteros_lora_router::{AdapterInfo, PolicyMask, Router};
+use adapteros_lora_router::{policy_mask::PolicyMask, AdapterInfo, Router};
 use adapteros_policy::{PolicyEngine, QuarantineManager, QuarantineOperation};
 use adapteros_telemetry::events::{
     PerformanceBudgetViolationEvent, RouterCandidate, RouterDecisionEvent,
@@ -32,6 +32,7 @@ use crate::backend_factory::KernelBox;
 use crate::generation::Generator;
 use crate::router_bridge::decision_to_router_ring;
 use crate::routing_policy_filter::filter_decision_by_policy;
+use crate::stop_controller::StopController;
 use crate::tokenizer::QwenTokenizer;
 
 /// Configuration for inference pipeline
@@ -168,6 +169,8 @@ pub struct InferenceRequest {
     pub stack_version: Option<i64>,
     /// Optional routing policy resolved by control plane
     pub routing_policy: Option<adapteros_api_types::RoutingPolicy>,
+    /// Stop policy specification (PRD: Hard Deterministic Stop Controller)
+    pub stop_policy: Option<adapteros_api_types::inference::StopPolicySpec>,
 }
 
 /// Inference response with trace
@@ -185,6 +188,13 @@ pub struct InferenceResponse {
     pub stack_id: Option<String>,
     /// Stack version for telemetry correlation (PRD-03)
     pub stack_version: Option<i64>,
+    // Stop Controller Fields (PRD: Hard Deterministic Stop Controller)
+    /// Stop reason code explaining why generation terminated
+    pub stop_reason_code: Option<adapteros_api_types::inference::StopReasonCode>,
+    /// Token index at which the stop decision was made
+    pub stop_reason_token_index: Option<u32>,
+    /// BLAKE3 digest of the StopPolicySpec used
+    pub stop_policy_digest_b3: Option<adapteros_core::B3Hash>,
 }
 
 /// Trace information for reproducible inference
@@ -537,6 +547,15 @@ impl InferencePipeline {
         let mut current_tokens = input_tokens.clone();
         let mut total_router_time_us = 0u64;
 
+        // 3.5 Initialize stop controller (PRD: Hard Deterministic Stop Controller)
+        let mut stop_controller = StopController::from_policy_or_default(
+            request.stop_policy.clone(),
+            request.max_tokens as u32,
+        );
+        let stop_policy_digest = *stop_controller.policy_digest();
+        let mut stop_reason_code = None;
+        let mut stop_reason_token_index = None;
+
         // 4. Autoregressive generation loop
         for step in 0..request.max_tokens {
             // Prepare input for this step
@@ -714,9 +733,22 @@ impl InferencePipeline {
 
             router_decisions.push(event);
 
-            // 11. Check stopping criteria
-            if next_token == self.tokenizer.eos_token_id() {
-                debug!("EOS token encountered at step {}", step);
+            // 11. Check stopping criteria using StopController (PRD: Hard Deterministic Stop Controller)
+            if let Some(decision) = stop_controller.check_stop(
+                next_token,
+                self.tokenizer.eos_token_id(),
+                &io_buffers.output_logits,
+            ) {
+                stop_reason_code = Some(decision.reason);
+                stop_reason_token_index = Some(decision.token_index);
+                debug!(
+                    step,
+                    reason = %decision.reason,
+                    token_index = decision.token_index,
+                    "Stop controller triggered"
+                );
+                // For LENGTH stop (EOS token), don't include the EOS in output
+                // For other reasons, we've already decided to stop before appending
                 break;
             }
 
@@ -724,9 +756,11 @@ impl InferencePipeline {
             generated_tokens.push(next_token);
             current_tokens.push(next_token);
 
-            // Check max sequence length
+            // Check max sequence length (fallback for very long sequences)
             if current_tokens.len() >= self.config.max_seq_len {
                 warn!("Reached maximum sequence length");
+                stop_reason_code = Some(adapteros_api_types::inference::StopReasonCode::BudgetMax);
+                stop_reason_token_index = Some(step as u32);
                 break;
             }
         }
@@ -782,6 +816,9 @@ impl InferencePipeline {
             trace,
             stack_id: request.stack_id.clone(),
             stack_version: request.stack_version,
+            stop_reason_code,
+            stop_reason_token_index,
+            stop_policy_digest_b3: Some(stop_policy_digest),
         })
     }
 
@@ -975,6 +1012,7 @@ mod tests {
             stack_id: None,
             stack_version: None,
             routing_policy: None,
+            stop_policy: None,
         };
         assert_eq!(request.max_tokens, 100);
     }

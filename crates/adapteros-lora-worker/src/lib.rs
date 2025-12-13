@@ -52,6 +52,7 @@ use crate::device_placement::{
     DeviceKind, LaneDescriptor, PlacementDecision, PlacementEngine, TelemetryCollector,
 };
 use crate::memory::MemoryPressureLevel;
+use crate::request_pinner::RequestPinner;
 use crate::router_bridge::decision_to_router_ring_with_active_ids_and_strengths;
 use crate::routing_policy_filter::filter_decision_by_policy;
 use adapteros_api_types::{
@@ -60,9 +61,10 @@ use adapteros_api_types::{
 use adapteros_config::{resolve_index_root, PlacementConfig, PlacementMode, PlacementWeights};
 use adapteros_core::{
     determinism::{DeterminismContext, DeterminismSource},
-    AosError, B3Hash, BackendKind, FusionInterval, RepoAdapterPaths, Result, SeedMode,
+    determinism_violation_event, emit_observability_event, AosError, B3Hash, BackendKind,
+    DeterminismViolationKind, FusionInterval, RepoAdapterPaths, Result, SeedMode,
 };
-use adapteros_db::{Db, SqlTraceSink, TraceReceipt, TraceStart, TraceTokenInput};
+use adapteros_db::{Db, SqlTraceSink, TraceFinalization, TraceSink, TraceStart, TraceTokenInput};
 use adapteros_lora_kernel_api::{FusedKernels, IoBuffers, RouterRing};
 use adapteros_lora_rag::RagSystem;
 use adapteros_lora_router::{
@@ -82,7 +84,7 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::watch;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 pub mod adapter_hotswap;
@@ -107,6 +109,7 @@ pub mod generation;
 pub mod health;
 pub mod inference_metrics;
 pub mod inference_pipeline;
+pub mod kv_quota;
 pub mod kvcache;
 pub mod launcher;
 pub mod lifecycle_state;
@@ -121,11 +124,13 @@ pub mod model_loader;
 pub mod patch_generator;
 pub mod patch_telemetry;
 pub mod patch_validator;
+pub mod prefix_kv_cache;
 pub mod request_pinner;
 pub mod router_bridge;
 pub mod routing_policy_filter;
 pub mod services;
 pub mod signal;
+pub mod stop_controller;
 pub mod telemetry_adapter;
 pub mod telemetry_lora;
 pub mod test_executor;
@@ -137,8 +142,8 @@ pub mod vision_adapter;
 pub mod vision_lora;
 
 pub use adapter_hotswap::{
-    AdapterCommand, AdapterCommandResult, AdapterTable, GpuFingerprint, HotSwapManager,
-    HotSwapManagerNoKernel, Stack, StackCheckpoint,
+    AdapterCacheIdentity, AdapterCommand, AdapterCommandResult, AdapterTable, GpuFingerprint,
+    HotSwapManager, HotSwapManagerNoKernel, Stack, StackCheckpoint,
 };
 pub use adapteros_core::CircuitState;
 pub use adapteros_lora_rag::DocIndexImpl;
@@ -169,6 +174,7 @@ pub use health::{HealthConfig, HealthMonitor, ProcessHealthStatus as HealthStatu
 pub use inference_metrics::{
     AdapterStats, InferenceMeasurement, InferenceMetrics, InferenceMetricsCollector,
 };
+pub use kv_quota::{KvQuotaUsage, KvReservation, TenantKvQuotaManager};
 pub use kvcache::{KvCache, SequenceGuard};
 pub use limiter::{ResourceGuard, ResourceLimiter, ResourceLimits};
 pub use linter_runner::{
@@ -177,8 +183,10 @@ pub use linter_runner::{
 pub use llm_backend::{create_llm_backend, LlmBackendType, LocalLlmBackend, LocalLlmConfig};
 pub use memory::UmaPressureMonitor as MemoryMonitor;
 pub use model_handle_cache::{CacheStats, CachedModelEntry, ModelHandle, ModelHandleCache};
-pub use model_key::ModelKey;
+pub use model_key::{FusionMode, ModelCacheIdentityV2, ModelKey, QuantizationMode};
+pub use prefix_kv_cache::{PrefixKvCache, PrefixKvCacheStats, PrefixKvEntry};
 pub use model_loader::{ModelInfo, ModelLoader, QwenModel, QwenModelConfig, TransformerLayer};
+pub use stop_controller::{StopController, StopDecision};
 pub use telemetry_adapter::{
     SignalChannel, SignalSample, TelemetryAdapter, TelemetryAdapterConfig, TelemetryAdapterMetrics,
     TelemetryOutput,
@@ -666,10 +674,45 @@ pub struct InferenceRequest {
     /// Used to enforce allow/deny lists and max-adapter limits per token.
     #[serde(default)]
     pub routing_policy: Option<adapteros_api_types::RoutingPolicy>,
+
+    /// Optional stop policy for deterministic stop control (PRD: Hard Deterministic Stop Controller)
+    #[serde(default)]
+    pub stop_policy: Option<adapteros_api_types::inference::StopPolicySpec>,
 }
 
 fn default_determinism_mode() -> String {
     "strict".to_string()
+}
+
+/// Returns true when strict determinism protections should be enforced.
+fn strict_mode_enabled(strict_flag: bool, determinism_mode: &str) -> bool {
+    strict_flag || determinism_mode.eq_ignore_ascii_case("strict")
+}
+
+/// In strict mode, ensure router decision chain has matching gates and adapters.
+fn enforce_strict_router_chain(
+    strict_mode: bool,
+    base_only_request: bool,
+    chain: &[RouterDecisionChainEntry],
+) -> Result<()> {
+    if !strict_mode || base_only_request {
+        return Ok(());
+    }
+
+    for entry in chain {
+        if entry.gates_q15.is_empty() {
+            return Err(AosError::DeterminismViolation(
+                "strict mode requires gates_q15 for every routed token".to_string(),
+            ));
+        }
+        if entry.gates_q15.len() != entry.adapter_ids.len() {
+            return Err(AosError::DeterminismViolation(
+                "strict mode requires gates_q15 length to match adapter_ids".to_string(),
+            ));
+        }
+    }
+
+    Ok(())
 }
 
 /// Request type for different inference modes
@@ -796,6 +839,17 @@ pub struct InferenceResponse {
     /// Placement decisions per token (optional)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub placement_trace: Option<Vec<PlacementTraceEntry>>,
+
+    // Stop Controller Fields (PRD: Hard Deterministic Stop Controller)
+    /// Stop reason code explaining why generation terminated
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stop_reason_code: Option<adapteros_api_types::inference::StopReasonCode>,
+    /// Token index at which the stop decision was made
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stop_reason_token_index: Option<u32>,
+    /// BLAKE3 digest of the StopPolicySpec used (hex encoded)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stop_policy_digest_b3: Option<String>,
 }
 
 /// Patch proposal response with patches and citations
@@ -874,7 +928,7 @@ pub fn summarize_router_usage(
     base_only_request: bool,
     active_ids: &[String],
     k_sparse: usize,
-    router_decisions: Option<&Vec<adapteros_api_types::inference::RouterDecision>>,
+    router_decisions: Option<&[adapteros_api_types::inference::RouterDecision]>,
 ) -> RouterSummary {
     if base_only_request {
         return RouterSummary {
@@ -980,9 +1034,16 @@ fn fused_hash_for_interval(
     B3Hash::hash(&canonical_bytes)
 }
 
+fn fused_hash_for_decisions(
+    base_model_hash: &B3Hash,
+    decisions: &[adapteros_api_types::inference::RouterDecision],
+) -> B3Hash {
+    fused_hash_for_interval(base_model_hash, "fusion", decisions)
+}
+
 fn fusion_intervals_for_mode(
     mode: FusionInterval,
-    router_decisions: Option<&Vec<adapteros_api_types::inference::RouterDecision>>,
+    router_decisions: Option<&[adapteros_api_types::inference::RouterDecision]>,
     base_model_hash: &B3Hash,
 ) -> Option<Vec<FusionIntervalTrace>> {
     let decisions = router_decisions?;
@@ -991,11 +1052,14 @@ fn fusion_intervals_for_mode(
     }
 
     let mut intervals = Vec::new();
-    let mut current_interval = String::new();
-    let mut current_bucket: Vec<&adapteros_api_types::inference::RouterDecision> = Vec::new();
+    let mut start_idx = 0usize;
+    let mut current_interval = decisions[0]
+        .interval_id
+        .clone()
+        .unwrap_or_else(|| mode.interval_id_for_step(decisions[0].step));
 
     let mut push_bucket =
-        |interval_id: &str, bucket: &[&adapteros_api_types::inference::RouterDecision]| {
+        |interval_id: &str, bucket: &[adapteros_api_types::inference::RouterDecision]| {
             if bucket.is_empty() {
                 return;
             }
@@ -1010,26 +1074,20 @@ fn fusion_intervals_for_mode(
             });
         };
 
-    for decision in decisions {
+    for (idx, decision) in decisions.iter().enumerate().skip(1) {
         let interval_id = decision
             .interval_id
             .clone()
             .unwrap_or_else(|| mode.interval_id_for_step(decision.step));
 
-        if current_interval.is_empty() {
-            current_interval = interval_id.clone();
-        }
-
         if interval_id != current_interval {
-            push_bucket(&current_interval, &current_bucket);
-            current_bucket.clear();
-            current_interval = interval_id.clone();
+            push_bucket(&current_interval, &decisions[start_idx..idx]);
+            start_idx = idx;
+            current_interval = interval_id;
         }
-
-        current_bucket.push(decision);
     }
 
-    push_bucket(&current_interval, &current_bucket);
+    push_bucket(&current_interval, &decisions[start_idx..]);
 
     Some(intervals)
 }
@@ -1059,7 +1117,10 @@ mod fusion_interval_tests {
                 entropy: 0.4,
                 tau: 1.0,
                 entropy_floor: 0.1,
+                allowed_mask: None,
                 stack_hash: Some("stack-a".to_string()),
+                policy_mask_digest: None,
+                policy_overrides_applied: None,
                 interval_id: None,
             },
             RouterDecision {
@@ -1073,7 +1134,10 @@ mod fusion_interval_tests {
                 entropy: 0.5,
                 tau: 1.0,
                 entropy_floor: 0.1,
+                allowed_mask: None,
                 stack_hash: Some("stack-a".to_string()),
+                policy_mask_digest: None,
+                policy_overrides_applied: None,
                 interval_id: None,
             },
         ]
@@ -1083,9 +1147,12 @@ mod fusion_interval_tests {
     fn per_request_creates_single_interval() {
         let base = B3Hash::hash(b"base");
         let decisions = sample_decisions();
-        let intervals =
-            fusion_intervals_for_mode(FusionInterval::PerRequest, Some(&decisions), &base)
-                .expect("intervals exist");
+        let intervals = fusion_intervals_for_mode(
+            FusionInterval::PerRequest,
+            Some(decisions.as_slice()),
+            &base,
+        )
+        .expect("intervals exist");
 
         assert_eq!(intervals.len(), 1);
         assert_eq!(intervals[0].interval_id, "request-0");
@@ -1098,7 +1165,7 @@ mod fusion_interval_tests {
         let base = B3Hash::hash(b"base");
         let decisions = sample_decisions();
         let intervals =
-            fusion_intervals_for_mode(FusionInterval::PerToken, Some(&decisions), &base)
+            fusion_intervals_for_mode(FusionInterval::PerToken, Some(decisions.as_slice()), &base)
                 .expect("intervals exist");
 
         assert_eq!(intervals.len(), decisions.len());
@@ -1110,10 +1177,18 @@ mod fusion_interval_tests {
     fn fused_hash_is_stable_for_same_inputs() {
         let base = B3Hash::hash(b"base");
         let decisions = sample_decisions();
-        let first = fusion_intervals_for_mode(FusionInterval::PerRequest, Some(&decisions), &base)
-            .expect("intervals");
-        let second = fusion_intervals_for_mode(FusionInterval::PerRequest, Some(&decisions), &base)
-            .expect("intervals");
+        let first = fusion_intervals_for_mode(
+            FusionInterval::PerRequest,
+            Some(decisions.as_slice()),
+            &base,
+        )
+        .expect("intervals");
+        let second = fusion_intervals_for_mode(
+            FusionInterval::PerRequest,
+            Some(decisions.as_slice()),
+            &base,
+        )
+        .expect("intervals");
 
         assert_eq!(
             first[0].fused_weight_hash, second[0].fused_weight_hash,
@@ -1130,7 +1205,7 @@ mod fusion_interval_tests {
             .for_each(|d| d.interval_id = Some("segment-0".to_string()));
 
         let intervals =
-            fusion_intervals_for_mode(FusionInterval::PerToken, Some(&decisions), &base)
+            fusion_intervals_for_mode(FusionInterval::PerToken, Some(decisions.as_slice()), &base)
                 .expect("intervals");
 
         assert_eq!(intervals.len(), 1, "custom interval ids control grouping");
@@ -1147,7 +1222,8 @@ mod router_summary_tests {
 
     #[test]
     fn base_only_summary_is_empty() {
-        let summary = summarize_router_usage(true, &[], 2, Some(&Vec::new()));
+        let empty_decisions: Vec<RouterDecision> = Vec::new();
+        let summary = summarize_router_usage(true, &[], 2, Some(empty_decisions.as_slice()));
         assert!(summary.adapters_used.is_empty());
         assert!(summary.avg_activations.is_empty());
     }
@@ -1166,11 +1242,13 @@ mod router_summary_tests {
             tau: 0.0,
             entropy_floor: 0.0,
             stack_hash: None,
+            interval_id: None,
+            allowed_mask: None,
             policy_mask_digest: None,
             policy_overrides_applied: None,
         }];
         let active_ids = vec!["adapter-a".to_string(), "adapter-b".to_string()];
-        let summary = summarize_router_usage(false, &active_ids, 2, Some(&decisions));
+        let summary = summarize_router_usage(false, &active_ids, 2, Some(decisions.as_slice()));
         assert_eq!(summary.adapters_used, vec!["adapter-b".to_string()]);
         assert_eq!(summary.avg_activations.len(), 1);
     }
@@ -1349,6 +1427,8 @@ pub struct Worker<K: FusedKernels + StrictnessControl + Send + Sync> {
     shutdown_tx: watch::Sender<()>,
     /// Active training jobs with their cancellation tokens
     pub active_training_jobs: Arc<RwLock<HashMap<String, Arc<AtomicBool>>>>,
+    /// Worker ID for identity tracking (PRD-06)
+    worker_id: u32,
 }
 
 impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
@@ -1364,6 +1444,8 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         telemetry: TelemetryWriter,
         coreml_package_hash: Option<String>,
         coreml_verification: Option<CoremlVerificationSnapshot>,
+        quota_manager: Option<Arc<TenantKvQuotaManager>>,
+        worker_id: u32,
     ) -> Result<Self> {
         // Initialize determinism guards first
         init_determinism_guards()?;
@@ -1445,8 +1527,9 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         };
 
         // Initialize kv_cache with Arc<StdMutex<>> for interior mutability
-        let kv_cache = Arc::new(StdMutex::new(KvCache::new(
+        let kv_cache = Arc::new(StdMutex::new(KvCache::new_with_quota(
             adapteros_core::constants::BYTES_PER_GB,
+            quota_manager,
         ))); // 1GB default
         let last_stack_hash = RwLock::new(None);
 
@@ -1521,6 +1604,14 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             Some(Arc::new(telemetry.clone())),
         ));
 
+        hotswap.set_cache_identity(AdapterCacheIdentity {
+            base_manifest_hash: Some(manifest.seeds.manifest_hash),
+            backend_type: available_backends.primary.as_str().to_string(),
+            kernel_version_id: adapteros_core::version::VERSION.to_string(),
+            tenant_id: Some(tenant_id.to_string()),
+            adapter_dir_hash: None,
+        });
+
         // Retirement task management
         let (shutdown_tx, _shutdown_rx) = watch::channel(());
         let retirement_handle = Some(hotswap.clone().start_retirement_task());
@@ -1586,6 +1677,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             retirement_handle,
             shutdown_tx,
             active_training_jobs,
+            worker_id,
         })
     }
 
@@ -1808,6 +1900,41 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         (coreml, fallback_backend)
     }
 
+    /// Compute the ModelCacheIdentityV2 digest for this worker (PRD-06)
+    ///
+    /// This digest uniquely identifies the cache configuration used for inference,
+    /// including kernel, quantization, tokenizer, tenant, and worker identity.
+    fn compute_model_cache_identity_v2_digest(&self, backend: BackendKind) -> B3Hash {
+        use adapteros_lora_kernel_api::attestation::BackendType;
+
+        // Convert BackendKind to BackendType for identity computation
+        let backend_type = match backend {
+            BackendKind::CoreML => BackendType::CoreML,
+            BackendKind::Metal => BackendType::Metal,
+            BackendKind::Mlx => BackendType::Mlx,
+            BackendKind::CPU | BackendKind::Auto => BackendType::Mock, // Fallback for non-accelerated
+        };
+
+        let identity = ModelCacheIdentityV2::for_backend_with_tokenizer(
+            backend_type,
+            self.manifest.base.tokenizer_hash,
+            self.manifest.base.tokenizer_cfg_hash,
+            self.tenant_namespace.clone(),
+            self.worker_id,
+        );
+
+        // PRD-06: Validate identity is complete
+        // Debug builds: panic to catch issues early
+        // Release builds: warn but continue (backward compat)
+        if let Err(e) = identity.validate_strict() {
+            tracing::warn!(error = %e, "ModelCacheIdentityV2 validation failed - proceeding with potentially incomplete identity");
+            #[cfg(debug_assertions)]
+            panic!("ModelCacheIdentityV2 validation failed: {}", e);
+        }
+
+        identity.digest()
+    }
+
     /// Run inference with comprehensive safety mechanisms
     pub async fn infer(&mut self, request: InferenceRequest) -> Result<InferenceResponse> {
         let start_time = Instant::now();
@@ -1865,7 +1992,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         );
 
         let strict_mode_active =
-            strict_mode_enabled(request.strict_mode, request.determinism_mode.as_deref());
+            strict_mode_enabled(request.strict_mode, &request.determinism_mode);
 
         // Resolve backend lane for this request
         let requested_backend = request.backend_profile;
@@ -1897,6 +2024,15 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         let kernel_version_id = adapteros_core::version::VERSION.to_string();
 
         if strict_mode_active && kernel_version_id.is_empty() {
+            emit_observability_event(&determinism_violation_event(
+                DeterminismViolationKind::Unknown,
+                None,
+                Some(self.manifest.base.model_hash.to_hex()),
+                None,
+                true,
+                Some(request.cpid.clone()),
+                None,
+            ));
             return Err(AosError::DeterminismViolation(
                 "Strict determinism mode requires kernel_version_id".to_string(),
             ));
@@ -1906,6 +2042,15 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         let allowed_indices = self.validate_effective_adapter_gate(&request)?;
 
         if matches!(request.seed_mode, Some(SeedMode::Strict)) && request.request_seed.is_none() {
+            emit_observability_event(&determinism_violation_event(
+                DeterminismViolationKind::Unknown,
+                None,
+                Some(self.manifest.base.model_hash.to_hex()),
+                None,
+                true,
+                Some(request.cpid.clone()),
+                None,
+            ));
             return Err(AosError::DeterminismViolation(
                 "Strict seed_mode requires request_seed".to_string(),
             ));
@@ -2034,6 +2179,9 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                         unavailable_pinned_adapters: unavailable_pinned_adapters.clone(),
                         pinned_routing_fallback: pinned_routing_fallback.clone(),
                         placement_trace: None,
+                        stop_reason_code: None,
+                        stop_reason_token_index: None,
+                        stop_policy_digest_b3: None,
                     });
                 }
             }
@@ -2141,6 +2289,15 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         };
 
         if strict_mode_active && trace_sink.is_none() {
+            emit_observability_event(&determinism_violation_event(
+                DeterminismViolationKind::Unknown,
+                None,
+                Some(self.manifest.base.model_hash.to_hex()),
+                None,
+                true,
+                Some(request.cpid.clone()),
+                None,
+            ));
             return Err(AosError::DeterminismViolation(
                 "Strict determinism mode requires active trace sink".to_string(),
             ));
@@ -2160,9 +2317,6 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             .collect();
 
         if active_entries.is_empty() {
-            if let Some(sink) = trace_sink.as_mut() {
-                sink.fail("error").await.ok();
-            }
             return Err(AosError::Worker(
                 "No active adapters available for routing".to_string(),
             ));
@@ -2250,9 +2404,6 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
 
         if let Some(ref allowed) = allowed_active_indices {
             if allowed.is_empty() && !base_only_request {
-                if let Some(sink) = trace_sink.as_mut() {
-                    sink.fail("error").await.ok();
-                }
                 return Err(AosError::Worker(
                     "Effective adapter set has no overlap with active stack".to_string(),
                 ));
@@ -2332,6 +2483,11 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         }
 
         // Build deterministic policy mask from routing policy + effective set.
+        if request.routing_policy.is_none() {
+            return Err(AosError::PolicyViolation(
+                "Routing policy missing for inference request".to_string(),
+            ));
+        }
         let policy_mask_digest_seed = request
             .routing_policy
             .as_ref()
@@ -2358,6 +2514,15 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         let mut previous_chain_hash: Option<String> = None;
         let mut placement_trace: Vec<PlacementTraceEntry> = Vec::new();
         let mut run_receipt: Option<RunReceipt> = None;
+
+        // Initialize stop controller (PRD: Hard Deterministic Stop Controller)
+        let mut stop_controller = StopController::from_policy_or_default(
+            request.stop_policy.clone(),
+            request.max_tokens as u32,
+        );
+        let stop_policy_digest = *stop_controller.policy_digest();
+        let mut stop_reason_code = None;
+        let mut stop_reason_token_index = None;
 
         // Autoregressive generation loop
         for step in 0..request.max_tokens {
@@ -2426,6 +2591,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 tau: self.router.tau(),
                 entropy_floor: self.router.eps(),
                 stack_hash: self.router.stack_hash(),
+                allowed_mask: Some(policy_mask.allowed.clone()),
                 interval_id: Some(fusion_interval.interval_id_for_step(step)),
                 policy_mask_digest: decision.policy_mask_digest,
                 policy_overrides_applied: decision.policy_overrides_applied.as_ref().map(|flags| {
@@ -2538,9 +2704,6 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                                     .clone()
                                     .unwrap_or_default(),
                             };
-                            if let Some(sink) = trace_sink.as_mut() {
-                                sink.fail("error").await.ok();
-                            }
                             return Err(err);
                         }
                     }
@@ -2560,9 +2723,6 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                                 adapter_id,
                                 current_state: state.to_string(),
                             };
-                            if let Some(sink) = trace_sink.as_mut() {
-                                sink.fail("error").await.ok();
-                            }
                             return Err(err);
                         }
                     }
@@ -2570,35 +2730,23 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             }
 
             if let Some(sink) = trace_sink.as_mut() {
-                let (fusion_interval_id, fused_weight_hash) = match fusion_interval {
-                    FusionInterval::PerToken => {
-                        let fused_hash = router_decisions_collected.last().map(|decision| {
-                            fused_hash_for_decisions(
-                                &self.manifest.base.model_hash,
-                                std::slice::from_ref(decision),
-                            )
-                            .to_bytes()
-                        });
-                        (Some(format!("token-{}", step)), fused_hash)
-                    }
-                    FusionInterval::PerSegment { tokens_per_segment } => {
-                        let segment = tokens_per_segment.max(1) as usize;
-                        (Some(format!("segment-{}", step / segment)), None)
-                    }
-                    FusionInterval::PerRequest => (Some("request-0".to_string()), None),
-                };
                 let token_input = TraceTokenInput {
                     token_index: step as u32,
                     adapter_ids: adapter_ids_for_trace.clone(),
                     gates_q15: decision.gates_q15.iter().copied().collect(),
                     policy_mask_digest,
+                    allowed_mask: Some(policy_mask.allowed.clone()),
+                    policy_overrides_applied: decision.policy_overrides_applied.as_ref().map(
+                        |flags| adapteros_api_types::inference::PolicyOverrideFlags {
+                            allow_list: flags.allow_list,
+                            deny_list: flags.deny_list,
+                            trust_state: flags.trust_state,
+                        },
+                    ),
                     backend_id: Some(backend_label.clone()),
                     kernel_version_id: Some(kernel_version_id.clone()),
-                    fusion_interval_id,
-                    fused_weight_hash,
                 };
                 if let Err(e) = sink.record_token(token_input).await {
-                    sink.fail("error").await.ok();
                     return Err(e);
                 }
             }
@@ -2670,8 +2818,22 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             // Sample next token
             let next_token = self.generator.next_token(&io_buffers.output_logits)?;
 
-            // Check stopping criteria
-            if next_token == self.tokenizer.eos_token_id() {
+            // Check stopping criteria using StopController (PRD: Hard Deterministic Stop Controller)
+            if let Some(decision) = stop_controller.check_stop(
+                next_token,
+                self.tokenizer.eos_token_id(),
+                &io_buffers.output_logits,
+            ) {
+                stop_reason_code = Some(decision.reason);
+                stop_reason_token_index = Some(decision.token_index);
+                debug!(
+                    step,
+                    reason = %decision.reason,
+                    token_index = decision.token_index,
+                    "Stop controller triggered"
+                );
+                // For LENGTH stop (EOS token), don't include the EOS in output
+                // For other reasons, we've already decided to stop before appending
                 break;
             }
 
@@ -2703,8 +2865,43 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         let (coreml_runtime, fallback_backend) =
             self.runtime_metadata_for_response(fallback_triggered);
 
+        let logical_prompt_tokens: u32 = prompt_tokens.len().try_into().unwrap_or(u32::MAX);
+        let logical_output_tokens: u32 = generated_tokens.len().try_into().unwrap_or(u32::MAX);
+        // TODO(PRD-01): replace with PrefixKvCache-derived reuse once available.
+        let prefix_cached_token_count: u32 = 0;
+        let billed_input_tokens = logical_prompt_tokens.saturating_sub(prefix_cached_token_count);
+        let billed_output_tokens = logical_output_tokens;
+
+        // PRD-06: Compute model cache identity v2 digest
+        let model_cache_identity_v2_digest =
+            self.compute_model_cache_identity_v2_digest(resolved_backend);
+
         if let Some(sink) = trace_sink.as_mut() {
-            match sink.finalize(&generated_tokens).await {
+            match sink
+                .finalize(TraceFinalization {
+                    output_tokens: &generated_tokens,
+                    logical_prompt_tokens,
+                    prefix_cached_token_count,
+                    billed_input_tokens,
+                    logical_output_tokens,
+                    billed_output_tokens,
+                    stop_reason_code: stop_reason_code.map(|c| c.to_string()),
+                    stop_reason_token_index,
+                    stop_policy_digest_b3: Some(stop_policy_digest),
+                    tenant_kv_quota_bytes: 0,
+                    tenant_kv_bytes_used: 0,
+                    kv_evictions: 0,
+                    kv_residency_policy_id: None,
+                    kv_quota_enforced: false,
+                    // TODO(PRD-01): Wire up from PrefixKvCache
+                    prefix_kv_key_b3: None,
+                    prefix_cache_hit: false,
+                    prefix_kv_bytes: 0,
+                    // PRD-06: Model cache identity v2 digest
+                    model_cache_identity_v2_digest_b3: Some(model_cache_identity_v2_digest),
+                })
+                .await
+            {
                 Ok(receipt) => {
                     run_receipt = Some(RunReceipt {
                         trace_id: receipt.trace_id.clone(),
@@ -2713,10 +2910,28 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                         receipt_digest: receipt.receipt_digest,
                         signature: receipt.signature.as_ref().map(base64::encode),
                         attestation: receipt.attestation.as_ref().map(base64::encode),
+                        logical_prompt_tokens,
+                        prefix_cached_token_count,
+                        billed_input_tokens,
+                        logical_output_tokens,
+                        billed_output_tokens,
+                        stop_reason_code,
+                        stop_reason_token_index,
+                        stop_policy_digest_b3: Some(stop_policy_digest),
+                        tenant_kv_quota_bytes: 0,
+                        tenant_kv_bytes_used: 0,
+                        kv_evictions: 0,
+                        kv_residency_policy_id: None,
+                        kv_quota_enforced: false,
+                        // TODO(PRD-01): Wire up from PrefixKvCache
+                        prefix_kv_key_b3: None,
+                        prefix_cache_hit: false,
+                        prefix_kv_bytes: 0,
+                        // PRD-06: Model cache identity v2 digest (from receipt)
+                        model_cache_identity_v2_digest_b3: receipt.model_cache_identity_v2_digest_b3,
                     });
                 }
                 Err(e) => {
-                    sink.fail("error").await.ok();
                     return Err(e);
                 }
             }
@@ -2725,9 +2940,15 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         if let Some(profile) = request.backend_profile {
             let expected = profile.as_str();
             if backend_used.to_lowercase() != expected {
-                if let Some(sink) = trace_sink.as_mut() {
-                    sink.fail("error").await.ok();
-                }
+                emit_observability_event(&determinism_violation_event(
+                    DeterminismViolationKind::Unknown,
+                    None,
+                    Some(self.manifest.base.model_hash.to_hex()),
+                    None,
+                    true,
+                    Some(request.cpid.clone()),
+                    None,
+                ));
                 return Err(AosError::DeterminismViolation(format!(
                     "Backend profile mismatch: requested {}, got {}",
                     expected, backend_used
@@ -2793,6 +3014,9 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             } else {
                 Some(placement_trace)
             },
+            stop_reason_code,
+            stop_reason_token_index,
+            stop_policy_digest_b3: Some(stop_policy_digest.to_hex()),
         })
     }
 
@@ -3159,6 +3383,9 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             unavailable_pinned_adapters,
             pinned_routing_fallback,
             placement_trace: None,
+            stop_reason_code: None,
+            stop_reason_token_index: None,
+            stop_policy_digest_b3: None,
         })
     }
 
@@ -3284,12 +3511,12 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             base_only_request,
             &active_pool,
             self.manifest.router.k_sparse,
-            router_decisions.as_ref(),
+            router_decisions.as_deref(),
         );
 
         let fusion_intervals = fusion_intervals_for_mode(
             fusion_interval,
-            router_decisions.as_ref(),
+            router_decisions.as_deref(),
             &self.manifest.base.model_hash,
         );
 
@@ -3791,9 +4018,9 @@ mod strict_mode_guard_tests {
 
     #[test]
     fn detects_strict_mode() {
-        assert!(strict_mode_enabled(true, None));
-        assert!(strict_mode_enabled(false, Some("strict")));
-        assert!(!strict_mode_enabled(false, Some("relaxed")));
+        assert!(strict_mode_enabled(true, ""));
+        assert!(strict_mode_enabled(false, "strict"));
+        assert!(!strict_mode_enabled(false, "relaxed"));
     }
 
     #[test]

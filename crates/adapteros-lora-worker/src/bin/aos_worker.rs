@@ -15,8 +15,9 @@ use adapteros_core::{AosError, B3Hash, ExecutionProfile, Result, SeedMode, Worke
 use adapteros_lora_worker::{
     backend_coordinator::BackendCoordinator,
     backend_factory::{
-        create_backend_with_model_and_hash, detect_capabilities as detect_backend_capabilities,
-        select_backend_from_execution_profile, BackendChoice, SelectionContext,
+        configure_model_cache_telemetry, create_backend_with_model_and_hash,
+        detect_capabilities as detect_backend_capabilities, select_backend_from_execution_profile,
+        BackendChoice, SelectionContext,
     },
     health::{HealthEvent, HealthTick},
     uds_server::UdsServer,
@@ -76,9 +77,17 @@ fn write_debug_log(hypothesis_id: &str, location: &str, message: &str, data: ser
 // Global state for panic hook (must be static for panic handler access)
 static WORKER_IDENTITY: OnceLock<WorkerIdentity> = OnceLock::new();
 
+/// Worker registration result
+struct RegistrationResult {
+    accepted: bool,
+    heartbeat_interval_secs: u32,
+    kv_quota_bytes: Option<u64>,
+    kv_residency_policy_id: Option<String>,
+}
+
 /// Register worker with control plane
 ///
-/// Returns (accepted, heartbeat_interval_secs) on success.
+/// Returns registration result on success.
 /// Returns error message on rejection or communication failure.
 fn register_with_cp(
     cp_url: &str,
@@ -90,7 +99,7 @@ fn register_with_cp(
     model_hash: &str,
     uds_path: &str,
     capabilities: &[String],
-) -> std::result::Result<(bool, u32), String> {
+) -> std::result::Result<RegistrationResult, String> {
     let registration = serde_json::json!({
         "worker_id": worker_id,
         "tenant_id": tenant_id,
@@ -122,6 +131,9 @@ fn register_with_cp(
                 Ok(json) => {
                     let accepted = json["accepted"].as_bool().unwrap_or(false);
                     let heartbeat = json["heartbeat_interval_secs"].as_u64().unwrap_or(30) as u32;
+                    let kv_quota_bytes = json["kv_quota_bytes"].as_u64();
+                    let kv_residency_policy_id =
+                        json["kv_residency_policy_id"].as_str().map(String::from);
 
                     if !accepted {
                         let reason = json["rejection_reason"]
@@ -130,7 +142,12 @@ fn register_with_cp(
                             .to_string();
                         Err(reason)
                     } else {
-                        Ok((true, heartbeat))
+                        Ok(RegistrationResult {
+                            accepted: true,
+                            heartbeat_interval_secs: heartbeat,
+                            kv_quota_bytes,
+                            kv_residency_policy_id,
+                        })
                     }
                 }
                 Err(e) => Err(format!("Invalid response: {}", e)),
@@ -1224,32 +1241,13 @@ async fn main() -> Result<()> {
         source = %resolved_telemetry.source,
         "Telemetry writer initialized"
     );
-
-    // Create worker
-    info!("Creating worker instance");
-    let backend_label = backend_choice.as_str();
-
-    let worker = Worker::new(
-        manifest,
-        &args.tenant_id,
-        kernels,
-        available_backends,
-        None, // No RAG system for now
-        tokenizer_path.to_str().unwrap_or(""),
-        model_path.to_str().unwrap_or(""),
-        telemetry,
-        coreml_package_hash_hex.clone(),
-        coreml_verification.clone(),
-    )
-    .await?;
-
-    let worker = Arc::new(Mutex::new(worker));
-    let drain_flag = Arc::new(AtomicBool::new(false));
+    configure_model_cache_telemetry(telemetry.clone());
 
     // Track lifecycle locally for state validation
     let mut lifecycle = WorkerStatus::Created;
+    let backend_label = backend_choice.as_str();
 
-    // Register with control plane
+    // Register with control plane first to get quota allocation
     let capabilities = detect_capabilities(backend_label);
     let uds_path_str = uds_path.to_string_lossy().to_string();
 
@@ -1264,7 +1262,7 @@ async fn main() -> Result<()> {
         "Registering with control plane"
     );
 
-    let heartbeat_interval = match register_with_cp(
+    let registration_result = match register_with_cp(
         &args.cp_url,
         &worker_id,
         &args.tenant_id,
@@ -1275,7 +1273,7 @@ async fn main() -> Result<()> {
         &uds_path_str,
         &capabilities,
     ) {
-        Ok((_, heartbeat)) => {
+        Ok(result) => {
             // #region agent log
             write_debug_log(
                 "H4",
@@ -1286,7 +1284,9 @@ async fn main() -> Result<()> {
                     "tenant_id": args.tenant_id,
                     "manifest_hash": manifest_hash_hex,
                     "backend": backend_label,
-                    "heartbeat": heartbeat
+                    "heartbeat": result.heartbeat_interval_secs,
+                    "kv_quota_bytes": result.kv_quota_bytes,
+                    "kv_residency_policy_id": result.kv_residency_policy_id,
                 }),
             );
             // #endregion
@@ -1303,10 +1303,12 @@ async fn main() -> Result<()> {
                 &manifest_hash_hex,
             );
             info!(
-                heartbeat_interval = heartbeat,
+                heartbeat_interval = result.heartbeat_interval_secs,
+                kv_quota_bytes = ?result.kv_quota_bytes,
+                kv_residency_policy_id = ?result.kv_residency_policy_id,
                 "Worker registration accepted by control plane"
             );
-            heartbeat
+            result
         }
         Err(reason) => {
             // #region agent log
@@ -1339,6 +1341,69 @@ async fn main() -> Result<()> {
             return Err(AosError::Worker(format!("Registration failed: {}", reason)));
         }
     };
+
+    // Create KV quota manager from registration response
+    let quota_manager = Arc::new(adapteros_lora_worker::TenantKvQuotaManager::new(
+        args.tenant_id.clone(),
+        registration_result.kv_quota_bytes,
+    ));
+
+    info!(
+        tenant_id = %args.tenant_id,
+        kv_quota_bytes = ?registration_result.kv_quota_bytes,
+        kv_residency_policy_id = ?registration_result.kv_residency_policy_id,
+        quota_enforced = quota_manager.is_quota_enforced(),
+        "KV quota manager initialized"
+    );
+
+    // Create worker with quota manager
+    info!("Creating worker instance");
+
+    // Fail fast on non-UTF8 paths rather than silently coercing to "".
+    // Determinism expectation: invalid configuration must error, not change behavior.
+    let tokenizer_path_str = tokenizer_path.to_str().ok_or_else(|| {
+        AosError::Validation(format!(
+            "Tokenizer path is not valid UTF-8: {:?} (display: {})",
+            tokenizer_path,
+            tokenizer_path.display()
+        ))
+    })?;
+    let model_path_str = model_path.to_str().ok_or_else(|| {
+        AosError::Validation(format!(
+            "Model path is not valid UTF-8: {:?} (display: {})",
+            model_path,
+            model_path.display()
+        ))
+    })?;
+
+    // PRD-06: Compute worker_id as u32 from BLAKE3 hash for deterministic identity binding
+    // Using BLAKE3 ensures stability across Rust versions (unlike DefaultHasher)
+    let worker_id_u32 = {
+        let hash = adapteros_core::B3Hash::hash(worker_id.as_bytes());
+        let bytes: [u8; 4] = hash.as_bytes()[0..4].try_into().unwrap_or([0; 4]);
+        u32::from_le_bytes(bytes)
+    };
+
+    let worker = Worker::new(
+        manifest,
+        &args.tenant_id,
+        kernels,
+        available_backends,
+        None, // No RAG system for now
+        tokenizer_path_str,
+        model_path_str,
+        telemetry,
+        coreml_package_hash_hex.clone(),
+        coreml_verification.clone(),
+        Some(quota_manager),
+        worker_id_u32,
+    )
+    .await?;
+
+    let worker = Arc::new(Mutex::new(worker));
+    let drain_flag = Arc::new(AtomicBool::new(false));
+
+    let heartbeat_interval = registration_result.heartbeat_interval_secs;
 
     // Align health monitoring interval with control plane heartbeat expectation
     {

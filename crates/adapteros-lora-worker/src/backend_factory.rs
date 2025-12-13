@@ -6,23 +6,25 @@
 //! ## Model Caching
 //!
 //! The factory uses a per-worker model cache to deduplicate loaded models.
-//! Models are cached by `(backend_type, manifest_hash)` key, so:
-//! - Different backends cache separately (Metal vs MLX)
-//! - Different model versions cache separately (different config.json)
-//! - Same model requested twice returns the cached version
+//! Models are cached by `(backend_type, manifest_hash, kernel_version, quantization, fusion_mode)`
+//! to align with the context manifest and avoid cross-build reuse.
 
 use crate::model_handle_cache::{ModelHandle, ModelHandleCache};
-use crate::model_key::ModelKey;
+use crate::model_key::{ModelCacheIdentity, ModelKey};
 use adapteros_config::{model, BackendPreference, ConfigLoader, ModelConfig};
 use adapteros_core::{
     backend::BackendKind, constants::BYTES_PER_MB, AosError, B3Hash, ExecutionProfile, Result,
 };
 use adapteros_lora_kernel_api::attestation::BackendType;
 use adapteros_lora_kernel_api::FusedKernels;
+use adapteros_telemetry::TelemetryWriter;
 use once_cell::sync::Lazy;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tracing::{debug, error, info, warn};
+
+#[cfg(any(target_os = "macos", feature = "multi-backend"))]
+use serde_json::Value;
 
 #[cfg(all(target_os = "macos", feature = "coreml-backend"))]
 use adapteros_config::CoreMLComputePreference;
@@ -117,6 +119,78 @@ static MODEL_CACHE: Lazy<ModelHandleCache> = Lazy::new(|| {
     );
     ModelHandleCache::new(max_bytes)
 });
+
+/// Configure telemetry writer for model cache failure reporting.
+pub fn configure_model_cache_telemetry(writer: TelemetryWriter) {
+    MODEL_CACHE.set_telemetry(writer);
+}
+
+#[cfg(any(target_os = "macos", feature = "multi-backend"))]
+fn build_model_cache_identity(backend_type: BackendType, model_path: &Path) -> ModelCacheIdentity {
+    let kernel_version_id = adapteros_core::version::VERSION.to_string();
+    let quantization_mode = detect_quantization_mode(model_path).unwrap_or_else(|| {
+        crate::model_key::quantization_tag_for_backend(backend_type).to_string()
+    });
+    let fusion_mode =
+        fusion_interval_mode_from_env().unwrap_or_else(crate::model_key::default_fusion_tag);
+
+    ModelCacheIdentity {
+        kernel_version_id,
+        quantization_mode,
+        fusion_mode,
+        build_id: Some(adapteros_core::version::VERSION.to_string()),
+        adapter_dir_hash: None,
+    }
+}
+
+#[cfg(any(target_os = "macos", feature = "multi-backend"))]
+fn fusion_interval_mode_from_env() -> Option<String> {
+    let raw = std::env::var("AOS_FUSION_INTERVAL_MODE")
+        .or_else(|_| std::env::var("AOS_FUSION_MODE"))
+        .ok()?;
+
+    let normalized = raw.to_lowercase();
+    if normalized == "per_request" {
+        Some("per_request".to_string())
+    } else if normalized == "per_token" {
+        Some("per_token".to_string())
+    } else if let Some(rest) = normalized.strip_prefix("per_segment:") {
+        Some(format!("per_segment-{}", rest))
+    } else {
+        warn!(
+            mode = %raw,
+            "Unrecognized fusion interval mode; falling back to default"
+        );
+        None
+    }
+}
+
+#[cfg(any(target_os = "macos", feature = "multi-backend"))]
+fn detect_quantization_mode(model_path: &Path) -> Option<String> {
+    let config_path = if model_path.is_dir() {
+        model_path.join("config.json")
+    } else {
+        model_path.to_path_buf()
+    };
+
+    let contents = std::fs::read_to_string(&config_path).ok()?;
+    let json: Value = serde_json::from_str(&contents).ok()?;
+
+    if let Some(qcfg) = json.get("quantization_config") {
+        let digest = B3Hash::hash(serde_json::to_vec(qcfg).unwrap_or_default().as_slice());
+        return Some(format!("quant_cfg-{}", &digest.to_hex()[..12]));
+    }
+
+    if let Some(q) = json.get("quantization") {
+        if let Some(as_str) = q.as_str() {
+            return Some(format!("quantization-{as_str}"));
+        }
+        let digest = B3Hash::hash(serde_json::to_vec(q).unwrap_or_default().as_slice());
+        return Some(format!("quantization-{}", &digest.to_hex()[..12]));
+    }
+
+    None
+}
 
 /// Canonical backend choice for kernel creation.
 ///
@@ -775,7 +849,11 @@ fn create_mlx_backend(model_path: &Path, manifest_hash: Option<&B3Hash>) -> Resu
     }
 
     // Create cache key - prefer manifest hash when available for canonical identity
-    let cache_key = ModelKey::new(BackendType::Mlx, *manifest_hash);
+    let cache_key = ModelKey::new(
+        BackendType::Mlx,
+        *manifest_hash,
+        build_model_cache_identity(BackendType::Mlx, &model_path),
+    );
     let model_arc = MODEL_CACHE
         .get_or_load(&cache_key, || {
             let model = MLXFFIModel::load(&model_path).map_err(|e| {
@@ -865,7 +943,11 @@ fn create_metal_backend(model_path: &Path, manifest_hash: Option<&B3Hash>) -> Re
     }
 
     // Create cache key - prefer manifest hash when available for canonical identity
-    let cache_key = ModelKey::new(BackendType::Metal, *manifest_hash);
+    let cache_key = ModelKey::new(
+        BackendType::Metal,
+        *manifest_hash,
+        build_model_cache_identity(BackendType::Metal, model_path),
+    );
     let model_bytes_arc = MODEL_CACHE
         .get_or_load(&cache_key, || {
             let bytes = load_model_bytes(model_path)?;

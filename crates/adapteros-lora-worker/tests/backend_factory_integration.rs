@@ -568,13 +568,17 @@ fn test_model_cache_deduplication() {
     use adapteros_core::B3Hash;
     use adapteros_lora_kernel_api::attestation::BackendType;
     use adapteros_lora_worker::model_handle_cache::{ModelHandle, ModelHandleCache};
-    use adapteros_lora_worker::model_key::ModelKey;
+    use adapteros_lora_worker::model_key::{ModelCacheIdentity, ModelKey};
     use std::sync::atomic::{AtomicU32, Ordering};
     use std::sync::Arc;
 
     let cache = ModelHandleCache::new(1024 * 1024 * 1024); // 1GB max
     let hash = B3Hash::hash(b"test-model-data");
-    let key = ModelKey::new(BackendType::Metal, hash);
+    let key = ModelKey::new(
+        BackendType::Metal,
+        hash,
+        ModelCacheIdentity::for_backend(BackendType::Metal),
+    );
 
     // Track how many times the loader is called
     let load_count = Arc::new(AtomicU32::new(0));
@@ -616,15 +620,23 @@ fn test_different_backends_get_separate_cache_entries() {
     use adapteros_core::B3Hash;
     use adapteros_lora_kernel_api::attestation::BackendType;
     use adapteros_lora_worker::model_handle_cache::{ModelHandle, ModelHandleCache};
-    use adapteros_lora_worker::model_key::ModelKey;
+    use adapteros_lora_worker::model_key::{ModelCacheIdentity, ModelKey};
     use std::sync::Arc;
 
     let cache = ModelHandleCache::new(1024 * 1024 * 1024);
     let hash = B3Hash::hash(b"same-model-content");
 
     // Same hash, but different backends
-    let metal_key = ModelKey::new(BackendType::Metal, hash);
-    let mock_key = ModelKey::new(BackendType::Mock, hash);
+    let metal_key = ModelKey::new(
+        BackendType::Metal,
+        hash,
+        ModelCacheIdentity::for_backend(BackendType::Metal),
+    );
+    let mock_key = ModelKey::new(
+        BackendType::Mock,
+        hash,
+        ModelCacheIdentity::for_backend(BackendType::Mock),
+    );
 
     let mut metal_load_count = 0;
     let mut mock_load_count = 0;

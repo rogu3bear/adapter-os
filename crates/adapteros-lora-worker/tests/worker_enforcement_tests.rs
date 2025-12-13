@@ -397,6 +397,7 @@ fn base_only_request_zeroes_priors_and_clears_decisions() {
             entropy_floor: 0.0,
             stack_hash: None,
             interval_id: None,
+            allowed_mask: None,
             policy_mask_digest: None,
             policy_overrides_applied: None,
         });
@@ -505,7 +506,7 @@ fn test_router_decision_outside_effective_set_causes_error() {
 // =============================================================================
 
 use adapteros_lora_kernel_api::{FailingKernel, FusedKernels, IoBuffers, MockKernels, RouterRing};
-use adapteros_lora_worker::{CoordinatedKernels, DirectKernels, KernelWrapper, StrictnessControl};
+use adapteros_lora_worker::{BackendLane, CoordinatedKernels, DirectKernels, KernelWrapper, StrictnessControl};
 
 /// Scenario 3: Strict mode + backend failure = hard fail (no fallback)
 ///
@@ -677,6 +678,26 @@ fn test_primary_success_no_fallback_triggered() {
     assert!(
         !wrapper.fallback_triggered(),
         "Fallback should not trigger when primary succeeds"
+    );
+    assert_eq!(
+        wrapper.last_backend_used(),
+        Some("Mock Kernels (Test)".to_string())
+    );
+}
+
+/// Forcing fallback lane should surface fallback_triggered for telemetry/reporting
+#[test]
+fn test_forced_fallback_lane_is_recorded() {
+    let primary = Box::new(MockKernels::new()) as Box<dyn FusedKernels + Send + Sync>;
+    let fallback = Box::new(MockKernels::new()) as Box<dyn FusedKernels + Send + Sync>;
+
+    let mut wrapper = KernelWrapper::Coordinated(CoordinatedKernels::new(primary, Some(fallback)));
+    wrapper.set_active_lane(BackendLane::Fallback);
+
+    assert_eq!(wrapper.active_lane(), BackendLane::Fallback);
+    assert!(
+        wrapper.fallback_triggered(),
+        "fallback flag must be surfaced when fallback lane is active"
     );
     assert_eq!(
         wrapper.last_backend_used(),
@@ -929,12 +950,16 @@ async fn test_telemetry_emits_effective_adapter_ids() {
 use adapteros_core::B3Hash;
 use adapteros_lora_kernel_api::attestation::BackendType;
 use adapteros_lora_worker::model_handle_cache::{ModelHandle, ModelHandleCache};
-use adapteros_lora_worker::model_key::ModelKey;
+use adapteros_lora_worker::model_key::{ModelCacheIdentity, ModelKey};
 use adapteros_telemetry::CriticalComponentMetrics;
 use std::sync::Arc;
 
 fn make_test_key(backend: BackendType, data: &[u8]) -> ModelKey {
-    ModelKey::new(backend, B3Hash::hash(data))
+    ModelKey::new(
+        backend,
+        B3Hash::hash(data),
+        ModelCacheIdentity::for_backend(backend),
+    )
 }
 
 /// Test that cache pinning correctly emits telemetry metrics

@@ -21,7 +21,7 @@ pub enum PurgeableState {
 }
 
 /// Result of setting purgeable state
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PurgeableResult {
     /// Previous state before change
     pub previous: PurgeableState,

@@ -6,7 +6,9 @@
 //! - Temperature, top-k, and top-p sampling strategies
 //! - Repetition penalty
 //! - Streaming support
+//! - Prefix KV cache integration for skipping redundant prefill
 
+use crate::kv_cache::PrefixKvTensors;
 use crate::MLXFFIModel;
 use adapteros_core::{derive_seed, AosError, B3Hash, Result};
 use rand::Rng;
@@ -710,6 +712,188 @@ impl MLXGenerator {
         // Generate text
         self.generate_text(model, &formatted_prompt, tokenizer)
     }
+
+    /// Generate tokens with prefix KV cache support.
+    ///
+    /// This method supports skipping prefill for cached prefixes:
+    /// - If `prefix_tensors` is Some, initializes KV cache and starts from prefix end
+    /// - If `prefix_tensors` is None, performs full prefill
+    ///
+    /// # Arguments
+    /// * `model` - MLX model for inference
+    /// * `prompt_tokens` - Full prompt token IDs (including prefix)
+    /// * `prefix_tensors` - Optional cached prefix KV tensors
+    /// * `prefix_token_count` - Number of tokens in the prefix (for cache hit)
+    ///
+    /// # Returns
+    /// GenerationResult with tokens and prefix cache metrics
+    pub fn generate_with_prefix_cache(
+        &mut self,
+        model: &MLXFFIModel,
+        prompt_tokens: Vec<u32>,
+        prefix_tensors: Option<&PrefixKvTensors>,
+        prefix_token_count: u32,
+    ) -> Result<GenerationResult> {
+        let prompt_len = prompt_tokens.len();
+        let prefix_cache_hit = prefix_tensors.is_some();
+
+        if prompt_len == 0 {
+            return Err(AosError::Validation("Empty prompt".to_string()));
+        }
+
+        // Extract config values
+        let max_tokens = self.config.max_tokens;
+        let repetition_penalty = self.config.repetition_penalty;
+        let eos_token = self.config.eos_token;
+
+        // Create/initialize KV cache
+        if self.cache.is_none() {
+            let num_layers = self.config.kv_num_layers.ok_or_else(|| {
+                AosError::Config(
+                    "KV cache requires num_layers (set GenerationConfig.kv_num_layers)".to_string(),
+                )
+            })?;
+
+            self.cache = Some(crate::kv_cache::MLXKVCache::new(
+                crate::kv_cache::KVCacheConfig {
+                    num_layers,
+                    max_seq_length: max_tokens + prompt_len,
+                    ..Default::default()
+                },
+            ));
+        }
+
+        // Initialize from prefix tensors if available
+        let start_position = if let Some(tensors) = prefix_tensors {
+            let cache = self.cache.as_ref().unwrap();
+            cache.init_from_prefix_tensors(tensors)?;
+            prefix_token_count as usize
+        } else {
+            // Clear cache for full prefill
+            if let Some(cache) = &self.cache {
+                cache.clear_all();
+            }
+            0
+        };
+
+        let mut tokens = prompt_tokens.clone();
+        let prefix_cached = prefix_cache_hit;
+
+        // Determine which tokens need prefill
+        // If we have cached prefix, skip those tokens
+        let tokens_to_process = if prefix_cache_hit && start_position > 0 {
+            // Skip prefix tokens, process from start_position
+            &prompt_tokens[start_position..]
+        } else {
+            // Process all tokens
+            &prompt_tokens[..]
+        };
+
+        tracing::info!(
+            prompt_len = prompt_len,
+            prefix_cached = prefix_cached,
+            prefix_token_count = prefix_token_count,
+            tokens_to_prefill = tokens_to_process.len(),
+            "Starting generation with prefix cache"
+        );
+
+        // Prefill remaining tokens (after prefix)
+        if !tokens_to_process.is_empty() {
+            let position = start_position;
+            let _logits = model.forward_with_kv_cache(
+                &tokens_to_process.to_vec(),
+                position,
+                self.cache.as_ref(),
+            )?;
+        }
+
+        // Generation loop
+        for step in 0..max_tokens {
+            let position = tokens.len() - 1;
+
+            // Get last token for incremental decode
+            let input_tokens = vec![*tokens.last().ok_or_else(|| {
+                AosError::Internal("Empty token sequence during generation".to_string())
+            })?];
+
+            let logits =
+                model.forward_with_kv_cache(&input_tokens, position, self.cache.as_ref())?;
+
+            // Apply repetition penalty if configured
+            let penalized_logits = if repetition_penalty != 1.0 {
+                self.apply_repetition_penalty(&logits, &tokens)?
+            } else {
+                logits
+            };
+
+            // Sample next token
+            let next_token = self.sample_token(&penalized_logits)?;
+
+            // Check for EOS
+            if next_token == eos_token {
+                tracing::debug!(step, "EOS token generated");
+                break;
+            }
+
+            tokens.push(next_token);
+
+            // Check max length
+            if tokens.len() >= prompt_len + max_tokens {
+                break;
+            }
+        }
+
+        let kv_bytes = self
+            .cache
+            .as_ref()
+            .map(|c| c.get_memory_usage() as u64)
+            .unwrap_or(0);
+
+        let generated_count = tokens.len() - prompt_len;
+        tracing::info!(
+            generated = generated_count,
+            prefix_cache_hit = prefix_cached,
+            prefix_cached_token_count = prefix_token_count,
+            kv_bytes = kv_bytes,
+            "Generation with prefix cache complete"
+        );
+
+        Ok(GenerationResult {
+            tokens,
+            prefix_cache_hit: prefix_cached,
+            prefix_cached_token_count: if prefix_cached { prefix_token_count } else { 0 },
+            prefix_kv_bytes: if prefix_cached { kv_bytes } else { 0 },
+        })
+    }
+
+    /// Export current KV cache state as prefix tensors.
+    ///
+    /// Call this after prefilling a prefix to capture the KV state
+    /// for later reuse.
+    ///
+    /// # Arguments
+    /// * `prefix_token_count` - Number of prefix tokens in the cache
+    ///
+    /// # Returns
+    /// PrefixKvTensors if cache exists, None otherwise
+    pub fn export_prefix_kv(&self, prefix_token_count: u32) -> Option<PrefixKvTensors> {
+        self.cache
+            .as_ref()
+            .map(|c| c.export_as_prefix_tensors(prefix_token_count))
+    }
+}
+
+/// Result of a generation operation with prefix cache metrics.
+#[derive(Debug, Clone)]
+pub struct GenerationResult {
+    /// Generated tokens (including prompt)
+    pub tokens: Vec<u32>,
+    /// Whether prefix KV cache was hit
+    pub prefix_cache_hit: bool,
+    /// Number of tokens that were cached (0 if miss)
+    pub prefix_cached_token_count: u32,
+    /// Bytes of prefix KV data used (0 if miss)
+    pub prefix_kv_bytes: u64,
 }
 
 #[cfg(test)]

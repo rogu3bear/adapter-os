@@ -17,8 +17,33 @@
 use adapteros_core::{AosError, Result};
 use metal::*;
 use std::sync::Arc;
+use std::time::Instant;
 
 use super::fused_qkv::GqaConfig;
+use super::kv_quota::{COLD_DEMOTION_IDLE_TIME, HOT_PROMOTION_THRESHOLD, HOT_RECENCY_WINDOW};
+use super::purgeable::PurgeableBuffer;
+
+/// KV cache residency classification for memory management
+///
+/// HOT entries are actively in use or frequently accessed and should be protected
+/// from OS-level memory purgeing. COLD entries can be reclaimed under memory pressure.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum KvResidency {
+    /// Active or frequently-used entry - marked non-purgeable on supported backends
+    Hot,
+    /// Idle entry - can be evicted under memory pressure
+    #[default]
+    Cold,
+}
+
+impl std::fmt::Display for KvResidency {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Hot => write!(f, "HOT"),
+            Self::Cold => write!(f, "COLD"),
+        }
+    }
+}
 
 /// Configuration for KV cache
 #[derive(Debug, Clone)]
@@ -85,6 +110,14 @@ pub struct LayerKVCache {
     pub seq_pos: usize,
     /// Maximum sequence length
     pub max_seq_len: usize,
+    /// Residency classification for memory management
+    residency: KvResidency,
+    /// Whether purgeable state has been applied to buffers
+    purgeable_state_applied: bool,
+    /// Number of times this cache has been accessed
+    access_count: usize,
+    /// Last time this cache was accessed
+    last_access_time: Instant,
 }
 
 impl LayerKVCache {
@@ -100,6 +133,10 @@ impl LayerKVCache {
             value_cache,
             seq_pos: 0,
             max_seq_len: config.max_seq_len,
+            residency: KvResidency::default(),
+            purgeable_state_applied: false,
+            access_count: 0,
+            last_access_time: Instant::now(),
         })
     }
 
@@ -116,6 +153,105 @@ impl LayerKVCache {
     /// Reset cache position (for new generation)
     pub fn reset(&mut self) {
         self.seq_pos = 0;
+    }
+
+    /// Get current residency classification
+    pub fn residency(&self) -> KvResidency {
+        self.residency
+    }
+
+    /// Set residency classification and update purgeable state
+    ///
+    /// When promoting to HOT, marks buffers as non-purgeable to prevent OS reclamation.
+    /// When demoting to COLD, marks buffers as purgeable to allow memory recovery.
+    pub fn set_residency(&mut self, residency: KvResidency) {
+        if self.residency == residency {
+            return; // No change needed
+        }
+
+        let old_residency = self.residency;
+        self.residency = residency;
+
+        // Update purgeable state based on residency
+        match residency {
+            KvResidency::Hot => {
+                // Promote to HOT: make buffers non-purgeable
+                if let Err(e) = self.key_cache.make_non_purgeable() {
+                    tracing::warn!(
+                        error = %e,
+                        "Failed to make key cache non-purgeable (promotion to HOT)"
+                    );
+                }
+                if let Err(e) = self.value_cache.make_non_purgeable() {
+                    tracing::warn!(
+                        error = %e,
+                        "Failed to make value cache non-purgeable (promotion to HOT)"
+                    );
+                }
+                self.purgeable_state_applied = true;
+                tracing::debug!(
+                    old_residency = %old_residency,
+                    new_residency = %residency,
+                    access_count = self.access_count,
+                    "Promoted KV cache to HOT (non-purgeable)"
+                );
+            }
+            KvResidency::Cold => {
+                // Demote to COLD: make buffers purgeable
+                if let Err(e) = self.key_cache.make_purgeable() {
+                    tracing::warn!(
+                        error = %e,
+                        "Failed to make key cache purgeable (demotion to COLD)"
+                    );
+                }
+                if let Err(e) = self.value_cache.make_purgeable() {
+                    tracing::warn!(
+                        error = %e,
+                        "Failed to make value cache purgeable (demotion to COLD)"
+                    );
+                }
+                self.purgeable_state_applied = true;
+                tracing::debug!(
+                    old_residency = %old_residency,
+                    new_residency = %residency,
+                    access_count = self.access_count,
+                    "Demoted KV cache to COLD (purgeable)"
+                );
+            }
+        }
+    }
+
+    /// Record an access to this cache entry
+    ///
+    /// Updates access count and last access time, and checks if promotion
+    /// to HOT is warranted based on access frequency or recency.
+    pub fn record_access(&mut self) {
+        self.access_count += 1;
+        self.last_access_time = Instant::now();
+
+        // Check if we should promote to HOT
+        if self.residency == KvResidency::Cold {
+            let should_promote = self.access_count >= HOT_PROMOTION_THRESHOLD
+                || self.last_access_time.elapsed() < HOT_RECENCY_WINDOW;
+
+            if should_promote {
+                self.set_residency(KvResidency::Hot);
+            }
+        }
+    }
+
+    /// Check if this cache entry should be demoted to COLD
+    ///
+    /// HOT entries that haven't been accessed recently may be demoted
+    /// to free up non-purgeable memory slots.
+    pub fn should_demote(&self) -> bool {
+        self.residency == KvResidency::Hot
+            && self.last_access_time.elapsed() > COLD_DEMOTION_IDLE_TIME
+    }
+
+    /// Get access statistics
+    pub fn access_stats(&self) -> (usize, Instant) {
+        (self.access_count, self.last_access_time)
     }
 }
 
@@ -310,11 +446,14 @@ impl KVCache {
     /// Get cached K/V buffers for a specific layer
     ///
     /// Returns references to the key and value cache buffers along with
-    /// the current sequence position.
-    pub fn get_layer_cache(&self, layer_idx: usize) -> Option<(&Buffer, &Buffer, usize)> {
-        self.layers
-            .get(layer_idx)
-            .map(|layer| (&layer.key_cache, &layer.value_cache, layer.seq_pos))
+    /// the current sequence position. Records access for residency tracking.
+    pub fn get_layer_cache(&mut self, layer_idx: usize) -> Option<(&Buffer, &Buffer, usize)> {
+        if let Some(layer) = self.layers.get_mut(layer_idx) {
+            layer.record_access();
+            Some((&layer.key_cache, &layer.value_cache, layer.seq_pos))
+        } else {
+            None
+        }
     }
 
     /// Get mutable reference to layer cache
@@ -356,6 +495,53 @@ impl KVCache {
     /// Get device name
     pub fn device_name(&self) -> &str {
         self.device.name()
+    }
+
+    /// Perform residency maintenance: demote idle HOT entries to COLD
+    ///
+    /// This should be called periodically (e.g., every few seconds) to
+    /// free up non-purgeable memory slots for more active entries.
+    ///
+    /// Returns the number of layers demoted from HOT to COLD.
+    pub fn maintain_residency(&mut self) -> usize {
+        let mut demoted_count = 0;
+
+        for layer in &mut self.layers {
+            if layer.should_demote() {
+                layer.set_residency(KvResidency::Cold);
+                demoted_count += 1;
+            }
+        }
+
+        if demoted_count > 0 {
+            tracing::debug!(
+                demoted_layers = demoted_count,
+                "Demoted idle HOT entries to COLD"
+            );
+        }
+
+        demoted_count
+    }
+
+    /// Get residency statistics for all layers
+    ///
+    /// Returns (hot_count, cold_count, total_hot_bytes, total_cold_bytes)
+    pub fn residency_stats(&self) -> (usize, usize, u64, u64) {
+        let mut hot_count = 0;
+        let mut cold_count = 0;
+        let bytes_per_layer = self.config.bytes_per_layer() * 2; // K + V
+
+        for layer in &self.layers {
+            match layer.residency() {
+                KvResidency::Hot => hot_count += 1,
+                KvResidency::Cold => cold_count += 1,
+            }
+        }
+
+        let hot_bytes = hot_count as u64 * bytes_per_layer;
+        let cold_bytes = cold_count as u64 * bytes_per_layer;
+
+        (hot_count, cold_count, hot_bytes, cold_bytes)
     }
 }
 

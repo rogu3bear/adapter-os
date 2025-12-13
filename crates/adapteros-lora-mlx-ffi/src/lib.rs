@@ -37,8 +37,8 @@ pub use attention::{
 };
 pub use backend::MLXFFIBackend;
 pub use embedding::{EmbeddingConfig, MLXEmbeddingModel};
-pub use generation::{GenerationConfig, MLXGenerator};
-pub use kv_cache::{CacheLayer, CacheStats, KVCacheConfig, MLXKVCache};
+pub use generation::{GenerationConfig, GenerationResult, MLXGenerator};
+pub use kv_cache::{CacheLayer, CacheStats, KVCacheConfig, MLXKVCache, PrefixKvTensors};
 pub use lora::{LoRAAdapter, LoRAConfig};
 pub use memory_pool::{MLXMemoryPool, MLXMemoryPoolConfig, MemoryPoolStats, MemoryPressureEvent};
 pub use quantization::{

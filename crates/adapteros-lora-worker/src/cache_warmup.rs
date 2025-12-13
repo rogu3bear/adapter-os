@@ -140,6 +140,7 @@ impl CacheWarmupManager {
                 effective_adapter_ids: None,
                 placement: None,
                 routing_policy: None,
+                stop_policy: None,
             };
 
             match worker.infer(request).await {
@@ -212,6 +213,7 @@ impl CacheWarmupManager {
                 effective_adapter_ids: None,
                 placement: None,
                 routing_policy: None,
+                stop_policy: None,
             };
 
             match worker.infer(request).await {
@@ -418,6 +420,7 @@ where
             effective_adapter_ids: None,
             strict_mode: true,
             routing_policy: None,
+            stop_policy: None,
         };
 
         // Run inference with timeout

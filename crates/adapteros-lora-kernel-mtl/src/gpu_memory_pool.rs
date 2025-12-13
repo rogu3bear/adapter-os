@@ -5,6 +5,7 @@
 //! - Automatic cleanup of unused buffers
 //! - Memory pressure callbacks and integration with adapteros-memory
 //! - Telemetry and monitoring for memory usage
+//! - Residency-aware eviction policy for KV cache management
 
 use adapteros_core::{AosError, Result};
 use std::collections::{HashMap, VecDeque};
@@ -13,8 +14,28 @@ use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tracing::{debug, error, info, warn};
 
+use super::kv_cache::KvResidency;
+
+// Import telemetry metrics for KV residency event emission
+use adapteros_telemetry::CriticalComponentMetrics;
+
 #[cfg(target_os = "macos")]
 use metal::{Buffer, Device, MTLResourceOptions};
+
+/// Eviction policy for memory pressure handling
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EvictionPolicy {
+    /// Only evict COLD entries (never evict HOT entries)
+    ColdOnly,
+    /// Evict COLD entries first, then HOT entries if needed
+    ColdThenHot,
+}
+
+impl Default for EvictionPolicy {
+    fn default() -> Self {
+        Self::ColdThenHot
+    }
+}
 
 /// GPU memory pool configuration
 #[derive(Debug, Clone)]
@@ -33,6 +54,8 @@ pub struct GpuMemoryPoolConfig {
     pub pressure_threshold: f32,
     /// Target headroom percentage after cleanup
     pub target_headroom: f32,
+    /// Eviction policy for memory pressure handling
+    pub eviction_policy: EvictionPolicy,
 }
 
 impl Default for GpuMemoryPoolConfig {
@@ -45,6 +68,7 @@ impl Default for GpuMemoryPoolConfig {
             max_buffer_size: 256 * 1024 * 1024, // 256 MB
             pressure_threshold: 0.85,
             target_headroom: 0.15,
+            eviction_policy: EvictionPolicy::default(),
         }
     }
 }
@@ -62,6 +86,10 @@ struct PooledGpuBuffer {
     reuse_count: u32,
     /// Allocation ID for tracking
     allocation_id: u64,
+    /// Residency classification for eviction policy
+    residency: KvResidency,
+    /// Whether this buffer is currently in-flight (cannot be evicted)
+    in_flight: bool,
 }
 
 /// Memory pressure callback signature
@@ -105,6 +133,10 @@ pub struct GpuMemoryStats {
     pub pressure_cleanups: u64,
     /// Peak memory usage (bytes)
     pub peak_memory_usage: u64,
+    /// COLD entries evicted
+    pub cold_evictions: u64,
+    /// HOT entries evicted
+    pub hot_evictions: u64,
 }
 
 /// GPU Memory Pool for Metal buffers
@@ -126,6 +158,8 @@ pub struct GpuMemoryPool {
     pressure_callbacks: parking_lot::RwLock<Vec<MemoryPressureCallback>>,
     /// Total device memory (estimated)
     total_device_memory: u64,
+    /// Optional telemetry metrics handle for event emission
+    metrics: Option<Arc<CriticalComponentMetrics>>,
 }
 
 #[cfg(target_os = "macos")]
@@ -151,7 +185,13 @@ impl GpuMemoryPool {
             allocation_counter: AtomicU64::new(0),
             pressure_callbacks: parking_lot::RwLock::new(Vec::new()),
             total_device_memory,
+            metrics: None,
         }
+    }
+
+    /// Set telemetry metrics handle for event emission
+    pub fn set_metrics(&mut self, metrics: Arc<CriticalComponentMetrics>) {
+        self.metrics = Some(metrics);
     }
 
     /// Allocate a GPU buffer (from pool or new)
@@ -211,6 +251,15 @@ impl GpuMemoryPool {
 
     /// Allocate a new buffer (not from pool)
     fn allocate_new(&self, size: u64) -> Result<(Buffer, u64)> {
+        // TODO: KV quota enforcement
+        // When quota enforcement is wired up, check if allocation would exceed quota:
+        // if !self.reserve_quota(size) {
+        //     if let Some(ref metrics) = self.metrics {
+        //         metrics.record_kv_quota_exceeded();
+        //     }
+        //     return Err(AosError::QuotaExceeded(...));
+        // }
+
         // Check memory pressure before allocation
         self.check_memory_pressure()?;
 
@@ -282,6 +331,8 @@ impl GpuMemoryPool {
                     last_accessed: Instant::now(),
                     reuse_count: 0,
                     allocation_id,
+                    residency: KvResidency::Cold, // Default to COLD
+                    in_flight: false,
                 };
                 bucket_queue.push_back(pooled);
 
@@ -399,24 +450,99 @@ impl GpuMemoryPool {
         Ok(())
     }
 
-    /// Handle memory pressure by freeing pooled buffers
+    /// Handle memory pressure by freeing pooled buffers with residency awareness
+    ///
+    /// This implements the residency-aware eviction policy:
+    /// 1. Never evict in-flight buffers
+    /// 2. For ColdOnly: only evict COLD entries (sorted by LRU)
+    /// 3. For ColdThenHot: evict COLD first, then HOT if needed (both sorted by LRU)
     pub fn handle_memory_pressure(&self, bytes_to_free: u64) -> u64 {
         let mut total_freed = 0u64;
+        let mut cold_freed = 0u64;
+        let mut hot_freed = 0u64;
         let mut pools = self.pools.write();
 
-        // Sort buckets by size (free larger buffers first)
+        // Sort buckets by size (free larger buffers first for efficiency)
         let mut buckets: Vec<u64> = pools.keys().copied().collect();
         buckets.sort_by(|a, b| b.cmp(a)); // Descending
 
-        for bucket in buckets {
+        // Phase 1: Evict COLD entries only (sorted by LRU - oldest first)
+        for bucket in &buckets {
             if total_freed >= bytes_to_free {
                 break;
             }
 
-            if let Some(queue) = pools.get_mut(&bucket) {
-                while total_freed < bytes_to_free && !queue.is_empty() {
-                    if let Some(pooled) = queue.pop_back() {
-                        total_freed += pooled.size;
+            if let Some(queue) = pools.get_mut(bucket) {
+                // Build list of evictable COLD buffers with their indices
+                let mut cold_candidates: Vec<(usize, u64, Instant)> = queue
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, pooled)| {
+                        !pooled.in_flight && pooled.residency == KvResidency::Cold
+                    })
+                    .map(|(idx, pooled)| (idx, pooled.size, pooled.last_accessed))
+                    .collect();
+
+                // Sort by LRU (oldest first)
+                cold_candidates.sort_by_key(|(_, _, last_accessed)| *last_accessed);
+
+                // Evict COLD buffers
+                let mut indices_to_remove = Vec::new();
+                for (idx, size, _) in cold_candidates {
+                    if total_freed >= bytes_to_free {
+                        break;
+                    }
+                    indices_to_remove.push(idx);
+                    total_freed += size;
+                    cold_freed += size;
+                }
+
+                // Remove from back to front to preserve indices
+                indices_to_remove.sort_by(|a, b| b.cmp(a));
+                for idx in indices_to_remove {
+                    queue.remove(idx);
+                    // Buffer is dropped here
+                }
+            }
+        }
+
+        // Phase 2: If policy allows and still need more memory, evict HOT entries
+        if total_freed < bytes_to_free && self.config.eviction_policy == EvictionPolicy::ColdThenHot
+        {
+            for bucket in &buckets {
+                if total_freed >= bytes_to_free {
+                    break;
+                }
+
+                if let Some(queue) = pools.get_mut(bucket) {
+                    // Build list of evictable HOT buffers with their indices
+                    let mut hot_candidates: Vec<(usize, u64, Instant)> = queue
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, pooled)| {
+                            !pooled.in_flight && pooled.residency == KvResidency::Hot
+                        })
+                        .map(|(idx, pooled)| (idx, pooled.size, pooled.last_accessed))
+                        .collect();
+
+                    // Sort by LRU (oldest first)
+                    hot_candidates.sort_by_key(|(_, _, last_accessed)| *last_accessed);
+
+                    // Evict HOT buffers
+                    let mut indices_to_remove = Vec::new();
+                    for (idx, size, _) in hot_candidates {
+                        if total_freed >= bytes_to_free {
+                            break;
+                        }
+                        indices_to_remove.push(idx);
+                        total_freed += size;
+                        hot_freed += size;
+                    }
+
+                    // Remove from back to front to preserve indices
+                    indices_to_remove.sort_by(|a, b| b.cmp(a));
+                    for idx in indices_to_remove {
+                        queue.remove(idx);
                         // Buffer is dropped here
                     }
                 }
@@ -427,6 +553,8 @@ impl GpuMemoryPool {
             let mut stats = self.stats.write();
             stats.total_pooled_bytes -= total_freed;
             stats.pressure_cleanups += 1;
+            stats.cold_evictions += if cold_freed > 0 { 1 } else { 0 };
+            stats.hot_evictions += if hot_freed > 0 { 1 } else { 0 };
             stats.pooled_buffer_count = pools
                 .values()
                 .map(|q: &VecDeque<PooledGpuBuffer>| q.len())
@@ -434,12 +562,107 @@ impl GpuMemoryPool {
 
             info!(
                 total_freed = total_freed,
+                cold_freed = cold_freed,
+                hot_freed = hot_freed,
                 target = bytes_to_free,
+                policy = ?self.config.eviction_policy,
                 "Freed GPU memory due to pressure"
             );
+
+            // Emit telemetry events for evictions
+            if let Some(ref metrics) = self.metrics {
+                if cold_freed > 0 {
+                    metrics.record_kv_eviction(CriticalComponentMetrics::kv_residency_cold());
+                }
+                if hot_freed > 0 {
+                    metrics.record_kv_eviction(CriticalComponentMetrics::kv_residency_hot());
+                }
+            }
         }
 
         total_freed
+    }
+
+    /// Set residency classification for a pooled buffer
+    ///
+    /// This allows marking buffers as HOT (actively used) or COLD (evictable).
+    /// Only affects buffers currently in the pool, not active buffers.
+    pub fn set_buffer_residency(&self, allocation_id: u64, residency: KvResidency) -> bool {
+        let mut pools = self.pools.write();
+        for queue in pools.values_mut() {
+            for pooled in queue.iter_mut() {
+                if pooled.allocation_id == allocation_id {
+                    pooled.residency = residency;
+                    debug!(
+                        allocation_id = allocation_id,
+                        residency = %residency,
+                        "Updated buffer residency"
+                    );
+
+                    // TODO: Apply purgeable state to Metal buffer when residency changes
+                    // When integrated with purgeable.rs:
+                    // use crate::purgeable::PurgeableBuffer;
+                    // let purgeable_state = match residency {
+                    //     KvResidency::Hot => PurgeableState::NonVolatile,
+                    //     KvResidency::Cold => PurgeableState::Volatile,
+                    // };
+                    // if let Err(e) = pooled.buffer.set_purgeable_state(purgeable_state) {
+                    //     warn!(allocation_id = allocation_id, error = %e, "Failed to set purgeable state");
+                    //     if let Some(ref metrics) = self.metrics {
+                    //         metrics.record_kv_purgeable_failure();
+                    //     }
+                    // }
+
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// Mark buffer as in-flight (prevents eviction)
+    pub fn mark_in_flight(&self, allocation_id: u64, in_flight: bool) -> bool {
+        let mut pools = self.pools.write();
+        for queue in pools.values_mut() {
+            for pooled in queue.iter_mut() {
+                if pooled.allocation_id == allocation_id {
+                    pooled.in_flight = in_flight;
+                    debug!(
+                        allocation_id = allocation_id,
+                        in_flight = in_flight,
+                        "Updated buffer in-flight status"
+                    );
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// Get residency statistics for pooled buffers
+    pub fn residency_stats(&self) -> (usize, usize, u64, u64) {
+        let pools = self.pools.read();
+        let mut hot_count = 0usize;
+        let mut cold_count = 0usize;
+        let mut hot_bytes = 0u64;
+        let mut cold_bytes = 0u64;
+
+        for queue in pools.values() {
+            for pooled in queue.iter() {
+                match pooled.residency {
+                    KvResidency::Hot => {
+                        hot_count += 1;
+                        hot_bytes += pooled.size;
+                    }
+                    KvResidency::Cold => {
+                        cold_count += 1;
+                        cold_bytes += pooled.size;
+                    }
+                }
+            }
+        }
+
+        (hot_count, cold_count, hot_bytes, cold_bytes)
     }
 
     /// Register a memory pressure callback

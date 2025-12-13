@@ -358,6 +358,8 @@ mod tests {
             timeout_cleanups: 5,
             pressure_cleanups: 2,
             peak_memory_usage: 4096,
+            cold_evictions: 0,
+            hot_evictions: 0,
         };
 
         let snapshot = GpuMemoryStatsSnapshot::from(&stats);

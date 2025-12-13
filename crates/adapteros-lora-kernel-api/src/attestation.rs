@@ -4,7 +4,7 @@ use adapteros_core::{AosError, B3Hash, Result};
 use serde::{Deserialize, Serialize};
 
 /// Backend type identifier
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum BackendType {
     /// Metal backend (macOS GPU) - deterministic
     Metal,

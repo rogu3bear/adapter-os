@@ -15,7 +15,7 @@
 use crate::lifecycle_state::LifecycleState;
 use adapteros_core::{
     adapter_fs_path_with_root,
-    adapter_store::{AdapterRecord, AdapterStore},
+    adapter_store::{AdapterCacheKey, AdapterRecord, AdapterStore},
     constants::BYTES_PER_MB,
     identity::IdentityEnvelope,
     AosError, B3Hash, RepoAdapterPaths, Result,
@@ -126,6 +126,29 @@ pub struct AdapterState {
     pub lifecycle: LifecycleState,
 }
 
+/// Identity metadata for adapter cache keys so refcount/pinning aligns with
+/// the context manifest fields that differentiate adapter loads.
+#[derive(Debug, Clone)]
+pub struct AdapterCacheIdentity {
+    pub base_manifest_hash: Option<B3Hash>,
+    pub backend_type: String,
+    pub kernel_version_id: String,
+    pub tenant_id: Option<String>,
+    pub adapter_dir_hash: Option<B3Hash>,
+}
+
+impl Default for AdapterCacheIdentity {
+    fn default() -> Self {
+        Self {
+            base_manifest_hash: None,
+            backend_type: "unknown".to_string(),
+            kernel_version_id: adapteros_core::version::VERSION.to_string(),
+            tenant_id: None,
+            adapter_dir_hash: None,
+        }
+    }
+}
+
 /// GPU buffer fingerprint for cross-layer integrity verification
 ///
 /// Simplified version for adapter_hotswap - full implementation in adapteros-lora-kernel-mtl
@@ -185,9 +208,20 @@ pub struct AdapterTable {
     retry_counts: TokioMutex<HashMap<u64, u32>>,
     /// Adapter index for request pinning and draining
     store: AdapterStore,
+    /// Cache identity used to compose adapter cache keys
+    cache_identity: RwLock<AdapterCacheIdentity>,
 }
 
 impl AdapterTable {
+    /// Update cache identity used to key adapter refcount snapshots.
+    pub fn set_cache_identity(&self, identity: AdapterCacheIdentity) {
+        *self.cache_identity.write() = identity;
+    }
+
+    fn cache_identity_snapshot(&self) -> AdapterCacheIdentity {
+        self.cache_identity.read().clone()
+    }
+
     /// Create new empty adapter table
     pub fn new() -> Self {
         Self {
@@ -204,6 +238,7 @@ impl AdapterTable {
             tenant_id: None,
             retry_counts: TokioMutex::new(HashMap::new()),
             store: AdapterStore::new(),
+            cache_identity: RwLock::new(AdapterCacheIdentity::default()),
         }
     }
 
@@ -223,6 +258,7 @@ impl AdapterTable {
             tenant_id: None,
             retry_counts: TokioMutex::new(HashMap::new()),
             store: AdapterStore::new(),
+            cache_identity: RwLock::new(AdapterCacheIdentity::default()),
         }
     }
 
@@ -274,6 +310,11 @@ impl AdapterTable {
 
     /// Preload adapter into staging area
     pub async fn preload(&self, id: String, hash: B3Hash, vram_mb: u64) -> Result<()> {
+        if vram_mb == 0 {
+            return Err(AosError::Worker(
+                "Adapter preload requires non-zero VRAM estimate".to_string(),
+            ));
+        }
         {
             let mut staged = self.staged.write();
 
@@ -409,15 +450,25 @@ impl AdapterTable {
 
         // Publish new index for request pinning
         let refcounts_guard = self.refcounts.lock().await;
-        let store_entries: HashMap<String, AdapterRecord> = new_active_snapshot
+        let identity = self.cache_identity_snapshot();
+        let store_entries: HashMap<AdapterCacheKey, AdapterRecord> = new_active_snapshot
             .iter()
             .map(|(id, state)| {
                 let rc = refcounts_guard
                     .get(id)
                     .cloned()
                     .unwrap_or_else(|| Arc::new(AtomicUsize::new(0)));
-                (
+                let cache_key = AdapterCacheKey::new(
                     id.clone(),
+                    state.hash,
+                    identity.base_manifest_hash,
+                    identity.backend_type.clone(),
+                    identity.kernel_version_id.clone(),
+                    identity.tenant_id.clone(),
+                    identity.adapter_dir_hash,
+                );
+                (
+                    cache_key,
                     AdapterRecord {
                         hash: state.hash,
                         refcount: rc,
@@ -1455,6 +1506,14 @@ where
         Ok(result)
     }
 
+    pub fn set_cache_identity(&self, identity: AdapterCacheIdentity) {
+        self.table.set_cache_identity(identity);
+    }
+
+    pub fn cache_identity(&self) -> AdapterCacheIdentity {
+        self.table.cache_identity_snapshot()
+    }
+
     /// Swap adapters (add and remove sets)
     ///
     /// This method handles the hot-swap operation atomically:
@@ -1691,6 +1750,34 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn preload_failure_then_success_is_recoverable() {
+        let table = AdapterTable::new();
+        let hash = B3Hash::hash(b"zero-vram");
+
+        let err = table
+            .preload("zero".to_string(), hash, 0)
+            .await
+            .expect_err("zero vram must fail");
+        assert!(
+            format!("{err:?}").contains("VRAM"),
+            "error should mention VRAM requirement"
+        );
+
+        table
+            .preload("zero".to_string(), hash, 4)
+            .await
+            .expect("second preload should succeed");
+
+        table
+            .swap(&["zero".to_string()], &[])
+            .await
+            .expect("swap after successful preload must succeed");
+
+        let pins = table.store().pin_current();
+        assert_eq!(pins.hashes().len(), 1);
+    }
+
+    #[tokio::test]
     async fn test_preload_and_swap() {
         let table = AdapterTable::new();
 
@@ -1920,7 +2007,7 @@ mod tests {
                     for name in stack.active.keys() {
                         refcounts
                             .entry(name.clone())
-                            .or_insert_with(|| AtomicUsize::new(0))
+                            .or_insert_with(|| Arc::new(AtomicUsize::new(0)))
                             .fetch_add(1, Ordering::Relaxed);
                     }
                 }

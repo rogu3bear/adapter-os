@@ -468,6 +468,120 @@ impl Clone for MLXKVCache {
 unsafe impl Send for MLXKVCache {}
 unsafe impl Sync for MLXKVCache {}
 
+// =============================================================================
+// Prefix KV Cache Integration
+// =============================================================================
+
+/// Prefix KV tensors that can be used to initialize a cache.
+///
+/// This is the data format expected when restoring cached prefix KV tensors.
+#[derive(Debug, Clone)]
+pub struct PrefixKvTensors {
+    /// Per-layer key tensors (index = layer)
+    pub keys: Vec<Vec<f32>>,
+    /// Per-layer value tensors (index = layer)
+    pub values: Vec<Vec<f32>>,
+    /// Number of prefix tokens these tensors represent
+    pub prefix_token_count: u32,
+}
+
+impl MLXKVCache {
+    /// Initialize the cache with pre-computed prefix KV tensors.
+    ///
+    /// This is used to restore cached prefix KV tensors for skipping prefill.
+    /// After calling this, the cache will contain the KV states for the prefix
+    /// tokens, allowing generation to start from position `prefix_token_count`.
+    ///
+    /// # Arguments
+    /// * `prefix_tensors` - The pre-computed prefix KV tensors
+    ///
+    /// # Returns
+    /// Ok(()) on success, error if tensor dimensions don't match config
+    pub fn init_from_prefix_tensors(&self, prefix_tensors: &PrefixKvTensors) -> Result<()> {
+        if prefix_tensors.keys.len() != prefix_tensors.values.len() {
+            return Err(AosError::Validation(
+                "Prefix KV keys and values must have same layer count".to_string(),
+            ));
+        }
+
+        let num_layers = prefix_tensors.keys.len();
+        if num_layers > self.config.num_layers {
+            return Err(AosError::Validation(format!(
+                "Prefix tensors have {} layers but cache configured for {}",
+                num_layers, self.config.num_layers
+            )));
+        }
+
+        // Clear existing cache
+        self.clear_all();
+
+        // Populate cache with prefix tensors
+        for (layer_idx, (key_tensor, value_tensor)) in prefix_tensors
+            .keys
+            .iter()
+            .zip(prefix_tensors.values.iter())
+            .enumerate()
+        {
+            // Each tensor represents all positions for that layer
+            // We add them as a single position since we're restoring the full prefix
+            self.mlx_kv_cache_update(layer_idx, key_tensor.clone(), value_tensor.clone())?;
+        }
+
+        tracing::debug!(
+            num_layers = num_layers,
+            prefix_tokens = prefix_tensors.prefix_token_count,
+            memory_bytes = self.get_memory_usage(),
+            "Initialized KV cache from prefix tensors"
+        );
+
+        Ok(())
+    }
+
+    /// Export the current cache state as prefix KV tensors.
+    ///
+    /// This can be used to save the KV state after prefilling a prefix,
+    /// for later reuse via `init_from_prefix_tensors`.
+    ///
+    /// # Arguments
+    /// * `prefix_token_count` - Number of tokens the cached state represents
+    ///
+    /// # Returns
+    /// PrefixKvTensors containing the current cache state
+    pub fn export_as_prefix_tensors(&self, prefix_token_count: u32) -> PrefixKvTensors {
+        let caches = self.caches.read();
+
+        let mut keys = Vec::with_capacity(self.config.num_layers);
+        let mut values = Vec::with_capacity(self.config.num_layers);
+
+        // Export in layer order
+        for layer_idx in 0..self.config.num_layers {
+            if let Some(layer_cache) = caches.get(&layer_idx) {
+                keys.push(layer_cache.get_keys());
+                values.push(layer_cache.get_values());
+            } else {
+                // Empty layer - shouldn't happen in normal operation
+                keys.push(Vec::new());
+                values.push(Vec::new());
+            }
+        }
+
+        PrefixKvTensors {
+            keys,
+            values,
+            prefix_token_count,
+        }
+    }
+
+    /// Check if the cache has been initialized with prefix tensors.
+    ///
+    /// Returns true if the cache has data for all configured layers.
+    pub fn has_prefix_data(&self) -> bool {
+        let caches = self.caches.read();
+        caches.len() == self.config.num_layers
+            && caches.values().all(|c| c.cached_positions > 0)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

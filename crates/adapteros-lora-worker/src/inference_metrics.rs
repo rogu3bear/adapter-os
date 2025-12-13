@@ -45,6 +45,14 @@ pub struct InferenceMetrics {
     /// Adapter selection counts
     pub adapter_selections: HashMap<String, u64>,
 
+    /// Stop reason counts (PRD: Hard Deterministic Stop Controller)
+    /// Maps stop reason code to count (e.g., "LENGTH" -> 42, "BUDGET_MAX" -> 10)
+    pub stop_reason_counts: HashMap<String, u64>,
+
+    /// Output tokens by stop reason (for computing averages)
+    /// Maps stop reason code to total tokens generated when that reason triggered
+    pub output_tokens_by_stop_reason: HashMap<String, u64>,
+
     /// Timestamp of last update
     pub last_updated: u64,
 }
@@ -62,6 +70,8 @@ impl Default for InferenceMetrics {
             latency_p99_ms: 0,
             latency_mean_ms: 0.0,
             adapter_selections: HashMap::new(),
+            stop_reason_counts: HashMap::new(),
+            output_tokens_by_stop_reason: HashMap::new(),
             last_updated: 0,
         }
     }
@@ -84,6 +94,10 @@ pub struct InferenceMeasurement {
 
     /// Adapters selected for this request
     pub adapters: Vec<String>,
+
+    /// Stop reason code (PRD: Hard Deterministic Stop Controller)
+    /// e.g., "LENGTH", "BUDGET_MAX", "COMPLETION_CONFIDENT", "REPETITION_GUARD"
+    pub stop_reason: Option<String>,
 
     /// Timestamp
     pub timestamp: Instant,
@@ -124,12 +138,27 @@ impl InferenceMetricsCollector {
         success: bool,
         adapters: Vec<String>,
     ) {
+        self.record_inference_with_stop(request_id, latency, tokens, success, adapters, None)
+            .await;
+    }
+
+    /// Record an inference operation with stop reason (PRD: Hard Deterministic Stop Controller)
+    pub async fn record_inference_with_stop(
+        &self,
+        request_id: String,
+        latency: Duration,
+        tokens: u64,
+        success: bool,
+        adapters: Vec<String>,
+        stop_reason: Option<String>,
+    ) {
         let measurement = InferenceMeasurement {
             request_id,
             latency_ms: latency.as_millis() as u64,
             tokens,
             success,
             adapters: adapters.clone(),
+            stop_reason: stop_reason.clone(),
             timestamp: Instant::now(),
         };
 
@@ -145,11 +174,17 @@ impl InferenceMetricsCollector {
         }
 
         // Update aggregated metrics
-        self.update_metrics(measurement, adapters).await;
+        self.update_metrics(measurement, adapters, stop_reason)
+            .await;
     }
 
     /// Update aggregated metrics
-    async fn update_metrics(&self, measurement: InferenceMeasurement, adapters: Vec<String>) {
+    async fn update_metrics(
+        &self,
+        measurement: InferenceMeasurement,
+        adapters: Vec<String>,
+        stop_reason: Option<String>,
+    ) {
         {
             let mut metrics = self.metrics.write().await;
 
@@ -166,6 +201,18 @@ impl InferenceMetricsCollector {
             // Update adapter selections
             for adapter in adapters {
                 *metrics.adapter_selections.entry(adapter).or_insert(0) += 1;
+            }
+
+            // Update stop reason counts (PRD: Hard Deterministic Stop Controller)
+            if let Some(reason) = stop_reason {
+                *metrics
+                    .stop_reason_counts
+                    .entry(reason.clone())
+                    .or_insert(0) += 1;
+                *metrics
+                    .output_tokens_by_stop_reason
+                    .entry(reason)
+                    .or_insert(0) += measurement.tokens;
             }
         }
 
