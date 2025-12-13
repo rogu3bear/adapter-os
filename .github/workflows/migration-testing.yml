@@ -6,11 +6,13 @@ on:
     paths:
       - 'migrations/**'
       - 'scripts/check_migration_conflicts.sh'
+      - 'scripts/db/**'
   pull_request:
     branches: [main]
     paths:
       - 'migrations/**'
       - 'scripts/check_migration_conflicts.sh'
+      - 'scripts/db/**'
 
 jobs:
   migration-conflict-check:
@@ -19,8 +21,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install blake3 for signature verification
+        run: python -m pip install --quiet blake3
+
+      - name: Run migration hygiene guardrail
+        run: bash scripts/db/check_migrations.sh
+
       - name: Check migration conflicts
         run: bash scripts/check_migration_conflicts.sh
+
+      - name: Verify migration signatures are current
+        run: python scripts/verify_migration_signatures.py
 
   migration-signature-validation:
     name: Validate Migration Signatures

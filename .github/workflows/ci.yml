@@ -161,6 +161,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - name: Determinism smoke fixtures
+        run: cargo test --test determinism_smoke -- --nocapture
       - name: Run determinism check
         run: make determinism-check
 

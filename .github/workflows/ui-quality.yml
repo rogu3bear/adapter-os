@@ -27,7 +27,7 @@ jobs:
       - name: Install pnpm
         uses: pnpm/action-setup@v2
         with:
-          version: 8
+          version: 9
 
       - name: Install dependencies
         working-directory: ui
@@ -40,6 +40,19 @@ jobs:
       - name: ESLint check
         working-directory: ui
         run: pnpm eslint src --max-warnings 50
+
+      - name: Route map validation
+        working-directory: ui
+        run: pnpm test:routes
+
+      - name: UI production build
+        working-directory: ui
+        env:
+          VITE_API_URL: http://127.0.0.1:8080/api
+          VITE_SSE_URL: 127.0.0.1:8080
+          VITE_CHAT_AUTO_LOAD_MODELS: 'false'
+          VITE_E2E_MODE: '0'
+        run: pnpm build
 
       - name: Count 'as any' casts
         working-directory: ui
