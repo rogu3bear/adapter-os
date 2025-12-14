@@ -2237,6 +2237,24 @@ async fn run_training_job(
                         warn!(job_id = %job_id, error = %e, "Failed to persist training completion status to DB (non-fatal)");
                     }
 
+                    // Persist artifact metadata even when registration is disabled.
+                    if let Err(e) = database
+                        .update_training_job_artifact(
+                            &job_id,
+                            final_aos_path_str.as_str(),
+                            &packaged.adapter_id,
+                            &final_aos_hash,
+                            Some(artifact_metadata.clone()),
+                        )
+                        .await
+                    {
+                        warn!(
+                            job_id = %job_id,
+                            error = %e,
+                            "Failed to persist training job artifact metadata (non-fatal)"
+                        );
+                    }
+
                     if let Some(version_id) =
                         versioning_snapshot.as_ref().and_then(|v| v.adapter_version_id.clone())
                     {

@@ -2950,6 +2950,10 @@ pub struct InferenceResult {
     /// BLAKE3 digest of the StopPolicySpec used (hex encoded)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stop_policy_digest_b3: Option<String>,
+
+    /// Deterministic receipt for audit/replay (metadata only)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deterministic_receipt: Option<adapteros_api_types::inference::DeterministicReceipt>,
 }
 
 /// Router decision record for audit trail

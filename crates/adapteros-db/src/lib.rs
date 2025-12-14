@@ -921,6 +921,7 @@ impl Db {
 
         // Apply compatibility fixes for schema drift between signed migrations and code expectations.
         self.ensure_adapter_lora_strength_column().await?;
+        self.ensure_worker_runtime_metadata_columns().await?;
 
         // Verify database version after migration
         self.verify_migration_version(&migrations_path).await?;
@@ -953,6 +954,56 @@ impl Db {
                     AosError::Database(format!("Failed to backfill lora_strength: {}", e))
                 })?;
         }
+
+        Ok(())
+    }
+
+    /// Ensure worker runtime metadata columns exist.
+    ///
+    /// These fields are populated during worker registration and surfaced by listing endpoints.
+    async fn ensure_worker_runtime_metadata_columns(&self) -> Result<()> {
+        let pool = self.pool();
+
+        let ensure_column = |name: &'static str, ddl: &'static str| async move {
+            let exists: Option<i64> = sqlx::query_scalar(
+                "SELECT 1 FROM pragma_table_info('workers') WHERE name = ? LIMIT 1",
+            )
+            .bind(name)
+            .fetch_optional(pool)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to inspect workers schema: {}", e)))?;
+
+            if exists.is_none() {
+                warn!(
+                    column = name,
+                    "Workers table missing runtime metadata column; applying runtime patch"
+                );
+                sqlx::query(ddl)
+                    .execute(pool)
+                    .await
+                    .map_err(|e| AosError::Database(format!("Failed to apply workers DDL: {}", e)))?;
+            }
+
+            Ok::<(), AosError>(())
+        };
+
+        ensure_column("backend", "ALTER TABLE workers ADD COLUMN backend TEXT").await?;
+        ensure_column(
+            "model_hash_b3",
+            "ALTER TABLE workers ADD COLUMN model_hash_b3 TEXT",
+        )
+        .await?;
+        ensure_column(
+            "capabilities_json",
+            "ALTER TABLE workers ADD COLUMN capabilities_json TEXT",
+        )
+        .await?;
+
+        // Best-effort index for quick grouping/lookup; safe to run repeatedly.
+        sqlx::query("CREATE INDEX IF NOT EXISTS idx_workers_model_hash_b3 ON workers(model_hash_b3)")
+            .execute(pool)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to ensure workers index: {}", e)))?;
 
         Ok(())
     }

@@ -202,6 +202,9 @@ async fn ready_model_happy_path_inference_and_routing() {
         uds_path: uds_path.to_string(),
         pid: 4242,
         manifest_hash: manifest_hash.to_string(),
+        backend: None,
+        model_hash_b3: None,
+        capabilities_json: None,
         schema_version: API_SCHEMA_VERSION.to_string(),
         api_version: API_SCHEMA_VERSION.to_string(),
     };

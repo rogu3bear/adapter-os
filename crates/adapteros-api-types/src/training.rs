@@ -1,5 +1,6 @@
 //! Training types
 
+use adapteros_core::B3Hash;
 use adapteros_types::{
     coreml::CoreMLPlacementSpec,
     training::{
@@ -209,6 +210,9 @@ pub struct TrainingJobResponse {
     pub adapter_name: String,
     pub template_id: Option<String>,
     pub repo_id: Option<String>,
+    /// Alias of `repo_id` for clarity in clients that treat this as an adapter repo identifier.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub adapter_repo_id: Option<String>,
     pub repo_name: Option<String>,
     pub target_branch: Option<String>,
     pub base_version_id: Option<String>,
@@ -327,6 +331,12 @@ pub struct TrainingJobResponse {
     pub peak_gpu_memory_mb: Option<f32>,
 
     // Packaging summary
+    /// Alias of `aos_path` for clients expecting an "artifact path" surface.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub artifact_path: Option<String>,
+    /// Alias of `package_hash_b3` for clients expecting an "artifact hash" surface.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub artifact_hash_b3: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub aos_path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -349,23 +359,74 @@ pub struct TrainingJobResponse {
 
 impl From<TrainingJob> for TrainingJobResponse {
     fn from(job: TrainingJob) -> Self {
+        #[derive(Serialize)]
+        struct TrainingConfigHashParams {
+            rank: usize,
+            alpha: f32,
+            learning_rate: f32,
+            batch_size: usize,
+            epochs: usize,
+            hidden_dim: usize,
+        }
+
+        let adapter_version_id = job
+            .adapter_version_id
+            .clone()
+            .or_else(|| job.draft_version_id.clone())
+            .or_else(|| job.produced_version_id.clone());
+
+        let produced_version_id = job
+            .produced_version_id
+            .clone()
+            .or_else(|| adapter_version_id.clone());
+
+        let adapter_repo_id = job.repo_id.clone();
+
+        let data_spec_hash = job.data_spec_hash.clone().or_else(|| {
+            job.data_spec_json
+                .as_deref()
+                .map(|spec| B3Hash::hash(spec.as_bytes()).to_hex())
+        });
+
+        let config_hash_b3 = job.config_hash_b3.clone().or_else(|| {
+            let params = TrainingConfigHashParams {
+                rank: job.config.rank as usize,
+                alpha: job.config.alpha as f32,
+                learning_rate: job.config.learning_rate,
+                batch_size: job.config.batch_size as usize,
+                epochs: job.config.epochs as usize,
+                hidden_dim: 768,
+            };
+            serde_json::to_string(&params)
+                .ok()
+                .map(|json| B3Hash::hash(json.as_bytes()).to_hex())
+        });
+
+        let aos_path = job.aos_path.clone().or_else(|| job.artifact_path.clone());
+        let package_hash_b3 = job
+            .package_hash_b3
+            .clone()
+            .or_else(|| job.weights_hash_b3.clone());
+
+        let artifact_path = aos_path.clone();
+        let artifact_hash_b3 = package_hash_b3.clone();
+
         Self {
             schema_version: schema_version(),
             id: job.id,
             adapter_name: job.adapter_name,
             template_id: job.template_id,
             repo_id: job.repo_id,
+            adapter_repo_id,
             repo_name: job.repo_name,
             target_branch: job.target_branch,
             base_version_id: job.base_version_id,
             draft_version_id: job.draft_version_id,
-            adapter_version_id: job.adapter_version_id.clone(),
-            produced_version_id: job
-                .produced_version_id
-                .or_else(|| job.adapter_version_id.clone()),
+            adapter_version_id,
+            produced_version_id,
             code_commit_sha: job.code_commit_sha,
             data_spec: job.data_spec_json,
-            data_spec_hash: job.data_spec_hash,
+            data_spec_hash,
             dataset_id: job.dataset_id,
             dataset_version_ids: job.dataset_version_ids.map(|versions| {
                 versions
@@ -387,7 +448,7 @@ impl From<TrainingJob> for TrainingJobResponse {
             base_model_id: job.base_model_id,
             collection_id: job.collection_id,
             build_id: job.build_id,
-            config_hash_b3: job.config_hash_b3,
+            config_hash_b3,
             adapter_id: job.adapter_id,
             weights_hash_b3: job.weights_hash_b3,
             // Category metadata - will be populated when TrainingJob is extended
@@ -438,8 +499,10 @@ impl From<TrainingJob> for TrainingJobResponse {
             gpu_utilization_pct: job.gpu_utilization_pct,
             peak_gpu_memory_mb: job.peak_gpu_memory_mb,
             // Packaging summary
-            aos_path: job.aos_path,
-            package_hash_b3: job.package_hash_b3,
+            artifact_path,
+            artifact_hash_b3,
+            aos_path,
+            package_hash_b3,
             manifest_rank: job.manifest_rank,
             manifest_base_model: job.manifest_base_model,
             manifest_per_layer_hashes: job.manifest_per_layer_hashes,
@@ -482,6 +545,63 @@ mod tests {
         assert_eq!(trust[0].trust_at_training_time.as_deref(), Some("allowed"));
         assert!(!resp.synthetic_mode);
         assert_eq!(resp.data_lineage_mode, Some(DataLineageMode::Versioned));
+    }
+
+    #[test]
+    fn training_job_response_exposes_artifact_and_version_metadata() {
+        #[derive(Serialize)]
+        struct TrainingConfigHashParams {
+            rank: usize,
+            alpha: f32,
+            learning_rate: f32,
+            batch_size: usize,
+            epochs: usize,
+            hidden_dim: usize,
+        }
+
+        let mut job = TrainingJob::new(
+            "job-2".to_string(),
+            "adapter-meta".to_string(),
+            TrainingConfig::default(),
+        );
+        job.repo_id = Some("repo-1".to_string());
+        job.draft_version_id = Some("ver-draft-1".to_string());
+        job.artifact_path = Some("/var/aos/adapters/repo-1/v1.aos".to_string());
+        job.weights_hash_b3 = Some(B3Hash::hash(b"weights").to_hex());
+        job.data_spec_json = Some(r#"{"dataset":"v1"}"#.to_string());
+
+        let expected_data_spec_hash = B3Hash::hash(job.data_spec_json.as_deref().unwrap().as_bytes()).to_hex();
+        let params = TrainingConfigHashParams {
+            rank: job.config.rank as usize,
+            alpha: job.config.alpha as f32,
+            learning_rate: job.config.learning_rate,
+            batch_size: job.config.batch_size as usize,
+            epochs: job.config.epochs as usize,
+            hidden_dim: 768,
+        };
+        let expected_config_hash = B3Hash::hash(serde_json::to_string(&params).unwrap().as_bytes()).to_hex();
+
+        let resp: TrainingJobResponse = job.into();
+
+        assert_eq!(resp.repo_id.as_deref(), Some("repo-1"));
+        assert_eq!(resp.adapter_repo_id.as_deref(), Some("repo-1"));
+        assert_eq!(resp.adapter_version_id.as_deref(), Some("ver-draft-1"));
+        assert_eq!(resp.config_hash_b3.as_deref(), Some(expected_config_hash.as_str()));
+        assert_eq!(
+            resp.data_spec_hash.as_deref(),
+            Some(expected_data_spec_hash.as_str())
+        );
+
+        assert_eq!(
+            resp.artifact_path.as_deref(),
+            Some("/var/aos/adapters/repo-1/v1.aos")
+        );
+        assert_eq!(
+            resp.aos_path.as_deref(),
+            Some("/var/aos/adapters/repo-1/v1.aos")
+        );
+        assert_eq!(resp.artifact_hash_b3, resp.package_hash_b3);
+        assert!(resp.artifact_hash_b3.is_some());
     }
 }
 

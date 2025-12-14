@@ -257,6 +257,9 @@ pub struct Worker {
     pub status: String,
     pub started_at: String,
     pub last_seen_at: Option<String>,
+    pub backend: Option<String>,
+    pub model_hash_b3: Option<String>,
+    pub capabilities_json: Option<String>,
 }
 
 impl Db {

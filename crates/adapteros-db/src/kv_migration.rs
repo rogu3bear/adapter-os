@@ -442,7 +442,7 @@ impl Db {
                       started_at, completed_at, created_by, adapter_name, template_id,
                       created_at, metadata_json, config_hash_b3,
                       dataset_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
-                      retryable, retry_of_job_id, stack_id, adapter_id,
+                      retryable, retry_of_job_id, stack_id, adapter_id, weights_hash_b3, artifact_path,
                       produced_version_id, hyperparameters_json, data_spec_json, metrics_snapshot_id
                FROM repository_training_jobs"#,
         )
@@ -485,6 +485,8 @@ impl Db {
                 retry_of_job_id: row.retry_of_job_id.clone(),
                 stack_id: row.stack_id.clone(),
                 adapter_id: row.adapter_id.clone(),
+                weights_hash_b3: row.weights_hash_b3.clone(),
+                artifact_path: row.artifact_path.clone(),
                 produced_version_id: row.produced_version_id.clone(),
                 hyperparameters_json: row.hyperparameters_json.clone(),
                 data_spec_json: row.data_spec_json.clone(),
