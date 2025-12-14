@@ -582,7 +582,7 @@ impl Db {
                     created_at, metadata_json, config_hash_b3,
                     dataset_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
                     synthetic_mode, data_lineage_mode,
-                    retryable, retry_of_job_id, stack_id, adapter_id, produced_version_id,
+                    retryable, retry_of_job_id, stack_id, adapter_id, weights_hash_b3, artifact_path, produced_version_id,
                     hyperparameters_json, data_spec_json, metrics_snapshot_id
              FROM repository_training_jobs
              WHERE repo_id = ?
@@ -634,7 +634,7 @@ impl Db {
                     created_at, metadata_json, config_hash_b3,
                     dataset_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
                     synthetic_mode, data_lineage_mode,
-                    retryable, retry_of_job_id, stack_id, adapter_id, produced_version_id,
+                    retryable, retry_of_job_id, stack_id, adapter_id, weights_hash_b3, artifact_path, produced_version_id,
                     hyperparameters_json, data_spec_json, metrics_snapshot_id
              FROM repository_training_jobs
              WHERE status = ?
@@ -704,7 +704,8 @@ impl Db {
                     rtj.dataset_id, rtj.base_model_id, rtj.collection_id, rtj.tenant_id,
                     rtj.build_id, rtj.source_documents_json,
                     rtj.synthetic_mode, rtj.data_lineage_mode,
-                    rtj.retryable, rtj.retry_of_job_id, rtj.stack_id, rtj.adapter_id
+                    rtj.retryable, rtj.retry_of_job_id, rtj.stack_id, rtj.adapter_id,
+                    rtj.weights_hash_b3, rtj.artifact_path
              FROM repository_training_jobs rtj
              WHERE rtj.tenant_id = ? OR rtj.created_by LIKE ?
              ORDER BY rtj.started_at DESC",
