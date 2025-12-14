@@ -6,6 +6,7 @@ use adapteros_api_types::{
     DatasetVersionSelection, StartTrainingRequest, TrainingConfigRequest, TrainingListParams,
 };
 use adapteros_core::B3Hash;
+use adapteros_db::adapter_repositories::CreateRepositoryParams;
 use adapteros_orchestrator::TrainingJobStatus;
 use adapteros_server_api::handlers::get_training_logs;
 use adapteros_server_api::handlers::training::{
@@ -21,7 +22,22 @@ use tokio::time::sleep;
 mod common;
 use common::{create_test_dataset, test_admin_claims};
 
-fn make_request(name: &str) -> StartTrainingRequest {
+async fn create_test_repo(state: &AppState, tenant_id: &str, created_by: &str) -> String {
+    state
+        .db
+        .create_adapter_repository(CreateRepositoryParams {
+            tenant_id,
+            name: "test-repo",
+            base_model_id: None,
+            default_branch: Some("main"),
+            created_by: Some(created_by),
+            description: None,
+        })
+        .await
+        .expect("create adapter repository")
+}
+
+fn make_request(name: &str, repo_id: String) -> StartTrainingRequest {
     let cfg = TrainingConfig::quick_training();
     StartTrainingRequest {
         adapter_name: name.to_string(),
@@ -44,7 +60,7 @@ fn make_request(name: &str) -> StartTrainingRequest {
             max_gpu_memory_mb: None,
         },
         template_id: None,
-        repo_id: None,
+        repo_id: Some(repo_id),
         target_branch: None,
         branch_classification: Some(BranchClassification::Protected),
         base_version_id: None,
@@ -109,11 +125,12 @@ async fn wait_for_terminal(state: &AppState, job_id: &str) -> TrainingJobStatus 
 async fn test_training_start() {
     let (state, _temp_dir) = setup_training_state().await;
     let claims = test_admin_claims();
+    let repo_id = create_test_repo(&state, &claims.tenant_id, &claims.sub).await;
 
     let Json(job) = start_training(
         State(state.clone()),
         Extension(claims),
-        Json(make_request("adapter-start")),
+        Json(make_request("adapter-start", repo_id)),
     )
     .await
     .expect("start training");
@@ -126,8 +143,9 @@ async fn test_training_start() {
 async fn test_training_rejects_missing_dataset_versions_when_non_synthetic() {
     let (state, _temp_dir) = setup_training_state().await;
     let claims = test_admin_claims();
+    let repo_id = create_test_repo(&state, &claims.tenant_id, &claims.sub).await;
 
-    let mut req = make_request("adapter-no-dataset");
+    let mut req = make_request("adapter-no-dataset", repo_id);
     req.synthetic_mode = false;
 
     let result = start_training(State(state.clone()), Extension(claims), Json(req)).await;
@@ -139,11 +157,12 @@ async fn test_training_rejects_missing_dataset_versions_when_non_synthetic() {
 async fn test_training_status_completes() {
     let (state, _temp_dir) = setup_training_state().await;
     let claims = test_admin_claims();
+    let repo_id = create_test_repo(&state, &claims.tenant_id, &claims.sub).await;
 
     let Json(job) = start_training(
         State(state.clone()),
         Extension(claims),
-        Json(make_request("adapter-status")),
+        Json(make_request("adapter-status", repo_id)),
     )
     .await
     .expect("start training");
@@ -156,11 +175,12 @@ async fn test_training_status_completes() {
 async fn test_training_list_includes_started_job() {
     let (state, _temp_dir) = setup_training_state().await;
     let claims = test_admin_claims();
+    let repo_id = create_test_repo(&state, &claims.tenant_id, &claims.sub).await;
 
     let Json(job) = start_training(
         State(state.clone()),
         Extension(claims.clone()),
-        Json(make_request("adapter-list")),
+        Json(make_request("adapter-list", repo_id)),
     )
     .await
     .expect("start training");
@@ -180,14 +200,59 @@ async fn test_training_list_includes_started_job() {
 }
 
 #[tokio::test]
-async fn test_training_logs_return_entries() {
+async fn test_training_list_exposes_required_metadata() {
     let (state, _temp_dir) = setup_training_state().await;
     let claims = test_admin_claims();
+    let repo_id = create_test_repo(&state, &claims.tenant_id, &claims.sub).await;
+
+    let mut req = make_request("adapter-meta", repo_id.clone());
+    req.data_spec = Some(r#"{"mode":"synthetic","purpose":"metadata-test"}"#.to_string());
 
     let Json(job) = start_training(
         State(state.clone()),
         Extension(claims.clone()),
-        Json(make_request("adapter-logs")),
+        Json(req),
+    )
+    .await
+    .expect("start training");
+
+    let status = wait_for_terminal(&state, &job.id).await;
+    assert_eq!(status, TrainingJobStatus::Completed);
+
+    let Json(list) = list_training_jobs(
+        State(state.clone()),
+        Extension(claims),
+        axum::extract::Query(TrainingListParams::default()),
+    )
+    .await
+    .expect("list jobs");
+
+    let listed = list
+        .jobs
+        .iter()
+        .find(|j| j.id == job.id)
+        .expect("job should appear in list");
+
+    assert_eq!(listed.adapter_repo_id.as_deref(), Some(repo_id.as_str()));
+    assert!(listed.adapter_version_id.as_deref().is_some_and(|v| !v.is_empty()));
+    assert!(listed.config_hash_b3.as_deref().is_some_and(|h| !h.is_empty()));
+    assert!(listed.data_spec_hash.as_deref().is_some_and(|h| !h.is_empty()));
+    assert!(listed.artifact_path.as_deref().is_some_and(|p| p.ends_with(".aos")));
+    assert!(listed.artifact_hash_b3.as_deref().is_some_and(|h| !h.is_empty()));
+    assert_eq!(listed.artifact_path, listed.aos_path);
+    assert_eq!(listed.artifact_hash_b3, listed.package_hash_b3);
+}
+
+#[tokio::test]
+async fn test_training_logs_return_entries() {
+    let (state, _temp_dir) = setup_training_state().await;
+    let claims = test_admin_claims();
+    let repo_id = create_test_repo(&state, &claims.tenant_id, &claims.sub).await;
+
+    let Json(job) = start_training(
+        State(state.clone()),
+        Extension(claims.clone()),
+        Json(make_request("adapter-logs", repo_id)),
     )
     .await
     .expect("start training");
@@ -216,8 +281,9 @@ async fn test_training_logs_return_entries() {
 async fn test_training_cancel_transitions_job() {
     let (state, _temp_dir) = setup_training_state().await;
     let claims = test_admin_claims();
+    let repo_id = create_test_repo(&state, &claims.tenant_id, &claims.sub).await;
 
-    let mut req = make_request("adapter-cancel");
+    let mut req = make_request("adapter-cancel", repo_id);
     req.config.epochs = 25;
     req.config.gradient_accumulation_steps = Some(16);
 
@@ -273,6 +339,7 @@ async fn seed_dataset_version(
 async fn ui_path_computes_data_spec_hash_when_missing() {
     let (state, _temp_dir) = setup_training_state().await;
     let claims = test_admin_claims();
+    let repo_id = create_test_repo(&state, &claims.tenant_id, &claims.sub).await;
     let dataset_id = "ds-ui";
     let version_id = "ds-ui-ver-1";
     let manifest_hash = B3Hash::hash(b"dataset-ui-manifest").to_hex();
@@ -287,7 +354,8 @@ async fn ui_path_computes_data_spec_hash_when_missing() {
     .await
     .expect("seed dataset version");
 
-    let mut req = make_request("adapter-versioned");
+    let mut req = make_request("adapter-versioned", repo_id);
+    req.synthetic_mode = false;
     req.dataset_id = Some(dataset_id.to_string());
     req.dataset_version_ids = Some(vec![DatasetVersionSelection {
         dataset_version_id: version_id.to_string(),
@@ -308,6 +376,7 @@ async fn ui_path_computes_data_spec_hash_when_missing() {
 async fn cli_path_rejects_data_spec_hash_mismatch() {
     let (state, _temp_dir) = setup_training_state().await;
     let claims = test_admin_claims();
+    let repo_id = create_test_repo(&state, &claims.tenant_id, &claims.sub).await;
     let dataset_id = "ds-cli";
     let version_id = "ds-cli-ver-1";
     let manifest_hash = B3Hash::hash(b"dataset-cli-manifest").to_hex();
@@ -322,7 +391,8 @@ async fn cli_path_rejects_data_spec_hash_mismatch() {
     .await
     .expect("seed dataset version");
 
-    let mut req = make_request("adapter-cli");
+    let mut req = make_request("adapter-cli", repo_id);
+    req.synthetic_mode = false;
     req.dataset_id = Some(dataset_id.to_string());
     req.dataset_version_ids = Some(vec![DatasetVersionSelection {
         dataset_version_id: version_id.to_string(),

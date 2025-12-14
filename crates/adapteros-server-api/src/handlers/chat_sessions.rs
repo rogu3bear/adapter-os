@@ -24,6 +24,7 @@ use adapteros_db::{
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
+    response::IntoResponse,
     Extension, Json,
 };
 use serde::{Deserialize, Serialize};
@@ -3108,7 +3109,7 @@ pub async fn get_sessions_shared_with_me(
     )
 )]
 pub async fn list_contacts(
-    State(state): State<Arc<AppState>>,
+    State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Query(params): Query<crate::types::PaginationParams>,
 ) -> impl IntoResponse {
@@ -3135,7 +3136,7 @@ pub async fn list_contacts(
     )
 )]
 pub async fn create_contact(
-    State(state): State<Arc<AppState>>,
+    State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Json(payload): Json<adapteros_db::contacts::ContactUpsertParams>,
 ) -> impl IntoResponse {
@@ -3164,7 +3165,7 @@ pub async fn create_contact(
     )
 )]
 pub async fn get_contact(
-    State(state): State<Arc<AppState>>,
+    State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
@@ -3196,7 +3197,7 @@ pub async fn get_contact(
     )
 )]
 pub async fn delete_contact(
-    State(state): State<Arc<AppState>>,
+    State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
@@ -3233,7 +3234,7 @@ pub async fn delete_contact(
     )
 )]
 pub async fn get_contact_interactions(
-    State(state): State<Arc<AppState>>,
+    State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(id): Path<String>,
     Query(params): Query<crate::types::PaginationParams>,

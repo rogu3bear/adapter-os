@@ -1,6 +1,23 @@
 use std::path::Path;
 use std::process::Command;
 
+fn write_bytes_if_changed(path: &Path, bytes: &[u8]) {
+    let should_write = match std::fs::read(path) {
+        Ok(existing) => existing != bytes,
+        Err(_) => true,
+    };
+
+    if !should_write {
+        return;
+    }
+
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).expect("Failed to create parent directory");
+    }
+
+    std::fs::write(path, bytes).expect("Failed to write file");
+}
+
 fn main() {
     // Only compile Metal shaders on macOS
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
@@ -380,12 +397,41 @@ fn generate_signed_manifest() {
     let kernel_hash = blake3::hash(&metallib_bytes);
     let kernel_hash_hex = kernel_hash.to_hex();
 
+    let manifests_dir = Path::new("manifests");
+    let manifest_path = manifests_dir.join("metallib_manifest.json");
+    let signature_path = manifests_dir.join("metallib_manifest.json.sig");
+
+    let should_regenerate = if !manifest_path.exists() || !signature_path.exists() {
+        true
+    } else {
+        match std::fs::read_to_string(&manifest_path)
+            .ok()
+            .and_then(|json| serde_json::from_str::<KernelManifest>(&json).ok())
+        {
+            Some(existing) => existing.kernel_hash != kernel_hash_hex.as_str(),
+            None => true,
+        }
+    };
+
+    if !should_regenerate {
+        return;
+    }
+
     // Get build metadata
     let xcrun_version = get_xcrun_version();
     let sdk_version = get_sdk_version();
     let rust_version =
         std::env::var("CARGO_PKG_RUST_VERSION").unwrap_or_else(|_| "unknown".to_string());
-    let build_timestamp = chrono::Utc::now().to_rfc3339();
+    let build_timestamp = {
+        use chrono::TimeZone;
+
+        std::env::var("SOURCE_DATE_EPOCH")
+            .ok()
+            .and_then(|epoch| epoch.parse::<i64>().ok())
+            .and_then(|epoch| chrono::Utc.timestamp_opt(epoch, 0).single())
+            .map(|dt| dt.to_rfc3339())
+            .unwrap_or_else(|| chrono::Utc::now().to_rfc3339())
+    };
 
     // Create manifest
     // NOTE: kernel_hash is stored as raw hex without prefix for compatibility with B3Hash::from_hex()
@@ -421,32 +467,18 @@ fn generate_signed_manifest() {
         canonical_json: canonical_json.clone(),
     };
 
-    // Ensure manifests directory exists
-    let manifests_dir = Path::new("manifests");
-    std::fs::create_dir_all(manifests_dir).expect("Failed to create manifests directory");
-
     // Write manifest file
     let manifest_pretty =
         serde_json::to_string_pretty(&manifest).expect("Failed to serialize manifest");
-    std::fs::write(
-        manifests_dir.join("metallib_manifest.json"),
-        manifest_pretty,
-    )
-    .expect("Failed to write manifest");
+    write_bytes_if_changed(&manifest_path, manifest_pretty.as_bytes());
 
     // Write signature file
     let signature_json =
         serde_json::to_string_pretty(&signature_metadata).expect("Failed to serialize signature");
-    std::fs::write(
-        manifests_dir.join("metallib_manifest.json.sig"),
-        signature_json,
-    )
-    .expect("Failed to write signature");
+    write_bytes_if_changed(&signature_path, signature_json.as_bytes());
 
     println!(
         "cargo:warning=Generated signed manifest with hash: {}",
         kernel_hash_hex
     );
-    println!("cargo:rerun-if-changed=manifests/metallib_manifest.json");
-    println!("cargo:rerun-if-changed=manifests/metallib_manifest.json.sig");
 }

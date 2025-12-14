@@ -7,6 +7,7 @@
 //! See PRD: PrefixKvCache v1
 
 use adapteros_api_types::prefix_templates::{PrefixMode, PrefixTemplate};
+use adapteros_core::{AosError, B3Hash};
 use adapteros_db::Db;
 use std::sync::Arc;
 

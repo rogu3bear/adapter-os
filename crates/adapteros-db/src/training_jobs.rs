@@ -1144,6 +1144,8 @@ impl Db {
                 retry_of_job_id: retry_of_job_id.map(|s| s.to_string()),
                 stack_id: None,
                 adapter_id: None,
+                weights_hash_b3: None,
+                artifact_path: None,
                 produced_version_id: None,
                 hyperparameters_json: None,
                 data_spec_json: data_spec_json.map(|s| s.to_string()),

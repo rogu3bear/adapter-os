@@ -590,10 +590,10 @@ use adapteros_db::sqlx;
 /// Propose code patch
 #[utoipa::path(
     post,
-    path = "/v1/code/propose",
-    request_body = PatchProposalRequest,
+    path = "/v1/patch/propose",
+    request_body = ProposePatchRequest,
     responses(
-        (status = 200, description = "Patch proposal response", body = PatchProposalResponse),
+        (status = 200, description = "Patch proposal response", body = ProposePatchResponse),
         (status = 500, description = "Internal server error", body = ErrorResponse)
     )
 )]
@@ -747,3 +747,45 @@ pub async fn propose_patch(
     }
 }
 
+fn validate_repo_id(repo_id: &str) -> std::result::Result<(), adapteros_core::AosError> {
+    if repo_id.trim().is_empty() {
+        return Err(adapteros_core::AosError::Validation(
+            "repo_id is required".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_description(description: &str) -> std::result::Result<(), adapteros_core::AosError> {
+    if description.trim().is_empty() {
+        return Err(adapteros_core::AosError::Validation(
+            "description is required".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_file_paths(paths: &[String]) -> std::result::Result<(), adapteros_core::AosError> {
+    if paths.is_empty() {
+        return Err(adapteros_core::AosError::Validation(
+            "target_files must be non-empty".to_string(),
+        ));
+    }
+
+    for p in paths {
+        let trimmed = p.trim();
+        if trimmed.is_empty() {
+            return Err(adapteros_core::AosError::Validation(
+                "target_files contains an empty path".to_string(),
+            ));
+        }
+        if trimmed.starts_with('/') || trimmed.contains("..") {
+            return Err(adapteros_core::AosError::Validation(format!(
+                "invalid file path: {}",
+                trimmed
+            )));
+        }
+    }
+
+    Ok(())
+}

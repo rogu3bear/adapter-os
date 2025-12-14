@@ -3,6 +3,7 @@ use adapteros_api_types::training::{
     DatasetVersionSelection, StartTrainingRequest, TrainingConfigRequest,
 };
 use adapteros_orchestrator::training::compute_combined_data_spec_hash;
+use adapteros_db::adapter_repositories::CreateRepositoryParams;
 use adapteros_server_api::handlers::training::start_training;
 use adapteros_server_api::types::ErrorResponse;
 use axum::{extract::State, http::StatusCode, Extension, Json};
@@ -15,6 +16,24 @@ use common::{setup_state, test_admin_claims};
 const METRIC_LINEAGE_REQUIRED: &str = "training_jobs_rejected_lineage_required";
 const METRIC_TRUST_BLOCKED: &str = "training_jobs_rejected_trust_blocked";
 const METRIC_TRUST_NEEDS_APPROVAL: &str = "training_jobs_rejected_trust_needs_approval";
+
+async fn create_test_repo(
+    state: &adapteros_server_api::state::AppState,
+    claims: &adapteros_server_api::auth::Claims,
+) -> String {
+    state
+        .db
+        .create_adapter_repository(CreateRepositoryParams {
+            tenant_id: &claims.tenant_id,
+            name: "test-repo",
+            base_model_id: None,
+            default_branch: Some("main"),
+            created_by: Some(&claims.sub),
+            description: None,
+        })
+        .await
+        .expect("create adapter repository")
+}
 
 fn base_config() -> TrainingConfigRequest {
     TrainingConfigRequest {
@@ -37,12 +56,12 @@ fn base_config() -> TrainingConfigRequest {
     }
 }
 
-fn base_request() -> StartTrainingRequest {
+fn base_request(repo_id: String) -> StartTrainingRequest {
     StartTrainingRequest {
         adapter_name: "adapter-test".to_string(),
         config: base_config(),
         template_id: None,
-        repo_id: None,
+        repo_id: Some(repo_id),
         target_branch: Some("main".to_string()),
         branch_classification: None,
         base_version_id: None,
@@ -138,8 +157,9 @@ async fn extract_error(
 async fn synthetic_with_datasets_is_rejected_and_counts_metric() {
     let state = setup_state(None).await.unwrap();
     let claims = test_admin_claims();
+    let repo_id = create_test_repo(&state, &claims).await;
 
-    let mut req = base_request();
+    let mut req = base_request(repo_id);
     req.synthetic_mode = true;
     req.dataset_version_ids = Some(vec![DatasetVersionSelection {
         dataset_version_id: "dsv-synth".to_string(),
@@ -168,8 +188,9 @@ async fn synthetic_with_datasets_is_rejected_and_counts_metric() {
 async fn non_synthetic_without_datasets_is_rejected_and_counts_metric() {
     let state = setup_state(None).await.unwrap();
     let claims = test_admin_claims();
+    let repo_id = create_test_repo(&state, &claims).await;
 
-    let req = base_request();
+    let req = base_request(repo_id);
     let (status, body) =
         extract_error(start_training(State(state.clone()), Extension(claims), Json(req)).await)
             .await;
@@ -192,6 +213,7 @@ async fn non_synthetic_without_datasets_is_rejected_and_counts_metric() {
 async fn trust_blocked_dataset_rejected_with_metric() {
     let state = setup_state(None).await.unwrap();
     let claims = test_admin_claims();
+    let repo_id = create_test_repo(&state, &claims).await;
 
     seed_dataset_version(
         &state,
@@ -203,7 +225,7 @@ async fn trust_blocked_dataset_rejected_with_metric() {
     )
     .await;
 
-    let mut req = base_request();
+    let mut req = base_request(repo_id);
     req.dataset_version_ids = Some(vec![DatasetVersionSelection {
         dataset_version_id: "dsv-blocked".to_string(),
         weight: 1.0,
@@ -232,6 +254,7 @@ async fn trust_blocked_dataset_rejected_with_metric() {
 async fn trust_unknown_is_rejected_as_needs_approval_and_counts_metric() {
     let state = setup_state(None).await.unwrap();
     let claims = test_admin_claims();
+    let repo_id = create_test_repo(&state, &claims).await;
 
     seed_dataset_version(
         &state,
@@ -243,7 +266,7 @@ async fn trust_unknown_is_rejected_as_needs_approval_and_counts_metric() {
     )
     .await;
 
-    let mut req = base_request();
+    let mut req = base_request(repo_id);
     req.dataset_version_ids = Some(vec![DatasetVersionSelection {
         dataset_version_id: "dsv-unknown".to_string(),
         weight: 1.0,
@@ -272,6 +295,7 @@ async fn trust_unknown_is_rejected_as_needs_approval_and_counts_metric() {
 async fn data_spec_hash_mismatch_rejected() {
     let state = setup_state(None).await.unwrap();
     let claims = test_admin_claims();
+    let repo_id = create_test_repo(&state, &claims).await;
 
     seed_dataset_version(
         &state,
@@ -283,7 +307,7 @@ async fn data_spec_hash_mismatch_rejected() {
     )
     .await;
 
-    let mut req = base_request();
+    let mut req = base_request(repo_id);
     req.dataset_version_ids = Some(vec![DatasetVersionSelection {
         dataset_version_id: "dsv-mismatch".to_string(),
         weight: 1.0,
@@ -302,6 +326,7 @@ async fn data_spec_hash_mismatch_rejected() {
 async fn allowed_with_warning_trust_passes_and_preserves_canonical_tokens() {
     let state = setup_state(None).await.unwrap();
     let claims = test_admin_claims();
+    let repo_id = create_test_repo(&state, &claims).await;
 
     seed_dataset_version(
         &state,
@@ -316,7 +341,7 @@ async fn allowed_with_warning_trust_passes_and_preserves_canonical_tokens() {
     let combined_hash =
         compute_combined_data_spec_hash(&[("dsv-warn".to_string(), "hash-warn".to_string(), 1.0)]);
 
-    let mut req = base_request();
+    let mut req = base_request(repo_id);
     req.dataset_version_ids = Some(vec![DatasetVersionSelection {
         dataset_version_id: "dsv-warn".to_string(),
         weight: 1.0,

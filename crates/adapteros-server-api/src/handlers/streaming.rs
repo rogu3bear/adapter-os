@@ -11,7 +11,9 @@ use axum::{
     extract::Extension,
     extract::State,
     http::StatusCode,
+    response::IntoResponse,
     response::sse::{Event, KeepAlive, Sse},
+    Json,
 };
 use futures_util::stream::{self, Stream};
 use serde::{Deserialize, Serialize};
@@ -1490,21 +1492,6 @@ pub async fn activity_stream(
     )
 }
 
-/// Training progress stream
-#[utoipa::path(
-    get,
-    path = "/v1/streams/training",
-    responses(
-        (status = 200, description = "SSE stream", body = String)
-    )
-)]
-pub async fn training_stream(
-    State(_state): State<Arc<AppState>>,
-    Extension(_claims): Extension<Claims>,
-) -> impl IntoResponse {
-    Json(json!({"status": "not_implemented"})).into_response()
-}
-
 /// Discovery stream
 #[utoipa::path(
     get,
@@ -1514,10 +1501,10 @@ pub async fn training_stream(
     )
 )]
 pub async fn discovery_stream(
-    State(_state): State<Arc<AppState>>,
+    State(_state): State<AppState>,
     Extension(_claims): Extension<Claims>,
 ) -> impl IntoResponse {
-    Json(json!({"status": "not_implemented"})).into_response()
+    Json(serde_json::json!({"status": "not_implemented"})).into_response()
 }
 
 /// Contacts stream
@@ -1529,8 +1516,8 @@ pub async fn discovery_stream(
     )
 )]
 pub async fn contacts_stream(
-    State(_state): State<Arc<AppState>>,
+    State(_state): State<AppState>,
     Extension(_claims): Extension<Claims>,
 ) -> impl IntoResponse {
-    Json(json!({"status": "not_implemented"})).into_response()
+    Json(serde_json::json!({"status": "not_implemented"})).into_response()
 }
