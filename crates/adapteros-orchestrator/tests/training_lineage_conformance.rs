@@ -319,10 +319,10 @@ async fn orch_rejects_data_spec_hash_mismatch() {
             None,
             None,
             None,
-            None, // retry_of_job_id
-            None, // versioning
-            None, // code_commit_sha
-            None, // data_spec_json
+            None,                      // retry_of_job_id
+            None,                      // versioning
+            None,                      // code_commit_sha
+            None,                      // data_spec_json
             Some("wrong-hash".into()), // data_spec_hash
         )
         .await;

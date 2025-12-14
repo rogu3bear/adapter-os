@@ -28,31 +28,70 @@ import { generateNavigationGroups, shouldShowNavGroup } from '@/utils/navigation
 import { logger } from '@/utils/logger';
 import { cn } from '@/components/ui/utils';
 import { Lock, ChevronDown, ChevronRight, RefreshCw, LogOut, CheckCircle2, ArrowRight } from 'lucide-react';
-import { LiveDataStatusProvider } from '@/hooks/useLiveDataStatus';
+import { LiveDataStatusProvider } from '@/hooks/realtime/useLiveDataStatus';
 import { ConnectionStatusIndicator } from '@/components/header/ConnectionStatusIndicator';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import LayoutDebugOverlay from '@/components/dev/LayoutDebugOverlay';
-import { useLayoutDebug } from '@/hooks/useLayoutDebug';
-import { useSessionExpiryHandler } from '@/hooks/useSessionExpiryHandler';
+import { useLayoutDebug } from '@/hooks/ui/useLayoutDebug';
+import { useSessionExpiryHandler } from '@/hooks/realtime/useSessionExpiryHandler';
 import type { SessionMode } from '@/api/auth-types';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { TENANT_ACCESS_DENIED_EVENT } from '@/utils/tenant';
-import { useUiMode } from '@/hooks/useUiMode';
+import { useUiMode } from '@/hooks/ui/useUiMode';
 import { UiMode } from '@/config/ui-mode';
+import { FetchErrorPanel } from '@/components/ui/fetch-error-panel';
+import { useBackendReachability } from '@/stores/backendReachability';
 
 const COLLAPSED_GROUPS_KEY = 'aos_sidebar_collapsed_groups';
 
 export function SessionModeBanner({ sessionMode }: { sessionMode: SessionMode }) {
-  if (sessionMode !== 'dev_bypass') {
-    return null;
-  }
+  const isDemo = sessionMode === 'dev_bypass';
+  const isDev = Boolean(import.meta.env.DEV);
+  if (!isDemo && !isDev) return null;
+
+  const importMeta = import.meta as {
+    env?: {
+      VITE_API_URL?: string;
+      VITE_COMMIT_SHA?: string;
+      VITE_BUILD_SHA?: string;
+      VITE_GIT_SHA?: string;
+    };
+  };
+
+  const apiBaseUrl = importMeta.env?.VITE_API_URL || '/api';
+  const buildShaRaw =
+    importMeta.env?.VITE_COMMIT_SHA ||
+    importMeta.env?.VITE_BUILD_SHA ||
+    importMeta.env?.VITE_GIT_SHA;
+  const buildSha = buildShaRaw?.trim();
+  const buildShaShort = buildSha ? buildSha.slice(0, 8) : null;
+  const envLabel = isDemo ? 'Demo' : 'Dev';
 
   return (
-    <Alert variant="warning" className="mb-[var(--space-3)] border-amber-200 bg-amber-50 text-amber-950">
-      <AlertTitle>Dev bypass active</AlertTitle>
-      <AlertDescription>Demo admin session. Do not use with real data.</AlertDescription>
+    <Alert
+      variant="warning"
+      className="mb-[var(--space-3)] border-amber-200 bg-amber-50 text-amber-950"
+      data-testid="env-banner"
+    >
+      <AlertTitle>{envLabel} environment</AlertTitle>
+      <AlertDescription className="text-amber-950/80">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <span>API:</span>
+          <code className="text-xs font-mono text-amber-950">{apiBaseUrl}</code>
+          {buildShaShort && (
+            <>
+              <span className="text-amber-950/40">•</span>
+              <span>Commit:</span>
+              <code className="text-xs font-mono text-amber-950" title={buildSha}>
+                {buildShaShort}
+              </code>
+            </>
+          )}
+        </div>
+        {isDemo && <div>Demo admin session. Do not use with real data.</div>}
+      </AlertDescription>
     </Alert>
   );
 }
@@ -74,6 +113,7 @@ function RootLayoutContent({
 }: RootLayoutContentProps) {
   const { theme, toggleTheme } = useTheme();
   const { user, logout, sessionMode } = useAuth();
+  const backendReachability = useBackendReachability();
   const location = useLocation();
   const navigate = useNavigate();
   const { openPalette } = useCommandPalette();
@@ -167,7 +207,7 @@ function RootLayoutContent({
       {/* Sidebar - collapsible to icon mode */}
       <Sidebar collapsible="icon">
         <SidebarContent id="navigation" className="pt-2" role="navigation" aria-label="Main navigation">
-          {navigationGroups.filter(group => shouldShowNavGroup(group, user.role)).map((group) => {
+          {navigationGroups.filter(group => shouldShowNavGroup(group, user?.role ?? 'viewer')).map((group) => {
             const isCollapsed = collapsedGroups[group.title];
             const groupMenuId = `nav-group-${group.title.replace(/\s+/g, '-').toLowerCase()}`;
             return (
@@ -228,7 +268,8 @@ function RootLayoutContent({
         {/* Header */}
         <header className="flex items-center border-b bg-background/80 backdrop-blur-sm sticky top-0 z-10">
           <AppHeader
-            user={user}
+            user={user ?? { email: 'guest@example.com', role: 'viewer' }}
+            sessionMode={sessionMode}
             theme={theme}
             onLogout={() => void logout()}
             onOpenHelp={() => setHelpCenterOpen(true)}
@@ -260,6 +301,15 @@ function RootLayoutContent({
         >
           <div className="mx-auto w-full" style={{ maxWidth: 'var(--layout-content-width-xl)' }}>
             <SessionModeBanner sessionMode={sessionMode} />
+            {backendReachability.status === 'offline' && (
+              <div className="mb-4">
+                <FetchErrorPanel
+                  title="Backend unavailable"
+                  description="The UI can’t reach the AdapterOS API. Start the control plane and retry."
+                  error={backendReachability.lastError?.error}
+                />
+              </div>
+            )}
             {tenantAccessDenied && (
               <Alert variant="destructive" className="mb-4 flex items-start gap-3">
                 <div className="flex-1">

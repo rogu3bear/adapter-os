@@ -28,8 +28,8 @@
 
 import { useMemo, useCallback, useRef, useEffect, useState } from 'react';
 import { useChatAdapterState } from '@/hooks/chat/useChatAdapterState';
-import { useModelStatus } from '@/hooks/useModelStatus';
-import { useSSE } from '@/hooks/useSSE';
+import { useModelStatus } from './useModelStatus';
+import { useSSE } from '@/hooks/realtime/useSSE';
 import type { BootProgressEvent } from '@/api/streaming-types';
 import type {
   UseModelLoadingStateOptions,
@@ -261,7 +261,7 @@ export function useModelLoadingState(
 
   // Refresh actions
   const refreshBaseModel = useCallback(async () => {
-    await modelStatus.refresh();
+    await modelStatus.refetch();
   }, [modelStatus]);
 
   const refreshAdapters = useCallback(async () => {
@@ -323,7 +323,7 @@ export function useModelLoadingState(
     error,
 
     // Single refresh action (PRD spec)
-    refresh: refreshAll,
+    refetch: refreshAll,
 
     // Backwards compatibility properties (deprecated)
     overallReady,

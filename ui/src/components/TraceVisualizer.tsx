@@ -94,20 +94,23 @@ export function TraceVisualizer({ trace }: TraceVisualizerProps) {
                         </Badge>
                       </div>
                       <div className="space-y-1">
-                        {decision.candidate_adapters?.map((candidate, candidateIdx) => (
-                          <div
-                            key={candidateIdx}
-                            className="flex items-center justify-between text-xs"
-                          >
-                            <span className="font-mono">
-                              Adapter {candidate.adapter_idx}
-                            </span>
-                            <span className="text-muted-foreground">
-                              Score: {candidate.raw_score.toFixed(3)} | Gate:{' '}
-                              {candidate.gate_q15}
-                            </span>
-                          </div>
-                        )) || decision.adapters?.map((adapterId, adapterIdx) => (
+                        {decision.candidate_adapters?.map((candidate, candidateIdx) => {
+                          if (typeof candidate === 'string') return null;
+                          return (
+                            <div
+                              key={candidateIdx}
+                              className="flex items-center justify-between text-xs"
+                            >
+                              <span className="font-mono">
+                                Adapter {candidate.adapter_idx}
+                              </span>
+                              <span className="text-muted-foreground">
+                                Score: {candidate.raw_score.toFixed(3)} | Gate:{' '}
+                                {candidate.gate_q15}
+                              </span>
+                            </div>
+                          );
+                        }) || decision.adapters?.map((adapterId, adapterIdx) => (
                           <div
                             key={adapterIdx}
                             className="flex items-center justify-between text-xs"

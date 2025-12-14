@@ -537,7 +537,11 @@ impl TraceSink for SqlTraceSink {
         .bind(&finalization.stop_reason_code)
         .bind(finalization.stop_reason_token_index.map(|i| i as i64))
         .bind(stop_policy_digest_bytes.as_ref().map(|b| &b[..]))
-        .bind(model_cache_identity_v2_digest_bytes.as_ref().map(|b| &b[..]))
+        .bind(
+            model_cache_identity_v2_digest_bytes
+                .as_ref()
+                .map(|b| &b[..]),
+        )
         .execute(self.db.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to insert trace receipt: {e}")))?;
@@ -702,8 +706,10 @@ pub async fn recompute_receipt(db: &Db, trace_id: &str) -> Result<TraceReceiptVe
             _ => None,
         };
         // Model cache identity v2 digest (PRD-06)
-        let model_cache_identity_v2_digest_bytes: Option<Vec<u8>> =
-            row.try_get("model_cache_identity_v2_digest_b3").ok().flatten();
+        let model_cache_identity_v2_digest_bytes: Option<Vec<u8>> = row
+            .try_get("model_cache_identity_v2_digest_b3")
+            .ok()
+            .flatten();
         let model_cache_identity_v2_digest_b3 = match model_cache_identity_v2_digest_bytes {
             Some(bytes) if bytes.len() == 32 => {
                 Some(B3Hash::from_bytes(SqlTraceSink::to_digest(bytes)?))
@@ -780,8 +786,7 @@ pub async fn recompute_receipt(db: &Db, trace_id: &str) -> Result<TraceReceiptVe
     ) = (0u64, 0u64, 0u32, None::<String>, false);
 
     // Extract prefix KV fields from stored receipt for recomputation (default to None/false/0 for backward compat)
-    let (prefix_kv_key_b3, prefix_cache_hit, prefix_kv_bytes) =
-        (None::<B3Hash>, false, 0u64);
+    let (prefix_kv_key_b3, prefix_cache_hit, prefix_kv_bytes) = (None::<B3Hash>, false, 0u64);
 
     // Extract model cache identity v2 digest from stored receipt (default to None for backward compat)
     let model_cache_identity_v2_digest_b3 = stored

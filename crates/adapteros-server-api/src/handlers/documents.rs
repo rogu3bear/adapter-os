@@ -44,6 +44,39 @@ pub struct DocumentResponse {
     /// True if this response points to a pre-existing document with identical content
     #[serde(default)]
     pub deduplicated: bool,
+    // Error tracking and retry fields
+    pub error_message: Option<String>,
+    pub error_code: Option<String>,
+    pub retry_count: i32,
+    pub max_retries: i32,
+    pub processing_started_at: Option<String>,
+    pub processing_completed_at: Option<String>,
+}
+
+impl From<adapteros_db::documents::Document> for DocumentResponse {
+    fn from(doc: adapteros_db::documents::Document) -> Self {
+        Self {
+            schema_version: "1.0".to_string(),
+            document_id: doc.id,
+            name: doc.name,
+            hash_b3: doc.content_hash,
+            size_bytes: doc.file_size,
+            mime_type: doc.mime_type,
+            storage_path: doc.file_path,
+            status: doc.status,
+            chunk_count: doc.page_count,
+            tenant_id: doc.tenant_id,
+            created_at: doc.created_at,
+            updated_at: Some(doc.updated_at),
+            deduplicated: false,
+            error_message: doc.error_message,
+            error_code: doc.error_code,
+            retry_count: doc.retry_count,
+            max_retries: doc.max_retries,
+            processing_started_at: doc.processing_started_at,
+            processing_completed_at: doc.processing_completed_at,
+        }
+    }
 }
 
 /// Chunk response
@@ -168,21 +201,9 @@ pub async fn upload_document(
         )
         .await;
 
-        return Ok(Json(DocumentResponse {
-            schema_version: "1.0".to_string(),
-            document_id: existing_doc.id,
-            name: existing_doc.name,
-            hash_b3: existing_doc.content_hash,
-            size_bytes: existing_doc.file_size,
-            mime_type: existing_doc.mime_type,
-            storage_path: existing_doc.file_path,
-            status: existing_doc.status,
-            chunk_count: existing_doc.page_count,
-            tenant_id: existing_doc.tenant_id,
-            created_at: existing_doc.created_at,
-            updated_at: Some(existing_doc.updated_at),
-            deduplicated: true,
-        }));
+        let mut response = DocumentResponse::from(existing_doc);
+        response.deduplicated = true;
+        return Ok(Json(response));
     }
 
     // Save file to disk (only for new documents)
@@ -241,6 +262,12 @@ pub async fn upload_document(
         created_at: chrono::Utc::now().to_rfc3339(),
         updated_at: None,
         deduplicated: false,
+        error_message: None,
+        error_code: None,
+        retry_count: 0,
+        max_retries: 3,
+        processing_started_at: None,
+        processing_completed_at: None,
     }))
 }
 
@@ -273,24 +300,7 @@ pub async fn list_documents(
         .await
         .map_err(db_error)?;
 
-    let data: Vec<DocumentResponse> = documents
-        .into_iter()
-        .map(|d| DocumentResponse {
-            schema_version: "1.0".to_string(),
-            document_id: d.id.clone(),
-            name: d.name,
-            hash_b3: d.content_hash,
-            size_bytes: d.file_size,
-            mime_type: d.mime_type,
-            storage_path: d.file_path,
-            status: d.status,
-            chunk_count: d.page_count,
-            tenant_id: d.tenant_id,
-            created_at: d.created_at,
-            updated_at: Some(d.updated_at),
-            deduplicated: false,
-        })
-        .collect();
+    let data: Vec<DocumentResponse> = documents.into_iter().map(DocumentResponse::from).collect();
 
     let pages = ((total as f64) / (pagination.limit as f64)).ceil() as u32;
     let response = adapteros_api_types::PaginatedResponse {
@@ -337,21 +347,7 @@ pub async fn get_document(
 
     let document = document.ok_or_else(|| not_found("Document"))?;
 
-    Ok(Json(DocumentResponse {
-        schema_version: "1.0".to_string(),
-        document_id: document.id,
-        name: document.name,
-        hash_b3: document.content_hash,
-        size_bytes: document.file_size,
-        mime_type: document.mime_type,
-        storage_path: document.file_path,
-        status: document.status,
-        chunk_count: document.page_count,
-        tenant_id: document.tenant_id,
-        created_at: document.created_at,
-        updated_at: Some(document.updated_at),
-        deduplicated: false,
-    }))
+    Ok(Json(DocumentResponse::from(document)))
 }
 
 /// Delete a document
@@ -571,9 +567,6 @@ pub async fn process_document(
     Extension(claims): Extension<Claims>,
     Path(id): Path<String>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    use adapteros_core::B3Hash;
-    use adapteros_ingest_docs::{default_ingest_options, DocumentIngestor};
-
     // Check permission
     require_permission(&claims, Permission::DatasetUpload)?;
 
@@ -585,15 +578,63 @@ pub async fn process_document(
         .map_err(db_error)?;
     let document = document.ok_or_else(|| not_found("Document"))?;
 
-    // Check if already processed
-    if document.status == "indexed" {
-        return Err(bad_request("Document is already indexed"));
+    // Check document state - validate current status
+    match document.status.as_str() {
+        "indexed" => {
+            return Err(bad_request("Document is already indexed"));
+        }
+        "processing" => {
+            return Err(bad_request("Document is currently being processed"));
+        }
+        "pending" | "failed" => {
+            // Allowed to process - will acquire lock
+        }
+        _ => {
+            return Err(bad_request(&format!(
+                "Unknown document status: {}",
+                document.status
+            )));
+        }
     }
 
-    // Read document file
-    let file_data = fs::read(&document.file_path)
+    // Acquire processing lock atomically - prevents race conditions
+    let acquired = state
+        .db
+        .try_acquire_processing_lock(&claims.tenant_id, &id)
         .await
-        .map_err(|e| db_error(format!("Failed to read document file: {}", e)))?;
+        .map_err(db_error)?;
+
+    if !acquired {
+        return Err(bad_request(
+            "Failed to acquire processing lock (document may be processing by another request)",
+        ));
+    }
+
+    // Process with error handling - on failure, mark as failed
+    match process_document_inner(&state, &claims, &id, &document).await {
+        Ok(response) => Ok(response),
+        Err(e) => {
+            // Mark document as failed with error details
+            let error_msg = format!("{:?}", e);
+            let _ = state
+                .db
+                .mark_document_failed(&claims.tenant_id, &id, &error_msg, "PROCESSING_ERROR")
+                .await;
+            Err(e)
+        }
+    }
+}
+
+/// Inner processing logic with transactional chunk creation
+#[cfg(feature = "embeddings")]
+async fn process_document_inner(
+    state: &AppState,
+    claims: &Claims,
+    document_id: &str,
+    document: &adapteros_db::documents::Document,
+) -> Result<Json<ProcessDocumentResponse>, (StatusCode, Json<ErrorResponse>)> {
+    use adapteros_core::B3Hash;
+    use adapteros_ingest_docs::{default_ingest_options, DocumentIngestor};
 
     // Get embedding model from state
     let embedding_model = state
@@ -601,22 +642,43 @@ pub async fn process_document(
         .as_ref()
         .ok_or_else(|| db_error("Embedding model not configured - enable embeddings feature"))?;
 
-    // Parse document into chunks
+    // Read document file
+    let file_data = fs::read(&document.file_path)
+        .await
+        .map_err(|e| db_error(format!("Failed to read document file: {}", e)))?;
+
+    // Parse document into chunks - use resilient processing for PDFs
     let ingestor = DocumentIngestor::new(default_ingest_options(), None);
     let ingested_doc = if document.mime_type.contains("pdf") {
-        ingestor.ingest_pdf_bytes(&file_data, &document.name)
+        // Use resilient PDF processing that continues on page errors
+        let result = ingestor
+            .ingest_pdf_bytes_resilient(&file_data, &document.name)
+            .map_err(|e| db_error(format!("Failed to parse PDF: {}", e)))?;
+
+        // Log any page errors
+        if result.successful_pages < result.total_pages {
+            warn!(
+                document_id = %document_id,
+                total_pages = result.total_pages,
+                successful_pages = result.successful_pages,
+                "Document processed with some page failures"
+            );
+        }
+
+        result.document
     } else if document.mime_type.contains("markdown") || document.name.ends_with(".md") {
-        ingestor.ingest_markdown_bytes(&file_data, &document.name)
+        ingestor
+            .ingest_markdown_bytes(&file_data, &document.name)
+            .map_err(|e| db_error(format!("Failed to parse markdown: {}", e)))?
     } else {
         return Err(bad_request(&format!(
             "Unsupported document type: {}",
             document.mime_type
         )));
-    }
-    .map_err(|e| db_error(format!("Failed to parse document: {}", e)))?;
+    };
 
     info!(
-        document_id = %id,
+        document_id = %document_id,
         chunks = ingested_doc.chunks.len(),
         "Parsed document into chunks"
     );
@@ -624,17 +686,27 @@ pub async fn process_document(
     let model_hash = embedding_model.model_hash();
     let dimension = embedding_model.dimension();
 
+    // Start transaction for atomic chunk creation
+    let pool = state.db.pool();
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|e| db_error(format!("Failed to start transaction: {}", e)))?;
+
     let mut chunk_count = 0;
 
-    // Process each chunk
+    // Process each chunk within transaction
     for chunk in &ingested_doc.chunks {
         // Generate chunk UUID for document_chunks table
         let chunk_db_id = Uuid::now_v7().to_string();
 
         // Generate embedding
-        let embedding = embedding_model
-            .encode_text(&chunk.text)
-            .map_err(|e| db_error(format!("Failed to generate embedding: {}", e)))?;
+        let embedding = embedding_model.encode_text(&chunk.text).map_err(|e| {
+            db_error(format!(
+                "Failed to generate embedding for chunk {}: {}",
+                chunk.chunk_index, e
+            ))
+        })?;
 
         // Compute chunk hash
         let chunk_hash = B3Hash::hash(chunk.text.as_bytes()).to_hex();
@@ -646,12 +718,11 @@ pub async fn process_document(
             chunk.text.clone()
         };
 
-        // Store embedding as JSON for document_chunks table
+        // Store embedding as JSON
         let embedding_json = serde_json::to_string(&embedding)
             .map_err(|e| db_error(format!("Failed to serialize embedding: {}", e)))?;
 
-        // Insert into document_chunks table (proper FK relationship)
-        // Use direct SQL to include embedding_json which isn't in CreateChunkParams
+        // Insert into document_chunks table within transaction
         sqlx::query(
             r#"
             INSERT INTO document_chunks (
@@ -662,88 +733,103 @@ pub async fn process_document(
         )
         .bind(&chunk_db_id)
         .bind(&claims.tenant_id)
-        .bind(&id) // document UUID
+        .bind(document_id)
         .bind(chunk.chunk_index as i64)
         .bind(chunk.page_number.map(|p| p as i64))
-        .bind(chunk.start_offset as i64)
-        .bind(chunk.end_offset as i64)
+        .bind(chunk.start_offset.map(|o| o as i64))
+        .bind(chunk.end_offset.map(|o| o as i64))
         .bind(&chunk_hash)
         .bind(&text_preview)
         .bind(&embedding_json)
-        .execute(&*state.db.pool())
+        .execute(&mut *tx)
         .await
-        .map_err(|e| db_error(format!("Failed to create document chunk: {}", e)))?;
+        .map_err(|e| {
+            db_error(format!(
+                "Failed to insert chunk {}: {}",
+                chunk.chunk_index, e
+            ))
+        })?;
 
         // Generate RAG doc_id using UUID-based document_id
-        // Format: {document_id}__chunk_{index} where document_id is the UUID
-        let rag_doc_id = format!("{}__chunk_{}", id, chunk.chunk_index);
+        // Format: {document_id}__chunk_{index}
+        let rag_doc_id = format!("{}__chunk_{}", document_id, chunk.chunk_index);
 
-        // Insert into RAG storage (SQL + KV according to storage mode)
-        state
-            .db
-            .upsert_rag_document(adapteros_db::rag::RagDocumentWrite {
-                tenant_id: claims.tenant_id.clone(),
-                doc_id: rag_doc_id,
-                text: chunk.text.clone(),
-                embedding,
-                rev: "v1".to_string(),
-                effectivity: "all".to_string(),
-                source_type: document.mime_type.clone(),
-                superseded_by: None,
-                embedding_model_hash: model_hash,
-                embedding_dimension: dimension,
-            })
-            .await
-            .map_err(|e| db_error(format!("Failed to index chunk in RAG: {}", e)))?;
+        // Insert into RAG index within same transaction
+        sqlx::query(
+            r#"
+            INSERT OR REPLACE INTO rag_documents (
+                doc_id, tenant_id, text, embedding_json, rev, effectivity, source_type
+            ) VALUES (?, ?, ?, ?, ?, 'current', 'document')
+            "#,
+        )
+        .bind(&rag_doc_id)
+        .bind(&claims.tenant_id)
+        .bind(&chunk.text)
+        .bind(&embedding_json)
+        .bind(Uuid::now_v7().to_string())
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| {
+            db_error(format!(
+                "Failed to insert RAG chunk {}: {}",
+                chunk.chunk_index, e
+            ))
+        })?;
 
         chunk_count += 1;
 
         debug!(
-            document_id = %id,
+            document_id = %document_id,
             chunk_index = chunk.chunk_index,
             chunk_db_id = %chunk_db_id,
             "Indexed chunk"
         );
     }
 
-    // Update document status to indexed
-    state
-        .db
-        .update_document_status(&id, "indexed")
-        .await
-        .map_err(db_error)?;
+    // Update document status to indexed within same transaction
+    sqlx::query(
+        r#"
+        UPDATE documents
+        SET status = 'indexed',
+            page_count = ?,
+            processing_completed_at = datetime('now'),
+            updated_at = datetime('now')
+        WHERE id = ? AND tenant_id = ?
+        "#,
+    )
+    .bind(ingested_doc.page_count.map(|p| p as i64))
+    .bind(document_id)
+    .bind(&claims.tenant_id)
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| db_error(format!("Failed to update document status: {}", e)))?;
 
-    // Update page count if available
-    if let Some(page_count) = ingested_doc.page_count {
-        sqlx::query("UPDATE documents SET page_count = ? WHERE id = ?")
-            .bind(page_count as i64)
-            .bind(&id)
-            .execute(&*state.db.pool())
-            .await
-            .map_err(|e| db_error(format!("Failed to update page count: {}", e)))?;
-    }
+    // Commit transaction - all chunks and status update together
+    tx.commit()
+        .await
+        .map_err(|e| db_error(format!("Failed to commit transaction: {}", e)))?;
 
     info!(
-        document_id = %id,
+        document_id = %document_id,
         chunk_count = chunk_count,
-        "Document processed and indexed successfully"
+        "Document successfully indexed"
     );
 
     // Audit log: document processed
     let _ = log_success(
         &state.db,
-        &claims,
+        claims,
         actions::DOCUMENT_UPLOAD,
         resources::DOCUMENT,
-        Some(&id),
+        Some(document_id),
     )
     .await;
 
     Ok(Json(ProcessDocumentResponse {
         schema_version: "1.0".to_string(),
-        document_id: id,
+        document_id: document_id.to_string(),
         status: "indexed".to_string(),
-        chunk_count,
+        chunk_count: chunk_count as i32,
         indexed_at: chrono::Utc::now().to_rfc3339(),
     }))
 }
@@ -770,4 +856,121 @@ pub async fn process_document(
     Err::<(), _>(not_implemented(
         "Document processing requires the 'embeddings' feature to be enabled",
     ))
+}
+
+/// Retry a failed document processing.
+/// Only works on documents in "failed" state that haven't exceeded max retries.
+#[utoipa::path(
+    post,
+    path = "/v1/documents/{id}/retry",
+    params(
+        ("id" = String, Path, description = "Document ID to retry")
+    ),
+    responses(
+        (status = 200, description = "Document queued for retry", body = DocumentResponse),
+        (status = 400, description = "Document cannot be retried (not failed or max retries exceeded)"),
+        (status = 404, description = "Document not found"),
+    ),
+    security(("bearer_auth" = [])),
+    tag = "documents"
+)]
+pub async fn retry_document(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(id): Path<String>,
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::DatasetUpload)?;
+
+    // Get document with tenant isolation
+    let document = state
+        .db
+        .get_document(&claims.tenant_id, &id)
+        .await
+        .map_err(db_error)?
+        .ok_or_else(|| not_found("Document"))?;
+
+    // Only failed documents can be retried
+    if document.status != "failed" {
+        return Err(bad_request(&format!(
+            "Only failed documents can be retried. Current status: {}",
+            document.status
+        )));
+    }
+
+    // Prepare document for retry (increments retry_count, resets to pending)
+    let prepared = state
+        .db
+        .prepare_document_retry(&claims.tenant_id, &id)
+        .await
+        .map_err(db_error)?;
+
+    if !prepared {
+        return Err(bad_request("Document has exceeded maximum retry attempts"));
+    }
+
+    info!(
+        document_id = %id,
+        tenant_id = %claims.tenant_id,
+        "Document queued for retry"
+    );
+
+    // Return updated document
+    let updated = state
+        .db
+        .get_document(&claims.tenant_id, &id)
+        .await
+        .map_err(db_error)?
+        .ok_or_else(|| not_found("Document"))?;
+
+    // Audit log
+    let _ = log_success(
+        &state.db,
+        &claims,
+        actions::DOCUMENT_RETRY,
+        resources::DOCUMENT,
+        Some(&id),
+    )
+    .await;
+
+    Ok(Json(DocumentResponse::from(updated)))
+}
+
+/// Query parameters for listing failed documents
+#[derive(Debug, Deserialize)]
+pub struct ListFailedParams {
+    pub limit: Option<i64>,
+}
+
+/// List failed documents that are eligible for retry.
+#[utoipa::path(
+    get,
+    path = "/v1/documents/failed",
+    params(
+        ("limit" = Option<i64>, Query, description = "Maximum number of documents to return")
+    ),
+    responses(
+        (status = 200, description = "List of retryable failed documents", body = Vec<DocumentResponse>),
+    ),
+    security(("bearer_auth" = [])),
+    tag = "documents"
+)]
+pub async fn list_failed_documents(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Query(params): Query<ListFailedParams>,
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::DatasetView)?;
+
+    let limit = params.limit.unwrap_or(50);
+
+    let documents = state
+        .db
+        .get_retryable_documents(&claims.tenant_id, limit)
+        .await
+        .map_err(db_error)?;
+
+    let response: Vec<DocumentResponse> =
+        documents.into_iter().map(DocumentResponse::from).collect();
+
+    Ok(Json(response))
 }

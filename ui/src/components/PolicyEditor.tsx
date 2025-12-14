@@ -190,7 +190,8 @@ export function PolicyEditor({
   };
 
   const renderField = (packId: string, field: PolicyFieldDefinition) => {
-    const value = policyConfig.packs?.[packId]?.[field.name];
+    const packs = policyConfig.packs as Record<string, Record<string, unknown>> | undefined;
+    const value = packs?.[packId]?.[field.name];
 
     switch (field.type) {
       case 'boolean':
@@ -198,7 +199,7 @@ export function PolicyEditor({
           <div className="flex items-center space-x-2">
             <Checkbox
               id={`${packId}-${field.name}`}
-              checked={value || false}
+              checked={typeof value === 'boolean' ? value : false}
               data-cy={`${packId}-${field.name}-toggle`}
               onCheckedChange={(checked) => updatePolicyField(packId, field.name, checked)}
             />
@@ -217,7 +218,7 @@ export function PolicyEditor({
             <Input
               id={`${packId}-${field.name}`}
               type="number"
-              value={value || field.default || ''}
+              value={typeof value === 'number' ? value : (typeof field.default === 'number' ? field.default : '')}
               onChange={(e) => updatePolicyField(packId, field.name, parseFloat(e.target.value) || field.default)}
               min={field.min}
               max={field.max}
@@ -233,7 +234,7 @@ export function PolicyEditor({
             </Label>
             <Input
               id={`${packId}-${field.name}`}
-              value={value || field.default || ''}
+              value={typeof value === 'string' ? value : (typeof field.default === 'string' ? field.default : '')}
               onChange={(e) => updatePolicyField(packId, field.name, e.target.value)}
             />
           </div>
@@ -246,7 +247,7 @@ export function PolicyEditor({
               {field.label}
             </Label>
             <Select
-              value={value || field.default}
+              value={(typeof value === 'string' ? value : field.default) as string | undefined}
               onValueChange={(val) => updatePolicyField(packId, field.name, val)}
             >
               <SelectTrigger id={`${packId}-${field.name}`}>

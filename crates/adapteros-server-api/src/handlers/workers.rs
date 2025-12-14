@@ -81,15 +81,35 @@ pub async fn worker_spawn(
     });
 
     // Send HTTP POST to node agent
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_millis(500))
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| internal_error_msg("failed to create HTTP client", e))?;
     let spawn_url = format!("{}/spawn_worker", node.agent_endpoint);
 
-    let response = client
-        .post(&spawn_url)
-        .json(&spawn_req)
-        .send()
-        .await
-        .map_err(|e| bad_gateway("failed to contact node agent", e))?;
+    let max_attempts = 3u32;
+    let mut attempt = 0u32;
+    let mut backoff = std::time::Duration::from_millis(100);
+    let response = loop {
+        attempt += 1;
+        match client.post(&spawn_url).json(&spawn_req).send().await {
+            Ok(response) => break Ok(response),
+            Err(e) => {
+                if attempt >= max_attempts {
+                    break Err(e);
+                }
+                tokio::time::sleep(backoff).await;
+                backoff = (backoff * 2).min(std::time::Duration::from_millis(800));
+            }
+        }
+    }
+    .map_err(|e| {
+        bad_gateway(
+            "failed to contact node agent",
+            format!("{} (after {} attempts)", e, max_attempts),
+        )
+    })?;
 
     if !response.status().is_success() {
         let error_text = response.text().await.unwrap_or_default();
@@ -147,6 +167,11 @@ pub async fn worker_spawn(
         status: WorkerStatus::Created.as_str().to_string(),
         started_at: chrono::Utc::now().to_rfc3339(),
         last_seen_at: None,
+        capabilities: Vec::new(),
+        backend: None,
+        model_id: None,
+        model_hash: None,
+        model_loaded: false,
     }))
 }
 
@@ -199,6 +224,11 @@ pub async fn list_workers(
             status: w.status,
             started_at: w.started_at,
             last_seen_at: w.last_seen_at,
+            capabilities: Vec::new(),
+            backend: None,
+            model_id: None,
+            model_hash: None,
+            model_loaded: false,
         })
         .collect();
 
@@ -571,6 +601,15 @@ pub async fn register_worker(
         .register_worker(params)
         .await
         .map_err(|e| db_error_msg("failed to register worker", e))?;
+
+    state.worker_runtime.insert(
+        req.worker_id.clone(),
+        crate::state::WorkerRuntimeInfo {
+            backend: req.backend.clone(),
+            model_hash: req.model_hash.clone(),
+            capabilities: req.capabilities.clone(),
+        },
+    );
 
     info!(
         worker_id = %req.worker_id,

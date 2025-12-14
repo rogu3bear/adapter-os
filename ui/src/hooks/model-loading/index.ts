@@ -15,7 +15,6 @@ export {
 
 export {
   useAdapterStates,
-  type AdapterLifecycleState,
   type AdapterStateInfo,
   type UseAdapterStatesOptions,
   type UseAdapterStatesResult,
@@ -51,3 +50,17 @@ export {
   type UseChatLoadingPersistenceOptions,
   type UseChatLoadingPersistenceReturn,
 } from './useChatLoadingPersistence';
+
+// Model status monitoring
+export {
+  useModelStatus,
+  type ModelStatusState,
+  type UseModelStatusReturn,
+} from './useModelStatus';
+
+// Auto-load model for operator experience
+export {
+  useAutoLoadModel,
+  type AutoLoadError,
+  type UseAutoLoadModelReturn,
+} from './useAutoLoadModel';

@@ -123,7 +123,7 @@ export function PolicyCheckDisplay({
         setTimeout(() => setOverrideMessage(null), 3000);
       }
     } catch (error) {
-      logger.error('Policy override failed', { cpid, policyId }, error);
+      logger.error('Policy override failed', { cpid, policyId }, error instanceof Error ? error : new Error(String(error)));
       setOverridingPolicyId(null);
     }
   };

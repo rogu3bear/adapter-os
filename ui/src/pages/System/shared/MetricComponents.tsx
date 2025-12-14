@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardDescription } from '@/components/ui/
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Progress } from '@/components/ui/progress';
-import type { HealthStatus } from '@/hooks/useSystemMetrics';
+import type { HealthStatus } from '@/hooks/system/useSystemMetrics';
 
 interface HealthBadgeProps {
   status: HealthStatus;

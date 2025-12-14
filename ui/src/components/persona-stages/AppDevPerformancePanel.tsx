@@ -2,7 +2,7 @@ import React, { useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
-import { usePolling } from '@/hooks/usePolling';
+import { usePolling } from '@/hooks/realtime/usePolling';
 import { apiClient } from '@/api/client';
 import { Activity, Clock, Zap, Database, TrendingUp, TrendingDown } from 'lucide-react';
 

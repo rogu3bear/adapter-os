@@ -11,7 +11,7 @@
 // Re-export from current locations (files not moved yet)
 export { AdapterMemoryMonitor } from '@/components/AdapterMemoryMonitor';
 export { MonitoringDashboard } from '@/components/MonitoringDashboard';
-export { MonitoringPage } from '@/components/MonitoringPage';
+export { MonitoringPage } from '@/pages/Monitoring/MonitoringPage';
 export { ResourceMonitor } from '@/components/ResourceMonitor';
 export { TrainingJobMonitor } from '@/components/TrainingJobMonitor';
 export { TrainingMonitor } from '@/components/TrainingMonitor';

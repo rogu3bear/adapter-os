@@ -26,8 +26,8 @@ import {
   Archive,
   Trash2,
 } from 'lucide-react';
-import { useArchiveSession } from '@/hooks/useChatArchive';
-import { useChatSessionsApi } from '@/hooks/useChatSessionsApi';
+import { useArchiveSession } from '@/hooks/chat/useChatArchive';
+import { useChatSessionsApi } from '@/hooks/chat/useChatSessionsApi';
 import { toast } from 'sonner';
 import { logger } from '@/utils/logger';
 

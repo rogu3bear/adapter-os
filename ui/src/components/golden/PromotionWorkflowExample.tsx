@@ -38,7 +38,7 @@ export function PromotionWorkflowExample({
   const [promotionError, setPromotionError] = useState<string | null>(null);
 
   // Fetch policy checks using the hook
-  const { policies, loading: policiesLoading, error: policiesError, overridePolicy } =
+  const { policies, isLoading: policiesLoading, error: policiesError, overridePolicy } =
     usePolicyChecks({ cpid });
 
   // Calculate statistics
@@ -114,7 +114,7 @@ export function PromotionWorkflowExample({
               <Alert variant="destructive">
                 <AlertCircle className="h-4 w-4" />
                 <AlertTitle>Error Loading Policies</AlertTitle>
-                <AlertDescription>{policiesError}</AlertDescription>
+                <AlertDescription>{policiesError.message}</AlertDescription>
               </Alert>
             )}
 

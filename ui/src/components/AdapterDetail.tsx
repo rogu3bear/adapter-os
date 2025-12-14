@@ -26,8 +26,9 @@ import { useToast } from '@/hooks/use-toast';
 import { ArrowUp, ArrowDown, GitBranch, Clock, Database, Activity, Layers, ExternalLink, Plus, Loader2 } from 'lucide-react';
 import { getLifecycleVariant } from '@/utils/lifecycle';
 import { AddToStackModal } from './AddToStackModal';
-import { useAdapterStacks } from '@/hooks/useAdmin';
+import { useAdapterStacks } from '@/hooks/admin/useAdmin';
 import { LIFECYCLE_STATE_LABELS } from '@/constants/terminology';
+import { formatMB, formatCount } from '@/utils';
 
 export const AdapterDetail: React.FC = () => {
   const { adapterId } = useParams<{ adapterId: string }>();
@@ -254,7 +255,7 @@ export const AdapterDetail: React.FC = () => {
               <div>
                 <p className="text-sm text-gray-500">Memory</p>
                 <p className="text-2xl font-bold">
-                  {(adapter.memory_bytes / 1024 / 1024).toFixed(2)} MB
+                  {formatMB(adapter.memory_bytes)}
                 </p>
               </div>
             </div>
@@ -267,7 +268,7 @@ export const AdapterDetail: React.FC = () => {
               <Activity className="h-5 w-5 text-gray-500" />
               <div>
                 <p className="text-sm text-gray-500">Activations</p>
-                <p className="text-2xl font-bold">{adapter.activation_count}</p>
+                <p className="text-2xl font-bold">{formatCount(adapter.activation_count)}</p>
               </div>
             </div>
           </CardContent>
@@ -413,7 +414,7 @@ export const AdapterDetail: React.FC = () => {
           </CardHeader>
           <CardContent>
             {/* Ancestors */}
-            {lineage.ancestors.length > 0 && (
+            {lineage.ancestors && lineage.ancestors.length > 0 && (
               <div className="mb-4">
                 <h4 className="font-semibold mb-2">Ancestors</h4>
                 <div className="space-y-2 pl-4 border-l-2 border-gray-300">
@@ -435,15 +436,17 @@ export const AdapterDetail: React.FC = () => {
             )}
 
             {/* Current Adapter */}
-            <div className="my-4 p-4 bg-blue-50 border-2 border-blue-500 rounded">
-              <p className="font-bold text-blue-900">Current Adapter</p>
-              <p className="text-sm text-blue-700">
-                {lineage.self_node.adapter_name || lineage.self_node.adapter_id}
-              </p>
-            </div>
+            {lineage.self_node && (
+              <div className="my-4 p-4 bg-blue-50 border-2 border-blue-500 rounded">
+                <p className="font-bold text-blue-900">Current Adapter</p>
+                <p className="text-sm text-blue-700">
+                  {lineage.self_node.adapter_name || lineage.self_node.adapter_id}
+                </p>
+              </div>
+            )}
 
             {/* Descendants */}
-            {lineage.descendants.length > 0 && (
+            {lineage.descendants && lineage.descendants.length > 0 && (
               <div>
                 <h4 className="font-semibold mb-2">Descendants</h4>
                 <div className="space-y-2 pl-4 border-l-2 border-gray-300">
@@ -469,7 +472,7 @@ export const AdapterDetail: React.FC = () => {
               </div>
             )}
 
-            {lineage.ancestors.length === 0 && lineage.descendants.length === 0 && (
+            {(!lineage.ancestors || lineage.ancestors.length === 0) && (!lineage.descendants || lineage.descendants.length === 0) && (
               <p className="text-center text-gray-500 py-4">
                 This adapter has no parent or children.
               </p>

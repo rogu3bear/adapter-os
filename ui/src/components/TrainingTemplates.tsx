@@ -85,7 +85,7 @@ export function TrainingTemplates({ onTemplateSelect, onCreateTemplate }: Traini
   const filteredTemplates = templates.filter(template => {
     const matchesCategory = selectedCategory === 'all' || template.category === selectedCategory;
     const matchesSearch = template.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         template.description.toLowerCase().includes(searchQuery.toLowerCase());
+                         (template.description ?? '').toLowerCase().includes(searchQuery.toLowerCase());
     return matchesCategory && matchesSearch;
   });
 
@@ -159,17 +159,17 @@ export function TrainingTemplates({ onTemplateSelect, onCreateTemplate }: Traini
             <CardHeader>
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-2">
-                  {getCategoryIcon(template.category)}
+                  {getCategoryIcon(template.category ?? 'codebase')}
                   <CardTitle className="text-lg">{template.name}</CardTitle>
                 </div>
-                <Badge className={getCategoryColor(template.category)}>
-                  {template.category}
+                <Badge className={getCategoryColor(template.category ?? 'codebase')}>
+                  {template.category ?? 'codebase'}
                 </Badge>
               </div>
             </CardHeader>
             <CardContent>
               <p className="text-sm text-muted-foreground mb-4">
-                {template.description}
+                {template.description ?? 'No description'}
               </p>
               
               <div className="space-y-2 text-sm">
@@ -195,7 +195,7 @@ export function TrainingTemplates({ onTemplateSelect, onCreateTemplate }: Traini
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Targets:</span>
-                  <span className="font-medium">{template.targets.length}</span>
+                  <span className="font-medium">{template.targets?.length ?? 0}</span>
                 </div>
               </div>
 

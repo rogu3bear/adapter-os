@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { UserTable } from './UserTable';
 import { UserFormModal } from './UserFormModal';
-import { useUsers } from '@/hooks/useAdmin';
+import { useUsers } from '@/hooks/admin/useAdmin';
 import { LoadingState } from '@/components/ui/loading-state';
 import { ErrorRecovery } from '@/components/ui/error-recovery';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';

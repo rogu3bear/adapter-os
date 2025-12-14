@@ -19,9 +19,9 @@ interface PreviewResponse {
 }
 
 export default function DatasetPreview({ datasetId, isLoading }: DatasetPreviewProps) {
-  const { data: preview, isLoading: isLoadingPreview } = useQuery<PreviewResponse>({
+  const { data: preview, isLoading: isLoadingPreview } = useQuery({
     queryKey: ['dataset', datasetId, 'preview'],
-    queryFn: async () => {
+    queryFn: async (): Promise<PreviewResponse> => {
       return apiClient.request<PreviewResponse>(`/v1/datasets/${datasetId}/preview?limit=20`);
     },
     enabled: !!datasetId,

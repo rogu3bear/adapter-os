@@ -1,5 +1,5 @@
 import { TelemetryEvent } from '@/api/types';
-import { ConnectionStatus } from '@/hooks/useLiveData';
+import { ConnectionStatus } from '@/hooks/realtime/useLiveData';
 
 // Limits to avoid unbounded in-memory growth for the live table and pause buffer.
 export const TELEMETRY_VISIBLE_MAX = 200;

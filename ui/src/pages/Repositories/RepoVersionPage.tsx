@@ -15,7 +15,7 @@ import {
   useRepoVersion,
   useStartTrainingFromVersion,
   useTagRepoVersion,
-} from '@/hooks/useReposApi';
+} from '@/hooks/api/useReposApi';
 import { downloadTextFile } from '@/utils/export';
 
 const normalizeTrustState = (state?: string): string => {

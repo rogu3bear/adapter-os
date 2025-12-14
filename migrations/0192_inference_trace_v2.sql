@@ -143,3 +143,5 @@ FROM inference_trace_receipts;
 DROP TABLE inference_trace_receipts;
 ALTER TABLE inference_trace_receipts_new RENAME TO inference_trace_receipts;
 
+
+

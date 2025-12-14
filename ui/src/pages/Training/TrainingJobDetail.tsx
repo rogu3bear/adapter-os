@@ -30,7 +30,7 @@ import {
   Send,
 } from 'lucide-react';
 import apiClient from '@/api/client';
-import { useLiveData } from '@/hooks/useLiveData';
+import { useLiveData } from '@/hooks/realtime/useLiveData';
 import { logger } from '@/utils/logger';
 import { useToast } from '@/hooks/use-toast';
 import { StackFormModal } from '@/pages/Admin/StackFormModal';
@@ -154,9 +154,17 @@ function TrainingJobDetailContent() {
   const [activeTab, setActiveTab] = useState('overview');
   const [stackModalOpen, setStackModalOpen] = useState(false);
   const [publishDialogOpen, setPublishDialogOpen] = useState(false);
+  const missingJobId = !jobId;
 
   // SSE for real-time updates when job is active
   const isJobActive = job?.status === 'running' || job?.status === 'pending';
+
+  useEffect(() => {
+    if (missingJobId) {
+      setIsLoading(false);
+      setError('No training job ID provided');
+    }
+  }, [missingJobId]);
 
   useLiveData({
     sseEndpoint: '/v1/streams/training',
@@ -275,6 +283,22 @@ function TrainingJobDetailContent() {
     return () => clearInterval(interval);
   }, [isJobActive, jobId]);
 
+  if (missingJobId) {
+    return (
+      <Card className="border-destructive">
+        <CardContent className="pt-6">
+          <p className="text-destructive">Missing training job ID.</p>
+          <div className="mt-3">
+            <Button variant="outline" onClick={() => navigate('/training/jobs')}>
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Back to jobs
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -357,7 +381,8 @@ function TrainingJobDetailContent() {
     ?? (requestedBackend?.toLowerCase().includes('coreml'));
   const coremlUsed = job.coreml_used ?? backendLower.includes('coreml');
   const datasetVersionTrust = job.dataset_version_trust || [];
-  const adapterVersionId = (job as any).produced_version_id || (job as any).adapter_version_id;
+  // Use produced_version_id (newer) or fall back to adapter_version_id (both are defined in TrainingJob)
+  const adapterVersionId = job.produced_version_id || job.adapter_version_id;
   const hasPerformanceMetrics = latestLoss !== undefined
     || tokensProcessed !== undefined
     || examplesProcessed !== undefined
@@ -909,7 +934,8 @@ function TrainingJobDetailContent() {
                 variant="outline"
                 size="sm"
                 onClick={async () => {
-                  const newLogs = await apiClient.getTrainingLogs(jobId!);
+                  if (!jobId) return;
+                  const newLogs = await apiClient.getTrainingLogs(jobId);
                   setLogs(newLogs);
                 }}
               >

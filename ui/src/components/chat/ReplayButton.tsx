@@ -147,6 +147,8 @@ export function ReplayButton({
         body: JSON.stringify({
           inference_id: inferenceId,
           allow_approximate: allowApproximate,
+          // Pass dataset_version_id for explicit pinning when available
+          dataset_version_id: availability?.replay_key?.dataset_version_id,
         }),
       });
 

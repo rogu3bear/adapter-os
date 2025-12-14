@@ -9,10 +9,11 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import PageTable from '@/components/ui/PageTable';
 import { Separator } from '@/components/ui/separator';
-import { useCreateRepo, useRepos } from '@/hooks/useReposApi';
+import { useCreateRepo, useRepos } from '@/hooks/api/useReposApi';
 import type { RepoSummary } from '@/api/repo-types';
 import type { AdapterHealthFlag } from '@/api/adapter-types';
 import { HealthBadge } from '@/components/shared/TrustHealthBadge';
+import { isAdapterHealthFlag } from '@/utils/typeGuards';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
 
@@ -322,8 +323,9 @@ export default function RepositoriesPage() {
                       repo.branches?.find(b => b.default)?.latest_active_version ||
                       repo.branches?.map(b => b.latest_active_version).find(Boolean) ||
                       null;
-                    const health = (activeVersion?.health_state ?? 'unknown') as AdapterHealthFlag | 'unknown';
-                    const healthForBadge = health === 'unknown' ? ('healthy' as AdapterHealthFlag) : health as AdapterHealthFlag;
+                    const healthState = activeVersion?.health_state ?? 'unknown';
+                    const health = isAdapterHealthFlag(healthState) ? healthState : 'unknown';
+                    const healthForBadge = health === 'unknown' ? ('healthy' as AdapterHealthFlag) : health;
                     const lastTraining =
                       activeVersion?.updated_at ||
                       activeVersion?.created_at ||

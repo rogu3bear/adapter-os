@@ -17,7 +17,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { LineChart, Line, CartesianGrid, XAxis, YAxis, Tooltip as ReTooltip, ResponsiveContainer } from 'recharts';
 import { ErrorRecovery } from '@/components/ui/error-recovery';
-import { useSessionTelemetry } from '@/hooks/useSessionTelemetry';
+import { useSessionTelemetry } from '@/hooks/realtime/useSessionTelemetry';
 import { CHART_COLORS } from '@/constants/chart-colors';
 import { cn } from '@/components/ui/utils';
 import { Link, useNavigate } from 'react-router-dom';
@@ -111,7 +111,7 @@ export function TelemetryViewer({
   const timelineTitle = selectedRequestId ? `Session ${selectedRequestId}` : 'Select a session';
   const handleOpenTrace = () => {
     if (!selectedRequestId) return;
-    navigate(`/telemetry/viewer?requestId=${encodeURIComponent(selectedRequestId)}`);
+    navigate(`/telemetry?tab=viewer&requestId=${encodeURIComponent(selectedRequestId)}`);
   };
 
   return (

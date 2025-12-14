@@ -18,8 +18,8 @@ import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
 import { Upload, FileCheck, Settings, CheckCircle } from 'lucide-react';
 import apiClient from '@/api/client';
 import { Adapter } from '@/api/types';
-import { useProgressOperation } from '@/hooks/useProgressOperation';
-import { useCancellableOperation } from '@/hooks/useCancellableOperation';
+import { useProgressOperation } from '@/hooks/ui/useProgressOperation';
+import { useCancellableOperation } from '@/hooks/async/useCancellableOperation';
 
 interface AdapterImportWizardProps {
   onComplete: (adapter: Adapter) => void;
@@ -183,6 +183,9 @@ export function AdapterImportWizard({ onComplete, onCancel, tenantId }: AdapterI
       const tempOperationId = startFileUpload('file_upload', `upload_${Date.now()}`, tenantId || 'default');
 
       await startCancellableUpload(async (signal) => {
+        if (!state.file) {
+          throw new Error('No file selected');
+        }
         const adapter = await apiClient.importAdapter(state.file, state.autoLoad, {}, false, signal);
         onComplete(adapter);
       }, `file-upload-${state.file.name}`);

@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect } from 'react';
-import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams, Link } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import FeatureLayout from '@/layout/FeatureLayout';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -10,9 +10,10 @@ import AdapterLineagePage from '@/pages/Adapters/AdapterLineage';
 import AdapterManifestPage from '@/pages/Adapters/AdapterManifest';
 import AdapterRegisterPage from '@/pages/Adapters/AdapterRegisterPage';
 import AdapterUsage from '@/pages/Adapters/AdapterUsage';
-import { useAdapterDetail } from '@/hooks/useAdapterDetail';
-import { adaptersTabOrder, adapterTabToPath, AdaptersTab, resolveAdaptersTab } from '@/pages/Adapters/tabs';
+import { useAdapterDetail } from '@/hooks/adapters';
+import { useAdapterTabRouter } from '@/hooks/navigation/useTabRouter';
 import type { AdapterCategory, AdapterDetailResponse } from '@/api/adapter-types';
+import { isAdapterCategory } from '@/utils/typeGuards';
 import { CANONICAL_POLICIES } from '@/api/policyTypes';
 import apiClient from '@/api/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -22,6 +23,8 @@ import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { Separator } from '@/components/ui/separator';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Loader2 } from 'lucide-react';
+import { DetailPageLoadingState } from '@/components/ui/loading-patterns';
 
 export default function AdaptersShell() {
   const { adapterId } = useParams<{ adapterId: string }>();
@@ -29,13 +32,14 @@ export default function AdaptersShell() {
   const navigate = useNavigate();
   const [postRegisterBanner, setPostRegisterBanner] = useState<{ adapterName?: string } | null>(null);
 
-  const basePath = useMemo(() => (adapterId ? `/adapters/${adapterId}` : '/adapters'), [adapterId]);
+  const { activeTab, setActiveTab, availableTabs, getTabPath } = useAdapterTabRouter();
 
   const {
     adapter: adapterDetail,
     lineage,
     activations,
     manifest,
+    isLoadingDetail,
     isLoadingLineage,
     isLoadingActivations,
     isLoadingManifest,
@@ -44,20 +48,16 @@ export default function AdaptersShell() {
     refetchManifest,
   } = useAdapterDetail(adapterId || '', { enabled: !!adapterId });
 
-  const activeTab: AdaptersTab = useMemo(
-    () => resolveAdaptersTab(location.pathname, location.hash, adapterId || undefined),
-    [adapterId, location.hash, location.pathname],
-  );
-
-  const tabPath = (tab: AdaptersTab) => adapterTabToPath(tab, adapterId || undefined);
+  // Check if any tab is loading
+  const isAnyTabLoading = isLoadingDetail || isLoadingLineage || isLoadingActivations || isLoadingManifest;
 
   useEffect(() => {
     const state = (location.state || {}) as { fromRegister?: boolean; adapterName?: string };
     if (state.fromRegister) {
       setPostRegisterBanner({ adapterName: state.adapterName });
-      navigate(`${location.pathname}${location.hash}`, { replace: true, state: {} });
+      navigate(location.pathname, { replace: true, state: {} });
     }
-  }, [location.hash, location.pathname, location.state, navigate]);
+  }, [location.pathname, location.state, navigate]);
 
   return (
     <FeatureLayout
@@ -84,36 +84,45 @@ export default function AdaptersShell() {
           </AlertDescription>
         </Alert>
       )}
-      <Tabs
-        value={activeTab}
-        onValueChange={(value: string) => {
-          const tab = value as AdaptersTab;
-          const nextPath = tabPath(tab);
-          const nextLocation = nextPath.split('#')[0];
-          if (nextLocation !== location.pathname || location.hash !== '') {
-            navigate(nextPath);
-          }
-        }}
-      >
+      <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as typeof activeTab)}>
         <TabsList className="w-full grid grid-cols-3 md:grid-cols-4 lg:grid-cols-7">
-          {adaptersTabOrder.map(tab => (
-            <TabsTrigger key={tab} value={tab}>
-              {tab === 'overview' && 'Overview'}
-              {tab === 'activations' && 'Activations'}
-              {tab === 'usage' && 'Usage'}
-              {tab === 'lineage' && 'Lineage'}
-              {tab === 'manifest' && 'Manifest'}
-              {tab === 'register' && 'Register'}
-              {tab === 'policies' && 'Policies'}
-            </TabsTrigger>
-          ))}
+          {availableTabs.map(tab => {
+            const isTabLoading =
+              (tab.id === 'overview' && isLoadingDetail) ||
+              (tab.id === 'lineage' && isLoadingLineage) ||
+              (tab.id === 'activations' && isLoadingActivations) ||
+              (tab.id === 'manifest' && isLoadingManifest);
+
+            return (
+              <TabsTrigger key={tab.id} value={tab.id} disabled={isTabLoading} asChild>
+                <Link to={getTabPath(tab.id)}>
+                  {tab.label}
+                  {tab.id === 'overview' && isLoadingDetail && <Loader2 className="ml-1 h-3 w-3 animate-spin" />}
+                  {tab.id === 'activations' && isLoadingActivations && <Loader2 className="ml-1 h-3 w-3 animate-spin" />}
+                  {tab.id === 'lineage' && isLoadingLineage && <Loader2 className="ml-1 h-3 w-3 animate-spin" />}
+                  {tab.id === 'manifest' && isLoadingManifest && <Loader2 className="ml-1 h-3 w-3 animate-spin" />}
+                </Link>
+              </TabsTrigger>
+            );
+          })}
         </TabsList>
 
+        <TabsContent value="list" className="mt-6">
+          <AdaptersList />
+        </TabsContent>
         <TabsContent value="overview" className="mt-6">
-          {adapterId ? <AdapterDetailPage /> : <AdaptersList />}
+          {isLoadingDetail ? (
+            <DetailPageLoadingState />
+          ) : adapterId ? (
+            <AdapterDetailPage />
+          ) : (
+            <AdaptersList />
+          )}
         </TabsContent>
         <TabsContent value="activations" className="mt-6">
-          {adapterId ? (
+          {isLoadingActivations ? (
+            <DetailPageLoadingState />
+          ) : adapterId ? (
             <AdapterActivationsPage
               adapterId={adapterId}
               activations={activations}
@@ -128,7 +137,9 @@ export default function AdaptersShell() {
           <AdapterUsage />
         </TabsContent>
         <TabsContent value="lineage" className="mt-6">
-          {adapterId ? (
+          {isLoadingLineage ? (
+            <DetailPageLoadingState />
+          ) : adapterId ? (
             <AdapterLineagePage
               adapterId={adapterId}
               lineage={lineage}
@@ -139,7 +150,9 @@ export default function AdaptersShell() {
           )}
         </TabsContent>
         <TabsContent value="manifest" className="mt-6">
-          {adapterId ? (
+          {isLoadingManifest ? (
+            <DetailPageLoadingState />
+          ) : adapterId ? (
             <AdapterManifestPage
               adapterId={adapterId}
               manifest={manifest}
@@ -170,9 +183,11 @@ function AdapterPoliciesTab({
   const { toast } = useToast();
   const [selectedPolicyIds, setSelectedPolicyIds] = useState<string[]>([]);
 
-  const category = adapterDetail?.adapter?.category as AdapterCategory | undefined;
-  const appliedPolicyIds =
-    ((adapterDetail?.adapter as unknown as { policy_ids?: string[] })?.policy_ids ?? []) as string[];
+  const adapterCategory = adapterDetail?.adapter?.category;
+  const category = isAdapterCategory(adapterCategory) ? adapterCategory : undefined;
+
+  const adapterWithPolicies = adapterDetail?.adapter as { policy_ids?: string[] } | undefined;
+  const appliedPolicyIds = adapterWithPolicies?.policy_ids ?? [];
 
   useEffect(() => {
     setSelectedPolicyIds(appliedPolicyIds);

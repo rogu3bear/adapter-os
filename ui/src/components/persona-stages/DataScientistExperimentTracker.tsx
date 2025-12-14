@@ -6,7 +6,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import apiClient from '@/api/client';
 import { TrainingJob, TrainingStatus } from '@/api/training-types';
-import { usePolling } from '@/hooks/usePolling';
+import { usePolling } from '@/hooks/realtime/usePolling';
 import {
   FlaskConical,
   Activity,

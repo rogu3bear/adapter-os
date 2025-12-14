@@ -22,7 +22,7 @@ import { toast } from 'sonner';
 import { useAuth } from '@/providers/CoreProviders';
 import PageWrapper from '@/layout/PageWrapper';
 import apiClient from '@/api/client';
-import type { ModelWithStatsResponse, BaseModelStatus } from '@/api/types';
+import type { ModelWithStatsResponse, BaseModelStatus, Adapter, Tenant as ApiTenant, AdapterStack } from '@/api/types';
 import type { MetricsSnapshotEvent } from '@/api/streaming-types';
 import type { SystemOverview } from '@/api/owner-types';
 import { QUERY_FAST, QUERY_STANDARD, QUERY_RARE } from '@/api/queryOptions';
@@ -46,8 +46,8 @@ import ActivityCard from './components/ActivityCard';
 import { SystemChatWidget } from './components/SystemChatWidget';
 import { CliConsole } from './components/CliConsole';
 
-import { useSystemState } from '@/hooks/useSystemState';
-import { useLiveData } from '@/hooks/useLiveData';
+import { useSystemState } from '@/hooks/system/useSystemState';
+import { useLiveData } from '@/hooks/realtime/useLiveData';
 
 const MODEL_STATUS_VALUES = ['ready', 'loading', 'error', 'no-model', 'unloading', 'checking', 'available'] as const;
 type ModelStatusValue = (typeof MODEL_STATUS_VALUES)[number];
@@ -75,12 +75,13 @@ export default function OwnerHomePage() {
     isLoading: systemLoading,
     error: systemError,
     refetch: refetchSystem,
-  } = useQuery<SystemOverview>({
+  } = useQuery({
     queryKey: ['owner-system-overview'],
-    queryFn: () => apiClient.getSystemOverview(),
-    ...QUERY_FAST,
+    queryFn: async (): Promise<SystemOverview> => apiClient.getSystemOverview(),
     staleTime: 10_000,
     refetchInterval: 30_000,
+    refetchOnWindowFocus: true,
+    retry: 1,
   });
 
   // Fetch tenants
@@ -90,8 +91,10 @@ export default function OwnerHomePage() {
     refetch: refetchTenants,
   } = useQuery({
     queryKey: ['owner-tenants'],
-    queryFn: () => apiClient.listTenants(),
-    ...QUERY_STANDARD,
+    queryFn: async (): Promise<ApiTenant[]> => apiClient.listTenants(),
+    staleTime: 5 * 60_000,
+    refetchOnWindowFocus: false,
+    retry: 1,
   });
 
   // Fetch adapters
@@ -101,8 +104,11 @@ export default function OwnerHomePage() {
     refetch: refetchAdapters,
   } = useQuery({
     queryKey: ['owner-adapters'],
-    queryFn: () => apiClient.listAdapters(),
-    ...QUERY_FAST,
+    queryFn: async (): Promise<Adapter[]> => apiClient.listAdapters(),
+    staleTime: 15_000,
+    refetchInterval: 30_000,
+    refetchOnWindowFocus: true,
+    retry: 1,
   });
 
   // Fetch adapter stacks
@@ -112,8 +118,10 @@ export default function OwnerHomePage() {
     refetch: refetchStacks,
   } = useQuery({
     queryKey: ['owner-stacks'],
-    queryFn: () => apiClient.listAdapterStacks(),
-    ...QUERY_STANDARD,
+    queryFn: async (): Promise<AdapterStack[]> => apiClient.listAdapterStacks(),
+    staleTime: 5 * 60_000,
+    refetchOnWindowFocus: false,
+    retry: 1,
   });
 
   // Fetch base models
@@ -121,10 +129,13 @@ export default function OwnerHomePage() {
     data: rawModels,
     isLoading: modelsLoading,
     refetch: refetchModels,
-  } = useQuery<ModelWithStatsResponse[]>({
+  } = useQuery({
     queryKey: ['owner-models'],
-    queryFn: () => apiClient.listModels(),
-    ...QUERY_RARE,
+    queryFn: async (): Promise<ModelWithStatsResponse[]> => apiClient.listModels(),
+    staleTime: 60 * 60_000,
+    gcTime: 120 * 60_000,
+    refetchOnWindowFocus: false,
+    retry: 0,
   });
 
   // Fetch base model status
@@ -132,11 +143,13 @@ export default function OwnerHomePage() {
     data: baseModelStatus,
     isLoading: baseModelLoading,
     refetch: refetchBaseModel,
-  } = useQuery<BaseModelStatus>({
+  } = useQuery({
     queryKey: ['owner-base-model-status'],
-    queryFn: () => apiClient.getBaseModelStatus(),
-    ...QUERY_FAST,
+    queryFn: async (): Promise<BaseModelStatus> => apiClient.getBaseModelStatus(),
+    staleTime: 15_000,
     refetchInterval: 30_000,
+    refetchOnWindowFocus: true,
+    retry: 1,
   });
 
   // Fetch ground truth system state (memory pressure, top adapters)
@@ -167,21 +180,21 @@ export default function OwnerHomePage() {
     lastUpdated: metricsLastUpdated,
     freshnessLevel: metricsFreshness,
     reconnect: reconnectMetrics,
-  } = useLiveData<MetricsSnapshotEvent>({
+  } = useLiveData({
     sseEndpoint: '/v1/stream/metrics',
     sseEventType: 'metrics',
     fetchFn: async () => {
-      return sseMetrics || null;
+      return sseMetrics;
     },
-    pollingSpeed: 'normal',
+    pollingSpeed: 'normal' as const,
     enabled: true,
     onSSEMessage: handleMetricsMessage,
     operationName: 'owner-metrics-stream',
   });
 
   // Merge SSE metrics with polled system overview
-  const enhancedSystemOverview = useMemo(() => {
-    if (!systemOverview) return systemOverview;
+  const enhancedSystemOverview = useMemo((): SystemOverview | undefined => {
+    if (!systemOverview) return undefined;
     if (!sseMetrics?.system) return systemOverview;
     return {
       ...systemOverview,
@@ -214,7 +227,7 @@ export default function OwnerHomePage() {
 
   // Adapter count for onboarding
   const adapterCount = Array.isArray(adapters) ? adapters.length : 0;
-  const hasModel = !!baseModelStatus?.model_name;
+  const hasModel = baseModelStatus ? !!(baseModelStatus.model_name || baseModelStatus.model_id) : false;
 
   // Refresh all data
   const handleRefresh = async () => {
@@ -327,9 +340,9 @@ export default function OwnerHomePage() {
             <SectionErrorBoundary sectionName="Status Bar">
               <StatusBar
                 systemOverview={enhancedSystemOverview}
-                baseModelStatus={baseModelStatus}
+                baseModelStatus={baseModelStatus as BaseModelStatus | undefined}
                 adapters={Array.isArray(adapters) ? adapters : []}
-                systemState={systemState}
+                systemState={systemState ?? undefined}
                 isLoading={systemLoading}
                 error={systemError}
                 isLive={metricsConnected}
@@ -340,8 +353,8 @@ export default function OwnerHomePage() {
             <SectionErrorBoundary sectionName="Alerts">
               <AlertHero
                 systemOverview={enhancedSystemOverview}
-                baseModelStatus={baseModelStatus}
-                systemState={systemState}
+                baseModelStatus={baseModelStatus as BaseModelStatus | undefined}
+                systemState={systemState ?? undefined}
               />
             </SectionErrorBoundary>
 
@@ -369,7 +382,7 @@ export default function OwnerHomePage() {
             <SectionErrorBoundary sectionName="System Overview">
               <SystemKpiGrid
                 systemOverview={enhancedSystemOverview}
-                systemState={systemState}
+                systemState={systemState ?? undefined}
                 adapters={Array.isArray(adapters) ? adapters : []}
                 stacks={Array.isArray(stacks) ? stacks : []}
                 tenants={Array.isArray(tenants) ? tenants : []}
@@ -395,9 +408,9 @@ export default function OwnerHomePage() {
                 <TabsContent value="chat" className="flex-1 m-0 overflow-hidden">
                   <SectionErrorBoundary sectionName="System Chat">
                     <SystemChatWidget
-                      systemOverview={systemOverview ?? undefined}
+                      systemOverview={systemOverview as SystemOverview | undefined}
                       adapters={Array.isArray(adapters) ? adapters : []}
-                      baseModelStatus={baseModelStatus ?? undefined}
+                      baseModelStatus={baseModelStatus as BaseModelStatus | undefined}
                       activeStack={activeStack}
                     />
                   </SectionErrorBoundary>

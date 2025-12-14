@@ -42,7 +42,7 @@ interface ServiceCardProps {
 }
 
 export function ServiceCard({ service, onStart, onStop, onRestart, onSelect, isSelected }: ServiceCardProps) {
-  const IconComponent = service.icon;
+  const IconComponent = service.icon ?? ServerIcon;
 
   const getStatusColor = (status: Service['status']) => {
     switch (status) {

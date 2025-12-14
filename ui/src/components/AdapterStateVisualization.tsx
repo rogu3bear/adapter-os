@@ -69,26 +69,30 @@ export function AdapterStateVisualization({ adapters, totalMemory }: AdapterStat
 
   // Calculate statistics
   const stateStats = adapters.reduce((acc, adapter) => {
-    acc[adapter.state] = (acc[adapter.state] || 0) + 1;
+    const state = (adapter.state ?? 'unloaded') as AdapterState;
+    acc[state] = (acc[state] || 0) + 1;
     return acc;
   }, {} as Record<AdapterState, number>);
 
   const categoryStats = adapters.reduce((acc, adapter) => {
-    acc[adapter.category] = (acc[adapter.category] || 0) + 1;
+    const cat = (adapter.category ?? 'code') as AdapterCategory;
+    acc[cat] = (acc[cat] || 0) + 1;
     return acc;
   }, {} as Record<AdapterCategory, number>);
 
   const memoryByState = adapters.reduce((acc, adapter) => {
-    acc[adapter.state] = (acc[adapter.state] || 0) + adapter.memory_bytes;
+    const state = (adapter.state ?? 'unloaded') as AdapterState;
+    acc[state] = (acc[state] || 0) + (adapter.memory_bytes ?? 0);
     return acc;
   }, {} as Record<AdapterState, number>);
 
   const memoryByCategory = adapters.reduce((acc, adapter) => {
-    acc[adapter.category] = (acc[adapter.category] || 0) + adapter.memory_bytes;
+    const cat = (adapter.category ?? 'code') as AdapterCategory;
+    acc[cat] = (acc[cat] || 0) + (adapter.memory_bytes ?? 0);
     return acc;
   }, {} as Record<AdapterCategory, number>);
 
-  const totalMemoryUsed = adapters.reduce((sum, adapter) => sum + adapter.memory_bytes, 0);
+  const totalMemoryUsed = adapters.reduce((sum, adapter) => sum + (adapter.memory_bytes ?? 0), 0);
   const memoryUsagePercent = totalMemory > 0 ? (totalMemoryUsed / totalMemory) * 100 : 0;
 
   const states: AdapterState[] = ['unloaded', 'cold', 'warm', 'hot', 'resident'];

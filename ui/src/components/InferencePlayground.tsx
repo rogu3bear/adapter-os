@@ -50,17 +50,17 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { logger, toError } from '@/utils/logger';
 import { useSearchParams } from 'react-router-dom';
 import { GlossaryTooltip } from '@/components/ui/glossary-tooltip';
-import { useRBAC } from '@/hooks/useRBAC';
-import { useProgressiveHints } from '@/hooks/useProgressiveHints';
+import { useRBAC } from '@/hooks/security/useRBAC';
+import { useProgressiveHints } from '@/hooks/tutorial/useProgressiveHints';
 import { getPageHints } from '@/data/page-hints';
 import { ProgressiveHint } from './ui/progressive-hint';
 import { ToolPageHeader } from './ui/page-headers/ToolPageHeader';
-import { useFeatureDegradation } from '@/hooks/useFeatureDegradation';
-import { useCancellableOperation } from '@/hooks/useCancellableOperation';
+import { useFeatureDegradation } from '@/hooks/ui/useFeatureDegradation';
+import { useCancellableOperation } from '@/hooks/async/useCancellableOperation';
 import { PromptTemplateManager } from './PromptTemplateManager';
-import { usePromptTemplates, PromptTemplate as PromptTemplateType } from '@/hooks/usePromptTemplates';
+import { usePromptTemplates, PromptTemplate as PromptTemplateType } from '@/hooks/chat/usePromptTemplates';
 import { InferenceRequestSchema, BatchPromptSchema } from '@/schemas';
-import { useAdapterStacks, useGetDefaultStack, useSetDefaultStack } from '@/hooks/useAdmin';
+import { useAdapterStacks, useGetDefaultStack, useSetDefaultStack } from '@/hooks/admin/useAdmin';
 import { ZodError } from 'zod';
 import { ModelSelector } from './ModelSelector';
 
@@ -1301,24 +1301,33 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
                   </p>
                 </div>
 
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <Label className="flex items-center gap-1">
-                      Backend
-                      <GlossaryTooltip termId="inference-backend">
-                        <span className="cursor-help text-muted-foreground hover:text-foreground">
-                          <HelpCircle className="h-3 w-3" />
-                        </span>
-                      </GlossaryTooltip>
-                    </Label>
-                    <Badge variant="secondary" className="text-xs gap-1" data-cy="active-backend-tag">
-                      {activeBackendLabel || 'Auto (router)'}
-                    </Badge>
-                  </div>
-                  <Select
-                    value={configA.backend || 'auto'}
-                    onValueChange={(value) => handleBackendChange(value as BackendName)}
-                    disabled={backendStatusLoading}
+	                <div className="space-y-2">
+	                  <div className="flex items-center justify-between">
+	                    <Label className="flex items-center gap-1">
+	                      Backend
+	                      <GlossaryTooltip termId="inference-backend">
+	                        <span className="cursor-help text-muted-foreground hover:text-foreground">
+	                          <HelpCircle className="h-3 w-3" />
+	                        </span>
+	                      </GlossaryTooltip>
+	                    </Label>
+	                    <div className="flex items-center gap-2">
+	                      {backendStatusLoading && (
+	                        <Loader2
+	                          className="h-4 w-4 animate-spin text-muted-foreground"
+	                          aria-label="Loading backend status"
+	                          data-testid="loading-state"
+	                        />
+	                      )}
+	                      <Badge variant="secondary" className="text-xs gap-1" data-cy="active-backend-tag">
+	                        {activeBackendLabel || 'Auto (router)'}
+	                      </Badge>
+	                    </div>
+	                  </div>
+	                  <Select
+	                    value={configA.backend || 'auto'}
+	                    onValueChange={(value) => handleBackendChange(value as BackendName)}
+	                    disabled={backendStatusLoading}
                   >
                     <SelectTrigger data-cy="backend-selector">
                       <SelectValue placeholder="Select backend" />

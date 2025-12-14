@@ -395,12 +395,9 @@ pub async fn resolve_tenant_execution_policy(
         // Default to strict to avoid relaxed/best-effort slipping in implicitly.
         .unwrap_or(DeterminismMode::Strict);
 
-    // Prefer explicit tenant policy defaults; implicit policies defer to global.
-    let tenant_mode = if policy.is_implicit {
-        None
-    } else {
-        Some(policy.determinism.default_mode.as_str())
-    };
+    // Use tenant policy's default_mode (even for implicit/default policies)
+    // The implicit default has default_mode = "besteffort" which should be honored
+    let tenant_mode = Some(policy.determinism.default_mode.as_str());
 
     // 3. Resolve determinism mode (stack > tenant > global)
     let effective_determinism_mode =
@@ -1213,6 +1210,33 @@ impl<'a> InferenceCore<'a> {
             }
         }
 
+        let receipt_sampling_params = adapteros_api_types::inference::ReceiptSamplingParams {
+            max_tokens: request.max_tokens,
+            temperature: request.temperature,
+            top_k: request.top_k,
+            top_p: request.top_p,
+            seed: request.seed,
+        };
+
+        let receipt_params_json = serde_json::to_vec(&receipt_sampling_params).unwrap_or_default();
+        let prompt_system_params_digest_b3 = B3Hash::hash_multi(&[
+            augmented_prompt.as_bytes(),
+            b"\0",
+            b"",
+            b"\0",
+            receipt_params_json.as_slice(),
+        ]);
+
+        let deterministic_receipt = adapteros_api_types::inference::DeterministicReceipt {
+            router_seed: request.router_seed.clone().unwrap_or_default(),
+            sampling_params: receipt_sampling_params,
+            stack_id: request.stack_id.clone(),
+            adapters_used: worker_response.trace.router_summary.adapters_used.clone(),
+            model: base_model_id.clone().or_else(|| request.model.clone()),
+            backend_used: backend_used.clone(),
+            prompt_system_params_digest_b3,
+        };
+
         // 11. Build and return result
         Ok(InferenceResult {
             text: worker_response.text.unwrap_or_default(),
@@ -1229,6 +1253,7 @@ impl<'a> InferenceCore<'a> {
             pinned_routing_fallback,
             effective_adapter_ids: request.effective_adapter_ids.clone(),
             backend_used,
+            deterministic_receipt: Some(deterministic_receipt),
             fallback_triggered,
             coreml_compute_preference,
             coreml_compute_units,
@@ -2358,6 +2383,7 @@ impl<'a> InferenceCore<'a> {
             coreml_hash_mismatch,
             sampling_algorithm_version: Some(SAMPLING_ALGORITHM_VERSION.to_string()),
             rag_snapshot_hash,
+            dataset_version_id: request.dataset_version_id.clone(),
             adapter_ids,
             base_only: if base_only { Some(true) } else { None },
             prompt_text: prompt_for_storage,

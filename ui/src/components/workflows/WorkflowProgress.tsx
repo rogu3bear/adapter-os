@@ -191,14 +191,13 @@ export function WorkflowProgress({ progress, steps, compact = false }: WorkflowP
 
                   <p className="text-xs text-muted-foreground">{step.description}</p>
 
-                  {/* Step Data Preview */}
-                  {stepData && status === 'completed' && (
+                  {!!(stepData && status === 'completed') && (
                     <div className="mt-2 p-2 bg-background rounded border text-xs font-mono">
                       {typeof stepData === 'string' ? (
                         <span className="text-muted-foreground">{stepData}</span>
                       ) : (
                         <span className="text-muted-foreground">
-                          {JSON.stringify(stepData, null, 2).slice(0, 100)}...
+                          {JSON.stringify(stepData as Record<string, unknown>, null, 2).slice(0, 100)}...
                         </span>
                       )}
                     </div>

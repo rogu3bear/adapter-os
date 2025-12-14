@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { AlertCircle, CheckCircle } from 'lucide-react';
-import useEnhancedActionHistory from '@/hooks/useEnhancedActionHistory';
+import useEnhancedActionHistory from '@/hooks/ui/useEnhancedActionHistory';
 import { ActionHistoryItem } from '@/types/history';
 
 interface Adapter {

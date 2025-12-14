@@ -1,6 +1,6 @@
 import { renderHook, act } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { useAdapterOperations } from '@/hooks/useAdapterOperations';
+import { useAdapterOperations } from '@/hooks/adapters';
 
 // Mock the API client
 vi.mock('@/api/client', () => ({

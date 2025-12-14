@@ -72,7 +72,7 @@ export function useResourcesApi() {
 Backend-aware chat session management with localStorage migration.
 
 ```typescript
-import { useChatSessionsApi } from '@/hooks/useChatSessionsApi';
+import { useChatSessionsApi } from '@/hooks/chat/useChatSessionsApi';
 
 function ChatInterface() {
   const {
@@ -120,7 +120,7 @@ function ChatInterface() {
 Document upload, download, and management.
 
 ```typescript
-import { useDocumentsApi, useDocument } from '@/hooks/useDocumentsApi';
+import { useDocumentsApi, useDocument } from '@/hooks/documents';
 
 function DocumentLibrary() {
   const {
@@ -393,7 +393,7 @@ function AdminPanel() {
 Adapter lifecycle operations (load, unload, pin, promote).
 
 ```typescript
-import { useAdapterOperations } from '@/hooks/useAdapterOperations';
+import { useAdapterOperations } from '@/hooks/adapters';
 
 function AdapterControls({ adapterId }) {
   const {
@@ -464,7 +464,7 @@ function ChatInterface() {
 Training job notifications with SSE.
 
 ```typescript
-import { useTrainingNotifications } from '@/hooks/useTrainingNotifications';
+import { useTrainingNotifications } from '@/hooks/training';
 
 function TrainingMonitor({ jobId }) {
   const {
@@ -705,7 +705,7 @@ function SecureComponent() {
 Generic Server-Sent Events (SSE) hook.
 
 ```typescript
-import { useSSE } from '@/hooks/useSSE';
+import { useSSE } from '@/hooks/realtime/useSSE';
 
 function LiveUpdates() {
   const {
@@ -736,7 +736,7 @@ function LiveUpdates() {
 
 ```typescript
 import { renderHook, act } from '@testing-library/react';
-import { useDocumentsApi } from '@/hooks/useDocumentsApi';
+import { useDocumentsApi } from '@/hooks/documents';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 describe('useDocumentsApi', () => {

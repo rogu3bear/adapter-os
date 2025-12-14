@@ -73,3 +73,20 @@ impl IngestedDocument {
         self.chunks.len()
     }
 }
+
+/// Result of extracting text from a single PDF page
+#[derive(Debug, Clone)]
+pub struct PageExtractionResult {
+    pub page_number: u32,
+    pub text: Option<String>,
+    pub error: Option<String>,
+}
+
+/// Ingestion result with partial success tracking
+#[derive(Debug)]
+pub struct IngestedDocumentWithErrors {
+    pub document: IngestedDocument,
+    pub page_errors: Vec<PageExtractionResult>,
+    pub total_pages: usize,
+    pub successful_pages: usize,
+}

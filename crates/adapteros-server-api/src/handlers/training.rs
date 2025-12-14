@@ -1354,7 +1354,10 @@ pub async fn publish_version(
     Extension(claims): Extension<Claims>,
     Path((repo_id, version_id)): Path<(String, String)>,
     Json(req): Json<adapteros_api_types::training::PublishAdapterVersionRequest>,
-) -> Result<Json<adapteros_api_types::training::PublishAdapterVersionResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<
+    Json<adapteros_api_types::training::PublishAdapterVersionResponse>,
+    (StatusCode, Json<ErrorResponse>),
+> {
     require_permission(&claims, Permission::TrainingStart)?;
 
     // Verify version exists and belongs to tenant/repo
@@ -1426,17 +1429,11 @@ pub async fn publish_version(
             match &e {
                 AosError::NotFound(_) => (
                     StatusCode::NOT_FOUND,
-                    Json(
-                        ErrorResponse::new(&e.to_string())
-                            .with_code("NOT_FOUND"),
-                    ),
+                    Json(ErrorResponse::new(&e.to_string()).with_code("NOT_FOUND")),
                 ),
                 AosError::Validation(_) => (
                     StatusCode::BAD_REQUEST,
-                    Json(
-                        ErrorResponse::new(&e.to_string())
-                            .with_code("VALIDATION_ERROR"),
-                    ),
+                    Json(ErrorResponse::new(&e.to_string()).with_code("VALIDATION_ERROR")),
                 ),
                 _ => (
                     StatusCode::INTERNAL_SERVER_ERROR,
@@ -1456,15 +1453,17 @@ pub async fn publish_version(
         "Published adapter version"
     );
 
-    Ok(Json(adapteros_api_types::training::PublishAdapterVersionResponse {
-        schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
-        version_id,
-        repo_id,
-        attach_mode: req.attach_mode,
-        required_scope_dataset_version_id: req.required_scope_dataset_version_id,
-        published_at: Utc::now().to_rfc3339(),
-        short_description: req.short_description,
-    }))
+    Ok(Json(
+        adapteros_api_types::training::PublishAdapterVersionResponse {
+            schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
+            version_id,
+            repo_id,
+            attach_mode: req.attach_mode,
+            required_scope_dataset_version_id: req.required_scope_dataset_version_id,
+            published_at: Utc::now().to_rfc3339(),
+            short_description: req.short_description,
+        },
+    ))
 }
 
 /// Cancel a running training job

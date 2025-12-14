@@ -14,7 +14,7 @@ import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import type { DataFreshnessLevel, ConnectionStatus } from '@/hooks/useLiveData';
+import type { DataFreshnessLevel, ConnectionStatus } from '@/hooks/realtime/useLiveData';
 
 // ============================================================================
 // Types

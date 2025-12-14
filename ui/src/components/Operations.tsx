@@ -6,7 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 
 
 import { useBreadcrumb } from '@/contexts/BreadcrumbContext';
-import { useProgressiveDisclosure } from '@/hooks/useProgressiveDisclosure';
+import { useProgressiveDisclosure } from '@/hooks/tutorial/useProgressiveDisclosure';
 import { AdvancedToggle } from './ui/advanced-toggle';
 import { GlossaryTooltip } from './ui/glossary-tooltip';
 import { 
@@ -41,7 +41,7 @@ import { Plans } from './Plans';
 import { Promotion } from './Promotion';
 import { Telemetry } from './Telemetry';
 import { InferencePlayground } from './InferencePlayground';
-import { AlertsPage } from './AlertsPage';
+import { AlertsPage } from '@/pages/Alerts/AlertsPage';
 import { FederationStatus } from './FederationStatus';
 import apiClient from '@/api/client';
 import { User } from '@/api/types';

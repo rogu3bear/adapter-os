@@ -37,8 +37,8 @@ import {
   useDeleteCustomization,
   useSubmitForReview,
   type TenantPolicyCustomization,
-} from '@/hooks/useTenantPolicies';
-import { useRBAC } from '@/hooks/useRBAC';
+} from '@/hooks/security/useTenantPolicies';
+import { useRBAC } from '@/hooks/security/useRBAC';
 import { useAuth } from '@/providers/CoreProviders';
 import { POLICY_PACKS, getPolicyPack, getDefaultPolicyConfig } from '@/constants/policySchema';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -81,7 +81,8 @@ export default function PolicyStudio() {
     }
 
     const defaultConfig = getDefaultPolicyConfig();
-    const packConfig = defaultConfig.packs[selectedPolicyType] || {};
+    const packs = defaultConfig.packs as Record<string, unknown>;
+    const packConfig = packs[selectedPolicyType] || {};
     setCustomizationsJson(JSON.stringify(packConfig, null, 2));
     setValidationErrors([]);
     setShowCreateDialog(true);

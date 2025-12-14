@@ -28,7 +28,7 @@ import { DensityProvider } from '@/contexts/DensityContext';
 import { PageErrorsProvider } from '@/components/ui/page-error-boundary';
 import FeatureLayout from './FeatureLayout';
 import type { PageHeaderAction, PageHeaderBadge } from '@/components/ui/page-header';
-import type { InformationDensity } from '@/hooks/useInformationDensity';
+import type { InformationDensity } from '@/hooks/ui/useInformationDensity';
 
 type ContentPadding = 'default' | 'compact' | 'none';
 type MaxWidth = 'md' | 'lg' | 'xl' | 'full';

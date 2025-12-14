@@ -17,6 +17,7 @@ use crate::auth::{derive_kid_from_bytes, derive_kid_from_str};
 use crate::boot_state::BootStateManager;
 use crate::load_coordinator::LoadCoordinator;
 use crate::runtime_mode::RuntimeMode;
+use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::atomic::AtomicUsize;
@@ -40,6 +41,13 @@ pub enum RagStatus {
     Disabled {
         reason: String,
     },
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct WorkerRuntimeInfo {
+    pub backend: Option<String>,
+    pub model_hash: Option<String>,
+    pub capabilities: Vec<String>,
 }
 
 /// Capacity limits configuration
@@ -547,6 +555,8 @@ pub struct AppState {
     pub crypto_audit_logger: Option<Arc<adapteros_crypto::audit::CryptoAuditLogger>>,
     // RAG status indicating whether embedding model is available and why if not
     pub rag_status: Option<RagStatus>,
+    // Worker runtime metadata cache (populated during /v1/workers/register)
+    pub worker_runtime: Arc<DashMap<String, WorkerRuntimeInfo>>,
     // KV isolation scan state
     pub kv_isolation_snapshot: Arc<RwLock<KvIsolationSnapshot>>,
     pub kv_isolation_lock: Arc<tokio::sync::Mutex<()>>,
@@ -706,6 +716,7 @@ impl AppState {
             crypto_audit_logger: None,
             // RAG status initialized via with_rag_status
             rag_status: None,
+            worker_runtime: Arc::new(DashMap::new()),
             kv_isolation_snapshot: Arc::new(RwLock::new(KvIsolationSnapshot::default())),
             kv_isolation_lock: Arc::new(tokio::sync::Mutex::new(())),
         }

@@ -502,10 +502,7 @@ async fn try_adapter_response(state: &AppState, user_message: &str) -> Option<St
     let adapter_desc = adapter_id.as_deref().unwrap_or("base_model");
 
     // Wrap in routing context to ensure task-local guard is set
-    match crate::uds_client::run_with_routing_context(
-        client.infer(&uds_path, request, None),
-    )
-    .await
+    match crate::uds_client::run_with_routing_context(client.infer(&uds_path, request, None)).await
     {
         Ok(response) => {
             if response.status == "success" {

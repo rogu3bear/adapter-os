@@ -90,17 +90,6 @@ const initialFeatureFlags: FeatureFlag[] = [
     updatedAt: '2025-01-18',
   },
   {
-    id: 'ff-3',
-    key: 'experimental_routing',
-    name: 'Experimental Routing',
-    description: 'New K-sparse routing algorithm',
-    enabled: false,
-    rolloutPercentage: 0,
-    environment: 'development',
-    createdAt: '2025-01-20',
-    updatedAt: '2025-01-20',
-  },
-  {
     id: 'ff-4',
     key: 'batch_inference',
     name: 'Batch Inference',

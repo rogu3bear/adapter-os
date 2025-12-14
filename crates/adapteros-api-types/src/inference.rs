@@ -213,6 +213,12 @@ pub struct InferRequest {
     /// Collection ID for scoped RAG retrieval (requires rag_enabled = true)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub collection_id: Option<String>,
+    /// Dataset version ID for deterministic dataset pinning
+    ///
+    /// When provided, the inference is scoped to this exact dataset version,
+    /// enabling deterministic replay and explicit dataset pinning in receipts.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dataset_version_id: Option<String>,
     /// Stop policy specification for deterministic stop behavior
     ///
     /// If not provided, a default policy is constructed from max_tokens.
@@ -240,6 +246,13 @@ pub struct InferResponse {
     /// Verifiable run receipt for audit/replay
     #[serde(skip_serializing_if = "Option::is_none")]
     pub run_receipt: Option<RunReceipt>,
+    /// Deterministic receipt for audit/replay metadata.
+    ///
+    /// Includes seeds, resolved parameters, and execution selection. This is
+    /// intended to be deterministic given the same prompt+system+params and
+    /// runtime state.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deterministic_receipt: Option<DeterministicReceipt>,
     /// Source citations for the response
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub citations: Vec<Citation>,
@@ -301,6 +314,49 @@ pub struct InferResponse {
     /// BLAKE3 digest of the StopPolicySpec used (hex encoded)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stop_policy_digest_b3: Option<String>,
+}
+
+/// Deterministic inference receipt (metadata only).
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct DeterministicReceipt {
+    /// Router seed (audit only; routing is deterministic by algorithm).
+    pub router_seed: String,
+    /// Sampling parameters applied for token generation.
+    pub sampling_params: ReceiptSamplingParams,
+    /// Stack identifier used to scope adapter routing (if any).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stack_id: Option<String>,
+    /// Adapter identifiers selected/used during inference.
+    pub adapters_used: Vec<String>,
+    /// Model identifier used for this inference (base model).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// Backend used to execute the inference (e.g., coreml, metal, mlx).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub backend_used: Option<String>,
+    /// BLAKE3 digest of (prompt + system + params), hex encoded.
+    #[schema(value_type = String)]
+    pub prompt_system_params_digest_b3: B3Hash,
+}
+
+/// Sampling parameters applied for inference execution (receipt).
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct ReceiptSamplingParams {
+    /// Maximum tokens to generate.
+    pub max_tokens: usize,
+    /// Sampling temperature.
+    pub temperature: f32,
+    /// Top-K sampling (None to disable).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub top_k: Option<usize>,
+    /// Top-P nucleus sampling (None to disable).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub top_p: Option<f32>,
+    /// Random seed used for sampling (if any).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub seed: Option<u64>,
 }
 
 /// Character range for precise text location

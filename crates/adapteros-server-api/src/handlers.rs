@@ -64,6 +64,7 @@ pub mod git_repository;
 pub mod golden;
 pub mod health;
 pub mod inference;
+pub mod openai_compat;
 pub mod journeys;
 pub mod kv_isolation;
 pub mod memory_detail;
@@ -77,6 +78,7 @@ pub mod owner_chat;
 pub mod owner_cli;
 // pub mod packages; // Feature removed in migration 0200
 pub mod plugins;
+pub mod pilot_status;
 pub mod promotion;
 pub mod rag_common;
 pub mod registry;
@@ -1552,6 +1554,7 @@ pub async fn test_node_connection(
     // Try to ping the node agent
     let start = std::time::Instant::now();
     let client = reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_millis(500))
         .timeout(std::time::Duration::from_secs(5))
         .build()
         .map_err(|e| {
@@ -1566,7 +1569,22 @@ pub async fn test_node_connection(
         })?;
 
     let ping_url = format!("{}/health", node.agent_endpoint);
-    let result = client.get(&ping_url).send().await;
+    let max_attempts = 3u32;
+    let mut attempt = 0u32;
+    let mut backoff = std::time::Duration::from_millis(100);
+    let result = loop {
+        attempt += 1;
+        match client.get(&ping_url).send().await {
+            Ok(response) => break Ok(response),
+            Err(e) => {
+                if attempt >= max_attempts {
+                    break Err(e);
+                }
+                tokio::time::sleep(backoff).await;
+                backoff = (backoff * 2).min(std::time::Duration::from_millis(800));
+            }
+        }
+    };
 
     let (status, latency_ms) = match result {
         Ok(response) if response.status().is_success() => {
@@ -1576,7 +1594,10 @@ pub async fn test_node_connection(
             format!("error: HTTP {}", response.status()),
             start.elapsed().as_millis() as f64,
         ),
-        Err(_) => ("unreachable".to_string(), 0.0),
+        Err(e) => (
+            format!("unreachable: {}", e),
+            start.elapsed().as_millis() as f64,
+        ),
     };
 
     Ok(Json(NodePingResponse {
@@ -2340,24 +2361,51 @@ pub async fn worker_spawn(
     });
 
     // Send HTTP POST to node agent
-    let client = reqwest::Client::new();
-    let spawn_url = format!("{}/spawn_worker", node.agent_endpoint);
-
-    let response = client
-        .post(&spawn_url)
-        .json(&spawn_req)
-        .send()
-        .await
+    let client = reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_millis(500))
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
         .map_err(|e| {
             (
-                StatusCode::BAD_GATEWAY,
+                StatusCode::INTERNAL_SERVER_ERROR,
                 Json(
-                    ErrorResponse::new("failed to contact node agent")
+                    ErrorResponse::new("failed to create HTTP client")
                         .with_code("INTERNAL_SERVER_ERROR")
                         .with_string_details(e.to_string()),
                 ),
             )
         })?;
+    let spawn_url = format!("{}/spawn_worker", node.agent_endpoint);
+
+    let max_attempts = 3u32;
+    let mut attempt = 0u32;
+    let mut backoff = std::time::Duration::from_millis(100);
+    let response = loop {
+        attempt += 1;
+        match client.post(&spawn_url).json(&spawn_req).send().await {
+            Ok(response) => break Ok(response),
+            Err(e) => {
+                if attempt >= max_attempts {
+                    break Err(e);
+                }
+                tokio::time::sleep(backoff).await;
+                backoff = (backoff * 2).min(std::time::Duration::from_millis(800));
+            }
+        }
+    }
+    .map_err(|e| {
+        (
+            StatusCode::BAD_GATEWAY,
+            Json(
+                ErrorResponse::new("failed to contact node agent")
+                    .with_code("INTERNAL_SERVER_ERROR")
+                    .with_string_details(format!(
+                        "{} (after {} attempts)",
+                        e, max_attempts
+                    )),
+            ),
+        )
+    })?;
 
     if !response.status().is_success() {
         let error_text = response.text().await.unwrap_or_default();
@@ -2440,6 +2488,11 @@ pub async fn worker_spawn(
         status: "starting".to_string(),
         started_at: chrono::Utc::now().to_rfc3339(),
         last_seen_at: None,
+        capabilities: Vec::new(),
+        backend: None,
+        model_id: None,
+        model_hash: None,
+        model_loaded: false,
     }))
 }
 
@@ -2484,9 +2537,55 @@ pub async fn list_workers(
         })?
     };
 
-    let response: Vec<WorkerResponse> = workers
-        .into_iter()
-        .map(|w| WorkerResponse {
+    async fn resolve_plan_model_info(
+        db: &adapteros_db::Db,
+        plan_id: &str,
+    ) -> (Option<String>, Option<String>) {
+        let plan = match db.get_plan(plan_id).await {
+            Ok(Some(p)) => p,
+            _ => return (None, None),
+        };
+
+        let manifest_row = match db.get_manifest_by_hash(&plan.manifest_hash_b3).await {
+            Ok(Some(m)) => m,
+            _ => return (None, None),
+        };
+
+        let parsed = serde_json::from_str::<adapteros_manifest::ManifestV3>(&manifest_row.body_json)
+            .or_else(|_| serde_yaml::from_str::<adapteros_manifest::ManifestV3>(&manifest_row.body_json));
+
+        match parsed {
+            Ok(manifest) => (
+                Some(manifest.base.model_id),
+                Some(manifest.base.model_hash.to_hex()),
+            ),
+            Err(_) => (None, None),
+        }
+    }
+
+    let mut plan_model_cache: HashMap<String, (Option<String>, Option<String>)> = HashMap::new();
+    let mut response: Vec<WorkerResponse> = Vec::with_capacity(workers.len());
+
+    for w in workers {
+        let runtime = state
+            .worker_runtime
+            .get(&w.id)
+            .map(|entry| entry.value().clone())
+            .unwrap_or_default();
+
+        let (model_id, resolved_model_hash) = match plan_model_cache.get(&w.plan_id) {
+            Some(cached) => cached.clone(),
+            None => {
+                let resolved = resolve_plan_model_info(&state.db, &w.plan_id).await;
+                plan_model_cache.insert(w.plan_id.clone(), resolved.clone());
+                resolved
+            }
+        };
+
+        let model_hash = resolved_model_hash.or(runtime.model_hash);
+        let model_loaded = matches!(w.status.as_str(), "healthy" | "draining" | "serving");
+
+        response.push(WorkerResponse {
             schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
             id: w.id,
             tenant_id: w.tenant_id,
@@ -2497,8 +2596,13 @@ pub async fn list_workers(
             status: w.status,
             started_at: w.started_at,
             last_seen_at: w.last_seen_at,
-        })
-        .collect();
+            capabilities: runtime.capabilities,
+            backend: runtime.backend,
+            model_id,
+            model_hash,
+            model_loaded,
+        });
+    }
 
     Ok(Json(response))
 }

@@ -57,7 +57,7 @@ for (const entry of rawEntries) {
   deduplicatedEntries.push(entry);
 }
 
-export const allEntries = deduplicatedEntries as unknown as typeof rawEntries;
+export const allEntries = deduplicatedEntries as typeof rawEntries;
 
 // Fast lookup by ID
 export const glossaryById = new Map(

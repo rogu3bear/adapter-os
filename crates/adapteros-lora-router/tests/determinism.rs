@@ -359,13 +359,26 @@ fn test_router_ring_invariants() {
 #[test]
 fn test_varying_k_stability() {
     let seed = [42u8; 32];
+
+    // Create adapters and priors for k tests
     let priors = vec![1.0; 8];
+    let adapter_info: Vec<AdapterInfo> = (0..8)
+        .map(|i| AdapterInfo {
+            id: format!("test_adapter_{}", i),
+            framework: None,
+            languages: vec![],
+            tier: "warm".to_string(),
+            scope_path: None,
+            lora_tier: None,
+        })
+        .collect();
 
     for k in 0..=8 {
         let weights_vec = vec![1.0; 8];
         let mut router = Router::new(weights_vec, k, 1.0, 0.01, seed).expect("router creation");
-        let mask = PolicyMask::allow_all(&Vec::<String>::new(), None);
-        let decision = router.route_with_adapter_info(&[], &priors, &[], &mask);
+        let adapter_ids: Vec<String> = adapter_info.iter().map(|a| a.id.clone()).collect();
+        let mask = PolicyMask::allow_all(&adapter_ids, None);
+        let decision = router.route_with_adapter_info(&[], &priors, &adapter_info, &mask);
 
         assert_eq!(decision.indices.len(), k);
         assert_eq!(decision.gates_q15.len(), k);

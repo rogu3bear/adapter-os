@@ -40,7 +40,7 @@ import {
   Upload,
   FileText,
 } from 'lucide-react';
-import { PromptTemplate, usePromptTemplates } from '@/hooks/usePromptTemplates';
+import { PromptTemplate, usePromptTemplates } from '@/hooks/chat/usePromptTemplates';
 import { toast } from 'sonner';
 
 interface PromptTemplateManagerProps {
@@ -235,6 +235,9 @@ export function PromptTemplateManager({
       } else {
         toast.error('Failed to import templates');
       }
+    };
+    reader.onerror = () => {
+      toast.error('Failed to read file');
     };
     reader.readAsText(file);
     // Reset input

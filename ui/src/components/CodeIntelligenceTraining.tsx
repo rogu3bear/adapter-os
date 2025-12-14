@@ -226,6 +226,7 @@ export function CodeIntelligenceTraining({
         selectedCommit,
       });
 
+      const categoryConfig = categoryDefaults[category as keyof typeof categoryDefaults];
       const result = await apiClient.startAdapterTraining({
         repository_path: selectedRepo,
         adapter_name: `${category}_${selectedRepo.replace(/[^a-zA-Z0-9]/g, '_')}`,
@@ -233,8 +234,8 @@ export function CodeIntelligenceTraining({
           selectedCommit ? ` at commit ${selectedCommit.substring(0, 8)}` : ''
         }`,
         training_config: {
-          rank: config.rank ?? categoryDefaults[category].rank ?? 24,
-          alpha: config.alpha ?? categoryDefaults[category].alpha ?? 48,
+          rank: config.rank ?? categoryConfig?.rank ?? 24,
+          alpha: config.alpha ?? categoryConfig?.alpha ?? 48,
           epochs: config.epochs ?? 3,
           learning_rate: config.learning_rate ?? 0.001,
           batch_size: config.batch_size ?? 32,

@@ -9,7 +9,7 @@ import {
   useAdapterEvidence,
   useEvidenceApi,
   evidenceKeys,
-} from '@/hooks/useEvidenceApi';
+} from '@/hooks/api/useEvidenceApi';
 import type {
   Evidence,
   CreateEvidenceRequest,

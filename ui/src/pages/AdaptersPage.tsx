@@ -2,7 +2,7 @@ import PageWrapper from '@/layout/PageWrapper';
 import { AdaptersPage as AdaptersComponent } from '@/components/AdaptersPage';
 import { Code } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { useRBAC } from '@/hooks/useRBAC';
+import { useRBAC } from '@/hooks/security/useRBAC';
 import { PageHeader as IaPageHeader } from '@/components/shared/PageHeader';
 
 export default function AdaptersPage() {

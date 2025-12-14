@@ -8,7 +8,7 @@ import { useAuth } from '@/providers/CoreProviders';
 import { getRoleGuidance } from '@/data/role-guidance';
 import { BookOpen, ArrowRight, Lightbulb, GraduationCap } from 'lucide-react';
 import type { UserRole } from '@/api/types';
-import { useContextualTutorial } from '@/hooks/useContextualTutorial';
+import { useContextualTutorial } from '@/hooks/tutorial/useContextualTutorial';
 import { ContextualTutorial } from './ContextualTutorial';
 
 interface PageGuidance {
@@ -35,6 +35,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Alerts', route: '/metrics', description: 'View active alerts' }
       ]
     },
+    developer: { title: '', tips: [], relatedPages: [] },
     operator: {
       title: 'ML Pipeline Overview',
       tips: [
@@ -109,6 +110,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Dashboard', route: '/dashboard', description: 'System overview' }
       ]
     },
+    developer: { title: '', tips: [], relatedPages: [] },
     operator: {
       title: 'Adapter Management',
       tips: [
@@ -182,6 +184,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Admin', route: '/admin', description: 'Admin settings' }
       ]
     },
+    developer: { title: '', tips: [], relatedPages: [] },
     operator: { title: '', tips: [], relatedPages: [] },
     sre: {
       title: 'Organization Infrastructure',
@@ -232,6 +235,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Audit Trails', route: '/security/audit', description: 'Review policy changes' }
       ]
     },
+    developer: { title: '', tips: [], relatedPages: [] },
     compliance: {
       title: 'Compliance Review',
       tips: [
@@ -301,6 +305,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Dashboard', route: '/dashboard', description: 'Overview' }
       ]
     },
+    developer: { title: '', tips: [], relatedPages: [] },
     operator: {
       title: 'Performance Metrics',
       tips: [
@@ -371,6 +376,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Metrics', route: '/metrics', description: 'System metrics' }
       ]
     },
+    developer: { title: '', tips: [], relatedPages: [] },
     operator: {
       title: 'Telemetry Monitoring',
       tips: [
@@ -441,6 +447,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Telemetry', route: '/telemetry', description: 'Telemetry bundles' }
       ]
     },
+    developer: { title: '', tips: [], relatedPages: [] },
     operator: {
       title: 'Pipeline Observability',
       tips: [
@@ -492,6 +499,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Metrics', route: '/metrics', description: 'Performance metrics' }
       ]
     },
+    developer: { title: '', tips: [], relatedPages: [] },
     operator: {
       title: 'Inference Playground',
       tips: [
@@ -564,6 +572,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Telemetry', route: '/telemetry', description: 'Telemetry audit' }
       ]
     },
+    developer: { title: '', tips: [], relatedPages: [] },
     operator: {
       title: 'Operation Audit',
       tips: [
@@ -635,6 +644,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Dashboard', route: '/dashboard', description: 'System overview' }
       ]
     },
+    developer: { title: '', tips: [], relatedPages: [] },
     operator: {
       title: 'Base Models',
       tips: [
@@ -683,6 +693,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Admin', route: '/admin', description: 'Admin settings' }
       ]
     },
+    developer: { title: '', tips: [], relatedPages: [] },
     operator: {
       title: 'ML Operations Workflow',
       tips: [
@@ -744,6 +755,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
     }
   },
   '/training': {
+    developer: { title: '', tips: [], relatedPages: [] },
     operator: {
       title: 'Training Adapters',
       tips: [
@@ -815,6 +827,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
     }
   },
   '/testing': {
+    developer: { title: '', tips: [], relatedPages: [] },
     operator: {
       title: 'Testing & Validation',
       tips: [
@@ -886,6 +899,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
     }
   },
   '/golden': {
+    developer: { title: '', tips: [], relatedPages: [] },
     operator: {
       title: 'Golden Baseline Comparisons',
       tips: [
@@ -945,6 +959,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
     }
   },
   '/promotion': {
+    developer: { title: '', tips: [], relatedPages: [] },
     operator: {
       title: 'Adapter Promotion',
       tips: [
@@ -1028,6 +1043,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Metrics', route: '/metrics', description: 'Routing metrics' }
       ]
     },
+    developer: { title: '', tips: [], relatedPages: [] },
     operator: {
       title: 'Routing Inspector',
       tips: [
@@ -1088,6 +1104,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Audit', route: '/security/audit', description: 'Event history' }
       ]
     },
+    developer: { title: '', tips: [], relatedPages: [] },
     operator: {
       title: 'Event Replay',
       tips: [
@@ -1151,6 +1168,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
         { label: 'Organizations', route: '/admin/tenants', description: 'Organization management' }
       ]
     },
+    developer: { title: '', tips: [], relatedPages: [] },
     operator: { title: '', tips: [], relatedPages: [] },
     sre: {
       title: 'Infrastructure Administration',
@@ -1169,6 +1187,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
     viewer: { title: '', tips: [], relatedPages: [] }
   },
   '/trainer': {
+    developer: { title: '', tips: [], relatedPages: [] },
     operator: {
       title: 'Single-File Trainer',
       tips: [

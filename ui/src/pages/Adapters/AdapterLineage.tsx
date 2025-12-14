@@ -38,9 +38,15 @@ export default function AdapterLineage({ adapterId, lineage, isLoading }: Adapte
     );
   }
 
-  const hasAncestors = lineage.ancestors && lineage.ancestors.length > 0;
-  const hasDescendants = lineage.descendants && lineage.descendants.length > 0;
-  const hasHistory = lineage.history && lineage.history.length > 0;
+  const ancestors = lineage.ancestors ?? [];
+  const descendants = lineage.descendants ?? [];
+  const history = lineage.history ?? [];
+  const trainingJobId = lineage.lineage?.training_job_id;
+  const datasetId = lineage.lineage?.dataset_id;
+
+  const hasAncestors = ancestors.length > 0;
+  const hasDescendants = descendants.length > 0;
+  const hasHistory = history.length > 0;
 
   if (!hasAncestors && !hasDescendants && !hasHistory) {
     return (
@@ -109,12 +115,12 @@ export default function AdapterLineage({ adapterId, lineage, isLoading }: Adapte
                   Ancestors (Parents)
                 </h3>
                 <div className="pl-6 space-y-2">
-                  {lineage.ancestors!.map((ancestor, idx) => (
+                  {ancestors.map((ancestor, idx) => (
                     <LineageNode
                       key={ancestor.adapter_id}
                       node={ancestor}
                       onNavigate={handleNavigateToAdapter}
-                      isLast={idx === lineage.ancestors!.length - 1}
+                      isLast={idx === ancestors.length - 1}
                     />
                   ))}
                 </div>
@@ -146,12 +152,12 @@ export default function AdapterLineage({ adapterId, lineage, isLoading }: Adapte
                   Descendants (Children)
                 </h3>
                 <div className="pl-6 space-y-2">
-                  {lineage.descendants!.map((descendant, idx) => (
+                  {descendants.map((descendant, idx) => (
                     <LineageNode
                       key={descendant.adapter_id}
                       node={descendant}
                       onNavigate={handleNavigateToAdapter}
-                      isLast={idx === lineage.descendants!.length - 1}
+                      isLast={idx === descendants.length - 1}
                     />
                   ))}
                 </div>
@@ -174,8 +180,8 @@ export default function AdapterLineage({ adapterId, lineage, isLoading }: Adapte
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
-              {lineage.history!.map((entry, idx) => (
-                <HistoryEntry key={idx} entry={entry} isLast={idx === lineage.history!.length - 1} />
+              {history.map((entry, idx) => (
+                <HistoryEntry key={idx} entry={entry} isLast={idx === history.length - 1} />
               ))}
             </div>
           </CardContent>
@@ -183,7 +189,7 @@ export default function AdapterLineage({ adapterId, lineage, isLoading }: Adapte
       )}
 
       {/* Training Context */}
-      {(lineage.lineage?.training_job_id || lineage.lineage?.dataset_id) && (
+      {(trainingJobId || datasetId) && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -194,34 +200,34 @@ export default function AdapterLineage({ adapterId, lineage, isLoading }: Adapte
             <CardDescription>Origin and training details</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            {lineage.lineage.training_job_id && (
+            {trainingJobId && (
               <div className="flex items-center justify-between py-2 border-b">
                 <span className="text-sm font-medium">Training Job</span>
                 <div className="flex items-center gap-2">
                   <code className="text-sm bg-muted px-2 py-1 rounded">
-                    {lineage.lineage.training_job_id}
+                    {trainingJobId}
                   </code>
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => navigate(`/training/jobs/${lineage.lineage!.training_job_id}`)}
+                    onClick={() => navigate(`/training/jobs/${trainingJobId}`)}
                   >
                     <ExternalLink className="h-4 w-4" />
                   </Button>
                 </div>
               </div>
             )}
-            {lineage.lineage.dataset_id && (
+            {datasetId && (
               <div className="flex items-center justify-between py-2">
                 <span className="text-sm font-medium">Dataset</span>
                 <div className="flex items-center gap-2">
                   <code className="text-sm bg-muted px-2 py-1 rounded">
-                    {lineage.lineage.dataset_id}
+                    {datasetId}
                   </code>
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => navigate(`/training/datasets/${lineage.lineage!.dataset_id}`)}
+                    onClick={() => navigate(`/training/datasets/${datasetId}`)}
                   >
                     <ExternalLink className="h-4 w-4" />
                   </Button>

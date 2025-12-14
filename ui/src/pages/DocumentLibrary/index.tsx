@@ -3,7 +3,7 @@ import { DocumentUploader } from './DocumentUploader';
 import { DocumentTable } from './DocumentTable';
 import PageWrapper from '@/layout/PageWrapper';
 import { useToast } from '@/hooks/use-toast';
-import { useDocuments, useDocumentsApi } from '@/hooks/useDocumentsApi';
+import { useDocuments, useDocumentsApi } from '@/hooks/documents';
 
 export function DocumentLibrary() {
   const { toast } = useToast();

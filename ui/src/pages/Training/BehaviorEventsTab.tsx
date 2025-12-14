@@ -6,7 +6,7 @@
 import React, { useState } from 'react';
 import { format } from 'date-fns';
 import { Download, Filter, RefreshCw } from 'lucide-react';
-import { useBehaviorEvents } from '@/hooks/useBehaviorTraining';
+import { useBehaviorEvents } from '@/hooks/training';
 import { BehaviorExportWizard } from '@/components/training/BehaviorExportWizard';
 import { BehaviorStatsCard } from '@/components/training/BehaviorStatsCard';
 import { Button } from '@/components/ui/button';
@@ -14,6 +14,8 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { EmptyState } from '@/components/ui/empty-state';
+import { LoadingState } from '@/components/ui/loading-state';
 import {
   Table,
   TableBody,
@@ -146,11 +148,14 @@ export function BehaviorEventsTab({ selectedTenant }: BehaviorEventsTabProps) {
 
           {/* Table */}
           {isLoading ? (
-            <div className="text-center py-8 text-muted-foreground">Loading events...</div>
+            <LoadingState variant="minimal" message="Loading events..." />
           ) : !events || events.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
-              No behavior events found. Events are captured during adapter lifecycle transitions.
-            </div>
+            <EmptyState
+              variant="minimal"
+              icon={Filter}
+              title="No behavior events found"
+              description="Events are captured during adapter lifecycle transitions."
+            />
           ) : (
             <Table>
               <TableHeader>
@@ -244,4 +249,3 @@ export function BehaviorEventsTab({ selectedTenant }: BehaviorEventsTabProps) {
     </div>
   );
 }
-

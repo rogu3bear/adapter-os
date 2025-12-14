@@ -20,7 +20,7 @@ import {
   useRollbackRepoVersion,
   useStartTrainingFromVersion,
   useUpdateRepo,
-} from '@/hooks/useReposApi';
+} from '@/hooks/api/useReposApi';
 import type { RepoTimelineEvent, RepoVersionSummary } from '@/api/repo-types';
 import { useQueryClient } from '@tanstack/react-query';
 import { computeVersionGuards } from './versionGuards';

@@ -35,9 +35,9 @@ pub mod context_manifest;
 pub mod determinism;
 pub mod determinism_mode;
 pub mod error;
+pub mod error_helpers;
 pub mod evidence_envelope;
 pub mod evidence_verifier;
-pub mod error_helpers;
 pub mod fusion_interval;
 pub mod hash;
 pub mod id;
@@ -92,6 +92,14 @@ pub use determinism::{
 };
 pub use determinism_mode::DeterminismMode;
 pub use error::{AosError, Result, ResultExt};
+pub use evidence_envelope::{
+    compute_key_id, BundleMetadataRef, EvidenceEnvelopeV1, EvidenceScope, InferenceReceiptRef,
+    PolicyAuditRef, EVIDENCE_ENVELOPE_SCHEMA_VERSION,
+};
+pub use evidence_verifier::{
+    evidence_chain_divergence, is_evidence_chain_divergence, ChainVerificationResult,
+    EnvelopeVerificationResult, EvidenceVerifier, EVIDENCE_CHAIN_DIVERGED_CODE,
+};
 pub use fusion_interval::FusionInterval;
 pub use hash::B3Hash;
 pub use id::CPID;
@@ -123,14 +131,6 @@ pub use telemetry::{
     AUDIT_DIVERGENCE_ERROR, AUDIT_DIVERGENCE_METRIC, DETERMINISM_VIOLATION_METRIC,
     POLICY_DENY_OVERRIDE_ERROR, POLICY_OVERRIDE_METRIC, RECEIPT_MISMATCH_ERROR,
     RECEIPT_MISMATCH_METRIC, STRICT_DETERMINISM_ERROR, STRICT_DETERMINISM_METRIC,
-};
-pub use evidence_envelope::{
-    compute_key_id, BundleMetadataRef, EvidenceEnvelopeV1, EvidenceScope, InferenceReceiptRef,
-    PolicyAuditRef, EVIDENCE_ENVELOPE_SCHEMA_VERSION,
-};
-pub use evidence_verifier::{
-    evidence_chain_divergence, is_evidence_chain_divergence, ChainVerificationResult,
-    EnvelopeVerificationResult, EvidenceVerifier, EVIDENCE_CHAIN_DIVERGED_CODE,
 };
 pub use timeout::TimeoutExt;
 pub use training::{TrainingConfig, TrainingJob, TrainingJobStatus, TrainingTemplate};

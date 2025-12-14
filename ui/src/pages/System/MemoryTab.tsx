@@ -8,10 +8,10 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { DataTable } from '@/components/shared/DataTable/DataTable';
 import { type Column } from '@/components/shared/DataTable/types';
-import { useMemoryUsage, useMemoryOperations } from '@/hooks/useSystemMetrics';
+import { useMemoryUsage, useMemoryOperations } from '@/hooks/system/useSystemMetrics';
 import { useToast } from '@/hooks/use-toast';
 import { Trash2, Wifi, WifiOff, Activity } from 'lucide-react';
-import { useMetricsStream } from '@/hooks/useStreamingEndpoints';
+import { useMetricsStream } from '@/hooks/streaming/useStreamingEndpoints';
 import type { MetricsSnapshotEvent } from '@/api/streaming-types';
 
 interface AdapterMemoryInfo {
@@ -30,9 +30,12 @@ export default function MemoryTab() {
   // SSE stream for live memory percentage
   const { error: sseError, connected: sseConnected, reconnect } = useMetricsStream({
     enabled: useSSE,
-    onMessage: useCallback((event) => {
+    onMessage: useCallback((event: any) => {
       if ('system' in event) {
-        setLiveMemoryPercent((event as MetricsSnapshotEvent).system.memory_percent);
+        const metricsEvent = event as MetricsSnapshotEvent;
+        if (metricsEvent.system?.memory_percent !== undefined) {
+          setLiveMemoryPercent(metricsEvent.system.memory_percent);
+        }
       }
     }, []),
   });
@@ -231,7 +234,7 @@ export default function MemoryTab() {
                     <div>
                       <div className="font-medium text-destructive">Connection Lost</div>
                       <div className="text-sm text-muted-foreground">
-                        {sseError}
+                        {sseError?.message}
                       </div>
                     </div>
                   </>

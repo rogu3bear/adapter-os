@@ -13,7 +13,7 @@ import type { Tenant } from '@/api/types';
 import type { ColumnDef } from '@/components/shared/DataTable/types';
 import { TenantFormModal } from './TenantFormModal';
 import { TenantDetailPage } from './TenantDetailPage';
-import { usePauseTenant, useArchiveTenant } from '@/hooks/useAdmin';
+import { usePauseTenant, useArchiveTenant } from '@/hooks/admin/useAdmin';
 import {
   Dialog,
   DialogContent,

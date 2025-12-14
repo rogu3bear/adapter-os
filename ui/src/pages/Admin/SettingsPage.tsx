@@ -22,9 +22,9 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { LoadingState } from '@/components/ui/loading-state';
-import { useRBAC } from '@/hooks/useRBAC';
+import { useRBAC } from '@/hooks/security/useRBAC';
 import { useTheme } from '@/providers/CoreProviders';
-import { useSettings, useUpdateSettings } from '@/hooks/useSettings';
+import { useSettings, useUpdateSettings } from '@/hooks/config/useSettings';
 import { toast } from 'sonner';
 import { logger } from '@/utils/logger';
 import * as securityApi from '@/api/security';
@@ -595,12 +595,12 @@ function JwtConfigurationCard({
       </CardHeader>
       <CardContent className="space-y-6">
         {securityLoading && <LoadingState message="Loading security configuration..." />}
-        {securityError && !securityLoading && (
+        {!securityLoading && !!securityError && (
           <Alert variant="destructive">
             <AlertCircle className="h-4 w-4" />
             <AlertTitle>Error Loading Security Info</AlertTitle>
             <AlertDescription>
-              {securityError instanceof Error ? securityError.message : 'Unknown error'}
+              {securityError instanceof Error ? securityError.message : String(securityError)}
             </AlertDescription>
           </Alert>
         )}

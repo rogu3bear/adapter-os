@@ -1952,7 +1952,8 @@ mod tests {
 
         // Record leaders
         metrics.record_singleflight_leader(CriticalComponentMetrics::singleflight_op_model_load());
-        metrics.record_singleflight_leader(CriticalComponentMetrics::singleflight_op_adapter_load());
+        metrics
+            .record_singleflight_leader(CriticalComponentMetrics::singleflight_op_adapter_load());
         metrics.record_singleflight_leader(CriticalComponentMetrics::singleflight_op_prefix_kv());
 
         // Record waiters

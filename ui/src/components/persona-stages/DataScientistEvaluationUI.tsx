@@ -4,7 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { useTrainingJobs, useJobMetrics } from '@/hooks/useTraining';
+import { useTrainingJobs, useJobMetrics } from '@/hooks/training';
 import {
   BarChart3,
   Download,
@@ -110,12 +110,12 @@ export default function DataScientistEvaluationUI() {
 
   const { data: metrics1, isLoading: isLoadingMetrics1, error: metricsError1 } = useJobMetrics(
     selectedModel1,
-    { enabled: isModel1RealJob }
+    { enabled: !!isModel1RealJob }
   );
 
   const { data: metrics2, isLoading: isLoadingMetrics2, error: metricsError2 } = useJobMetrics(
     selectedModel2,
-    { enabled: isModel2RealJob }
+    { enabled: !!isModel2RealJob }
   );
 
   // Transform API metrics to evaluation metrics format

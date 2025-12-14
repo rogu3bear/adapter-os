@@ -10,7 +10,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { LoadingState } from '@/components/ui/loading-state';
 import { ErrorRecovery } from '@/components/ui/error-recovery';
-import { useTenantUsage } from '@/hooks/useAdmin';
+import { useTenantUsage } from '@/hooks/admin/useAdmin';
 import type { Tenant } from '@/api/types';
 import {
   Activity,
@@ -119,56 +119,58 @@ const UsageTab = ({
   isLoading: boolean;
   error: unknown;
   onRetry: () => void;
-}) => (
-  <TabsContent value="usage" className="space-y-4">
-    {isLoading && <LoadingState message="Loading usage stats..." />}
-    {error && (
-      <ErrorRecovery
-        error={error instanceof Error ? error.message : String(error)}
-        onRetry={onRetry}
-      />
-    )}
-    {usage && (
-      <div className="grid gap-4 md:grid-cols-2">
-        <StatCard
-          title="Inference Count (24h)"
-          value={usage.inference_count_24h?.toLocaleString() || '0'}
-          icon={<Activity className="h-4 w-4 text-muted-foreground" />}
+}) => {
+  return (
+    <TabsContent value="usage" className="space-y-4">
+      {isLoading && <LoadingState message="Loading usage stats..." />}
+      {!isLoading && !!error && (
+        <ErrorRecovery
+          error={error instanceof Error ? error.message : String(error)}
+          onRetry={onRetry}
         />
-        <StatCard
-          title="Tokens Processed"
-          value={usage.tokens_processed.toLocaleString()}
-          icon={<Database className="h-4 w-4 text-muted-foreground" />}
-        />
-        <StatCard
-          title="Memory Usage"
-          value={`${usage.memory_used_gb?.toFixed(2) || '0'} GB`}
-          subtitle={
-            usage.memory_total_gb ? `of ${usage.memory_total_gb.toFixed(2)} GB total` : undefined
-          }
-          icon={<Cpu className="h-4 w-4 text-muted-foreground" />}
-        />
-        <StatCard
-          title="Storage"
-          value={`${(usage.storage_mb / 1024).toFixed(2)} GB`}
-          icon={<HardDrive className="h-4 w-4 text-muted-foreground" />}
-        />
-        <StatCard
-          title="Training Jobs"
-          value={usage.training_jobs}
-          icon={<Layers className="h-4 w-4 text-muted-foreground" />}
-        />
-        <StatCard
-          title="Active Adapters"
-          value={usage.active_adapters_count || '0'}
-          icon={<Layers className="h-4 w-4 text-muted-foreground" />}
-        />
-      </div>
-    )}
-  </TabsContent>
-);
+      )}
+      {usage && (
+        <div className="grid gap-4 md:grid-cols-2">
+          <StatCard
+            title="Inference Count (24h)"
+            value={usage.inference_count_24h?.toLocaleString() ?? '0'}
+            icon={<Activity className="h-4 w-4 text-muted-foreground" />}
+          />
+          <StatCard
+            title="Tokens Processed"
+            value={usage.tokens_processed?.toLocaleString() ?? '0'}
+            icon={<Database className="h-4 w-4 text-muted-foreground" />}
+          />
+          <StatCard
+            title="Memory Usage"
+            value={`${usage.memory_used_gb?.toFixed(2) ?? '0'} GB`}
+            subtitle={
+              usage.memory_total_gb ? `of ${usage.memory_total_gb.toFixed(2)} GB total` : undefined
+            }
+            icon={<Cpu className="h-4 w-4 text-muted-foreground" />}
+          />
+          <StatCard
+            title="Storage"
+            value={`${((usage.storage_mb ?? 0) / 1024).toFixed(2)} GB`}
+            icon={<HardDrive className="h-4 w-4 text-muted-foreground" />}
+          />
+          <StatCard
+            title="Training Jobs"
+            value={usage.training_jobs ?? 0}
+            icon={<Layers className="h-4 w-4 text-muted-foreground" />}
+          />
+          <StatCard
+            title="Active Adapters"
+            value={usage.active_adapters_count ?? '0'}
+            icon={<Layers className="h-4 w-4 text-muted-foreground" />}
+          />
+        </div>
+      )}
+    </TabsContent>
+  );
+};
 
-const CostSummaryCard = ({ usage }: { usage: TenantUsage }) => (
+const CostSummaryCard = ({ usage }: { usage: NonNullable<TenantUsage> }) => (
   <Card>
     <CardHeader>
       <CardTitle className="flex items-center gap-2">
@@ -183,14 +185,14 @@ const CostSummaryCard = ({ usage }: { usage: TenantUsage }) => (
       <div className="grid gap-4 md:grid-cols-2">
         <div className="rounded-lg border p-4">
           <p className="text-sm font-medium text-muted-foreground">Inference Requests</p>
-          <p className="mt-2 text-2xl font-bold">{usage.inference_count?.toLocaleString() || '0'}</p>
+          <p className="mt-2 text-2xl font-bold">{usage.inference_count?.toLocaleString() ?? '0'}</p>
           <p className="mt-1 text-xs text-muted-foreground">
-            {usage.inference_count_24h?.toLocaleString() || '0'} in last 24h
+            {usage.inference_count_24h?.toLocaleString() ?? '0'} in last 24h
           </p>
         </div>
         <div className="rounded-lg border p-4">
           <p className="text-sm font-medium text-muted-foreground">Tokens Processed</p>
-          <p className="mt-2 text-2xl font-bold">{usage.tokens_processed?.toLocaleString() || '0'}</p>
+          <p className="mt-2 text-2xl font-bold">{usage.tokens_processed?.toLocaleString() ?? '0'}</p>
           <p className="mt-1 text-xs text-muted-foreground">Total across all requests</p>
         </div>
       </div>
@@ -199,7 +201,7 @@ const CostSummaryCard = ({ usage }: { usage: TenantUsage }) => (
           <Clock className="mt-0.5 h-5 w-5 text-muted-foreground" />
           <div className="flex-1">
             <p className="text-sm font-medium">Training Time</p>
-            <p className="mt-1 text-2xl font-bold">{usage.training_jobs || 0} jobs</p>
+            <p className="mt-1 text-2xl font-bold">{usage.training_jobs ?? 0} jobs</p>
             <p className="mt-1 text-xs text-muted-foreground">
               Training hours calculation available in future release
             </p>
@@ -211,7 +213,7 @@ const CostSummaryCard = ({ usage }: { usage: TenantUsage }) => (
           <HardDrive className="mt-0.5 h-5 w-5 text-muted-foreground" />
           <div className="flex-1">
             <p className="text-sm font-medium">Storage Usage</p>
-            <p className="mt-1 text-2xl font-bold">{(usage.storage_mb / 1024).toFixed(2)} GB</p>
+            <p className="mt-1 text-2xl font-bold">{((usage.storage_mb ?? 0) / 1024).toFixed(2)} GB</p>
             <p className="mt-1 text-xs text-muted-foreground">
               Includes adapters, datasets, and artifacts
             </p>
@@ -244,23 +246,25 @@ const BillingNotesCard = () => (
   </Card>
 );
 
-const BillingTab = ({ usage, isLoading, error, onRetry }: { usage?: TenantUsage; isLoading: boolean; error: unknown; onRetry: () => void }) => (
-  <TabsContent value="billing" className="space-y-4">
-    {isLoading && <LoadingState message="Loading billing data..." />}
-    {error && (
-      <ErrorRecovery
-        error={error instanceof Error ? error.message : String(error)}
-        onRetry={onRetry}
-      />
-    )}
-    {usage && (
-      <>
-        <CostSummaryCard usage={usage} />
-        <BillingNotesCard />
-      </>
-    )}
-  </TabsContent>
-);
+const BillingTab = ({ usage, isLoading, error, onRetry }: { usage?: TenantUsage; isLoading: boolean; error: unknown; onRetry: () => void }) => {
+  return (
+    <TabsContent value="billing" className="space-y-4">
+      {isLoading && <LoadingState message="Loading billing data..." />}
+      {!isLoading && !!error && (
+        <ErrorRecovery
+          error={error instanceof Error ? error.message : String(error)}
+          onRetry={onRetry}
+        />
+      )}
+      {usage && (
+        <>
+          <CostSummaryCard usage={usage} />
+          <BillingNotesCard />
+        </>
+      )}
+    </TabsContent>
+  );
+};
 
 const PillsCard = ({
   title,

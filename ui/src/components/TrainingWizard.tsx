@@ -16,7 +16,7 @@ import apiClient from '@/api/client';
 import { logger, toError } from '@/utils/logger';
 import { DensityProvider, useDensity } from '@/contexts/DensityContext';
 import { BreadcrumbNavigation } from './BreadcrumbNavigation';
-import { useWizardPersistence } from '@/hooks/useWizardPersistence';
+import { useWizardPersistence } from '@/hooks/persistence/useWizardPersistence';
 import { TrainingConfigSchema, formatValidationError } from '@/schemas';
 import { TERMS } from '@/constants/terminology';
 import { TrainingConfig, TrainingTemplate, Repository } from '@/api/types';
@@ -24,9 +24,9 @@ import { StartTrainingRequest } from '@/api/training-types';
 import { ZodError } from 'zod';
 import { FILE_VALIDATION } from './TrainingWizard/constants';
 import { TrainingWizardProvider, SimpleDatasetMode, ConversionStatus } from './TrainingWizard/context';
-import { useDocuments } from '@/hooks/useDocumentsApi';
-import { useCollections } from '@/hooks/useCollectionsApi';
-import { useTrainingDataOrchestrator } from '@/hooks/useTrainingDataOrchestrator';
+import { useDocuments } from '@/hooks/documents';
+import { useCollections } from '@/hooks/api/useCollectionsApi';
+import { useTrainingDataOrchestrator } from '@/hooks/training';
 import { CategoryStep } from './TrainingWizard/steps/CategoryStep';
 import { BasicInfoStep } from './TrainingWizard/steps/BasicInfoStep';
 import { SimpleDatasetStep } from './TrainingWizard/steps/SimpleDatasetStep';
@@ -165,7 +165,7 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
           validation_status: d.validation_status || 'draft',
           file_count: d.file_count || 0,
           total_size_bytes: d.total_size_bytes || 0,
-          validation_errors: d.validation_errors?.join('; '),
+          validation_errors: Array.isArray(d.validation_errors) ? d.validation_errors.join('; ') : d.validation_errors,
         }));
         setDatasets(mappedDatasets);
       } catch (error) {
@@ -337,7 +337,7 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
       // Determine name based on source type
       let sourceName = '';
       if (selectedDocumentId) {
-        const doc = documents.find(d => d.document_id === selectedDocumentId);
+        const doc = documents.find((d: { document_id: string; name?: string }) => d.document_id === selectedDocumentId);
         sourceName = doc?.name || 'Untitled Document';
       } else if (selectedCollectionId) {
         const col = collections.find(c => c.collection_id === selectedCollectionId);
@@ -901,18 +901,18 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
             <div className="space-y-2 text-sm">
               <div className="flex items-center gap-2">
                 <span className="text-muted-foreground">Adapter:</span>
-                <span className="font-medium">{savedState.name || 'Untitled'}</span>
+                <span className="font-medium">{(savedState as WizardState).name || 'Untitled'}</span>
               </div>
-              {savedState.category && (
+              {(savedState as WizardState).category && (
                 <div className="flex items-center gap-2">
                   <span className="text-muted-foreground">Category:</span>
-                  <span className="font-medium capitalize">{savedState.category}</span>
+                  <span className="font-medium capitalize">{(savedState as WizardState).category}</span>
                 </div>
               )}
-              {savedState.currentStep !== undefined && (
+              {(savedState as WizardState)?.currentStep !== undefined && (
                 <div className="flex items-center gap-2">
                   <span className="text-muted-foreground">Progress:</span>
-                  <span className="font-medium">Step {savedState.currentStep + 1} of 7</span>
+                  <span className="font-medium">Step {((savedState as WizardState)?.currentStep ?? 0) + 1} of 7</span>
                 </div>
               )}
             </div>

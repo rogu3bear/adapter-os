@@ -26,9 +26,9 @@ import {
   UserPlus,
   PlayCircle,
 } from 'lucide-react';
-import { useNodes, useWorkers, useSystemMetrics, useSystemHealthStatus, getHealthStatus } from '@/hooks/useSystem';
+import { useNodes, useWorkers, useSystemMetrics, useSystemHealthStatus, getHealthStatus } from '@/hooks/system/useSystem';
 import type { Node, WorkerResponse } from '@/api/types';
-import { usePolling } from '@/hooks/usePolling';
+import { usePolling } from '@/hooks/realtime/usePolling';
 import apiClient from '@/api/client';
 import { toast } from 'sonner';
 
@@ -518,7 +518,7 @@ export default function SREDashboard({ selectedTenant = 'default' }: SREDashboar
                     </div>
                   </div>
                 ))}
-                <Button variant="outline" className="w-full mt-2" onClick={() => navigate('/monitoring')}>
+                <Button variant="outline" className="w-full mt-2" onClick={() => navigate('/metrics')}>
                   View all alerts
                 </Button>
               </div>

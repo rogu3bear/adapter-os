@@ -36,7 +36,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 
-import { useAuditLogs, useExportAuditLogs } from '@/hooks/useSecurity';
+import { useAuditLogs, useExportAuditLogs } from '@/hooks/security/useSecurity';
 import { ErrorRecovery } from '@/components/ui/error-recovery';
 import type { AuditLog, AuditLogFilters } from '@/api/types';
 

@@ -10,7 +10,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth } from '@/providers/CoreProviders';
 import { useTenant } from '@/providers/FeatureProviders';
-import { useTrace } from '@/hooks/useTrace';
+import { useTrace } from '@/hooks/observability/useTrace';
 import { TraceSummaryPanel } from '@/components/trace/TraceSummaryPanel';
 import { TraceTokenTable } from '@/components/trace/TraceTokenTable';
 

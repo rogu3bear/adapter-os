@@ -178,7 +178,10 @@ impl UserKv {
 
     /// Check if the user can perform compliance operations
     pub fn can_access_compliance(&self) -> bool {
-        matches!(self.role, Role::Admin | Role::Developer | Role::SRE | Role::Compliance)
+        matches!(
+            self.role,
+            Role::Admin | Role::Developer | Role::SRE | Role::Compliance
+        )
     }
 }
 

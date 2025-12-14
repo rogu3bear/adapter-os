@@ -1,7 +1,7 @@
 // 【ui/src/hooks/useInformationDensity.ts§1-122】 - Information density hook pattern
 // 【ui/src/components/Dashboard.tsx§37-38】 - Dashboard usage pattern
 import { createContext, useContext, ReactNode } from 'react';
-import { useInformationDensity, InformationDensity, InformationDensityConfig } from '@/hooks/useInformationDensity';
+import { useInformationDensity, InformationDensity, InformationDensityConfig } from '@/hooks/ui/useInformationDensity';
 
 interface DensityContextValue {
   density: InformationDensity;

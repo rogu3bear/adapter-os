@@ -82,6 +82,9 @@ export function BatchProcessor({
         toast.success(`Loaded ${parsedPrompts.length} prompts from file`);
       }
     };
+    reader.onerror = () => {
+      toast.error('Failed to read batch file');
+    };
     reader.readAsText(file);
   };
 

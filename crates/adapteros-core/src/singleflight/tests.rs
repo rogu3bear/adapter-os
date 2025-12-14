@@ -76,7 +76,9 @@ async fn test_singleflight_model_load_concurrent_miss_runs_loader_once() {
 #[tokio::test]
 async fn test_singleflight_prefix_kv_build_concurrent_miss_runs_builder_once() {
     // Use a B3Hash-like type (represented as [u8; 32])
-    let sf = Arc::new(SingleFlight::<[u8; 32], Vec<f32>, String>::new("prefix_kv_build"));
+    let sf = Arc::new(SingleFlight::<[u8; 32], Vec<f32>, String>::new(
+        "prefix_kv_build",
+    ));
     let build_count = Arc::new(AtomicUsize::new(0));
 
     let key = [0u8; 32]; // Simulated B3Hash
@@ -336,7 +338,9 @@ fn test_singleflight_sync_concurrent_loads() {
 fn test_singleflight_sync_error_propagation() {
     use std::thread;
 
-    let sf = Arc::new(SingleFlightSync::<String, u64, String>::new("sync_error_test"));
+    let sf = Arc::new(SingleFlightSync::<String, u64, String>::new(
+        "sync_error_test",
+    ));
 
     let mut handles = vec![];
 
@@ -368,7 +372,9 @@ fn test_singleflight_sync_error_propagation() {
 fn test_singleflight_sync_different_keys() {
     use std::thread;
 
-    let sf = Arc::new(SingleFlightSync::<String, u64, String>::new("sync_parallel"));
+    let sf = Arc::new(SingleFlightSync::<String, u64, String>::new(
+        "sync_parallel",
+    ));
     let load_count = Arc::new(AtomicUsize::new(0));
 
     let mut handles = vec![];
@@ -402,9 +408,7 @@ async fn test_singleflight_bounded_memory() {
     // Run several loads
     for i in 0..10 {
         let key = format!("key-{}", i);
-        let _ = sf
-            .get_or_load(key, || async move { Ok(i as u64) })
-            .await;
+        let _ = sf.get_or_load(key, || async move { Ok(i as u64) }).await;
     }
 
     // All entries should be cleaned up
@@ -491,8 +495,12 @@ fn test_singleflight_sync_leader_panic_propagates() {
     });
 
     // Wait for both threads
-    let leader_result = leader_handle.join().expect("leader thread should not abort");
-    let waiter_result = waiter_handle.join().expect("waiter thread should not abort");
+    let leader_result = leader_handle
+        .join()
+        .expect("leader thread should not abort");
+    let waiter_result = waiter_handle
+        .join()
+        .expect("waiter thread should not abort");
 
     // Leader should have panicked
     assert!(leader_result.is_err(), "leader should have panicked");

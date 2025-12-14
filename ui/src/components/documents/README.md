@@ -49,7 +49,7 @@ import DocumentChatLayout from '@/components/documents/DocumentChatLayout';
 
 ### Basic Usage
 ```tsx
-import { useDocument } from '@/hooks/useDocumentsApi';
+import { useDocument } from '@/hooks/documents';
 import DocumentChatLayout from '@/components/documents/DocumentChatLayout';
 
 function MyPage() {

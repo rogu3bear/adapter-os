@@ -43,9 +43,9 @@ export default function DatasetOverview({
   isLoadingVersions = false,
   latestVersionId,
 }: DatasetOverviewProps) {
-  const { data: statistics, isLoading: isLoadingStats } = useQuery<DatasetStatistics>({
+  const { data: statistics, isLoading: isLoadingStats } = useQuery({
     queryKey: ['dataset', dataset.id, 'statistics'],
-    queryFn: async () => {
+    queryFn: async (): Promise<DatasetStatistics> => {
       return apiClient.request<DatasetStatistics>(`/v1/datasets/${dataset.id}/statistics`);
     },
     enabled: !!dataset.id,

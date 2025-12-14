@@ -15,6 +15,7 @@ import {
 import { cn } from '@/components/ui/utils';
 import { Adapter } from '@/api/types';
 import { LIFECYCLE_STATE_LABELS } from '@/constants/terminology';
+import { formatMB, formatCount } from '@/utils';
 
 interface StackAdapter {
   adapter: Adapter;
@@ -162,20 +163,20 @@ export const SortableAdapterItem: React.FC<SortableAdapterItemProps> = ({
             <Badge
               variant="outline"
               className="flex items-center gap-1"
-              title={item.adapter.category}
+              title={item.adapter.category ?? 'code'}
             >
-              {getCategoryIcon(item.adapter.category)}
+              {getCategoryIcon(item.adapter.category ?? 'code')}
               <span className="hidden sm:inline text-xs">
-                {item.adapter.category}
+                {item.adapter.category ?? 'code'}
               </span>
             </Badge>
 
             {/* State */}
             <Badge
-              className={cn('text-xs', getStateColor(item.adapter.current_state || 'unknown'))}
-              title={item.adapter.current_state}
+              className={cn('text-xs', getStateColor(item.adapter.current_state ?? 'unloaded'))}
+              title={item.adapter.current_state ?? 'unloaded'}
             >
-              {LIFECYCLE_STATE_LABELS[item.adapter.current_state || 'unknown'] || item.adapter.current_state || 'unknown'}
+              {LIFECYCLE_STATE_LABELS[item.adapter.current_state ?? 'unloaded'] || item.adapter.current_state || 'unloaded'}
             </Badge>
 
             {/* Lifecycle */}
@@ -196,9 +197,9 @@ export const SortableAdapterItem: React.FC<SortableAdapterItemProps> = ({
             </Badge>
 
             {/* Memory */}
-            {item.adapter.memory_bytes > 0 && (
+            {(item.adapter.memory_bytes ?? 0) > 0 && (
               <Badge variant="outline" className="text-xs">
-                {(item.adapter.memory_bytes / 1024 / 1024).toFixed(1)}MB
+                {formatMB(item.adapter.memory_bytes, 1)}
               </Badge>
             )}
 
@@ -210,9 +211,9 @@ export const SortableAdapterItem: React.FC<SortableAdapterItemProps> = ({
             )}
 
             {/* Activation Count */}
-            {item.adapter.activation_count > 0 && (
+            {(item.adapter.activation_count ?? 0) > 0 && (
               <Badge variant="outline" className="text-xs">
-                {item.adapter.activation_count} activations
+                {formatCount(item.adapter.activation_count)} activations
               </Badge>
             )}
           </div>

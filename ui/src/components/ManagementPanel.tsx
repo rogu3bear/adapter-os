@@ -7,10 +7,10 @@ import { Badge } from './ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import apiClient from '@/api/client';
 import { logger, toError } from '@/utils/logger';
-import { usePolling } from '@/hooks/usePolling';
+import { usePolling } from '@/hooks/realtime/usePolling';
 import { LoadingState } from './ui/loading-state';
 import { LastUpdated } from './ui/last-updated';
-import { useRBAC } from '@/hooks/useRBAC';
+import { useRBAC } from '@/hooks/security/useRBAC';
 import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
 import { GlossaryTooltip } from './ui/glossary-tooltip';
 import { KpiGrid, ContentGrid } from './ui/grid';
@@ -126,7 +126,7 @@ export function ManagementPanel({ tenantId, onToolbarChange }: ManagementPanelPr
   const adapters = data?.adapters || [];
 
   // Compute key metrics
-  const activeNodes = nodes.filter((n) => n.status === 'online' || n.status === 'active').length;
+  const activeNodes = nodes.filter((n) => n.status === 'healthy').length;
   const activeTenants = tenants.filter((t) => t.status === 'active' || !t.status).length;
   const criticalAlerts = alerts.filter((a) => a.severity === 'critical' && a.status === 'active').length;
   const warningAlerts = alerts.filter((a) => a.severity === 'warning' && a.status === 'active').length;
@@ -212,7 +212,7 @@ export function ManagementPanel({ tenantId, onToolbarChange }: ManagementPanelPr
               </div>
               <Button
                 variant="destructive"
-                onClick={() => navigate('/monitoring')}
+                onClick={() => navigate('/metrics')}
                 className="ml-auto"
               >
                 View Alerts
@@ -313,12 +313,12 @@ export function ManagementPanel({ tenantId, onToolbarChange }: ManagementPanelPr
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-bold">
-                    {systemMetrics.cpu_percent?.toFixed(1) || '0'}%
+                    {systemMetrics.cpu_usage_percent?.toFixed(1) || '0'}%
                   </div>
                   <div className="mt-2 h-2 w-full bg-muted rounded-full overflow-hidden">
                     <div
                       className="h-full bg-primary transition-all"
-                      style={{ width: `${systemMetrics.cpu_percent || 0}%` }}
+                      style={{ width: `${systemMetrics.cpu_usage_percent || 0}%` }}
                     />
                   </div>
                 </CardContent>
@@ -334,13 +334,13 @@ export function ManagementPanel({ tenantId, onToolbarChange }: ManagementPanelPr
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-bold">
-                    {systemMetrics.memory_used_mb
-                      ? `${(systemMetrics.memory_used_mb / 1024).toFixed(1)} GB`
+                    {systemMetrics.memory_used_gb
+                      ? `${systemMetrics.memory_used_gb.toFixed(1)} GB`
                       : '0 GB'}
                   </div>
                   <p className="text-xs text-muted-foreground mt-1">
-                    {systemMetrics.memory_total_mb
-                      ? `of ${(systemMetrics.memory_total_mb / 1024).toFixed(1)} GB`
+                    {systemMetrics.memory_total_gb
+                      ? `of ${systemMetrics.memory_total_gb.toFixed(1)} GB`
                       : ''}
                   </p>
                   <div className="mt-2 h-2 w-full bg-muted rounded-full overflow-hidden">
@@ -348,8 +348,8 @@ export function ManagementPanel({ tenantId, onToolbarChange }: ManagementPanelPr
                       className="h-full bg-primary transition-all"
                       style={{
                         width: `${
-                          systemMetrics.memory_total_mb
-                            ? (systemMetrics.memory_used_mb / systemMetrics.memory_total_mb) * 100
+                          systemMetrics.memory_total_gb && systemMetrics.memory_used_gb
+                            ? (systemMetrics.memory_used_gb / systemMetrics.memory_total_gb) * 100
                             : 0
                         }%`,
                       }}
@@ -380,7 +380,7 @@ export function ManagementPanel({ tenantId, onToolbarChange }: ManagementPanelPr
                       className="h-full bg-primary transition-all"
                       style={{
                         width: `${
-                          systemMetrics.disk_total_gb
+                          systemMetrics.disk_total_gb && systemMetrics.disk_used_gb
                             ? (systemMetrics.disk_used_gb / systemMetrics.disk_total_gb) * 100
                             : 0
                         }%`,
@@ -401,7 +401,7 @@ export function ManagementPanel({ tenantId, onToolbarChange }: ManagementPanelPr
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => navigate('/monitoring')}
+                    onClick={() => navigate('/metrics')}
                   >
                     View All
                     <ArrowRight className="ml-2 h-4 w-4" />
@@ -427,7 +427,7 @@ export function ManagementPanel({ tenantId, onToolbarChange }: ManagementPanelPr
                         </Badge>
                       </div>
                       <span className="text-xs text-muted-foreground">
-                        {new Date(alert.created_at).toLocaleTimeString()}
+                        {alert.created_at ? new Date(alert.created_at).toLocaleTimeString() : 'N/A'}
                       </span>
                     </div>
                   ))}
@@ -548,13 +548,13 @@ export function ManagementPanel({ tenantId, onToolbarChange }: ManagementPanelPr
                       className="flex items-center justify-between p-2 rounded-lg border"
                     >
                       <div className="flex items-center gap-2">
-                        {node.status === 'online' ? (
+                        {node.status === 'healthy' ? (
                           <Wifi className="h-4 w-4 text-green-600" />
                         ) : (
                           <WifiOff className="h-4 w-4 text-gray-400" />
                         )}
-                        <span className="font-medium">{node.name || node.id}</span>
-                        <Badge variant={node.status === 'online' ? 'default' : 'secondary'}>
+                        <span className="font-medium">{node.id}</span>
+                        <Badge variant={node.status === 'healthy' ? 'default' : 'secondary'}>
                           {node.status}
                         </Badge>
                       </div>
@@ -696,8 +696,7 @@ export function ManagementPanel({ tenantId, onToolbarChange }: ManagementPanelPr
                       <div>
                         <div className="font-medium">{model.model_id}</div>
                         <div className="text-sm text-muted-foreground">
-                          {model.is_loaded ? 'Loaded' : 'Not loaded'} •{' '}
-                          {model.memory_mb ? `${(model.memory_mb / 1024).toFixed(1)} GB` : 'N/A'}
+                          {model.is_loaded ? 'Loaded' : 'Not loaded'}
                         </div>
                       </div>
                       <Badge variant={model.is_loaded ? 'default' : 'secondary'}>
@@ -814,7 +813,7 @@ export function ManagementPanel({ tenantId, onToolbarChange }: ManagementPanelPr
               </CardHeader>
             </Card>
 
-            <Card className="cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => navigate('/monitoring')}>
+            <Card className="cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => navigate('/metrics')}>
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2">
                   <Activity className="h-5 w-5" />

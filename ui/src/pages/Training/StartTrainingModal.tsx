@@ -11,7 +11,7 @@ import {
 } from '@/components/ui/select';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
-import { useTraining } from '@/hooks/useTraining';
+import { useTraining } from '@/hooks/training';
 import { AlertCircle } from 'lucide-react';
 import type { StartTrainingRequest, TrainingConfigRequest, DatasetVersionSelection } from '@/api/training-types';
 import { useTenant } from '@/providers/FeatureProviders';

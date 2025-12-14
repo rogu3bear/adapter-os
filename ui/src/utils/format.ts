@@ -53,10 +53,12 @@ export function formatDuration(value: number | null | undefined, unit: 'ms' | 's
 /**
  * Format bytes to human-readable string
  * Handles KB, MB, GB with appropriate precision
+ * Returns '—' for null/undefined values
  */
-export function formatBytes(bytes: number): string {
+export function formatBytes(bytes: number | null | undefined, decimals = 2): string {
+  if (bytes == null) return '—';
   if (bytes === 0) return '0 B';
-  if (bytes < 0) return '-';
+  if (bytes < 0) return '—';
 
   const units = ['B', 'KB', 'MB', 'GB', 'TB'];
   const k = 1024;
@@ -66,6 +68,15 @@ export function formatBytes(bytes: number): string {
   // Use more precision for smaller values
   const precision = value < 10 ? 2 : value < 100 ? 1 : 0;
   return `${value.toFixed(precision)} ${units[i]}`;
+}
+
+/**
+ * Format bytes specifically to MB.
+ * Returns '—' for null/undefined values.
+ */
+export function formatMB(bytes: number | undefined | null, decimals = 2): string {
+  if (bytes == null) return '—';
+  return `${(bytes / 1024 / 1024).toFixed(decimals)} MB`;
 }
 
 /**
@@ -120,14 +131,63 @@ export function formatRelativeTime(date: Date | string | number): string {
 
 /**
  * Format percentage with consistent precision
+ * Returns '—' for null/undefined values
  */
-export function formatPercent(value: number, decimals: number = 1): string {
+export function formatPercent(value: number | null | undefined, decimals: number = 1): string {
+  if (value == null) return '—';
   return `${value.toFixed(decimals)}%`;
 }
 
 /**
  * Format number with thousands separators
+ * Returns '—' for null/undefined values
  */
-export function formatNumber(value: number): string {
+export function formatNumber(value: number | null | undefined): string {
+  if (value == null) return '—';
   return value.toLocaleString();
+}
+
+/**
+ * Format a count/number for display (alias for formatNumber).
+ * Returns '—' for null/undefined values.
+ */
+export function formatCount(count: number | undefined | null): string {
+  return formatNumber(count);
+}
+
+/**
+ * Format a date string for display.
+ * Returns '—' for null/undefined values.
+ */
+export function formatDate(date: string | Date | undefined | null): string {
+  if (date == null) return '—';
+  try {
+    const d = typeof date === 'string' ? new Date(date) : date;
+    return d.toLocaleDateString();
+  } catch {
+    return '—';
+  }
+}
+
+/**
+ * Format a datetime string for display.
+ * Returns '—' for null/undefined values.
+ */
+export function formatDateTime(date: string | Date | undefined | null): string {
+  if (date == null) return '—';
+  try {
+    const d = typeof date === 'string' ? new Date(date) : date;
+    return d.toLocaleString();
+  } catch {
+    return '—';
+  }
+}
+
+/**
+ * Format a string with fallback.
+ * Returns '—' for null/undefined/empty values.
+ */
+export function formatString(value: string | undefined | null): string {
+  if (value == null || value === '') return '—';
+  return value;
 }

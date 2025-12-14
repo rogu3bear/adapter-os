@@ -110,6 +110,7 @@ pub async fn test_node_connection(
     // Try to ping the node agent
     let start = std::time::Instant::now();
     let client = reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_millis(500))
         .timeout(std::time::Duration::from_secs(5))
         .build()
         .map_err(|e| {
@@ -124,7 +125,22 @@ pub async fn test_node_connection(
         })?;
 
     let ping_url = format!("{}/health", node.agent_endpoint);
-    let result = client.get(&ping_url).send().await;
+    let max_attempts = 3u32;
+    let mut attempt = 0u32;
+    let mut backoff = std::time::Duration::from_millis(100);
+    let result = loop {
+        attempt += 1;
+        match client.get(&ping_url).send().await {
+            Ok(response) => break Ok(response),
+            Err(e) => {
+                if attempt >= max_attempts {
+                    break Err(e);
+                }
+                tokio::time::sleep(backoff).await;
+                backoff = (backoff * 2).min(std::time::Duration::from_millis(800));
+            }
+        }
+    };
 
     let (status, latency_ms) = match result {
         Ok(response) if response.status().is_success() => {
@@ -134,7 +150,10 @@ pub async fn test_node_connection(
             format!("error: HTTP {}", response.status()),
             start.elapsed().as_millis() as f64,
         ),
-        Err(_) => ("unreachable".to_string(), 0.0),
+        Err(e) => (
+            format!("unreachable: {}", e),
+            start.elapsed().as_millis() as f64,
+        ),
     };
 
     Ok(Json(NodePingResponse {

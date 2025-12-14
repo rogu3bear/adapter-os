@@ -9,7 +9,7 @@ import { ModelStatusResponse } from '@/api/types';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 import { ModelImportWizard } from './ModelImportWizard';
 import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
-import { useAsyncAction } from '@/hooks/useAsyncAction';
+import { useAsyncAction } from '@/hooks/async/useAsyncAction';
 
 interface BaseModelLoaderProps {
   status: ModelStatusResponse | null;

@@ -11,8 +11,8 @@ import { useTenant } from '@/providers/FeatureProviders';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { errorRecoveryTemplates } from '@/components/ui/error-recovery';
 import { GlossaryTooltip } from '@/components/ui/glossary-tooltip';
-import { useRBAC } from '@/hooks/useRBAC';
-import { usePolling } from '@/hooks/usePolling';
+import { useRBAC } from '@/hooks/security/useRBAC';
+import { usePolling } from '@/hooks/realtime/usePolling';
 import { DashboardWidgetFrame, type DashboardWidgetState } from './DashboardWidgetFrame';
 
 // Utility functions for request deduplication

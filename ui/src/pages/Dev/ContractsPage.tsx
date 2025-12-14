@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import FeatureLayout from '@/layout/FeatureLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { LoadingState } from '@/components/ui/loading-state';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import apiClient from '@/api/client';
 import type { ContractSamplesResponse } from '@/api/api-types';
@@ -115,10 +116,7 @@ export default function ContractsPage() {
             </CardHeader>
             <CardContent>
               {loading && !samples ? (
-                <div className="flex items-center gap-2 text-muted-foreground">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Loading inference sample...
-                </div>
+                <LoadingState variant="minimal" message="Loading inference sample..." />
               ) : (
                 <pre className="bg-muted/50 border rounded-md p-3 text-xs overflow-x-auto">
                   {samples ? pretty(samples.inference) : 'No sample available'}
@@ -140,10 +138,7 @@ export default function ContractsPage() {
             </CardHeader>
             <CardContent>
               {loading && !samples ? (
-                <div className="flex items-center gap-2 text-muted-foreground">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Loading trace sample...
-                </div>
+                <LoadingState variant="minimal" message="Loading trace sample..." />
               ) : (
                 <pre className="bg-muted/50 border rounded-md p-3 text-xs overflow-x-auto">
                   {samples ? pretty(samples.trace) : 'No sample available'}
@@ -170,10 +165,7 @@ export default function ContractsPage() {
             </CardHeader>
             <CardContent>
               {loading && !samples ? (
-                <div className="flex items-center gap-2 text-muted-foreground">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Loading evidence sample...
-                </div>
+                <LoadingState variant="minimal" message="Loading evidence sample..." />
               ) : (
                 <pre className="bg-muted/50 border rounded-md p-3 text-xs overflow-x-auto">
                   {samples ? pretty(samples.evidence) : 'No sample available'}

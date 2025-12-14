@@ -2,7 +2,7 @@ import { Modal } from '@/components/shared/Modal';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { useNodeDetails } from '@/hooks/useSystemMetrics';
+import { useNodeDetails } from '@/hooks/system/useSystemMetrics';
 
 interface NodeDetailModalProps {
   nodeId: string;

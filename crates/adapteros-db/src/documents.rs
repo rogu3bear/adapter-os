@@ -24,6 +24,12 @@ pub struct Document {
     pub created_at: String,
     pub updated_at: String,
     pub metadata_json: Option<String>,
+    pub error_message: Option<String>,
+    pub error_code: Option<String>,
+    pub retry_count: i32,
+    pub max_retries: i32,
+    pub processing_started_at: Option<String>,
+    pub processing_completed_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -54,6 +60,12 @@ impl From<DocumentKv> for Document {
             created_at: kv.created_at,
             updated_at: kv.updated_at,
             metadata_json: kv.metadata_json,
+            error_message: None,
+            error_code: None,
+            retry_count: 0,
+            max_retries: 3,
+            processing_started_at: None,
+            processing_completed_at: None,
         }
     }
 }
@@ -172,7 +184,9 @@ impl Db {
     async fn sql_get_document(&self, tenant_id: &str, id: &str) -> Result<Option<Document>> {
         sqlx::query_as::<_, Document>(
             "SELECT id, tenant_id, name, content_hash, file_path, file_size,
-                    mime_type, page_count, status, created_at, updated_at, metadata_json
+                    mime_type, page_count, status, created_at, updated_at, metadata_json,
+                    error_message, error_code, retry_count, max_retries,
+                    processing_started_at, processing_completed_at
              FROM documents
              WHERE id = ? AND tenant_id = ?",
         )
@@ -265,7 +279,9 @@ impl Db {
         let placeholders = doc_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
         let query = format!(
             "SELECT id, tenant_id, name, content_hash, file_path, file_size,
-                    mime_type, page_count, status, created_at, updated_at, metadata_json
+                    mime_type, page_count, status, created_at, updated_at, metadata_json,
+                    error_message, error_code, retry_count, max_retries,
+                    processing_started_at, processing_completed_at
              FROM documents
              WHERE tenant_id = ? AND id IN ({})",
             placeholders
@@ -314,7 +330,9 @@ impl Db {
     async fn sql_list_documents(&self, tenant_id: &str) -> Result<Vec<Document>> {
         let documents = sqlx::query_as::<_, Document>(
             "SELECT id, tenant_id, name, content_hash, file_path, file_size,
-                    mime_type, page_count, status, created_at, updated_at, metadata_json
+                    mime_type, page_count, status, created_at, updated_at, metadata_json,
+                    error_message, error_code, retry_count, max_retries,
+                    processing_started_at, processing_completed_at
              FROM documents
              WHERE tenant_id = ?
              ORDER BY created_at DESC",
@@ -358,7 +376,9 @@ impl Db {
             // Get paginated results
             let documents = sqlx::query_as::<_, Document>(
                 "SELECT id, tenant_id, name, content_hash, file_path, file_size,
-                    mime_type, page_count, status, created_at, updated_at, metadata_json
+                    mime_type, page_count, status, created_at, updated_at, metadata_json,
+                    error_message, error_code, retry_count, max_retries,
+                    processing_started_at, processing_completed_at
              FROM documents
              WHERE tenant_id = ?
              ORDER BY created_at DESC LIMIT ? OFFSET ?",
@@ -406,7 +426,9 @@ impl Db {
         if self.storage_mode().read_from_sql() {
             let document = sqlx::query_as::<_, Document>(
                 "SELECT id, tenant_id, name, content_hash, file_path, file_size,
-                    mime_type, page_count, status, created_at, updated_at, metadata_json
+                    mime_type, page_count, status, created_at, updated_at, metadata_json,
+                    error_message, error_code, retry_count, max_retries,
+                    processing_started_at, processing_completed_at
              FROM documents
              WHERE tenant_id = ? AND content_hash = ?
              LIMIT 1",
@@ -743,7 +765,9 @@ impl Db {
     ) -> Result<Vec<Document>> {
         let documents = sqlx::query_as::<_, Document>(
             "SELECT id, tenant_id, name, content_hash, file_path, file_size,
-                    mime_type, page_count, status, created_at, updated_at, metadata_json
+                    mime_type, page_count, status, created_at, updated_at, metadata_json,
+                    error_message, error_code, retry_count, max_retries,
+                    processing_started_at, processing_completed_at
              FROM documents
              WHERE tenant_id = ? AND status = ?
              ORDER BY created_at DESC",
@@ -792,5 +816,222 @@ impl Db {
                     AosError::Database(format!("Failed to get total document size: {}", e))
                 })?;
         Ok(size.0.unwrap_or(0))
+    }
+
+    /// Atomically transition document to processing state.
+    /// Uses IMMEDIATE transaction to prevent race conditions.
+    ///
+    /// Returns:
+    /// - Ok(true) if successfully acquired processing lock
+    /// - Ok(false) if document is not in processable state (already processing/indexed)
+    /// - Err if document not found or other error
+    pub async fn try_acquire_processing_lock(
+        &self,
+        tenant_id: &str,
+        document_id: &str,
+    ) -> Result<bool> {
+        // Start a regular deferred transaction
+        // Note: SQLite's DEFERRED transactions are sufficient for correctness here.
+        // The UPDATE with WHERE clause provides atomic compare-and-swap semantics.
+        let mut tx = self
+            .pool()
+            .begin()
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to begin transaction: {}", e)))?;
+
+        // Check current state with tenant isolation
+        let row: Option<(String,)> =
+            sqlx::query_as("SELECT status FROM documents WHERE id = ? AND tenant_id = ?")
+                .bind(document_id)
+                .bind(tenant_id)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(|e| AosError::Database(format!("Failed to get document status: {}", e)))?;
+
+        let Some((current_status,)) = row else {
+            tx.rollback().await.ok();
+            return Err(AosError::NotFound(format!(
+                "Document not found: {}",
+                document_id
+            )));
+        };
+
+        // Only allow transition from pending or failed (retry)
+        if current_status != "pending" && current_status != "failed" {
+            tx.rollback().await.ok();
+            return Ok(false);
+        }
+
+        // Atomically update to processing
+        let result = sqlx::query(
+            "UPDATE documents
+         SET status = 'processing',
+             processing_started_at = datetime('now'),
+             error_message = NULL,
+             error_code = NULL,
+             updated_at = datetime('now')
+         WHERE id = ? AND tenant_id = ? AND status IN ('pending', 'failed')",
+        )
+        .bind(document_id)
+        .bind(tenant_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to update document status: {}", e)))?;
+
+        if result.rows_affected() == 0 {
+            // Race condition - another process got there first
+            tx.rollback().await.ok();
+            return Ok(false);
+        }
+
+        tx.commit()
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to commit transaction: {}", e)))?;
+        Ok(true)
+    }
+
+    /// Mark document as failed with error details.
+    /// Called when document processing fails for any reason.
+    pub async fn mark_document_failed(
+        &self,
+        tenant_id: &str,
+        document_id: &str,
+        error_message: &str,
+        error_code: &str,
+    ) -> Result<()> {
+        sqlx::query(
+            "UPDATE documents
+         SET status = 'failed',
+             error_message = ?,
+             error_code = ?,
+             processing_completed_at = datetime('now'),
+             updated_at = datetime('now')
+         WHERE id = ? AND tenant_id = ?",
+        )
+        .bind(error_message)
+        .bind(error_code)
+        .bind(document_id)
+        .bind(tenant_id)
+        .execute(self.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to mark document as failed: {}", e)))?;
+
+        Ok(())
+    }
+
+    /// Mark document as successfully indexed.
+    /// Should be called within the same transaction as chunk creation.
+    pub async fn mark_document_indexed(
+        &self,
+        tenant_id: &str,
+        document_id: &str,
+        page_count: Option<i64>,
+    ) -> Result<()> {
+        sqlx::query(
+            "UPDATE documents
+         SET status = 'indexed',
+             page_count = ?,
+             processing_completed_at = datetime('now'),
+             updated_at = datetime('now')
+         WHERE id = ? AND tenant_id = ?",
+        )
+        .bind(page_count)
+        .bind(document_id)
+        .bind(tenant_id)
+        .execute(self.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to mark document as indexed: {}", e)))?;
+
+        Ok(())
+    }
+
+    /// Prepare a failed document for retry.
+    /// Increments retry_count and resets status to pending.
+    /// Returns false if document has exceeded max retries or is not in failed state.
+    pub async fn prepare_document_retry(&self, tenant_id: &str, document_id: &str) -> Result<bool> {
+        let result = sqlx::query(
+            "UPDATE documents
+         SET retry_count = retry_count + 1,
+             status = 'pending',
+             error_message = NULL,
+             error_code = NULL,
+             processing_started_at = NULL,
+             processing_completed_at = NULL,
+             updated_at = datetime('now')
+         WHERE id = ? AND tenant_id = ? AND status = 'failed' AND retry_count < max_retries",
+        )
+        .bind(document_id)
+        .bind(tenant_id)
+        .execute(self.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to prepare document retry: {}", e)))?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
+    /// Get failed documents that are eligible for retry.
+    /// Returns documents in failed state with retry_count < max_retries.
+    pub async fn get_retryable_documents(
+        &self,
+        tenant_id: &str,
+        limit: i64,
+    ) -> Result<Vec<Document>> {
+        let documents = sqlx::query_as::<_, Document>(
+            "SELECT id, tenant_id, name, content_hash, file_path, file_size,
+                    mime_type, page_count, status, created_at, updated_at, metadata_json,
+                    error_message, error_code, retry_count, max_retries,
+                    processing_started_at, processing_completed_at
+         FROM documents
+         WHERE tenant_id = ?
+           AND status = 'failed'
+           AND retry_count < max_retries
+         ORDER BY updated_at ASC
+         LIMIT ?",
+        )
+        .bind(tenant_id)
+        .bind(limit)
+        .fetch_all(self.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to get retryable documents: {}", e)))?;
+
+        Ok(documents)
+    }
+
+    /// Reset stale processing documents back to pending state.
+    /// Documents that have been in "processing" state longer than the threshold
+    /// are assumed to be stuck (e.g., server crashed during processing).
+    ///
+    /// Returns the number of documents reset.
+    pub async fn reset_stale_processing_documents(
+        &self,
+        tenant_id: &str,
+        stale_threshold_minutes: i64,
+    ) -> Result<usize> {
+        let result = sqlx::query(
+            "UPDATE documents
+             SET status = 'pending',
+                 processing_started_at = NULL,
+                 updated_at = datetime('now')
+             WHERE tenant_id = ?
+               AND status = 'processing'
+               AND processing_started_at < datetime('now', '-' || ? || ' minutes')",
+        )
+        .bind(tenant_id)
+        .bind(stale_threshold_minutes)
+        .execute(self.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to reset stale documents: {}", e)))?;
+
+        let count = result.rows_affected() as usize;
+        if count > 0 {
+            tracing::info!(
+                tenant_id = %tenant_id,
+                count = count,
+                threshold_minutes = stale_threshold_minutes,
+                "Reset stale processing documents to pending"
+            );
+        }
+
+        Ok(count)
     }
 }

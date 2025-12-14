@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import FeatureLayout from '@/layout/FeatureLayout';
 import { DensityProvider } from '@/contexts/DensityContext';
-import { useRBAC } from '@/hooks/useRBAC';
+import { useRBAC } from '@/hooks/security/useRBAC';
 import { logger } from '@/utils/logger';
 import { toast } from 'sonner';
 import apiClient from '@/api/client';
@@ -33,7 +33,7 @@ import {
   usePromoteAdapter,
   useEvictAdapter,
   type AdapterFilters as FilterValues,
-} from './useAdapters';
+} from '@/hooks/adapters/useAdapters';
 
 // Export format for adapter backup/sharing
 interface AdapterExportData {
@@ -293,8 +293,8 @@ export function AdaptersPage() {
           hash_b3: adapter.hash_b3,
           rank: adapter.rank,
           tier: adapter.tier,
-          category: adapter.category,
-          scope: adapter.scope,
+          category: adapter.category ?? 'code',
+          scope: adapter.scope ?? 'global',
           framework: adapter.framework,
           description: adapter.description,
           tenant_namespace: adapter.tenant_namespace,
@@ -353,10 +353,10 @@ export function AdaptersPage() {
 
   // Stats for header
   const loadedCount = adapters.filter(a =>
-    ['warm', 'hot', 'resident'].includes(a.current_state)
+    a.current_state && ['warm', 'hot', 'resident'].includes(a.current_state)
   ).length;
   const pinnedCount = adapters.filter(a => a.pinned).length;
-  const totalMemoryUsedMB = adapters.reduce((acc, a) => acc + a.memory_bytes, 0) / (1024 * 1024);
+  const totalMemoryUsedMB = adapters.reduce((acc, a) => acc + (a.memory_bytes ?? 0), 0) / (1024 * 1024);
 
   const isAnyMutationLoading =
     loadMutation.isPending ||

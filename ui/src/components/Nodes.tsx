@@ -11,12 +11,12 @@ import { Checkbox } from './ui/checkbox';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from './ui/accordion';
 import { BulkActionBar, BulkAction } from './ui/bulk-action-bar';
 import { ConfirmationDialog, ConfirmationOptions } from './ui/confirmation-dialog';
-import { useActionHistory } from '@/hooks/useActionHistory';
+import { useActionHistory } from '@/hooks/ui/useActionHistory';
 import { UndoRedoBar } from './ui/undo-redo-bar';
 import { GlossaryTooltip } from './ui/glossary-tooltip';
 import { ErrorRecovery } from './ui/error-recovery';
-import { usePolling } from '@/hooks/usePolling';
-import { useRBAC } from '@/hooks/useRBAC';
+import { usePolling } from '@/hooks/realtime/usePolling';
+import { useRBAC } from '@/hooks/security/useRBAC';
 import {
   Server,
   CheckCircle,

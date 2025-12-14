@@ -350,6 +350,21 @@ function DetailsTab({ replayResponse }: { replayResponse: ReplayResponse }) {
         </div>
       )}
 
+      {/* Version Consistency Warning */}
+      {replayResponse.version_consistency_warning && (
+        <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-900 rounded-md p-3">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="size-4 text-yellow-600 dark:text-yellow-500 mt-0.5" />
+            <div className="text-sm">
+              <span className="font-medium">Version Mismatch:</span>
+              <span className="ml-2 text-muted-foreground">
+                {replayResponse.version_consistency_warning}
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Truncation Warning */}
       {replayResponse.response_truncated && (
         <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-900 rounded-md p-3">
@@ -361,6 +376,48 @@ function DetailsTab({ replayResponse }: { replayResponse: ReplayResponse }) {
                 Replay response was truncated to 64KB storage limit
               </span>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Version Pins */}
+      {(replayResponse.replay_key?.dataset_version_id ||
+        replayResponse.replay_key?.rag_snapshot_hash ||
+        (replayResponse.replay_key?.adapter_ids && replayResponse.replay_key.adapter_ids.length > 0)) && (
+        <div className="space-y-2">
+          <h4 className="text-sm font-medium flex items-center gap-2">
+            <Database className="h-4 w-4" />
+            Version Pins
+          </h4>
+          <div className="bg-muted/50 rounded-md p-3 space-y-2 text-sm">
+            {replayResponse.replay_key?.dataset_version_id && (
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Dataset Version:</span>
+                <code className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded">
+                  {replayResponse.replay_key.dataset_version_id}
+                </code>
+              </div>
+            )}
+            {replayResponse.replay_key?.rag_snapshot_hash && (
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">RAG Snapshot:</span>
+                <code className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded truncate max-w-[200px]" title={replayResponse.replay_key.rag_snapshot_hash}>
+                  {replayResponse.replay_key.rag_snapshot_hash.substring(0, 16)}...
+                </code>
+              </div>
+            )}
+            {replayResponse.replay_key?.adapter_ids && replayResponse.replay_key.adapter_ids.length > 0 && (
+              <div className="flex items-start justify-between">
+                <span className="text-muted-foreground">Adapters:</span>
+                <div className="flex flex-wrap gap-1 justify-end">
+                  {replayResponse.replay_key.adapter_ids.map((id, i) => (
+                    <code key={i} className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded">
+                      {id.substring(0, 8)}
+                    </code>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -545,7 +602,7 @@ export function ReplayResultDialog({
       toast.error('Trace ID is unavailable');
       return;
     }
-    navigate(`/telemetry/viewer?requestId=${encodeURIComponent(traceId)}`);
+    navigate(`/telemetry?tab=viewer&requestId=${encodeURIComponent(traceId)}`);
   };
 
   return (
@@ -555,14 +612,22 @@ export function ReplayResultDialog({
           <div className="flex items-center justify-between">
             <DialogTitle className="flex items-center gap-2">
               Replay Results
-              <div className="flex flex-col items-start gap-0.5">
-                <Badge variant={badge.variant} className="text-sm px-2.5 py-0.5 gap-1.5">
-                  {badge.icon}
-                  {badge.humanLabel}
-                </Badge>
-                <span className="text-xs text-muted-foreground ml-1">
-                  ({badge.engineeringLabel})
-                </span>
+              <div className="flex items-center gap-2">
+                <div className="flex flex-col items-start gap-0.5">
+                  <Badge variant={badge.variant} className="text-sm px-2.5 py-0.5 gap-1.5">
+                    {badge.icon}
+                    {badge.humanLabel}
+                  </Badge>
+                  <span className="text-xs text-muted-foreground ml-1">
+                    ({badge.engineeringLabel})
+                  </span>
+                </div>
+                {replayResponse.version_consistency_warning && (
+                  <Badge variant="warning" className="gap-1.5 bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-200">
+                    <AlertTriangle className="h-3 w-3" />
+                    Version Mismatch
+                  </Badge>
+                )}
               </div>
             </DialogTitle>
             {onViewHistory && (

@@ -295,6 +295,7 @@ fn test_inference_result_determinism_fields_flow_through() {
         pinned_routing_fallback: None,
         effective_adapter_ids: None,
         backend_used: Some("Metal".to_string()),
+        deterministic_receipt: None,
         fallback_triggered: true,
         coreml_compute_preference: None,
         coreml_compute_units: None,
@@ -345,6 +346,7 @@ fn test_inference_result_strict_mode_exact_guarantee() {
         pinned_routing_fallback: None,
         effective_adapter_ids: None,
         backend_used: Some("CoreML".to_string()),
+        deterministic_receipt: None,
         fallback_triggered: false,
         coreml_compute_preference: None,
         coreml_compute_units: None,
@@ -390,6 +392,7 @@ fn test_inference_result_direct_mode_no_fallback() {
         pinned_routing_fallback: None,
         effective_adapter_ids: None,
         backend_used: Some("MLX".to_string()),
+        deterministic_receipt: None,
         fallback_triggered: false, // Always false in direct mode
         coreml_compute_preference: None,
         coreml_compute_units: None,

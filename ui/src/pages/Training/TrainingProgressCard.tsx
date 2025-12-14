@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { useLiveData } from '@/hooks/useLiveData';
+import { useLiveData } from '@/hooks/realtime/useLiveData';
 import { Activity, AlertCircle, CheckCircle, XCircle, Clock, Zap } from 'lucide-react';
 import type { TrainingJob, TrainingMetrics } from '@/api/training-types';
 import { calculateTrainingETA, formatDuration as formatDurationUtil } from '@/utils/trainingEta';

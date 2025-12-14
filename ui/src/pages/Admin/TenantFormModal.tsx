@@ -5,7 +5,7 @@ import { FormModalWithHookForm } from '@/components/shared/Modal';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { useCreateTenant, useUpdateTenant } from '@/hooks/useAdmin';
+import { useCreateTenant, useUpdateTenant } from '@/hooks/admin/useAdmin';
 import type { Tenant, CreateTenantRequest } from '@/api/types';
 import { TenantFormSchema, type TenantFormData } from '@/schemas/admin.schema';
 

@@ -136,7 +136,7 @@ export interface StartTrainingFromVersionRequest {
 
 // Adapter repository policy/types (system adapter repos, not code repos)
 export type CoreMLMode = 'coreml_strict' | 'coreml_preferred' | 'backend_auto';
-export type RepoAssuranceTier = 'high_assurance' | 'normal' | 'experimental';
+export type RepoAssuranceTier = 'high_assurance' | 'normal';
 
 export interface AdapterRepositoryPolicy {
   repo_id: string;

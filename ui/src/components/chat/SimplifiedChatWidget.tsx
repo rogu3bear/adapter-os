@@ -6,10 +6,10 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Send, Bot, User, Loader2, Database, Layers, X } from 'lucide-react';
 import { useChatStreaming } from '@/hooks/chat/useChatStreaming';
-import { useModelStatus } from '@/hooks/useModelStatus';
-import { useAutoLoadModel } from '@/hooks/useAutoLoadModel';
-import { useAdapterStacks, useGetDefaultStack } from '@/hooks/useAdmin';
-import { useChatAutoLoadModels } from '@/hooks/useFeatureFlags';
+import { useModelStatus } from '@/hooks/model-loading';
+import { useAutoLoadModel } from '@/hooks/model-loading';
+import { useAdapterStacks, useGetDefaultStack } from '@/hooks/admin/useAdmin';
+import { useChatAutoLoadModels } from '@/hooks/config/useFeatureFlags';
 import {
   useModelLoadingState,
   useModelLoader,

@@ -41,6 +41,8 @@ pub struct TrainingJobKv {
     pub retry_of_job_id: Option<String>,
     pub stack_id: Option<String>,
     pub adapter_id: Option<String>,
+    pub weights_hash_b3: Option<String>,
+    pub artifact_path: Option<String>,
     pub produced_version_id: Option<String>,
     pub hyperparameters_json: Option<String>,
     pub data_spec_json: Option<String>,

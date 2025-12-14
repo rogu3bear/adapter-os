@@ -571,7 +571,10 @@ impl ModelCacheIdentityV2 {
     ) -> Self {
         Self {
             kernel_version_id: v1.kernel_version_id,
-            quantization_mode: v1.quantization_mode.parse().unwrap_or(QuantizationMode::Custom),
+            quantization_mode: v1
+                .quantization_mode
+                .parse()
+                .unwrap_or(QuantizationMode::Custom),
             fusion_mode: v1.fusion_mode.parse().unwrap_or(FusionMode::Custom),
             build_id: v1.build_id,
             adapter_dir_hash: v1.adapter_dir_hash,
@@ -837,10 +840,22 @@ mod tests_v2 {
         let v2 = test_v2_identity();
 
         let display = format!("{}", v2);
-        assert!(display.starts_with("v2:"), "display should start with version");
-        assert!(display.contains("tok:"), "display should include tokenizer marker");
-        assert!(display.contains("cfg:"), "display should include config marker");
-        assert!(display.contains("t:tenant-123"), "display should include tenant");
+        assert!(
+            display.starts_with("v2:"),
+            "display should start with version"
+        );
+        assert!(
+            display.contains("tok:"),
+            "display should include tokenizer marker"
+        );
+        assert!(
+            display.contains("cfg:"),
+            "display should include config marker"
+        );
+        assert!(
+            display.contains("t:tenant-123"),
+            "display should include tenant"
+        );
         assert!(display.contains("w:42"), "display should include worker");
     }
 
@@ -860,7 +875,10 @@ mod tests_v2 {
     #[test]
     fn test_v2_validate_strict_success() {
         let v2 = test_v2_identity();
-        assert!(v2.validate_strict().is_ok(), "valid identity should pass strict validation");
+        assert!(
+            v2.validate_strict().is_ok(),
+            "valid identity should pass strict validation"
+        );
     }
 
     #[test]
@@ -881,7 +899,10 @@ mod tests_v2 {
         );
 
         let result = v2.validate_strict();
-        assert!(result.is_err(), "missing kernel_version_id should fail validation");
+        assert!(
+            result.is_err(),
+            "missing kernel_version_id should fail validation"
+        );
     }
 
     #[test]
@@ -966,14 +987,26 @@ mod tests_v2 {
         ] {
             let u8_val = mode.to_u8();
             let roundtrip = QuantizationMode::from_u8(u8_val);
-            assert_eq!(mode, roundtrip, "QuantizationMode u8 roundtrip failed for {:?}", mode);
+            assert_eq!(
+                mode, roundtrip,
+                "QuantizationMode u8 roundtrip failed for {:?}",
+                mode
+            );
         }
 
         // FusionMode
-        for mode in [FusionMode::PerRequest, FusionMode::PerToken, FusionMode::PerSegment] {
+        for mode in [
+            FusionMode::PerRequest,
+            FusionMode::PerToken,
+            FusionMode::PerSegment,
+        ] {
             let u8_val = mode.to_u8();
             let roundtrip = FusionMode::from_u8(u8_val);
-            assert_eq!(mode, roundtrip, "FusionMode u8 roundtrip failed for {:?}", mode);
+            assert_eq!(
+                mode, roundtrip,
+                "FusionMode u8 roundtrip failed for {:?}",
+                mode
+            );
         }
     }
 
@@ -984,13 +1017,8 @@ mod tests_v2 {
 
         let v1 = ModelCacheIdentity::new("1.0.0", "fp16_bf16_backend", "per_request");
 
-        let v2 = ModelCacheIdentityV2::from_legacy(
-            v1,
-            tok_hash,
-            cfg_hash,
-            "tenant-123".to_string(),
-            42,
-        );
+        let v2 =
+            ModelCacheIdentityV2::from_legacy(v1, tok_hash, cfg_hash, "tenant-123".to_string(), 42);
 
         assert_eq!(v2.kernel_version_id, "1.0.0");
         assert_eq!(v2.quantization_mode, QuantizationMode::Fp16Bf16);

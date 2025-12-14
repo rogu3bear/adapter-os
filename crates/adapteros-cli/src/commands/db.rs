@@ -111,6 +111,27 @@ WARNING: This command DELETES the database file and recreates it with all migrat
         #[arg(long)]
         json: bool,
     },
+
+    /// Verify seeded demo fixtures exist (development only)
+    #[command(after_help = r#"Examples:
+  # Verify default demo seed (tenant-test)
+  aosctl db verify-seed
+
+  # Verify custom database
+  aosctl db verify-seed --db-path ./var/custom.db
+
+  # Verify a different tenant id
+  aosctl db verify-seed --tenant-id tenant-test
+"#)]
+    VerifySeed {
+        /// Database path (defaults to DATABASE_URL or ./var/aos-cp.sqlite3)
+        #[arg(long)]
+        db_path: Option<PathBuf>,
+
+        /// Tenant to verify (defaults to tenant-test)
+        #[arg(long, default_value = "tenant-test")]
+        tenant_id: String,
+    },
 }
 
 /// Handle database commands
@@ -127,7 +148,97 @@ pub async fn handle_db_command(cmd: DbCommand, output: &OutputWriter) -> Result<
             chat,
         } => run_seed_fixtures(db_path, skip_reset, chat, output).await,
         DbCommand::Health { db_path, json } => run_health(db_path, json, output).await,
+        DbCommand::VerifySeed { db_path, tenant_id } => {
+            run_verify_seed(db_path, &tenant_id, output).await
+        }
     }
+}
+
+async fn run_verify_seed(
+    db_path: Option<PathBuf>,
+    tenant_id: &str,
+    output: &OutputWriter,
+) -> Result<()> {
+    // Resolve DB URL (matches migrate/reset behavior)
+    let db_url = if let Some(path) = db_path.clone() {
+        format!("sqlite://{}", path.display())
+    } else if let Ok(url) = std::env::var("DATABASE_URL") {
+        url
+    } else {
+        "sqlite://./var/aos-cp.sqlite3".to_string()
+    };
+
+    let db = Db::connect(&db_url).await?;
+    let pool = db.pool();
+
+    let models_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM models WHERE tenant_id = ?")
+        .bind(tenant_id)
+        .fetch_one(pool)
+        .await?;
+
+    let repos_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM adapter_repositories WHERE tenant_id = ?")
+            .bind(tenant_id)
+            .fetch_one(pool)
+            .await?;
+
+    let versions_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM adapter_versions WHERE tenant_id = ?")
+            .bind(tenant_id)
+            .fetch_one(pool)
+            .await?;
+
+    let training_jobs_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM repository_training_jobs WHERE tenant_id = ?")
+            .bind(tenant_id)
+            .fetch_one(pool)
+            .await?;
+
+    let stacks_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM adapter_stacks WHERE tenant_id = ?")
+            .bind(tenant_id)
+            .fetch_one(pool)
+            .await?;
+
+    let mut failures = Vec::new();
+    if models_count < 1 {
+        failures.push(">=1 model");
+    }
+    if repos_count < 1 {
+        failures.push(">=1 repo");
+    }
+    if versions_count < 1 {
+        failures.push(">=1 adapter version");
+    }
+    if training_jobs_count < 1 {
+        failures.push(">=1 training job");
+    }
+    if stacks_count < 1 {
+        failures.push(">=1 stack");
+    }
+
+    if !failures.is_empty() {
+        output.error("Seed verification failed");
+        output.kv("DB", &db_url);
+        output.kv("Tenant", tenant_id);
+        output.kv("Models", &models_count.to_string());
+        output.kv("Repos", &repos_count.to_string());
+        output.kv("Adapter versions", &versions_count.to_string());
+        output.kv("Training jobs", &training_jobs_count.to_string());
+        output.kv("Stacks", &stacks_count.to_string());
+        anyhow::bail!("Missing required seeded entities: {}", failures.join(", "));
+    }
+
+    output.success("Seed verification passed");
+    output.kv("DB", &db_url);
+    output.kv("Tenant", tenant_id);
+    output.kv("Models", &models_count.to_string());
+    output.kv("Repos", &repos_count.to_string());
+    output.kv("Adapter versions", &versions_count.to_string());
+    output.kv("Training jobs", &training_jobs_count.to_string());
+    output.kv("Stacks", &stacks_count.to_string());
+
+    Ok(())
 }
 
 async fn run_migrate(
@@ -375,6 +486,9 @@ async fn run_seed_fixtures(
     const VERSION_BRANCH: &str = "main";
     const VERSION_BRANCH_CLASS: &str = "protected";
     const VERSION_HISTORY_ID: &str = "avh-e2e";
+    const GIT_REPO_ROW_ID: &str = "git-repo-e2e";
+    const GIT_REPO_PATH: &str = "./var/demo_repos/e2e-repo";
+    const TRAINING_JOB_ID: &str = "training-job-e2e";
     const CHAT_SESSION_ID: &str = "chat-session-test";
     const CHAT_MESSAGE_ID: &str = "chat-message-test";
     const FIXED_TS: &str = "2025-01-01T00:00:00Z";
@@ -743,6 +857,117 @@ async fn run_seed_fixtures(
     .execute(&*pool)
     .await?;
 
+    // Seed a deterministic git repository row (required FK for repository_training_jobs.repo_id)
+    let git_analysis_json = json!({
+        "summary": "Seeded git repository for demo training jobs",
+        "languages": [{"name": "Rust", "files": 1, "lines": 42, "percentage": 100.0}],
+        "frameworks": [],
+    })
+    .to_string();
+    let git_evidence_json = json!([]).to_string();
+    let git_security_scan_json = json!({"status": "ok", "violations": []}).to_string();
+
+    sqlx::query(
+        r#"
+        INSERT INTO git_repositories (
+            id, repo_id, path, branch, analysis_json, evidence_json, security_scan_json, status, created_at, created_by
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(repo_id) DO UPDATE SET
+            id = excluded.id,
+            path = excluded.path,
+            branch = excluded.branch,
+            analysis_json = excluded.analysis_json,
+            evidence_json = excluded.evidence_json,
+            security_scan_json = excluded.security_scan_json,
+            status = excluded.status,
+            created_at = excluded.created_at,
+            created_by = excluded.created_by
+        "#,
+    )
+    .bind(GIT_REPO_ROW_ID)
+    .bind(REPO_ID)
+    .bind(GIT_REPO_PATH)
+    .bind(VERSION_BRANCH)
+    .bind(&git_analysis_json)
+    .bind(&git_evidence_json)
+    .bind(&git_security_scan_json)
+    .bind("ready")
+    .bind(FIXED_TS)
+    .bind(E2E_USER_ID)
+    .execute(&*pool)
+    .await?;
+
+    // Seed a deterministic training job (so Training UI + lineage have at least one job)
+    let training_config_json =
+        r#"{"rank":8,"alpha":16,"epochs":1,"learning_rate":0.0005,"batch_size":4}"#;
+    let training_config_hash = blake3::hash(training_config_json.as_bytes()).to_hex().to_string();
+    let progress_json = json!({
+        "progress_pct": 100.0,
+        "current_epoch": 1,
+        "total_epochs": 1,
+        "current_loss": 0.0,
+        "learning_rate": 0.0005,
+        "tokens_per_second": 10.0,
+        "error_message": null
+    })
+    .to_string();
+
+    sqlx::query(
+        r#"
+        INSERT INTO repository_training_jobs (
+            id, repo_id, training_config_json, status, progress_json, created_by,
+            adapter_name, tenant_id, adapter_id, base_model_id, stack_id,
+            created_at, started_at, completed_at, config_hash_b3,
+            synthetic_mode, data_lineage_mode, produced_version_id
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'synthetic', ?)
+        ON CONFLICT(id) DO UPDATE SET
+            repo_id = excluded.repo_id,
+            training_config_json = excluded.training_config_json,
+            status = excluded.status,
+            progress_json = excluded.progress_json,
+            created_by = excluded.created_by,
+            adapter_name = excluded.adapter_name,
+            tenant_id = excluded.tenant_id,
+            adapter_id = excluded.adapter_id,
+            base_model_id = excluded.base_model_id,
+            stack_id = excluded.stack_id,
+            created_at = excluded.created_at,
+            started_at = excluded.started_at,
+            completed_at = excluded.completed_at,
+            config_hash_b3 = excluded.config_hash_b3,
+            data_lineage_mode = excluded.data_lineage_mode,
+            produced_version_id = excluded.produced_version_id
+        "#,
+    )
+    .bind(TRAINING_JOB_ID)
+    .bind(REPO_ID)
+    .bind(training_config_json)
+    .bind("completed")
+    .bind(&progress_json)
+    .bind(E2E_USER_ID)
+    .bind(ADAPTER_NAME)
+    .bind(TENANT_ID)
+    .bind(ADAPTER_ID)
+    .bind(MODEL_ID)
+    .bind(STACK_ID)
+    .bind(FIXED_TS)
+    .bind(FIXED_TS)
+    .bind(Some(FIXED_TS))
+    .bind(&training_config_hash)
+    .bind(VERSION_ID)
+    .execute(&*pool)
+    .await?;
+
+    // Link the seeded adapter to the seeded training job for UI lineage surfaces.
+    sqlx::query("UPDATE adapters SET training_job_id = ? WHERE tenant_id = ? AND id = ?")
+        .bind(TRAINING_JOB_ID)
+        .bind(TENANT_ID)
+        .bind(ADAPTER_ID)
+        .execute(&*pool)
+        .await?;
+
     // Optionally seed a starter chat session + message for assertions
     if chat {
         // Clear any prior seeded session/messages to keep the command idempotent
@@ -800,6 +1025,7 @@ async fn run_seed_fixtures(
     output.kv("Stack", STACK_ID);
     output.kv("Adapter repo", REPO_ID);
     output.kv("Adapter version", VERSION_ID);
+    output.kv("Training job", TRAINING_JOB_ID);
     output.kv("Policy", POLICY_ID);
     output.kv("User", E2E_USER_ID);
     if chat {

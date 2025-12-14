@@ -1,7 +1,6 @@
 use adapteros_config::PlacementWeights as ConfigPlacementWeights;
 use adapteros_core::{determinism::DeterminismContext, BackendKind, SeedMode};
 use adapteros_types::adapters::metadata::RoutingDeterminismMode;
-use adapteros_types::coreml::CoreMLMode;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -20,6 +19,8 @@ pub struct ApiErrorBody {
     pub code: String,
     /// Human-readable message suitable for UI display
     pub message: String,
+    /// Actionable hint for common failures
+    pub hint: String,
     /// Optional developer-facing detail (stack trace, context, etc.)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
@@ -2720,6 +2721,8 @@ pub struct InferenceRequestInternal {
     pub rag_enabled: bool,
     /// Collection ID for scoped RAG retrieval
     pub rag_collection_id: Option<String>,
+    /// Dataset version ID for deterministic dataset pinning
+    pub dataset_version_id: Option<String>,
 
     // === Adapter Selection ===
     /// Adapter stack to use for inference
@@ -2824,6 +2827,7 @@ impl InferenceRequestInternal {
             batch_item_id: None,
             rag_enabled: false,
             rag_collection_id: None,
+            dataset_version_id: None,
             adapter_stack: None,
             adapters: None,
             stack_id: None,
@@ -2911,6 +2915,9 @@ pub struct InferenceResult {
     pub effective_adapter_ids: Option<Vec<String>>,
     /// Backend used to execute the inference (e.g., coreml, metal, mlx)
     pub backend_used: Option<String>,
+    /// Deterministic receipt for audit/replay metadata.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deterministic_receipt: Option<adapteros_api_types::inference::DeterministicReceipt>,
     /// Whether backend fallback occurred during execution
     pub fallback_triggered: bool,
     /// Requested CoreML compute preference (if applicable)
@@ -3146,6 +3153,7 @@ impl From<(&InferRequest, &Claims)> for InferenceRequestInternal {
             batch_item_id: None,
             rag_enabled: req.rag_enabled.unwrap_or(false),
             rag_collection_id: req.collection_id.clone(),
+            dataset_version_id: req.dataset_version_id.clone(),
             adapter_stack: req.adapter_stack.clone(),
             adapters: req.adapters.clone(),
             stack_id: req.stack_id.clone(),
@@ -3191,6 +3199,11 @@ impl From<(&BatchInferItemRequest, &Claims)> for InferenceRequestInternal {
 /// Convert InferenceResult to InferResponse for API compatibility
 impl From<InferenceResult> for InferResponse {
     fn from(result: InferenceResult) -> Self {
+        let model = result
+            .deterministic_receipt
+            .as_ref()
+            .and_then(|receipt| receipt.model.clone());
+
         Self {
             schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
             id: result.request_id,
@@ -3200,6 +3213,7 @@ impl From<InferenceResult> for InferResponse {
             finish_reason: result.finish_reason,
             latency_ms: result.latency_ms,
             run_receipt: None,
+            deterministic_receipt: result.deterministic_receipt,
             adapters_used: result.adapters_used.clone(),
             citations: result.citations,
             trace: InferenceTrace {
@@ -3235,7 +3249,7 @@ impl From<InferenceResult> for InferResponse {
                 latency_ms: result.latency_ms,
                 fusion_intervals: None,
             },
-            model: None,
+            model,
             prompt_tokens: None,
             error: None,
             unavailable_pinned_adapters: result.unavailable_pinned_adapters,
@@ -3398,6 +3412,9 @@ pub struct ReplayKey {
     /// Whether the inference ran in base-only mode (no adapters)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub base_only: Option<bool>,
+    /// Dataset version ID for deterministic RAG replay (pins to specific dataset version)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dataset_version_id: Option<String>,
 }
 
 /// Replay availability status
@@ -3553,6 +3570,9 @@ pub struct ReplayAvailabilityResponse {
     pub unavailable_reasons: Vec<String>,
     /// Warnings about approximations (if approximate)
     pub approximation_warnings: Vec<String>,
+    /// Warning if dataset version has changed since original inference
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version_consistency_warning: Option<String>,
     /// The replay key (if available)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub replay_key: Option<ReplayKey>,

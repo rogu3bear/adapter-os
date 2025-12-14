@@ -18,7 +18,7 @@ import {
   useAdaptersStream,
   useDiscoveryStream,
   useAllStreamsStatus,
-} from '@/hooks/useStreamingEndpoints';
+} from '@/hooks/streaming/useStreamingEndpoints';
 import { streamingService } from '@/services/StreamingService';
 import { logger } from '@/utils/logger';
 import type {
@@ -63,7 +63,7 @@ function TrainingProgressDisplay() {
     return (
       <div className="training-stream disconnected">
         <p>Training stream: Disconnected</p>
-        {error && <p className="error">{error}</p>}
+        {error && <p className="error">{typeof error === 'string' ? error : error.message}</p>}
       </div>
     );
   }
@@ -117,7 +117,7 @@ function MetricsDisplay() {
     return (
       <div className="metrics-stream disconnected">
         <p>Metrics stream: Disconnected</p>
-        {error && <p className="error">{error}</p>}
+        {error && <p className="error">{typeof error === 'string' ? error : error.message}</p>}
       </div>
     );
   }
@@ -176,7 +176,7 @@ function AdapterStateDisplay() {
     return (
       <div className="adapters-stream disconnected">
         <p>Adapter stream: Disconnected</p>
-        {error && <p className="error">{error}</p>}
+        {error && <p className="error">{typeof error === 'string' ? error : error.message}</p>}
       </div>
     );
   }
@@ -255,7 +255,7 @@ function DiscoveryDisplay() {
     return (
       <div className="discovery-stream disconnected">
         <p>Discovery stream: Disconnected</p>
-        {error && <p className="error">{error}</p>}
+        {error && <p className="error">{typeof error === 'string' ? error : error.message}</p>}
       </div>
     );
   }

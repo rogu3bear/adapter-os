@@ -814,6 +814,66 @@ Admin role (with `role = "admin"`) can access **all tenants** for management.
 
 ---
 
+## Path Security
+
+**Runtime state must live under canonical runtime tree (`var/`)** and must **NOT** persist under `/tmp`.
+
+### Security Rationale
+
+Persistent data storage under `/tmp` violates security boundaries:
+- `/tmp` is world-writable and can be manipulated by other users/processes
+- Data may persist longer than intended, creating information leakage risks
+- Breaks deterministic behavior expectations for runtime state
+
+### Implementation Status
+
+#### ✅ IMPLEMENTED
+- **Worker sockets**: Reject `/tmp` and default to `/var/run/aos/{tenant}/worker.sock`
+- **Telemetry paths**: `reject_tmp_persistent_path()` guards telemetry data directories
+- **Manifest cache**: Cache directories reject `/tmp` persistence
+- **Adapter storage**: Adapter file paths reject `/tmp` locations
+- **Database paths**: SQLite database files reject `/tmp` storage
+- **Index root resolver**: Uses `resolve_env_or_default_no_tmp()` with unit test coverage
+
+### Path Resolution Functions
+
+```rust
+// Implemented with /tmp rejection
+pub fn resolve_telemetry_root() -> Result<PathBuf> {
+    let path = resolve_env_path("AOS_TELEMETRY_ROOT", "./var/telemetry")?;
+    reject_tmp_persistent_path(&path)?;  // ✅ Guards against /tmp
+    Ok(path)
+}
+
+// ✅ IMPLEMENTED: Index root with /tmp rejection
+pub fn resolve_index_root() -> Result<ResolvedPath> {
+    resolve_env_or_default_no_tmp("AOS_INDEX_DIR", DEFAULT_INDEX_ROOT, "index-root")
+}
+```
+
+### Validation
+
+Path security is validated through unit tests:
+
+```rust
+#[test]
+fn test_telemetry_root_rejects_tmp() {
+    std::env::set_var("AOS_TELEMETRY_ROOT", "/tmp/telemetry");
+    assert!(resolve_telemetry_root().is_err());  // ✅ Rejects /tmp
+}
+
+#[test]
+fn index_root_rejects_tmp() {  // ✅ IMPLEMENTED
+    std::env::set_var("AOS_INDEX_DIR", "/tmp/indices");
+    assert!(resolve_index_root().is_err());
+}
+```
+
+**Citation:** `plan/drift-findings.json` fs-01 rule validation  
+**Status:** ✅ Fully implemented - all persistent path resolvers reject /tmp
+
+---
+
 ## Audit Logging
 
 ### Log Structure

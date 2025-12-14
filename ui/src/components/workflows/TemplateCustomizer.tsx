@@ -128,6 +128,9 @@ export function TemplateCustomizer({ template, onSave, onCancel }: TemplateCusto
         toast.error('Failed to import template');
       }
     };
+    reader.onerror = () => {
+      toast.error('Failed to read template file');
+    };
     reader.readAsText(file);
   };
 
@@ -192,7 +195,6 @@ export function TemplateCustomizer({ template, onSave, onCancel }: TemplateCusto
                 <SelectContent>
                   <SelectItem value="training">Training</SelectItem>
                   <SelectItem value="deployment">Deployment</SelectItem>
-                  <SelectItem value="experimental">Experimental</SelectItem>
                   <SelectItem value="comparison">Comparison</SelectItem>
                   <SelectItem value="stack">Stack Management</SelectItem>
                   <SelectItem value="maintenance">Maintenance</SelectItem>
@@ -250,7 +252,7 @@ export function TemplateCustomizer({ template, onSave, onCancel }: TemplateCusto
                     tags: e.target.value.split(',').map((t) => t.trim()).filter(Boolean),
                   })
                 }
-                placeholder="training, quick, experimental"
+                placeholder="training, quick, development"
               />
             </div>
           </div>

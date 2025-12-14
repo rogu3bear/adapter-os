@@ -280,17 +280,17 @@ fn test_hot_entries_protected_from_eviction() {
     let evict_count = 2;
     let mut evicted_ids = Vec::new();
 
-    // Sort by residency priority: COLD first, then by size (largest first)
+    // Sort by residency priority: COLD last (so we can pop from end), then by size (largest first)
     entries.sort_by(|a, b| {
         use std::cmp::Ordering;
         match (&a.residency, &b.residency) {
-            (KvResidency::Cold, KvResidency::Hot) => Ordering::Less,
-            (KvResidency::Hot, KvResidency::Cold) => Ordering::Greater,
+            (KvResidency::Cold, KvResidency::Hot) => Ordering::Greater, // COLD entries go to end
+            (KvResidency::Hot, KvResidency::Cold) => Ordering::Less,    // HOT entries go to start
             _ => b.size_bytes.cmp(&a.size_bytes), // Within same tier, evict largest first
         }
     });
 
-    // Evict first N entries (which should be COLD)
+    // Evict last N entries (which should be COLD)
     for _ in 0..evict_count {
         if let Some(entry) = entries.pop() {
             evicted_ids.push(entry.id.clone());
@@ -641,14 +641,25 @@ async fn test_concurrent_requests_with_quota_enforcement() {
 fn test_rapid_allocation_release_cycles() {
     let manager = TenantKvQuotaManager::new("tenant-stress".to_string(), Some(10_000));
 
+    let mut successful_allocations = 0;
+    let mut quota_exceeded_count = 0;
+
     for i in 0..1000 {
         let size = (i % 100) + 10; // 10-109 bytes
-        let res = manager.reserve(size).expect("Should succeed");
-        manager.finalize(res).expect("Should succeed");
+        match manager.reserve(size) {
+            Ok(res) => {
+                manager.finalize(res).expect("Finalize should succeed");
+                successful_allocations += 1;
 
-        // Release half immediately
-        if i % 2 == 0 {
-            manager.release(size);
+                // Release half immediately
+                if i % 2 == 0 {
+                    manager.release(size);
+                }
+            }
+            Err(_) => {
+                // Quota exceeded - this is expected behavior
+                quota_exceeded_count += 1;
+            }
         }
     }
 
@@ -659,6 +670,10 @@ fn test_rapid_allocation_release_cycles() {
         usage.used_bytes <= 10_000,
         "Should not exceed quota: {} bytes",
         usage.used_bytes
+    );
+    assert!(
+        successful_allocations > 0,
+        "Some allocations should succeed"
     );
 }
 

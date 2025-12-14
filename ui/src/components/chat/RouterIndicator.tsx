@@ -35,7 +35,8 @@ export function RouterIndicator({ decision, className, unavailablePinnedAdapters
     return null;
   }
 
-  const hasUnavailablePinned = unavailablePinnedAdapters && unavailablePinnedAdapters.length > 0;
+  const unavailablePinnedCount = unavailablePinnedAdapters?.length ?? 0;
+  const hasUnavailablePinned = unavailablePinnedCount > 0;
 
   // Fetch adapter details efficiently - batch fetch only the ones we need
   const adapterIds = decision.selected_adapters.slice(0, 3); // Only fetch names for displayed adapters
@@ -95,7 +96,7 @@ export function RouterIndicator({ decision, className, unavailablePinnedAdapters
                     </TooltipTrigger>
                     <TooltipContent>
                       <p className="text-xs">
-                        {unavailablePinnedAdapters!.length} pinned adapter{unavailablePinnedAdapters!.length > 1 ? 's' : ''} unavailable
+                        {unavailablePinnedCount} pinned adapter{unavailablePinnedCount > 1 ? 's' : ''} unavailable
                       </p>
                     </TooltipContent>
                   </Tooltip>
@@ -145,7 +146,7 @@ export function RouterIndicator({ decision, className, unavailablePinnedAdapters
               size="sm"
               className="h-7 text-xs gap-1"
             >
-              <Link to={`/telemetry/viewer?requestId=${encodeURIComponent(decision.request_id)}`}>
+              <Link to={`/telemetry?tab=viewer&requestId=${encodeURIComponent(decision.request_id)}`}>
                 <Activity className="h-3.5 w-3.5" />
                 View telemetry
               </Link>
@@ -164,4 +165,3 @@ export function RouterIndicator({ decision, className, unavailablePinnedAdapters
     </>
   );
 }
-

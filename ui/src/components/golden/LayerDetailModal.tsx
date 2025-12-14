@@ -93,7 +93,7 @@ export function LayerDetailModal({
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Element Count</span>
-                  <span className="font-mono">{layer.golden.element_count.toLocaleString()}</span>
+                  <span className="font-mono">{layer.golden.element_count?.toLocaleString() ?? 'N/A'}</span>
                 </div>
               </CardContent>
             </Card>
@@ -121,7 +121,7 @@ export function LayerDetailModal({
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Element Count</span>
-                  <span className="font-mono">{layer.current.element_count.toLocaleString()}</span>
+                  <span className="font-mono">{layer.current.element_count?.toLocaleString() ?? 'N/A'}</span>
                 </div>
               </CardContent>
             </Card>

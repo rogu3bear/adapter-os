@@ -37,7 +37,7 @@ import {
 } from 'lucide-react';
 import { WorkflowExecution, WorkflowStatus } from './types';
 import { toast } from 'sonner';
-import { useTimestamp } from '@/hooks/useTimestamp';
+import { useTimestamp } from '@/hooks/ui/useTimestamp';
 
 interface WorkflowHistoryProps {
   executions: WorkflowExecution[];

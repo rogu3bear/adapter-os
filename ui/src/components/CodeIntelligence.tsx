@@ -230,7 +230,7 @@ export function CodeIntelligence({ user, selectedTenant }: CodeIntelligenceProps
         repositoryPath: config.repositoryPath,
         adapterName: config.adapterName,
         tenantId: selectedTenant,
-        userId: user.id
+        userId: user?.id
       });
 
       // Call the training API
@@ -251,7 +251,7 @@ export function CodeIntelligence({ user, selectedTenant }: CodeIntelligenceProps
         operation: 'startTraining',
         sessionId: trainingSession.session_id,
         tenantId: selectedTenant,
-        userId: user.id
+        userId: user?.id
       });
       
     } catch (err) {
@@ -262,7 +262,7 @@ export function CodeIntelligence({ user, selectedTenant }: CodeIntelligenceProps
         repositoryPath: config.repositoryPath,
         adapterName: config.adapterName,
         tenantId: selectedTenant,
-        userId: user.id
+        userId: user?.id
       }, err instanceof Error ? err : new Error(String(err)));
     }
   };
@@ -495,7 +495,7 @@ export function CodeIntelligence({ user, selectedTenant }: CodeIntelligenceProps
               <div>
                 <Label>Languages</Label>
                 <div className="space-y-2 mt-2">
-                  {Object.entries(reportData.languages).map(([lang, stats]) => {
+                  {Object.entries(reportData.languages ?? {}).map(([lang, stats]) => {
                     const langStats = stats as unknown as { files: number; lines: number };
                     return (
                       <div key={lang} className="flex justify-between items-center p-2 bg-gray-50 rounded">
@@ -567,7 +567,7 @@ export function CodeIntelligence({ user, selectedTenant }: CodeIntelligenceProps
           </DialogHeader>
           <CodeIntelligenceTraining
             tenantId={selectedTenant}
-            userId={user.id}
+            userId={user?.id || ''}
             onTrainingStarted={handleTrainingStarted}
             onCancel={() => setShowTrainingDialog(false)}
             initialConfig={{

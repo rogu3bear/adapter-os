@@ -65,6 +65,7 @@ impl SupervisorClient {
     /// ```
     pub fn new(base_url: impl Into<String>) -> Self {
         let client = Client::builder()
+            .connect_timeout(Duration::from_millis(500))
             .pool_idle_timeout(Duration::from_secs(90))
             .pool_max_idle_per_host(10)
             .build()
@@ -329,17 +330,32 @@ impl SupervisorClient {
     pub async fn health_check(&self) -> Result<bool> {
         let url = format!("{}/health", self.base_url);
 
-        match self
-            .client
-            .get(&url)
-            .timeout(Duration::from_secs(2))
-            .send()
-            .await
-        {
-            Ok(response) => Ok(response.status().is_success()),
-            Err(e) => {
-                debug!("Supervisor health check failed: {}", e);
-                Ok(false)
+        let max_attempts = 2u32;
+        let mut attempt = 0u32;
+        let mut backoff = Duration::from_millis(100);
+
+        loop {
+            attempt += 1;
+            match self
+                .client
+                .get(&url)
+                .timeout(Duration::from_secs(2))
+                .send()
+                .await
+            {
+                Ok(response) => return Ok(response.status().is_success()),
+                Err(e) => {
+                    if attempt >= max_attempts {
+                        debug!("Supervisor health check failed after {} attempts: {}", attempt, e);
+                        return Ok(false);
+                    }
+                    debug!(
+                        "Supervisor health check failed (attempt {}), retrying: {}",
+                        attempt, e
+                    );
+                    tokio::time::sleep(backoff).await;
+                    backoff = (backoff * 2).min(Duration::from_millis(500));
+                }
             }
         }
     }

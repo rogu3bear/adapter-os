@@ -2,10 +2,10 @@ import React from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ArrowRight, AlertCircle, Loader2 } from 'lucide-react';
-import { useSystemMetrics } from '@/hooks/useSystemMetrics';
-import { useTrainingJobs } from '@/hooks/useTraining';
-import { useSystemState } from '@/hooks/useSystemState';
-import { useNextSteps, getPriorityColor } from '@/hooks/useNextSteps';
+import { useSystemMetrics } from '@/hooks/system/useSystemMetrics';
+import { useTrainingJobs } from '@/hooks/training';
+import { useSystemState } from '@/hooks/system/useSystemState';
+import { useNextSteps, getPriorityColor } from '@/hooks/tutorial/useNextSteps';
 import { useQuery } from '@tanstack/react-query';
 import apiClient from '@/api/client';
 import type { Adapter } from '@/api/adapter-types';
@@ -49,9 +49,9 @@ export function NextStepsWidget({
     isLoading: adaptersLoading,
     refetch: refetchAdapters,
     dataUpdatedAt: adaptersUpdatedAt,
-  } = useQuery<Adapter[]>({
+  } = useQuery({
     queryKey: ['adapters'],
-    queryFn: () => apiClient.listAdapters(),
+    queryFn: (): Promise<Adapter[]> => apiClient.listAdapters(),
     refetchInterval: 10000,
   });
 

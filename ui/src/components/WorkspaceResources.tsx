@@ -17,7 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { useWorkspaces } from '@/hooks/useWorkspaces';
+import { useWorkspaces } from '@/hooks/workspace/useWorkspaces';
 import * as types from '@/api/types';
 import {
   FolderOpen,
@@ -238,7 +238,7 @@ export function WorkspaceResources({ workspaceId }: WorkspaceResourcesProps) {
                       {resource.shared_by}
                     </TableCell>
                     <TableCell>
-                      {new Date(resource.shared_at).toLocaleDateString()}
+                      {resource.shared_at ? new Date(resource.shared_at).toLocaleDateString() : 'N/A'}
                     </TableCell>
                     <TableCell className="text-right">
                       <Button

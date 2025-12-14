@@ -591,7 +591,11 @@ pub async fn activate_stack(
                     .metadata_json
                     .as_ref()
                     .and_then(|m| serde_json::from_str::<serde_json::Value>(m).ok())
-                    .and_then(|v| v.get("dataset_version_id").and_then(|d| d.as_str()).map(|s| s.to_string()))
+                    .and_then(|v| {
+                        v.get("dataset_version_id")
+                            .and_then(|d| d.as_str())
+                            .map(|s| s.to_string())
+                    })
                     .filter(|s| !s.is_empty());
 
                 match (stack_dataset_version_id, &required_scope_id) {

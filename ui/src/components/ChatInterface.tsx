@@ -11,12 +11,11 @@ import { ChatMessageComponent, type ChatMessage, type EvidenceItem } from './cha
 import { logger, toError } from '@/utils/logger';
 import { toast } from 'sonner';
 import { SectionErrorBoundary } from '@/components/ui/section-error-boundary';
+import { SectionAsyncBoundary } from '@/components/shared/Feedback/AsyncBoundary';
 import { Send, Loader2, Layers, History, X, ChevronLeft, Plus, Activity, Database, Archive, Trash2, FileText } from 'lucide-react';
-import { useAdapterStacks, useGetDefaultStack } from '@/hooks/useAdmin';
-import { useChatSessionsApi } from '@/hooks/useChatSessionsApi';
-import { useCollections } from '@/hooks/useCollectionsApi';
-import type { ExtendedRouterDecision } from '@/api/types';
-import type { ChatSession } from '@/types/chat';
+import { useAdapterStacks, useGetDefaultStack } from '@/hooks/admin/useAdmin';
+import { useCollections } from '@/hooks/api/useCollectionsApi';
+import type { ExtendedRouterDecision, Adapter } from '@/api/types';
 import { RouterActivitySidebar } from './chat/RouterActivitySidebar';
 import { AdapterLoadingStatus } from './chat/AdapterLoadingStatus';
 import { PreChatAdapterPrompt } from './chat/PreChatAdapterPrompt';
@@ -25,13 +24,16 @@ import { ChatSessionActions } from './chat/ChatSessionActions';
 import { ChatTagsManager } from './chat/ChatTagsManager';
 import { ChatShareDialog } from './chat/ChatShareDialog';
 import { ChatArchivePanel } from './chat/ChatArchivePanel';
+import { InlineModelLoadingBlock } from './chat/InlineModelLoadingBlock';
 import { useChatExport } from '@/components/export';
 import {
   useChatStreaming,
   useChatAdapterState,
-  useChatRouterDecisions
+  useChatRouterDecisions,
+  useSessionManager,
+  useChatModals,
 } from '@/hooks/chat';
-import { useChatAutoLoadModels } from '@/hooks/useFeatureFlags';
+import { useChatAutoLoadModels } from '@/hooks/config/useFeatureFlags';
 import {
   useModelLoadingState,
   useModelLoader,
@@ -41,13 +43,21 @@ import {
 import { ChatLoadingOverlay } from './chat/ChatLoadingOverlay';
 import { ChatErrorDisplay } from './chat/ChatErrorDisplay';
 import { MissingPinnedAdaptersBanner } from './chat/MissingPinnedAdaptersBanner';
-import { EvidenceDrawerProvider } from '@/contexts/EvidenceDrawerContext';
+import { EvidenceDrawerProvider, useEvidenceDrawerOptional } from '@/contexts/EvidenceDrawerContext';
 import { EvidenceDrawer } from './chat/EvidenceDrawer';
 import apiClient from '@/api/client';
+import { useChatSessionsApi } from '@/hooks/chat/useChatSessionsApi';
+
+// LocalStorage key for chat auto-load preference
+const CHAT_AUTO_LOAD_KEY = 'aos-chat-auto-load-model';
 
 interface ChatInterfaceProps {
   selectedTenant: string;
   initialStackId?: string;
+  /** Controlled stack ID - optional for base-model-only chat */
+  selectedStackId?: string | null;
+  /** Callback when stack selection changes */
+  onStackChange?: (stackId: string | null) => void;
   sessionId?: string; // Optional: load existing session
   /** Document context for document-specific chat */
   documentContext?: {
@@ -79,6 +89,8 @@ interface ChatInterfaceProps {
 export function ChatInterface({
   selectedTenant,
   initialStackId,
+  selectedStackId: rawSelectedStackId,
+  onStackChange,
   sessionId,
   documentContext,
   datasetContext,
@@ -89,40 +101,95 @@ export function ChatInterface({
   onMessageSelect,
   selectedMessageId,
 }: ChatInterfaceProps) {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [input, setInput] = useState('');
-  const [selectedStackId, setSelectedStackId] = useState<string>(initialStackId || '');
-  const [selectedCollectionId, setSelectedCollectionId] = useState<string | null>(documentContext?.collectionId ?? null);
-  const [currentSessionId, setCurrentSessionId] = useState<string | null>(sessionId || null);
-  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
-  const [isRouterActivityOpen, setIsRouterActivityOpen] = useState(false);
+  // Normalize selectedStackId: null/undefined -> empty string for base-model-only mode
+  const selectedStackId = rawSelectedStackId || '';
+
+  // Use tenantId for API hooks that support undefined (default stack)
+  const tenantId = selectedTenant || 'default';
+  const sessionSourceType = documentContext ? 'document' : 'general';
+
+  // Session management hook
+  const sessionManager = useSessionManager({
+    tenantId,
+    sessionSourceType,
+    documentContext,
+  });
+
+  // Destructure session state
+  const {
+    currentSessionId,
+    messages,
+    setMessages,
+    setCurrentSessionId,
+    clearSession,
+    loadSession,
+    createSession: createSessionFromManager,
+  } = sessionManager;
+
+  // Modal management hook
+  const {
+    isHistoryOpen,
+    setIsHistoryOpen,
+    isRouterActivityOpen,
+    setIsRouterActivityOpen,
+    isArchivePanelOpen,
+    setIsArchivePanelOpen,
+    shareDialogSessionId,
+    setShareDialogSessionId,
+    tagsDialogSessionId,
+    setTagsDialogSessionId,
+  } = useChatModals();
+
+  // Local editing state (for session rename)
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [newSessionName, setNewSessionName] = useState('');
-  const [showContext, setShowContext] = useState(true);
-  const scrollAreaRef = useRef<HTMLDivElement>(null);
-  const stackSelectorRef = useRef<HTMLButtonElement>(null);
 
-  // New state for chat features
+  // Remaining local state
+  const [input, setInput] = useState('');
+  // Stack state: Parent-controlled via selectedStackId prop
+  const setSelectedStackId = useCallback((stackId: string | null) => {
+    onStackChange?.(stackId);
+  }, [onStackChange]);
+  const [selectedCollectionId, setSelectedCollectionId] = useState<string | null>(documentContext?.collectionId ?? null);
+  const [showContext, setShowContext] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
-  const [isArchivePanelOpen, setIsArchivePanelOpen] = useState(false);
-  const [shareDialogSessionId, setShareDialogSessionId] = useState<string | null>(null);
-  const [tagsDialogSessionId, setTagsDialogSessionId] = useState<string | null>(null);
   const [routingMode, setRoutingMode] = useState<'deterministic' | 'adaptive'>('deterministic');
   const [strengthOverrides, setStrengthOverrides] = useState<Record<string, number>>({});
+
+  // Refs
+  const scrollAreaRef = useRef<HTMLDivElement>(null);
+  const stackSelectorRef = useRef<HTMLButtonElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // Auto-load preference (user's choice to auto-load model on chat page)
+  const [chatAutoLoadPreference, setChatAutoLoadPreference] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(CHAT_AUTO_LOAD_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const handleChatAutoLoadPreferenceChange = useCallback((enabled: boolean) => {
+    setChatAutoLoadPreference(enabled);
+    try {
+      localStorage.setItem(CHAT_AUTO_LOAD_KEY, String(enabled));
+    } catch {
+      // Silently fail
+    }
+  }, []);
 
   // Pinned adapters banner state
   const [bannerDismissed, setBannerDismissed] = useState(false);
 
+  // Evidence drawer for auto-follow
+  const evidenceDrawer = useEvidenceDrawerOptional();
+
   // Feature flags
   const autoLoadEnabled = useChatAutoLoadModels();
-
-  // Use selectedTenant for API hooks that support undefined (default stack)
-  // Keep tenantId fallback for other hooks that require a string
-  const tenantId = selectedTenant || 'default';
   const { data: stacks = [] } = useAdapterStacks();
   const { data: defaultStack } = useGetDefaultStack(selectedTenant);
   const { data: collections = [] } = useCollections();
-  const sessionSourceType = documentContext ? 'document' : 'general';
   const {
     sessions,
     isLoading: isLoadingSessions,
@@ -163,21 +230,19 @@ export function ChatInterface({
   );
 
   const adapterList = useMemo(() => {
-    const adapters = (selectedStack as any)?.adapters as
-      | Array<{ id?: string; adapter_id?: string; name?: string; tier?: string; domain?: string; lora_strength?: number }>
-      | undefined;
-    if (adapters && adapters.length > 0) {
-      return adapters.map(adapter => ({
-        id: adapter.id ?? adapter.adapter_id ?? '',
-        name: adapter.name ?? adapter.adapter_id ?? '',
-        tier: adapter.tier,
-        domain: adapter.domain,
-        strength: adapter.lora_strength ?? 1,
+    // selectedStack can have either `adapters` (ActiveAdapter[]) or `adapter_ids` (string[])
+    if (selectedStack?.adapters && selectedStack.adapters.length > 0) {
+      return selectedStack.adapters.map(adapter => ({
+        id: adapter.id ?? adapter.adapter_id,
+        name: adapter.name ?? adapter.adapter_id,
+        tier: undefined, // ActiveAdapter doesn't have tier
+        domain: undefined, // ActiveAdapter doesn't have domain
+        strength: adapter.gate ?? 1, // Use gate value from ActiveAdapter
       })).filter(adapter => adapter.id);
     }
 
-    if ((selectedStack as any)?.adapter_ids) {
-      return (selectedStack as any).adapter_ids.map((id: string) => ({
+    if (selectedStack?.adapter_ids && selectedStack.adapter_ids.length > 0) {
+      return selectedStack.adapter_ids.map((id: string) => ({
         id,
         name: id,
         tier: undefined,
@@ -311,6 +376,19 @@ export function ChatInterface({
 
       // Notify workbench of message completion (for right rail auto-update)
       onMessageComplete?.(completedMessage.id, traceId);
+
+      // Notify evidence drawer for auto-follow
+      if (evidenceDrawer) {
+        evidenceDrawer.autoFollowToMessage(completedMessage.id, {
+          evidence: evidence,
+          routerDecision: routerDecision ? (routerDecision as unknown as ExtendedRouterDecision) : undefined,
+          requestId: currentRequestId ?? undefined,
+          traceId: traceId,
+          proofDigest: completedMessage.proofDigest ?? null,
+          isVerified: completedMessage.isVerified ?? undefined,
+          verifiedAt: completedMessage.verifiedAt,
+        });
+      }
     },
     onError: (error) => {
       logger.error('Chat streaming error', { component: 'ChatInterface' }, error);
@@ -432,6 +510,34 @@ export function ChatInterface({
       && !newModelLoadingState.overallReady
     : isCheckingAdapters;
 
+  // Auto-focus input when model becomes ready
+  useEffect(() => {
+    if (baseModelReady && inputRef.current) {
+      inputRef.current.focus();
+    }
+  }, [baseModelReady]);
+
+  // Inline model loading handlers (for InlineModelLoadingBlock)
+  const handleInlineLoadModel = useCallback(async () => {
+    try {
+      await newModelLoader.loadModels(selectedStackId || '');
+    } catch (err) {
+      logger.error('Failed to load model from inline block', {
+        component: 'ChatInterface',
+      }, toError(err));
+    }
+  }, [newModelLoader, selectedStackId]);
+
+  const handleInlineRetryLoad = useCallback(async () => {
+    try {
+      await newModelLoader.retryFailed();
+    } catch (err) {
+      logger.error('Failed to retry model load', {
+        component: 'ChatInterface',
+      }, toError(err));
+    }
+  }, [newModelLoader]);
+
   // Router decisions hook
   const {
     isLoadingDecision,
@@ -459,21 +565,8 @@ export function ChatInterface({
     messages
   );
 
-  // Set default stack on mount
-  useEffect(() => {
-    if (selectedStackId) {
-      return;
-    }
-
-    if (defaultStack?.id) {
-      setSelectedStackId(defaultStack.id);
-      return;
-    }
-
-    if (stacks.length > 0) {
-      setSelectedStackId(stacks[0].id);
-    }
-  }, [defaultStack, selectedStackId, stacks]);
+  // Note: Default stack selection is now handled by parent (ChatPage)
+  // This component is fully props-driven for stack selection
 
   useEffect(() => {
     setIsBaseOnlyMode(false);
@@ -570,24 +663,28 @@ export function ChatInterface({
       return;
     }
 
-    // Only block on adapter readiness when adapters are present and base-only mode is off
-    if (!isBaseOnlyMode && hasAdapters && !allReady) {
+    // Determine if we're in effective base-only mode (explicit or no stack selected)
+    const effectiveBaseOnlyMode = isBaseOnlyMode || !selectedStackId;
+
+    // Only block on adapter readiness when adapters are present and NOT in base-only mode
+    if (!effectiveBaseOnlyMode && hasAdapters && !allReady) {
       toast.warning('Some adapters are not ready. Please load them first.');
       return;
     }
 
-    // Resolve stack to adapter IDs (allow empty when base-only mode is active)
-    const adapterIds: string[] = isBaseOnlyMode
+    // Resolve stack to adapter IDs (allow empty when base-only mode is active or no stack selected)
+    const adapterIds: string[] = effectiveBaseOnlyMode
       ? []
       : Array.isArray(selectedStack?.adapter_ids)
         ? selectedStack.adapter_ids
-        : Array.isArray((selectedStack as any)?.adapters)
-          ? (selectedStack as any).adapters.map((a: any) => a.id ?? a.adapter_id ?? '')
+        : Array.isArray(selectedStack?.adapters)
+          ? selectedStack.adapters.map(a => a.id ?? a.adapter_id)
           : [];
 
+    // Only block if user explicitly selected a stack but it has no adapters
     if (!adapterIds || adapterIds.length === 0) {
-      if (!isBaseOnlyMode) {
-        toast.error('Please select a stack with adapters');
+      if (selectedStackId && !effectiveBaseOnlyMode) {
+        toast.error('Selected stack has no adapters. Select a different stack or use base model only.');
         return;
       }
     }
@@ -613,6 +710,7 @@ export function ChatInterface({
     isBaseOnlyMode,
     isStreaming,
     selectedStack,
+    selectedStackId,
     sendMessage,
   ]);
 
@@ -1390,7 +1488,7 @@ export function ChatInterface({
         aria-live="polite"
         aria-atomic="false"
       >
-        <SectionErrorBoundary sectionName="Chat Messages">
+        <SectionAsyncBoundary section="chat-messages">
           <div className="py-4">
             {messages.length === 0 ? (
               <div
@@ -1427,17 +1525,34 @@ export function ChatInterface({
               ))
             )}
             {isLoadingDecision && (
-              <div className="text-xs text-muted-foreground px-4" role="status" aria-live="polite">
-                Loading router decision details...
-              </div>
+              <SectionAsyncBoundary section="chat-streaming">
+                <div className="text-xs text-muted-foreground px-4" role="status" aria-live="polite">
+                  Loading router decision details...
+                </div>
+              </SectionAsyncBoundary>
             )}
           </div>
-        </SectionErrorBoundary>
+        </SectionAsyncBoundary>
       </ScrollArea>
 
       {/* Input area */}
       <div className={`border-t px-4 py-3 transition-all ${isHistoryOpen ? 'ml-80' : ''} ${isRouterActivityOpen ? 'mr-96' : ''}`}>
-        <form 
+        {/* Inline model loading block - shown when model is not ready */}
+        {autoLoadEnabled && !baseModelReady && (
+          <InlineModelLoadingBlock
+            modelStatus={newModelLoadingState.baseModelStatus}
+            modelName={newModelLoadingState.baseModelName}
+            backendInfo={undefined}
+            errorMessage={newModelLoadingState.error?.message ?? null}
+            isLoading={newModelLoadingState.isLoading}
+            progress={newModelLoadingState.progress}
+            onLoadModel={handleInlineLoadModel}
+            onRetry={handleInlineRetryLoad}
+            autoLoadEnabled={chatAutoLoadPreference}
+            onAutoLoadChange={handleChatAutoLoadPreferenceChange}
+          />
+        )}
+        <form
           onSubmit={(e) => { e.preventDefault(); handleSend(); }}
           className="flex gap-2"
           aria-label="Chat message input"
@@ -1459,21 +1574,16 @@ export function ChatInterface({
             </Select>
           </div>
           <Textarea
+            ref={inputRef}
             value={input}
             onChange={e => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Type your message... (Enter to send, Shift+Enter for new line)"
             className="min-h-[calc(var(--base-unit)*15)] resize-none"
-            disabled={isStreaming || !selectedStackId || !currentSessionId}
+            disabled={isStreaming || !baseModelReady}
             aria-label="Message input"
-            aria-describedby={!selectedStackId ? "stack-required-hint" : undefined}
             data-testid="chat-input"
           />
-          {!selectedStackId && (
-            <span id="stack-required-hint" className="sr-only">
-              Please select an adapter stack before sending messages
-            </span>
-          )}
           {isStreaming && (
             <Button
               variant="outline"
@@ -1487,7 +1597,7 @@ export function ChatInterface({
           )}
           <Button
             type="submit"
-            disabled={isStreaming || !input.trim() || !selectedStackId || (autoLoadEnabled && !canSend)}
+            disabled={isStreaming || !input.trim() || !baseModelReady}
             size="lg"
             aria-label={isStreaming ? "Sending message..." : "Send message"}
           >
@@ -1498,11 +1608,6 @@ export function ChatInterface({
             )}
           </Button>
         </form>
-        {!selectedStackId && (
-          <p className="text-xs text-muted-foreground mt-2">
-            Please select a stack to start chatting
-          </p>
-        )}
         {!isStreaming && tokensReceived > 0 && streamDuration && (
           <div className="text-xs text-muted-foreground mt-2 px-4" role="status" aria-live="polite">
             {tokensReceived} tokens · {(streamDuration / 1000).toFixed(1)}s

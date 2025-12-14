@@ -47,7 +47,7 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::auth_enhanced::mfa_verify_handler,
         handlers::auth_enhanced::mfa_disable_handler,
         handlers::auth_enhanced::get_auth_config_handler,
-        handlers::propose_patch,
+        handlers::code::propose_patch,
         handlers::infer,
         handlers::streaming_infer::streaming_infer,
         handlers::streaming_infer::streaming_infer_with_progress,
@@ -71,37 +71,37 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::execution_policy::create_execution_policy,
         handlers::execution_policy::deactivate_execution_policy,
         handlers::execution_policy::get_execution_policy_history,
-        handlers::list_adapters,
-        handlers::list_adapter_repositories,
-        handlers::list_adapter_versions,
-        handlers::get_adapter,
-        handlers::register_adapter,
-        handlers::delete_adapter,
-        handlers::load_adapter,
-        handlers::unload_adapter,
-        handlers::verify_gpu_integrity,
-        handlers::get_adapter_activations,
+        handlers::adapters::list_adapters,
+        handlers::adapters::list_adapter_repositories,
+        handlers::adapters::list_adapter_versions,
+        handlers::adapters::get_adapter,
+        handlers::adapters_lifecycle::register_adapter,
+        handlers::adapters_lifecycle::delete_adapter,
+        handlers::adapters_lifecycle::load_adapter,
+        handlers::adapters_lifecycle::unload_adapter,
+        handlers::adapters::verify_gpu_integrity,
+        handlers::adapters::get_adapter_activations,
         handlers::routing_decisions::get_adapter_usage,
-        handlers::promote_adapter_state,
-        handlers::list_repositories,
-        handlers::get_quality_metrics,
-        handlers::get_adapter_metrics,
-        handlers::get_system_metrics,
-        handlers::list_commits,
-        handlers::get_commit,
-        handlers::get_commit_diff,
-        handlers::debug_routing,
-        handlers::get_routing_history,
+        handlers::adapters::promote_adapter_state,
+        handlers::adapters::list_repositories,
+        handlers::adapters::get_quality_metrics,
+        handlers::adapters::get_adapter_metrics,
+        handlers::adapters::get_system_metrics,
+        handlers::adapters::list_commits,
+        handlers::adapters::get_commit,
+        handlers::adapters::get_commit_diff,
+        handlers::routing_decisions::debug_routing,
+        handlers::routing_decisions::get_routing_history,
         handlers::routing_decisions::get_routing_decision_chain,
         // Contacts and Streams handlers - Citation: CONTACTS_AND_STREAMS_IMPLEMENTATION_PLAN.md
-        handlers::list_contacts,
-        handlers::create_contact,
-        handlers::get_contact,
-        handlers::delete_contact,
-        handlers::get_contact_interactions,
-        handlers::training_stream,
-        handlers::discovery_stream,
-        handlers::contacts_stream,
+        handlers::chat_sessions::list_contacts,
+        handlers::chat_sessions::create_contact,
+        handlers::chat_sessions::get_contact,
+        handlers::chat_sessions::delete_contact,
+        handlers::chat_sessions::get_contact_interactions,
+        handlers::streaming::activity_stream,
+        handlers::streaming::discovery_stream,
+        handlers::streaming::contacts_stream,
         // Training handlers
         handlers::list_training_jobs,
         handlers::get_training_job,
@@ -109,11 +109,11 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::promote_version,
         handlers::cancel_training,
         handlers::retry_training,
-        handlers::create_training_session,
-        handlers::get_training_logs,
-        handlers::get_training_metrics,
-        handlers::list_training_templates,
-        handlers::get_training_template,
+        handlers::training::create_training_session,
+        handlers::training::get_training_logs,
+        handlers::training::get_training_metrics,
+        handlers::training::list_training_templates,
+        handlers::training::get_training_template,
         handlers::get_chat_bootstrap,
         handlers::create_chat_from_training_job,
         // Repository handlers (new /v1/repos API)
@@ -149,18 +149,19 @@ use utoipa_swagger_ui::SwaggerUi;
         domain_adapters::execute_domain_adapter,
         domain_adapters::delete_domain_adapter,
         // Model status handlers
-        handlers::get_base_model_status,
+        handlers::models::get_base_model_status,
         // Audit logs handler
-        handlers::query_audit_logs,
+        handlers::admin::query_audit_logs,
         handlers::plugins::enable_plugin,
         handlers::plugins::disable_plugin,
         handlers::plugins::plugin_status,
         handlers::plugins::list_plugins,
         handlers::settings::get_settings,
         handlers::settings::update_settings,
-        handlers::get_uma_memory,
+        handlers::system_info::get_uma_memory,
+        handlers::pilot_status::get_pilot_status,
         handlers::registry::get_registry_status,
-        handlers::hydrate_tenant_from_bundle,
+        handlers::tenants::hydrate_tenant_from_bundle,
         // Service handlers
         handlers::services::start_service,
         handlers::services::stop_service,
@@ -227,6 +228,8 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::documents::list_document_chunks,
         handlers::documents::download_document,
         handlers::documents::process_document,
+        handlers::documents::retry_document,
+        handlers::documents::list_failed_documents,
         // Collection handlers
         handlers::collections::create_collection,
         handlers::collections::list_collections,
@@ -297,9 +300,9 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::query_policy_decisions,
         handlers::verify_policy_audit_chain,
         // Policy assignment handlers (PRD-RBAC-01)
-        handlers::assign_policy,
-        handlers::list_policy_assignments,
-        handlers::list_violations,
+        handlers::tenant_policies::assign_policy,
+        handlers::tenant_policies::list_policy_assignments,
+        handlers::tenant_policies::list_violations,
         // Adapter stack handlers
         handlers::adapter_stacks::list_stacks,
         handlers::adapter_stacks::create_stack,
@@ -326,6 +329,9 @@ use utoipa_swagger_ui::SwaggerUi;
         crate::types::LoginRequest,
         crate::types::LoginResponse,
         crate::types::HealthResponse,
+        handlers::health::ReadyzResponse,
+        handlers::health::ReadyzChecks,
+        handlers::health::ReadyzCheck,
         crate::health::ComponentHealth,
         crate::health::ComponentStatus,
         crate::health::SystemHealthResponse,
@@ -609,15 +615,20 @@ use utoipa_swagger_ui::SwaggerUi;
 pub struct ApiDoc;
 
 pub fn build(state: AppState) -> Router {
+    // Liveness/readiness endpoints must be cheap and never depend on DB/policy middleware.
+    // These routes intentionally bypass the global middleware stack applied to the main API.
+    let health_routes = Router::new()
+        .route("/healthz", get(handlers::health))
+        .route("/readyz", get(handlers::ready))
+        .with_state(state.clone());
+
     // Public routes (no auth required)
     let mut public_routes = Router::new()
-        .route("/healthz", get(handlers::health))
         .route("/healthz/all", get(crate::health::check_all_health))
         .route(
             "/healthz/{component}",
             get(crate::health::check_component_health),
         )
-        .route("/readyz", get(handlers::ready))
         .route("/system/ready", get(system_ready))
         .route(
             "/v1/auth/login",
@@ -696,7 +707,7 @@ pub fn build(state: AppState) -> Router {
     // Routes with optional authentication (work with or without auth)
     // These routes provide enhanced functionality when authenticated but still work anonymously
     let optional_auth_routes = Router::new()
-        .route("/v1/models/status", get(handlers::get_base_model_status))
+        .route("/v1/models/status", get(handlers::models::get_base_model_status))
         .with_state(state.clone())
         .layer(
             ServiceBuilder::new()
@@ -1026,12 +1037,12 @@ pub fn build(state: AppState) -> Router {
             post(handlers::compare_policy_versions),
         )
         .route("/v1/policies/{cpid}/export", get(handlers::export_policy))
-        .route("/v1/policies/assign", post(handlers::assign_policy))
+        .route("/v1/policies/assign", post(handlers::tenant_policies::assign_policy))
         .route(
             "/v1/policies/assignments",
-            get(handlers::list_policy_assignments),
+            get(handlers::tenant_policies::list_policy_assignments),
         )
-        .route("/v1/policies/violations", get(handlers::list_violations))
+        .route("/v1/policies/violations", get(handlers::tenant_policies::list_violations))
         .route(
             "/v1/telemetry/bundles",
             get(handlers::list_telemetry_bundles),
@@ -1082,7 +1093,12 @@ pub fn build(state: AppState) -> Router {
             "/v1/replay/history/{inference_id}",
             get(handlers::replay_inference::get_replay_history),
         )
-        .route("/v1/patch/propose", post(handlers::propose_patch))
+        .route("/v1/patch/propose", post(handlers::code::propose_patch))
+        // OpenAI-compatible shim (used by OpenCode and other OpenAI clients)
+        .route(
+            "/v1/chat/completions",
+            post(handlers::openai_compat::chat_completions),
+        )
         .route("/v1/infer", post(handlers::infer))
         .route(
             "/v1/infer/stream",
@@ -1228,24 +1244,24 @@ pub fn build(state: AppState) -> Router {
             post(handlers::owner_chat::handle_owner_chat),
         )
         // Adapter routes
-        .route("/v1/adapters", get(handlers::list_adapters))
-        .route("/v1/adapters/{adapter_id}", get(handlers::get_adapter))
-        .route("/v1/adapters/register", post(handlers::register_adapter))
+        .route("/v1/adapters", get(handlers::adapters::list_adapters))
+        .route("/v1/adapters/{adapter_id}", get(handlers::adapters::get_adapter))
+        .route("/v1/adapters/register", post(handlers::adapters_lifecycle::register_adapter))
         .route(
             "/v1/adapters/import",
             post(handlers::adapters::import_adapter),
         )
         .route(
             "/v1/adapter-repositories",
-            get(handlers::list_adapter_repositories).post(handlers::create_adapter_repository),
+            get(handlers::adapters::list_adapter_repositories).post(handlers::create_adapter_repository),
         )
         .route(
             "/v1/adapter-repositories/{repo_id}",
-            get(handlers::get_adapter_repository),
+            get(handlers::adapters::get_adapter_repository),
         )
         .route(
             "/v1/adapter-repositories/{repo_id}/policy",
-            get(handlers::get_adapter_repository_policy)
+            get(handlers::adapters::get_adapter_repository_policy)
                 .put(handlers::upsert_adapter_repository_policy),
         )
         .route(
@@ -1254,7 +1270,7 @@ pub fn build(state: AppState) -> Router {
         )
         .route(
             "/v1/adapter-repositories/{repo_id}/versions",
-            get(handlers::list_adapter_versions),
+            get(handlers::adapters::list_adapter_versions),
         )
         .route(
             "/v1/adapter-repositories/{repo_id}/versions/rollback",
@@ -1270,7 +1286,7 @@ pub fn build(state: AppState) -> Router {
         )
         .route(
             "/v1/adapter-versions/{version_id}",
-            get(handlers::get_adapter_version),
+            get(handlers::adapters::get_adapter_version),
         )
         .route(
             "/v1/adapter-versions/{version_id}/promote",
@@ -1282,23 +1298,23 @@ pub fn build(state: AppState) -> Router {
         )
         .route(
             "/v1/adapters/{adapter_id}",
-            axum::routing::delete(handlers::delete_adapter),
+            axum::routing::delete(handlers::adapters_lifecycle::delete_adapter),
         )
         .route(
             "/v1/adapters/{adapter_id}/load",
-            post(handlers::load_adapter),
+            post(handlers::adapters_lifecycle::load_adapter),
         )
         .route(
             "/v1/adapters/{adapter_id}/unload",
-            post(handlers::unload_adapter),
+            post(handlers::adapters_lifecycle::unload_adapter),
         )
         .route(
             "/v1/adapters/verify-gpu",
-            get(handlers::verify_gpu_integrity),
+            get(handlers::adapters::verify_gpu_integrity),
         )
         .route(
             "/v1/adapters/{adapter_id}/activations",
-            get(handlers::get_adapter_activations),
+            get(handlers::adapters::get_adapter_activations),
         )
         .route(
             "/v1/adapters/{adapter_id}/usage",
@@ -1316,11 +1332,11 @@ pub fn build(state: AppState) -> Router {
         // PRD-08: Lineage and detail views
         .route(
             "/v1/adapters/{adapter_id}/lineage",
-            get(handlers::get_adapter_lineage),
+            get(handlers::adapters::get_adapter_lineage),
         )
         .route(
             "/v1/adapters/{adapter_id}/detail",
-            get(handlers::get_adapter_detail),
+            get(handlers::adapters::get_adapter_detail),
         )
         .route(
             "/v1/adapters/{adapter_id}/manifest",
@@ -1345,7 +1361,7 @@ pub fn build(state: AppState) -> Router {
         )
         .route(
             "/v1/adapters/{adapter_id}/health",
-            get(handlers::get_adapter_health),
+            get(handlers::adapters::get_adapter_health),
         )
         // Adapter pinning routes
         .route(
@@ -1364,7 +1380,7 @@ pub fn build(state: AppState) -> Router {
         // Tier-based state promotion (distinct from lifecycle promotion)
         .route(
             "/v1/adapters/{adapter_id}/state/promote",
-            post(handlers::promote_adapter_state),
+            post(handlers::adapters::promote_adapter_state),
         )
         // Adapter hot-swap route
         .route("/v1/adapters/swap", post(handlers::adapters::swap_adapters))
@@ -1465,20 +1481,20 @@ pub fn build(state: AppState) -> Router {
         // Contacts routes - Citation: CONTACTS_AND_STREAMS_IMPLEMENTATION_PLAN.md §2.6
         .route(
             "/v1/contacts",
-            get(handlers::list_contacts).post(handlers::create_contact),
+            get(handlers::chat_sessions::list_contacts).post(handlers::chat_sessions::create_contact),
         )
         .route(
             "/v1/contacts/{id}",
-            get(handlers::get_contact).delete(handlers::delete_contact),
+            get(handlers::chat_sessions::get_contact).delete(handlers::chat_sessions::delete_contact),
         )
         .route(
             "/v1/contacts/{id}/interactions",
-            get(handlers::get_contact_interactions),
+            get(handlers::chat_sessions::get_contact_interactions),
         )
         // SSE Streaming routes - Citation: CONTACTS_AND_STREAMS_IMPLEMENTATION_PLAN.md §3.5, §4.4
-        .route("/v1/streams/training", get(handlers::training_stream))
-        .route("/v1/streams/discovery", get(handlers::discovery_stream))
-        .route("/v1/streams/contacts", get(handlers::contacts_stream))
+        .route("/v1/streams/training", get(handlers::streaming::activity_stream))
+        .route("/v1/streams/discovery", get(handlers::streaming::discovery_stream))
+        .route("/v1/streams/contacts", get(handlers::streaming::contacts_stream))
         // Dataset routes
         .route(
             "/v1/datasets/upload",
@@ -1586,6 +1602,14 @@ pub fn build(state: AppState) -> Router {
             "/v1/documents/{id}/process",
             post(handlers::documents::process_document),
         )
+        .route(
+            "/v1/documents/{id}/retry",
+            post(handlers::documents::retry_document),
+        )
+        .route(
+            "/v1/documents/failed",
+            get(handlers::documents::list_failed_documents),
+        )
         // Collection routes
         .route(
             "/v1/collections",
@@ -1651,11 +1675,15 @@ pub fn build(state: AppState) -> Router {
             post(handlers::code::create_commit_delta),
         )
         // Repository routes (deprecated - use /v1/code/repositories instead)
-        .route("/v1/repositories", get(handlers::list_repositories))
+        .route("/v1/repositories", get(handlers::adapters::list_repositories))
         // System overview routes
         .route(
             "/v1/system/overview",
             get(handlers::system_overview::get_system_overview),
+        )
+        .route(
+            "/v1/system/pilot-status",
+            get(handlers::pilot_status::get_pilot_status),
         )
         // System state (ground truth) route
         .route(
@@ -1663,9 +1691,9 @@ pub fn build(state: AppState) -> Router {
             get(handlers::system_state::get_system_state),
         )
         // Metrics routes
-        .route("/v1/metrics/quality", get(handlers::get_quality_metrics))
-        .route("/v1/metrics/adapters", get(handlers::get_adapter_metrics))
-        .route("/v1/metrics/system", get(handlers::get_system_metrics))
+        .route("/v1/metrics/quality", get(handlers::adapters::get_quality_metrics))
+        .route("/v1/metrics/adapters", get(handlers::adapters::get_adapter_metrics))
+        .route("/v1/metrics/system", get(handlers::adapters::get_system_metrics))
         .route(
             "/v1/metrics/time-series",
             get(handlers::metrics_time_series::get_metrics_time_series),
@@ -1675,7 +1703,7 @@ pub fn build(state: AppState) -> Router {
             get(handlers::metrics_time_series::get_metrics_snapshot),
         )
         // Memory routes
-        .route("/v1/system/memory", get(handlers::get_uma_memory))
+        .route("/v1/system/memory", get(handlers::system_info::get_uma_memory))
         // Registry status route
         .route(
             "/v1/registry/status",
@@ -1698,12 +1726,12 @@ pub fn build(state: AppState) -> Router {
             get(handlers::memory_detail::get_adapter_memory_usage),
         )
         // Commit routes
-        .route("/v1/commits", get(handlers::list_commits))
-        .route("/v1/commits/{sha}", get(handlers::get_commit))
-        .route("/v1/commits/{sha}/diff", get(handlers::get_commit_diff))
+        .route("/v1/commits", get(handlers::adapters::list_commits))
+        .route("/v1/commits/{sha}", get(handlers::adapters::get_commit))
+        .route("/v1/commits/{sha}/diff", get(handlers::adapters::get_commit_diff))
         // Routing routes
-        .route("/v1/routing/debug", post(handlers::debug_routing))
-        .route("/v1/routing/history", get(handlers::get_routing_history))
+        .route("/v1/routing/debug", post(handlers::routing_decisions::debug_routing))
+        .route("/v1/routing/history", get(handlers::routing_decisions::get_routing_history))
         .route(
             "/v1/routing/decisions",
             get(handlers::routing_decisions::get_routing_decisions),
@@ -1782,15 +1810,15 @@ pub fn build(state: AppState) -> Router {
         )
         .route(
             "/v1/training/sessions",
-            post(handlers::create_training_session),
+            post(handlers::training::create_training_session),
         )
         .route(
             "/v1/training/jobs/{job_id}/logs",
-            get(handlers::get_training_logs),
+            get(handlers::training::get_training_logs),
         )
         .route(
             "/v1/training/jobs/{job_id}/metrics",
-            get(handlers::get_training_metrics),
+            get(handlers::training::get_training_metrics),
         )
         .route(
             "/v1/training/jobs/{job_id}/artifacts",
@@ -1802,11 +1830,11 @@ pub fn build(state: AppState) -> Router {
         )
         .route(
             "/v1/training/templates",
-            get(handlers::list_training_templates),
+            get(handlers::training::list_training_templates),
         )
         .route(
             "/v1/training/templates/{template_id}",
-            get(handlers::get_training_template),
+            get(handlers::training::get_training_template),
         )
         // Repository routes (new /v1/repos API)
         .route(
@@ -1893,7 +1921,7 @@ pub fn build(state: AppState) -> Router {
         // Audit endpoints
         .route("/v1/audit/federation", get(handlers::get_federation_audit))
         .route("/v1/audit/compliance", get(handlers::get_compliance_audit))
-        .route("/v1/audit/logs", get(handlers::query_audit_logs))
+        .route("/v1/audit/logs", get(handlers::admin::query_audit_logs))
         .route(
             "/v1/audit/policy-decisions",
             get(handlers::query_policy_decisions),
@@ -2137,7 +2165,8 @@ pub fn build(state: AppState) -> Router {
 
     // Combine routes and apply security middleware layers
     // (layers are applied in reverse order - first layer applied processes last)
-    app.merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
+    let app = app
+        .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
         // Apply layers (innermost to outermost):
         .layer(TraceLayer::new_for_http()) // Request tracing (innermost)
         .layer(CompressionLayer::new()) // Response compression (gzip, br, deflate)
@@ -2168,5 +2197,10 @@ pub fn build(state: AppState) -> Router {
             crate::middleware::observability_middleware,
         )) // Logging + error envelope
         .layer(axum::middleware::from_fn(request_id::request_id_middleware)) // Request ID tracking (outermost)
+        .with_state(state.clone());
+
+    Router::new()
+        .merge(health_routes)
+        .fallback_service(app)
         .with_state(state)
 }

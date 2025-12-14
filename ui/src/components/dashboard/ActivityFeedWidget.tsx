@@ -21,9 +21,9 @@ import {
   ShieldAlert,
   Users,
 } from 'lucide-react';
-import { useActivityFeed } from '@/hooks/useActivityFeed';
+import { useActivityFeed } from '@/hooks/realtime/useActivityFeed';
 import { useTenant } from '@/providers/FeatureProviders';
-import { useRelativeTime } from '@/hooks/useTimestamp';
+import { useRelativeTime } from '@/hooks/ui/useTimestamp';
 import { useNavigate } from 'react-router-dom';
 import { DashboardWidgetFrame, type DashboardWidgetState } from './DashboardWidgetFrame';
 
@@ -74,20 +74,20 @@ export function ActivityFeedWidget() {
   const [severityFilter, setSeverityFilter] = React.useState<Severity>('all');
   const [lastUpdated, setLastUpdated] = React.useState<Date | null>(null);
 
-  const { events, loading, error, refresh } = useActivityFeed({
+  const { events, isLoading, error, refetch } = useActivityFeed({
     tenantId: selectedTenant,
     enabled: true,
     maxEvents: 50,
   });
 
   React.useEffect(() => {
-    if (!loading) {
+    if (!isLoading) {
       setLastUpdated(new Date());
     }
-  }, [loading, events]);
+  }, [isLoading, events]);
 
   const handleRefresh = async () => {
-    await Promise.resolve(refresh());
+    await Promise.resolve(refetch());
     setLastUpdated(new Date());
   };
 
@@ -99,7 +99,7 @@ export function ActivityFeedWidget() {
 
   const state: DashboardWidgetState = error
     ? 'error'
-    : loading
+    : isLoading
       ? 'loading'
       : filtered.length === 0
         ? 'empty'

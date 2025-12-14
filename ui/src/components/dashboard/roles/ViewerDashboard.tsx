@@ -31,7 +31,7 @@ import {
   TrendingUp
 } from 'lucide-react';
 import apiClient from '@/api/client';
-import { useChatSessionsApi } from '@/hooks/useChatSessionsApi';
+import { useChatSessionsApi } from '@/hooks/chat/useChatSessionsApi';
 import { logger } from '@/utils/logger';
 import DashboardLayout from '@/components/dashboard/DashboardLayout';
 
@@ -81,7 +81,7 @@ export default function ViewerDashboard() {
     {
       label: 'Telemetry Viewer',
       icon: Eye,
-      onClick: () => navigate('/telemetry/viewer'),
+      onClick: () => navigate('/telemetry?tab=viewer'),
       description: 'Inspect per-session routing and tokens',
     },
   ];
@@ -285,7 +285,7 @@ export default function ViewerDashboard() {
                       variant="link"
                       size="sm"
                       className="px-0 mt-1"
-                      onClick={() => navigate('/telemetry/viewer')}
+                      onClick={() => navigate('/telemetry?tab=viewer')}
                     >
                       Open Telemetry Viewer →
                     </Button>

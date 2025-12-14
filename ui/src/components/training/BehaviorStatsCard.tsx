@@ -4,7 +4,7 @@
 
 import React from 'react';
 import { Activity, TrendingUp } from 'lucide-react';
-import { useBehaviorStats } from '@/hooks/useBehaviorTraining';
+import { useBehaviorStats } from '@/hooks/training';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 

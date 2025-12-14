@@ -7,7 +7,7 @@ import {
   useSessionsSharedWithMe,
   useShareSession,
   useRevokeShare,
-} from '@/hooks/useChatSharing';
+} from '@/hooks/chat/useChatSharing';
 import type {
   SessionShare,
   ShareSessionRequest,

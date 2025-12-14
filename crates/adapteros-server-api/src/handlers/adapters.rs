@@ -3396,7 +3396,10 @@ pub async fn archive_adapter_version(
     Extension(claims): Extension<Claims>,
     Path(version_id): Path<String>,
     Json(_req): Json<adapteros_api_types::training::ArchiveAdapterVersionRequest>,
-) -> Result<Json<adapteros_api_types::training::ArchiveAdapterVersionResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<
+    Json<adapteros_api_types::training::ArchiveAdapterVersionResponse>,
+    (StatusCode, Json<ErrorResponse>),
+> {
     require_permission(&claims, Permission::AdapterLoad)?;
 
     // Verify version exists and belongs to tenant
@@ -3460,11 +3463,13 @@ pub async fn archive_adapter_version(
         "Archived adapter version"
     );
 
-    Ok(Json(adapteros_api_types::training::ArchiveAdapterVersionResponse {
-        version_id,
-        is_archived: true,
-        updated_at: chrono::Utc::now().to_rfc3339(),
-    }))
+    Ok(Json(
+        adapteros_api_types::training::ArchiveAdapterVersionResponse {
+            version_id,
+            is_archived: true,
+            updated_at: chrono::Utc::now().to_rfc3339(),
+        },
+    ))
 }
 
 /// Unarchive an adapter version.
@@ -3487,7 +3492,10 @@ pub async fn unarchive_adapter_version(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(version_id): Path<String>,
-) -> Result<Json<adapteros_api_types::training::ArchiveAdapterVersionResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<
+    Json<adapteros_api_types::training::ArchiveAdapterVersionResponse>,
+    (StatusCode, Json<ErrorResponse>),
+> {
     require_permission(&claims, Permission::AdapterLoad)?;
 
     // Verify version exists and belongs to tenant
@@ -3551,9 +3559,11 @@ pub async fn unarchive_adapter_version(
         "Unarchived adapter version"
     );
 
-    Ok(Json(adapteros_api_types::training::ArchiveAdapterVersionResponse {
-        version_id,
-        is_archived: false,
-        updated_at: chrono::Utc::now().to_rfc3339(),
-    }))
+    Ok(Json(
+        adapteros_api_types::training::ArchiveAdapterVersionResponse {
+            version_id,
+            is_archived: false,
+            updated_at: chrono::Utc::now().to_rfc3339(),
+        },
+    ))
 }

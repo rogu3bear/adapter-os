@@ -18,8 +18,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { useLiveDataStatus, type OverallConnectionStatus } from '@/hooks/useLiveDataStatus';
-import { useModelStatus, type ModelStatusState } from '@/hooks/useModelStatus';
+import { useLiveDataStatus, type OverallConnectionStatus } from '@/hooks/realtime/useLiveDataStatus';
+import { useModelStatus, type ModelStatusState } from '@/hooks/model-loading';
 import { useTenant } from '@/providers/FeatureProviders';
 import { useErrorStoreSafe } from '@/stores/errorStore';
 

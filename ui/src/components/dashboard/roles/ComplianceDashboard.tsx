@@ -82,9 +82,9 @@ export default function ComplianceDashboard({ selectedTenant = 'default' }: Comp
     isLoading: complianceLoading,
     error: complianceError,
     refetch: refetchCompliance,
-  } = useQuery<ComplianceAuditResponse>({
+  } = useQuery({
     queryKey: ['compliance-audit', selectedTenant],
-    queryFn: () => apiClient.getComplianceAudit(),
+    queryFn: (): Promise<ComplianceAuditResponse> => apiClient.getComplianceAudit(),
     refetchInterval: 60000, // Refresh every minute
     staleTime: 30000,
   });
@@ -95,9 +95,9 @@ export default function ComplianceDashboard({ selectedTenant = 'default' }: Comp
     isLoading: auditLogsLoading,
     error: auditLogsError,
     refetch: refetchAuditLogs,
-  } = useQuery<AuditLog[]>({
+  } = useQuery({
     queryKey: ['audit-logs', selectedTenant],
-    queryFn: () =>
+    queryFn: (): Promise<AuditLog[]> =>
       apiClient.queryAuditLogs({
         limit: 50,
         tenant_id: selectedTenant,

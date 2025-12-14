@@ -25,7 +25,7 @@ import {
   FileText,
 } from 'lucide-react';
 
-import { useComplianceAudit } from '@/hooks/useSecurity';
+import { useComplianceAudit } from '@/hooks/security/useSecurity';
 import { ErrorRecovery } from '@/components/ui/error-recovery';
 import type { ComplianceControl, PolicyViolationRecord } from '@/api/types';
 import { Link } from 'react-router-dom';
@@ -74,8 +74,8 @@ export function ComplianceTab() {
     }
   };
 
-  // Type for controls from compliance audit response
-  type ComplianceControlSimple = { name: string; status: string; message?: string; _index?: number };
+  // Type for controls from compliance audit response with required _index
+  type ComplianceControlSimple = { name: string; status: string; message?: string; _index: number };
 
   const controlsColumns: ColumnDef<ComplianceControlSimple>[] = [
     {
@@ -108,8 +108,8 @@ export function ComplianceTab() {
     },
   ];
 
-  // Type for violations from compliance audit response
-  type ComplianceViolation = { rule: string; message: string; severity?: string; _index?: number };
+  // Type for violations from compliance audit response with required _index
+  type ComplianceViolation = { rule: string; message: string; severity?: string; _index: number };
 
   const violationsColumns: ColumnDef<ComplianceViolation>[] = [
     {

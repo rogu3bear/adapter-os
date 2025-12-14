@@ -14,7 +14,7 @@ import { errorRecoveryTemplates } from './ui/error-recovery';
 import { EmptyState } from './ui/empty-state';
 import { LoadingState } from './ui/loading-state';
 import { GlossaryTooltip } from './ui/glossary-tooltip';
-import { useRBAC } from '@/hooks/useRBAC';
+import { useRBAC } from '@/hooks/security/useRBAC';
 
 interface PromotionProps {
   user: User;
@@ -383,7 +383,7 @@ export function Promotion({ user, selectedTenant }: PromotionProps) {
                   <TableRow key={idx}>
                     <TableCell>{entry.cpid}</TableCell>
                     <TableCell>{entry.promoted_by}</TableCell>
-                    <TableCell>{new Date(entry.promoted_at).toLocaleString()}</TableCell>
+                    <TableCell>{entry.promoted_at ? new Date(entry.promoted_at).toLocaleString() : 'N/A'}</TableCell>
                     <TableCell><Badge>{entry.status}</Badge></TableCell>
                   </TableRow>
                 ))

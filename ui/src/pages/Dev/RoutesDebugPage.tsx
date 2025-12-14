@@ -45,7 +45,7 @@ import {
 import PageWrapper from '@/layout/PageWrapper';
 
 type ViewMode = 'table' | 'grouped';
-type FilterMode = 'all' | 'issues' | 'orphans' | 'duplicates' | 'hubs' | 'deprecated' | 'draft' | 'hidden';
+type FilterMode = 'all' | 'issues' | 'orphans' | 'duplicates' | 'hubs' | 'deprecated' | 'hidden';
 
 const SECTION_COLORS: Record<RouteSection, string> = {
   Core: 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200',
@@ -70,7 +70,6 @@ const TYPE_BADGES: Record<RouteType, { label: string; className: string }> = {
 const STATUS_BADGES: Record<RouteStatus, { label: string; className: string }> = {
   active: { label: 'active', className: 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300' },
   deprecated: { label: 'deprecated', className: 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300' },
-  draft: { label: 'draft', className: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300' },
 };
 
 const REACHABILITY_BADGES: Record<Reachability, { label: string; className: string; icon: typeof Eye }> = {
@@ -142,7 +141,7 @@ function FlowValidator() {
       key,
       name: flow.name,
       steps: flow.steps,
-      result: validateFlow(key as keyof typeof PRODUCT_FLOWS),
+      result: key in PRODUCT_FLOWS ? validateFlow(key as keyof typeof PRODUCT_FLOWS) : { valid: false, issues: [] },
     }));
   }, []);
 
@@ -163,7 +162,7 @@ function FlowValidator() {
               )}
               <span className="flex-1 text-sm truncate">{name}</span>
               <span className="text-xs text-muted-foreground">{steps.length} steps</span>
-              {result.issues.length > 0 && (
+              {'issues' in result && result.issues.length > 0 && (
                 <Badge className="bg-red-100 text-red-700">{result.issues.length}</Badge>
               )}
               {expandedFlow === key ? (
@@ -175,7 +174,7 @@ function FlowValidator() {
             {expandedFlow === key && (
               <div className="border-t bg-muted/30 p-2 space-y-1">
                 {steps.map((step, i) => {
-                  const issue = result.issues.find(is => is.step === i + 1);
+                  const issue = 'issues' in result ? result.issues.find((is: { step: number; page: string; issue: string }) => is.step === i + 1) : undefined;
                   return (
                     <div
                       key={i}
@@ -390,7 +389,6 @@ function GroupedView({ routes }: { routes: RouteManifestEntry[] }) {
         const isCollapsed = collapsedSections.has(section);
         const issueCount = sectionRoutes.filter(r => r.issues.length > 0).length;
         const deprecatedCount = sectionRoutes.filter(r => r.status === 'deprecated').length;
-        const draftCount = sectionRoutes.filter(r => r.status === 'draft').length;
 
         return (
           <div key={section} className="border rounded-lg overflow-hidden">
@@ -413,9 +411,6 @@ function GroupedView({ routes }: { routes: RouteManifestEntry[] }) {
               )}
               {deprecatedCount > 0 && (
                 <Badge className="bg-red-500 text-white">{deprecatedCount} deprecated</Badge>
-              )}
-              {draftCount > 0 && (
-                <Badge className="bg-yellow-500 text-white">{draftCount} draft</Badge>
               )}
             </button>
             {!isCollapsed && (
@@ -493,9 +488,6 @@ export default function RoutesDebugPage() {
       case 'deprecated':
         routes = routes.filter(r => r.status === 'deprecated');
         break;
-      case 'draft':
-        routes = routes.filter(r => r.status === 'draft');
-        break;
     }
 
     // Apply search
@@ -549,12 +541,6 @@ export default function RoutesDebugPage() {
             label="Hidden"
             value={stats.hidden}
             onClick={() => setFilterMode('hidden')}
-          />
-          <StatCard
-            label="Draft"
-            value={stats.byStatus.draft}
-            highlight={stats.byStatus.draft > 0}
-            onClick={() => setFilterMode('draft')}
           />
           <StatCard
             label="Deprecated"
@@ -649,7 +635,6 @@ export default function RoutesDebugPage() {
               <option value="duplicates">Duplicates only</option>
               <option value="hubs">Hubs only</option>
               <option value="deprecated">Deprecated only</option>
-              <option value="draft">Draft only</option>
             </select>
           </div>
 

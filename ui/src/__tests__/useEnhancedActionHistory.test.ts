@@ -3,7 +3,7 @@
 //! Demonstrates usage patterns and validates core functionality.
 
 import { renderHook, act } from '@testing-library/react';
-import useEnhancedActionHistory from '@/hooks/useEnhancedActionHistory';
+import useEnhancedActionHistory from '@/hooks/ui/useEnhancedActionHistory';
 import { ActionHistoryItem } from '@/types/history';
 
 describe('useEnhancedActionHistory', () => {

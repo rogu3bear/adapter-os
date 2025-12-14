@@ -24,7 +24,7 @@ import apiClient from '@/api/client';
 import * as types from '@/api/types';
 
 import { logger, toError } from '@/utils/logger';
-import { usePolling } from '@/hooks/usePolling';
+import { usePolling } from '@/hooks/realtime/usePolling';
 import { KpiGrid, ContentGrid } from './ui/grid';
 import { formatPercent, formatDurationMs } from '@/utils/format';
 
@@ -181,11 +181,11 @@ export const MonitoringDashboard: React.FC = () => {
 
             const avgLatencyMs = perf?.avg_latency_ms
               ?? (typeof perf?.avg_latency_us === 'number'
-                ? perf!.avg_latency_us / 1000
+                ? perf.avg_latency_us / 1000
                 : 0);
 
             return {
-              adapterId: entry.adapter_id,
+              adapterId: entry.adapter_id ?? '',
               activationRate,
               avgLatencyMs,
               qualityScore: perf?.quality_score,

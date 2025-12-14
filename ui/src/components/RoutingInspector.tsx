@@ -13,7 +13,7 @@ import { ExportMenu } from './ui/export-menu';
 import { TransformedRoutingDecision, RouterCandidateInfo, RoutingDecisionFilters } from '@/api/types';
 import apiClient from '@/api/client';
 import { useTenant } from '@/providers/FeatureProviders';
-import { useRBAC } from '@/hooks/useRBAC';
+import { useRBAC } from '@/hooks/security/useRBAC';
 import { Calendar } from './ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
@@ -456,19 +456,19 @@ export const RoutingInspector: React.FC<RoutingInspectorProps> = ({ className })
               <div>
                 <div className="text-sm font-medium">Entropy</div>
                 <div className="text-sm text-muted-foreground">
-                  {selectedDecision.entropy.toFixed(4)}
+                  {selectedDecision.entropy?.toFixed(4) ?? 'N/A'}
                 </div>
               </div>
               <div>
                 <div className="text-sm font-medium">Temperature (τ)</div>
                 <div className="text-sm text-muted-foreground">
-                  {selectedDecision.tau.toFixed(4)}
+                  {selectedDecision.tau?.toFixed(4) ?? 'N/A'}
                 </div>
               </div>
               <div>
                 <div className="text-sm font-medium">Entropy Floor</div>
                 <div className="text-sm text-muted-foreground">
-                  {selectedDecision.entropy_floor.toFixed(4)}
+                  {selectedDecision.entropy_floor?.toFixed(4) ?? 'N/A'}
                 </div>
               </div>
               <div>

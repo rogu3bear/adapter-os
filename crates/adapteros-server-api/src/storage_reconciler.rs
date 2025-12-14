@@ -1,5 +1,6 @@
 //! Background reconciler to keep storage and DB metadata in sync.
 
+use tracing::{debug, error};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -10,7 +11,6 @@ use adapteros_db::NewStorageIssue;
 use adapteros_storage::FsByteStorage;
 use tokio::fs;
 use tokio::time::sleep;
-use tracing::{debug, error, info};
 use walkdir::WalkDir;
 
 use crate::handlers::datasets::resolve_dataset_root;
@@ -50,7 +50,7 @@ impl StorageReconciler {
         }
     }
 
-    async fn check_dataset_versions(&self, store: &FsByteStorage) -> adapteros_core::Result<()> {
+    async fn check_dataset_versions(&self, _store: &FsByteStorage) -> adapteros_core::Result<()> {
         let versions = self
             .state
             .db
@@ -108,7 +108,7 @@ impl StorageReconciler {
         Ok(())
     }
 
-    async fn check_adapter_versions(&self, _store: &FsByteStorage) -> adapteros_core::Result<()> {
+    async fn check_adapter_versions(&self, __store: &FsByteStorage) -> adapteros_core::Result<()> {
         let versions = self
             .state
             .db
@@ -170,7 +170,7 @@ impl StorageReconciler {
         Ok(())
     }
 
-    async fn detect_orphans(&self, store: &FsByteStorage) -> adapteros_core::Result<()> {
+    async fn detect_orphans(&self, _store: &FsByteStorage) -> adapteros_core::Result<()> {
         let mut expected: HashSet<PathBuf> = HashSet::new();
 
         // Dataset version storage paths

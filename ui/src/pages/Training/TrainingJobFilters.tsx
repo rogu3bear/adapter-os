@@ -18,7 +18,7 @@ import {
   Filter,
 } from 'lucide-react';
 import type { TrainingStatus } from '@/api/training-types';
-import type { FilterValue } from '@/hooks/useFilter';
+import type { FilterValue } from '@/hooks/ui/useFilter';
 import { cn } from '@/components/ui/utils';
 import { format } from 'date-fns';
 
@@ -116,12 +116,12 @@ export function TrainingJobFilters({
 
       {/* Status Filter */}
       <Select value={statusValue} onValueChange={handleStatusChange}>
-        <SelectTrigger className="w-[160px]">
+        <SelectTrigger className="w-[160px]" data-cy="status-filter">
           <SelectValue placeholder="Status" />
         </SelectTrigger>
         <SelectContent>
           {STATUS_OPTIONS.map((option) => (
-            <SelectItem key={option.value} value={option.value}>
+            <SelectItem key={option.value} value={option.value} data-cy={`status-${option.value}`}>
               {option.label}
             </SelectItem>
           ))}

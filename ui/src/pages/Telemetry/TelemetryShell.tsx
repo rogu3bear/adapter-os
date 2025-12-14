@@ -1,11 +1,11 @@
-import React, { useMemo, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import FeatureLayout from '@/layout/FeatureLayout';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import TelemetryPage from '@/pages/TelemetryPage';
 import TelemetryViewerPage from '@/pages/TelemetryViewerPage';
-import { telemetryTabOrder, telemetryTabToPath, TelemetryTab, resolveTelemetryTab } from '@/pages/Telemetry/tabs';
+import { useTelemetryTabRouter } from '@/hooks/navigation/useTabRouter';
 import apiClient from '@/api/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -15,18 +15,9 @@ import type { Alert, TelemetryBundle, TelemetryEvent } from '@/api/types';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
-import { Link } from 'react-router-dom';
 
 export default function TelemetryShell() {
-  const location = useLocation();
-  const navigate = useNavigate();
-
-  const activeTab: TelemetryTab = useMemo(
-    () => resolveTelemetryTab(location.pathname, location.hash),
-    [location.hash, location.pathname],
-  );
-
-  const tabPath = (tab: TelemetryTab) => telemetryTabToPath(tab);
+  const { activeTab, setActiveTab, availableTabs, getTabPath } = useTelemetryTabRouter();
 
   return (
     <FeatureLayout
@@ -34,25 +25,11 @@ export default function TelemetryShell() {
       description="Event stream, viewer, and exports"
       maxWidth="xl"
     >
-      <Tabs
-        value={activeTab}
-        onValueChange={(value: string) => {
-          const tab = value as TelemetryTab;
-          const next = tabPath(tab);
-          const nextLocation = next.split('#')[0];
-          if (nextLocation !== location.pathname || location.hash !== '') {
-            navigate(next);
-          }
-        }}
-      >
+      <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as typeof activeTab)}>
         <TabsList className="w-full grid grid-cols-2 md:grid-cols-5">
-          {telemetryTabOrder.map(tab => (
-            <TabsTrigger key={tab} value={tab}>
-              {tab === 'event-stream' && 'Event Stream'}
-              {tab === 'viewer' && 'Viewer'}
-              {tab === 'alerts' && 'Alerts'}
-              {tab === 'exports' && 'Exports'}
-              {tab === 'filters' && 'Filters'}
+          {availableTabs.map((tab) => (
+            <TabsTrigger key={tab.id} value={tab.id} asChild>
+              <Link to={getTabPath(tab.id)}>{tab.label}</Link>
             </TabsTrigger>
           ))}
         </TabsList>

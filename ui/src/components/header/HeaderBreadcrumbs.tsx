@@ -1,4 +1,4 @@
-import { useLocation, Link } from 'react-router-dom';
+import { useLocation, useParams, Link } from 'react-router-dom';
 import { getBreadcrumbs, getClusterForPath } from '@/config/routes';
 import { cn } from '@/components/ui/utils';
 
@@ -8,8 +8,9 @@ interface HeaderBreadcrumbsProps {
 
 export function HeaderBreadcrumbs({ className }: HeaderBreadcrumbsProps) {
   const location = useLocation();
+  const params = useParams();
   const clusterLabel = getClusterForPath(location.pathname);
-  const breadcrumbs = getBreadcrumbs(location.pathname);
+  const breadcrumbs = getBreadcrumbs(location.pathname, params as Record<string, string>);
 
   if (!clusterLabel && breadcrumbs.length === 0) {
     return null;

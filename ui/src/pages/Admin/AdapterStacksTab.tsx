@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { StackTable } from './StackTable';
 import { StackFormModal } from './StackFormModal';
-import { useAdapterStacks } from '@/hooks/useAdmin';
+import { useAdapterStacks } from '@/hooks/admin/useAdmin';
 import { LoadingState } from '@/components/ui/loading-state';
 import { ErrorRecovery } from '@/components/ui/error-recovery';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';

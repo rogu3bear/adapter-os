@@ -60,11 +60,15 @@ pub async fn observability_middleware(req: Request<Body>, next: Next) -> Respons
         let (parts, body) = response.into_parts();
         // Cap error body capture to 64KB to avoid unbounded buffering
         let body_bytes = to_bytes(body, 64 * 1024).await.unwrap_or_default();
-        let (code, message, detail) = parse_error_payload(&body_bytes, status);
+        let (code, message, hint, detail) = parse_error_payload(&body_bytes, status);
+        let hint = hint
+            .filter(|hint| !hint.trim().is_empty())
+            .unwrap_or_else(|| derive_hint(&code, &message, detail.as_deref(), status));
 
         let envelope = ApiErrorBody {
             code: code.clone(),
             message: message.clone(),
+            hint: hint.clone(),
             detail: detail.clone(),
             request_id: request_id.clone(),
         };
@@ -98,6 +102,7 @@ pub async fn observability_middleware(req: Request<Body>, next: Next) -> Respons
             status = status.as_u16(),
             code = %code,
             error_message = %message,
+            hint = %hint,
             detail = detail.as_deref().unwrap_or(""),
             tenant_id = tenant_id.as_deref().unwrap_or(""),
             user_id = user_id.as_deref().unwrap_or(""),
@@ -155,6 +160,7 @@ fn ensure_request_id_header(response: &mut Response, request_id: &str) {
 struct EnvelopeLike {
     code: Option<String>,
     message: Option<String>,
+    hint: Option<String>,
     detail: Option<String>,
 }
 
@@ -165,13 +171,16 @@ struct LegacyErrorResponse {
     details: Option<serde_json::Value>,
 }
 
-fn parse_error_payload(body: &[u8], status: StatusCode) -> (String, String, Option<String>) {
+fn parse_error_payload(
+    body: &[u8],
+    status: StatusCode,
+) -> (String, String, Option<String>, Option<String>) {
     if !body.is_empty() {
         if let Ok(envelope) = serde_json::from_slice::<EnvelopeLike>(body) {
             if envelope.code.is_some() || envelope.message.is_some() {
                 let code = envelope.code.unwrap_or_else(|| fallback_code(status));
                 let message = envelope.message.unwrap_or_else(|| fallback_message(status));
-                return (code, message, envelope.detail);
+                return (code, message, envelope.hint, envelope.detail);
             }
         }
 
@@ -179,7 +188,7 @@ fn parse_error_payload(body: &[u8], status: StatusCode) -> (String, String, Opti
             let code = legacy.code.unwrap_or_else(|| fallback_code(status));
             let message = legacy.error.unwrap_or_else(|| fallback_message(status));
             let detail = legacy.details.and_then(|d| serde_json::to_string(&d).ok());
-            return (code, message, detail);
+            return (code, message, None, detail);
         }
 
         if let Ok(value) = serde_json::from_slice::<serde_json::Value>(body) {
@@ -195,6 +204,10 @@ fn parse_error_payload(body: &[u8], status: StatusCode) -> (String, String, Opti
                     .and_then(|v| v.as_str())
                     .map(|s| s.to_string())
                     .unwrap_or_else(|| fallback_message(status));
+                let hint = obj
+                    .get("hint")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
                 let detail = obj
                     .get("detail")
                     .or_else(|| obj.get("details"))
@@ -205,12 +218,29 @@ fn parse_error_payload(body: &[u8], status: StatusCode) -> (String, String, Opti
                             serde_json::to_string(v).ok()
                         }
                     });
-                return (code, message, detail);
+                return (code, message, hint, detail);
+            }
+        }
+
+        if let Ok(text) = std::str::from_utf8(body) {
+            let message = text.trim();
+            if !message.is_empty() {
+                return (
+                    fallback_code(status),
+                    message.to_string(),
+                    None,
+                    None,
+                );
             }
         }
     }
 
-    (fallback_code(status), fallback_message(status), None)
+    (
+        fallback_code(status),
+        fallback_message(status),
+        None,
+        None,
+    )
 }
 
 fn fallback_code(status: StatusCode) -> String {
@@ -219,6 +249,94 @@ fn fallback_code(status: StatusCode) -> String {
 
 fn fallback_message(status: StatusCode) -> String {
     status.canonical_reason().unwrap_or("error").to_string()
+}
+
+fn derive_hint(code: &str, message: &str, detail: Option<&str>, status: StatusCode) -> String {
+    let code_upper = code.to_ascii_uppercase();
+    let msg_lower = message.to_ascii_lowercase();
+    let detail_lower = detail.unwrap_or("").to_ascii_lowercase();
+    let combined = format!("{msg_lower} {detail_lower}");
+
+    // --- DB not ready / migrations ---
+    if code_upper == "DATABASE_ERROR"
+        || code_upper == "DB_ERROR"
+        || combined.contains("no such table")
+        || combined.contains("migration")
+        || combined.contains("schema mismatch")
+    {
+        return "Database not ready: run `./aosctl db migrate` (or `cargo sqlx migrate run`) and restart the server"
+            .to_string();
+    }
+
+    if (combined.contains("failed to connect")
+        && (combined.contains("database") || combined.contains("sqlite") || combined.contains("sqlx")))
+        || combined.contains("database is locked")
+        || combined.contains("sqlite_busy")
+        || combined.contains("unable to open database file")
+        || combined.contains("readonly database")
+    {
+        return "Database unavailable: ensure `var/aos-cp.sqlite3` is readable/writable and not locked by another AdapterOS process"
+            .to_string();
+    }
+
+    // --- No models seeded / model paths ---
+    if code_upper == "MODEL_NOT_FOUND"
+        || code_upper == "INCOMPATIBLE_BASE_MODEL"
+        || combined.contains("model not found")
+        || combined.contains("base model")
+    {
+        return "No base models registered: put a model under `var/model-cache/models` (or `var/models`) and restart with `AOS_SEED_MODEL_CACHE=1`"
+            .to_string();
+    }
+
+    if (combined.contains("model files") || combined.contains("model path"))
+        && (combined.contains("file not found")
+            || combined.contains("no such file")
+            || combined.contains("path does not exist"))
+    {
+        return "Model files missing: verify `AOS_MODEL_CACHE_DIR`/`AOS_MODEL_PATH` and restart".to_string();
+    }
+
+    // --- Worker not registered / socket issues ---
+    if code_upper == "UDS_CONNECTION_FAILED"
+        || (combined.contains("uds") && combined.contains("worker"))
+        || (combined.contains("socket") && combined.contains("worker"))
+    {
+        return "Worker socket issue: ensure `AOS_WORKER_SOCKET` matches the worker UDS path (default `/var/run/aos/<tenant>/worker.sock`)"
+            .to_string();
+    }
+
+    if code_upper == "WORKER_UNAVAILABLE"
+        || code_upper == "WORKER_NOT_FOUND"
+        || code_upper == "WORKER_NOT_RESPONDING"
+        || combined.contains("worker not initialized")
+        || combined.contains("no workers registered")
+        || combined.contains("no workers available")
+        || combined.contains("no worker available")
+        || combined.contains("worker not available")
+        || combined.contains("no compatible worker")
+    {
+        return "Worker not registered: start the worker (`./start` with `SKIP_WORKER=0` or `scripts/service-manager.sh start-worker`), then retry"
+            .to_string();
+    }
+
+    // --- Adapter not found / not active ---
+    if code_upper == "ADAPTER_NOT_IN_MANIFEST"
+        || code_upper == "ADAPTER_NOT_IN_EFFECTIVE_SET"
+        || combined.contains("not in manifest")
+        || combined.contains("effective adapter set")
+    {
+        return "Adapter not active for routing: activate a stack that includes the adapter, then retry"
+            .to_string();
+    }
+
+    if (code_upper == "NOT_FOUND" && combined.contains("adapter")) || combined.contains("adapter not found") {
+        return "Adapter not found: list adapters (`GET /v1/adapters`) or seed fixtures (`aosctl db seed-fixtures`), then retry with a valid `adapter_id`"
+            .to_string();
+    }
+
+    // Fallback: always provide something actionable.
+    "Check server logs using `request_id` and retry".to_string()
 }
 
 #[cfg(test)]
@@ -260,6 +378,7 @@ mod tests {
         let envelope: ApiErrorBody = serde_json::from_slice(&body_bytes).unwrap();
         assert_eq!(envelope.code, "HTTP_400");
         assert_eq!(envelope.message, "bad input");
+        assert!(!envelope.hint.trim().is_empty());
         assert_eq!(envelope.request_id, request_id);
     }
 

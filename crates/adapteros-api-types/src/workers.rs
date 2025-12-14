@@ -115,6 +115,21 @@ pub struct WorkerResponse {
     pub status: String,
     pub started_at: String,
     pub last_seen_at: Option<String>,
+    /// Backend capabilities advertised by the worker
+    #[serde(default)]
+    pub capabilities: Vec<String>,
+    /// Backend selected by the worker (e.g., mlx, metal, coreml)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub backend: Option<String>,
+    /// Base model ID expected/loaded by this worker (from manifest)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_id: Option<String>,
+    /// Base model hash (BLAKE3 hex) expected/loaded by this worker (from manifest/worker)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_hash: Option<String>,
+    /// Whether the worker is in a state that implies the base model is loaded
+    #[serde(default)]
+    pub model_loaded: bool,
 }
 
 /// Worker status update

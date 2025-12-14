@@ -119,6 +119,9 @@ export function TenantImportWizard({ onComplete, onCancel }: TenantImportWizardP
                     setValidationError('Failed to parse JSON file');
                   }
                 };
+                reader.onerror = () => {
+                  setValidationError('Failed to read configuration file');
+                };
                 reader.readAsText(file);
               }
             }}

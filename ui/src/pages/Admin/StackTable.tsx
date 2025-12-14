@@ -20,7 +20,7 @@ import {
   useSetDefaultStack,
   useGetDefaultStack,
   useClearDefaultStack,
-} from '@/hooks/useAdmin';
+} from '@/hooks/admin/useAdmin';
 import {
   Dialog,
   DialogContent,

@@ -26,7 +26,7 @@ import { SpawnWorkerModal } from './SpawnWorkerModal';
 import { ProcessDebugger } from './ProcessDebugger';
 
 import { logger, toError } from '@/utils/logger';
-import { usePolling } from '@/hooks/usePolling';
+import { usePolling } from '@/hooks/realtime/usePolling';
 import { LastUpdated } from './ui/last-updated';
 import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
 
@@ -97,7 +97,7 @@ export function WorkersTab({ selectedTenant }: WorkersTabProps) {
     let filtered = workers;
 
     if (filterTenant) {
-      filtered = filtered.filter((w) => w.tenant_id.includes(filterTenant));
+      filtered = filtered.filter((w) => w.tenant_id?.includes(filterTenant));
     }
     if (filterNode) {
       filtered = filtered.filter((w) => w.node_id.includes(filterNode));
@@ -282,7 +282,7 @@ export function WorkersTab({ selectedTenant }: WorkersTabProps) {
                     {worker.node_id.substring(0, 8)}...
                   </TableCell>
                   <TableCell className="font-mono text-xs">
-                    {worker.plan_id.substring(0, 8)}...
+                    {worker.plan_id?.substring(0, 8) ?? 'N/A'}
                   </TableCell>
                   <TableCell>
                     <Badge variant={getStatusBadgeVariant(worker.status) as 'default' | 'secondary' | 'destructive' | 'outline'} className="gap-1">
@@ -292,7 +292,7 @@ export function WorkersTab({ selectedTenant }: WorkersTabProps) {
                   </TableCell>
                   <TableCell>{worker.pid || 'N/A'}</TableCell>
                   <TableCell className="text-xs">
-                    {new Date(worker.started_at).toLocaleString()}
+                    {worker.started_at ? new Date(worker.started_at).toLocaleString() : 'N/A'}
                   </TableCell>
                   <TableCell className="text-xs">
                     {worker.last_seen_at ? new Date(worker.last_seen_at).toLocaleString() : 'Never'}

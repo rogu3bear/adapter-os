@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import FeatureLayout from '@/layout/FeatureLayout';
 import { useTenant } from '@/providers/FeatureProviders';
-import { useEvidenceApi } from '@/hooks/useEvidenceApi';
+import { useEvidenceApi } from '@/hooks/api/useEvidenceApi';
 import type { CreateEvidenceRequest, Evidence, EvidenceStatus, ListEvidenceQuery } from '@/api/document-types';
 import {
   Card,
@@ -104,7 +104,8 @@ export default function EvidencePage() {
       setDescription('');
       setTargetId('');
     } catch (error) {
-      const code = (error as any)?.code || (error as any)?.status;
+      const errorObj = error as { code?: unknown; status?: unknown };
+      const code = errorObj.code || errorObj.status;
       const message = error instanceof Error ? error.message : 'Failed to create evidence';
       toast.error(code ? `Create failed (${code})` : 'Create failed', { description: message });
     }

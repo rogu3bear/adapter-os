@@ -322,6 +322,42 @@ async fn main() -> Result<()> {
             error!("Config lock poisoned at startup: {}", e);
             anyhow::anyhow!("config lock poisoned at startup")
         })?;
+
+        let parse_env_u16 = |key: &str| -> Option<u16> {
+            std::env::var(key).ok().and_then(|v| v.parse::<u16>().ok())
+        };
+        let env_truthy = |key: &str| -> bool {
+            std::env::var(key)
+                .ok()
+                .map(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+                .unwrap_or(false)
+        };
+
+        let api_port = std::env::var("AOS_SERVER_PORT")
+            .ok()
+            .and_then(|p| p.parse().ok())
+            .unwrap_or(cfg.server.port);
+        let ui_port = parse_env_u16("AOS_UI_PORT");
+        let panel_port = parse_env_u16("AOS_PANEL_PORT");
+
+        let demo_mode = panel_port.is_some()
+            || std::env::var("AOS_DATABASE_URL")
+                .ok()
+                .is_some_and(|v| v.contains("aos-demo"));
+
+        let dev_no_auth_active = cfg!(debug_assertions) && env_truthy("AOS_DEV_NO_AUTH");
+        let auth_mode = if dev_no_auth_active { "dev_no_auth" } else { "jwt" };
+
+        info!(
+            api_port,
+            ui_port = ?ui_port,
+            panel_port = ?panel_port,
+            db_path = %cfg.db.path,
+            auth_mode = %auth_mode,
+            demo_mode,
+            "Effective config summary"
+        );
+
         info!(
             port = cfg.server.port,
             bind = %cfg.server.bind,
@@ -572,18 +608,15 @@ async fn main() -> Result<()> {
 
         if baseline_path.exists() {
             // Load baseline and compare
-            let keypair = get_or_create_fingerprint_keypair().map_err(|e| {
-                anyhow::anyhow!("Failed to get fingerprint keypair: {}", e)
-            })?;
+            let keypair = get_or_create_fingerprint_keypair()
+                .map_err(|e| anyhow::anyhow!("Failed to get fingerprint keypair: {}", e))?;
             let baseline = DeviceFingerprint::load_verified(&baseline_path, &keypair.public_key())
-                .map_err(|e| {
-                    anyhow::anyhow!("Failed to load baseline fingerprint: {}", e)
-                })?;
+                .map_err(|e| anyhow::anyhow!("Failed to load baseline fingerprint: {}", e))?;
 
             let evaluator = DriftEvaluator::from_policy(&drift_policy);
-            let drift_report = evaluator.compare(&baseline, &current_fp).map_err(|e| {
-                anyhow::anyhow!("Failed to compare fingerprints: {}", e)
-            })?;
+            let drift_report = evaluator
+                .compare(&baseline, &current_fp)
+                .map_err(|e| anyhow::anyhow!("Failed to compare fingerprints: {}", e))?;
 
             if drift_report.should_block() {
                 if production_mode {
@@ -630,15 +663,13 @@ async fn main() -> Result<()> {
         } else {
             // First run: auto-create baseline
             warn!("No baseline fingerprint found, creating initial baseline");
-            let keypair = get_or_create_fingerprint_keypair().map_err(|e| {
-                anyhow::anyhow!("Failed to get fingerprint keypair: {}", e)
-            })?;
+            let keypair = get_or_create_fingerprint_keypair()
+                .map_err(|e| anyhow::anyhow!("Failed to get fingerprint keypair: {}", e))?;
 
             // Ensure directory exists
             if let Some(parent) = baseline_path.parent() {
-                std::fs::create_dir_all(parent).map_err(|e| {
-                    anyhow::anyhow!("Failed to create baseline directory: {}", e)
-                })?;
+                std::fs::create_dir_all(parent)
+                    .map_err(|e| anyhow::anyhow!("Failed to create baseline directory: {}", e))?;
             }
 
             current_fp
@@ -1396,9 +1427,8 @@ async fn main() -> Result<()> {
 
         // Ensure directory exists
         if let Some(parent) = socket_path.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| {
-                anyhow::anyhow!("Failed to create metrics socket directory: {}", e)
-            })?;
+            std::fs::create_dir_all(parent)
+                .map_err(|e| anyhow::anyhow!("Failed to create metrics socket directory: {}", e))?;
         }
 
         let mut uds_exporter = adapteros_telemetry::UdsMetricsExporter::new(socket_path.clone())
@@ -1565,9 +1595,7 @@ async fn main() -> Result<()> {
             #[cfg(debug_assertions)]
             {
                 let dev_secret = std::env::var("AOS_DEV_JWT_SECRET").map_err(|_| {
-                    anyhow::anyhow!(
-                        "AOS_DEV_JWT_SECRET must be set in debug HMAC mode"
-                    )
+                    anyhow::anyhow!("AOS_DEV_JWT_SECRET must be set in debug HMAC mode")
                 })?;
                 if dev_secret.is_empty() {
                     return Err(AosError::Config(

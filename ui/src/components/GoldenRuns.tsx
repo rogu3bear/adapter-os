@@ -9,7 +9,7 @@ import { GoldenRunSummary, GoldenCompareResult } from '@/api/types';
 import { logger, toError } from '@/utils/logger';
 import { errorRecoveryTemplates } from './ui/error-recovery';
 import { GlossaryTooltip } from './ui/glossary-tooltip';
-import { useRBAC } from '@/hooks/useRBAC';
+import { useRBAC } from '@/hooks/security/useRBAC';
 
 export function GoldenRuns() {
   const { can } = useRBAC();
@@ -255,15 +255,15 @@ export function GoldenRuns() {
                   </div>
                   <div>
                     <div className="text-muted-foreground">Layers</div>
-                    <div>{summary.layer_count.toLocaleString()}</div>
+                    <div>{summary.layer_count?.toLocaleString() ?? 'N/A'}</div>
                   </div>
                   <div>
                     <div className="text-muted-foreground">Max ε</div>
-                    <div>{summary.max_epsilon.toExponential(2)}</div>
+                    <div>{summary.max_epsilon?.toExponential(2) ?? 'N/A'}</div>
                   </div>
                   <div>
                     <div className="text-muted-foreground">Mean ε</div>
-                    <div>{summary.mean_epsilon.toExponential(2)}</div>
+                    <div>{summary.mean_epsilon?.toExponential(2) ?? 'N/A'}</div>
                   </div>
                   <div>
                     <div className="text-muted-foreground">Created</div>

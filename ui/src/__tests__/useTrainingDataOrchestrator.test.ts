@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { act, renderHook } from '@testing-library/react';
-import { useTrainingDataOrchestrator } from '@/hooks/useTrainingDataOrchestrator';
+import { useTrainingDataOrchestrator } from '@/hooks/training';
 import apiClient from '@/api/client';
 
 vi.mock('@/api/client', () => ({

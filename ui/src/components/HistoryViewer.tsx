@@ -39,7 +39,7 @@ import {
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
 import { logger } from '@/utils/logger';
-import useEnhancedActionHistory from '@/hooks/useEnhancedActionHistory';
+import useEnhancedActionHistory from '@/hooks/ui/useEnhancedActionHistory';
 import {
   ActionHistoryItem,
   ActionType,

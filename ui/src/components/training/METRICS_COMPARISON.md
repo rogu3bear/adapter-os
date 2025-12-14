@@ -95,7 +95,7 @@ function TrainingDashboard() {
 ### With Real-Time Updates
 
 ```typescript
-import { usePolling } from '@/hooks/usePolling';
+import { usePolling } from '@/hooks/realtime/usePolling';
 
 function LiveMetricsComparison() {
   const { data: jobs } = usePolling(

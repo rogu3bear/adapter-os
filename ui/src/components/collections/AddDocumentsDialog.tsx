@@ -6,7 +6,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { TERMS } from '@/constants/terminology';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import useCollectionsApi from '@/hooks/useCollectionsApi';
+import useCollectionsApi from '@/hooks/api/useCollectionsApi';
 import apiClient from '@/api/client';
 import { logger, toError } from '@/utils/logger';
 

@@ -19,6 +19,7 @@ import { ExportScope } from '@/components/ui/export-dialog';
 import { Pin, Play, Pause, MoreHorizontal, ArrowUp, Download, Activity, Trash2, Code, Target, Clock } from 'lucide-react';
 import { getCategoryIcon, getStateIcon } from '@/components/adapters/helpers';
 import { getLifecycleVariant } from '@/utils/lifecycle';
+import { formatMB, formatCount } from '@/utils';
 
 interface AdapterRegistryTabProps {
   adapters: Adapter[];
@@ -157,7 +158,7 @@ export function AdapterRegistryTab({
                           </TableCell>
                           <TableCell className="p-4 border-b border-border">
                             <div className="flex items-center justify-center gap-2">
-                              {getCategoryIcon(adapterTyped.category)}
+                              {getCategoryIcon(adapterTyped.category ?? 'code')}
                               <div>
                                 <div className="font-medium">{adapterTyped.name}</div>
                                 <div className="text-sm text-muted-foreground">
@@ -168,8 +169,8 @@ export function AdapterRegistryTab({
                           </TableCell>
                           <TableCell className="p-4 border-b border-border" role="gridcell">
                             <div className="status-indicator status-neutral flex items-center justify-center gap-2">
-                              {getCategoryIcon(adapterTyped.category)}
-                              <span>{adapterTyped.category}</span>
+                              {getCategoryIcon(adapterTyped.category ?? 'code')}
+                              <span>{adapterTyped.category ?? 'code'}</span>
                             </div>
                           </TableCell>
                           <TableCell className="p-4 border-b border-border text-sm text-muted-foreground">
@@ -182,8 +183,8 @@ export function AdapterRegistryTab({
                           </TableCell>
                           <TableCell className="p-4 border-b border-border">
                             <div className="flex items-center justify-center gap-2">
-                              {getStateIcon(adapterTyped.current_state)}
-                              <span className="text-sm font-mono">{adapterTyped.current_state}</span>
+                              {adapterTyped.current_state && getStateIcon(adapterTyped.current_state)}
+                              <span className="text-sm font-mono">{adapterTyped.current_state ?? 'unloaded'}</span>
                               {adapterTyped.pinned && (
                                 <Pin className="h-4 w-4 text-gray-600" />
                               )}
@@ -191,13 +192,13 @@ export function AdapterRegistryTab({
                           </TableCell>
                           <TableCell className="p-4 border-b border-border">
                             <div className="flex items-center justify-center gap-2">
-                              <span className="text-sm">{Math.round(adapterTyped.memory_bytes / 1024 / 1024)} MB</span>
+                              <span className="text-sm">{formatMB(adapterTyped.memory_bytes, 0)}</span>
                             </div>
                           </TableCell>
                           <TableCell className="p-4 border-b border-border">
                             <div className="flex items-center justify-center gap-2">
                               <Target className="h-4 w-4" />
-                              <span>{adapterTyped.activation_count}</span>
+                              <span>{formatCount(adapterTyped.activation_count)}</span>
                             </div>
                           </TableCell>
                           <TableCell className="p-4 border-b border-border">
@@ -211,9 +212,9 @@ export function AdapterRegistryTab({
                               <BookmarkButton
                                 type="adapter"
                                 title={adapterTyped.name}
-                                url={`/adapters?adapter=${encodeURIComponent(adapterTyped.adapter_id)}`}
-                                entityId={adapterTyped.adapter_id}
-                                description={`${adapterTyped.framework || 'Unknown'} • ${adapterTyped.category || 'Unknown category'}`}
+                                url={`/adapters?adapter=${encodeURIComponent(adapterTyped.adapter_id ?? '')}`}
+                                entityId={adapterTyped.adapter_id ?? ''}
+                                description={`${adapterTyped.framework || 'Unknown'} • ${adapterTyped.category ?? 'Unknown category'}`}
                                 variant="ghost"
                                 size="icon"
                               />
@@ -224,13 +225,13 @@ export function AdapterRegistryTab({
                                   </Button>
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent align="end">
-                                  {['warm', 'hot', 'resident'].includes(adapterTyped.current_state) ? (
-                                    <DropdownMenuItem onClick={() => handleUnloadAdapter(adapterTyped.adapter_id)}>
+                                  {adapterTyped.current_state && ['warm', 'hot', 'resident'].includes(adapterTyped.current_state) ? (
+                                    <DropdownMenuItem onClick={() => handleUnloadAdapter(adapterTyped.adapter_id ?? '')}>
                                       <Pause className="mr-2 h-4 w-4" />
                                       Unload
                                     </DropdownMenuItem>
                                   ) : (
-                                    <DropdownMenuItem onClick={() => handleLoadAdapter(adapterTyped.adapter_id)}>
+                                    <DropdownMenuItem onClick={() => handleLoadAdapter(adapterTyped.adapter_id ?? '')}>
                                       <Play className="mr-2 h-4 w-4" />
                                       Load
                                     </DropdownMenuItem>
@@ -239,19 +240,19 @@ export function AdapterRegistryTab({
                                     <Pin className="mr-2 h-4 w-4" />
                                     {adapterTyped.pinned ? 'Unpin' : 'Pin'}
                                   </DropdownMenuItem>
-                                  <DropdownMenuItem onClick={() => handlePromoteState(adapterTyped.adapter_id)}>
+                                  <DropdownMenuItem onClick={() => handlePromoteState(adapterTyped.adapter_id ?? '')}>
                                     <ArrowUp className="mr-2 h-4 w-4" />
                                     Promote State
                                   </DropdownMenuItem>
-                                  <DropdownMenuItem onClick={() => handleViewHealth(adapterTyped.adapter_id)}>
+                                  <DropdownMenuItem onClick={() => handleViewHealth(adapterTyped.adapter_id ?? '')}>
                                     <Activity className="mr-2 h-4 w-4" />
                                     View Health
                                   </DropdownMenuItem>
-                                  <DropdownMenuItem onClick={() => handleDownloadManifest(adapterTyped.adapter_id)}>
+                                  <DropdownMenuItem onClick={() => handleDownloadManifest(adapterTyped.adapter_id ?? '')}>
                                     <Download className="mr-2 h-4 w-4" />
                                     Download Manifest
                                   </DropdownMenuItem>
-                                  <DropdownMenuItem onClick={() => setDeleteConfirmId(adapterTyped.adapter_id)}>
+                                  <DropdownMenuItem onClick={() => setDeleteConfirmId(adapterTyped.adapter_id ?? '')}>
                                     <Trash2 className="mr-2 h-4 w-4 text-gray-700" />
                                     Delete
                                   </DropdownMenuItem>

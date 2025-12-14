@@ -3,7 +3,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ArrowRight, CheckCircle, Circle, AlertCircle, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { usePolling } from '@/hooks/usePolling';
+import { usePolling } from '@/hooks/realtime/usePolling';
 import { apiClient } from '@/api/client';
 import type { TrainingJob } from '@/api/types';
 import { DashboardWidgetFrame, type DashboardWidgetState } from './DashboardWidgetFrame';

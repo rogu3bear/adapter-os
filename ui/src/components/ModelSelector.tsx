@@ -93,7 +93,8 @@ export function ModelSelector({ value, onChange, disabled }: ModelSelectorProps)
                   valid: false,
                   issues: [],
                   can_load: false,
-                  reason: 'Validation failed - unable to check model status'
+                  reason: 'Validation failed - unable to check model status',
+                  status: 'error'
                 } as ModelValidationResponse,
                 error: error instanceof Error ? error.message : 'Unknown error'
               };

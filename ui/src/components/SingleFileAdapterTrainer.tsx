@@ -30,12 +30,12 @@ import type { TrainingJob, TrainingConfigRequest, InferRequest, InferResponse } 
 import { logger, toError } from '@/utils/logger';
 import { ProgressIndicator, ContextualLoading, loadingStates } from './ui/progress-indicator';
 import { SuccessFeedback, type NextStep } from './ui/success-feedback';
-import { useViewTransition } from '@/hooks/useViewTransition';
-import { useTrainingDataOrchestrator } from '@/hooks/useTrainingDataOrchestrator';
+import { useViewTransition } from '@/hooks/ui/useViewTransition';
+import { useTrainingDataOrchestrator } from '@/hooks/training';
 import { BreadcrumbNavigation } from './BreadcrumbNavigation';
 import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
 import { GlossaryTooltip } from './ui/glossary-tooltip';
-import { useRBAC } from '@/hooks/useRBAC';
+import { useRBAC } from '@/hooks/security/useRBAC';
 
 /**
  * Training configuration form schema for SingleFileAdapterTrainer
@@ -729,7 +729,7 @@ export function SingleFileAdapterTrainer() {
             <ContextualLoading
               type="training"
               progress={trainingMetrics?.progress}
-              eta={trainingMetrics?.progress < 50 ? "2-8 minutes" : "1-4 minutes"}
+              eta={(trainingMetrics?.progress ?? 0) < 50 ? "2-8 minutes" : "1-4 minutes"}
             />
 
             {trainingMetrics && (

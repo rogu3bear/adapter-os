@@ -286,6 +286,20 @@ let gate_f32 = gate_q15 as f32 / 32767.0;
 
 **Location:** `crates/adapteros-lora-kernel-mtl/`
 
+### Backend Cache Implementation
+
+**Backend selection** is deterministic based on capabilities/config, but **cache eviction behavior and UI/telemetry exposure are unverified**.
+
+**✅ IMPLEMENTED:**
+- `BackendStrategy.select_backend()` selects deterministically
+- `ModelHandleCache` keys on `(backend_type, manifest_hash)`
+
+**⚠️ UNVERIFIED:**
+- Cache eviction predictability
+- UI/telemetry exposure of cache state
+
+**Citation:** `plan/drift-findings.json` backend-01 rule validation
+
 ---
 
 ### 6. Telemetry
@@ -473,6 +487,12 @@ stateDiagram-v2
 ```
 
 **Location:** `crates/adapteros-lora-worker/`
+
+**⚠️ CURRENT GAPS (Documentation Drift):**
+- **Worker lifecycle tenant scoping** not validated in storage layer
+- Mapping of `WorkerStatus` to database schema and telemetry events unverified
+
+**Citation:** `plan/drift-findings.json` lifecycle-01 rule validation
 
 ---
 

@@ -33,6 +33,7 @@ import {
 } from '@/api/types';
 import apiClient from '@/api/client';
 import { logger } from '@/utils/logger';
+import { formatMB, formatString } from '@/utils';
 
 import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
 
@@ -102,17 +103,19 @@ export function AdapterMemoryMonitor({
   // Calculate memory statistics - use API data if available, otherwise fall back to props
   const totalMemoryUsed = memoryData
     ? memoryData.total_memory_mb - memoryData.available_memory_mb
-    : adapters.reduce((sum, adapter) => sum + adapter.memory_bytes, 0) / 1024 / 1024;
+    : adapters.reduce((sum, adapter) => sum + (adapter.memory_bytes ?? 0), 0) / 1024 / 1024;
   const effectiveTotalMemory = memoryData ? memoryData.total_memory_mb : totalMemory / 1024 / 1024;
   const memoryUsagePercent = effectiveTotalMemory > 0 ? (totalMemoryUsed / effectiveTotalMemory) * 100 : 0;
-  
+
   const memoryByCategory = adapters.reduce((acc, adapter) => {
-    acc[adapter.category] = (acc[adapter.category] || 0) + adapter.memory_bytes;
+    const cat = adapter.category ?? 'code';
+    acc[cat] = (acc[cat] || 0) + (adapter.memory_bytes ?? 0);
     return acc;
   }, {} as MemoryUsageByCategory);
 
   const memoryByState = adapters.reduce((acc, adapter) => {
-    acc[adapter.current_state] = (acc[adapter.current_state] || 0) + adapter.memory_bytes;
+    const state = adapter.current_state ?? 'unloaded';
+    acc[state] = (acc[state] || 0) + (adapter.memory_bytes ?? 0);
     return acc;
   }, {} as Record<AdapterState, number>);
 
@@ -125,7 +128,7 @@ export function AdapterMemoryMonitor({
       const bPriority = priorityOrder[b.category === 'ephemeral' ? 'critical' : 'normal'];
       
       if (aPriority !== bPriority) return aPriority - bPriority;
-      return b.memory_bytes - a.memory_bytes; // Higher memory first
+      return (b.memory_bytes ?? 0) - (a.memory_bytes ?? 0); // Higher memory first
     });
 
   const getMemoryPressureLevel = () => {
@@ -516,7 +519,7 @@ export function AdapterMemoryMonitor({
           <div className="space-y-4">
             {categories.map((category) => {
               const memory = memoryByCategory[category] || 0;
-              const percentage = totalMemoryUsed > 0 ? (memory / totalMemoryUsed) * 100 : 0;
+              const percentage = totalMemoryUsed > 0 ? ((memory / 1024 / 1024) / totalMemoryUsed) * 100 : 0;
               const adapterCount = adapters.filter(a => a.category === category).length;
               
               return (
@@ -654,11 +657,11 @@ export function AdapterMemoryMonitor({
                       <Square className="h-4 w-4 text-muted-foreground" />
                     )}
                   </button>
-                  {getCategoryIcon(adapter.category)}
+                  {getCategoryIcon(adapter.category ?? 'code')}
                   <div>
                     <div className="font-medium">{adapter.name}</div>
                     <div className="text-sm text-muted-foreground">
-                      {adapter.category} • {adapter.current_state} • {Math.round(adapter.memory_bytes / 1024 / 1024)} MB
+                      {formatString(adapter.category) || 'code'} • {formatString(adapter.current_state) || 'unloaded'} • {formatMB(adapter.memory_bytes, 0)}
                     </div>
                   </div>
                 </div>

@@ -279,7 +279,7 @@ if (error) {
 │   ├── PolicyOverride.tsx
 │   ├── PromotionWorkflowExample.tsx
 │   └── index.ts
-├── hooks/usePolicyChecks.ts
+├── hooks/policies/usePolicyChecks.ts
 └── api/policyTypes.ts
 ```
 
@@ -299,7 +299,7 @@ if (error) {
 - **Usage guide**: `./USAGE.md`
 - **Integration example**: `./PromotionWorkflowExample.tsx`
 - **Types reference**: `/Users/star/Dev/aos/ui/src/api/policyTypes.ts`
-- **Hook reference**: `/Users/star/Dev/aos/ui/src/hooks/usePolicyChecks.ts`
+- **Hook reference**: `/Users/star/Dev/aos/ui/src/hooks/policies/usePolicyChecks.ts`
 
 ## Export Feature
 

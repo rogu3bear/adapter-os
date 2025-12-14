@@ -66,7 +66,7 @@ export function AdapterActions({
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showEvictDialog, setShowEvictDialog] = useState(false);
 
-  const isLoaded = ['warm', 'hot', 'resident'].includes(adapter.current_state);
+  const isLoaded = adapter.current_state ? ['warm', 'hot', 'resident'].includes(adapter.current_state) : false;
   const isResident = adapter.current_state === 'resident';
 
   const handleDeleteClick = () => {
@@ -252,7 +252,7 @@ export function InlineAdapterActions({
   canLoad = true,
   canUnload = true,
 }: InlineAdapterActionsProps) {
-  const isLoaded = ['warm', 'hot', 'resident'].includes(adapter.current_state);
+  const isLoaded = adapter.current_state ? ['warm', 'hot', 'resident'].includes(adapter.current_state) : false;
   const isResident = adapter.current_state === 'resident';
 
   if (isLoaded) {

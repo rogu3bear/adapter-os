@@ -971,6 +971,7 @@ async fn check_ui_health() -> ComponentHealth {
         .unwrap_or_else(|| DEFAULT_UI_HEALTH_URL.to_string());
 
     let client = match reqwest::Client::builder()
+        .connect_timeout(Duration::from_millis(500))
         .timeout(Duration::from_secs(2))
         .build()
     {
@@ -984,22 +985,39 @@ async fn check_ui_health() -> ComponentHealth {
         }
     };
 
-    match client.get(&url).send().await {
-        Ok(resp) if resp.status().is_success() => ComponentHealth::new(
-            "ui",
-            ComponentStatus::Healthy,
-            format!("UI healthy at {}", url),
-        ),
-        Ok(resp) => ComponentHealth::new(
-            "ui",
-            ComponentStatus::Unhealthy,
-            format!("UI health returned {}", resp.status()),
-        ),
-        Err(e) => ComponentHealth::new(
-            "ui",
-            ComponentStatus::Unhealthy,
-            format!("UI health request failed: {}", e),
-        ),
+    let max_attempts = 2u32;
+    let mut attempt = 0u32;
+    let mut backoff = Duration::from_millis(100);
+
+    loop {
+        attempt += 1;
+        match client.get(&url).send().await {
+            Ok(resp) if resp.status().is_success() => {
+                return ComponentHealth::new(
+                    "ui",
+                    ComponentStatus::Healthy,
+                    format!("UI healthy at {}", url),
+                )
+            }
+            Ok(resp) => {
+                return ComponentHealth::new(
+                    "ui",
+                    ComponentStatus::Unhealthy,
+                    format!("UI health returned {}", resp.status()),
+                )
+            }
+            Err(e) => {
+                if attempt >= max_attempts {
+                    return ComponentHealth::new(
+                        "ui",
+                        ComponentStatus::Unhealthy,
+                        format!("UI health request failed after {} attempts: {}", attempt, e),
+                    );
+                }
+                tokio::time::sleep(backoff).await;
+                backoff = (backoff * 2).min(Duration::from_millis(800));
+            }
+        }
     }
 }
 

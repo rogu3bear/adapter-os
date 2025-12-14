@@ -25,8 +25,8 @@ pub use token_revocation::{
 // PRD-03: Per-tenant token baseline functions are exported directly from this module
 // get_tenant_token_baseline, set_tenant_token_baseline
 
-use crate::auth::{AuthMode, Claims, PrincipalType};
 use crate::types::ErrorResponse;
+use crate::auth::Claims;
 use adapteros_core::Result;
 use adapteros_db::Db;
 use axum::{http::StatusCode, Json};
@@ -799,6 +799,7 @@ pub async fn cleanup_expired_sessions(db: &Db) -> Result<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::auth::{AuthMode, PrincipalType};
     use crate::middleware::tenant_route_guard_middleware;
     use axum::{body::Body, http::Request, routing::get, Router};
     use tower::ServiceExt;

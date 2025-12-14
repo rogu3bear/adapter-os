@@ -5,8 +5,8 @@ import { Layers, TrendingUp, Activity, Loader2, AlertCircle } from 'lucide-react
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import { useAdapters } from '@/pages/Adapters/useAdapters';
-import { useMemoryUsage } from '@/hooks/useSystemMetrics';
+import { useAdapters } from '@/hooks/adapters/useAdapters';
+import { useMemoryUsage } from '@/hooks/system/useSystemMetrics';
 import type { AdapterState } from '@/api/adapter-types';
 import { DashboardWidgetFrame, type DashboardWidgetState } from './DashboardWidgetFrame';
 

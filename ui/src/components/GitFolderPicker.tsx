@@ -132,14 +132,14 @@ export function GitFolderPicker({ onFolderSelect, onCancel }: GitFolderPickerPro
       const gitInfo = analysis.git_info;
       
       // Validate required fields exist
-      if (!gitInfo.branch) {
+      if (!gitInfo || !gitInfo.branch) {
         throw new Error('Repository analysis incomplete: missing branch information');
       }
-      
+
       if (typeof gitInfo.commit_count !== 'number') {
         throw new Error('Repository analysis incomplete: missing commit count');
       }
-      
+
       if (!gitInfo.last_commit) {
         throw new Error('Repository analysis incomplete: missing last commit information');
       }

@@ -16,7 +16,7 @@ import {
 } from '@/components/ui/tooltip';
 import { toast } from 'sonner';
 import { RouterIndicator } from './RouterIndicator';
-import { EvidencePanel } from './EvidencePanel';
+import { EvidenceSources } from './EvidenceSources';
 import { ProofBadge } from './ProofBadge';
 import { ReplayButton } from './ReplayButton';
 import { ReplayResultDialog } from './ReplayResultDialog';
@@ -73,7 +73,7 @@ export interface ChatMessage {
   routerDecision?: ExtendedRouterDecision | null;
   isStreaming?: boolean;
   evidence?: EvidenceItem[];
-  isVerified?: boolean;
+  isVerified?: boolean | null;
   verifiedAt?: string;
   unavailablePinnedAdapters?: string[];
   pinnedRoutingFallback?: 'stack_only' | 'partial';
@@ -96,35 +96,39 @@ function areMessagesEqual(prevProps: ChatMessageProps, nextProps: ChatMessagePro
   const prev = prevProps.message;
   const next = nextProps.message;
 
+  // Normalize null/undefined for boolean comparison
+  const prevVerified = prev.isVerified === true;
+  const nextVerified = next.isVerified === true;
+
   // Compare all fields that affect rendering
-  return (
+  return !!(
     prev.id === next.id &&
     prev.role === next.role &&
     prev.content === next.content &&
     prev.isStreaming === next.isStreaming &&
     prev.timestamp.getTime() === next.timestamp.getTime() &&
     prev.requestId === next.requestId &&
-    prev.isVerified === next.isVerified &&
+    prevVerified === nextVerified &&
     prev.verifiedAt === next.verifiedAt &&
     prev.pinnedRoutingFallback === next.pinnedRoutingFallback &&
     // Deep compare router decision
     (prev.routerDecision === next.routerDecision ||
-     (prev.routerDecision && next.routerDecision &&
+     (!!prev.routerDecision && !!next.routerDecision &&
       prev.routerDecision.request_id === next.routerDecision.request_id &&
       JSON.stringify(prev.routerDecision.selected_adapters) === JSON.stringify(next.routerDecision.selected_adapters))) &&
     // Deep compare evidence
     (prev.evidence === next.evidence ||
-     (prev.evidence && next.evidence &&
+     (!!prev.evidence && !!next.evidence &&
       prev.evidence.length === next.evidence.length &&
-      prev.evidence.every((e, i) => e.chunk_id === next.evidence![i].chunk_id))) &&
+      prev.evidence.every((e, i) => e.chunk_id === next.evidence?.[i]?.chunk_id))) &&
     // Deep compare unavailable pinned adapters
     (prev.unavailablePinnedAdapters === next.unavailablePinnedAdapters ||
-     (prev.unavailablePinnedAdapters && next.unavailablePinnedAdapters &&
+     (!!prev.unavailablePinnedAdapters && !!next.unavailablePinnedAdapters &&
       prev.unavailablePinnedAdapters.length === next.unavailablePinnedAdapters.length &&
-      prev.unavailablePinnedAdapters.every((a, i) => a === next.unavailablePinnedAdapters![i]))) &&
+      prev.unavailablePinnedAdapters.every((a, i) => a === next.unavailablePinnedAdapters?.[i]))) &&
     // Compare throughput stats
     (prev.throughputStats === next.throughputStats ||
-     (prev.throughputStats && next.throughputStats &&
+     (!!prev.throughputStats && !!next.throughputStats &&
       prev.throughputStats.tokensGenerated === next.throughputStats.tokensGenerated &&
       prev.throughputStats.latencyMs === next.throughputStats.latencyMs)) &&
     prevProps.className === nextProps.className &&
@@ -155,8 +159,9 @@ export const ChatMessageComponent = memo(function ChatMessageComponent({ message
         requestId: message.requestId,
         traceId: message.traceId,
         proofDigest: message.proofDigest,
-        isVerified: message.isVerified,
+        isVerified: message.isVerified ?? undefined,
         verifiedAt: message.verifiedAt,
+        throughputStats: message.throughputStats,
       });
       drawerContext.openDrawer(message.id, 'rulebook');
     }
@@ -171,7 +176,7 @@ export const ChatMessageComponent = memo(function ChatMessageComponent({ message
     requestId: message.requestId,
     traceId: message.traceId ?? message.requestId, // Fall back to requestId if no traceId
     proofDigest: message.proofDigest,
-    isVerified: message.isVerified,
+    isVerified: message.isVerified ?? undefined,
     verifiedAt: message.verifiedAt,
     evidence: message.evidence?.map((e) => ({
       documentId: e.document_id,
@@ -316,7 +321,7 @@ export const ChatMessageComponent = memo(function ChatMessageComponent({ message
             />
           ) : (
             // Fall back to full panel when no drawer context
-            <EvidencePanel
+            <EvidenceSources
               evidence={message.evidence}
               isVerified={message.isVerified || false}
               verifiedAt={message.verifiedAt}
@@ -354,8 +359,9 @@ export const ChatMessageComponent = memo(function ChatMessageComponent({ message
             requestId={message.requestId}
             traceId={message.traceId}
             proofDigest={message.proofDigest}
-            isVerified={message.isVerified}
+            isVerified={message.isVerified ?? undefined}
             verifiedAt={message.verifiedAt}
+            throughputStats={message.throughputStats}
           />
         )}
         {/* Legacy proof badge (only when drawer not available) */}
@@ -421,4 +427,3 @@ export const ChatMessageComponent = memo(function ChatMessageComponent({ message
     </div>
   );
 }, areMessagesEqual);
-

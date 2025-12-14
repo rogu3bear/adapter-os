@@ -15,10 +15,10 @@ interface MetaData {
 }
 
 export const Footer: React.FC = () => {
-  const { data: meta, isLoading } = useQuery<MetaResponse>({
+  const { data: meta, isLoading } = useQuery({
     queryKey: ['/v1/meta'],
 
-    queryFn: async () => {
+    queryFn: async (): Promise<MetaResponse> => {
       // Citation: ui/src/api/client.ts L117-L119
       return apiClient.getMeta();
     },

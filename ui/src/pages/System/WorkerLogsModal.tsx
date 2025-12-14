@@ -6,7 +6,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
-import { useWorkerDetails, useWorkerLogs, useWorkerCrashes } from '@/hooks/useSystemMetrics';
+import { useWorkerDetails, useWorkerLogs, useWorkerCrashes } from '@/hooks/system/useSystemMetrics';
 
 interface WorkerLogsModalProps {
   workerId: string;

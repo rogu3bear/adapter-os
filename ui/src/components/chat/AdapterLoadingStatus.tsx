@@ -10,7 +10,7 @@ import { Flame, Thermometer, Snowflake, Pin, CircleOff, Loader2, CheckCircle } f
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { useLiveData } from '@/hooks/useLiveData';
+import { useLiveData } from '@/hooks/realtime/useLiveData';
 import type { AdapterStreamEvent, AdapterStateTransitionEvent } from '@/api/streaming-types';
 
 // ============================================================================

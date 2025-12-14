@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 import { DiffVisualization, DiffViewMode } from './DiffVisualization';
-import { useDiffKeyboardNav } from './useDiffKeyboardNav';
+import { useDiffKeyboardNav } from '@/hooks/golden/useDiffKeyboardNav';
 
 export interface DiffVisualizationWithNavProps {
   goldenText: string;

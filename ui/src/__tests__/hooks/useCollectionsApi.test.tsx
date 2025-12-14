@@ -7,7 +7,7 @@ import {
   useCollection,
   useCollectionsApi,
   collectionKeys,
-} from '@/hooks/useCollectionsApi';
+} from '@/hooks/api/useCollectionsApi';
 import type { Collection, CollectionDetail } from '@/api/document-types';
 import { withTenantKey } from '@/utils/tenant';
 

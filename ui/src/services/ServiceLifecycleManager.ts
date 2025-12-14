@@ -194,7 +194,8 @@ export class ServiceLifecycleManager {
       }
 
     } catch (error) {
-      await this.handleServiceFailure(serviceId, error as Error);
+      const err = error instanceof Error ? error : new Error(String(error));
+      await this.handleServiceFailure(serviceId, err);
     }
   }
 
@@ -265,7 +266,8 @@ export class ServiceLifecycleManager {
       });
 
     } catch (error) {
-      await this.handleServiceFailure(serviceId, error as Error);
+      const err = error instanceof Error ? error : new Error(String(error));
+      await this.handleServiceFailure(serviceId, err);
     }
   }
 
@@ -446,7 +448,7 @@ export class ServiceLifecycleManager {
       case 'command':
         return await this.checkCommandHealth(service, healthCheck);
       case 'custom':
-        return await healthCheck.customCheck(service);
+        return healthCheck.customCheck ? await healthCheck.customCheck(service) : 'unknown';
       default:
         return 'unknown';
     }
@@ -563,7 +565,25 @@ export class ServiceLifecycleManager {
 
     for (const hook of service.lifecycle.hooks.filter(h => h.enabled)) {
       try {
-        const hookFunction = hook[hookType];
+        // Type-safe access to hook methods
+        let hookFunction: ((service: Service, ...args: unknown[]) => Promise<void>) | undefined;
+
+        if (hookType === 'preStart' && hook.preStart) {
+          hookFunction = hook.preStart;
+        } else if (hookType === 'postStart' && hook.postStart) {
+          hookFunction = hook.postStart;
+        } else if (hookType === 'preStop' && hook.preStop) {
+          hookFunction = hook.preStop;
+        } else if (hookType === 'postStop' && hook.postStop) {
+          hookFunction = hook.postStop;
+        } else if (hookType === 'onHealthCheck' && hook.onHealthCheck) {
+          hookFunction = hook.onHealthCheck as (service: Service, ...args: unknown[]) => Promise<void>;
+        } else if (hookType === 'onFailure' && hook.onFailure) {
+          hookFunction = hook.onFailure as (service: Service, ...args: unknown[]) => Promise<void>;
+        } else if (hookType === 'onRecovery' && hook.onRecovery) {
+          hookFunction = hook.onRecovery;
+        }
+
         if (hookFunction) {
           await Promise.race([
             hookFunction(service, ...args),
@@ -659,7 +679,8 @@ export class ServiceLifecycleManager {
       });
       return await response.json();
     } catch (error) {
-      return { success: false, error: error.message };
+      const err = error instanceof Error ? error : new Error(String(error));
+      return { success: false, error: err.message };
     }
   }
 
@@ -687,7 +708,8 @@ export class ServiceLifecycleManager {
   }
 
   private async checkCommandHealth(service: Service, healthCheck: HealthCheck): Promise<HealthStatus> {
-    const result = await this.executeCommand(healthCheck.command || service.healthCommand);
+    const command = healthCheck.command || service.healthCommand || '';
+    const result = await this.executeCommand(command);
     return result.success ? 'healthy' : 'critical';
   }
 

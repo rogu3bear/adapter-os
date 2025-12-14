@@ -28,7 +28,7 @@ import { Switch } from './ui/switch';
 import apiClient from '@/api/client';
 import { TelemetryBundle, TelemetryEvent, User, VerifyBundleSignatureResponse } from '@/api/types';
 
-import { useTimestamp } from '@/hooks/useTimestamp';
+import { useTimestamp } from '@/hooks/ui/useTimestamp';
 import { HashChainView } from './HashChainView';
 import { GlossaryTooltip } from './ui/glossary-tooltip';
 import { toast } from 'sonner';
@@ -41,9 +41,9 @@ import { logger, toError } from '@/utils/logger';
 import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
 import { DensityControls } from './ui/density-controls';
 import { useDensity } from '@/contexts/DensityContext';
-import { useRBAC } from '@/hooks/useRBAC';
+import { useRBAC } from '@/hooks/security/useRBAC';
 import { PERMISSIONS } from '@/utils/rbac';
-import { ConnectionStatus, useLiveData } from '@/hooks/useLiveData';
+import { ConnectionStatus, useLiveData } from '@/hooks/realtime/useLiveData';
 import {
   applyIncomingEvents,
   filterTelemetryEvents,
@@ -115,8 +115,7 @@ export function Telemetry({ user: userProp, selectedTenant: tenantProp }: Teleme
   const { selectedTenant } = useTenant();
   const { density, setDensity } = useDensity();
   const { can, hasRole: userHasRole } = useRBAC();
-  const effectiveUser = userProp ?? user!;
-  const effectiveTenant = tenantProp ?? selectedTenant;
+  const effectiveTenant = tenantProp ?? selectedTenant ?? userProp?.tenant_id ?? user?.tenant_id;
   const [bundles, setBundles] = useState<TelemetryBundle[]>([]);
   const [loading, setLoading] = useState(true);
   const [telemetryError, setTelemetryError] = useState<Error | null>(null);
@@ -184,19 +183,19 @@ export function Telemetry({ user: userProp, selectedTenant: tenantProp }: Teleme
       const searchLower = String(filterValues.search).toLowerCase();
       if (
         !bundle.id.toLowerCase().includes(searchLower) &&
-        !bundle.cpid.toLowerCase().includes(searchLower)
+        !(bundle.cpid ?? '').toLowerCase().includes(searchLower)
       ) {
         return false;
       }
     }
-    
+
     // CPID filter
-    if (filterValues.cpid && !bundle.cpid.toLowerCase().includes(String(filterValues.cpid).toLowerCase())) {
+    if (filterValues.cpid && !(bundle.cpid ?? '').toLowerCase().includes(String(filterValues.cpid).toLowerCase())) {
       return false;
     }
     
     // Date range filter
-    if (filterValues.dateRange && typeof filterValues.dateRange === 'object') {
+    if (filterValues.dateRange && typeof filterValues.dateRange === 'object' && bundle.created_at) {
       const range = filterValues.dateRange as { start?: string; end?: string };
       const bundleDate = new Date(bundle.created_at);
       if (range.start && bundleDate < new Date(range.start)) {
@@ -214,18 +213,18 @@ export function Telemetry({ user: userProp, selectedTenant: tenantProp }: Teleme
     // Event count range
     if (filterValues.eventCount && typeof filterValues.eventCount === 'object') {
       const range = filterValues.eventCount as { min?: number; max?: number };
-      if (range.min !== undefined && bundle.event_count < range.min) {
+      if (range.min !== undefined && (bundle.event_count ?? 0) < range.min) {
         return false;
       }
-      if (range.max !== undefined && bundle.event_count > range.max) {
+      if (range.max !== undefined && (bundle.event_count ?? 0) > range.max) {
         return false;
       }
     }
-    
+
     // Size range (convert MB to bytes for comparison)
     if (filterValues.sizeRange && typeof filterValues.sizeRange === 'object') {
       const range = filterValues.sizeRange as { min?: number; max?: number };
-      const bundleSizeMB = bundle.size_bytes / 1024 / 1024;
+      const bundleSizeMB = (bundle.size_bytes ?? 0) / 1024 / 1024;
       if (range.min !== undefined && bundleSizeMB < range.min) {
         return false;
       }
@@ -465,11 +464,11 @@ export function Telemetry({ user: userProp, selectedTenant: tenantProp }: Teleme
         const csvHeaders = ['Bundle ID', 'Policy ID', 'Events', 'Size (MB)', 'Merkle Root', 'Created At'];
         const csvRows = bundles.map(bundle => [
           bundle.id,
-          bundle.cpid,
-          bundle.event_count.toString(),
-          (bundle.size_bytes / 1024 / 1024).toFixed(2),
+          bundle.cpid ?? '',
+          (bundle.event_count ?? 0).toString(),
+          ((bundle.size_bytes ?? 0) / 1024 / 1024).toFixed(2),
           bundle.merkle_root || 'N/A',
-          bundle.created_at
+          bundle.created_at ?? ''
         ]);
         const csvContent = [csvHeaders.join(','), ...csvRows.map(row => row.map(cell => `"${cell}"`).join(','))].join('\n');
         const csvBlob = new Blob([csvContent], { type: 'text/csv' });
@@ -924,8 +923,8 @@ export function Telemetry({ user: userProp, selectedTenant: tenantProp }: Teleme
                           />
                         </TableCell>
                         <TableCell className="p-4 border-b border-border font-medium">{bundleTyped.id.substring(0, 8)}</TableCell>
-                        <TableCell className="p-4 border-b border-border">{bundleTyped.cpid}</TableCell>
-                        <TableCell className="p-4 border-b border-border">{bundleTyped.event_count.toLocaleString()}</TableCell>
+                        <TableCell className="p-4 border-b border-border">{bundleTyped.cpid ?? 'N/A'}</TableCell>
+                        <TableCell className="p-4 border-b border-border">{(bundleTyped.event_count ?? 0).toLocaleString()}</TableCell>
                         <TableCell className="p-4 border-b border-border text-xs">
                           {bundleTyped.start_time && bundleTyped.end_time
                             ? `${new Date(bundleTyped.start_time).toLocaleTimeString()} - ${new Date(bundleTyped.end_time).toLocaleTimeString()}`
@@ -934,11 +933,11 @@ export function Telemetry({ user: userProp, selectedTenant: tenantProp }: Teleme
                         <TableCell className="p-4 border-b border-border font-mono text-xs">
                           {bundleTyped.tenant_id || '—'}
                         </TableCell>
-                        <TableCell className="p-4 border-b border-border">{(bundleTyped.size_bytes / 1024 / 1024).toFixed(2)} MB</TableCell>
+                        <TableCell className="p-4 border-b border-border">{((bundleTyped.size_bytes ?? 0) / 1024 / 1024).toFixed(2)} MB</TableCell>
                         <TableCell className="p-4 border-b border-border font-mono text-xs">
                           {bundleTyped.merkle_root ? bundleTyped.merkle_root.substring(0, 16) : 'N/A'}
                         </TableCell>
-                        <TableCell className="p-4 border-b border-border">{new Date(bundleTyped.created_at).toLocaleString()}</TableCell>
+                        <TableCell className="p-4 border-b border-border">{bundleTyped.created_at ? new Date(bundleTyped.created_at).toLocaleString() : 'N/A'}</TableCell>
                         <TableCell className="p-4 border-b border-border">
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>

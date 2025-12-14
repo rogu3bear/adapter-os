@@ -1,9 +1,9 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import React, { useEffect, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import FeatureLayout from '@/layout/FeatureLayout';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { replayTabOrder, replayTabToPath, ReplayTab, resolveReplayTab } from '@/pages/Replay/tabs';
+import { useReplayTabRouter } from '@/hooks/navigation/useTabRouter';
 import { ReplayPanel } from '@/components/ReplayPanel';
 import apiClient from '@/api/client';
 import type { ReplaySession } from '@/api/types';
@@ -15,20 +15,12 @@ import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
 
 export default function ReplayShell() {
-  const location = useLocation();
-  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { toast } = useToast();
+  const { activeTab, setActiveTab, availableTabs, getTabPath } = useReplayTabRouter();
   const [selectedSession, setSelectedSession] = useState<ReplaySession | null>(null);
   const [compareId, setCompareId] = useState<string>('');
   const preselectedSessionId = searchParams.get('sessionId') || undefined;
-
-  const activeTab: ReplayTab = useMemo(
-    () => resolveReplayTab(location.pathname, location.hash),
-    [location.hash, location.pathname],
-  );
-
-  const tabPath = (tab: ReplayTab) => replayTabToPath(tab);
 
   const { data: sessionDetail } = useQuery({
     queryKey: ['replay-session', selectedSession?.id],
@@ -47,25 +39,11 @@ export default function ReplayShell() {
       description="Deterministic replay and evidence"
       maxWidth="xl"
     >
-      <Tabs
-        value={activeTab}
-        onValueChange={(value: string) => {
-          const tab = value as ReplayTab;
-          const next = tabPath(tab);
-          const nextLocation = next.split('#')[0];
-          if (nextLocation !== location.pathname || location.hash !== '') {
-            navigate(next);
-          }
-        }}
-      >
+      <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as typeof activeTab)}>
         <TabsList className="w-full grid grid-cols-2 md:grid-cols-5">
-          {replayTabOrder.map(tab => (
-            <TabsTrigger key={tab} value={tab}>
-              {tab === 'runs' && 'Runs'}
-              {tab === 'decision-trace' && 'Decision Trace'}
-              {tab === 'evidence' && 'Evidence'}
-              {tab === 'compare' && 'Compare'}
-              {tab === 'export' && 'Export'}
+          {availableTabs.map((tab) => (
+            <TabsTrigger key={tab.id} value={tab.id} asChild>
+              <Link to={getTabPath(tab.id)}>{tab.label}</Link>
             </TabsTrigger>
           ))}
         </TabsList>

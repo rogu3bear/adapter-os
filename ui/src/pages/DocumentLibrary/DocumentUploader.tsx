@@ -4,7 +4,7 @@ import { Upload, FileText, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Card, CardContent } from '@/components/ui/card';
-import { useDocumentsApi } from '@/hooks/useDocumentsApi';
+import { useDocumentsApi } from '@/hooks/documents';
 import { useToast } from '@/hooks/use-toast';
 import { logger, toError } from '@/utils/logger';
 

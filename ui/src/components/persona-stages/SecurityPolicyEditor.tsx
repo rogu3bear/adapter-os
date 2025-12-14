@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Shield, Lock, Eye, AlertTriangle, CheckCircle, Settings, Save, Loader2 } from 'lucide-react';
-import { usePolicies, usePolicyMutations } from '@/hooks/useSecurity';
+import { usePolicies, usePolicyMutations } from '@/hooks/security/useSecurity';
 import { toast } from 'sonner';
 import type { Policy } from '@/api/adapter-types';
 import { logger, toError } from '@/utils/logger';

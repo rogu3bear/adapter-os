@@ -97,9 +97,7 @@ impl LoadCoordinator {
         self.singleflight
             .get_or_load(model_id.to_string(), || async move {
                 // Run the load function, converting AosError to String for sharing
-                load_fn()
-                    .await
-                    .map_err(|e| format!("Load failed: {}", e))
+                load_fn().await.map_err(|e| format!("Load failed: {}", e))
             })
             .await
             .map_err(|e| AosError::Lifecycle(e))

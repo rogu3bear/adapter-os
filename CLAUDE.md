@@ -75,13 +75,14 @@ AOS_DEV_JWT_SECRET="my-test-secret" cargo run --bin adapteros-server
 
 ## Critical Invariants (DO NOT BREAK)
 
-| Invariant | Location | Notes |
-|-----------|----------|-------|
-| All inference routes through `InferenceCore` | `inference_core.rs` | Bypassing breaks auditability |
-| Q15 denominator is 32767.0 | `lora-router/src/lib.rs` | NOT 32768 - precision-critical |
-| `tenant_id` in all queries | All handlers | FK triggers in migration 0131 |
-| No `-ffast-math` compiler flags | Cargo.toml | Breaks determinism |
-| FK constraints enabled | `db/lib.rs` | `foreign_keys=true` required |
+| Invariant | Location | Status | Notes |
+|-----------|----------|--------|-------|
+| All inference routes through `InferenceCore` | `inference_core.rs` | ✅ IMPLEMENTED | Bypassing breaks auditability |
+| Q15 denominator is 32767.0 | `lora-router/src/lib.rs` | ✅ IMPLEMENTED | NOT 32768 - precision-critical |
+| `tenant_id` in all queries | All handlers | ⚠️ PARTIAL | FK triggers in migration 0131, but gaps in adapter lifecycle queries |
+| No `-ffast-math` compiler flags | Cargo.toml | ✅ IMPLEMENTED | Breaks determinism |
+| FK constraints enabled | `db/lib.rs` | ✅ IMPLEMENTED | `foreign_keys=true` required |
+| Runtime paths reject `/tmp` | `path_resolver.rs` | ✅ IMPLEMENTED | Implemented for telemetry/manifest/db/index-root with unit tests |
 
 ---
 
@@ -147,6 +148,24 @@ API Request → TrainingService → Orchestrator → Worker (MicroLoRATrainer)
 - Wildcard `"*"`: dev mode only, grants all-tenant access
 
 **Database-Level**: Composite FKs and 15+ triggers prevent cross-tenant references (migration 0131)
+
+**⚠️ CURRENT GAPS (Documentation Drift)**:
+- Adapter/base model lifecycle DB queries not fully traced for tenant scoping
+- Cross-tenant leak protections in migration 0131 triggers not revalidated
+- Tenant-scoped adapter/base-model DB operations lack test coverage
+
+## Path Security
+
+**Runtime state must live under canonical paths (`var/`)** and must **NOT** persist under `/tmp`.
+
+**✅ IMPLEMENTED**:
+- Worker sockets reject `/tmp` and default to `/var/run/aos/{tenant}/worker.sock`
+- Telemetry, manifest-cache, adapters, and database path resolvers reject `/tmp`
+
+**❌ MISSING IMPLEMENTATION**:
+- Index root resolver still accepts `/tmp` env override and defaults to `./var/indices` without tmp guard
+
+**Citation**: `plan/drift-findings.json` fs-01 rule validation
 
 ---
 

@@ -186,7 +186,8 @@ where
                 .set_waiter_gauge(self.operation_label, final_waiter_count.saturating_sub(1));
 
             if result.is_err() {
-                self.metrics.record_error(self.operation_label, "load_error");
+                self.metrics
+                    .record_error(self.operation_label, "load_error");
             }
 
             if final_waiter_count > 1 {

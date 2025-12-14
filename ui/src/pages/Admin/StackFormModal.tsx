@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { useCreateAdapterStack, useUpdateAdapterStack } from '@/hooks/useAdmin';
+import { useCreateAdapterStack, useUpdateAdapterStack } from '@/hooks/admin/useAdmin';
 import { useQuery } from '@tanstack/react-query';
 import apiClient from '@/api/client';
 import type { AdapterStack, CreateAdapterStackRequest, ActiveAdapter } from '@/api/types';
@@ -31,7 +31,7 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { StackSortableAdapterItem } from '@/components/StackSortableAdapterItem';
-import { useStackUpdateNotifications } from '@/hooks/useTrainingNotifications';
+import { useStackUpdateNotifications } from '@/hooks/training';
 import { StackFormSchema, type StackFormData } from '@/schemas/admin.schema';
 
 interface StackFormModalProps {

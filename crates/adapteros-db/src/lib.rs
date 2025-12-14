@@ -27,13 +27,16 @@ pub mod chat_sessions_kv;
 pub mod collections_kv;
 pub mod coreml_fusion_pairs;
 pub mod documents_kv;
+pub mod evidence_envelopes;
 pub mod factory;
 pub mod kv_backend;
 pub mod kv_diff;
 pub mod kv_isolation_scan;
 pub mod kv_metrics;
 pub mod policy_audit_kv;
+pub mod prefix_templates;
 pub mod rag;
+pub mod reembedding;
 pub mod replay_kv;
 pub mod repository_training_policies;
 pub mod sqlite_backend;
@@ -45,8 +48,6 @@ pub mod tenant_policies;
 pub mod tenant_policy_bindings_kv;
 pub mod tenant_settings;
 pub mod traits;
-pub mod prefix_templates;
-pub mod evidence_envelopes;
 
 // Re-export commonly used types
 pub use adapter_repositories::{
@@ -2229,8 +2230,8 @@ pub mod audit;
 pub use audit::AuditLog;
 pub mod audits;
 pub mod policy_audit;
-pub use policy_audit::{ChainVerificationResult, PolicyAuditDecision, PolicyDecisionFilters};
 pub use evidence_envelopes::EvidenceEnvelopeFilter;
+pub use policy_audit::{ChainVerificationResult, PolicyAuditDecision, PolicyDecisionFilters};
 pub mod chat_sessions;
 pub use chat_sessions::{
     AddMessageParams, ChatCategory, ChatMessage, ChatProvenance, ChatSearchResult, ChatSession,

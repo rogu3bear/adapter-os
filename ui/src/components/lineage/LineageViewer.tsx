@@ -191,7 +191,8 @@ function LineageNodeChip({ node, onClick }: { node: LineageNode; onClick: () => 
   const trustTone = node.trust_state === 'blocked' || node.trust_state === 'needs_approval' ? 'destructive' : 'outline';
   const trustLabel = node.trust_state ? `Trust: ${node.trust_state}` : undefined;
   const healthLabel = node.adapter_health ? `Health: ${node.adapter_health}` : undefined;
-  const hasBadges = node.badges && node.badges.length > 0;
+  const badges = node.badges ?? [];
+  const hasBadges = badges.length > 0;
 
   return (
     <button
@@ -211,7 +212,7 @@ function LineageNodeChip({ node, onClick }: { node: LineageNode; onClick: () => 
           </Badge>
         )}
         {hasBadges &&
-          node.badges!.map((b, idx) => (
+          badges.map((b, idx) => (
             <Badge
               key={idx}
               variant={

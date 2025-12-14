@@ -11,6 +11,7 @@ import { LoginFormSchema, type LoginFormData } from '@/schemas/common.schema';
 import { logger } from '@/utils/logger';
 import type { AuthConfigResponse } from '@/api/auth-types';
 import type { HealthResponse, SystemHealthResponse, ComponentHealth } from '@/api/api-types';
+import { FetchErrorPanel } from '@/components/ui/fetch-error-panel';
 
 // Wrapped resolver that catches validation errors during initial render
 // This prevents console errors when form mounts with empty values
@@ -645,9 +646,18 @@ export function LoginForm({ onLogin, onDevBypass, error, lockoutMessage, onConfi
                 )}
               </>
             ) : (
-              <section className="rounded-lg border bg-muted/40 p-5 text-sm text-muted-foreground">
-                System is still starting. Sign in will appear once all critical components are healthy.
-              </section>
+              healthError ? (
+                <FetchErrorPanel
+                  title="Control plane unavailable"
+                  description="The UI can’t reach the AdapterOS API. Start the backend and retry."
+                  error={healthError}
+                  onRetry={fetchHealth}
+                />
+              ) : (
+                <section className="rounded-lg border bg-muted/40 p-5 text-sm text-muted-foreground">
+                  System is still starting. Sign in will appear once all critical components are healthy.
+                </section>
+              )
             )}
           </div>
         </div>

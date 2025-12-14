@@ -2,7 +2,7 @@
 // Displays comprehensive dataset information including overview, files, preview, and validation
 
 import React, { useState, useCallback, useMemo } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { ArrowLeft, RefreshCw, Trash2, CheckCircle, AlertCircle, Play, ExternalLink, Clock, MessageSquare } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -14,15 +14,16 @@ import { ErrorRecovery } from '@/components/ui/error-recovery';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import FeatureLayout from '@/layout/FeatureLayout';
+import { PageAsyncBoundary, SectionAsyncBoundary } from '@/components/shared/Feedback/AsyncBoundary';
 
-import { useTraining } from '@/hooks/useTraining';
-import { useRBAC } from '@/hooks/useRBAC';
+import { useTraining } from '@/hooks/training';
+import { useRBAC } from '@/hooks/security/useRBAC';
 import { logger } from '@/utils/logger';
 import type { Dataset, DatasetValidationStatus, DatasetVersionSummary, TrustState, StartTrainingRequest } from '@/api/training-types';
 import { TrainingWizard } from '@/components/TrainingWizard';
 import { QuickTrainConfirmModal, type QuickTrainConfig } from '@/components/training/QuickTrainConfirmModal';
 import { canUseQuickTrain } from '@/utils/trainingPreflight';
-import { useLineage } from '@/hooks/useLineage';
+import { useLineage } from '@/hooks/observability/useLineage';
 import apiClient from '@/api/client';
 import { LineageViewer } from '@/components/lineage/LineageViewer';
 
@@ -334,6 +335,14 @@ function TrainingWizardDialog({
 }
 
 export default function DatasetDetailPage() {
+  return (
+    <PageAsyncBoundary pageName="Dataset Detail">
+      <DatasetDetailContent />
+    </PageAsyncBoundary>
+  );
+}
+
+function DatasetDetailContent() {
   const { datasetId } = useParams<{ datasetId: string }>();
   const navigate = useNavigate();
   const { can } = useRBAC();
@@ -462,7 +471,7 @@ export default function DatasetDetailPage() {
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to start training';
         toast.error(message);
-        logger.error('Failed to start quick training', { component: 'DatasetDetailPage', datasetId }, err);
+        logger.error('Failed to start quick training', { component: 'DatasetDetailPage', datasetId }, err instanceof Error ? err : new Error(String(err)));
       } finally {
         setIsStartingTraining(false);
       }
@@ -545,45 +554,55 @@ export default function DatasetDetailPage() {
           </TabsList>
 
           <TabsContent value="overview" className="mt-6">
-            <OverviewTab
-              dataset={dataset}
-              isLoading={isLoading}
-              versions={datasetVersions}
-              isLoadingVersions={isLoadingVersions}
-              relatedJobs={relatedJobs}
-              onNavigateJob={(jobId) => navigate(`/training/jobs/${jobId}`)}
-              onViewAllJobs={() => navigate(`/training/jobs?dataset_id=${datasetId}`)}
-            />
+            <SectionAsyncBoundary section="dataset-overview">
+              <OverviewTab
+                dataset={dataset}
+                isLoading={isLoading}
+                versions={datasetVersions}
+                isLoadingVersions={isLoadingVersions}
+                relatedJobs={relatedJobs}
+                onNavigateJob={(jobId) => navigate(`/training/jobs/${jobId}`)}
+                onViewAllJobs={() => navigate(`/training/jobs?dataset_id=${datasetId}`)}
+              />
+            </SectionAsyncBoundary>
           </TabsContent>
 
           <TabsContent value="files" className="mt-6">
-            <DatasetFiles datasetId={datasetId!} isLoading={isLoading} />
+            <SectionAsyncBoundary section="dataset-files">
+              <DatasetFiles datasetId={datasetId!} isLoading={isLoading} />
+            </SectionAsyncBoundary>
           </TabsContent>
 
           <TabsContent value="preview" className="mt-6">
-            <DatasetPreview datasetId={datasetId!} isLoading={isLoading} />
+            <SectionAsyncBoundary section="dataset-preview">
+              <DatasetPreview datasetId={datasetId!} isLoading={isLoading} />
+            </SectionAsyncBoundary>
           </TabsContent>
 
           <TabsContent value="validation" className="mt-6">
-            <DatasetValidation dataset={dataset} onValidate={handleValidate} isValidating={isValidating} />
+            <SectionAsyncBoundary section="dataset-validation">
+              <DatasetValidation dataset={dataset} onValidate={handleValidate} isValidating={isValidating} />
+            </SectionAsyncBoundary>
           </TabsContent>
 
           <TabsContent value="lineage" className="mt-6">
-            <LineageViewer
-              title="Dataset Lineage"
-              data={lineageData ?? null}
-              isLoading={isLoadingLineage}
-              onRefresh={() => {
-                setLineageCursors({});
-                refetchLineage();
-              }}
-              direction={lineageDirection}
-              includeEvidence={includeEvidence}
-              onChangeDirection={setLineageDirection}
-              onToggleEvidence={() => setIncludeEvidence((v) => !v)}
-              onNavigateNode={handleNavigateLineageNode}
-              onLoadMore={(level) => handleLineageLoadMore(level)}
-            />
+            <SectionAsyncBoundary section="dataset-lineage">
+              <LineageViewer
+                title="Dataset Lineage"
+                data={lineageData ?? null}
+                isLoading={isLoadingLineage}
+                onRefresh={() => {
+                  setLineageCursors({});
+                  refetchLineage();
+                }}
+                direction={lineageDirection}
+                includeEvidence={includeEvidence}
+                onChangeDirection={setLineageDirection}
+                onToggleEvidence={() => setIncludeEvidence((v) => !v)}
+                onNavigateNode={handleNavigateLineageNode}
+                onLoadMore={(level) => handleLineageLoadMore(level)}
+              />
+            </SectionAsyncBoundary>
           </TabsContent>
         </Tabs>
 

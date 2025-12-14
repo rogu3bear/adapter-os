@@ -22,8 +22,8 @@ import {
   Unlock
 } from 'lucide-react';
 import apiClient from '@/api/client';
-import { useDataLoader } from '@/hooks/useDataLoader';
-import { useAsyncAction } from '@/hooks/useAsyncAction';
+import { useDataLoader } from '@/hooks/ui/useDataLoader';
+import { useAsyncAction } from '@/hooks/async/useAsyncAction';
 
 interface AuthConfig {
   production_mode: boolean;
@@ -239,7 +239,7 @@ export function AuthenticationSettings() {
                 Token signing algorithm (requires restart to change)
               </p>
             </div>
-            <Badge variant="secondary">{config.jwt_mode.toUpperCase()}</Badge>
+            <Badge variant="secondary">{(config.jwt_mode || 'hs256').toUpperCase()}</Badge>
           </div>
 
           {/* Token Expiry Display */}

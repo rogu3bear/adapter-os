@@ -15,8 +15,8 @@ import {
   useSystemHealthStatus,
   getHealthStatus,
   type HealthStatus,
-} from '@/hooks/useSystemMetrics';
-import { useMetricsStream } from '@/hooks/useStreamingEndpoints';
+} from '@/hooks/system/useSystemMetrics';
+import { useMetricsStream } from '@/hooks/streaming/useStreamingEndpoints';
 import type { MetricsSnapshotEvent } from '@/api/streaming-types';
 import { Activity, Wifi, WifiOff } from 'lucide-react';
 import { HealthBadge, MetricCard } from './shared/MetricComponents';
@@ -60,8 +60,8 @@ export default function SystemOverviewPage() {
   // SSE stream for live metrics
   const { data: sseData, error: sseError, connected: sseConnected, reconnect } = useMetricsStream({
     enabled: useSSE,
-    onMessage: useCallback((event) => {
-      if ('system' in event) {
+    onMessage: useCallback((event: unknown) => {
+      if (event && typeof event === 'object' && 'system' in event) {
         setSSEMetrics(event as MetricsSnapshotEvent);
       }
     }, []),
@@ -158,7 +158,7 @@ export default function SystemOverviewPage() {
           <Card className="border-destructive bg-destructive/10 mb-6">
             <CardContent className="pt-6">
               <p className="text-destructive">
-                Failed to load system metrics: {metricsError?.message || sseError}
+                Failed to load system metrics: {metricsError?.message || sseError?.message}
               </p>
               {useSSE && sseError && (
                 <Button variant="outline" size="sm" onClick={() => setUseSSE(false)} className="mt-2">

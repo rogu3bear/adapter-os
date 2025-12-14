@@ -9,13 +9,13 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from './
 import { Shield, Play, Hash, Trash2 } from 'lucide-react';
 import apiClient from '@/api/client';
 import { ReplaySession, ReplayVerificationResponse } from '@/api/types';
-import { useTimestamp } from '@/hooks/useTimestamp';
+import { useTimestamp } from '@/hooks/ui/useTimestamp';
 import { toast } from 'sonner';
 import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
 import { GlossaryTooltip } from './ui/glossary-tooltip';
 import { logger, toError } from '@/utils/logger';
-import { usePolling } from '@/hooks/usePolling';
-import { useRBAC } from '@/hooks/useRBAC';
+import { usePolling } from '@/hooks/realtime/usePolling';
+import { useRBAC } from '@/hooks/security/useRBAC';
 import { useTenant } from '@/providers/FeatureProviders';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Switch } from './ui/switch';

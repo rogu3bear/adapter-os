@@ -8,7 +8,7 @@ production_mode = false
 
 [db]
 # Use explicit scheme so loader maps to database.url correctly
-path = "sqlite://var/aos-cp.sqlite3"
+path = "sqlite:/var/aos-cp.sqlite3"
 storage_mode = "sql_only"
 pool_size = 20
 kv_path = "var/aos-kv.redb"
@@ -101,7 +101,7 @@ promotion_threshold = 0.0
 
 [logging]
 # Log level filter (supports per-module levels like "aos_cp=debug,tower_http=info")
-level = "aos_cp=info,aos_cp_api=info,tower_http=debug"
+level = "info"
 # Directory for log files (comment out for stdout-only in dev)
 log_dir = "var/logs"
 # Log file prefix

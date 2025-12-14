@@ -407,7 +407,7 @@ Content-Type: application/json
 npm test golden/PolicyCheckDisplay.test.tsx
 
 # Test hook
-npm test hooks/usePolicyChecks.test.ts
+npm test hooks/policies/usePolicyChecks.test.ts
 
 # Integration test
 npm test components/__integration__/PromotionFlow.test.tsx

@@ -51,6 +51,8 @@ export interface ReplayKey {
   adapter_ids?: string[];
   /** Whether the inference ran in base-only mode (no adapters) */
   base_only?: boolean;
+  /** Dataset version ID for deterministic RAG replay (pins to specific dataset version) */
+  dataset_version_id?: string;
 }
 
 // ============================================================================
@@ -171,6 +173,10 @@ export interface ReplayResponse {
   original_response: string;
   /** Execution statistics */
   stats: ReplayStats;
+  /** The replay key used for this execution */
+  replay_key?: ReplayKey;
+  /** Warning if dataset version has changed since original inference */
+  version_consistency_warning?: string;
 }
 
 /**
@@ -189,6 +195,8 @@ export interface ReplayAvailabilityResponse {
   unavailable_reasons: string[];
   /** Warnings about approximations (if approximate) */
   approximation_warnings: string[];
+  /** Warning if dataset version has changed since original inference */
+  version_consistency_warning?: string;
   /** The replay key (if available) */
   replay_key?: ReplayKey;
 }

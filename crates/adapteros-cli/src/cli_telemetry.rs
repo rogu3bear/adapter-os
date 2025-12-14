@@ -1,9 +1,7 @@
 //! CLI telemetry helpers
 
 use adapteros_core::identity::IdentityEnvelope;
-use adapteros_telemetry::{
-    EventType, LogLevel, TelemetryEventBuilder, TelemetryWriter,
-};
+use adapteros_telemetry::{EventType, LogLevel, TelemetryEventBuilder, TelemetryWriter};
 use anyhow::Result;
 use once_cell::sync::OnceCell;
 use serde_json::json;

@@ -9,7 +9,7 @@ import { Loader2, CheckCircle, XCircle, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Progress } from '@/components/ui/progress';
 import { Button } from '@/components/ui/button';
-import { useLiveData } from '@/hooks/useLiveData';
+import { useLiveData } from '@/hooks/realtime/useLiveData';
 import type { AdapterStreamEvent, AdapterStateTransitionEvent } from '@/api/streaming-types';
 
 // ============================================================================

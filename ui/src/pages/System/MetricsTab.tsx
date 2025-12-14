@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { useSystemMetrics, useComputedMetrics } from '@/hooks/useSystemMetrics';
+import { useSystemMetrics, useComputedMetrics } from '@/hooks/system/useSystemMetrics';
 import { METRIC_COLORS } from '@/constants/chart-colors';
 
 interface MetricDataPoint {

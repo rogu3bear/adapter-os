@@ -226,7 +226,7 @@ pub async fn run(
     // 3. Initialize RAG system (optional)
     let rag = if manifest.policies.evidence.require_open_book {
         output.info("Initializing RAG system...");
-        let index_root = resolve_index_root();
+        let index_root = resolve_index_root()?;
         let index_dir = index_root.path.join(tenant);
         if index_dir.exists() {
             // Use a placeholder embedding hash - in production this should come from the manifest

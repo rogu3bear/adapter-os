@@ -20,7 +20,8 @@ function getStoredTheme(): ThemeMode {
       return stored;
     }
   } catch (error) {
-    logger.warn('Unable to read stored theme', { component: 'ThemeProvider' }, error as Error);
+    const err = error instanceof Error ? error : new Error(String(error));
+    logger.warn('Unable to read stored theme', { component: 'ThemeProvider' }, err);
   }
   return 'system';
 }
@@ -46,7 +47,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     try {
       localStorage.setItem(THEME_STORAGE_KEY, next);
     } catch (error) {
-      logger.warn('Failed to persist theme', { component: 'ThemeProvider' }, error as Error);
+      const err = error instanceof Error ? error : new Error(String(error));
+      logger.warn('Failed to persist theme', { component: 'ThemeProvider' }, err);
     }
   }, []);
 
@@ -56,7 +58,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       try {
         localStorage.setItem(THEME_STORAGE_KEY, next);
       } catch (error) {
-        logger.warn('Failed to persist toggled theme', { component: 'ThemeProvider' }, error as Error);
+        const err = error instanceof Error ? error : new Error(String(error));
+        logger.warn('Failed to persist toggled theme', { component: 'ThemeProvider' }, err);
       }
       return next;
     });

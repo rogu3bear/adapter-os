@@ -18,12 +18,14 @@ import apiClient from '@/api/client';
 import { Adapter } from '@/api/types';
 import { toast } from 'sonner';
 import { logger } from '@/utils/logger';
-import { usePolling } from '@/hooks/usePolling';
+import { formatCount, formatMB } from '@/utils';
+import { usePolling } from '@/hooks/realtime/usePolling';
 import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
 import { EmptyState } from './ui/empty-state';
 import { LoadingState } from './ui/loading-state';
 import { AdapterListSkeleton } from '@/components/skeletons/AdapterListSkeleton';
-import { Code, Pin, ArrowUp, Trash2, MoreHorizontal, Upload, Power, PowerOff, ArrowUpDown } from 'lucide-react';
+import { TableLoadingState, RefreshingIndicator } from './ui/loading-patterns';
+import { Code, Pin, ArrowUp, Trash2, MoreHorizontal, Upload, Power, PowerOff, ArrowUpDown, Loader2 } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -31,15 +33,12 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from './ui/dropdown-menu';
-import { useProgressiveHints } from '@/hooks/useProgressiveHints';
+import { useProgressiveHints } from '@/hooks/tutorial/useProgressiveHints';
 import { getPageHints } from '@/data/page-hints';
 import { ProgressiveHint } from './ui/progressive-hint';
-import { useAdapterOperations } from '@/hooks/useAdapterOperations';
-import { useAdapterActions } from '@/hooks/useAdapterActions';
-import type { AdapterSortColumn } from '@/hooks/adapters/useAdapterFilterState';
-import type { AdapterActionType } from '@/hooks/useAdapterActions';
+import { useAdapterOperations, useAdapterActions, type AdapterSortColumn, type AdapterActionType } from '@/hooks/adapters';
 import { getLifecycleVariant } from '@/utils/lifecycle';
-import { useRBAC } from '@/hooks/useRBAC';
+import { useRBAC } from '@/hooks/security/useRBAC';
 import { GlossaryTooltip } from './ui/glossary-tooltip';
 import { PageErrorsProvider, PageErrors, usePageErrors } from '@/components/ui/page-error-boundary';
 import { LIFECYCLE_STATE_LABELS } from '@/constants/terminology';
@@ -61,20 +60,22 @@ function AdaptersPageContent() {
   const fetchAdaptersData = async (): Promise<AdaptersData> => {
     const adaptersData = await apiClient.listAdapters();
     const metrics = await apiClient.getSystemMetrics();
-    const totalMemory = metrics.memory_total_gb * 1024 * 1024 * 1024; // Convert GB to bytes
+    const totalMemory = (metrics.memory_total_gb ?? 0) * 1024 * 1024 * 1024; // Convert GB to bytes
     return { adapters: adaptersData, totalMemory };
   };
 
-  const { data, isLoading: loading, error, refetch } = usePolling(
+  const { data, isLoading: loading, isFetching, error, refetch } = usePolling(
     fetchAdaptersData,
     'normal',
     {
-      showLoadingIndicator: false,
+      showLoadingIndicator: true,
       onError: (err) => {
         logger.error('Failed to fetch adapters', { component: 'AdaptersPage' }, err);
       }
     }
   );
+
+  const isRefreshing = !loading && isFetching;
 
   const adapters = data?.adapters ?? [];
   const totalMemory = data?.totalMemory ?? 0;
@@ -275,9 +276,10 @@ function AdaptersPageContent() {
 
       {/* Page Header with Actions */}
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           <h1 className="text-2xl font-bold">Adapters</h1>
           <GlossaryTooltip termId="adapter" variant="icon" />
+          {isRefreshing && <RefreshingIndicator />}
         </div>
         <div className="flex items-center gap-2">
           <Button
@@ -385,21 +387,21 @@ function AdaptersPageContent() {
           const stateRecords: any[] = adapters.map((a, idx) => ({
             adapter_id: a.adapter_id || a.id,
             adapter_idx: idx,
-            state: a.current_state,
-            pinned: a.pinned,
-            memory_bytes: a.memory_bytes,
-            category: a.category,
-            scope: a.scope,
+            state: a.current_state ?? 'unloaded',
+            pinned: a.pinned ?? false,
+            memory_bytes: a.memory_bytes ?? 0,
+            category: a.category ?? 'code',
+            scope: a.scope ?? 'global',
             last_activated: a.last_activated,
-            activation_count: a.activation_count,
+            activation_count: a.activation_count ?? 0,
           }));
           return <AdapterStateVisualization adapters={stateRecords} totalMemory={totalMemory} />;
         })()}
         <AdapterMemoryMonitor
           adapters={adapters}
           totalMemory={totalMemory}
-          onEvictAdapter={canUnload ? evictAdapter : undefined}
-          onPinAdapter={canLoad ? pinAdapter : undefined}
+          onEvictAdapter={evictAdapter}
+          onPinAdapter={pinAdapter}
           onUpdateMemoryLimit={handleUpdateMemoryLimit}
         />
       </div>
@@ -471,7 +473,7 @@ function AdaptersPageContent() {
                   </div>
                   <div className="flex items-center justify-between text-xs text-muted-foreground">
                     <span>Activations</span>
-                    <span>{adapter.activation_count ?? 0}</span>
+                    <span>{formatCount(adapter.activation_count)}</span>
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <Button
@@ -522,12 +524,14 @@ function AdaptersPageContent() {
         </CardHeader>
         <CardContent>
           {loading ? (
-            <AdapterListSkeleton />
+            <TableLoadingState rows={10} />
           ) : displayedAdapters.length === 0 ? (
             <EmptyState
               icon={Code}
               title="No adapters deployed"
               description={adapters.length === 0 ? 'Train or import an adapter to get started. Your fleet will appear here once deployed.' : 'No adapters match your current filters.'}
+              actionLabel={adapters.length === 0 && canStartTraining ? 'Start Training' : undefined}
+              onAction={adapters.length === 0 && canStartTraining ? () => navigate('/training/jobs') : undefined}
             />
           ) : (
             <Table>
@@ -609,11 +613,13 @@ function AdaptersPageContent() {
                         </Badge>
                       </TableCell>
                       <TableCell>
-                        <Badge>{LIFECYCLE_STATE_LABELS[adapter.current_state] || adapter.current_state}</Badge>
+                        {adapter.current_state && (
+                          <Badge>{LIFECYCLE_STATE_LABELS[adapter.current_state] || adapter.current_state}</Badge>
+                        )}
                         {adapter.pinned && <Pin className="h-4 w-4 ml-2" />}
                       </TableCell>
-                      <TableCell>{(adapter.memory_bytes / 1024 / 1024).toFixed(1)} MB</TableCell>
-                      <TableCell>{adapter.activation_count}</TableCell>
+                      <TableCell>{formatMB(adapter.memory_bytes, 1)}</TableCell>
+                      <TableCell>{formatCount(adapter.activation_count)}</TableCell>
                       <TableCell>
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>

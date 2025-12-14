@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
 import PageWrapper from '@/layout/PageWrapper';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import TrainingPage from '@/pages/Training/TrainingPage';
@@ -9,7 +10,7 @@ import TrainingDatasetsPage from '@/pages/Training/DatasetsTab';
 import { TemplatesTab as TrainingTemplatesPage } from '@/pages/Training/TemplatesTab';
 import TrainingJobDetailPage from '@/pages/Training/TrainingJobDetail';
 import DatasetDetailPage from '@/pages/Training/DatasetDetailPage';
-import { trainingTabOrder, trainingTabToPath, TrainingTab, resolveTrainingTab } from '@/pages/Training/tabs';
+import { useTrainingTabRouter } from '@/hooks/navigation/useTabRouter';
 import apiClient from '@/api/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -26,12 +27,7 @@ export default function TrainingShell() {
 
   const preselect = useMemo(() => parsePreselectParams(location.search, location.hash), [location.hash, location.search]);
 
-  const activeTab: TrainingTab = useMemo(
-    () => resolveTrainingTab(location.pathname, location.hash, { jobId, datasetId }),
-    [datasetId, jobId, location.hash, location.pathname],
-  );
-
-  const tabPath = (tab: TrainingTab) => trainingTabToPath(tab);
+  const { activeTab, setActiveTab, availableTabs, getTabPath } = useTrainingTabRouter();
 
   return (
     <PageWrapper
@@ -41,26 +37,11 @@ export default function TrainingShell() {
       maxWidth="xl"
       contentPadding="default"
     >
-      <Tabs
-        value={activeTab}
-        onValueChange={(value: string) => {
-          const tab = value as TrainingTab;
-          const next = tabPath(tab);
-          const nextLocation = next.split('#')[0];
-          if (nextLocation !== location.pathname || location.hash !== '') {
-            navigate(next);
-          }
-        }}
-      >
+      <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as typeof activeTab)}>
         <TabsList className="w-full grid grid-cols-3 md:grid-cols-6">
-          {trainingTabOrder.map(tab => (
-            <TabsTrigger key={tab} value={tab}>
-              {tab === 'overview' && 'Overview'}
-              {tab === 'jobs' && 'Jobs'}
-              {tab === 'datasets' && 'Datasets'}
-              {tab === 'templates' && 'Templates'}
-              {tab === 'artifacts' && 'Artifacts'}
-              {tab === 'settings' && 'Settings'}
+          {availableTabs.map(tab => (
+            <TabsTrigger key={tab.id} value={tab.id} asChild>
+              <Link to={getTabPath(tab.id)}>{tab.label}</Link>
             </TabsTrigger>
           ))}
         </TabsList>
@@ -69,14 +50,22 @@ export default function TrainingShell() {
           <TrainingPage preselectedAdapterId={preselect.adapterId} preselectedDatasetId={preselect.datasetId} />
         </TabsContent>
         <TabsContent value="jobs" className="mt-6">
-          {jobId ? (
-            <TrainingJobDetailPage />
-          ) : (
-            <TrainingJobsPage preselectedAdapterId={preselect.adapterId} preselectedDatasetId={preselect.datasetId} />
-          )}
+          <TrainingJobsPage preselectedAdapterId={preselect.adapterId} preselectedDatasetId={preselect.datasetId} />
+        </TabsContent>
+        <TabsContent value="job-detail" className="mt-6">
+          <TrainingJobDetailPage />
+        </TabsContent>
+        <TabsContent value="job-chat" className="mt-6">
+          <div className="text-sm text-muted-foreground">Result chat view (handled by ResultChatPage route)</div>
         </TabsContent>
         <TabsContent value="datasets" className="mt-6">
-          {datasetId ? <DatasetDetailPage /> : <TrainingDatasetsPage />}
+          <TrainingDatasetsPage />
+        </TabsContent>
+        <TabsContent value="dataset-detail" className="mt-6">
+          <DatasetDetailPage />
+        </TabsContent>
+        <TabsContent value="dataset-chat" className="mt-6">
+          <div className="text-sm text-muted-foreground">Dataset chat view (handled by DatasetChatPage route)</div>
         </TabsContent>
         <TabsContent value="templates" className="mt-6">
           <TrainingTemplatesPage />
@@ -195,8 +184,8 @@ function TrainingArtifactsTab({ jobId, onNavigate }: { jobId?: string; onNavigat
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">{job.adapter_name ?? '—'}</TableCell>
                   <TableCell className="text-right">
-                    <Button size="sm" variant="outline" onClick={() => onNavigate(`/training/jobs/${job.id}#artifacts`)}>
-                      View artifacts
+                    <Button size="sm" variant="outline" onClick={() => onNavigate(`/training/jobs/${job.id}`)}>
+                      View job
                     </Button>
                   </TableCell>
                 </TableRow>

@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { useNavigate } from 'react-router-dom';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ErrorRecovery } from '@/components/ui/error-recovery';
-import { usePolicies, useComplianceAudit } from '@/hooks/useSecurity';
+import { usePolicies, useComplianceAudit } from '@/hooks/security/useSecurity';
 import { DashboardWidgetFrame, type DashboardWidgetState } from './DashboardWidgetFrame';
 
 interface PolicyPackStatus {

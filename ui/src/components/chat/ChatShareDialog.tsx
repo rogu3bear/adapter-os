@@ -36,7 +36,7 @@ import {
   useSessionShares,
   useShareSession,
   useRevokeShare,
-} from '@/hooks/useChatSharing';
+} from '@/hooks/chat/useChatSharing';
 import type { SharePermission } from '@/api/chat-types';
 import { toast } from 'sonner';
 import { useTenant } from '@/providers/FeatureProviders';

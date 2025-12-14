@@ -11,7 +11,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { MoreHorizontal, Activity, PowerOff, Trash2 } from 'lucide-react';
-import { useNodeOperations } from '@/hooks/useSystemMetrics';
+import { useNodeOperations } from '@/hooks/system/useSystemMetrics';
 import { useToast } from '@/hooks/use-toast';
 
 interface NodeTableProps {
@@ -28,10 +28,12 @@ export default function NodeTable({ nodes, isLoading, onNodeSelect, onRefresh }:
   const handlePing = useCallback(async (nodeId: string) => {
     try {
       const result = await pingNode.execute(nodeId);
-      toast({
-        title: 'Node Ping',
-        description: `Status: ${result.status}, Latency: ${result.latency_ms}ms`,
-      });
+      if (result) {
+        toast({
+          title: 'Node Ping',
+          description: `Status: ${result.status}, Latency: ${result.latency_ms}ms`,
+        });
+      }
       onRefresh();
     } catch (error) {
       toast({

@@ -25,7 +25,7 @@ export type { PDFViewerEmbeddedRef } from './documents/PDFViewerEmbedded';
 export { default as DocumentChatLayout } from './documents/DocumentChatLayout';
 
 // Chat
-export { EvidencePanel } from './chat/EvidencePanel';
+export { EvidenceSources } from './chat/EvidenceSources';
 export { EvidenceItem } from './chat/EvidenceItem';
 export { ProofBadge } from './chat/ProofBadge';
 export type { ChatMessage } from './chat/ChatMessage';

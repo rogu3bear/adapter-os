@@ -2,7 +2,7 @@ import React from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Server, AlertTriangle, CheckCircle, Loader2 } from 'lucide-react';
-import { useServiceStatus } from '@/hooks/useServiceStatus';
+import { useServiceStatus } from '@/hooks/system/useServiceStatus';
 import { toast } from 'sonner';
 import type { ServiceStatus } from '@/api/types';
 import { DashboardWidgetFrame, type DashboardWidgetState } from './DashboardWidgetFrame';
@@ -76,7 +76,7 @@ export function ServiceStatusWidget() {
               <div key={service.id} className="text-sm">
                 <div className="flex items-center gap-2">
                   <Badge variant="destructive">{service.name}</Badge>
-                  {service.restart_count > 0 && (
+                  {(service.restart_count ?? 0) > 0 && (
                     <span className="text-muted-foreground">
                       ({service.restart_count} restart{service.restart_count !== 1 ? 's' : ''})
                     </span>

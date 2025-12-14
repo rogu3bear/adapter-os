@@ -9,6 +9,10 @@ export default function TenantsPage() {
   const { user } = useAuth();
   const { selectedTenant } = useTenant();
 
+  if (!user) {
+    return null;
+  }
+
   return (
     <DensityProvider pageKey="tenants">
       <FeatureLayout

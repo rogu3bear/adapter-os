@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import apiClient from '@/api/client';
 import { logger, toError } from '@/utils/logger';
-import { usePolling } from '@/hooks/usePolling';
+import { usePolling } from '@/hooks/realtime/usePolling';
 import type { TraceResponseV1 } from '@/api/types';
 
 interface Span {

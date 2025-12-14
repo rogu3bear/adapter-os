@@ -20,7 +20,7 @@ import { Badge } from './ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { ScrollArea } from './ui/scroll-area';
-import { useNotifications } from '@/hooks/useNotifications';
+import { useNotifications } from '@/hooks/realtime/useNotifications';
 import { NotificationItem } from './NotificationItem';
 import { logger } from '@/utils/logger';
 import { CheckCheck, RefreshCw } from 'lucide-react';
@@ -36,7 +36,7 @@ export function NotificationCenter({ open, onOpenChange }: NotificationCenterPro
   const [typeFilter, setTypeFilter] = useState<NotificationType>('all');
   const [tab, setTab] = useState<'all' | 'unread'>('unread');
 
-  const { notifications, summary, loading, error, refresh, markRead, markAllRead } = useNotifications({
+  const { notifications, summary, isLoading, error, refetch, markRead, markAllRead } = useNotifications({
     enabled: open, // Only fetch when dialog is open
     maxNotifications: 100,
   });
@@ -57,7 +57,7 @@ export function NotificationCenter({ open, onOpenChange }: NotificationCenterPro
   };
 
   const handleRefresh = async () => {
-    await refresh();
+    await refetch();
   };
 
   // Filter notifications based on tab and type
@@ -85,11 +85,11 @@ export function NotificationCenter({ open, onOpenChange }: NotificationCenterPro
                 variant="outline"
                 size="sm"
                 onClick={handleRefresh}
-                disabled={loading}
+                disabled={isLoading}
                 aria-label="Refresh notifications"
                 className="bg-background/50 hover:bg-background/80"
               >
-                <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+                <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
               </Button>
               {summary && summary.unread_count > 0 && (
                 <Button
@@ -131,7 +131,7 @@ export function NotificationCenter({ open, onOpenChange }: NotificationCenterPro
 
           <TabsContent value="unread" className="flex-1 flex flex-col mt-4">
             <ScrollArea className="flex-1">
-              {loading && (
+              {isLoading && (
                 <div className="space-y-3 p-4">
                   {Array.from({ length: 3 }).map((_, i) => (
                     <div key={i} className="space-y-2">
@@ -145,17 +145,17 @@ export function NotificationCenter({ open, onOpenChange }: NotificationCenterPro
 
               {error && (
                 <div className="text-center py-8 text-sm text-destructive">
-                  Failed to load notifications: {error}
+                  Failed to load notifications: {error.message}
                 </div>
               )}
 
-              {!loading && !error && filteredNotifications.length === 0 && (
+              {!isLoading && !error && filteredNotifications.length === 0 && (
                 <div className="text-center py-8 text-sm text-muted-foreground">
                   {tab === 'unread' ? 'No unread notifications' : 'No notifications'}
                 </div>
               )}
 
-              {!loading && !error && filteredNotifications.length > 0 && (
+              {!isLoading && !error && filteredNotifications.length > 0 && (
                 <div className="space-y-1 p-2">
                   {filteredNotifications.map((notification) => (
                     <NotificationItem
@@ -171,7 +171,7 @@ export function NotificationCenter({ open, onOpenChange }: NotificationCenterPro
 
           <TabsContent value="all" className="flex-1 flex flex-col mt-4">
             <ScrollArea className="flex-1">
-              {loading && (
+              {isLoading && (
                 <div className="space-y-3 p-4">
                   {Array.from({ length: 3 }).map((_, i) => (
                     <div key={i} className="space-y-2">
@@ -185,17 +185,17 @@ export function NotificationCenter({ open, onOpenChange }: NotificationCenterPro
 
               {error && (
                 <div className="text-center py-8 text-sm text-destructive">
-                  Failed to load notifications: {error}
+                  Failed to load notifications: {error.message}
                 </div>
               )}
 
-              {!loading && !error && filteredNotifications.length === 0 && (
+              {!isLoading && !error && filteredNotifications.length === 0 && (
                 <div className="text-center py-8 text-sm text-muted-foreground">
                   No notifications match the current filter
                 </div>
               )}
 
-              {!loading && !error && filteredNotifications.length > 0 && (
+              {!isLoading && !error && filteredNotifications.length > 0 && (
                 <div className="space-y-1 p-2">
                   {filteredNotifications.map((notification) => (
                     <NotificationItem

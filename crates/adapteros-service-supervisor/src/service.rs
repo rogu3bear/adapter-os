@@ -418,19 +418,33 @@ impl ManagedService {
     /// Check HTTP health endpoint
     async fn check_http_health(&self, endpoint: &str) -> Result<bool> {
         // Simple HTTP check using reqwest
+        let timeout = Duration::from_secs(self.config.health_check.timeout_seconds);
         let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(
-                self.config.health_check.timeout_seconds,
-            ))
+            .connect_timeout(Duration::from_millis(500))
+            .timeout(timeout)
             .build()
             .map_err(|e| SupervisorError::Http(format!("Failed to create HTTP client: {}", e)))?;
 
-        let response = client
-            .get(endpoint)
-            .send()
-            .await
-            .map_err(|e| SupervisorError::Http(format!("HTTP request failed: {}", e)))?;
-        Ok(response.status().is_success())
+        let max_attempts = 2u32;
+        let mut attempt = 0u32;
+        let mut backoff = Duration::from_millis(100);
+
+        loop {
+            attempt += 1;
+            match client.get(endpoint).send().await {
+                Ok(response) => return Ok(response.status().is_success()),
+                Err(e) => {
+                    if attempt >= max_attempts {
+                        return Err(SupervisorError::Http(format!(
+                            "HTTP request failed after {} attempts: {}",
+                            attempt, e
+                        )));
+                    }
+                    tokio::time::sleep(backoff).await;
+                    backoff = (backoff * 2).min(Duration::from_millis(500));
+                }
+            }
+        }
     }
 
     /// Check TCP connectivity (development mode only)

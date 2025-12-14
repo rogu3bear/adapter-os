@@ -14,7 +14,7 @@ import { Alert, AlertDescription, AlertTitle } from './ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { toast } from 'sonner';
 import { logger } from '@/utils/logger';
-import { useActivityFeed } from '@/hooks/useActivityFeed';
+import { useActivityFeed } from '@/hooks/realtime/useActivityFeed';
 import { formatRelativeTime } from '@/utils/format';
 import {
   Activity,
@@ -38,26 +38,26 @@ import {
 } from 'lucide-react';
 import { BaseModelStatusComponent } from './BaseModelStatus';
 import { Nodes } from './Nodes';
-import { AlertsPage } from './AlertsPage';
-import { useInformationDensity } from '@/hooks/useInformationDensity';
+import { AlertsPage } from '@/pages/Alerts/AlertsPage';
+import { useInformationDensity } from '@/hooks/ui/useInformationDensity';
 import { DensityControls } from './ui/density-controls';
 import { PluginStatusWidget } from './dashboard/PluginStatusWidget';
 import { DashboardSettings } from './dashboard/DashboardSettings';
 import apiClient from '@/api/client';
-import { usePolling } from '@/hooks/usePolling';
-import { useSSE } from '@/hooks/useSSE';
-import { useDashboardConfig } from '@/hooks/useDashboardConfig';
-import type { User, TrainingJob, DatasetValidationStatus, AdapterStack } from '@/api/types';
+import { usePolling } from '@/hooks/realtime/usePolling';
+import { useSSE } from '@/hooks/realtime/useSSE';
+import { useDashboardConfig } from '@/hooks/config/useDashboardConfig';
+import type { User, TrainingJob, DatasetValidationStatus, AdapterStack, Adapter } from '@/api/types';
 import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
 import { GlossaryTooltip } from './ui/glossary-tooltip';
-import { useRBAC } from '@/hooks/useRBAC';
+import { useRBAC } from '@/hooks/security/useRBAC';
 import { PageHeader } from './ui/page-header';
 import { ActionGrid } from './ui/action-grid';
 import { KpiGrid, ContentGrid, FormGrid } from './ui/grid';
 import { useModalManager } from '@/contexts/ModalContext';
 import { SectionErrorBoundary } from '@/components/ui/section-error-boundary';
-import { useTraining } from '@/hooks/useTraining';
-import { useAdapterStacks, useGetDefaultStack } from '@/hooks/useAdmin';
+import { useTraining } from '@/hooks/training';
+import { useAdapterStacks, useGetDefaultStack } from '@/hooks/admin/useAdmin';
 import { QUERY_FAST } from '@/api/queryOptions';
 
 const MODAL_IDS = {
@@ -206,8 +206,11 @@ export const Dashboard = memo(function Dashboard({ user, selectedTenant, onNavig
     refetch: refetchAdapters
   } = useQuery({
     queryKey: ['adapters', 'dashboard'],
-    queryFn: () => apiClient.listAdapters(),
-    ...QUERY_FAST,
+    queryFn: (): Promise<Adapter[]> => apiClient.listAdapters(),
+    staleTime: 15_000,
+    refetchInterval: 30_000,
+    refetchOnWindowFocus: true,
+    retry: 1,
   });
 
   const {
@@ -457,7 +460,7 @@ export const Dashboard = memo(function Dashboard({ user, selectedTenant, onNavig
 
   // Real-time activity feed from telemetry and audit logs
   // Note: useActivityFeed doesn't require userId parameter
-  const { events: activityEvents, loading: activityLoading, error: activityError } = useActivityFeed({
+  const { events: activityEvents, isLoading: activityLoading, error: activityError } = useActivityFeed({
     enabled: true,
     maxEvents: 10,
     tenantId: effectiveTenant
@@ -579,8 +582,8 @@ export const Dashboard = memo(function Dashboard({ user, selectedTenant, onNavig
               <AlertTriangle className="h-4 w-4" />
               <AlertTitle>Real-time Connection Error</AlertTitle>
               <AlertDescription className="flex items-center justify-between">
-                <span>{sseError}. Falling back to polling for metrics updates.</span>
-                {sseError.includes('failed after') && (
+                <span>{sseError.message}. Falling back to polling for metrics updates.</span>
+                {sseError.message.includes('failed after') && (
                   <Button variant="outline" size="sm" onClick={sseReconnect} className="ml-4">
                     Reconnect
                   </Button>
@@ -1238,7 +1241,7 @@ export const Dashboard = memo(function Dashboard({ user, selectedTenant, onNavig
 
         {/* Nodes Tab */}
         <TabsContent value="nodes" className="space-y-4">
-          <Nodes user={user} selectedTenant={selectedTenant} />
+          <Nodes user={user ?? effectiveUser} selectedTenant={selectedTenant ?? 'default'} />
         </TabsContent>
 
         {/* Alerts Tab */}

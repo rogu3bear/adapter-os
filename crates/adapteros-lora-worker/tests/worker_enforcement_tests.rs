@@ -506,7 +506,9 @@ fn test_router_decision_outside_effective_set_causes_error() {
 // =============================================================================
 
 use adapteros_lora_kernel_api::{FailingKernel, FusedKernels, IoBuffers, MockKernels, RouterRing};
-use adapteros_lora_worker::{BackendLane, CoordinatedKernels, DirectKernels, KernelWrapper, StrictnessControl};
+use adapteros_lora_worker::{
+    BackendLane, CoordinatedKernels, DirectKernels, KernelWrapper, StrictnessControl,
+};
 
 /// Scenario 3: Strict mode + backend failure = hard fail (no fallback)
 ///

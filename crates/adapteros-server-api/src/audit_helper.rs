@@ -273,6 +273,7 @@ pub mod actions {
     // Document actions
     pub const DOCUMENT_UPLOAD: &str = "document.upload";
     pub const DOCUMENT_DELETE: &str = "document.delete";
+    pub const DOCUMENT_RETRY: &str = "document.retry";
     pub const COLLECTION_CREATE: &str = "collection.create";
     pub const COLLECTION_DELETE: &str = "collection.delete";
     pub const COLLECTION_ADD_DOCUMENT: &str = "collection.document.add";

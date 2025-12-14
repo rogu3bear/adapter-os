@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { screen } from '@testing-library/react';
 import DashboardPage from '@/pages/DashboardPage';
 import { renderWithProviders } from './utils/testProviders';
-import { useSystemMetrics, useMetricsSnapshot } from '@/hooks/useSystem';
+import { useSystemMetrics, useMetricsSnapshot } from '@/hooks/system/useSystem';
 
 vi.mock('@/hooks/useSystem', () => ({
   useSystemMetrics: vi.fn(),

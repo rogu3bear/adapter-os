@@ -16,7 +16,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Workspace } from '@/api/types';
-import { useWorkspaces } from '@/hooks/useWorkspaces';
+import { useWorkspaces } from '@/hooks/workspace/useWorkspaces';
 import apiClient from '@/api/client';
 import {
   Building,
@@ -128,9 +128,9 @@ export function WorkspaceCard({ workspace, onSelect, onEdit, onDelete }: Workspa
           const resourceCountValue = resources.length;
           
           // Get last activity from most recent activity event, member addition, or resource share
-          const memberDates = members.map(m => new Date(m.added_at).getTime());
-          const resourceDates = resources.map(r => new Date(r.shared_at).getTime());
-          const activityDates = activityEvents.map(e => new Date(e.created_at).getTime());
+          const memberDates = members.map(m => new Date(m.joined_at).getTime());
+          const resourceDates = resources.map(r => r.shared_at ? new Date(r.shared_at).getTime() : 0).filter(d => d > 0);
+          const activityDates = activityEvents.map(e => e.created_at ? new Date(e.created_at).getTime() : 0).filter(d => d > 0);
           const allDates = [...memberDates, ...resourceDates, ...activityDates];
           
           let lastActivityValue: string | null = null;

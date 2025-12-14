@@ -172,7 +172,7 @@ export const MetricsComparison: React.FC<MetricsComparisonProps> = ({
   const statistics = useMemo(() => {
     return jobs.map(job => {
       const history = metricsHistory.get(job.id) || [];
-      const losses = history.map(m => m.loss).filter(l => l !== undefined);
+      const losses = history.map((m: TrainingMetrics) => m.loss).filter((l: number | undefined): l is number => l !== undefined);
       const bestEpoch = losses.indexOf(Math.min(...losses));
       const bestLoss = losses.length > 0 ? Math.min(...losses) : job.current_loss || 0;
 
@@ -185,9 +185,9 @@ export const MetricsComparison: React.FC<MetricsComparisonProps> = ({
       }
 
       // Average performance
-      const throughputs = history.map(m => m.tokens_per_second).filter(t => t !== undefined);
+      const throughputs = history.map((m: TrainingMetrics) => m.tokens_per_second).filter((t: number | undefined): t is number => t !== undefined);
       const avgThroughput = throughputs.length > 0
-        ? throughputs.reduce((a, b) => a + b, 0) / throughputs.length
+        ? throughputs.reduce((a: number, b: number) => a + b, 0) / throughputs.length
         : job.tokens_per_second || 0;
 
       return {

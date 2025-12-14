@@ -208,7 +208,7 @@ export interface UseModelLoadingStateResult {
 
   // Single refresh action (PRD spec)
   /** Refresh all state (base model and adapters) */
-  refresh: () => Promise<void>;
+  refetch: () => Promise<void>;
 
   // Additional properties for backwards compatibility
   /** @deprecated Use isReady instead */
@@ -250,13 +250,13 @@ export interface UseModelLoadingStateResult {
   /** @deprecated Use sseConnected instead */
   isConnected: boolean;
 
-  /** @deprecated Use refresh instead */
+  /** @deprecated Use refetch instead */
   refreshBaseModel: () => Promise<void>;
 
-  /** @deprecated Use refresh instead */
+  /** @deprecated Use refetch instead */
   refreshAdapters: () => Promise<void>;
 
-  /** @deprecated Use refresh instead */
+  /** @deprecated Use refetch instead */
   refreshAll: () => Promise<void>;
 }
 

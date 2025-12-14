@@ -117,7 +117,7 @@ export async function retryWithBackoff<T>(
           attempts: attempt,
           maxAttempts: finalConfig.maxAttempts,
           shouldRetry,
-          error: error.message
+          error: error instanceof Error ? error.message : String(error)
         });
         break;
       }
@@ -130,7 +130,7 @@ export async function retryWithBackoff<T>(
         attempt,
         maxAttempts: finalConfig.maxAttempts,
         delay,
-        error: error.message
+        error: error instanceof Error ? error.message : String(error)
       });
 
       // Notify about retry
@@ -173,7 +173,7 @@ async function showRetryNotification(operation: string, attempt: number, maxAtte
     logger.warn('Failed to show retry notification, using fallback', {
       component: 'retry',
       operation: 'showRetryNotification',
-      error: error.message
+      error: error instanceof Error ? error.message : String(error)
     });
   }
 

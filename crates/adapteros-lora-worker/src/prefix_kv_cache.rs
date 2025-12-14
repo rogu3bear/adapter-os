@@ -339,8 +339,7 @@ impl PrefixKvCache {
         let entry_result = builder().map_err(|e| e.to_string())?;
 
         // Try to insert into cache
-        self.insert(*key, entry_result)
-            .map_err(|e| e.to_string())
+        self.insert(*key, entry_result).map_err(|e| e.to_string())
     }
 
     /// Evict LRU entries until the specified bytes can fit.
@@ -476,7 +475,12 @@ unsafe impl Sync for PrefixKvCache {}
 mod tests {
     use super::*;
 
-    fn make_entry(tenant: &str, tokens: u32, layers: usize, size_per_layer: usize) -> PrefixKvEntry {
+    fn make_entry(
+        tenant: &str,
+        tokens: u32,
+        layers: usize,
+        size_per_layer: usize,
+    ) -> PrefixKvEntry {
         let keys: Vec<Vec<f32>> = (0..layers).map(|_| vec![1.0; size_per_layer]).collect();
         let values: Vec<Vec<f32>> = (0..layers).map(|_| vec![2.0; size_per_layer]).collect();
         PrefixKvEntry::new(keys, values, tenant.to_string(), tokens)

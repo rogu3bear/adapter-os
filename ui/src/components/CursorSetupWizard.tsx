@@ -8,7 +8,7 @@ import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
 import { CheckCircle, XCircle, Copy, ExternalLink } from 'lucide-react';
 import apiClient from '@/api/client';
 import { CursorConfigResponse } from '@/api/types';
-import { useDataLoader } from '@/hooks/useDataLoader';
+import { useDataLoader } from '@/hooks/ui/useDataLoader';
 
 interface CursorSetupWizardProps {
   onComplete: () => void;

@@ -27,10 +27,8 @@
 
 use crate::{base_model_state::BaseModelState, model_key::ModelKey};
 use adapteros_core::{
-    constants::BYTES_PER_MB,
-    identity::IdentityEnvelope,
-    singleflight::SingleFlightSync,
-    AosError, Result,
+    constants::BYTES_PER_MB, identity::IdentityEnvelope, singleflight::SingleFlightSync, AosError,
+    Result,
 };
 use adapteros_lora_kernel_api::attestation::BackendType;
 use adapteros_telemetry::{
@@ -396,9 +394,12 @@ impl ModelHandleCache {
         // Use SingleFlightSync for load deduplication.
         // The closure handles the full load + cache insert operation.
         let key_clone = key.clone();
-        let handle = self.singleflight.get_or_load(key.clone(), || {
-            self.load_and_cache_model(&key_clone, loader)
-        }).map_err(|e| AosError::Worker(e))?;
+        let handle = self
+            .singleflight
+            .get_or_load(key.clone(), || {
+                self.load_and_cache_model(&key_clone, loader)
+            })
+            .map_err(|e| AosError::Worker(e))?;
 
         Ok(handle)
     }
@@ -1448,7 +1449,11 @@ mod tests {
         // With SingleFlightSync, waiters receive the handle directly rather than
         // reading from cache, so hits/misses tracking differs from the old impl.
         // The key invariant is: loader called once, cache has 1 entry.
-        assert_eq!(cache.stats().misses, 1, "should record exactly one cache miss");
+        assert_eq!(
+            cache.stats().misses,
+            1,
+            "should record exactly one cache miss"
+        );
     }
 
     #[test]
@@ -1523,7 +1528,10 @@ mod tests {
             handle.join().unwrap();
         }
         // With instant-fail, fail_count may be > 1 due to timing (entry removed before waiters register)
-        assert!(fail_count.load(Ordering::SeqCst) >= 1, "at least one loader should run");
+        assert!(
+            fail_count.load(Ordering::SeqCst) >= 1,
+            "at least one loader should run"
+        );
         assert!(cache.is_empty(), "failure must not insert cache entry");
 
         // Second attempt: success, still single-flight
@@ -1557,7 +1565,11 @@ mod tests {
         assert_eq!(cache.len(), 1, "successful retry must insert cache entry");
         // With SingleFlightSync, waiters receive the handle directly rather than
         // reading from cache, so we only check that misses == 1 (loader ran once).
-        assert_eq!(cache.stats().misses, 1, "should record exactly one cache miss");
+        assert_eq!(
+            cache.stats().misses,
+            1,
+            "should record exactly one cache miss"
+        );
     }
 
     #[test]

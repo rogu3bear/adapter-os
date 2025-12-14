@@ -38,9 +38,9 @@ import {
 } from '@/components/ui/alert-dialog';
 import { ErrorRecovery } from '@/components/ui/error-recovery';
 import { GlossaryTooltip } from '@/components/ui/glossary-tooltip';
-import { useRBAC } from '@/hooks/useRBAC';
-import { usePolling } from '@/hooks/usePolling';
-import type { InformationDensity } from '@/hooks/useInformationDensity';
+import { useRBAC } from '@/hooks/security/useRBAC';
+import { usePolling } from '@/hooks/realtime/usePolling';
+import type { InformationDensity } from '@/hooks/ui/useInformationDensity';
 import { toast } from 'sonner';
 import {
   CheckCircle,
@@ -544,11 +544,11 @@ function CodeIntelligencePageInner() {
             isRegistering={isRegistering}
             onRefresh={refetch}
             isLoading={isLoading}
-            lastUpdated={lastUpdated}
+            lastUpdated={lastUpdated ?? undefined}
             canRegister={can('code:register')}
           />
           <RepositoriesCard
-            repositories={repositories}
+            repositories={repositories ?? []}
             isLoading={isLoading}
             error={error ?? null}
             onRetry={refetch}

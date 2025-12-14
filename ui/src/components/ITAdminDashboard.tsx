@@ -5,7 +5,7 @@ import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import apiClient from '@/api/client';
 import { logger, toError } from '@/utils/logger';
-import { usePolling } from '@/hooks/usePolling';
+import { usePolling } from '@/hooks/realtime/usePolling';
 import { LastUpdated } from './ui/last-updated';
 import { LoadingState } from './ui/loading-state';
 import { KpiGrid, ContentGrid } from './ui/grid';
@@ -105,7 +105,7 @@ export function ITAdminDashboard({ tenantId, onToolbarChange }: ITAdminDashboard
   const models = data?.models || [];
   const adapters = data?.adapters || [];
 
-  const activeNodes = nodes.filter(n => n.status === 'online' || n.status === 'active').length;
+  const activeNodes = nodes.filter(n => n.status === 'healthy').length;
   const activeTenants = tenants.filter(t => t.status === 'active' || !t.status).length;
   const criticalAlerts = alerts.filter(a => a.severity === 'critical' && a.status === 'active').length;
   const loadedModels = models.filter(m => m.is_loaded).length;
@@ -390,7 +390,7 @@ export function ITAdminDashboard({ tenantId, onToolbarChange }: ITAdminDashboard
             </div>
             <div className="text-center p-4 border rounded-lg">
               <div className="text-2xl font-bold">
-                {(adapters.reduce((sum, a) => sum + a.memory_bytes, 0) / (1024 * 1024 * 1024)).toFixed(2)}GB
+                {(adapters.reduce((sum, a) => sum + (a.memory_bytes ?? 0), 0) / (1024 * 1024 * 1024)).toFixed(2)}GB
               </div>
               <div className="text-xs text-muted-foreground mt-1">Memory Used</div>
             </div>

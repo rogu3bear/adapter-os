@@ -4,7 +4,7 @@
 //! Integrates with UndoRedoContext for seamless undo/redo functionality.
 
 import { createContext, useContext, ReactNode } from 'react';
-import useEnhancedActionHistory from '@/hooks/useEnhancedActionHistory';
+import useEnhancedActionHistory from '@/hooks/ui/useEnhancedActionHistory';
 import {
   ActionHistoryItem,
   HistoryFilterOptions,

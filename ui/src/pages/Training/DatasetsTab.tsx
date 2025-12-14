@@ -31,8 +31,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useTraining } from '@/hooks/useTraining';
-import { useRBAC } from '@/hooks/useRBAC';
+import { useTraining } from '@/hooks/training';
+import { useRBAC } from '@/hooks/security/useRBAC';
 import { PageErrors, usePageErrors } from '@/components/ui/page-error-boundary';
 import { withErrorBoundary } from '@/components/withErrorBoundary';
 import { TrainingWizard } from '@/components/TrainingWizard';
@@ -53,6 +53,8 @@ import {
 import type { Dataset, DatasetSourceType, DatasetValidationStatus, TrustState } from '@/api/training-types';
 import { formatTimestamp, formatNumber, formatBytes } from '@/utils/format';
 import { TrustBadge as TrustPill } from '@/components/shared/TrustHealthBadge';
+import { LoadingState } from '@/components/ui/loading-state';
+import { EmptyState } from '@/components/ui/empty-state';
 
 const STATUS_CONFIG: Record<DatasetValidationStatus, {
   icon: React.ElementType;
@@ -304,17 +306,15 @@ const DatasetsCard = ({
     </CardHeader>
     <CardContent>
       {isLoading && datasets.length === 0 && (
-        <div className="py-8 text-center text-muted-foreground">
-          <RefreshCw className="mx-auto mb-2 h-6 w-6 animate-spin" />
-          Loading {TERMS.datasets}...
-        </div>
+        <LoadingState variant="minimal" message={`Loading ${TERMS.datasets}...`} />
       )}
       {!isLoading && datasets.length === 0 && (
-        <div className="py-8 text-center text-muted-foreground">
-          <Database className="mx-auto mb-2 h-8 w-8 opacity-50" />
-          <p>{TERMS.noDatasets}</p>
-          <p className="mt-1 text-sm">{TERMS.noDatasetsDescription}</p>
-        </div>
+        <EmptyState
+          variant="minimal"
+          icon={Database}
+          title={TERMS.noDatasets}
+          description={TERMS.noDatasetsDescription}
+        />
       )}
       {!isLoading && datasets.length > 0 && (
         <DatasetsTable

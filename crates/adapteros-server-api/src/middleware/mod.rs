@@ -31,7 +31,6 @@ use axum::{
 use blake3::Hasher;
 use chrono::{Duration, Utc};
 use serde_json;
-use std::env;
 use std::str::FromStr;
 use uuid::Uuid;
 
@@ -684,7 +683,13 @@ pub async fn auth_middleware(
         if let Some(api_key) = header.strip_prefix("ApiKey ") {
             Some(AuthToken::ApiKey(api_key))
         } else if let Some(bearer) = header.strip_prefix("Bearer ") {
-            Some(AuthToken::Jwt(bearer, JwtSource::Bearer))
+            // OpenAI-compatible clients use `Authorization: Bearer <api_key>`.
+            // Heuristic: JWTs always contain '.' separators; API keys (base64url) do not.
+            if bearer.contains('.') {
+                Some(AuthToken::Jwt(bearer, JwtSource::Bearer))
+            } else {
+                Some(AuthToken::ApiKey(bearer))
+            }
         } else {
             None
         }
@@ -886,7 +891,13 @@ pub async fn dual_auth_middleware(
         if let Some(api_key) = header.strip_prefix("ApiKey ") {
             Some(AuthToken::ApiKey(api_key))
         } else if let Some(bearer) = header.strip_prefix("Bearer ") {
-            Some(AuthToken::Jwt(bearer, JwtSource::Bearer))
+            // OpenAI-compatible clients use `Authorization: Bearer <api_key>`.
+            // Heuristic: JWTs always contain '.' separators; API keys (base64url) do not.
+            if bearer.contains('.') {
+                Some(AuthToken::Jwt(bearer, JwtSource::Bearer))
+            } else {
+                Some(AuthToken::ApiKey(bearer))
+            }
         } else {
             None
         }
@@ -1071,7 +1082,13 @@ pub async fn optional_auth_middleware(
         if let Some(api_key) = header.strip_prefix("ApiKey ") {
             Some(AuthToken::ApiKey(api_key))
         } else if let Some(bearer) = header.strip_prefix("Bearer ") {
-            Some(AuthToken::Jwt(bearer, JwtSource::Bearer))
+            // OpenAI-compatible clients use `Authorization: Bearer <api_key>`.
+            // Heuristic: JWTs always contain '.' separators; API keys (base64url) do not.
+            if bearer.contains('.') {
+                Some(AuthToken::Jwt(bearer, JwtSource::Bearer))
+            } else {
+                Some(AuthToken::ApiKey(bearer))
+            }
         } else {
             None
         }

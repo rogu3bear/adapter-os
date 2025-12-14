@@ -1,7 +1,7 @@
 import React from 'react';
 import { Button } from './ui/button';
 import { Download, Loader2 } from 'lucide-react';
-import { useAsyncAction } from '@/hooks/useAsyncAction';
+import { useAsyncAction } from '@/hooks/async/useAsyncAction';
 
 interface ExportButtonProps {
   data?: Record<string, unknown>[];

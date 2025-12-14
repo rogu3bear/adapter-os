@@ -1,8 +1,8 @@
 import { Suspense, useEffect, useMemo, useState } from 'react';
 import FeatureLayout from '@/layout/FeatureLayout';
-import { MonitoringPage } from '@/components/MonitoringPage';
+import { MonitoringPage } from '@/pages/Monitoring/MonitoringPage';
 import { DensityProvider } from '@/contexts/DensityContext';
-import { useRBAC } from '@/hooks/useRBAC';
+import { useRBAC } from '@/hooks/security/useRBAC';
 import { PERMISSIONS } from '@/utils/rbac';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { ShieldAlert } from 'lucide-react';
@@ -12,7 +12,8 @@ import { Link } from 'react-router-dom';
 import { buildTelemetryFiltersLink } from '@/utils/navLinks';
 import { MetricsPanelSkeleton } from '@/components/skeletons/MetricsPanelSkeleton';
 import { MetricsSparklinePanel } from '@/components/MetricsSparklinePanel';
-import { useSystemMetrics } from '@/hooks/useSystemMetrics';
+import { useSystemMetrics } from '@/hooks/system/useSystemMetrics';
+import { LoadingState } from '@/components/ui/loading-state';
 
 export default function MetricsPage() {
   const { can } = useRBAC();
@@ -24,7 +25,7 @@ export default function MetricsPage() {
   >([]);
 
   // Poll live metrics; keep enabled when user has permission to view
-  const { metrics } = useSystemMetrics('fast', canViewMetrics);
+  const { metrics, isLoading } = useSystemMetrics('fast', canViewMetrics);
 
   useEffect(() => {
     if (!metrics) return;
@@ -59,6 +60,8 @@ export default function MetricsPage() {
               You do not have permission to view metrics. Required permission: metrics:view
             </AlertDescription>
           </Alert>
+        ) : isLoading && !metrics ? (
+          <LoadingState variant="minimal" message="Loading metrics..." />
         ) : (
           <SectionErrorBoundary sectionName="Metrics">
             <div className="flex justify-end mb-4">

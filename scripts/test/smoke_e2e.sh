@@ -204,3 +204,5 @@ echo "  inference trace_id:    ${INFER_TRACE_ID} (req ${INFER_REQ_ID})"
 echo "  fixture trace_id:      ${TRACE_FIX_ID} (req ${TRACE_REQ_ID})"
 echo "  evidence count:        ${EVIDENCE_COUNT} (req ${EVIDENCE_REQ_ID})"
 
+
+

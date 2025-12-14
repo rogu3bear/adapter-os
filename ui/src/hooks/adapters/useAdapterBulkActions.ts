@@ -431,10 +431,10 @@ export function useAdapterBulkActions(
                   hash_b3: adapter.hash_b3,
                   rank: adapter.rank,
                   tier: adapter.tier,
-                  category: adapter.category,
+                  category: adapter.category ?? 'code',
                   framework: adapter.framework,
-                  scope: adapter.scope,
-                  languages: adapter.languages,
+                  scope: adapter.scope ?? 'global',
+                  languages: adapter.languages ?? [],
                 });
               }
               await onDataRefresh?.();

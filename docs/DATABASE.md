@@ -299,6 +299,106 @@ GROUP BY m.id, m.name;
 
 ---
 
+## Tenant Isolation Implementation
+
+### Overview
+
+AdapterOS enforces tenant isolation at multiple layers: handler validation, database constraints, and composite foreign keys. However, **current implementation has gaps** that require rectification.
+
+### Handler-Level Enforcement
+
+**✅ IMPLEMENTED:**
+- JWT claims validation via `validate_tenant_isolation()`
+- Admin cross-tenant access via `admin_tenants` claim array
+- Wildcard `"*"` grants all-tenant access (debug builds only)
+
+**Validation Function:**
+```rust
+pub fn validate_tenant_isolation(
+    claims: &Claims,
+    resource_tenant_id: &str,
+) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
+    // Same tenant - always allowed
+    if claims.tenant_id == resource_tenant_id {
+        return Ok(());
+    }
+
+    // Admin bypass with explicit tenant grants
+    if claims.role == "admin" {
+        if claims.admin_tenants.contains(&resource_tenant_id.to_string()) {
+            return Ok(());
+        }
+    }
+
+    Err((StatusCode::FORBIDDEN, Json(ErrorResponse {
+        code: "TENANT_ISOLATION_VIOLATION".to_string(),
+        message: "Access denied: tenant isolation violation".to_string(),
+    })))
+}
+```
+
+### Database-Level Enforcement
+
+**✅ IMPLEMENTED:**
+- Migration 0131: Composite FKs prevent cross-tenant references
+- 15+ triggers enforce tenant boundaries on INSERT/UPDATE
+- Orphan detection fails migration if data integrity broken
+
+**Example Composite FK:**
+```sql
+-- Documents belong to exactly one tenant
+CREATE TABLE document_chunks (
+    tenant_id TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    -- Composite FK ensures tenant consistency
+    FOREIGN KEY (tenant_id, document_id)
+        REFERENCES documents(tenant_id, id) ON DELETE CASCADE
+);
+```
+
+### ⚠️ CURRENT GAPS (Documentation Drift)
+
+**Citation:** `plan/drift-findings.json` tenant-01 rule validation
+
+**❌ MISSING VALIDATION:**
+- **Adapter lifecycle DB queries** not fully traced for tenant scoping
+- **Migration 0131 triggers** not revalidated in current implementation
+- **Cross-tenant leak protections** require audit of all adapter CRUD operations
+
+**Required Rectification:**
+```rust
+// All adapter queries must include tenant filter
+pub async fn get_adapter(&self, tenant_id: &str, adapter_id: &str) -> Result<Adapter> {
+    sqlx::query_as!(
+        Adapter,
+        "SELECT * FROM adapters WHERE id = ? AND tenant_id = ?",  // ✅ Required
+        adapter_id, tenant_id
+    )
+    .fetch_one(&self.pool)
+    .await
+}
+
+// Missing tenant filter (VIOLATION)
+pub async fn get_adapter_broken(&self, adapter_id: &str) -> Result<Adapter> {
+    sqlx::query_as!(Adapter, "SELECT * FROM adapters WHERE id = ?")  // ❌ VIOLATION
+}
+```
+
+### Implementation Status
+
+| Component | Status | Notes |
+|-----------|--------|-------|
+| Handler validation | ✅ Implemented | `validate_tenant_isolation()` |
+| JWT claims | ✅ Implemented | `tenant_id` in all tokens |
+| Composite FKs | ✅ Implemented | Migration 0131 |
+| Database triggers | ✅ Implemented | 15+ tenant boundary triggers |
+| Adapter lifecycle queries | ⚠️ Gap | Requires audit and test coverage |
+| Migration validation | ⚠️ Gap | Migration 0131 triggers need revalidation |
+
+**Status:** Partial implementation - adapter lifecycle gaps require rectification
+
+---
+
 ## Adapter Management
 
 ### `adapters`

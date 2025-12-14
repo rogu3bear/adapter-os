@@ -8,7 +8,7 @@ import {
   useUpdateCategory,
   useDeleteCategory,
   useSetSessionCategory,
-} from '@/hooks/useChatCategories';
+} from '@/hooks/chat/useChatCategories';
 import type {
   ChatCategory,
   CreateCategoryRequest,

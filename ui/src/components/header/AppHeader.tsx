@@ -15,6 +15,7 @@ import { cn } from '@/components/ui/utils';
 import { useTenant } from '@/providers/FeatureProviders';
 import { useState } from 'react';
 import { UiMode, UI_MODE_OPTIONS } from '@/config/ui-mode';
+import type { SessionMode } from '@/api/auth-types';
 
 import { AdapterOSLogo } from './AdapterOSLogo';
 import { HeaderBreadcrumbs } from './HeaderBreadcrumbs';
@@ -30,6 +31,7 @@ interface AppHeaderProps {
     role: string;
     user_id?: string;
   };
+  sessionMode: SessionMode;
   theme: Theme;
   onLogout: () => void;
   onOpenHelp: () => void;
@@ -43,6 +45,7 @@ interface AppHeaderProps {
 
 export function AppHeader({
   user,
+  sessionMode,
   theme,
   onLogout,
   onOpenHelp,
@@ -53,8 +56,24 @@ export function AppHeader({
   uiMode,
   onChangeUiMode,
 }: AppHeaderProps) {
-  const isDevBypass = user.user_id === 'dev-admin-user';
+  const isDemo = sessionMode === 'dev_bypass';
   const devEnv = Boolean(import.meta.env.DEV);
+  const envLabel = isDemo ? 'Demo' : devEnv ? 'Dev' : null;
+  const importMeta = import.meta as {
+    env?: {
+      VITE_API_URL?: string;
+      VITE_COMMIT_SHA?: string;
+      VITE_BUILD_SHA?: string;
+      VITE_GIT_SHA?: string;
+    };
+  };
+  const apiBaseUrl = importMeta.env?.VITE_API_URL || '/api';
+  const buildShaRaw =
+    importMeta.env?.VITE_COMMIT_SHA ||
+    importMeta.env?.VITE_BUILD_SHA ||
+    importMeta.env?.VITE_GIT_SHA;
+  const buildSha = buildShaRaw?.trim();
+  const buildShaShort = buildSha ? buildSha.slice(0, 8) : null;
   const { selectedTenant, tenants, setSelectedTenant } = useTenant();
   const [isSwitching, setIsSwitching] = useState(false);
   const activeTenant = tenants.find(t => t.id === selectedTenant);
@@ -81,14 +100,38 @@ export function AppHeader({
             <TooltipTrigger asChild>
               <div className="h-1.5 w-1.5 rounded-full bg-green-500 flex-shrink-0 hidden sm:block" />
             </TooltipTrigger>
-            <TooltipContent className="max-w-xs">Zero Egress</TooltipContent>
-          </Tooltip>
+          <TooltipContent className="max-w-xs">Zero Egress</TooltipContent>
+        </Tooltip>
 
-          {(isDevBypass || devEnv) && (
-            <Badge variant="outline" className="h-5 text-[10px] px-1.5 text-muted-foreground border-muted hidden sm:inline-flex">
-              <AlertTriangle className="h-3 w-3 mr-1" />
-              Dev
-            </Badge>
+          {envLabel && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Badge
+                  variant="outline"
+                  className="h-5 text-[10px] px-1.5 text-muted-foreground border-muted hidden sm:inline-flex cursor-default"
+                  data-testid="env-pill"
+                >
+                  <AlertTriangle className="h-3 w-3 mr-1" />
+                  {envLabel}
+                </Badge>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-xs">
+                <div className="space-y-1">
+                  <div className="font-medium">{envLabel} environment</div>
+                  <div className="text-muted-foreground">
+                    API: <code className="font-mono text-xs">{apiBaseUrl}</code>
+                  </div>
+                  {buildShaShort && (
+                    <div className="text-muted-foreground">
+                      Commit:{' '}
+                      <code className="font-mono text-xs" title={buildSha}>
+                        {buildShaShort}
+                      </code>
+                    </div>
+                  )}
+                </div>
+              </TooltipContent>
+            </Tooltip>
           )}
 
           <span className="text-muted-foreground/30 hidden md:inline">/</span>

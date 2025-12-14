@@ -30,7 +30,10 @@ pub use training_gen::{
     generate_training_data, generate_training_data_from_documents, TrainingData, TrainingExample,
     TrainingGenConfig, TrainingStrategy,
 };
-pub use types::{DocumentChunk, DocumentSource, IngestedDocument};
+pub use types::{
+    DocumentChunk, DocumentSource, IngestedDocument, IngestedDocumentWithErrors,
+    PageExtractionResult,
+};
 
 /// High level entrypoint for document ingestion.
 #[derive(Clone)]
@@ -55,6 +58,14 @@ impl DocumentIngestor {
         source_name: &str,
     ) -> Result<IngestedDocument> {
         pdf::ingest_pdf_bytes(bytes.as_ref(), source_name, None, &self.chunker)
+    }
+
+    pub fn ingest_pdf_bytes_resilient<B: AsRef<[u8]>>(
+        &self,
+        bytes: B,
+        source_name: &str,
+    ) -> Result<IngestedDocumentWithErrors> {
+        pdf::ingest_pdf_bytes_resilient(bytes.as_ref(), source_name, None, &self.chunker)
     }
 
     pub fn ingest_markdown_path<P: AsRef<Path>>(&self, path: P) -> Result<IngestedDocument> {

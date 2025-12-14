@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Command, CommandEmpty, CommandGroup, CommandItem, CommandList } from '@/components/ui/command';
-import { useChatSearch } from '@/hooks/useChatSearch';
+import { useChatSearch } from '@/hooks/chat/useChatSearch';
 import type { ChatSearchResult } from '@/api/chat-types';
 
 export interface ChatSearchBarProps {

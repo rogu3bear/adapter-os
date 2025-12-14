@@ -2,8 +2,7 @@
 export { Toast, ToastContainer, toastVariants } from "./Toast";
 export type { ToastProps, ToastContainerProps, ToastVariant } from "./Toast";
 
-export { useToast, useToastManager, toastManager } from "./useToast";
-export type { ToastOptions, UseToastReturn } from "./useToast";
+// Note: useToast was removed (unused). Use @/hooks/use-toast or sonner's toast instead.
 
 // Alert components
 export {
@@ -19,6 +18,18 @@ export type { AlertBannerProps, AlertBannerVariant } from "./Alert";
 // Error handling components
 export { ErrorBoundary, withErrorBoundary } from "./ErrorBoundary";
 export type { ErrorBoundaryProps, ErrorBoundaryFallbackProps } from "./ErrorBoundary";
+
+// Async boundary components (ErrorBoundary + Suspense)
+export {
+  AsyncBoundary,
+  PageAsyncBoundary,
+  SectionAsyncBoundary,
+} from "./AsyncBoundary";
+export type {
+  AsyncBoundaryProps,
+  PageAsyncBoundaryProps,
+  SectionAsyncBoundaryProps,
+} from "./AsyncBoundary";
 
 // State display components
 export { EmptyState, emptyStateTemplates } from "./EmptyState";

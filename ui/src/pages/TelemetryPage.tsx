@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useLocation, useSearchParams } from 'react-router-dom';
+import { useLocation, useSearchParams, Link } from 'react-router-dom';
 import { useAuth } from '@/providers/CoreProviders';
 import { useTenant } from '@/providers/FeatureProviders';
 import FeatureLayout from '@/layout/FeatureLayout';
@@ -16,16 +16,9 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Skeleton } from '@/components/ui/skeleton';
 import { TraceSummaryPanel } from '@/components/trace/TraceSummaryPanel';
 import { TraceTokenTable } from '@/components/trace/TraceTokenTable';
-import { useTrace } from '@/hooks/useTrace';
+import { useTrace } from '@/hooks/observability/useTrace';
+import { useTelemetryTabRouter } from '@/hooks/navigation/useTabRouter';
 import type { TraceResponseV1 } from '@/api/types';
-
-type TelemetryTab = 'events' | 'traces' | 'viewer';
-
-const telemetryTabs: TelemetryTab[] = ['events', 'traces', 'viewer'];
-
-function normalizeTab(value: string | null): TelemetryTab {
-  return telemetryTabs.includes(value as TelemetryTab) ? (value as TelemetryTab) : 'events';
-}
 
 export default function TelemetryPage() {
   const { user } = useAuth();
@@ -34,6 +27,7 @@ export default function TelemetryPage() {
 
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
+  const { activeTab, setActiveTab, availableTabs, getTabPath } = useTelemetryTabRouter();
 
   useEffect(() => {
     const legacyTraceId = searchParams.get('traceId');
@@ -45,7 +39,6 @@ export default function TelemetryPage() {
     }
   }, [searchParams, setSearchParams]);
 
-  const tab = normalizeTab(searchParams.get('tab'));
   const traceId = useMemo(
     () => (searchParams.get('trace_id') ?? searchParams.get('traceId') ?? '').trim(),
     [searchParams]
@@ -58,13 +51,6 @@ export default function TelemetryPage() {
 
   const { data: trace, isLoading, isFetching, isError, error } = useTrace(traceId || undefined, tenantId);
 
-  const handleTabChange = (next: string) => {
-    const normalized = normalizeTab(next);
-    const nextParams = new URLSearchParams(searchParams);
-    nextParams.set('tab', normalized);
-    setSearchParams(nextParams, { replace: true });
-  };
-
   const handleTraceIdChange = (nextTraceId: string) => {
     const nextParams = new URLSearchParams(searchParams);
     if (nextTraceId) {
@@ -72,7 +58,6 @@ export default function TelemetryPage() {
     } else {
       nextParams.delete('trace_id');
     }
-    nextParams.set('tab', 'traces');
     setSearchParams(nextParams, { replace: true });
   };
 
@@ -92,18 +77,24 @@ export default function TelemetryPage() {
         }
       >
         <SectionErrorBoundary sectionName="Telemetry">
-          <Tabs value={tab} onValueChange={handleTabChange}>
+          <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as typeof activeTab)}>
             <TabsList className="grid grid-cols-3 gap-2 md:w-[480px]">
-              <TabsTrigger value="events">Events</TabsTrigger>
-              <TabsTrigger value="traces">Traces</TabsTrigger>
-              <TabsTrigger value="viewer">Viewer</TabsTrigger>
+              {availableTabs.map((tab) => (
+                <TabsTrigger key={tab.id} value={tab.id} asChild>
+                  <Link to={getTabPath(tab.id)}>{tab.label}</Link>
+                </TabsTrigger>
+              ))}
             </TabsList>
 
-            <TabsContent value="events" className="mt-6">
-              <Telemetry user={user} selectedTenant={selectedTenant} />
+            <TabsContent value="event-stream" className="mt-6">
+              <Telemetry user={user ?? undefined} selectedTenant={selectedTenant} />
             </TabsContent>
 
-            <TabsContent value="traces" className="mt-6">
+            <TabsContent value="viewer" className="mt-6">
+              <TelemetryViewer initialRequestId={traceId || undefined} tenantId={tenantId} sourceType={sourceType} />
+            </TabsContent>
+
+            <TabsContent value="viewer-trace" className="mt-6">
               <TraceTabContent
                 traceId={traceId}
                 tenantId={tenantId}
@@ -114,8 +105,16 @@ export default function TelemetryPage() {
               />
             </TabsContent>
 
-            <TabsContent value="viewer" className="mt-6">
-              <TelemetryViewer initialRequestId={traceId || undefined} tenantId={tenantId} sourceType={sourceType} />
+            <TabsContent value="alerts" className="mt-6">
+              <div className="text-sm text-muted-foreground">Alerts view (coming soon)</div>
+            </TabsContent>
+
+            <TabsContent value="exports" className="mt-6">
+              <div className="text-sm text-muted-foreground">Exports view (coming soon)</div>
+            </TabsContent>
+
+            <TabsContent value="filters" className="mt-6">
+              <div className="text-sm text-muted-foreground">Filters view (coming soon)</div>
             </TabsContent>
           </Tabs>
         </SectionErrorBoundary>
@@ -187,11 +186,13 @@ function TraceTabContent({ traceId, tenantId, trace, loading, error, onTraceIdCh
         </div>
       )}
 
-      {error && (
+      {error ? (
         <Alert variant="destructive">
-          <AlertDescription>{error instanceof Error ? error.message : 'Failed to load trace'}</AlertDescription>
+          <AlertDescription>
+            {(error as Error)?.message || 'Failed to load trace'}
+          </AlertDescription>
         </Alert>
-      )}
+      ) : null}
 
       {!loading && !trace && !error && (
         <Alert>

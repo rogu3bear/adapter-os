@@ -14,7 +14,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { useRelativeTime } from '@/hooks/useTimestamp';
+import { useRelativeTime } from '@/hooks/ui/useTimestamp';
 import { Message, Workspace } from '@/api/types';
 import {
   MessageSquare,
@@ -57,7 +57,7 @@ export function MessageThread({
 
   const handleEditStart = (message: Message) => {
     setEditingMessageId(message.id);
-    setEditingContent(message.content);
+    setEditingContent(message.content ?? '');
   };
 
   const handleEditCancel = () => {
@@ -143,7 +143,7 @@ export function MessageThread({
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
             <span className="text-sm font-medium">
-              {message.from_user_display_name || message.from_user_id.slice(0, 8)}
+              {message.from_user_display_name || message.from_user_id?.slice(0, 8) || 'Unknown'}
             </span>
             <span className="text-xs text-muted-foreground">
               {relativeTime}

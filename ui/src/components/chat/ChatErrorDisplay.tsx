@@ -20,7 +20,7 @@ import React, { useState, useEffect } from 'react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { AlertTriangle, WifiOff, HardDrive, RefreshCw, ExternalLink, ChevronDown, ChevronUp } from 'lucide-react';
-import type { AutoLoadError } from '@/hooks/useAutoLoadModel';
+import type { AutoLoadError } from '@/hooks/model-loading';
 import type { ChatLoadingError } from '@/hooks/model-loading/types';
 import { logger } from '@/utils/logger';
 

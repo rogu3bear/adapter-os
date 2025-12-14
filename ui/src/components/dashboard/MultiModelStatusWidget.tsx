@@ -3,7 +3,7 @@ import { apiClient } from '@/api/client';
 import type { BaseModelStatus, AllModelsStatusResponse } from '@/api/types';
 import { CheckCircle, XCircle, Loader2, AlertCircle } from 'lucide-react';
 import { logger } from '@/utils/logger';
-import { usePolling } from '@/hooks/usePolling';
+import { usePolling } from '@/hooks/realtime/usePolling';
 import { DashboardWidgetFrame, type DashboardWidgetState } from './DashboardWidgetFrame';
 
 interface ModelStatusBadgeProps {

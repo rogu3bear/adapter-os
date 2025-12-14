@@ -10,7 +10,7 @@ export type { PolicyDetailsProps } from './PolicyDetails';
 export { PolicyOverride } from './PolicyOverride';
 export type { PolicyOverrideProps } from './PolicyOverride';
 
-export { usePolicyChecks } from '@/hooks/usePolicyChecks';
+export { usePolicyChecks } from '@/hooks/policies';
 
 // Diff Visualization Components
 export { DiffVisualization } from './DiffVisualization';
@@ -21,7 +21,7 @@ export type { DiffVisualizationWithNavProps } from './DiffVisualizationWithNav';
 
 export { DiffVisualizationExample } from './DiffVisualizationExample';
 
-export { useDiffKeyboardNav } from './useDiffKeyboardNav';
+export { useDiffKeyboardNav } from '@/hooks/golden/useDiffKeyboardNav';
 
 export {
   calculateSimilarity,

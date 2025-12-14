@@ -8,7 +8,7 @@ import {
   useArchiveSession,
   useRestoreSession,
   useHardDeleteSession,
-} from '@/hooks/useChatArchive';
+} from '@/hooks/chat/useChatArchive';
 import type { ChatSessionWithStatus } from '@/api/chat-types';
 import { toast } from 'sonner';
 

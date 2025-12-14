@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { TenantTable } from './TenantTable';
 import { TenantFormModal } from './TenantFormModal';
-import { useTenants } from '@/hooks/useAdmin';
+import { useTenants } from '@/hooks/admin/useAdmin';
 import { LoadingState } from '@/components/ui/loading-state';
 import { ErrorRecovery } from '@/components/ui/error-recovery';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';

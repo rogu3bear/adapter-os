@@ -170,6 +170,7 @@ pub async fn check_availability(
                 can_replay_approximate: false,
                 unavailable_reasons: vec!["No replay metadata found for this inference".to_string()],
                 approximation_warnings: vec![],
+                version_consistency_warning: None,
                 replay_key: None,
             }));
         }
@@ -306,6 +307,7 @@ pub async fn check_availability(
         rag_snapshot_hash: metadata.rag_snapshot_hash,
         adapter_ids,
         base_only: metadata.base_only,
+        dataset_version_id: metadata.dataset_version_id,
     };
 
     let can_replay_exact = status == ReplayStatus::Available;
@@ -329,6 +331,7 @@ pub async fn check_availability(
         can_replay_approximate,
         unavailable_reasons,
         approximation_warnings,
+        version_consistency_warning: None,
         replay_key: Some(replay_key),
     }))
 }
@@ -628,10 +631,9 @@ pub async fn execute_replay(
     })?;
 
     // Restore stop_policy from metadata for deterministic replay
-    let stop_policy = metadata
-        .stop_policy_json
-        .as_ref()
-        .and_then(|json| serde_json::from_str::<adapteros_api_types::inference::StopPolicySpec>(json).ok());
+    let stop_policy = metadata.stop_policy_json.as_ref().and_then(|json| {
+        serde_json::from_str::<adapteros_api_types::inference::StopPolicySpec>(json).ok()
+    });
 
     let inference_request = InferenceRequestInternal {
         request_id: replay_id.clone(),
@@ -641,6 +643,7 @@ pub async fn execute_replay(
         batch_item_id: None,
         rag_enabled: rag_doc_ids.is_some() && !req.skip_rag,
         rag_collection_id: None, // RAG context will be reconstructed from doc IDs if needed
+        dataset_version_id: metadata.dataset_version_id.clone(),
         adapter_stack: None,
         adapters: adapter_ids.clone(),
         stack_id: None,

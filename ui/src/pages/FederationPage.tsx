@@ -12,10 +12,10 @@ import { useDensity } from '@/contexts/DensityContext';
 import { PeerSyncStatusCard } from '@/components/federation/PeerSyncStatusCard';
 import { derivePeerSyncInfoList } from '@/utils/peerSync';
 import { DensityControls } from '@/components/ui/density-controls';
-import { useRBAC } from '@/hooks/useRBAC';
+import { useRBAC } from '@/hooks/security/useRBAC';
 import { ErrorRecovery, errorRecoveryTemplates } from '@/components/ui/error-recovery';
 import { GlossaryTooltip } from '@/components/ui/glossary-tooltip';
-import { usePolling } from '@/hooks/usePolling';
+import { usePolling } from '@/hooks/realtime/usePolling';
 import { RefreshCw, ShieldAlert, CheckCircle, AlertTriangle, Server, Activity } from 'lucide-react';
 import {
   Dialog,
@@ -479,6 +479,8 @@ function FederationPageInner() {
     }
   );
 
+  const federationStatusData = federationStatus ?? undefined;
+
   // Fetch quarantine status
   const fetchQuarantineStatus = useCallback(async () => {
     return await apiClient.getQuarantineStatus();
@@ -498,6 +500,8 @@ function FederationPageInner() {
     }
   );
 
+  const quarantineStatusData = quarantineStatus ?? undefined;
+
   // Fetch federation audit
   const fetchFederationAudit = useCallback(async () => {
     return await apiClient.getFederationAudit({ limit: 100 });
@@ -516,6 +520,8 @@ function FederationPageInner() {
       operationName: 'fetchFederationAudit',
     }
   );
+
+  const auditDataFormatted = auditData ?? undefined;
 
   // Fetch peer list for sync status
   const fetchPeers = useCallback(async () => {
@@ -575,11 +581,11 @@ function FederationPageInner() {
         <div className="space-y-6">
           <ControlsCard
             onRefresh={handleRefreshAll}
-            lastUpdated={statusLastUpdated}
+            lastUpdated={statusLastUpdated ?? undefined}
             isLoading={statusLoading}
           />
           <StatusSummaryCard
-            status={federationStatus}
+            status={federationStatusData}
             isLoading={statusLoading}
             error={statusError instanceof Error ? statusError : statusError ? new Error(String(statusError)) : null}
             onRetry={refetchStatus}
@@ -596,7 +602,7 @@ function FederationPageInner() {
             />
           )}
           <QuarantineCard
-            status={quarantineStatus}
+            status={quarantineStatusData}
             isLoading={quarantineLoading}
             error={quarantineError instanceof Error ? quarantineError : quarantineError ? new Error(String(quarantineError)) : null}
             onRetry={refetchQuarantine}
@@ -604,7 +610,7 @@ function FederationPageInner() {
             onReleaseClick={() => setQuarantineDialogOpen(true)}
           />
           <AuditCard
-            audit={auditData}
+            audit={auditDataFormatted}
             isLoading={auditLoading}
             error={auditError instanceof Error ? auditError : auditError ? new Error(String(auditError)) : null}
             onRetry={refetchAudit}

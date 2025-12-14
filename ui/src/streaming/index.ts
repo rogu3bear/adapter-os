@@ -33,11 +33,11 @@ export {
   useTelemetryStream,
   useAdaptersStream,
   useAllStreamsStatus,
-} from '@/hooks/useStreamingEndpoints';
-export type { StreamHookResult } from '@/hooks/useStreamingEndpoints';
+} from '@/hooks/streaming/useStreamingEndpoints';
+export type { StreamHookResult } from '@/hooks/streaming/useStreamingEndpoints';
 
-export { useSSE } from '@/hooks/useSSE';
-export type { UseSSEOptions } from '@/hooks/useSSE';
+export { useSSE } from '@/hooks/realtime/useSSE';
+export type { UseSSEOptions } from '@/hooks/realtime/useSSE';
 
 // ============================================================================
 // Types

@@ -16,7 +16,6 @@ export interface WorkflowTemplate {
 export type WorkflowCategory =
   | 'training'
   | 'deployment'
-  | 'experimental'
   | 'comparison'
   | 'stack'
   | 'maintenance';

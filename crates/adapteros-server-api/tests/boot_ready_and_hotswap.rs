@@ -4,8 +4,8 @@ use std::sync::Arc;
 use adapteros_server_api::boot_state::{BootState, BootStateManager};
 use adapteros_server_api::handlers::adapter_stacks::deactivate_stack;
 use adapteros_server_api::handlers::health::ready;
+use adapteros_server_api::handlers::health::ReadyzResponse;
 use adapteros_server_api::handlers::unload_adapter;
-use adapteros_server_api::types::HealthResponse;
 use axum::body::to_bytes;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -26,12 +26,17 @@ async fn readyz_does_not_report_stopped_during_startup() {
     assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
 
     let body_bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-    let health: HealthResponse = serde_json::from_slice(&body_bytes).unwrap();
+    let readyz: ReadyzResponse = serde_json::from_slice(&body_bytes).unwrap();
 
     assert!(
-        !health.status.contains("stopped"),
+        !readyz
+            .checks
+            .worker
+            .hint
+            .unwrap_or_default()
+            .contains("stopped"),
         "readyz should not advertise stopped during startup: {}",
-        health.status
+        serde_json::to_string(&readyz).unwrap()
     );
 }
 

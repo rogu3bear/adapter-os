@@ -16,10 +16,10 @@ import { DateRangePicker, type DateRange } from '@/components/ui/date-range-pick
 import { apiClient } from '@/api/client';
 import { DensityProvider, useDensity } from '@/contexts/DensityContext';
 import { DensityControls } from '@/components/ui/density-controls';
-import { useRBAC } from '@/hooks/useRBAC';
+import { useRBAC } from '@/hooks/security/useRBAC';
 import { ErrorRecovery } from '@/components/ui/error-recovery';
 import { GlossaryTooltip } from '@/components/ui/glossary-tooltip';
-import { usePolling } from '@/hooks/usePolling';
+import { usePolling } from '@/hooks/realtime/usePolling';
 import { toast } from 'sonner';
 import {
   RefreshCw,

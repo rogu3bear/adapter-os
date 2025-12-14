@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { TERMS } from '@/constants/terminology';
-import { useCollections, useCollectionsApi } from '@/hooks/useCollectionsApi';
+import { useCollections, useCollectionsApi } from '@/hooks/api/useCollectionsApi';
 import type { Collection } from '@/api/document-types';
 import { logger, toError } from '@/utils/logger';
 
@@ -50,8 +50,8 @@ export function CollectionManager({ onSelectCollection, selectedCollectionId }: 
     }
   };
 
-  const handleDeleteCollection = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this collection?')) return;
+  const handleDeleteCollection = async (id: string | undefined) => {
+    if (!id || !confirm('Are you sure you want to delete this collection?')) return;
 
     try {
       await deleteCollectionMutation(id);

@@ -221,7 +221,7 @@ npm test -- DocumentChatFlow.test.tsx --watch
 
 - **CLAUDE.md** - UI Integration Patterns section
 - **ui/src/components/ChatInterface.tsx** - Main chat component
-- **ui/src/components/chat/EvidencePanel.tsx** - Evidence display component
+- **ui/src/components/chat/EvidenceSources.tsx** - Evidence display component (RAG sources)
 - **ui/src/api/document-types.ts** - Document and evidence types
 - **ui/src/api/chat-types.ts** - Chat session types
 

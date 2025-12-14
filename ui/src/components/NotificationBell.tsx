@@ -16,7 +16,7 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
-import { useNotifications } from '@/hooks/useNotifications';
+import { useNotifications } from '@/hooks/realtime/useNotifications';
 import { logger } from '@/utils/logger';
 
 interface NotificationBellProps {
@@ -25,7 +25,7 @@ interface NotificationBellProps {
 }
 
 export function NotificationBell({ onOpenChange, showCountLabel = false }: NotificationBellProps) {
-  const { summary, loading, error } = useNotifications({
+  const { summary, isLoading, error } = useNotifications({
     enabled: true,
     maxNotifications: 5, // Just for preview in dropdown
   });
@@ -90,7 +90,7 @@ export function NotificationBell({ onOpenChange, showCountLabel = false }: Notif
           </div>
 
           <div className="p-2">
-            {loading && (
+            {isLoading && (
               <div className="space-y-2">
                 <div className="h-4 bg-muted/50 animate-pulse rounded" />
                 <div className="h-4 bg-muted/50 animate-pulse rounded w-5/6" />
@@ -104,7 +104,7 @@ export function NotificationBell({ onOpenChange, showCountLabel = false }: Notif
               </div>
             )}
 
-            {!loading && !error && summary && (
+            {!isLoading && !error && summary && (
               <div className="space-y-2">
                 {summary.unread_count === 0 ? (
                   <div className="text-center py-4 text-sm text-muted-foreground">

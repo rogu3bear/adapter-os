@@ -381,7 +381,7 @@ export function GoldenCompareModalEnhanced({ open, onOpenChange, bundleId }: Gol
                     {viewMode === 'heatmap' && (
                       <EpsilonHeatmap
                         divergences={filteredDivergences}
-                        tolerance={compareResult.epsilon_comparison.tolerance}
+                        tolerance={compareResult.epsilon_comparison.tolerance ?? 1e-5}
                         adapterFilter={adapterFilter}
                         onAdapterClick={(prefix) => setAdapterFilter(adapterFilter === prefix ? null : prefix)}
                       />
@@ -390,7 +390,7 @@ export function GoldenCompareModalEnhanced({ open, onOpenChange, bundleId }: Gol
                     {viewMode === 'stats' && (
                       <StatisticalSummary
                         divergences={compareResult.epsilon_comparison.divergent_layers}
-                        tolerance={compareResult.epsilon_comparison.tolerance}
+                        tolerance={compareResult.epsilon_comparison.tolerance ?? 1e-5}
                       />
                     )}
                   </>

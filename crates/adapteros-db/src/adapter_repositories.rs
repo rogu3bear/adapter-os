@@ -2349,7 +2349,7 @@ impl Db {
 
             // Verify dataset version exists and belongs to tenant
             let ds_exists: Option<(String,)> = sqlx::query_as(
-                "SELECT id FROM training_dataset_versions WHERE id = ? AND tenant_id = ?"
+                "SELECT id FROM training_dataset_versions WHERE id = ? AND tenant_id = ?",
             )
             .bind(ds_version_id)
             .bind(tenant_id)
@@ -2370,7 +2370,7 @@ impl Db {
                 SELECT adapter_version_id
                 FROM adapter_version_dataset_versions
                 WHERE adapter_version_id = ? AND dataset_version_id = ?
-                "#
+                "#,
             )
             .bind(version_id)
             .bind(ds_version_id)
@@ -2385,7 +2385,8 @@ impl Db {
             }
         } else if required_scope_dataset_version_id.is_some() {
             return Err(AosError::Validation(
-                "required_scope_dataset_version_id must be NULL when attach_mode is 'free'".to_string()
+                "required_scope_dataset_version_id must be NULL when attach_mode is 'free'"
+                    .to_string(),
             ));
         }
 
@@ -2393,7 +2394,7 @@ impl Db {
         if let Some(desc) = short_description {
             if desc.len() > 280 {
                 return Err(AosError::Validation(
-                    "short_description must be 280 characters or less".to_string()
+                    "short_description must be 280 characters or less".to_string(),
                 ));
             }
         }
@@ -2434,13 +2435,9 @@ impl Db {
     ///
     /// Sets `is_archived = true`. Archived versions are hidden from normal use
     /// but retain their lifecycle_state for audit purposes.
-    pub async fn archive_adapter_version(
-        &self,
-        tenant_id: &str,
-        version_id: &str,
-    ) -> Result<()> {
+    pub async fn archive_adapter_version(&self, tenant_id: &str, version_id: &str) -> Result<()> {
         let result = sqlx::query(
-            "UPDATE adapter_versions SET is_archived = 1 WHERE id = ? AND tenant_id = ?"
+            "UPDATE adapter_versions SET is_archived = 1 WHERE id = ? AND tenant_id = ?",
         )
         .bind(version_id)
         .bind(tenant_id)
@@ -2461,13 +2458,9 @@ impl Db {
     /// Unarchive an adapter version.
     ///
     /// Sets `is_archived = false`, making the version visible again.
-    pub async fn unarchive_adapter_version(
-        &self,
-        tenant_id: &str,
-        version_id: &str,
-    ) -> Result<()> {
+    pub async fn unarchive_adapter_version(&self, tenant_id: &str, version_id: &str) -> Result<()> {
         let result = sqlx::query(
-            "UPDATE adapter_versions SET is_archived = 0 WHERE id = ? AND tenant_id = ?"
+            "UPDATE adapter_versions SET is_archived = 0 WHERE id = ? AND tenant_id = ?",
         )
         .bind(version_id)
         .bind(tenant_id)
@@ -2498,7 +2491,7 @@ impl Db {
             SELECT attach_mode, required_scope_dataset_version_id
             FROM adapter_versions
             WHERE id = ? AND tenant_id = ?
-            "#
+            "#,
         )
         .bind(version_id)
         .bind(tenant_id)

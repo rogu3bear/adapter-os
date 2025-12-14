@@ -2,9 +2,107 @@
 // Extracted from types.ts for better organization
 //
 // 【2025-01-20†rectification†api_types】
+//
+// IMPORTANT: This file contains BACKEND types (snake_case, as received from API).
+// For clean FRONTEND types (camelCase), use @/api/domain-types.ts
+// For transforming backend → frontend, use @/api/transformers.ts
+// For runtime validation, use @/api/schemas.ts
 
 import { Policy } from '@/api/adapter-types';
 import type { Evidence } from '@/api/document-types';
+
+// ============================================================================
+// Raw Backend Response Types (snake_case field names)
+// These types match the exact JSON structure returned by the backend API.
+// Use transformers to convert these to clean domain types for frontend use.
+// ============================================================================
+
+export interface RawAdapterResponse {
+  schema_version?: string;
+  adapter_id?: string;
+  id?: string;
+  name: string;
+  tenant_id?: string;
+  hash_b3: string;
+  rank: number;
+  tier: string;
+  lifecycle_state?: string;
+  category?: 'code' | 'framework' | 'codebase' | 'ephemeral';
+  scope?: 'global' | 'tenant' | 'repo' | 'commit' | 'project';
+  framework?: string;
+  description?: string;
+  created_at: string;
+  updated_at?: string;
+  memory_bytes?: number;
+  last_activated?: string;
+  activation_count?: number;
+  pinned?: boolean;
+  current_state?: 'unloaded' | 'cold' | 'warm' | 'hot' | 'resident';
+  runtime_state?: string;
+  kv_consistent?: boolean;
+  kv_message?: string;
+}
+
+export interface RawInferResponse {
+  schema_version: string;
+  id: string;
+  text: string;
+  tokens_generated: number; // Backend uses tokens_generated
+  latency_ms: number;
+  adapters_used: string[];
+  run_receipt?: unknown;
+  citations?: unknown[];
+  finish_reason?: 'stop' | 'length' | 'error' | 'budget' | 'repetition';
+  stop_reason_code?: StopReasonCode;
+  tokens?: number[];
+  backend?: BackendName;
+  trace?: {
+    latency_ms: number;
+    steps?: Array<{ adapter: string; latency_ms: number; tokens: number }>;
+    router_decisions?: Array<{ adapter: string; score: number }>;
+    evidence_spans?: Array<{ text: string; relevance: number }>;
+  };
+  token_count?: number;
+  model?: string;
+  prompt_tokens?: number;
+  error?: string;
+  response?: string;
+  unavailable_pinned_adapters?: string[];
+  pinned_routing_fallback?: 'stack_only' | 'partial' | null;
+  backend_used?: BackendName | string;
+  coreml_compute_preference?: string;
+  coreml_compute_units?: string;
+  coreml_gpu_used?: boolean | null;
+  fallback_backend?: BackendName | string;
+  fallback_triggered?: boolean;
+  determinism_mode_applied?: string;
+  replay_guarantee?: string | null;
+}
+
+export interface RawRouterDecision {
+  request_id: string;
+  selected_adapters: string[];
+  scores: Record<string, number>;
+  timestamp: string;
+  latency_ms: number;
+  overhead_pct?: number;
+  tau?: number;
+  step?: number;
+  stack_hash?: string;
+  input_token_id?: number;
+  entropy_floor?: number;
+  entropy?: number;
+  candidate_adapters?: unknown[]; // Backend uses candidate_adapters
+  candidates?: unknown[]; // Some endpoints use candidates
+  k_value?: number;
+  router_latency_us?: number;
+}
+
+// ============================================================================
+// Legacy Types (Preserved for backward compatibility)
+// These are the original mixed snake_case/camelCase types.
+// NEW CODE SHOULD USE domain-types.ts INSTEAD.
+// ============================================================================
 
 /** Generic paginated response wrapper used by list endpoints */
 export interface PaginatedResponse<T> {
@@ -638,6 +736,20 @@ export interface CommitDeltaResponse {
 // Inference types
 export type BackendName = 'mlx' | 'coreml' | 'metal' | 'auto';
 export type BackendMode = 'real' | 'stub' | 'auto';
+export type CoreMLMode = 'ane' | 'gpu' | 'cpu' | 'auto';
+
+export type StopReasonCode = 'LENGTH' | 'BUDGET_MAX' | 'COMPLETION_CONFIDENT' | 'REPETITION_GUARD';
+
+export type FusionInterval = {
+  start_token: number;
+  end_token: number;
+  adapter_weights: Record<string, number>;
+};
+
+export interface StopPolicySpec {
+  max_tokens?: number;
+  stop_sequences?: string[];
+}
 
 export interface InferRequest {
   prompt: string;
@@ -655,6 +767,14 @@ export interface InferRequest {
   seed?: number;
   require_evidence?: boolean;
   adapters?: string[];
+  fusion_interval?: FusionInterval;
+  coreml_mode?: CoreMLMode;
+  effective_adapter_ids?: string[];
+  session_id?: string;
+  tenant_id?: string;
+  rag_enabled?: boolean;
+  collection_id?: string;
+  stop_policy?: StopPolicySpec;
 }
 
 export interface RunReceipt {
@@ -670,7 +790,7 @@ export interface RunReceipt {
   logical_output_tokens: number;
   billed_output_tokens: number;
   // Stop controller fields (PRD: Hard Deterministic Stop Controller)
-  stop_reason_code?: string;
+  stop_reason_code?: StopReasonCode;
   stop_reason_token_index?: number;
   stop_policy_digest_b3?: string;
   // KV quota/residency fields (PRD: KvResidencyAndQuotas v1)
@@ -696,7 +816,9 @@ export interface InferResponse {
   adapters_used: string[];
   run_receipt?: RunReceipt;
   citations?: Citation[];
-  finish_reason: 'stop' | 'length' | 'error';
+  finish_reason?: 'stop' | 'length' | 'error' | 'budget' | 'repetition';
+  stop_reason_code?: StopReasonCode;
+  tokens?: number[]; // Token IDs
   backend?: BackendName;
   trace?: {
     latency_ms: number;
@@ -704,8 +826,6 @@ export interface InferResponse {
     router_decisions?: Array<{ adapter: string; score: number }>;
     evidence_spans?: Array<{ text: string; relevance: number }>;
   };
-  /** @deprecated Use token_count instead */
-  tokens?: number;
   token_count?: number;
   model?: string;
   prompt_tokens?: number;
@@ -741,6 +861,7 @@ export interface Citation {
   adapter_id: string;
   file_path: string;
   chunk_id: string;
+  // Note: offset values >2^53 may lose precision in JavaScript
   offset_start: number;
   offset_end: number;
   preview: string;
@@ -820,6 +941,22 @@ export interface HealthResponse {
   uptime_seconds?: number;
   components?: Record<string, ComponentHealth>;
   checks?: Record<string, boolean>;
+}
+
+export interface ReadyzCheck {
+  ok: boolean;
+  hint?: string;
+}
+
+export interface ReadyzChecks {
+  db: ReadyzCheck;
+  worker: ReadyzCheck;
+  models_seeded: ReadyzCheck;
+}
+
+export interface ReadyzResponse {
+  ready: boolean;
+  checks: ReadyzChecks;
 }
 
 export interface BackendCapability {

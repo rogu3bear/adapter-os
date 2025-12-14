@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FileText, Download, Trash2, RefreshCw, Eye, MessageSquare } from 'lucide-react';
-import { useDocumentsApi } from '@/hooks/useDocumentsApi';
+import { useDocumentsApi } from '@/hooks/documents';
 import type { Document } from '@/api/document-types';
 import { logger, toError } from '@/utils/logger';
 import { formatBytes, formatTimestamp } from '@/utils/format';

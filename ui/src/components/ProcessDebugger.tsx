@@ -211,9 +211,9 @@ export function ProcessDebugger({ workerId, workerName, onClose }: ProcessDebugg
         id: data.session_id,
         worker_id: workerId,
         status: 'active',
-        session_type: data.config.session_type as string,
-        config_json: JSON.stringify(data.config),
-        started_at: data.created_at,
+        session_type: (data.config?.session_type as string) ?? 'interactive',
+        config_json: JSON.stringify(data.config ?? {}),
+        started_at: data.created_at ?? new Date().toISOString(),
       };
       setDebugSessions([session]);
       setStatusMessage({ message: 'Debug session started.', variant: 'success' });
@@ -246,12 +246,12 @@ export function ProcessDebugger({ workerId, workerName, onClose }: ProcessDebugg
 
       // Convert TroubleshootingResult to ProcessTroubleshootingStep
       const step: ProcessTroubleshootingStep = {
-        id: data.step_id,
+        id: data.step_id ?? 'unknown',
         worker_id: workerId,
         step_name: 'Memory Analysis',
         step_type: 'memory_analysis',
         status: data.success ? 'completed' : 'failed',
-        output: data.output,
+        output: data.output ?? '',
         started_at: new Date().toISOString(),
       };
       setTroubleshootingSteps([step]);

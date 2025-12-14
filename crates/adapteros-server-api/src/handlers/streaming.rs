@@ -1489,3 +1489,48 @@ pub async fn activity_stream(
             .text("keep-alive"),
     )
 }
+
+/// Training progress stream
+#[utoipa::path(
+    get,
+    path = "/v1/streams/training",
+    responses(
+        (status = 200, description = "SSE stream", body = String)
+    )
+)]
+pub async fn training_stream(
+    State(_state): State<Arc<AppState>>,
+    Extension(_claims): Extension<Claims>,
+) -> impl IntoResponse {
+    Json(json!({"status": "not_implemented"})).into_response()
+}
+
+/// Discovery stream
+#[utoipa::path(
+    get,
+    path = "/v1/streams/discovery",
+    responses(
+        (status = 200, description = "SSE stream", body = String)
+    )
+)]
+pub async fn discovery_stream(
+    State(_state): State<Arc<AppState>>,
+    Extension(_claims): Extension<Claims>,
+) -> impl IntoResponse {
+    Json(json!({"status": "not_implemented"})).into_response()
+}
+
+/// Contacts stream
+#[utoipa::path(
+    get,
+    path = "/v1/streams/contacts",
+    responses(
+        (status = 200, description = "SSE stream", body = String)
+    )
+)]
+pub async fn contacts_stream(
+    State(_state): State<Arc<AppState>>,
+    Extension(_claims): Extension<Claims>,
+) -> impl IntoResponse {
+    Json(json!({"status": "not_implemented"})).into_response()
+}

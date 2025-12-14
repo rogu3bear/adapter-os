@@ -5,6 +5,7 @@
 //! - GET /v1/routing/decisions/:id - Get specific routing decision
 //! - POST /v1/telemetry/routing - Ingest router decision events (internal)
 
+use std::sync::Arc;
 use crate::auth::Claims;
 use crate::middleware::require_any_role;
 use crate::security::validate_tenant_isolation;
@@ -17,7 +18,8 @@ use adapteros_db::{
 };
 use axum::extract::{Extension, Path, Query, State};
 use axum::http::StatusCode;
-use axum::Json;
+use axum::{Json, response::IntoResponse};
+use serde_json::json;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Value;
 use tracing::{debug, warn};
@@ -792,4 +794,42 @@ fn convert_decision_to_response(decision: DbRoutingDecision) -> RoutingDecisionR
         total_inference_latency_us: decision.total_inference_latency_us,
         overhead_pct: decision.overhead_pct,
     }
+}
+
+/// Debug routing logic
+
+/// Debug routing logic
+#[utoipa::path(
+    post,
+    path = "/v1/routing/debug",
+    request_body = serde_json::Value,
+    responses(
+        (status = 200, description = "Routing debug info", body = serde_json::Value),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    )
+)]
+pub async fn debug_routing(
+    State(_state): State<Arc<AppState>>,
+    Extension(_claims): Extension<Claims>,
+    Json(payload): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    // Stub implementation
+    Json(json!({"status": "not_implemented", "payload": payload})).into_response()
+}
+
+/// Get routing history
+#[utoipa::path(
+    get,
+    path = "/v1/routing/history",
+    responses(
+        (status = 200, description = "Routing history", body = Vec<serde_json::Value>),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    )
+)]
+pub async fn get_routing_history(
+    State(_state): State<Arc<AppState>>,
+    Extension(_claims): Extension<Claims>,
+) -> impl IntoResponse {
+    // Stub implementation
+    Json(json!([])).into_response()
 }

@@ -178,7 +178,7 @@ export function WorkflowWizard() {
                           <Button
                             size="sm"
                             variant="outline"
-                            onClick={() => navigate(step.secondaryLink.href)}
+                            onClick={() => step.secondaryLink && navigate(step.secondaryLink.href)}
                             disabled={step.secondaryLink.disabled}
                           >
                             {step.secondaryLink.label}
@@ -219,9 +219,9 @@ export function WorkflowWizard() {
           <CardDescription>Continue strengthening your deployment.</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-wrap gap-2">
-          <Button variant="outline" size="sm" onClick={() => navigate('/promotion')}>
+          <Button variant="outline" size="sm" onClick={() => navigate('/adapters')}>
             <Zap className="h-4 w-4 mr-2" />
-            Promotion
+            Adapters
           </Button>
           <Button variant="outline" size="sm" onClick={() => navigate('/security/policies')}>
             <Shield className="h-4 w-4 mr-2" />

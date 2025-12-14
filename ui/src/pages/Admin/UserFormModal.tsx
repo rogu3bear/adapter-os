@@ -11,7 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useCreateUser, useUpdateUser, useTenants } from '@/hooks/useAdmin';
+import { useCreateUser, useUpdateUser, useTenants } from '@/hooks/admin/useAdmin';
 import type { User, UserRole, RegisterUserRequest, UpdateUserRequest } from '@/api/types';
 import { UserFormSchema, type UserFormData } from '@/schemas/admin.schema';
 

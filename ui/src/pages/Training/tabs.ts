@@ -1,3 +1,20 @@
+/**
+ * @deprecated Use `useTrainingTabRouter()` from '@/hooks/navigation/useTabRouter' instead.
+ * This file is retained for backward compatibility only and will be removed in a future version.
+ * The new hook provides path-based routing (deep-linkable URLs) instead of hash-based routing.
+ *
+ * Migration example:
+ * ```tsx
+ * // OLD:
+ * import { resolveTrainingTab, trainingTabToPath } from '@/pages/Training/tabs';
+ * const activeTab = resolveTrainingTab(location.pathname, location.hash, { jobId });
+ * const path = trainingTabToPath(activeTab);
+ *
+ * // NEW:
+ * import { useTrainingTabRouter } from '@/hooks/navigation/useTabRouter';
+ * const { activeTab, setActiveTab, availableTabs, getTabPath } = useTrainingTabRouter();
+ * ```
+ */
 export type TrainingTab = 'overview' | 'jobs' | 'datasets' | 'templates' | 'artifacts' | 'settings';
 
 export const trainingTabOrder: TrainingTab[] = ['overview', 'jobs', 'datasets', 'templates', 'artifacts', 'settings'];

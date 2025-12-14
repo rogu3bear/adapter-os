@@ -1,7 +1,7 @@
 // DatasetValidation - Validation tab for dataset detail page
 
 import React, { useState, useEffect } from 'react';
-import { useLiveData } from '@/hooks/useLiveData';
+import { useLiveData } from '@/hooks/realtime/useLiveData';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';

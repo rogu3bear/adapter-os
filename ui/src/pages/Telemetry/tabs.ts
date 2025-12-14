@@ -1,3 +1,20 @@
+/**
+ * @deprecated Use `useTelemetryTabRouter()` from '@/hooks/navigation/useTabRouter' instead.
+ * This file is retained for backward compatibility only and will be removed in a future version.
+ * The new hook provides path-based routing (deep-linkable URLs) instead of hash-based routing.
+ *
+ * Migration example:
+ * ```tsx
+ * // OLD:
+ * import { resolveTelemetryTab, telemetryTabToPath } from '@/pages/Telemetry/tabs';
+ * const activeTab = resolveTelemetryTab(location.pathname, location.hash);
+ * const path = telemetryTabToPath(activeTab);
+ *
+ * // NEW:
+ * import { useTelemetryTabRouter } from '@/hooks/navigation/useTabRouter';
+ * const { activeTab, setActiveTab, availableTabs, getTabPath } = useTelemetryTabRouter();
+ * ```
+ */
 export type TelemetryTab = 'event-stream' | 'viewer' | 'alerts' | 'exports' | 'filters';
 
 export const telemetryTabOrder: TelemetryTab[] = ['event-stream', 'viewer', 'alerts', 'exports', 'filters'];

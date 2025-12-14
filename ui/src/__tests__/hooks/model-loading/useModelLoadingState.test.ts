@@ -19,7 +19,7 @@ const mockModelStatus = {
   modelName: 'Test Model',
   memoryUsageMb: 4096,
   errorMessage: null,
-  refresh: vi.fn().mockResolvedValue(undefined),
+  refetch: vi.fn().mockResolvedValue(undefined),
 };
 
 const mockAdapterState = {
@@ -306,16 +306,16 @@ describe('useModelLoadingState', () => {
   });
 
   describe('refresh actions', () => {
-    it('provides refresh function that calls refreshAll', async () => {
+    it('provides refetch function that calls refreshAll', async () => {
       const { result } = renderHook(() => useModelLoadingState({ stackId: 'test-stack' }));
 
-      expect(typeof result.current.refresh).toBe('function');
+      expect(typeof result.current.refetch).toBe('function');
 
       await act(async () => {
-        await result.current.refresh();
+        await result.current.refetch();
       });
 
-      expect(mockModelStatus.refresh).toHaveBeenCalled();
+      expect(mockModelStatus.refetch).toHaveBeenCalled();
     });
   });
 

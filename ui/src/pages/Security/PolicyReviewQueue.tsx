@@ -32,8 +32,8 @@ import {
   useRejectCustomization,
   useActivateCustomization,
   type TenantPolicyCustomization,
-} from '@/hooks/useTenantPolicies';
-import { useRBAC } from '@/hooks/useRBAC';
+} from '@/hooks/security/useTenantPolicies';
+import { useRBAC } from '@/hooks/security/useRBAC';
 import { getPolicyPack } from '@/constants/policySchema';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ErrorRecovery } from '@/components/ui/error-recovery';

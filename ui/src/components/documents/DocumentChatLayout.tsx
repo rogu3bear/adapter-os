@@ -31,7 +31,7 @@ import {
 import { ChatInterface } from '@/components/ChatInterface';
 import PDFViewerEmbedded, { PDFViewerEmbeddedRef } from './PDFViewerEmbedded';
 import { DocumentViewerProvider, useDocumentViewer } from '@/contexts/DocumentViewerContext';
-import { useDocumentsApi } from '@/hooks/useDocumentsApi';
+import { useDocumentsApi } from '@/hooks/documents';
 import type { Document } from '@/api/document-types';
 import { logger, toError } from '@/utils/logger';
 

@@ -54,14 +54,14 @@ const Mermaid: React.FC<MermaidProps> = ({ chart, config, className, onRender, o
     let cancelled = false;
     async function render() {
       try {
-        const { svg } = await mermaid.render(renderKey, chart, element);
-        if (!cancelled) {
+        const { svg } = await mermaid.render(renderKey, chart, element ?? undefined);
+        if (!cancelled && element) {
           element.innerHTML = svg;
           setError(null);
           onRender?.();
         }
       } catch (err) {
-        if (!cancelled) {
+        if (!cancelled && element) {
           const message = err instanceof Error ? err.message : 'Unable to render diagram';
           setError(message);
           onError?.(err);
@@ -74,7 +74,9 @@ const Mermaid: React.FC<MermaidProps> = ({ chart, config, className, onRender, o
 
     return () => {
       cancelled = true;
-      element.innerHTML = '';
+      if (element) {
+        element.innerHTML = '';
+      }
     };
   }, [chart, config, onRender, onError, renderKey]);
 

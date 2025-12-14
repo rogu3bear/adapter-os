@@ -335,6 +335,18 @@ path = "tests/kernel_buffer_layout.rs"
 # name = "kernel_lora_validation"
 # path = "tests/kernel_lora_validation.rs"
 
+[[test]]
+name = "kv_residency_quota_tests"
+path = "tests/kv_residency_quota_tests.rs"
+
+[[test]]
+name = "kv_residency_quota_integration"
+path = "tests/kv_residency_quota_integration.rs"
+
+[[test]]
+name = "kv_quota_concurrent_e2e"
+path = "tests/kv_quota_concurrent_e2e.rs"
+
 # Test dependencies
 [dev-dependencies]
 adapteros-core = { path = "crates/adapteros-core" }
@@ -370,7 +382,7 @@ adapteros-lora-lifecycle = { path = "crates/adapteros-lora-lifecycle" }
 adapteros-registry = { path = "crates/adapteros-registry" }
 adapteros-artifacts = { path = "crates/adapteros-artifacts" }
 adapteros-lora-kernel-api = { path = "crates/adapteros-lora-kernel-api" }
-# adapteros-lora-kernel-mtl = { path = "crates/adapteros-lora-kernel-mtl" }  # macOS only
+adapteros-lora-kernel-mtl = { path = "crates/adapteros-lora-kernel-mtl" }  # macOS only - needed for KV quota tests
 # adapteros-lora-kernel-prof = { path = "crates/adapteros-lora-kernel-prof" }  # macOS only
 # adapteros-system-metrics = { path = "crates/adapteros-system-metrics" }  # Requires DATABASE_URL
 adapteros-crypto = { path = "crates/adapteros-crypto" }

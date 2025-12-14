@@ -59,6 +59,7 @@ impl Db {
                 .clone()
                 .unwrap_or_else(|| "v1.0.0".to_string()),
             rag_snapshot_hash: params.rag_snapshot_hash.clone(),
+            dataset_version_id: params.dataset_version_id.clone(),
             adapter_ids_json: params
                 .adapter_ids
                 .as_ref()
@@ -112,6 +113,7 @@ impl Db {
             coreml_hash_mismatch: meta.coreml_hash_mismatch,
             sampling_algorithm_version: meta.sampling_algorithm_version,
             rag_snapshot_hash: meta.rag_snapshot_hash,
+            dataset_version_id: meta.dataset_version_id,
             adapter_ids_json: meta.adapter_ids_json,
             base_only: meta.base_only,
             prompt_text: meta.prompt_text,

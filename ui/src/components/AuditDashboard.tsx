@@ -51,88 +51,50 @@ interface PolicyViolation {
 }
 
 
-// Helper function to map backend ComplianceControl to component ComplianceStatus
-function mapComplianceControlToStatus(control: ComplianceControl): ComplianceStatus {
+// Helper function to map backend control to component ComplianceStatus
+function mapComplianceControlToStatus(control: { name: string; status: string; message?: string }): ComplianceStatus {
   // Map backend status string to component status enum
   let status: ComplianceStatus['status'] = 'unknown';
   const statusLower = control.status.toLowerCase();
-  if (statusLower === 'compliant') {
+  if (statusLower === 'compliant' || statusLower === 'passed') {
     status = 'compliant';
-  } else if (statusLower === 'non-compliant' || statusLower === 'non_compliant') {
+  } else if (statusLower === 'non-compliant' || statusLower === 'non_compliant' || statusLower === 'failed') {
     status = 'non-compliant';
-  } else if (statusLower === 'pending') {
+  } else if (statusLower === 'pending' || statusLower === 'warning') {
     status = 'pending';
   }
 
   return {
-    controlId: control.control_id,
-    controlName: control.control_name,
+    controlId: control.name,
+    controlName: control.name,
     status,
-    lastChecked: control.last_checked,
-    evidence: Array.isArray(control.evidence) ? control.evidence : [control.evidence],
-    findings: Array.isArray(control.findings) ? control.findings : [control.findings]
+    lastChecked: new Date().toISOString(),
+    evidence: [],
+    findings: control.message ? [control.message] : []
   };
 }
 
-// Helper function to map PolicyViolationRecord from backend to component PolicyViolation
-function mapViolationRecordToViolation(record: PolicyViolationRecord): PolicyViolation {
-  // Parse metadata if available to extract additional details
+// Helper function to map violation from backend to component PolicyViolation
+function mapViolationRecordToViolation(record: { rule: string; message: string; severity?: string }): PolicyViolation {
+  // Map severity
   let severity: PolicyViolation['severity'] = 'medium';
-  let policyName = 'Unknown Policy';
-  let details = record.reason;
-
-  if (record.metadata) {
-    try {
-      const metadata = JSON.parse(record.metadata);
-      const severityStr = (metadata.severity as string)?.toLowerCase();
-      if (severityStr === 'critical') {
-        severity = 'critical';
-      } else if (severityStr === 'high') {
-        severity = 'high';
-      } else if (severityStr === 'medium') {
-        severity = 'medium';
-      } else {
-        severity = 'low';
-      }
-      policyName = metadata.policy_pack || metadata.policy_name || policyName;
-      details = metadata.details || metadata.message || details;
-    } catch {
-      // If metadata parsing fails, use defaults
-    }
-  }
-
-  // Infer severity from violation_type if available
-  if (record.violation_type) {
-    const typeLower = record.violation_type.toLowerCase();
-    if (typeLower.includes('critical') || typeLower.includes('blocker')) {
-      severity = 'critical';
-    } else if (typeLower.includes('high')) {
-      severity = 'high';
-    } else if (typeLower.includes('low') || typeLower.includes('info')) {
-      severity = 'low';
-    }
-  }
-
-  // Extract policy name from cpid or violation_type if available
-  if (record.cpid) {
-    policyName = `Policy Pack ${record.cpid.substring(0, 8)}`;
-  } else if (record.violation_type) {
-    // Try to extract policy name from violation_type (e.g., "EGRESS-001" -> "Egress Ruleset")
-    const parts = record.violation_type.split('-');
-    if (parts.length > 0) {
-      const packName = parts[0];
-      policyName = `${packName.charAt(0) + packName.slice(1).toLowerCase()} Ruleset`;
-    }
+  const severityStr = record.severity?.toLowerCase();
+  if (severityStr === 'critical') {
+    severity = 'critical';
+  } else if (severityStr === 'high') {
+    severity = 'high';
+  } else if (severityStr === 'low') {
+    severity = 'low';
   }
 
   return {
-    id: record.id,
-    policyName,
-    violationType: record.violation_type || 'Policy Violation',
+    id: record.rule,
+    policyName: record.rule,
+    violationType: record.rule,
     severity,
-    timestamp: record.created_at,
-    details,
-    resolved: record.released
+    timestamp: new Date().toISOString(),
+    details: record.message,
+    resolved: false
   };
 }
 
@@ -161,11 +123,11 @@ export function AuditDashboard({ selectedTenant }: AuditDashboardProps) {
 
       // Load compliance audit data from backend (includes violations)
       const complianceAudit = await apiClient.getComplianceAudit();
-      const mappedControls = complianceAudit.controls.map(mapComplianceControlToStatus);
+      const mappedControls = (complianceAudit.controls ?? []).map(mapComplianceControlToStatus);
       setComplianceStatus(mappedControls);
 
       // Map violations from compliance audit response
-      const mappedViolations = complianceAudit.violations.map(mapViolationRecordToViolation);
+      const mappedViolations = (complianceAudit.violations ?? []).map(mapViolationRecordToViolation);
       setViolations(mappedViolations);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to load audit data';
@@ -739,11 +701,11 @@ export function AuditDashboard({ selectedTenant }: AuditDashboardProps) {
                             </div>
                             <div>
                               <span className="text-muted-foreground">Size:</span>{' '}
-                              {(bundle.size_bytes / 1024).toFixed(1)} KB
+                              {((bundle.size_bytes ?? 0) / 1024).toFixed(1)} KB
                             </div>
                             <div>
                               <span className="text-muted-foreground">Created:</span>{' '}
-                              {new Date(bundle.created_at).toLocaleDateString()}
+                              {bundle.created_at ? new Date(bundle.created_at).toLocaleDateString() : 'N/A'}
                             </div>
                           </div>
                           <div className="mt-2 text-xs font-mono text-muted-foreground">
@@ -783,7 +745,14 @@ export function AuditDashboard({ selectedTenant }: AuditDashboardProps) {
     </div>
   );
 
-  async function handleVerifyBundle(bundleId: string) {
+  async function handleVerifyBundle(bundleId?: string) {
+    if (!bundleId) {
+      logger.error('No bundle ID provided for verification', {
+        component: 'AuditDashboard',
+        operation: 'handleVerifyBundle',
+      });
+      return;
+    }
     try {
       logger.info('Verifying telemetry bundle signature', {
         component: 'AuditDashboard',

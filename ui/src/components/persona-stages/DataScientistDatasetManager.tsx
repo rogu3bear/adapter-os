@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import apiClient from '@/api/client';
 import { Dataset, DatasetValidationStatus, DatasetSourceType } from '@/api/training-types';
-import { usePolling } from '@/hooks/usePolling';
+import { usePolling } from '@/hooks/realtime/usePolling';
 import { Upload, Database, RefreshCw, CheckCircle, XCircle, Clock, AlertTriangle, FileText } from 'lucide-react';
 import { logger } from '@/utils/logger';
 
@@ -174,7 +174,7 @@ export default function DataScientistDatasetManager() {
       setSelectedFiles(null);
       refetch();
     } catch (err) {
-      logger.error('Failed to upload dataset', { component: 'DataScientistDatasetManager' }, err);
+      logger.error('Failed to upload dataset', { component: 'DataScientistDatasetManager' }, err instanceof Error ? err : new Error(String(err)));
     } finally {
       setIsUploading(false);
     }

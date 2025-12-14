@@ -1,3 +1,20 @@
+/**
+ * @deprecated Use `useAdapterTabRouter()` from '@/hooks/navigation/useTabRouter' instead.
+ * This file is retained for backward compatibility only and will be removed in a future version.
+ * The new hook provides path-based routing (deep-linkable URLs) instead of hash-based routing.
+ *
+ * Migration example:
+ * ```tsx
+ * // OLD:
+ * import { resolveAdaptersTab, adapterTabToPath } from '@/pages/Adapters/tabs';
+ * const activeTab = resolveAdaptersTab(location.pathname, location.hash, adapterId);
+ * const path = adapterTabToPath(activeTab, adapterId);
+ *
+ * // NEW:
+ * import { useAdapterTabRouter } from '@/hooks/navigation/useTabRouter';
+ * const { activeTab, setActiveTab, availableTabs, getTabPath } = useAdapterTabRouter();
+ * ```
+ */
 export type AdaptersTab =
   | 'overview'
   | 'activations'

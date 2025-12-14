@@ -31,7 +31,6 @@ interface WorkflowTemplatesProps {
 const CATEGORY_ICONS: Record<WorkflowCategory, React.ComponentType<{ className?: string }>> = {
   training: Zap,
   deployment: Rocket,
-  experimental: FlaskConical,
   comparison: GitCompare,
   stack: Layers,
   maintenance: Wrench,
@@ -40,7 +39,6 @@ const CATEGORY_ICONS: Record<WorkflowCategory, React.ComponentType<{ className?:
 const CATEGORY_LABELS: Record<WorkflowCategory, string> = {
   training: 'Training',
   deployment: 'Deployment',
-  experimental: 'Experimental',
   comparison: 'Comparison',
   stack: 'Stack Management',
   maintenance: 'Maintenance',

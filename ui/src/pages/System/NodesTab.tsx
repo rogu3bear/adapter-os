@@ -1,8 +1,8 @@
 import { useState, useCallback } from 'react';
 import FeatureLayout from '@/layout/FeatureLayout';
 import { DensityProvider } from '@/contexts/DensityContext';
-import { useNodes } from '@/hooks/useSystemMetrics';
-import { usePolling } from '@/hooks/usePolling';
+import { useNodes } from '@/hooks/system/useSystemMetrics';
+import { usePolling } from '@/hooks/realtime/usePolling';
 import NodeTable from './NodeTable';
 import NodeDetailModal from './NodeDetailModal';
 import { Card, CardContent } from '@/components/ui/card';

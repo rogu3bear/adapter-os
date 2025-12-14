@@ -6,6 +6,7 @@ import { cn } from "@/components/ui/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { logUIError } from "@/lib/logUIError";
+import { DemoRecoveryHints } from "@/components/ui/demo-recovery-hints";
 
 export interface ErrorBoundaryFallbackProps {
   error: Error;
@@ -19,6 +20,8 @@ export interface ErrorBoundaryProps {
   onError?: (error: Error, errorInfo: ErrorInfo) => void;
   onReset?: () => void;
   showDetails?: boolean;
+  fullPage?: boolean;
+  showDemoHints?: boolean;
   className?: string;
 }
 
@@ -89,6 +92,8 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
           errorInfo={errorInfo}
           resetError={this.resetError}
           showDetails={showDetails}
+          fullPage={this.props.fullPage}
+          showDemoHints={this.props.showDemoHints}
           className={className}
         />
       );
@@ -103,6 +108,8 @@ interface DefaultErrorFallbackProps {
   errorInfo: ErrorInfo | null;
   resetError: () => void;
   showDetails?: boolean;
+  fullPage?: boolean;
+  showDemoHints?: boolean;
   className?: string;
 }
 
@@ -111,11 +118,13 @@ function DefaultErrorFallback({
   errorInfo,
   resetError,
   showDetails = false,
+  fullPage = false,
+  showDemoHints = false,
   className,
 }: DefaultErrorFallbackProps) {
   const [detailsExpanded, setDetailsExpanded] = React.useState(false);
 
-  return (
+  const content = (
     <Card className={cn("mx-auto max-w-lg", className)}>
       <CardHeader className="text-center">
         <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-destructive/10">
@@ -186,8 +195,19 @@ function DefaultErrorFallback({
             )}
           </div>
         )}
+        {showDemoHints && <DemoRecoveryHints />}
       </CardContent>
     </Card>
+  );
+
+  if (!fullPage) {
+    return content;
+  }
+
+  return (
+    <div className="min-h-screen w-full bg-background flex items-center justify-center p-4">
+      {content}
+    </div>
   );
 }
 

@@ -227,11 +227,11 @@ export const AdapterStackComposer: React.FC<AdapterStackComposerProps> = ({
         });
       }
 
-      const stackId = response.data.id || response.data.stack_id;
+      const stackId = response.data.id || response.data.stack_id || '';
 
-      if (initialStackId && onStackUpdated) {
+      if (initialStackId && onStackUpdated && stackId) {
         onStackUpdated(stackId, adapters);
-      } else if (!initialStackId && onStackCreated) {
+      } else if (!initialStackId && onStackCreated && stackId) {
         onStackCreated(stackId, stackName);
       }
 

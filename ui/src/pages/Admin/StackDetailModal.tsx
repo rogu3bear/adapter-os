@@ -15,11 +15,11 @@ import { toast } from 'sonner';
 import { calculateTotalMemory } from '@/utils/memoryEstimation';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { logger } from '@/utils/logger';
-import { useChatSessions } from '@/hooks/useChatSessions';
+import { useChatSessions } from '@/hooks/chat/useChatSessions';
 import { useTenant } from '@/providers/FeatureProviders';
 import { PolicyPreflightDialog } from '@/components/PolicyPreflightDialog';
-import { useStackPolicyStream } from '@/hooks/useStreamingEndpoints';
-import { useClearStackAdapters } from '@/hooks/useAdmin';
+import { useStackPolicyStream } from '@/hooks/streaming/useStreamingEndpoints';
+import { useClearStackAdapters } from '@/hooks/admin/useAdmin';
 import {
   getComplianceStatusColor,
   getComplianceStatusLabel,
@@ -94,7 +94,7 @@ const StackHeader = ({
       <Button
         variant="destructive"
         onClick={onClearAdapters}
-        disabled={isClearingAdapters || stack.adapters.length === 0}
+        disabled={isClearingAdapters || (stack.adapters?.length ?? 0) === 0}
       >
         <Trash2 className="mr-2 h-4 w-4" />
         {isClearingAdapters ? 'Clearing...' : 'Detach All'}
@@ -188,12 +188,12 @@ const AdaptersCard = ({ stack }: { stack: AdapterStack }) => (
     <CardHeader>
       <CardTitle className="flex items-center gap-2">
         <Layers className="h-5 w-5" />
-        Adapters ({stack.adapters.length})
+        Adapters ({stack.adapters?.length ?? 0})
       </CardTitle>
     </CardHeader>
     <CardContent>
       <div className="space-y-3">
-        {stack.adapters.map((adapter, index) => {
+        {(stack.adapters ?? []).map((adapter, index) => {
           const adapterId = typeof adapter === 'string' ? adapter : adapter.adapter_id;
           const gate =
             typeof adapter === 'object' && 'gate' in adapter ? adapter.gate : undefined;
@@ -781,7 +781,7 @@ export function StackDetailModal({ stack, open, onClose }: StackDetailModalProps
   };
 
   const handleClearAdapters = async () => {
-    if (stack.adapters.length === 0) {
+    if ((stack.adapters?.length ?? 0) === 0) {
       toast.info('Stack has no adapters to clear');
       return;
     }

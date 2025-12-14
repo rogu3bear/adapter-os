@@ -22,7 +22,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { logger } from '@/utils/logger';
-import { useWorkspaces } from '@/hooks/useWorkspaces';
+import { useWorkspaces } from '@/hooks/workspace/useWorkspaces';
 import apiClient from '@/api/client';
 import type { WorkspaceResource, Message } from '@/api/types';
 
@@ -85,7 +85,7 @@ const mapMessageToComment = (message: Message, experimentId: string): Experiment
 };
 
 export default function DataScientistCollaborationHub() {
-  const { userWorkspaces, loading: workspacesLoading, error: workspacesError } = useWorkspaces();
+  const { userWorkspaces, isLoading: workspacesLoading, error: workspacesError } = useWorkspaces();
   const [experiments, setExperiments] = useState<SharedExperiment[]>([]);
   const [comments, setComments] = useState<ExperimentComment[]>([]);
   const [selectedExperiment, setSelectedExperiment] = useState<string | null>(null);
@@ -348,7 +348,7 @@ export default function DataScientistCollaborationHub() {
           {workspacesError && (
             <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-4">
               <p className="text-sm font-medium">Failed to load workspaces</p>
-              <p className="text-sm">{workspacesError}</p>
+              <p className="text-sm">{typeof workspacesError === 'string' ? workspacesError : workspacesError.message}</p>
             </div>
           )}
 

@@ -7,7 +7,7 @@ import {
   useDeletedSessions,
   useRestoreSession,
   useHardDeleteSession,
-} from '@/hooks/useChatArchive';
+} from '@/hooks/chat/useChatArchive';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';

@@ -55,7 +55,7 @@ type RepoPolicyDraft = {
 
 const trustOptions: TrustState[] = ['allowed', 'allowed_with_warning', 'blocked', 'needs_approval'];
 const coremlModes: CoreMLMode[] = ['coreml_strict', 'coreml_preferred', 'backend_auto'];
-const repoTiers: RepoAssuranceTier[] = ['high_assurance', 'normal', 'experimental'];
+const repoTiers: RepoAssuranceTier[] = ['high_assurance', 'normal'];
 
 export function AdminPolicyConsole() {
 

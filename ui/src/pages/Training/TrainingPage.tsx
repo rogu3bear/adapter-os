@@ -35,7 +35,7 @@ function TrainingPageContent({ preselectedAdapterId, preselectedDatasetId }: { p
   }, [location.pathname, location.state, navigate]);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" data-cy="training-page">
       <Card>
         <CardHeader>
           <CardTitle>Start training</CardTitle>

@@ -31,12 +31,11 @@ import { ErrorRecovery } from '@/components/ui/error-recovery';
 import { GlossaryTooltip } from '@/components/ui/glossary-tooltip';
 import FeatureLayout from '@/layout/FeatureLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { PageAsyncBoundary, SectionAsyncBoundary } from '@/components/shared/Feedback/AsyncBoundary';
 
-import { useAdapterDetail } from '@/hooks/useAdapterDetail';
-import { useAdapterOperations } from '@/hooks/useAdapterOperations';
-import { useAdapterActions } from '@/hooks/useAdapterActions';
-import { useRBAC } from '@/hooks/useRBAC';
-import { useAdaptersStream } from '@/hooks/useStreamingEndpoints';
+import { useAdapterDetail, useAdapterOperations, useAdapterActions } from '@/hooks/adapters';
+import { useRBAC } from '@/hooks/security/useRBAC';
+import { useAdaptersStream } from '@/hooks/streaming/useStreamingEndpoints';
 import { getLifecycleVariant } from '@/utils/lifecycle';
 import { logger } from '@/utils/logger';
 import { isAdapterStateTransitionEvent, AdapterStreamEvent } from '@/api/streaming-types';
@@ -50,15 +49,23 @@ import { TrainingSnapshotPanel } from '@/components/adapters/TrainingSnapshotPan
 import { AddToStackModal } from '@/components/AddToStackModal';
 import { PolicyPreflightDialog } from '@/components/PolicyPreflightDialog';
 import type { PolicyPreflightResponse } from '@/api/policyTypes';
-import { useAdapters } from '@/hooks/useAdaptersApi';
+import { useAdapters } from '@/hooks/adapters';
 import { ConfirmationModal } from '@/components/shared/Modal';
 import { buildAdapterRecentActivity } from './adapterRecentActivity';
-import { useLineage } from '@/hooks/useLineage';
+import { useLineage } from '@/hooks/observability/useLineage';
 import { LineageViewer } from '@/components/lineage/LineageViewer';
 
 type TabValue = 'overview' | 'evidence' | 'events' | 'activations' | 'lineage' | 'manifest' | 'lifecycle' | 'provenance';
 
 export default function AdapterDetailPage() {
+  return (
+    <PageAsyncBoundary pageName="Adapter Detail">
+      <AdapterDetailContent />
+    </PageAsyncBoundary>
+  );
+}
+
+function AdapterDetailContent() {
   const { adapterId } = useParams<{ adapterId: string }>();
   const navigate = useNavigate();
   const { can } = useRBAC();
@@ -336,6 +343,9 @@ export default function AdapterDetailPage() {
 
   // Error state
   if (error && !adapter) {
+    const errorMessage = (error && typeof error === 'object' && 'message' in error)
+      ? String((error as { message: unknown }).message)
+      : 'Failed to load adapter';
     return (
       <FeatureLayout
         title="Adapter Detail"
@@ -344,7 +354,7 @@ export default function AdapterDetailPage() {
         contentPadding="default"
       >
         <ErrorRecovery
-          error={error.message}
+          error={errorMessage}
           onRetry={refetch}
         />
       </FeatureLayout>
@@ -399,8 +409,8 @@ export default function AdapterDetailPage() {
   const siblingVersions = useMemo(() => {
     if (!adapterName) return [];
     return (adaptersList || [])
-      .filter(a => (a.name || a.adapter_name || a.adapter_id) === adapterName)
-      .sort((a, b) => {
+      .filter((a: { name?: string; adapter_name?: string; adapter_id: string }) => (a.name || a.adapter_name || a.adapter_id) === adapterName)
+      .sort((a: { created_at?: string }, b: { created_at?: string }) => {
         const aTs = a.created_at ? new Date(a.created_at).getTime() : 0;
         const bTs = b.created_at ? new Date(b.created_at).getTime() : 0;
         return bTs - aTs;
@@ -505,7 +515,7 @@ export default function AdapterDetailPage() {
     if (!level.next_cursor) return;
     setLineageCursors((prev) => ({
       ...prev,
-      [level.type]: level.next_cursor!,
+      [level.type]: level.next_cursor,
     }));
   }, []);
 
@@ -701,132 +711,148 @@ export default function AdapterDetailPage() {
           </TabsList>
 
           <TabsContent value="overview" className="mt-6">
-            <div className="space-y-4">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Recent activity</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {recentActivity.length ? (
-                    <div className="space-y-3">
-                      {recentActivity.map(event => (
-                        <div key={`${event.label}-${event.timestamp}`} className="flex items-center justify-between text-sm">
-                          <div className="flex items-center gap-2">
-                            <Badge variant="outline">{event.label}</Badge>
-                            <span className="text-foreground">{event.detail || 'Event recorded'}</span>
+            <SectionAsyncBoundary section="adapter-overview">
+              <div className="space-y-4">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Recent activity</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {recentActivity.length ? (
+                      <div className="space-y-3">
+                        {recentActivity.map(event => (
+                          <div key={`${event.label}-${event.timestamp}`} className="flex items-center justify-between text-sm">
+                            <div className="flex items-center gap-2">
+                              <Badge variant="outline">{event.label}</Badge>
+                              <span className="text-foreground">{event.detail || 'Event recorded'}</span>
+                            </div>
+                            <span className="text-xs text-muted-foreground">
+                              {new Date(event.timestamp).toLocaleString()}
+                            </span>
                           </div>
-                          <span className="text-xs text-muted-foreground">
-                            {new Date(event.timestamp).toLocaleString()}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="text-sm text-muted-foreground">No recent events.</div>
-                  )}
-                </CardContent>
-              </Card>
-              <AdapterOverview
-                adapter={adapter}
-                health={health}
-                isLoading={isLoadingDetail}
-              />
-            </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-sm text-muted-foreground">No recent events.</div>
+                    )}
+                  </CardContent>
+                </Card>
+                <AdapterOverview
+                  adapter={adapter}
+                  health={health}
+                  isLoading={isLoadingDetail}
+                />
+              </div>
+            </SectionAsyncBoundary>
           </TabsContent>
 
           <TabsContent value="evidence" className="mt-6 space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle>Policy pack and manifest</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3 text-sm text-muted-foreground">
-                <EvidenceRow
-                  label="Policy pack version"
-                  value="unknown"
-                  tooltip="Policy pack applied during admission and routing."
-                />
-                <EvidenceRow
-                  label="Manifest hash (B3)"
-                  value={manifest?.hash || adapter?.content_hash_b3 || 'unavailable'}
-                  copyValue={manifest?.hash || adapter?.content_hash_b3 || undefined}
-                  tooltip="Adapter manifest integrity hash (BLAKE3)."
-                />
-                <EvidenceRow
-                  label="Signature"
-                  value={adapter?.adapter?.signature_valid ? 'Valid' : 'not provided'}
-                  tooltip="Signature accompanying the manifest payload."
-                />
-              </CardContent>
-            </Card>
-            <AdapterManifest
-              adapterId={adapterId}
-              manifest={manifest}
-              isLoading={isLoading}
-            />
+            <SectionAsyncBoundary section="adapter-evidence">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Policy pack and manifest</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3 text-sm text-muted-foreground">
+                  <EvidenceRow
+                    label="Policy pack version"
+                    value="unknown"
+                    tooltip="Policy pack applied during admission and routing."
+                  />
+                  <EvidenceRow
+                    label="Manifest hash (B3)"
+                    value={manifest?.hash || adapter?.content_hash_b3 || 'unavailable'}
+                    copyValue={manifest?.hash || adapter?.content_hash_b3 || undefined}
+                    tooltip="Adapter manifest integrity hash (BLAKE3)."
+                  />
+                  <EvidenceRow
+                    label="Signature"
+                    value={adapter?.adapter?.signature_valid ? 'Valid' : 'not provided'}
+                    tooltip="Signature accompanying the manifest payload."
+                  />
+                </CardContent>
+              </Card>
+              <AdapterManifest
+                adapterId={adapterId}
+                manifest={manifest}
+                isLoading={isLoading}
+              />
+            </SectionAsyncBoundary>
           </TabsContent>
 
           <TabsContent value="events" className="mt-6 space-y-4">
-            <AdapterLineage
-              adapterId={adapterId}
-              lineage={lineage}
-              isLoading={isLoading}
-            />
-            <AdapterActivations
-              adapterId={adapterId}
-              activations={activations}
-              isLoading={isLoading}
-              onRefresh={refetch}
-            />
+            <SectionAsyncBoundary section="adapter-events">
+              <AdapterLineage
+                adapterId={adapterId}
+                lineage={lineage}
+                isLoading={isLoading}
+              />
+              <AdapterActivations
+                adapterId={adapterId}
+                activations={activations}
+                isLoading={isLoading}
+                onRefresh={refetch}
+              />
+            </SectionAsyncBoundary>
           </TabsContent>
 
           <TabsContent value="activations" className="mt-6">
-            <AdapterActivations
-              adapterId={adapterId}
-              activations={activations}
-              isLoading={isLoading}
-              onRefresh={refetch}
-            />
+            <SectionAsyncBoundary section="adapter-activations">
+              <AdapterActivations
+                adapterId={adapterId}
+                activations={activations}
+                isLoading={isLoading}
+                onRefresh={refetch}
+              />
+            </SectionAsyncBoundary>
           </TabsContent>
 
           <TabsContent value="lineage" className="mt-6">
-            <LineageViewer
-              title="Adapter Lineage"
-              data={lineageGraph ?? null}
-              isLoading={isLoadingLineage}
-              onRefresh={() => {
-                setLineageCursors({});
-                refetchLineage();
-              }}
-              direction={lineageDirection}
-              includeEvidence={includeEvidence}
-              onChangeDirection={setLineageDirection}
-              onToggleEvidence={() => setIncludeEvidence((v) => !v)}
-              onNavigateNode={handleNavigateLineageNode}
-              onLoadMore={(level) => handleLineageLoadMore(level)}
-            />
+            <SectionAsyncBoundary section="adapter-lineage">
+              <LineageViewer
+                title="Adapter Lineage"
+                data={lineageGraph ?? null}
+                isLoading={isLoadingLineage}
+                onRefresh={() => {
+                  setLineageCursors({});
+                  refetchLineage();
+                }}
+                direction={lineageDirection}
+                includeEvidence={includeEvidence}
+                onChangeDirection={setLineageDirection}
+                onToggleEvidence={() => setIncludeEvidence((v) => !v)}
+                onNavigateNode={handleNavigateLineageNode}
+                onLoadMore={(level) => handleLineageLoadMore(level)}
+              />
+            </SectionAsyncBoundary>
           </TabsContent>
 
           <TabsContent value="manifest" className="mt-6">
-            <AdapterManifest
-              adapterId={adapterId}
-              manifest={manifest}
-              isLoading={isLoading}
-            />
+            <SectionAsyncBoundary section="adapter-manifest">
+              <AdapterManifest
+                adapterId={adapterId}
+                manifest={manifest}
+                isLoading={isLoading}
+              />
+            </SectionAsyncBoundary>
           </TabsContent>
 
           <TabsContent value="lifecycle" className="mt-6">
-            <AdapterLifecycle
-              adapterId={adapterId}
-              adapter={adapter}
-              onPromote={promoteLifecycle}
-              onDemote={demoteLifecycle}
-              isPromoting={isPromoting}
-              isDemoting={isDemoting}
-            />
+            <SectionAsyncBoundary section="adapter-lifecycle">
+              <AdapterLifecycle
+                adapterId={adapterId}
+                adapter={adapter}
+                onPromote={promoteLifecycle}
+                onDemote={demoteLifecycle}
+                isPromoting={isPromoting}
+                isDemoting={isDemoting}
+              />
+            </SectionAsyncBoundary>
           </TabsContent>
 
           <TabsContent value="provenance" className="mt-6">
-            <TrainingSnapshotPanel adapterId={adapterId} />
+            <SectionAsyncBoundary section="adapter-provenance">
+              <TrainingSnapshotPanel adapterId={adapterId} />
+            </SectionAsyncBoundary>
           </TabsContent>
         </Tabs>
       </div>
@@ -857,7 +883,7 @@ export default function AdapterDetailPage() {
                   <SelectValue placeholder="Select base version" />
                 </SelectTrigger>
                 <SelectContent>
-                  {siblingVersions.map((sibling) => (
+                  {siblingVersions.map((sibling: { adapter_id: string; version?: string }) => (
                     <SelectItem key={sibling.adapter_id} value={sibling.version || sibling.adapter_id}>
                       {sibling.version ? `v${sibling.version}` : 'unnamed'} • {sibling.adapter_id}
                     </SelectItem>

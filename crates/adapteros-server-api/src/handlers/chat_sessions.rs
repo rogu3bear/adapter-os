@@ -14,10 +14,12 @@ use adapteros_api_types::{
     AdapterProvenance, BaseModelInfo, ChatProvenanceResponse, DatasetProvenance, ProvenanceEvent,
     ProvenanceEventType, SessionSummary, StackProvenance, TrainingJobProvenance,
 };
+use adapteros_db::contacts::ContactUpsertParams;
 use adapteros_db::chat_sessions::UpdateChatSessionParams;
-use adapteros_db::{
+use adapteros_db::{ 
     AddMessageParams, ChatCategory, ChatMessage, ChatSearchResult, ChatSession,
     ChatSessionWithStatus, ChatTag, CreateChatSessionParams, InferenceEvidence, SessionShare,
+    Contact,
 };
 use axum::{
     extract::{Path, Query, State},
@@ -3088,4 +3090,169 @@ pub async fn get_sessions_shared_with_me(
         })?;
 
     Ok(Json(sessions))
+}
+
+// Contact handlers
+
+/// List contacts
+#[utoipa::path(
+    get,
+    path = "/v1/contacts",
+    params(
+        ("limit" = Option<i64>, Query, description = "Limit results"),
+        ("offset" = Option<i64>, Query, description = "Offset results")
+    ),
+    responses(
+        (status = 200, description = "List of contacts", body = Vec<Contact>),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    )
+)]
+pub async fn list_contacts(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Query(params): Query<crate::types::PaginationParams>,
+) -> impl IntoResponse {
+    let limit = params.limit.unwrap_or(20);
+    let offset = params.offset.unwrap_or(0);
+    
+    // Check tenant isolation if needed, though claims usually suffice
+    // DB layer filters by tenant_id
+    
+    match state.db.list_contacts(&claims.tenant_id, limit, offset).await {
+        Ok(contacts) => Json(contacts).into_response(),
+        Err(e) => super::utils::aos_error_to_response(e).into_response(),
+    }
+}
+
+/// Create/Update contact
+#[utoipa::path(
+    post,
+    path = "/v1/contacts",
+    request_body = ContactUpsertParams,
+    responses(
+        (status = 200, description = "Contact ID", body = String),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    )
+)]
+pub async fn create_contact(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Json(payload): Json<adapteros_db::contacts::ContactUpsertParams>,
+) -> impl IntoResponse {
+    // Validate tenant isolation
+    if payload.tenant_id != claims.tenant_id {
+        return super::utils::aos_error_to_response(adapteros_core::AosError::Authorization("Tenant mismatch".into())).into_response();
+    }
+
+    match state.db.upsert_contact(payload).await {
+        Ok(id) => Json(id).into_response(),
+        Err(e) => super::utils::aos_error_to_response(e).into_response(),
+    }
+}
+
+/// Get contact
+#[utoipa::path(
+    get,
+    path = "/v1/contacts/{id}",
+    params(
+        ("id" = String, Path, description = "Contact ID")
+    ),
+    responses(
+        (status = 200, description = "Contact details", body = Contact),
+        (status = 404, description = "Contact not found", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    )
+)]
+pub async fn get_contact(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    match state.db.get_contact(&id).await {
+        Ok(Some(contact)) => {
+            // Verify tenant ownership
+            if contact.tenant_id != claims.tenant_id {
+                 // Return 404 to avoid leaking existence
+                 return super::utils::aos_error_to_response(adapteros_core::AosError::NotFound("Contact not found".into())).into_response();
+            }
+            Json(contact).into_response()
+        },
+        Ok(None) => super::utils::aos_error_to_response(adapteros_core::AosError::NotFound("Contact not found".into())).into_response(),
+        Err(e) => super::utils::aos_error_to_response(e).into_response(),
+    }
+}
+
+/// Delete contact
+#[utoipa::path(
+    delete,
+    path = "/v1/contacts/{id}",
+    params(
+        ("id" = String, Path, description = "Contact ID")
+    ),
+    responses(
+        (status = 200, description = "Contact deleted"),
+        (status = 404, description = "Contact not found", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    )
+)]
+pub async fn delete_contact(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    // Check existence and ownership first
+    match state.db.get_contact(&id).await {
+        Ok(Some(contact)) => {
+             if contact.tenant_id != claims.tenant_id {
+                 return super::utils::aos_error_to_response(adapteros_core::AosError::NotFound("Contact not found".into())).into_response();
+             }
+        },
+        Ok(None) => return super::utils::aos_error_to_response(adapteros_core::AosError::NotFound("Contact not found".into())).into_response(),
+        Err(e) => return super::utils::aos_error_to_response(e).into_response(),
+    }
+
+    match state.db.delete_contact(&id).await {
+        Ok(_) => StatusCode::OK.into_response(),
+        Err(e) => super::utils::aos_error_to_response(e).into_response(),
+    }
+}
+
+
+/// Get contact interactions
+#[utoipa::path(
+    get,
+    path = "/v1/contacts/{id}/interactions",
+    params(
+        ("id" = String, Path, description = "Contact ID"),
+        ("limit" = Option<i64>, Query, description = "Limit results")
+    ),
+    responses(
+        (status = 200, description = "List of interactions", body = Vec<adapteros_db::contacts::ContactInteraction>),
+        (status = 404, description = "Contact not found", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    )
+)]
+pub async fn get_contact_interactions(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path(id): Path<String>,
+    Query(params): Query<crate::types::PaginationParams>,
+) -> impl IntoResponse {
+    let limit = params.limit.unwrap_or(20);
+
+    // Verify ownership
+    match state.db.get_contact(&id).await {
+        Ok(Some(contact)) => {
+            if contact.tenant_id != claims.tenant_id {
+                return super::utils::aos_error_to_response(adapteros_core::AosError::NotFound("Contact not found".into())).into_response();
+            }
+        },
+        Ok(None) => return super::utils::aos_error_to_response(adapteros_core::AosError::NotFound("Contact not found".into())).into_response(),
+        Err(e) => return super::utils::aos_error_to_response(e).into_response(),
+    }
+
+    match state.db.get_contact_interactions(&id, limit).await {
+        Ok(interactions) => Json(interactions).into_response(),
+        Err(e) => super::utils::aos_error_to_response(e).into_response(),
+    }
 }

@@ -26,8 +26,8 @@ import apiClient from '@/api/client';
 import { TrainingJob, TrainingSession, TrainingMetrics, TrainingArtifactsResponse } from '@/api/types';
 import { logger, toError } from '@/utils/logger';
 import { toast } from 'sonner';
-import { usePolling } from '@/hooks/usePolling';
-import { useSSE } from '@/hooks/useSSE';
+import { usePolling } from '@/hooks/realtime/usePolling';
+import { useSSE } from '@/hooks/realtime/useSSE';
 import { LastUpdated } from './ui/last-updated';
 import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
 import { SectionErrorBoundary } from './ui/section-error-boundary';
@@ -91,7 +91,7 @@ export function TrainingMonitor({ sessionId, jobId, onClose }: TrainingMonitorPr
     if (data.logs && data.logs.length > 0) {
       // Limit logs to last 1000 entries to prevent unbounded growth
       setLogs(prev => {
-        const newLogs = [...prev, ...data.logs];
+        const newLogs = [...prev, ...(data.logs ?? [])];
         return newLogs.length > 1000 ? newLogs.slice(-1000) : newLogs;
       });
     }
@@ -102,7 +102,6 @@ export function TrainingMonitor({ sessionId, jobId, onClose }: TrainingMonitorPr
 
   // SSE connection for real-time training updates
   const {
-    data: sseUpdate,
     connected: sseConnected,
     error: sseError,
     reconnect: sseReconnect
@@ -247,11 +246,11 @@ export function TrainingMonitor({ sessionId, jobId, onClose }: TrainingMonitorPr
 
   // Check if adapter appeared in the list
   useEffect(() => {
-    if (!shouldPollAdapters || !job || !adapters.length) return;
+    if (!shouldPollAdapters || !job || !adapters || adapters.length === 0) return;
 
     // Try to find adapter by name (adapter_name might match registered adapter name)
-    const foundAdapter = adapters.find(a => 
-      a.name === job.adapter_name || 
+    const foundAdapter = adapters.find(a =>
+      a.name === job.adapter_name ||
       a.id === job.adapter_id ||
       (job.adapter_name && a.name?.includes(job.adapter_name))
     );
@@ -377,8 +376,8 @@ export function TrainingMonitor({ sessionId, jobId, onClose }: TrainingMonitorPr
         <Alert variant="destructive">
           <AlertTriangle className="h-4 w-4" />
           <AlertDescription className="flex items-center justify-between">
-            <span>Real-time updates unavailable: {sseError}. Falling back to polling.</span>
-            {sseError.includes('failed after') && (
+            <span>Real-time updates unavailable: {typeof sseError === 'string' ? sseError : sseError.message}. Falling back to polling.</span>
+            {(typeof sseError === 'string' ? sseError : sseError.message).includes('failed after') && (
               <Button variant="outline" size="sm" onClick={sseReconnect} className="ml-4">
                 Reconnect
               </Button>
@@ -452,11 +451,11 @@ export function TrainingMonitor({ sessionId, jobId, onClose }: TrainingMonitorPr
                   <div className="text-xs text-muted-foreground">Total Epochs</div>
                 </div>
                 <div className="text-center">
-                  <div className="text-2xl font-bold">{metrics.loss.toFixed(4)}</div>
+                  <div className="text-2xl font-bold">{metrics.loss?.toFixed(4) ?? 'N/A'}</div>
                   <div className="text-xs text-muted-foreground">Loss</div>
                 </div>
                 <div className="text-center">
-                  <div className="text-2xl font-bold">{metrics.validation_loss.toFixed(4)}</div>
+                  <div className="text-2xl font-bold">{metrics.validation_loss?.toFixed(4) ?? 'N/A'}</div>
                   <div className="text-xs text-muted-foreground">Val Loss</div>
                 </div>
               </div>
@@ -494,9 +493,9 @@ export function TrainingMonitor({ sessionId, jobId, onClose }: TrainingMonitorPr
                       <MemoryStick className="h-4 w-4" />
                       <span className="text-sm font-medium">Memory Usage</span>
                     </div>
-                    <span className="text-sm text-muted-foreground">{metrics.memory_usage}GB</span>
+                    <span className="text-sm text-muted-foreground">{metrics.memory_usage ?? 0}GB</span>
                   </div>
-                  <Progress value={(metrics.memory_usage / 24) * 100} className="h-2" />
+                  <Progress value={((metrics.memory_usage ?? 0) / 24) * 100} className="h-2" />
                 </div>
 
                 <div className="space-y-2">
@@ -505,12 +504,12 @@ export function TrainingMonitor({ sessionId, jobId, onClose }: TrainingMonitorPr
                       <Zap className="h-4 w-4" />
                       <span className="text-sm font-medium">Tokens/sec</span>
                     </div>
-                    <span className="text-sm text-muted-foreground">{metrics.tokens_per_second}</span>
+                    <span className="text-sm text-muted-foreground">{metrics.tokens_per_second ?? 0}</span>
                   </div>
                   <div className="h-2 bg-gray-200 rounded-full">
                     <div
                       className="h-2 bg-green-500 rounded-full transition-all duration-300"
-                      style={{ width: `${Math.min((metrics.tokens_per_second / 2000) * 100, 100)}%` }}
+                      style={{ width: `${Math.min(((metrics.tokens_per_second ?? 0) / 2000) * 100, 100)}%` }}
                     />
                   </div>
                 </div>

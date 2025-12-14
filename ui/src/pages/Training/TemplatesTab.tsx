@@ -12,7 +12,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { useTraining } from '@/hooks/useTraining';
+import { useTraining } from '@/hooks/training';
 import { PageErrors, usePageErrors } from '@/components/ui/page-error-boundary';
 import {
   FileText,
@@ -24,6 +24,8 @@ import {
   TrendingUp,
 } from 'lucide-react';
 import type { TrainingTemplate } from '@/api/training-types';
+import { LoadingState } from '@/components/ui/loading-state';
+import { EmptyState } from '@/components/ui/empty-state';
 
 export function TemplatesTab() {
   const { errors, addError } = usePageErrors();
@@ -81,16 +83,14 @@ export function TemplatesTab() {
 
       {/* Templates Grid */}
       {isLoading && templates.length === 0 ? (
-        <div className="text-center py-8 text-muted-foreground">
-          <RefreshCw className="h-6 w-6 animate-spin mx-auto mb-2" />
-          Loading templates...
-        </div>
+        <LoadingState variant="minimal" message="Loading templates..." />
       ) : templates.length === 0 ? (
-        <div className="text-center py-8 text-muted-foreground">
-          <FileText className="h-8 w-8 mx-auto mb-2 opacity-50" />
-          <p>No training templates found</p>
-          <p className="text-sm mt-1">Templates will be available soon</p>
-        </div>
+        <EmptyState
+          variant="minimal"
+          icon={FileText}
+          title="No training templates found"
+          description="Templates will be available soon"
+        />
       ) : (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {templates.map((template) => (

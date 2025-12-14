@@ -577,8 +577,7 @@ impl MLXKVCache {
     /// Returns true if the cache has data for all configured layers.
     pub fn has_prefix_data(&self) -> bool {
         let caches = self.caches.read();
-        caches.len() == self.config.num_layers
-            && caches.values().all(|c| c.cached_positions > 0)
+        caches.len() == self.config.num_layers && caches.values().all(|c| c.cached_positions > 0)
     }
 }
 

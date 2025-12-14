@@ -25,7 +25,7 @@ import {
   useDeleteUser,
   useResetUserPassword,
   useSetUserActive,
-} from '@/hooks/useAdmin';
+} from '@/hooks/admin/useAdmin';
 import {
   Dialog,
   DialogContent,
@@ -46,6 +46,7 @@ const roleVariants: Record<UserRole, 'default' | 'secondary' | 'outline' | 'dest
   compliance: 'outline',
   auditor: 'outline',
   viewer: 'outline',
+  developer: 'secondary',
 };
 
 const roleLabels: Record<UserRole, string> = {
@@ -55,6 +56,7 @@ const roleLabels: Record<UserRole, string> = {
   compliance: 'Compliance',
   auditor: 'Auditor',
   viewer: 'Viewer',
+  developer: 'Developer',
 };
 
 export function UserTable({ users }: UserTableProps) {

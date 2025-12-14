@@ -21,3 +21,5 @@ SET billed_input_tokens = GREATEST(logical_prompt_tokens - prefix_cached_token_c
         WHEN billed_output_tokens = 0 THEN logical_output_tokens
         ELSE billed_output_tokens
     END;
+
+

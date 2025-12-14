@@ -227,7 +227,7 @@ export function LoginRoute() {
           const mfaNeeded =
             apiErr?.code === 'MFA_REQUIRED' ||
             (apiErr?.details && typeof apiErr.details === 'object' && (apiErr.details as Record<string, unknown>).requires_mfa === true);
-          setMfaRequired(mfaNeeded);
+          setMfaRequired(!!mfaNeeded);
           let errorMessage = mfaNeeded
             ? 'Multi-factor authentication required. Enter your TOTP code.'
             : friendlyLoginMessage(apiErr);
@@ -267,7 +267,7 @@ export function LoginRoute() {
 }
 
   createRoot(document.getElementById("root")!).render(
-  <ErrorBoundary>
+  <ErrorBoundary fullPage showDetails={import.meta.env.DEV} showDemoHints>
     <BrowserRouter>
       <AppProviders>
         <Routes>

@@ -10,9 +10,9 @@ import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
 import { Upload, FileCheck, Settings, CheckCircle, RotateCcw } from 'lucide-react';
 import apiClient from '@/api/client';
 import { ImportModelRequest } from '@/api/types';
-import { useWizardPersistence } from '@/hooks/useWizardPersistence';
-import { useProgressOperation } from '@/hooks/useProgressOperation';
-import { useCancellableOperation } from '@/hooks/useCancellableOperation';
+import { useWizardPersistence } from '@/hooks/persistence/useWizardPersistence';
+import { useProgressOperation } from '@/hooks/ui/useProgressOperation';
+import { useCancellableOperation } from '@/hooks/async/useCancellableOperation';
 
 interface ModelImportWizardProps {
   onComplete: (importId: string) => void;

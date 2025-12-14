@@ -83,7 +83,7 @@ export const DatasetConfig: React.FC<DatasetConfigProps> = ({
     tokenization: {
       ...DEFAULT_CONFIG.tokenization,
       ...initialConfig?.tokenization,
-    },
+    } as TokenizationSettings,
   });
 
   const updateConfig = (updates: Partial<DatasetConfigData>) => {
@@ -100,7 +100,7 @@ export const DatasetConfig: React.FC<DatasetConfigProps> = ({
 
   const updateTokenization = (updates: Partial<TokenizationSettings>) => {
     updateConfig({
-      tokenization: { ...config.tokenization!, ...updates },
+      tokenization: { ...(config.tokenization ?? DEFAULT_CONFIG.tokenization), ...updates } as TokenizationSettings,
     });
   };
 
@@ -250,7 +250,7 @@ export const DatasetConfig: React.FC<DatasetConfigProps> = ({
                   Strip Comments
                 </Label>
                 <p className="text-xs text-muted-foreground">
-                  Remove code comments (experimental)
+                  Remove code comments
                 </p>
               </div>
               <Checkbox

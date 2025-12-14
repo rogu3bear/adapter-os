@@ -544,6 +544,7 @@ pub async fn execute_replay_session(
         batch_item_id: None,
         rag_enabled: false, // Already handled RAG above
         rag_collection_id: None,
+        dataset_version_id: None,
         adapter_stack: None,
         adapters: None,
         stack_id: None,
@@ -938,6 +939,9 @@ struct ReceiptBundle {
     expected_backend: Option<String>,
     #[serde(default)]
     expected_kernel_version: Option<String>,
+    /// Dataset version ID for deterministic dataset pinning
+    #[serde(default)]
+    dataset_version_id: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -1334,10 +1338,18 @@ fn verify_bundle(bundle: &ReceiptBundle) -> Result<ReceiptVerificationResult> {
         &bundle.receipt.kv_evictions.to_le_bytes(),
         &(kv_residency_policy_id.map(|s| s.len() as u32).unwrap_or(0)).to_le_bytes(),
         kv_residency_policy_id.map(|s| s.as_bytes()).unwrap_or(&[]),
-        &[if bundle.receipt.kv_quota_enforced { 1u8 } else { 0u8 }],
+        &[if bundle.receipt.kv_quota_enforced {
+            1u8
+        } else {
+            0u8
+        }],
         // Prefix KV cache fields
         &prefix_kv_key_bytes,
-        &[if bundle.receipt.prefix_cache_hit { 1u8 } else { 0u8 }],
+        &[if bundle.receipt.prefix_cache_hit {
+            1u8
+        } else {
+            0u8
+        }],
         &bundle.receipt.prefix_kv_bytes.to_le_bytes(),
         // Model cache identity V2 (PRD-06)
         &model_cache_identity_bytes,

@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Search, Download, Eye, Clock, CheckCircle, XCircle, Loader2, AlertCircle } from 'lucide-react';
-import { useAdapters } from '@/pages/Adapters/useAdapters';
+import { useAdapters } from '@/hooks/adapters/useAdapters';
 import type { Adapter } from '@/api/adapter-types';
 
 interface AdapterEntry {

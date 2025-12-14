@@ -11,7 +11,7 @@ import { toast } from 'sonner';
 import apiClient from '@/api/client';
 import { Node, Plan, SpawnWorkerRequest } from '@/api/types';
 import { logger, toError } from '@/utils/logger';
-import { useAsyncAction } from '@/hooks/useAsyncAction';
+import { useAsyncAction } from '@/hooks/async/useAsyncAction';
 
 interface SpawnWorkerModalProps {
   open: boolean;
@@ -204,7 +204,7 @@ export function SpawnWorkerModal({
               <div className="text-xs text-muted-foreground">
                 <p>Metal: {selectedNodeDetails.metal_family}</p>
                 <p>Memory: {selectedNodeDetails.memory_gb}GB</p>
-                <p>Last seen: {new Date(selectedNodeDetails.last_heartbeat).toLocaleString()}</p>
+                <p>Last seen: {selectedNodeDetails.last_heartbeat ? new Date(selectedNodeDetails.last_heartbeat).toLocaleString() : 'N/A'}</p>
               </div>
             )}
           </div>

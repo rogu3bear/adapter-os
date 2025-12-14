@@ -20,7 +20,7 @@ import { LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
 import { toast } from 'sonner';
 import apiClient from '@/api/client';
 import { logger, toError } from '@/utils/logger';
-import { usePolling } from '@/hooks/usePolling';
+import { usePolling } from '@/hooks/realtime/usePolling';
 import { LastUpdated } from './ui/last-updated';
 import { METRIC_COLORS } from '@/constants/chart-colors';
 

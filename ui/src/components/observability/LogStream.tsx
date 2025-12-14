@@ -11,7 +11,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import apiClient from '@/api/client';
-import { useLiveData } from '@/hooks/useLiveData';
+import { useLiveData } from '@/hooks/realtime/useLiveData';
 import { logger, toError } from '@/utils/logger';
 
 const LOG_LEVELS = ['', 'error', 'warn', 'info', 'debug', 'trace'] as const;
@@ -68,11 +68,11 @@ export function LogStream() {
 
       // Transform UnifiedTelemetryEvent to LogEvent format
       const transformedLogs: LogEvent[] = data.map(event => ({
-        id: event.id,
+        id: event.id ?? '',
         timestamp: event.timestamp,
         event_type: event.event_type,
-        level: event.level,
-        message: event.message,
+        level: event.level ?? '',
+        message: event.message ?? '',
         component: event.component,
         tenant_id: event.tenant_id,
         trace_id: event.trace_id,
@@ -107,11 +107,11 @@ export function LogStream() {
 
         // Transform UnifiedTelemetryEvent to LogEvent format
         const transformedLogs: LogEvent[] = data.map(event => ({
-          id: event.id,
+          id: event.id ?? '',
           timestamp: event.timestamp,
           event_type: event.event_type,
-          level: event.level,
-          message: event.message,
+          level: event.level ?? '',
+          message: event.message ?? '',
           component: event.component,
           tenant_id: event.tenant_id,
           trace_id: event.trace_id,

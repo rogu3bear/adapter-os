@@ -354,7 +354,7 @@ export const operatorConfig: RoleDashboardConfig = {
       label: 'Open Telemetry Viewer',
       icon: 'Eye',
       variant: 'secondary',
-      action: 'navigate:/telemetry/viewer',
+      action: 'navigate:/telemetry?tab=viewer',
       permissions: ['MetricsView'],
       description: 'Inspect per-session routing and tokens',
     },
@@ -379,7 +379,7 @@ export const sreConfig: RoleDashboardConfig = {
   title: 'SRE Dashboard',
   displayName: 'Site Reliability Engineer',
   description: 'Infrastructure monitoring and troubleshooting',
-  defaultRoute: '/monitoring',
+  defaultRoute: '/metrics',
   widgets: [
     {
       id: 'system-health',
@@ -514,7 +514,7 @@ export const sreConfig: RoleDashboardConfig = {
       label: 'Monitoring Rules',
       icon: 'Activity',
       variant: 'secondary',
-      action: 'navigate:/monitoring',
+      action: 'navigate:/metrics',
       permissions: ['MonitoringManage'],
       description: 'Manage monitoring rules and alerts',
     },

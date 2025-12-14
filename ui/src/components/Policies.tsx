@@ -15,7 +15,7 @@ import { ConfirmationDialog, ConfirmationOptions } from './ui/confirmation-dialo
 import { toast } from 'sonner';
 import apiClient from '@/api/client';
 import { Policy, User, SignPolicyResponse, PolicyComparisonResponse } from '@/api/types';
-import { useTimestamp } from '@/hooks/useTimestamp';
+import { useTimestamp } from '@/hooks/ui/useTimestamp';
 import { PolicyEditor } from './PolicyEditor';
 import { AuditDashboard } from './AuditDashboard';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
@@ -29,8 +29,8 @@ import { BookmarkButton } from './ui/bookmark-button';
 
 import { useAuth } from '@/providers/CoreProviders';
 import { useTenant } from '@/providers/FeatureProviders';
-import { useRBAC } from '@/hooks/useRBAC';
-import { useProgressiveHints } from '@/hooks/useProgressiveHints';
+import { useRBAC } from '@/hooks/security/useRBAC';
+import { useProgressiveHints } from '@/hooks/tutorial/useProgressiveHints';
 import { getPageHints } from '@/data/page-hints';
 import { ProgressiveHint } from './ui/progressive-hint';
 
@@ -99,6 +99,10 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
   }, [fetchPolicies]);
 
   const handleSignPolicy = async (policy: Policy) => {
+    if (!policy.cpid) {
+      setPoliciesError(new Error('Policy CPID is required'));
+      return;
+    }
     try {
       const result = await apiClient.signPolicy(policy.cpid);
       setSignResult(result);
@@ -127,6 +131,10 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
       setPoliciesError(new Error('Please select both policies to compare'));
       return;
     }
+    if (!selectedPolicy.cpid) {
+      setPoliciesError(new Error('Selected policy CPID is required'));
+      return;
+    }
     try {
       const result = await apiClient.comparePolicies(selectedPolicy.cpid, compareCpid2);
       setCompareResult(result);
@@ -150,6 +158,10 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
   };
 
   const handleExportPolicy = async (policy: Policy) => {
+    if (!policy.cpid) {
+      setPoliciesError(new Error('Policy CPID is required'));
+      return;
+    }
     try {
       const result = await apiClient.exportPolicy(policy.cpid);
       const dataStr = JSON.stringify(result, null, 2);
@@ -186,7 +198,7 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
       // Export all policies as JSON array (backend API returns single policy, so we collect them)
       if (format === 'json') {
         const exports = await Promise.all(
-          policiesToExport.map(policy => apiClient.exportPolicy(policy.cpid))
+          policiesToExport.filter(p => p.cpid).map(policy => apiClient.exportPolicy(policy.cpid!))
         );
         const dataStr = JSON.stringify(exports, null, 2);
         const dataBlob = new Blob([dataStr], { type: 'application/json' });
@@ -202,8 +214,8 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
         // CSV format - convert policies array to CSV
         const csvHeaders = ['Policy ID', 'Schema Hash', 'Status'];
         const csvRows = policiesToExport.map(policy => [
-          policy.cpid,
-          policy.schema_hash,
+          policy.cpid || '',
+          policy.schema_hash || '',
           'Active'
         ]);
         const csvContent = [csvHeaders.join(','), ...csvRows.map(row => row.join(','))].join('\n');
@@ -232,9 +244,9 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
   const handleBulkExportPolicies = async (policyCpids: string[]) => {
     const performBulkExport = async () => {
       try {
-        const policiesToExport = policies.filter(p => policyCpids.includes(p.cpid));
+        const policiesToExport = policies.filter(p => p.cpid && policyCpids.includes(p.cpid));
         const exports = await Promise.all(
-          policiesToExport.map(policy => apiClient.exportPolicy(policy.cpid))
+          policiesToExport.map(policy => apiClient.exportPolicy(policy.cpid!))
         );
         const dataStr = JSON.stringify(exports, null, 2);
         const dataBlob = new Blob([dataStr], { type: 'application/json' });
@@ -388,7 +400,7 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
                     }
                     onCheckedChange={(checked) => {
                       if (checked) {
-                        setSelectedPolicies(policies.map(p => p.cpid));
+                        setSelectedPolicies(policies.filter(p => p.cpid).map(p => p.cpid!));
                       } else {
                         setSelectedPolicies([]);
                       }
@@ -423,20 +435,22 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
                 <TableRow key={policy.cpid}>
                   <TableCell className="p-4 border-b border-border">
                     <Checkbox
-                      checked={selectedPolicies.includes(policy.cpid)}
+                      checked={policy.cpid ? selectedPolicies.includes(policy.cpid) : false}
                       onCheckedChange={(checked) => {
-                        if (checked) {
-                          setSelectedPolicies(prev => [...prev, policy.cpid]);
-                        } else {
-                          setSelectedPolicies(prev => prev.filter(id => id !== policy.cpid));
+                        if (policy.cpid) {
+                          if (checked) {
+                            setSelectedPolicies(prev => [...prev, policy.cpid!]);
+                          } else {
+                            setSelectedPolicies(prev => prev.filter(id => id !== policy.cpid));
+                          }
                         }
                       }}
-                      aria-label={`Select ${policy.cpid}`}
+                      aria-label={`Select ${policy.cpid || 'policy'}`}
                     />
                   </TableCell>
                   <TableCell className="p-4 border-b border-border font-medium">{policy.cpid}</TableCell>
                   <TableCell className="p-4 border-b border-border font-mono text-xs">
-                    {policy.schema_hash.substring(0, 16)}
+                    {policy.schema_hash?.substring(0, 16) || ''}
                   </TableCell>
                   <TableCell className="p-4 border-b border-border">
                     <Badge variant="default">
@@ -449,10 +463,10 @@ export function Policies({ user: userProp, selectedTenant: tenantProp }: Policie
                     <div className="flex items-center gap-1">
                       <BookmarkButton
                         type="policy"
-                        title={policy.cpid}
-                        url={`/policies?policy=${encodeURIComponent(policy.cpid)}`}
-                        entityId={policy.cpid}
-                        description={`Policy • ${policy.schema_hash.substring(0, 8)}`}
+                        title={policy.cpid || 'Policy'}
+                        url={`/policies?policy=${encodeURIComponent(policy.cpid || '')}`}
+                        entityId={policy.cpid || ''}
+                        description={`Policy • ${policy.schema_hash?.substring(0, 8) || ''}`}
                         variant="ghost"
                         size="icon"
                       />

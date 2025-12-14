@@ -8,15 +8,15 @@ import { formatDistanceToNow } from 'date-fns';
 import type { DeterminismStatusResponse, AdapterQuarantineStatusResponse } from '@/api/types';
 
 export function AdminBanner() {
-  const { data: determinismStatus } = useQuery<DeterminismStatusResponse>({
+  const { data: determinismStatus } = useQuery({
     queryKey: ['determinism-status'],
-    queryFn: () => apiClient.getDeterminismStatus(),
+    queryFn: (): Promise<DeterminismStatusResponse> => apiClient.getDeterminismStatus(),
     refetchInterval: 30000, // Refresh every 30 seconds
   });
 
-  const { data: quarantineStatus } = useQuery<AdapterQuarantineStatusResponse>({
+  const { data: quarantineStatus } = useQuery({
     queryKey: ['quarantine-status'],
-    queryFn: () => apiClient.getDiagnosticsQuarantineStatus(),
+    queryFn: (): Promise<AdapterQuarantineStatusResponse> => apiClient.getDiagnosticsQuarantineStatus(),
     refetchInterval: 30000, // Refresh every 30 seconds
   });
 

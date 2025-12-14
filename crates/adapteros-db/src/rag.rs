@@ -30,6 +30,18 @@ pub struct RagRetrievedDocument {
     pub score: f32,
 }
 
+/// Merge strategy for multi-model retrieval
+#[derive(Debug, Clone, Default)]
+pub enum ModelMergeStrategy {
+    /// Only use primary model
+    #[default]
+    PrimaryOnly,
+    /// Use fallback if primary returns nothing
+    FallbackIfEmpty,
+    /// Merge results from both models, deduplicated
+    UnionDeduplicated,
+}
+
 impl Db {
     fn rag_kv_repo(&self) -> Option<RagRepository> {
         self.kv_backend().map(|kv| {
@@ -400,7 +412,7 @@ impl Db {
             scored_docs.push((doc_id, text, score));
         }
 
-        deterministic_sort_and_take(scored_docs, top_k)
+        deterministic_sort_and_take(scored_docs, top_k, 0.0)
     }
 
     async fn retrieve_from_kv(
@@ -449,7 +461,220 @@ impl Db {
             scored_docs.push((doc.doc_id, doc.text, score));
         }
 
-        deterministic_sort_and_take(scored_docs, top_k)
+        deterministic_sort_and_take(scored_docs, top_k, 0.0)
+    }
+
+    /// Retrieve RAG documents using hybrid search (vector + FTS5).
+    /// Combines results using Reciprocal Rank Fusion (RRF).
+    pub async fn retrieve_rag_documents_hybrid(
+        &self,
+        tenant_id: &str,
+        query_text: &str,
+        embedding_model_hash: &B3Hash,
+        expected_dimension: usize,
+        query_embedding: &[f32],
+        top_k: usize,
+        min_score: f32,
+    ) -> Result<Vec<RagRetrievedDocument>> {
+        const RRF_K: f32 = 60.0;
+
+        // 1. Vector search
+        let vector_results = self
+            .retrieve_rag_documents(
+                tenant_id,
+                embedding_model_hash,
+                expected_dimension,
+                query_embedding,
+                top_k * 2, // Over-fetch for fusion
+            )
+            .await?;
+
+        // 2. FTS5 search
+        let fts_results = self
+            .retrieve_rag_documents_fts(tenant_id, query_text, top_k * 2)
+            .await?;
+
+        // 3. RRF fusion
+        use std::collections::HashMap;
+        let mut rrf_scores: HashMap<String, (f32, Option<RagRetrievedDocument>)> = HashMap::new();
+
+        // Add vector results with rank-based RRF score
+        for (rank, doc) in vector_results.into_iter().enumerate() {
+            let rrf_score = 1.0 / (RRF_K + rank as f32 + 1.0);
+            rrf_scores.insert(doc.doc_id.clone(), (rrf_score, Some(doc)));
+        }
+
+        // Add FTS results, combining scores if doc already exists
+        for (rank, doc) in fts_results.into_iter().enumerate() {
+            let rrf_score = 1.0 / (RRF_K + rank as f32 + 1.0);
+            rrf_scores
+                .entry(doc.doc_id.clone())
+                .and_modify(|(score, _)| *score += rrf_score)
+                .or_insert((rrf_score, Some(doc)));
+        }
+
+        // 4. Sort by combined RRF score with deterministic tie-breaking
+        let mut combined: Vec<_> = rrf_scores
+            .into_iter()
+            .filter_map(|(_, (score, doc))| {
+                doc.map(|mut d| {
+                    d.score = score;
+                    d
+                })
+            })
+            .collect();
+
+        combined.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.doc_id.cmp(&b.doc_id))
+        });
+
+        // 5. Apply minimum score threshold and take top_k
+        Ok(combined
+            .into_iter()
+            .filter(|d| d.score >= min_score)
+            .take(top_k)
+            .collect())
+    }
+
+    /// FTS5 text search for RAG documents.
+    async fn retrieve_rag_documents_fts(
+        &self,
+        tenant_id: &str,
+        query_text: &str,
+        limit: usize,
+    ) -> Result<Vec<RagRetrievedDocument>> {
+        // Escape FTS5 special characters
+        let escaped_query = Self::escape_fts5_query(query_text);
+
+        if escaped_query.trim().is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let rows: Vec<(String, String, f64)> = sqlx::query_as(
+            r#"
+            SELECT d.doc_id, d.text, bm25(rag_documents_fts) as score
+            FROM rag_documents_fts fts
+            JOIN rag_documents d ON d.rowid = fts.rowid
+            WHERE rag_documents_fts MATCH ?1
+              AND d.tenant_id = ?2
+            ORDER BY bm25(rag_documents_fts)
+            LIMIT ?3
+            "#,
+        )
+        .bind(&escaped_query)
+        .bind(tenant_id)
+        .bind(limit as i64)
+        .fetch_all(self.pool())
+        .await
+        .unwrap_or_else(|e| {
+            // FTS5 table might not exist yet, or query syntax error
+            tracing::warn!(
+                error = %e,
+                query = %escaped_query,
+                "FTS5 search failed, returning empty results"
+            );
+            Vec::new()
+        });
+
+        Ok(rows
+            .into_iter()
+            .map(|(doc_id, text, score)| RagRetrievedDocument {
+                doc_id,
+                text,
+                score: (-score) as f32, // BM25 returns negative scores, lower is better
+            })
+            .collect())
+    }
+
+    fn escape_fts5_query(query: &str) -> String {
+        query
+            .chars()
+            .map(|c| match c {
+                '"' | '*' | '(' | ')' | ':' | '^' | '-' => ' ',
+                _ => c,
+            })
+            .collect::<String>()
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
+    /// Retrieve with model fallback support for transitions.
+    pub async fn retrieve_rag_documents_with_fallback(
+        &self,
+        tenant_id: &str,
+        primary_model_hash: &B3Hash,
+        fallback_model_hash: Option<&B3Hash>,
+        expected_dimension: usize,
+        query_embedding: &[f32],
+        top_k: usize,
+        strategy: ModelMergeStrategy,
+    ) -> Result<Vec<RagRetrievedDocument>> {
+        // Primary retrieval
+        let primary_results = self
+            .retrieve_rag_documents(
+                tenant_id,
+                primary_model_hash,
+                expected_dimension,
+                query_embedding,
+                top_k,
+            )
+            .await?;
+
+        match strategy {
+            ModelMergeStrategy::PrimaryOnly => Ok(primary_results),
+            ModelMergeStrategy::FallbackIfEmpty if primary_results.is_empty() => {
+                if let Some(fallback_hash) = fallback_model_hash {
+                    self.retrieve_rag_documents(
+                        tenant_id,
+                        fallback_hash,
+                        expected_dimension,
+                        query_embedding,
+                        top_k,
+                    )
+                    .await
+                } else {
+                    Ok(primary_results)
+                }
+            }
+            ModelMergeStrategy::UnionDeduplicated => {
+                let mut results = primary_results;
+                if let Some(fallback_hash) = fallback_model_hash {
+                    let fallback_results = self
+                        .retrieve_rag_documents(
+                            tenant_id,
+                            fallback_hash,
+                            expected_dimension,
+                            query_embedding,
+                            top_k,
+                        )
+                        .await?;
+
+                    // Merge and deduplicate
+                    let existing_ids: std::collections::HashSet<_> =
+                        results.iter().map(|d| d.doc_id.clone()).collect();
+                    for doc in fallback_results {
+                        if !existing_ids.contains(&doc.doc_id) {
+                            results.push(doc);
+                        }
+                    }
+
+                    // Re-sort deterministically
+                    results.sort_by(|a, b| {
+                        b.score
+                            .partial_cmp(&a.score)
+                            .unwrap_or(std::cmp::Ordering::Equal)
+                            .then_with(|| a.doc_id.cmp(&b.doc_id))
+                    });
+                    results.truncate(top_k);
+                }
+                Ok(results)
+            }
+            _ => Ok(primary_results),
+        }
     }
 }
 
@@ -469,6 +694,7 @@ fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
 fn deterministic_sort_and_take(
     mut docs: Vec<(String, String, f32)>,
     top_k: usize,
+    min_score: f32,
 ) -> Result<Vec<RagRetrievedDocument>> {
     docs.sort_by(|(id_a, _, score_a), (id_b, _, score_b)| {
         score_b
@@ -479,6 +705,7 @@ fn deterministic_sort_and_take(
 
     Ok(docs
         .into_iter()
+        .filter(|(_, _, score)| *score >= min_score)
         .take(top_k)
         .map(|(doc_id, text, score)| RagRetrievedDocument {
             doc_id,

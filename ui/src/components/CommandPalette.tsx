@@ -50,11 +50,9 @@ const routeIcons: Record<string, React.ComponentType<{ className?: string }>> = 
   '/golden': GitCompare,
   '/adapters': Box,
   '/metrics': Activity,
-  '/monitoring': Activity,
   '/routing': Route,
   '/inference': Play,
   '/telemetry': Eye,
-  '/telemetry/viewer': Eye,
   '/replay': RotateCcw,
   '/security/policies': Shield,
   '/security/audit': FileText,
@@ -78,10 +76,12 @@ function groupResults(results: CmdItem[]): Map<string, CmdItem[]> {
   
   for (const item of results) {
     const groupKey = item.group || item.type;
-    if (!grouped.has(groupKey)) {
-      grouped.set(groupKey, []);
+    const existing = grouped.get(groupKey);
+    if (existing) {
+      existing.push(item);
+    } else {
+      grouped.set(groupKey, [item]);
     }
-    grouped.get(groupKey)!.push(item);
   }
   
   return grouped;

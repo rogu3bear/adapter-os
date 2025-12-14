@@ -24,9 +24,9 @@ interface DatasetFile {
 }
 
 export default function DatasetFiles({ datasetId, isLoading }: DatasetFilesProps) {
-  const { data: files, isLoading: isLoadingFiles } = useQuery<DatasetFile[]>({
+  const { data: files, isLoading: isLoadingFiles } = useQuery({
     queryKey: ['dataset', datasetId, 'files'],
-    queryFn: async () => {
+    queryFn: async (): Promise<DatasetFile[]> => {
       return apiClient.request<DatasetFile[]>(`/v1/datasets/${datasetId}/files`);
     },
     enabled: !!datasetId,

@@ -29,6 +29,7 @@ import type { Adapter, AdapterState } from '@/api/adapter-types';
 import { Link } from 'react-router-dom';
 import { AdapterActions } from './AdapterActions';
 import PageTable from '@/components/ui/PageTable';
+import { formatMB } from '@/utils';
 
 interface AdapterTableProps {
   adapters: Adapter[];
@@ -223,10 +224,10 @@ function AdapterTableRow({
   canDelete = true,
   totalMemory = 0,
 }: AdapterTableRowProps) {
-  const memoryMB = adapter.memory_bytes / (1024 * 1024);
-  const memoryPercent = totalMemory > 0 ? (adapter.memory_bytes / totalMemory) * 100 : 0;
+  const memoryMB = (adapter.memory_bytes ?? 0) / (1024 * 1024);
+  const memoryPercent = totalMemory > 0 ? ((adapter.memory_bytes ?? 0) / totalMemory) * 100 : 0;
 
-  const activationPercent = Math.min(100, (adapter.activation_count / 100) * 100);
+  const activationPercent = Math.min(100, ((adapter.activation_count ?? 0) / 100) * 100);
 
   return (
     <TableRow className={isSelected ? 'bg-accent/50' : undefined}>
@@ -241,7 +242,7 @@ function AdapterTableRow({
       )}
       <TableCell>
         <div className="flex items-center gap-2">
-          {getCategoryIcon(adapter.category)}
+          {getCategoryIcon(adapter.category ?? 'code')}
           <div>
             <div className="font-medium flex items-center gap-1">
               <Link to={`/adapters/${adapter.adapter_id}`} className="hover:underline">
@@ -275,10 +276,12 @@ function AdapterTableRow({
       </TableCell>
       <TableCell>
         <div className="flex items-center gap-2">
-          {getStateIcon(adapter.current_state)}
-          <Badge variant={getStateBadgeVariant(adapter.current_state)}>
-            {getStateDisplayName(adapter.current_state)}
-          </Badge>
+          {adapter.current_state && getStateIcon(adapter.current_state)}
+          {adapter.current_state && (
+            <Badge variant={getStateBadgeVariant(adapter.current_state)}>
+              {getStateDisplayName(adapter.current_state)}
+            </Badge>
+          )}
         </div>
       </TableCell>
       <TableCell>
@@ -289,7 +292,7 @@ function AdapterTableRow({
       <TableCell>
         <div className="flex flex-col gap-1">
           <div className="flex items-center justify-between text-xs">
-            <span>{adapter.activation_count}</span>
+            <span>{adapter.activation_count ?? '—'}</span>
             <span className="text-muted-foreground">{activationPercent.toFixed(0)}%</span>
           </div>
           <Progress value={activationPercent} className="h-1" />
@@ -298,7 +301,7 @@ function AdapterTableRow({
       <TableCell>
         <div className="flex items-center gap-1 text-sm">
           <MemoryStick className="h-3 w-3 text-muted-foreground" />
-          <span>{memoryMB.toFixed(1)} MB</span>
+          <span>{formatMB(adapter.memory_bytes, 1)}</span>
         </div>
         {totalMemory > 0 && (
           <div className="text-xs text-muted-foreground">
@@ -308,8 +311,8 @@ function AdapterTableRow({
       </TableCell>
       <TableCell>
         <Badge variant="secondary" className="flex items-center gap-1 w-fit">
-          {getCategoryIcon(adapter.category, 'h-3 w-3')}
-          {adapter.category}
+          {getCategoryIcon(adapter.category ?? 'code', 'h-3 w-3')}
+          {adapter.category ?? 'code'}
         </Badge>
       </TableCell>
       <TableCell className="text-right">
@@ -350,9 +353,9 @@ function AdapterCard({
   canDelete = true,
   totalMemory = 0,
 }: AdapterTableRowProps) {
-  const memoryMB = adapter.memory_bytes / (1024 * 1024);
-  const memoryPercent = totalMemory > 0 ? (adapter.memory_bytes / totalMemory) * 100 : 0;
-  const activationPercent = Math.min(100, (adapter.activation_count / 100) * 100);
+  const memoryMB = (adapter.memory_bytes ?? 0) / (1024 * 1024);
+  const memoryPercent = totalMemory > 0 ? ((adapter.memory_bytes ?? 0) / totalMemory) * 100 : 0;
+  const activationPercent = Math.min(100, ((adapter.activation_count ?? 0) / 100) * 100);
 
   return (
     <div className="rounded-lg border bg-card/50 p-4 shadow-sm transition hover:shadow-md focus-within:ring-2 focus-within:ring-primary/70">
@@ -368,7 +371,7 @@ function AdapterCard({
           )}
           <div className="space-y-1">
             <div className="flex items-center gap-2">
-              {getCategoryIcon(adapter.category)}
+              {getCategoryIcon(adapter.category ?? 'code')}
               <Link to={`/adapters/${adapter.adapter_id}`} className="font-semibold hover:underline">
                 {adapter.name}
               </Link>
@@ -390,13 +393,15 @@ function AdapterCard({
               )}
             </div>
             <div className="text-xs text-muted-foreground flex flex-wrap gap-2">
-              <Badge variant={getStateBadgeVariant(adapter.current_state)} className="capitalize">
-                {getStateDisplayName(adapter.current_state)}
-              </Badge>
+              {adapter.current_state && (
+                <Badge variant={getStateBadgeVariant(adapter.current_state)} className="capitalize">
+                  {getStateDisplayName(adapter.current_state)}
+                </Badge>
+              )}
               <Badge variant="outline">{getTierDisplayName(adapter.tier)}</Badge>
               <Badge variant="secondary" className="flex items-center gap-1">
-                {getCategoryIcon(adapter.category, 'h-3 w-3')}
-                {adapter.category}
+                {getCategoryIcon(adapter.category ?? 'code', 'h-3 w-3')}
+                {adapter.category ?? 'code'}
               </Badge>
             </div>
             <div className="text-xs text-muted-foreground">
@@ -425,7 +430,7 @@ function AdapterCard({
         <div>
           <div className="flex items-center gap-1 text-sm text-foreground">
             <MemoryStick className="h-3 w-3 text-muted-foreground" />
-            <span>{memoryMB.toFixed(1)} MB</span>
+            <span>{formatMB(adapter.memory_bytes, 1)}</span>
           </div>
           {totalMemory > 0 && <div className="text-xs">({memoryPercent.toFixed(1)}% of total)</div>}
         </div>

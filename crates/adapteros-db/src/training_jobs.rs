@@ -61,6 +61,12 @@ pub struct TrainingJobRecord {
     pub stack_id: Option<String>,
     /// Adapter ID created from this training job
     pub adapter_id: Option<String>,
+    /// BLAKE3 hash of the packaged adapter weights (.aos)
+    #[sqlx(default)]
+    pub weights_hash_b3: Option<String>,
+    /// Filesystem path to the packaged .aos artifact
+    #[sqlx(default)]
+    pub artifact_path: Option<String>,
     #[sqlx(default)]
     pub produced_version_id: Option<String>,
     #[sqlx(default)]
@@ -198,6 +204,8 @@ impl Db {
             retry_of_job_id: record.retry_of_job_id.clone(),
             stack_id: record.stack_id.clone(),
             adapter_id: record.adapter_id.clone(),
+            weights_hash_b3: record.weights_hash_b3.clone(),
+            artifact_path: record.artifact_path.clone(),
             produced_version_id: record.produced_version_id.clone(),
             hyperparameters_json: record.hyperparameters_json.clone(),
             data_spec_json: record.data_spec_json.clone(),
@@ -236,6 +244,8 @@ impl Db {
             retry_of_job_id: kv.retry_of_job_id.clone(),
             stack_id: kv.stack_id.clone(),
             adapter_id: kv.adapter_id.clone(),
+            weights_hash_b3: kv.weights_hash_b3.clone(),
+            artifact_path: kv.artifact_path.clone(),
             produced_version_id: kv.produced_version_id.clone(),
             hyperparameters_json: kv.hyperparameters_json.clone(),
             data_spec_json: kv.data_spec_json.clone(),
@@ -317,6 +327,8 @@ impl Db {
                 retry_of_job_id: None,
                 stack_id: None,
                 adapter_id: None,
+                weights_hash_b3: None,
+                artifact_path: None,
                 produced_version_id: None,
                 hyperparameters_json: None,
                 data_spec_json: None,
@@ -359,7 +371,7 @@ impl Db {
                     created_at, metadata_json, config_hash_b3,
                     dataset_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
                     synthetic_mode, data_lineage_mode,
-                    retryable, retry_of_job_id, stack_id, adapter_id, produced_version_id,
+                    retryable, retry_of_job_id, stack_id, adapter_id, weights_hash_b3, artifact_path, produced_version_id,
                     hyperparameters_json, data_spec_json, metrics_snapshot_id
              FROM repository_training_jobs WHERE id = ?",
         )
@@ -388,7 +400,7 @@ impl Db {
                     created_at, metadata_json, config_hash_b3,
                     dataset_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
                     synthetic_mode, data_lineage_mode,
-                    retryable, retry_of_job_id, stack_id, adapter_id, produced_version_id,
+                    retryable, retry_of_job_id, stack_id, adapter_id, weights_hash_b3, artifact_path, produced_version_id,
                     hyperparameters_json, data_spec_json, metrics_snapshot_id
              FROM repository_training_jobs
              WHERE adapter_id = ? AND tenant_id = ?
@@ -770,7 +782,10 @@ impl Db {
         if let Some(repo) = self.get_training_job_kv_repo() {
             if let Err(e) = repo
                 .update_job(job_id, |job| {
-                    job.metadata_json = Some(metadata_json.clone())
+                    job.metadata_json = Some(metadata_json.clone());
+                    job.adapter_id = Some(adapter_id.to_string());
+                    job.weights_hash_b3 = Some(weights_hash_b3.to_string());
+                    job.artifact_path = Some(artifact_path.to_string());
                 })
                 .await
             {
@@ -782,10 +797,16 @@ impl Db {
         if self.storage_mode().write_to_sql() {
             sqlx::query(
                 "UPDATE repository_training_jobs
-             SET metadata_json = ?
+             SET metadata_json = ?,
+                 adapter_id = ?,
+                 weights_hash_b3 = ?,
+                 artifact_path = ?
              WHERE id = ?",
             )
             .bind(&metadata_json)
+            .bind(adapter_id)
+            .bind(weights_hash_b3)
+            .bind(artifact_path)
             .bind(job_id)
             .execute(&*self.pool())
             .await

@@ -18,6 +18,7 @@ import * as documentTypes from '@/api/document-types';
 import * as policyTypes from '@/api/policyTypes';
 import * as ownerTypes from '@/api/owner-types';
 import * as systemStateTypes from '@/api/system-state-types';
+import * as pilotStatusTypes from '@/api/pilot-status-types';
 import * as adapterTypes from '@/api/adapter-types';
 import * as replayTypes from '@/api/replay-types';
 import * as repoTypes from '@/api/repo-types';
@@ -28,6 +29,7 @@ import { handleBlobResponse, getFilenameFromResponse, extractArrayFromResponse }
 import { retryWithBackoff, RetryConfig, RetryResult, createRetryWrapper } from '@/utils/retry';
 import { LoginResponseSchema } from '@/schemas/common.schema';
 import { captureException } from '@/stores/errorStore';
+import { markBackendReachable, markBackendUnreachable } from '@/stores/backendReachability';
 import { markSessionExpired } from '@/auth/session';
 import { isCoremlPackageUiEnabled } from '@/config/featureFlags';
 
@@ -284,6 +286,9 @@ class ApiClient {
     } catch (networkError) {
       // Network error (connection failure, timeout, etc.)
       const error = toError(networkError);
+      if (error.name !== 'AbortError' && error.name !== 'CanceledError') {
+        markBackendUnreachable(error, { method, path });
+      }
       logger.error('API request network error', {
         component: 'ApiClient',
         operation: 'executeRequest',
@@ -302,6 +307,16 @@ class ApiClient {
       }
 
       throw error;
+    }
+
+    // Treat gateway/unavailable responses as "unreachable" (common when dev proxy can't reach backend).
+    if (response.status === 502 || response.status === 503 || response.status === 504) {
+      markBackendUnreachable(
+        new Error(`HTTP ${response.status}: ${response.statusText || 'Backend unavailable'}`),
+        { method, path, status: response.status },
+      );
+    } else {
+      markBackendReachable();
     }
     
     // Validate returned request ID matches
@@ -794,11 +809,11 @@ class ApiClient {
     return this.request<types.ComponentHealth>(`/healthz/${component}`);
   }
 
-  async ready(): Promise<types.HealthResponse> {
-    return this.request<types.HealthResponse>('/readyz');
+  async ready(): Promise<types.ReadyzResponse> {
+    return this.request<types.ReadyzResponse>('/readyz');
   }
 
-  async getReadyz(): Promise<types.HealthResponse> {
+  async getReadyz(): Promise<types.ReadyzResponse> {
     return this.ready();
   }
 
@@ -1605,7 +1620,10 @@ class ApiClient {
     // Try to get statistics for total_tokens
     let totalTokens = 0;
     try {
-      const stats = await this.request<{ total_tokens: number }>(`/v1/datasets/${datasetId}/statistics`).catch(() => null);
+      const stats = await this.request<{ total_tokens: number }>(`/v1/datasets/${datasetId}/statistics`).catch((error) => {
+        logger.warn('Failed to fetch statistics', { datasetId, error });
+        return null;
+      });
       if (stats) {
         totalTokens = stats.total_tokens;
       }
@@ -1891,6 +1909,10 @@ class ApiClient {
     return this.request('/v1/system/overview');
   }
 
+  async getPilotStatus(): Promise<pilotStatusTypes.PilotStatusResponse> {
+    return this.request<pilotStatusTypes.PilotStatusResponse>('/v1/system/pilot-status');
+  }
+
   /**
    * Get ground truth system state
    *
@@ -2058,7 +2080,7 @@ class ApiClient {
     logger.info('Batch inference requested', {
       component: 'ApiClient',
       operation: 'batchInfer',
-      batchSize: data.requests.length,
+      batchSize: data.requests?.length ?? 0,
     });
     return this.request<types.BatchInferResponse>('/v1/infer/batch', {
       method: 'POST',
@@ -3915,7 +3937,8 @@ class ApiClient {
           if (!disposed) {
             callback({ messages, count: messages.length, timestamp: new Date().toISOString() });
           }
-        }).catch(() => {
+        }).catch((error) => {
+          logger.warn('Operation failed', { error });
           if (!disposed) {
             callback(null);
           }
@@ -4105,7 +4128,8 @@ class ApiClient {
           if (!disposed) {
             callback({ events, count: events.length, timestamp: new Date().toISOString() });
           }
-        }).catch(() => {
+        }).catch((error) => {
+          logger.warn('Operation failed', { error });
           if (!disposed) {
             callback(null);
           }

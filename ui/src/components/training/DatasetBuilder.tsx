@@ -31,7 +31,7 @@ import {
 } from 'lucide-react';
 import { logger, toError } from '@/utils/logger';
 import { ErrorRecovery } from '@/components/ui/error-recovery';
-import { useInformationDensity } from '@/hooks/useInformationDensity';
+import { useInformationDensity } from '@/hooks/ui/useInformationDensity';
 import { DatasetConfigSchema, formatValidationError } from '@/schemas';
 import { apiClient } from '@/api/client';
 import { CreateDatasetRequest, DatasetValidationResult } from '@/api/training-types';

@@ -16,7 +16,7 @@ import apiClient from '@/api/client';
 
 import { toast } from 'sonner';
 import { logger, toError } from '@/utils/logger';
-import { usePolling } from '@/hooks/usePolling';
+import { usePolling } from '@/hooks/realtime/usePolling';
 import { LastUpdated } from './ui/last-updated';
 import { ErrorRecovery } from './ui/error-recovery';
 import { GlossaryTooltip } from './ui/glossary-tooltip';

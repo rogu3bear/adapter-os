@@ -29,11 +29,12 @@
  */
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { useSSE } from '@/hooks/useSSE';
-import { useAdapterStacks } from '@/hooks/useAdmin';
+import { useSSE } from '@/hooks/realtime/useSSE';
+import { useAdapterStacks } from '@/hooks/admin/useAdmin';
 import apiClient from '@/api/client';
 import { logger, toError } from '@/utils/logger';
 import type { AdapterStreamEvent, AdapterStateTransitionEvent } from '@/api/streaming-types';
+import type { AdapterLifecycleState } from '@/hooks/model-loading/types';
 
 // ============================================================================
 // Types
@@ -41,11 +42,6 @@ import type { AdapterStreamEvent, AdapterStateTransitionEvent } from '@/api/stre
 
 /**
  * Adapter lifecycle state
- */
-export type AdapterLifecycleState = 'unloaded' | 'cold' | 'warm' | 'hot' | 'resident';
-
-/**
- * Adapter readiness state for chat
  */
 export interface AdapterReadinessState {
   /** Unique adapter ID */
@@ -315,6 +311,10 @@ export function useChatAdapterState(
         return updated;
       });
 
+      // Track results for logging
+      let successfulCount = 0;
+      let failedCount = 0;
+
       // Load each adapter (sequentially to avoid overwhelming the system)
       for (const adapter of adaptersToLoad) {
         try {
@@ -324,6 +324,7 @@ export function useChatAdapterState(
           });
 
           await apiClient.loadAdapter(adapter.adapterId);
+          successfulCount++;
 
           // Success - SSE will update the state, but we can optimistically update
           setAdapterStates((prev) => {
@@ -339,6 +340,7 @@ export function useChatAdapterState(
           });
         } catch (err) {
           const error = toError(err);
+          failedCount++;
           logger.error('Failed to load adapter', {
             component: 'useChatAdapterState',
             adapterId: adapter.adapterId,
@@ -365,8 +367,8 @@ export function useChatAdapterState(
 
       logger.info('Finished loading adapters', {
         component: 'useChatAdapterState',
-        successful: adaptersToLoad.filter((a) => !adapterStates.get(a.adapterId)?.error).length,
-        failed: adaptersToLoad.filter((a) => adapterStates.get(a.adapterId)?.error).length,
+        successful: successfulCount,
+        failed: failedCount,
       });
     } finally {
       setIsCheckingAdapters(false);

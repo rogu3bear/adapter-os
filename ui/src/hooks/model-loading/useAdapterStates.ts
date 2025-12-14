@@ -22,18 +22,14 @@
  */
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { useSSE } from '@/hooks/useSSE';
+import { useSSE } from '@/hooks/realtime/useSSE';
 import type { AdapterStreamEvent, AdapterStateTransitionEvent } from '@/api/streaming-types';
 import { logger } from '@/utils/logger';
+import type { AdapterLifecycleState } from './types';
 
 // ============================================================================
 // Types
 // ============================================================================
-
-/**
- * Adapter lifecycle state
- */
-export type AdapterLifecycleState = 'unloaded' | 'cold' | 'warm' | 'hot' | 'resident';
 
 /**
  * Adapter state information with lifecycle details

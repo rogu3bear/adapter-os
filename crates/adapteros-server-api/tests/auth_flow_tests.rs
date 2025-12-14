@@ -486,6 +486,7 @@ async fn unauthorized_errors_include_request_id_envelope() -> anyhow::Result<()>
         .expect("request id header");
     let err: ApiErrorBody = serde_json::from_slice(&to_bytes(body, 1024).await?)?;
     assert_eq!(err.code, "UNAUTHORIZED");
+    assert!(!err.hint.trim().is_empty(), "error envelope should include hint");
     assert_eq!(err.request_id, request_id_header);
 
     Ok(())

@@ -11,7 +11,7 @@ import {
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
 import { ChevronDown, ChevronRight } from 'lucide-react';
-import { useWorkerIncidents } from '@/hooks/useSystemMetrics';
+import { useWorkerIncidents } from '@/hooks/system/useSystemMetrics';
 
 interface WorkerIncidentsModalProps {
   workerId: string;

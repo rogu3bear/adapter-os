@@ -67,7 +67,11 @@ export function generateNavigationGroups(
     // Keep the earliest spine position for deterministic grouping order
     group.order = Math.min(group.order ?? Number.MAX_SAFE_INTEGER, routeOrder);
 
-    // Add the route to the group
+    // Add the route to the group (skip if no icon)
+    if (!route.navIcon) {
+      continue;
+    }
+
     group.items.push({
       to: route.path,
       label: route.navTitle,

@@ -57,7 +57,7 @@ export function TrainingComparison({ jobs: allJobs, onClose }: TrainingCompariso
     return filtered.sort((a, b) => {
       switch (sortBy) {
         case 'date':
-          return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+          return new Date(b.created_at ?? 0).getTime() - new Date(a.created_at ?? 0).getTime();
         case 'loss':
           const lossA = a.current_loss || Infinity;
           const lossB = b.current_loss || Infinity;
@@ -411,7 +411,7 @@ export function TrainingComparison({ jobs: allJobs, onClose }: TrainingCompariso
                             </Badge>
                           </TableCell>
                           <TableCell className="text-sm text-muted-foreground">
-                            {new Date(job.created_at).toLocaleDateString()}
+                            {job.created_at ? new Date(job.created_at).toLocaleDateString() : 'N/A'}
                           </TableCell>
                           <TableCell className="text-right">
                             {job.current_loss?.toFixed(4) || 'N/A'}

@@ -21,7 +21,8 @@ describe('Health & Readiness API', () => {
         url: `${apiBase}/readyz`,
       }).then((response) => {
         expect(response.status).to.eq(200);
-        expect(response.body).to.have.property('status');
+        expect(response.body).to.have.property('ready');
+        expect(response.body).to.have.property('checks');
       });
     });
 
@@ -68,4 +69,3 @@ describe('Health & Readiness API', () => {
     });
   });
 });
-

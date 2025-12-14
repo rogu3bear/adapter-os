@@ -6,8 +6,8 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { useTraining } from '@/hooks/useTraining';
-import { useTrainingStream } from '@/hooks/useStreamingEndpoints';
+import { useTraining, useCreateChatFromJob } from '@/hooks/training';
+import { useTrainingStream } from '@/hooks/streaming/useStreamingEndpoints';
 import { TrainingProgressCard } from './TrainingProgressCard';
 import {
   Activity,
@@ -30,7 +30,6 @@ import apiClient from '@/api/client';
 import type { TrainingJob, TrainingStatus, TrainingArtifact } from '@/api/training-types';
 import { isTrainingProgressEvent, TrainingProgressEvent } from '@/api/streaming-types';
 import { formatTimestamp } from '@/utils/format';
-import { useCreateChatFromJob } from '@/hooks/useTraining';
 
 interface TrainingProgressProps {
   jobId: string;

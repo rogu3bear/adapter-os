@@ -1,8 +1,8 @@
 import React from 'react';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
-import { MetricsGrid } from './observability/MetricsGrid';
-import { TraceTimeline } from './observability/TraceTimeline';
-import { LogStream } from './observability/LogStream';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { MetricsGrid } from '@/components/observability/MetricsGrid';
+import { TraceTimeline } from '@/components/observability/TraceTimeline';
+import { LogStream } from '@/components/observability/LogStream';
 
 export function ObservabilityDashboard() {
   return (

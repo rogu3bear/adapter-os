@@ -315,7 +315,9 @@ fn persist_manifest(
             .ok_or_else(|| AosError::Validation(format!("Adapter '{id}' not found in manifest")))?,
         None => {
             if manifest.adapters.is_empty() {
-                return Err(AosError::Validation("No adapter entries in manifest".into()));
+                return Err(AosError::Validation(
+                    "No adapter entries in manifest".into(),
+                ));
             }
             if manifest.adapters.len() == 1 {
                 manifest

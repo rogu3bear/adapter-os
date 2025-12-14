@@ -10,7 +10,7 @@ import {
   useSessionTags,
   useAssignTagsToSession,
   useRemoveTagFromSession,
-} from '@/hooks/useChatTags';
+} from '@/hooks/chat/useChatTags';
 import type { ChatTag, CreateTagRequest, UpdateTagRequest } from '@/api/chat-types';
 
 // Mock API client

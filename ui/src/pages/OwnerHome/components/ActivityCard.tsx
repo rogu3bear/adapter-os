@@ -111,9 +111,9 @@ const formatActivityMessage = (event: RecentActivityEvent): string => {
 const ActivityCard: React.FC<ActivityCardProps> = () => {
   const navigate = useNavigate();
 
-  const { data: events, isLoading, isError } = useQuery<RecentActivityEvent[]>({
+  const { data: events, isLoading, isError } = useQuery({
     queryKey: ['recent-activity'],
-    queryFn: async () => {
+    queryFn: async (): Promise<RecentActivityEvent[]> => {
       try {
         // Fetch recent activity events (last 10)
         const response = await apiClient.getRecentActivityEvents({ limit: 10 });

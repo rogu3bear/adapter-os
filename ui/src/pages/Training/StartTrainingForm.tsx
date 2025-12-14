@@ -185,8 +185,11 @@ export function StartTrainingForm({
         const prefillId = resolveDatasetPrefill(datasetsRes.datasets || [], preselectedDatasetId);
         if (prefillId) {
           setDatasetId(prefillId);
-        } else if ((datasetsRes.datasets?.length ?? 0) > 0) {
-          setDatasetId(prev => prev || datasetsRes.datasets![0]!.id);
+        } else {
+          const firstDatasetId = datasetsRes.datasets?.[0]?.id;
+          if (firstDatasetId) {
+            setDatasetId((prev) => prev || firstDatasetId);
+          }
         }
 
         if (initialTemplate) {
@@ -195,7 +198,9 @@ export function StartTrainingForm({
         }
       } catch (err) {
         logger.error('Failed to load training form data', {}, err as Error);
-        toast.error('Failed to load form data');
+        const message = err instanceof Error ? err.message : 'Failed to load form data';
+        setError(message);
+        toast.error(message);
       } finally {
         setIsLoadingData(false);
       }
@@ -380,7 +385,7 @@ export function StartTrainingForm({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-6">
+    <form data-cy="training-job-form" onSubmit={handleSubmit} className="space-y-6">
       {error && (
         <Alert variant="destructive">
           <AlertTriangle className="h-4 w-4" />
@@ -464,7 +469,7 @@ export function StartTrainingForm({
             <Database className="h-4 w-4" />
             Data
           </TabsTrigger>
-          <TabsTrigger value="advanced" className="gap-2">
+          <TabsTrigger value="advanced" className="gap-2" data-cy="advanced-settings">
             <Settings className="h-4 w-4" />
             Advanced
           </TabsTrigger>
@@ -476,6 +481,7 @@ export function StartTrainingForm({
             <Label htmlFor="adapter-name">Adapter Name *</Label>
             <Input
               id="adapter-name"
+              data-cy="adapter-name-input"
               placeholder="organization/domain/purpose/r001"
               value={adapterName}
               onChange={(e) => {
@@ -500,22 +506,28 @@ export function StartTrainingForm({
           <div className="space-y-2">
             <Label htmlFor="template">Training Template</Label>
             <Select value={templateId} onValueChange={handleTemplateChange}>
-              <SelectTrigger>
+              <SelectTrigger data-cy="template-select">
                 <SelectValue placeholder="Select a template (optional)" />
               </SelectTrigger>
               <SelectContent>
-                {templates.map((template) => (
-                  <SelectItem key={template.id} value={template.id}>
-                    <div className="flex flex-col">
-                      <span>{template.name}</span>
-                      {template.description && (
-                        <span className="text-xs text-muted-foreground">
-                          {template.description}
-                        </span>
-                      )}
-                    </div>
+                {templates.length > 0 ? (
+                  templates.map((template) => (
+                    <SelectItem key={template.id} value={template.id} data-cy="template-option">
+                      <div className="flex flex-col">
+                        <span>{template.name}</span>
+                        {template.description && (
+                          <span className="text-xs text-muted-foreground">
+                            {template.description}
+                          </span>
+                        )}
+                      </div>
+                    </SelectItem>
+                  ))
+                ) : (
+                  <SelectItem value="__no_templates__" disabled data-cy="template-option">
+                    No templates available
                   </SelectItem>
-                ))}
+                )}
               </SelectContent>
             </Select>
           </div>
@@ -565,6 +577,7 @@ export function StartTrainingForm({
                 <div className="space-y-2">
                   <Label>Rank: {config.rank}</Label>
                   <Slider
+                    data-cy="rank-input"
                     value={[config.rank]}
                     onValueChange={([value]) => updateConfig('rank', value)}
                     min={4}
@@ -575,6 +588,7 @@ export function StartTrainingForm({
                 <div className="space-y-2">
                   <Label>Alpha: {config.alpha}</Label>
                   <Slider
+                    data-cy="alpha-input"
                     value={[config.alpha]}
                     onValueChange={([value]) => updateConfig('alpha', value)}
                     min={8}
@@ -589,6 +603,7 @@ export function StartTrainingForm({
                   <Label htmlFor="epochs">Epochs</Label>
                   <Input
                     id="epochs"
+                    data-cy="epochs-input"
                     type="number"
                     min={1}
                     max={100}
@@ -600,6 +615,7 @@ export function StartTrainingForm({
                   <Label htmlFor="batch-size">Batch Size</Label>
                   <Input
                     id="batch-size"
+                    data-cy="batch-size-input"
                     type="number"
                     min={1}
                     max={64}
@@ -705,11 +721,72 @@ export function StartTrainingForm({
         </TabsContent>
 
         <TabsContent value="advanced" className="space-y-4 mt-4">
+          {/* Core Hyperparameters (duplicated for quick access) */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm">Core Hyperparameters</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Rank: {config.rank}</Label>
+                  <Slider
+                    data-cy="rank-input"
+                    value={[config.rank]}
+                    onValueChange={([value]) => updateConfig('rank', value)}
+                    min={4}
+                    max={64}
+                    step={4}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Alpha: {config.alpha}</Label>
+                  <Slider
+                    data-cy="alpha-input"
+                    value={[config.alpha]}
+                    onValueChange={([value]) => updateConfig('alpha', value)}
+                    min={8}
+                    max={128}
+                    step={8}
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="epochs-advanced">Epochs</Label>
+                  <Input
+                    id="epochs-advanced"
+                    data-cy="epochs-input"
+                    type="number"
+                    min={1}
+                    max={100}
+                    value={config.epochs}
+                    onChange={(e) => updateConfig('epochs', parseInt(e.target.value) || 1)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="batch-size-advanced">Batch Size</Label>
+                  <Input
+                    id="batch-size-advanced"
+                    data-cy="batch-size-input"
+                    type="number"
+                    min={1}
+                    max={64}
+                    value={config.batch_size}
+                    onChange={(e) => updateConfig('batch_size', parseInt(e.target.value) || 1)}
+                  />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
           {/* Learning Rate */}
           <div className="space-y-2">
             <Label htmlFor="learning-rate">Learning Rate</Label>
             <Input
               id="learning-rate"
+              data-cy="learning-rate-input"
               type="number"
               step="0.00001"
               min={0.000001}
@@ -812,8 +889,17 @@ export function StartTrainingForm({
           Cancel
         </Button>
         <Button
+          type="button"
+          variant="outline"
+          data-cy="dataset-upload"
+          onClick={() => setActiveTab('data')}
+        >
+          Dataset
+        </Button>
+        <Button
           type="submit"
-          disabled={isSubmitting || !isDatasetTrainable || !isModelLoaded}
+          data-cy="submit-training-job"
+          disabled={isSubmitting}
           title={
             !isModelLoaded
               ? 'A base model must be loaded before training'

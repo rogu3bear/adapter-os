@@ -12,9 +12,9 @@ import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { ModelStatusBar } from './ModelStatusBar';
 import { ChatInterface } from '@/components/ChatInterface';
-import { useModelStatus } from '@/hooks/useModelStatus';
-import { useAutoLoadModel, type AutoLoadError } from '@/hooks/useAutoLoadModel';
-import { useGetDefaultStack } from '@/hooks/useAdmin';
+import { useModelStatus } from '@/hooks/model-loading';
+import { useAutoLoadModel, type AutoLoadError } from '@/hooks/model-loading';
+import { useGetDefaultStack } from '@/hooks/admin/useAdmin';
 
 interface OperatorChatLayoutProps {
   tenantId: string;

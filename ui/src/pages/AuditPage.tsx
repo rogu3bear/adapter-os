@@ -11,10 +11,10 @@ import { PolicyAuditChainVerification, PolicyAuditDecision, TelemetryEvent } fro
 import { useDensity } from '@/contexts/DensityContext';
 import { DensityControls } from '@/components/ui/density-controls';
 import { AdvancedFilter, type FilterConfig, type FilterValues } from '@/components/ui/advanced-filter';
-import { useRBAC } from '@/hooks/useRBAC';
+import { useRBAC } from '@/hooks/security/useRBAC';
 import { ErrorRecovery, errorRecoveryTemplates } from '@/components/ui/error-recovery';
 import { GlossaryTooltip } from '@/components/ui/glossary-tooltip';
-import { usePolling } from '@/hooks/usePolling';
+import { usePolling } from '@/hooks/realtime/usePolling';
 import { Download, RefreshCw, ChevronLeft, ChevronRight } from 'lucide-react';
 import { formatTimestamp } from '@/utils/format';
 import { SectionErrorBoundary } from '@/components/ui/section-error-boundary';
@@ -145,7 +145,7 @@ function AuditTableRow({
     <TableRow>
       <TableCell className="font-mono text-sm">{formatTimestamp(log.timestamp, 'long')}</TableCell>
       <TableCell>
-        <Badge variant={getSeverityColor(log.level)}>{log.level?.toUpperCase()}</Badge>
+        <Badge variant={getSeverityColor(log.level ?? '')}>{(log.level ?? '').toUpperCase()}</Badge>
       </TableCell>
       <TableCell className="font-medium">{log.event_type || 'Unknown'}</TableCell>
       <TableCell>{log.user_id || 'System'}</TableCell>
@@ -598,7 +598,7 @@ function AuditPageInner() {
             loading={loading}
             onExport={handleExportLogs}
             canExport={can('audit:view') && allAuditLogs.length > 0}
-            lastUpdated={lastUpdated}
+            lastUpdated={lastUpdated ?? undefined}
           />
           <Card>
             <CardHeader>

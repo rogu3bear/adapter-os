@@ -10,12 +10,12 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { useNavigate, Link } from 'react-router-dom';
-import { useSystemMetrics, useMetricsSnapshot } from '@/hooks/useSystem';
-import { Skeleton } from '@/components/ui/skeleton';
+import { useSystemMetrics, useMetricsSnapshot } from '@/hooks/system/useSystem';
 import { formatMetricValue, hasUsableMetric } from '@/utils/metrics';
 import { logger } from '@/utils/logger';
-import { useTraining } from '@/hooks/useTraining';
-import { useRepos } from '@/hooks/useReposApi';
+import { useTraining } from '@/hooks/training';
+import { useRepos } from '@/hooks/api/useReposApi';
+import { CardFooterLoadingState } from '@/components/ui/loading-patterns';
 
 export default function DashboardPage() {
   const { user } = useAuth();
@@ -57,12 +57,12 @@ export default function DashboardPage() {
     {
       title: 'Telemetry Viewer',
       description: 'Inspect per-session routing and tokens.',
-      to: '/telemetry/viewer',
+      to: '/telemetry?tab=viewer',
     },
     {
       title: 'System health',
       description: 'Open monitoring for high-level health signals.',
-      to: '/monitoring',
+      to: '/metrics',
     },
   ];
 
@@ -146,7 +146,9 @@ export default function DashboardPage() {
       },
     };
     datasetsData?.datasets?.forEach(ds => {
-      const state = (ds.trust_state as keyof typeof counts.trust) ?? 'unknown';
+      const state = ds.trust_state && ds.trust_state in counts.trust
+        ? (ds.trust_state as keyof typeof counts.trust)
+        : 'unknown';
       counts.trust[state] = (counts.trust[state] ?? 0) + 1;
     });
     return counts;
@@ -158,7 +160,8 @@ export default function DashboardPage() {
       const activeVersion =
         repo.branches?.find(b => b.default)?.latest_active_version ||
         repo.branches?.map(b => b.latest_active_version).find(Boolean);
-      const health = (activeVersion?.health_state ?? 'unknown') as keyof typeof counts;
+      const healthState = activeVersion?.health_state ?? 'unknown';
+      const health = healthState in counts ? (healthState as keyof typeof counts) : 'unknown';
       counts[health] = (counts[health] ?? 0) + 1;
     });
     return counts;
@@ -253,7 +256,7 @@ export default function DashboardPage() {
           secondaryActions={[
             {
               label: 'Onboarding checklist',
-              onClick: () => navigate('/workflow'),
+              onClick: () => navigate('/training'),
             },
             {
               label: 'Run probe',
@@ -335,12 +338,9 @@ export default function DashboardPage() {
             <CardTitle>System health</CardTitle>
             <CardDescription>Live signals from monitoring</CardDescription>
           </CardHeader>
-          <CardFooter className="flex w-full">
+            <CardFooter className="flex w-full">
             {healthState === 'loading' ? (
-              <div className="flex w-full items-center gap-3" role="status">
-                <Skeleton className="h-16 w-full" />
-                <span className="sr-only">Loading system health</span>
-              </div>
+              <CardFooterLoadingState label="Loading system health" />
             ) : healthState === 'error' ? (
               <div className="flex w-full items-center justify-between text-sm text-muted-foreground">
                 <div>
@@ -355,7 +355,7 @@ export default function DashboardPage() {
               <div className="flex w-full items-center justify-between text-sm text-muted-foreground">
                 <span>No recent data</span>
                 <Button asChild size="sm" variant="link">
-                  <Link to="/monitoring">Open monitoring</Link>
+                  <Link to="/metrics">Open monitoring</Link>
                 </Button>
               </div>
             ) : (
@@ -383,10 +383,7 @@ export default function DashboardPage() {
           </CardHeader>
           <CardFooter className="flex w-full">
             {trafficState === 'loading' ? (
-              <div className="flex w-full items-center gap-3" role="status">
-                <Skeleton className="h-16 w-full" />
-                <span className="sr-only">Loading traffic metrics</span>
-              </div>
+              <CardFooterLoadingState label="Loading traffic metrics" />
             ) : trafficState === 'error' ? (
               <div className="flex w-full items-center justify-between text-sm text-muted-foreground">
                 <div>
@@ -425,10 +422,7 @@ export default function DashboardPage() {
           </CardHeader>
           <CardFooter className="flex w-full">
             {kvState === 'loading' ? (
-              <div className="flex w-full items-center gap-3" role="status">
-                <Skeleton className="h-16 w-full" />
-                <span className="sr-only">Loading KV metrics</span>
-              </div>
+              <CardFooterLoadingState label="Loading KV metrics" />
             ) : kvState === 'error' ? (
               <div className="flex w-full items-center justify-between text-sm text-muted-foreground">
                 <div>
@@ -443,7 +437,7 @@ export default function DashboardPage() {
               <div className="flex w-full items-center justify-between text-sm text-muted-foreground">
                 <span>No KV signals yet</span>
                 <Button asChild size="sm" variant="link">
-                  <Link to="/monitoring">Open monitoring</Link>
+                  <Link to="/metrics">Open monitoring</Link>
                 </Button>
               </div>
             ) : (

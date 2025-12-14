@@ -3,7 +3,7 @@
  * Uses batched monitoring for efficiency
  */
 import React from 'react';
-import { useBatchedTrainingNotifications } from '@/hooks/useBatchedTrainingNotifications';
+import { useBatchedTrainingNotifications } from '@/hooks/training';
 import type { TrainingJob } from '@/api/types';
 
 interface TrainingJobMonitorProps {

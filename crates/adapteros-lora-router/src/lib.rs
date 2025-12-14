@@ -778,12 +778,13 @@ impl Router {
     ///
     /// For proper per-adapter scoring:
     /// ```rust
-    /// use adapteros_lora_router::{AdapterInfo, Router, RouterWeights};
+    /// use adapteros_lora_router::{AdapterInfo, Router, RouterWeights, policy_mask::PolicyMask};
     ///
     /// // Old (deprecated):
     /// let mut router = Router::new_with_weights(RouterWeights::default(), 2, 1.0, 0.02);
     /// let features = vec![0.0f32; 22];
     /// let priors = vec![0.5f32, 0.3f32, 0.2f32];
+    /// #[allow(deprecated)]
     /// let _decision = router.route(&features, &priors);
     ///
     /// // New (recommended):
@@ -793,8 +794,11 @@ impl Router {
     ///         framework: None,
     ///         languages: vec![],
     ///         tier: "default".to_string(),
+    ///         scope_path: None,
+    ///         lora_tier: None,
     ///     })
     ///     .collect();
+    /// let adapter_ids: Vec<String> = adapter_info.iter().map(|a| a.id.clone()).collect();
     /// let mask = PolicyMask::allow_all(&adapter_ids, None);
     /// let decision = router.route_with_adapter_info(&features, &priors, &adapter_info, &mask);
     /// assert_eq!(decision.indices.len(), 2);

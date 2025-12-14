@@ -1237,6 +1237,48 @@ impl Db {
         Ok(adapter)
     }
 
+    /// Find adapter by hash within a specific tenant (secure version)
+    ///
+    /// This is the recommended method for tenant-scoped hash lookups to prevent
+    /// cross-tenant adapter discovery via hash collision.
+    pub async fn find_adapter_by_hash_for_tenant(
+        &self,
+        tenant_id: &str,
+        hash_b3: &str,
+    ) -> Result<Option<Adapter>> {
+        // Try KV first if enabled
+        if self.storage_mode().read_from_kv() {
+            if let Some(repo) = self.get_adapter_kv_repo(tenant_id) {
+                match repo.find_adapter_by_hash_kv(hash_b3).await {
+                    Ok(Some(adapter)) => {
+                        debug!(tenant_id = %tenant_id, hash = %hash_b3, mode = "kv-primary", "Found adapter by hash in KV");
+                        return Ok(Some(adapter));
+                    }
+                    Ok(None) if self.storage_mode().sql_fallback_enabled() => {
+                        debug!(tenant_id = %tenant_id, hash = %hash_b3, mode = "kv-fallback", "Hash not found in KV, falling back to SQL");
+                    }
+                    Ok(None) => return Ok(None),
+                    Err(e) if self.storage_mode().sql_fallback_enabled() => {
+                        warn!(error = %e, tenant_id = %tenant_id, hash = %hash_b3, mode = "kv-fallback", "KV lookup failed, falling back to SQL");
+                    }
+                    Err(e) => return Err(AosError::Database(format!("KV lookup failed: {}", e))),
+                }
+            }
+        }
+
+        let query = format!(
+            "SELECT {} FROM adapters WHERE tenant_id = ? AND hash_b3 = ? AND active = 1 AND lifecycle_state != 'purged' LIMIT 1",
+            ADAPTER_SELECT_FIELDS
+        );
+        let adapter: Option<Adapter> = sqlx::query_as::<_, Adapter>(&query)
+            .bind(tenant_id)
+            .bind(hash_b3)
+            .fetch_optional(&*self.pool())
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to find adapter by hash for tenant: {}", e)))?;
+        Ok(adapter)
+    }
+
     /// Record adapter activation
     pub async fn record_activation(
         &self,

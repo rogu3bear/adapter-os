@@ -575,7 +575,8 @@ export function isTransientError(error: unknown): boolean {
   // HTTP status codes that indicate transient failures
   const transientStatuses = [429, 500, 502, 503, 504];
 
-  return transientCodes.includes(errorCode) || transientStatuses.includes(httpStatus);
+  return (errorCode !== undefined && transientCodes.includes(errorCode)) ||
+         (httpStatus !== undefined && transientStatuses.includes(httpStatus));
 }
 
 /**

@@ -249,8 +249,21 @@ async fn ready_model_happy_path_inference_and_routing() {
     let payload: InferResponse = response.0;
     assert_eq!(payload.text, "worker response");
     assert_eq!(payload.adapters_used, vec![adapter_id.to_string()]);
-    assert!(payload.model.is_none());
+    assert_eq!(payload.model.as_deref(), Some(model_id.as_str()));
     assert_eq!(payload.finish_reason, "stop");
+
+    let receipt = payload
+        .deterministic_receipt
+        .as_ref()
+        .expect("deterministic receipt should be present");
+    assert!(!receipt.router_seed.is_empty());
+    assert_eq!(receipt.stack_id, None);
+    assert_eq!(receipt.adapters_used, vec![adapter_id.to_string()]);
+    assert_eq!(receipt.model.as_deref(), Some(model_id.as_str()));
+    assert_eq!(receipt.backend_used.as_deref(), Some(backend_name));
+    assert_eq!(receipt.sampling_params.max_tokens, 100);
+    assert!(receipt.sampling_params.seed.is_some());
+    assert_eq!(receipt.prompt_system_params_digest_b3.to_hex().len(), 64);
 
     // Metrics and telemetry should observe the inference
     let metrics_after = state

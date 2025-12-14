@@ -7,10 +7,6 @@
  * @module shared/Navigation
  */
 
-// Page header with breadcrumbs and actions
-export { PageHeader, PageHeaderSkeleton } from './PageHeader';
-export type { PageHeaderProps } from './PageHeader';
-
 // Breadcrumb navigation trail
 export { Breadcrumbs, useBreadcrumbsFromRoute } from './Breadcrumbs';
 export type { BreadcrumbsProps, BreadcrumbItemConfig } from './Breadcrumbs';

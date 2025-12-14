@@ -1,7 +1,7 @@
 import FeatureLayout from '@/layout/FeatureLayout';
 import { PersonaJourneyDemo } from '@/components/PersonaJourneyDemo';
 import { DensityProvider } from '@/contexts/DensityContext';
-import { useRBAC } from '@/hooks/useRBAC';
+import { useRBAC } from '@/hooks/security/useRBAC';
 import { ErrorRecovery, errorRecoveryTemplates } from '@/components/ui/error-recovery';
 
 export default function PersonasPage() {

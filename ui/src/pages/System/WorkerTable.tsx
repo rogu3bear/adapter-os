@@ -11,7 +11,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { MoreHorizontal, FileText, Bug, StopCircle, AlertTriangle } from 'lucide-react';
-import { useWorkerOperations } from '@/hooks/useSystemMetrics';
+import { useWorkerOperations } from '@/hooks/system/useSystemMetrics';
 import { useToast } from '@/hooks/use-toast';
 
 interface WorkerTableProps {

@@ -125,7 +125,7 @@ export function Journeys({ user, selectedTenant }: JourneysProps) {
                   <>
                     <div>
                       <h3 className="text-lg font-semibold">{journeyData.journey_type} for {journeyData.id}</h3>
-                      <p className="text-sm text-muted-foreground">Created: {journeyData.created_at.toLocaleString()}</p>
+                      <p className="text-sm text-muted-foreground">Created: {journeyData.created_at ? new Date(journeyData.created_at).toLocaleString() : 'N/A'}</p>
                     </div>
                     {/* Mermaid Diagram */}
                     <Card>

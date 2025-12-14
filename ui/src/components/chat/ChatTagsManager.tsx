@@ -13,7 +13,7 @@ import {
   useCreateTag,
   useAssignTagsToSession,
   useRemoveTagFromSession,
-} from '@/hooks/useChatTags';
+} from '@/hooks/chat/useChatTags';
 import type { ChatTag } from '@/api/chat-types';
 
 interface ChatTagsManagerProps {

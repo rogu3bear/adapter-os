@@ -13,6 +13,8 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { GlossaryTooltip } from '@/components/ui/glossary-tooltip';
 import { PageTable } from '@/components/ui/PageTable';
+import { LoadingState } from '@/components/ui/loading-state';
+import { EmptyState } from '@/components/ui/empty-state';
 import {
   Activity,
   CheckCircle,
@@ -115,21 +117,17 @@ export function TrainingJobTable({
   canCancel,
 }: TrainingJobTableProps) {
   if (isLoading && jobs.length === 0) {
-    return (
-      <div className="text-center py-8 text-muted-foreground">
-        <RefreshCw className="h-6 w-6 animate-spin mx-auto mb-2" />
-        Loading training jobs...
-      </div>
-    );
+    return <LoadingState variant="minimal" message="Loading training jobs..." />;
   }
 
   if (jobs.length === 0) {
     return (
-      <div className="text-center py-8 text-muted-foreground">
-        <Activity className="h-8 w-8 mx-auto mb-2 opacity-50" />
-        <p>No training jobs found</p>
-        <p className="text-sm mt-1">Start a new training job to see it here</p>
-      </div>
+      <EmptyState
+        variant="minimal"
+        icon={Activity}
+        title="No training jobs found"
+        description="Start a new training job to see it here"
+      />
     );
   }
 

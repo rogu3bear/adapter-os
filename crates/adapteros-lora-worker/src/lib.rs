@@ -184,8 +184,8 @@ pub use llm_backend::{create_llm_backend, LlmBackendType, LocalLlmBackend, Local
 pub use memory::UmaPressureMonitor as MemoryMonitor;
 pub use model_handle_cache::{CacheStats, CachedModelEntry, ModelHandle, ModelHandleCache};
 pub use model_key::{FusionMode, ModelCacheIdentityV2, ModelKey, QuantizationMode};
-pub use prefix_kv_cache::{PrefixKvCache, PrefixKvCacheStats, PrefixKvEntry};
 pub use model_loader::{ModelInfo, ModelLoader, QwenModel, QwenModelConfig, TransformerLayer};
+pub use prefix_kv_cache::{PrefixKvCache, PrefixKvCacheStats, PrefixKvEntry};
 pub use stop_controller::{StopController, StopDecision};
 pub use telemetry_adapter::{
     SignalChannel, SignalSample, TelemetryAdapter, TelemetryAdapterConfig, TelemetryAdapterMetrics,
@@ -1502,7 +1502,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             use adapteros_lora_rag::EvidenceIndexManager;
 
             // Create evidence index manager for the tenant
-            let index_root = resolve_index_root();
+            let index_root = resolve_index_root()?;
             let indices_root = index_root.path.join(tenant_id);
             if let Some(parent) = indices_root.parent() {
                 let _ = std::fs::create_dir_all(parent);
@@ -2928,7 +2928,8 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                         prefix_cache_hit: false,
                         prefix_kv_bytes: 0,
                         // PRD-06: Model cache identity v2 digest (from receipt)
-                        model_cache_identity_v2_digest_b3: receipt.model_cache_identity_v2_digest_b3,
+                        model_cache_identity_v2_digest_b3: receipt
+                            .model_cache_identity_v2_digest_b3,
                     });
                 }
                 Err(e) => {

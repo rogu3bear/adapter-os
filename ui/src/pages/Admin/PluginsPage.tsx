@@ -36,7 +36,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { useRBAC } from '@/hooks/useRBAC';
+import { useRBAC } from '@/hooks/security/useRBAC';
 import apiClient from '@/api/client';
 import type { PluginInfo, EnablePluginRequest, DisablePluginRequest, PluginConfigRecord } from '@/api/plugin-types';
 import { toast } from 'sonner';

@@ -1,616 +1,262 @@
-# AdapterOS Assistant Guide
+# CLAUDE.md
 
-## 1. Purpose & Scope
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-### What is AdapterOS?
+## What is AdapterOS?
 
-AdapterOS is an ML inference platform powered by the **LORAX (Low Rank Adapter Exchange)** runtime — an offline-capable, UMA-optimized orchestration layer for multi-LoRA systems, targeting Mac/Metal environments and unified memory machines. It provides:
+AdapterOS is an ML inference platform powered by **LORAX (Low Rank Adapter Exchange)** — an offline-capable, UMA-optimized orchestration layer for multi-LoRA systems on Apple Silicon. Key components:
 
-- **LORAX Runtime**: Deterministic inference engine with K-sparse routing and multi-backend support
-- **Control Plane** (`adapteros-server`): HTTP API with SQLite, JWT auth, and policy enforcement
-- **Worker Processes** (`aos-worker`): LoRA-based inference and training over Unix Domain Sockets (UDS)
+- **Control Plane** (`adapteros-server`): HTTP API (port 8080) with SQLite, JWT auth, policy enforcement
+- **Worker Processes** (`aos-worker`): LoRA inference/training over Unix Domain Sockets (UDS)
 - **K-Sparse Router**: Multi-adapter mixing with Q15 quantization
-- **Multi-Backend**: Metal, CoreML/ANE, and MLX support
+- **Multi-Backend**: CoreML/ANE (primary), Metal, MLX
 
-**Key Characteristics:**
-- Single-node by default (future: "bunch of Macs" topology)
-- Multi-tenant at logical level: tenants own datasets, documents, adapters, stacks, and policies
-- Base models and workers are shared resources
-- Strongly focused on determinism, replay, tenant isolation, and auditable policies
-- Adapters hot-swap as an alternative to stuffing tokens into context
-
-#### UI Reality (current state)
-- Base Models page shows id/hash/arch/quant/size/tenant/memory, sourced from the API.
-- Adapter detail shows lifecycle, activations, memory, tenant, and manifest/signature status with live streaming updates.
-- Router Config page shows effective routing parameters and policy (allow/deny/max adapters per token) pulled from worker/manifest.
-- Telemetry Viewer surfaces per-session tokens over time, adapters fired, tokens/sec, latency, and stack-mapped adapters.
-- Training entry uses the primary flow; dataset validation is surfaced where available.
-
-### Scope of This Assistant
-
-This assistant can:
-- Read and edit Rust, TypeScript, SQL, and configuration code
-- Run tests and build commands
-- Reason about architecture, invariants, and design decisions
-- Help implement features, fix bugs, and refactor code
+**Characteristics**: Single-node, multi-tenant, zero network egress during serving, deterministic replay, hot-swap adapters.
 
 ---
 
-### Execution & Training Reality Check (Dec 2025, updated)
+## Build & Development Commands
 
-- Immutable base (language runtime): Base model weights are loaded once via `ModelHandleCache` and treated as read-only; vision/telemetry LoRA helpers compose on scratch buffers. Metal load now rehashes in debug or when `AOS_VERIFY_MODEL_BYTES` is set to prove immutability.
-- Adapters as separate deltas: LoRA adapters keep their own buffers with BLAKE3 hashes; kernels dequantize Q15 gates and blend into activations/residuals/logits without touching base weights.
-- Manifest verification: .aos loading enforces whole-adapter BLAKE3 + signature and now verifies per-layer hashes keyed by canonical logical layer path (`transformer.layer_N.*.lora_A/B`); safetensors names are kept only as secondary metadata.
-- Routing determinism: Per-token routing is deterministic (HKDF seeds + sorted scores + Q15 gates) and a routing policy filter (allow/deny/max adapters per token) runs before kernels; empty effective sets fail fast.
-- Training scope: MicroLoRA training mutates only adapter A/B matrices; base params are never part of optimizer sets. Checkpointing is deterministic and uses adapter-only state.
-- Packaging/export boundary: .aos bundles adapter deltas + manifest only (no base weights).
+```bash
+# Development
+make dev                    # Start control plane (port 8080), NO_AUTH=1 disables auth
+make dev-no-auth            # Start with auth disabled (debug builds only)
+make ui-dev                 # Start UI dev server (port 3200)
+make cli                    # Build CLI with TUI, symlink to ./aosctl
+./start                     # Canonical boot: backend + UI via service-manager.sh
+
+# Building
+make build                  # Fresh build with cleanup (stops services, cleans ports)
+make metal                  # Build Metal shaders
+cargo build --release       # Standard Rust build
+
+# Testing
+cargo test -p <crate>                    # Single crate
+cargo test --workspace                   # All tests (excludes MLX)
+cargo test -- --test-threads=1           # Sequential (for debugging)
+cargo test -- --nocapture                # With output
+make determinism-check                   # Determinism test suite
+make test                                # All tests + Miri for worker
+
+# Code Quality
+cargo fmt --all
+cargo clippy --workspace
+make check                               # fmt + clippy + test + determinism-check
+
+# Database
+cargo sqlx migrate run                   # Apply migrations
+./aosctl db migrate                      # Via CLI
+
+# UI (in ui/ directory)
+pnpm dev                                 # Dev server
+pnpm build                               # Production build
+pnpm test                                # Vitest tests
+
+# Worker startup e2e
+make e2e-worker-test                     # MLX Qwen 4-bit defaults from .env/.env.local; auto adds multi-backend when backend=mlx
+```
 
 ---
 
-## 2. Core Principles & Invariants
+## Dev Authentication (Debug Builds Only)
+
 Frontend runs on 3200.
 Backend runs on 8080.
 
-### 2.1 Determinism and Replay
 
-**Seed Derivation:**
-- Uses HKDF-SHA256 with BLAKE3 global seed
-- Full entropy isolation: `manifest_hash + adapter_dir_hash + worker_id + label + nonce`
-- Location: `crates/adapteros-core/src/seed.rs`
-
-**Router Determinism:**
-- IEEE 754 deterministic softmax (f64 intermediate precision intended)
-- Sorted by score DESC, then index ASC for tie-breaking
-- Q15 gate quantization: `gate_f32 = q15 / 32767.0` (denominator is 32767, NOT 32768)
-- BLAKE3 decision hashing for audit trail
-- Location: `crates/adapteros-lora-router/src/lib.rs`
-
-**Replay Metadata (Stored per inference):**
-- `manifest_hash`, `router_seed`, `sampling_params_json`, `backend`
-- `rag_snapshot_hash` (BLAKE3 of sorted doc hashes), `adapter_ids_json`
-- `prompt_text`, `response_text` (64KB limit with truncation flag)
-- Location: `crates/adapteros-db/src/replay_metadata.rs`
-
-**Critical: `router_seed` is stored for AUDIT onlyrouting is deterministic by algorithm, not RNG.**
-
-### 2.2 Tenant Isolation
-
-**Handler-Level (security/mod.rs):**
-```rust
-validate_tenant_isolation(claims, resource_tenant_id)
-```
-- Same tenant: always allowed
-- Admin cross-tenant: requires explicit `admin_tenants` claim (list of tenant IDs)
-- Wildcard `"*"` in `admin_tenants`: grants access to ALL tenants (dev mode only)
-- Dev mode bypass: debug builds only (`AOS_DEV_NO_AUTH`) - injects `admin_tenants: ["*"]`
-
-**Database-Level (migration 0131):**
-- Composite FKs: `FOREIGN KEY (tenant_id, document_id) REFERENCES documents(tenant_id, id)`
-- 15+ triggers prevent cross-tenant references
-- Orphan detection fails migration if data integrity is broken
-
-**CRITICAL: All queries involving tenant-scoped resources MUST include `tenant_id` filter.**
-
-### 2.3 Policy & Audit
-
-**Hook Points:**
-- `OnRequestBeforeRouting`  before adapter selection
-- `OnBeforeInference`  after routing, before inference
-- `OnAfterInference`  after inference completes
-
-**24 Canonical Policy Packs:**
-Core (always enabled): Egress, Determinism, Isolation, Evidence
-
-Additional: Router, Refusal, Numeric, RAG, Telemetry, Retention, Performance, Memory, Artifacts, Secrets, Build_Release, Compliance, Incident, Output, Adapters, Deterministic_IO, Drift, MPLoRA, Naming, Dependency_Security
-
-**Merkle Chain Audit:**
-- BLAKE3 hash chaining: `entry_hash = BLAKE3(entry_data + previous_hash)`
-- Ed25519 signatures per audit entry
-- Chain verification detects tampering
-- Location: `crates/adapteros-db/src/policy_audit.rs`
-
-### 2.4 Egress & Offline Posture
-
-**Default Egress Config:**
-```rust
-mode: DenyAll
-serve_requires_pf: true  // PF firewall required in production
-allow_tcp: false
-allow_udp: false
-uds_paths: ["/var/run/aos"]
-```
-
-**Runtime Modes:**
-- Dev: `allows_egress: true`
-- Staging: `allows_egress: false`, requires allowlist
-- Prod: `denies_egress: true` (zero egress)
-
-**Workers have zero network egress (UDS only).**
-
-### 2.5 Critical Invariants (DO NOT BREAK)
-
-| Invariant | Location | Risk |
-|-----------|----------|------|
-| All inference routes through `InferenceCore` | `inference_core.rs:83` (`route_and_infer`) | Bypassing breaks auditability |
-| Routing guard must fail hard | `inference_core.rs:106` (`enter_routed_context`) | Silent failures break audit trail |
-| Merkle chain write lock BEFORE read | `deterministic-exec/src/global_ledger.rs:85` (`GlobalTickLedger`) | Race conditions break determinism |
-| Q15 denominator is 32767.0 | `lora-router/src/lib.rs:1022,1397` | Precision-critical for gate values |
-| FK constraints enabled | `db/lib.rs:466` | `foreign_keys=true` required |
-| Tenant FK triggers | Migration 0131 | Cross-tenant leakage risk |
-
----
-
-## 3. Repository Map
-
-### 3.1 Binaries
-
-| Binary | Crate | Source | Purpose |
-|--------|-------|--------|---------|
-| `adapteros-server` | adapteros-server | `crates/adapteros-server/src/main.rs` | Control plane HTTP API server |
-| `aos-worker` | adapteros-lora-worker | `crates/adapteros-lora-worker/src/bin/aos_worker.rs` | Inference worker process (UDS) |
-| `aosctl` | adapteros-cli | `crates/adapteros-cli/src/main.rs` | CLI tool for all operations |
-
-### 3.2 Control Plane Crates
-
-| Crate | Purpose |
-|-------|---------|
-| `adapteros-server` | HTTP server bootstrap, shutdown coordination |
-| `adapteros-server-api` | 300+ REST endpoints, handlers, middleware |
-| `adapteros-orchestrator` | Training job orchestration |
-| `adapteros-registry` | Adapter/model registry |
-| `adapteros-federation` | Cross-node communication (future) |
-
-### 3.3 Worker/Data Plane Crates
-
-| Crate | Purpose |
-|-------|---------|
-| `adapteros-lora-worker` | Core worker: UDS server, inference pipeline |
-| `adapteros-lora-router` | K-sparse routing with Q15 gates |
-| `adapteros-lora-kernel-mtl` | Metal GPU backend |
-| `adapteros-lora-kernel-coreml` | CoreML/ANE backend |
-| `adapteros-lora-mlx-ffi` | MLX backend (experimental) |
-| `adapteros-lora-lifecycle` | Adapter state machine |
-
-### 3.4 Shared Libraries
-
-| Crate | Purpose |
-|-------|---------|
-| `adapteros-core` | Domain types, errors, BLAKE3/HKDF, seed derivation |
-| `adapteros-types` | Base type definitions |
-| `adapteros-api-types` | Request/response types |
-| `adapteros-db` | SQLite abstraction, 137 migrations |
-| `adapteros-config` | Config loading with precedence (CLI > env > manifest) |
-| `adapteros-crypto` | Ed25519, BLAKE3, HKDF, AES-GCM |
-| `adapteros-policy` | 24 policy packs, enforcement hooks |
-| `adapteros-telemetry` | Event collection, Merkle bundles |
-| `adapteros-manifest` | Adapter manifest V3 format |
-
-### 3.5 UI
-
-| Location | Purpose |
-|----------|---------|
-| `ui/` | React 18 + TypeScript + Vite + TanStack Query |
-| `ui/src/api/client.ts` | API client (5,395 lines) |
-| `ui/src/components/` | 139+ component directories |
-| `ui/src/hooks/` | 108 custom hooks |
-
----
-
-## 4. Working Process for Changes
-
-### 4.1 Before Making Changes
-
-1. **Identify the subsystem**: inference, replay, RAG, training, worker health, policies, config, UI
-2. **Read relevant code**: Don't propose changes to code you haven't read
-3. **Check for invariants**: Look for `CRITICAL`, `INVARIANT`, `SECURITY` comments
-4. **Understand test coverage**: Find related tests in `tests/` and `crates/*/tests/`
-
-### 4.2 Making Changes
-
-1. **Make minimal, targeted changes** that preserve invariants
-2. **Avoid over-engineering**: Don't add features, refactor, or "improve" beyond what's asked
-3. **Security-first**: Be careful not to introduce OWASP Top 10 vulnerabilities
-4. **Preserve determinism**: Any change touching inference/routing must maintain reproducibility
-
-### 4.3 After Making Changes
-
-1. **Run appropriate tests**:
-   ```bash
-   cargo test -p <crate>           # Crate-specific
-   cargo test --workspace          # All tests
-   make determinism-check          # Determinism suite
-   ```
-
-2. **Check formatting and lints**:
-   ```bash
-   cargo fmt --all
-   cargo clippy --workspace
-   ```
-
-3. **Verify migrations** (if schema changed):
-   ```bash
-   cargo sqlx migrate run
-   # Verify signatures if needed
-   ```
-
-4. **Summarize impact**: Document effects on determinism, isolation, policy auditability, egress posture
-
----
-
-## 5. Tools & Commands
-
-### 5.1 Development
-
-```bash
-make dev               # Start control plane (port 8080, NO_AUTH=1)
-make ui-dev            # Start UI (port 3200)
-make test              # Run all tests (excluding MLX)
-make determinism-check # Determinism test suite
-make check             # fmt + clippy + test
-make metal             # Build Metal shaders
-make security-audit    # Vulnerabilities, licenses, SBOM
-make e2e-worker-test   # Worker startup lifecycle test (MLX Qwen 4-bit defaults from .env/.env.local; auto adds multi-backend when backend=mlx)
-```
-
-### 5.2 Database
-
-```bash
-cargo sqlx migrate run    # Apply migrations
-./scripts/migrate.sh      # Migration helper script
-```
-
-### 5.3 Testing
-
-```bash
-cargo test -p adapteros-lora-router          # Router tests
-cargo test -p adapteros-db                   # DB tests
-cargo test -p adapteros-server-api           # API tests
-cargo test -- --test-threads=1               # Sequential (debugging)
-cargo test -- --nocapture                    # With output
-LOOM_MAX_PREEMPTIONS=3 cargo test test_name  # Concurrency tests
-```
-
-### 5.4a Environment loading for commands
-
-- `.envrc` auto-exports `.env` and `.env.local` (run `direnv allow` once). Without direnv: `set -a; source .env; source .env.local; set +a`.
-
-### 5.4 Environment Assumptions
-
-- **Platform**: macOS with Metal GPU (Linux supported without GPU acceleration)
-- **Memory**: Unified Memory Architecture (UMA) assumed
-- **Database**: SQLite at `var/aos-cp.sqlite3`
-- **Default Model**: Qwen2.5-7B
-
-### 5.5 Dev Authentication Setup
-
-**Three ways to authenticate in development (debug builds only):**
-
-#### Option 1: Dev Bootstrap (Recommended)
-Creates system tenant, admin user, and returns a valid JWT in one call:
-```bash
-curl -X POST http://localhost:8080/v1/dev/bootstrap \
-  -H "Content-Type: application/json" \
-  -d '{"email": "dev@local", "password": "dev123"}'
-```
-Returns: `{ "token": "...", "system_tenant_id": "system", ... }`
-
-Use the token in subsequent requests:
-```bash
-curl -H "Authorization: Bearer <token>" http://localhost:8080/v1/adapters
-```
-
-#### Option 2: No-Auth Bypass
-Skip authentication entirely (all requests get admin access to all tenants):
-```bash
+# Option 2: No-Auth Bypass
 AOS_DEV_NO_AUTH=1 cargo run --bin adapteros-server
-```
-- Claims are injected with `admin_tenants: ["*"]` (wildcard = all tenants)
-- **SECURITY**: Only works in debug builds; release builds ignore this env var
 
-#### Option 3: Custom JWT Secret
-Override the JWT signing secret for simpler local testing:
-```bash
+# Option 3: Custom JWT Secret
 AOS_DEV_JWT_SECRET="my-test-secret" cargo run --bin adapteros-server
 ```
-- **SECURITY**: Only works in debug builds; release builds ignore this env var
-
-**JWT Algorithm Selection:**
-
-| Build Type | Default Algorithm | Override via `jwt_mode` config |
-|------------|-------------------|-------------------------------|
-| Debug | HMAC-SHA256 | `"eddsa"` or `"ed25519"` for Ed25519 |
-| Release | Ed25519 | `"hmac"` or `"hs256"` for HMAC |
-
-Config example (`config.toml`):
-```toml
-[security]
-jwt_mode = "hmac"  # or "eddsa"
-```
-
-**Key Files:**
-- JWT algorithm selection: `crates/adapteros-server/src/main.rs` (line ~1161)
-- Dev bypass claims: `crates/adapteros-server-api/src/middleware/mod.rs` (`dev_no_auth_claims()`)
-- Dev bootstrap handler: `crates/adapteros-server-api/src/handlers/auth_enhanced.rs` (`dev_bootstrap_handler()`)
-- Tenant access check: `crates/adapteros-server-api/src/security/mod.rs` (`check_tenant_access_core()`)
 
 ---
 
-## 6. Change Safety Guidelines
+## Critical Invariants (DO NOT BREAK)
 
-### 6.1 NEVER Do These
-
-- **Bypass `InferenceCore` routing guard**  all inference must go through it
-- **Change Q15 denominator** from 32767.0  precision-critical
-- **Use `unwrap()`/`expect()` in crypto code**  handle errors properly
-- **Skip `tenant_id` validation** in DB queries  tenant isolation is critical
-- **Move types across crate boundaries** without handling migrations/API impact
-- **Modify Merkle chain logic** without proper locking
-- **Store secrets in code or config files**
-- **Renumber migrations**  `migration_conflicts.rs` enforces this
-- **Use `-ffast-math`** or similar compiler flags  breaks determinism
-
-### 6.2 ALWAYS Do These
-
-- **Run `cargo fmt --all` and `cargo clippy --workspace`**
-- **Include `tenant_id` filters** in all multi-tenant queries
-- **Use `Result`-based error handling** in security code
-- **Verify migration signatures** after schema changes
-- **Add tests** for new functionality, especially determinism-related
-- **Document impact** on determinism, isolation, and auditability
-
-### 6.3 When Uncertain
-
-- **Fail loudly** rather than silently
-- **Add tests** to verify assumptions
-- **Document limitations** clearly
-- **Ask for clarification** before making risky changes
+| Invariant | Location | Status | Notes |
+|-----------|----------|--------|-------|
+| All inference routes through `InferenceCore` | `inference_core.rs` | ✅ IMPLEMENTED | Bypassing breaks auditability |
+| Q15 denominator is 32767.0 | `lora-router/src/lib.rs` | ✅ IMPLEMENTED | NOT 32768 - precision-critical |
+| `tenant_id` in all queries | All handlers | ⚠️ PARTIAL | FK triggers in migration 0131, but gaps in adapter lifecycle queries |
+| No `-ffast-math` compiler flags | Cargo.toml | ✅ IMPLEMENTED | Breaks determinism |
+| FK constraints enabled | `db/lib.rs` | ✅ IMPLEMENTED | `foreign_keys=true` required |
+| Runtime paths reject `/tmp` | `path_resolver.rs` | ✅ IMPLEMENTED | Implemented for telemetry/manifest/db/index-root with unit tests |
 
 ---
 
-## 7. Style & Conventions
+## Repository Structure
 
-### 7.1 Error Handling
+### Binaries
+- `adapteros-server` — Control plane HTTP API (`crates/adapteros-server/`)
+- `aos-worker` — Inference worker (`crates/adapteros-lora-worker/src/bin/aos_worker.rs`)
+- `aosctl` — CLI tool (`crates/adapteros-cli/`)
 
-```rust
-// Use thiserror for error enums
-use thiserror::Error;
-
-#[derive(Error, Debug)]
-pub enum MyError {
-    #[error("description: {0}")]
-    Variant(String),
-}
-
-// Use Result alias
-pub type Result<T> = std::result::Result<T, AosError>;
-```
-
-### 7.2 Logging
-
-```rust
-// Use tracing, not println!
-use tracing::{info, warn, error, debug, trace};
-
-info!(request_id = %id, latency_ms = ms, "message");
-warn!(tenant_id = %tid, "potential issue");
-error!(error = ?e, "operation failed");
-```
-
-### 7.3 Feature Flags
-
-```toml
-[features]
-default = ["deterministic-only", "coreml-backend"]
-```
-
-Feature flags affect determinism and available backends. Check feature configuration before assuming capabilities.
-
-### 7.4 Commit Messages
-
-When committing:
-- Summarize the "why" not the "what"
-- Note impact on: determinism, tenant isolation, policy enforcement, egress
+### Key Crates
+| Layer | Crates |
+|-------|--------|
+| Control Plane | `adapteros-server`, `adapteros-server-api`, `adapteros-orchestrator` |
+| Worker/Data | `adapteros-lora-worker`, `adapteros-lora-router`, `adapteros-lora-kernel-mtl`, `adapteros-lora-kernel-coreml` |
+| Core | `adapteros-core` (domain types, BLAKE3, HKDF), `adapteros-db` (SQLite, 160+ migrations), `adapteros-config`, `adapteros-policy` |
+| UI | `ui/` — React 18 + TypeScript + Vite + TanStack Query |
 
 ---
 
-## 8. Key Workflows
+## Key Workflows
 
-### 8.1 Inference Flow
-
+### Inference Flow
 ```
-HTTP Request � InferenceCore � Worker Selection � UDS Request
-                    �
+HTTP Request → InferenceCore → Worker Selection → UDS Request
+                    ↓
               Policy Hooks (OnBeforeInference)
-                    �
-              Router Decision (K-sparse)
-                    �
-              Kernel Execution (Metal/CoreML/MLX)
-                    �
+                    ↓
+              Router Decision (K-sparse, Q15 gates)
+                    ↓
+              Kernel Execution (CoreML/Metal/MLX)
+                    ↓
               Response + Evidence + Replay Metadata
 ```
 
-### 8.2 Training Flow
-
+### Training Flow
 ```
-API Request � TrainingService � Validation (tenant, dataset, evidence)
-                    �
-              Orchestrator (spawn job, cancel token)
-                    �
-              Worker (MicroLoRATrainer)
-                    �
-              Epoch Loop (metrics emission, cancel check)
-                    �
-              Adapter Packaging (Q15) � Registry � Stack Creation
-```
-
-### 8.3 RAG Flow
-
-```
-Query � Embedding � Vector Retrieval (tenant-scoped)
-                    �
-              Collection Filtering
-                    �
-              Deterministic Ordering (score DESC, doc_id ASC)
-                    �
-              Evidence Storage � Context Injection
+API Request → TrainingService → Orchestrator → Worker (MicroLoRATrainer)
+                                                    ↓
+                                              Adapter Packaging (Q15)
+                                                    ↓
+                                              Registry → Stack Creation
 ```
 
 ---
 
-## 9. Known Gaps and Partial Implementations
+## Determinism & Replay
 
-### Current Behavior vs Intended Invariant
+- **Seed derivation**: HKDF-SHA256 with BLAKE3 global seed (`crates/adapteros-core/src/seed.rs`)
+- **Router determinism**: Sorted by score DESC, then index ASC for tie-breaking
+- **Q15 quantization**: `gate_f32 = q15 / 32767.0`
+- **Replay metadata stored**: `manifest_hash`, `router_seed`, `sampling_params_json`, `rag_snapshot_hash`, `adapter_ids_json`
 
-| Area | Current | Intended |
-|------|---------|----------|
-| Kahan summation | Defined in config, not implemented | f64 + Kahan for router softmax |
-| Router f64 precision | f32 throughout | f64 intermediate values |
-| Policy enforcement | Framework exists | Full integration at inference |
-| Token counting | Heuristic (~4 chars/token) | Actual tokenizer |
-| PF rule validation | Returns error | Full packet filter validation |
-| 5 policy packs | Pass with warnings | Full implementation |
-
-### Recent rectifications (Dec 2025)
-- Base model buffers remain frozen; vision LoRA merge now composes on a scratch copy (no in-place mutation).
-- .aos manifests emit and enforce per-layer BLAKE3 hashes in addition to whole-adapter hash; loader fails on any per-layer mismatch.
-- Routing policy: deterministic per-tenant allowlist applied before kernel invocation; empty allowlists fail fast.
-- Training boundary: MicroLoRATrainer updates only LoRA matrices; adapter-only update test guards base immutability.
-- UI surfaces: see `docs/UI_INTEGRATION.md` rectification section for Base Models, Adapter Lifecycle, Router Config, Telemetry Viewer, and simplified training flow designs.
-
-### Partially Implemented Features
-
-- **Replay**: Infrastructure complete, determinism verification ongoing
-- **Federation**: Framework exists, multi-node not production-ready
-- **KV backend**: Dual-write mode active, KV-only migration incomplete
+**Note**: `router_seed` is for AUDIT only — routing is deterministic by algorithm, not RNG.
 
 ---
 
-## 10. File Reference Quick Guide
+## Tenant Isolation
 
-### Critical Files (Read Before Modifying Nearby Code)
+**Handler-Level**: `validate_tenant_isolation(claims, resource_tenant_id)` in `security/mod.rs`
+- Same tenant: always allowed
+- Admin cross-tenant: requires `admin_tenants` claim
+- Wildcard `"*"`: dev mode only, grants all-tenant access
+
+**Database-Level**: Composite FKs and 15+ triggers prevent cross-tenant references (migration 0131)
+
+**⚠️ CURRENT GAPS (Documentation Drift)**:
+- Adapter/base model lifecycle DB queries not fully traced for tenant scoping
+- Cross-tenant leak protections in migration 0131 triggers not revalidated
+- Tenant-scoped adapter/base-model DB operations lack test coverage
+
+## Path Security
+
+**Runtime state must live under canonical paths (`var/`)** and must **NOT** persist under `/tmp`.
+
+**✅ IMPLEMENTED**:
+- Worker sockets reject `/tmp` and default to `/var/run/aos/{tenant}/worker.sock`
+- Telemetry, manifest-cache, adapters, and database path resolvers reject `/tmp`
+
+**❌ MISSING IMPLEMENTATION**:
+- Index root resolver still accepts `/tmp` env override and defaults to `./var/indices` without tmp guard
+
+**Citation**: `plan/drift-findings.json` fs-01 rule validation
+
+---
+
+## Policy & Audit
+
+**24 Policy Packs** — Core (always enabled): Egress, Determinism, Isolation, Evidence
+
+**Hook Points**: `OnRequestBeforeRouting`, `OnBeforeInference`, `OnAfterInference`
+
+**Merkle Chain Audit**: BLAKE3 hash chaining with Ed25519 signatures (`crates/adapteros-db/src/policy_audit.rs`)
+
+---
+
+## Critical File References
 
 | Area | File | Key Functions |
 |------|------|---------------|
-| Inference routing | `server-api/src/inference_core.rs` | `route_and_infer:83`, `route_and_infer_replay:354` |
-| RAG context | `server-api/src/handlers/rag_common.rs` | `retrieve_rag_context:127`, `store_rag_evidence:249` |
-| Chat context | `server-api/src/chat_context.rs` | `build_chat_prompt:77` (multi-turn) |
-| Replay | `server-api/src/handlers/replay_inference.rs` | `execute_replay:326`, `check_availability:112` |
-| Worker UDS | `lora-worker/src/uds_server.rs` | |
-| Router algorithm | `lora-router/src/lib.rs` | `Router:194`, `route_with_adapter_info:943`, `Decision:1385` |
+| Inference | `server-api/src/inference_core.rs` | `route_and_infer`, `route_and_infer_replay` |
+| Router | `lora-router/src/lib.rs` | `Router`, `route_with_adapter_info`, `Decision` |
+| Chat context | `server-api/src/chat_context.rs` | `build_chat_prompt` (multi-turn) |
 | Tenant isolation | `server-api/src/security/mod.rs` | `validate_tenant_isolation` |
-| Policy hooks | `adapteros-policy/src/hooks.rs` | |
-| Policy audit | `adapteros-db/src/policy_audit.rs` | `log_policy_decision:111`, `verify_policy_audit_chain:226` |
-| Seed derivation | `adapteros-core/src/seed.rs` | `derive_seed:39`, `derive_seed_typed:60` |
-| Config loading | `adapteros-config/src/loader.rs` | |
-| JWT auth | `server-api/src/auth.rs` | |
-
-### Backend Files
-
-| Backend | File | Key Functions |
-|---------|------|---------------|
-| Metal | `lora-kernel-mtl/src/lib.rs` | `MetalKernels:192`, `new:255`, `load:1349` |
-| CoreML | `lora-kernel-coreml/src/lib.rs` | `CoreMLBackend:875`, `new:967` |
-| MLX | `lora-mlx-ffi/src/backend.rs` | `MLXFFIBackend:42` |
-| Factory | `lora-worker/src/backend_factory.rs` | `create_backend_with_model:328` |
-
-### Service Layer
-
-| Service | File | Key Methods |
-|---------|------|-------------|
-| TrainingService | `server-api/src/services/training_service.rs` | trait:38, impl:98 |
-| AdapterService | `server-api/src/services/adapter_service.rs` | trait:40, impl:133 |
-| Registry | `adapteros-registry/src/lib.rs` | `register_adapter:53` |
-| LifecycleManager | `lora-lifecycle/src/lib.rs` | `promote_adapter:1062`, `activate_stack:1862` |
-
-### Handler Naming Convention
-
-Handlers use **direct names**, NOT `handle_*` prefix:
-- `infer()` at `handlers/inference.rs:38`
-- `batch_infer()` at `handlers/batch.rs:46`
-- `streaming_infer()` at `handlers/streaming_infer.rs:460`
-
-### Test Locations
-
-| Type | Location |
-|------|----------|
-| E2E tests | `tests/e2e/` |
-| Determinism | `tests/determinism/` |
-| API tests | `crates/adapteros-server-api/tests/` |
-| DB tests | `crates/adapteros-db/tests/` |
-| Router golden | `crates/adapteros-lora-router/tests/router_ring_golden.rs` |
+| Seed derivation | `adapteros-core/src/seed.rs` | `derive_seed`, `derive_seed_typed` |
+| Backend factory | `lora-worker/src/backend_factory.rs` | `create_backend_with_model` |
 
 ---
 
-## 11. Emergency Reference
+## Common Misconceptions
 
-### If Determinism Breaks
+### Naming
+- Handlers use `infer()`, NOT `handle_infer()`
+- `GlobalTickLedger`, NOT `GlobalLedger`
+- No `StackService` — use `LifecycleManager::activate_stack()`
 
-1. Check seed derivation: same inputs � same seeds?
-2. Check router sorting: deterministic tie-breaking?
-3. Check Q15 quantization: denominator = 32767.0?
-4. Check floating point: no fast-math flags?
-5. Run `make determinism-check`
+### Architecture
+- Chat is **multi-turn**, not stateless (`build_chat_prompt` retrieves full history)
+- Replay goes through `InferenceCore`, NOT around it
+- Workers have zero network egress (UDS only)
 
-### If Tenant Isolation Breaks
+---
 
-1. Check `tenant_id` in all queries
-2. Verify FK triggers (migration 0131)
-3. Check `validate_tenant_isolation()` calls
-4. Review `admin_tenants` claim handling
+## Environment
 
-### If Builds Fail
+- **Platform**: macOS with Apple Silicon (M1/M2/M3/M4)
+- **Database**: SQLite at `var/aos-cp.sqlite3`
+- **Default Model**: Qwen2.5-7B
+- **Rust**: Nightly (see `rust-toolchain.toml`)
+- **UI**: pnpm 9+, React 18
 
+---
+
+## Style Conventions
+
+```rust
+// Error handling: thiserror + Result alias
+use thiserror::Error;
+pub type Result<T> = std::result::Result<T, AosError>;
+
+// Logging: tracing, not println!
+use tracing::{info, warn, error};
+info!(request_id = %id, latency_ms = ms, "message");
+```
+
+Feature flags affect backends — check `Cargo.toml` features before assuming capabilities:
+- `default = ["deterministic-only", "coreml-backend"]`
+- `mlx-backend`, `metal-backend` for alternatives
+
+---
+
+## Troubleshooting
+
+### Determinism Issues
+1. Check seed derivation (same inputs → same seeds)
+2. Verify router sorting (score DESC, index ASC tie-break)
+3. Confirm Q15 denominator = 32767.0
+4. Run `make determinism-check`
+
+### Build Issues
 1. `cargo clean && cargo build`
-2. Check feature flags in Cargo.toml
-3. Verify SQLx offline mode: `cargo sqlx prepare`
-4. Check migration signatures: `migrations/signatures.json`
+2. Check feature flags
+3. `cargo sqlx prepare` for offline mode
+4. Verify migration signatures: `migrations/signatures.json`
+
+### Port Conflicts
+```bash
+make prepare                 # Stops services, cleans ports
+lsof -ti:8080 | xargs kill   # Manual port cleanup
+```
+
+### Env loading
+- `.envrc` auto-exports `.env` + `.env.local` (run `direnv allow` once). Without direnv: `set -a; source .env; source .env.local; set +a`.
 
 ---
 
-## 12. Common Misconceptions (Avoid These)
-
-### Structs/Services That Do NOT Exist
-
-| Speculated Name | Reality |
-|-----------------|---------|
-| `StackService` | Use `LifecycleManager::activate_stack()` |
-| `TenantService` | Tenant ops are in Db layer directly |
-| `BackendCoordinator` | Use `create_backend_with_model()` factory |
-| `BackendCapabilities` | Use `BackendHealth` / `PerformanceMetrics` |
-| `GlobalLedger` | Actual name: `GlobalTickLedger` |
-| `ModelLoader::load_qwen_model_cached` | Does not exist |
-
-### Telemetry Function Names
-
-- `record_inference_event()` → Use `log_event()` or `InferenceEvent` struct
-- `record_router_decision_event()` → Use specific `record_*()` functions in `critical_components.rs`
-
-### Chat State
-
-Chat is **multi-turn**, NOT stateless:
-- `build_chat_prompt()` at `chat_context.rs:77` retrieves full session history
-- Token budget truncation drops oldest messages first
-- Context hash computed via BLAKE3 of sorted message IDs
-
-### Replay Path
-
-Replay does **NOT** bypass InferenceCore:
-- Goes through `InferenceCore::route_and_infer_replay()` at `replay_inference.rs:516`
-- Which calls `route_and_infer(Some(replay_context))`
-
-### Router Seed
-
-`router_seed` is stored for **AUDIT only**:
-- Routing is deterministic by algorithm (sorted scores, tie-breaking)
-- NOT by RNG seeding
-
-### Canonical token sets
-
-- trust_state: allowed / allowed_with_warning / needs_approval / blocked / unknown
-- adapter_health: healthy / degraded / unsafe / corrupt
-- backend_policy: auto / coreml_only / coreml_else_fallback
-- preferred_backend: auto / coreml / mlx / metal / cpu
-- training error codes: LINEAGE_REQUIRED / DATASET_TRUST_BLOCKED / DATASET_TRUST_NEEDS_APPROVAL / DATA_SPEC_HASH_MISMATCH
-- Runbook: see `docs/RUNBOOK_TRAINING_LINEAGE_TRUST.md` for operator steps and test references.
-
-MLNavigator Inc Wednesday Dec 10, 2025.
+MLNavigator Inc 2025-12-09

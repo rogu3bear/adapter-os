@@ -13,7 +13,7 @@ import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Check, AlertTriangle, MessageSquare, Activity, Share, AtSign, Bell, ChevronDown, ChevronUp, ExternalLink } from 'lucide-react';
 import { Notification } from '@/api/types';
-import { useRelativeTime } from '@/hooks/useTimestamp';
+import { useRelativeTime } from '@/hooks/ui/useTimestamp';
 import { useNavigate } from 'react-router-dom';
 import { logger } from '@/utils/logger';
 import { formatTimestamp } from '@/utils/format';
@@ -146,7 +146,7 @@ export function NotificationItem({ notification, onMarkRead }: NotificationItemP
   const handleNavigate = (e: React.MouseEvent) => {
     e.stopPropagation();
     const path = getNavigationPath();
-    if (path) {
+    if (path !== null) {
       navigate(path);
       logger.info('Notification navigated', {
         component: 'NotificationItem',
@@ -260,7 +260,7 @@ export function NotificationItem({ notification, onMarkRead }: NotificationItemP
             <div className="grid grid-cols-2 gap-2 text-xs">
               <div>
                 <span className="text-muted-foreground">Created:</span>{' '}
-                <span className="text-foreground">{formatTimestamp(notification.created_at, 'long')}</span>
+                <span className="text-foreground">{formatTimestamp(notification.created_at ?? '', 'long')}</span>
               </div>
               {notification.read_at && (
                 <div>
@@ -289,7 +289,7 @@ export function NotificationItem({ notification, onMarkRead }: NotificationItemP
             </div>
 
             {/* Action button */}
-            {getNavigationPath() && (
+            {getNavigationPath() !== null && (
               <div className="pt-2">
                 <Button
                   variant="outline"

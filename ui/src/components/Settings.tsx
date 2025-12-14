@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
-import { Button } from './ui/button';
-import { Badge } from './ui/badge';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { 
   Settings as SettingsIcon, 
   Users, 
@@ -26,9 +26,9 @@ import {
   Download,
   Upload
 } from 'lucide-react';
-import { Tenants } from './Tenants';
-import { GitIntegrationPage } from './GitIntegrationPage';
-import { Nodes } from './Nodes';
+import { Tenants } from '@/components/Tenants';
+import { GitIntegrationPage } from '@/pages/Git/GitIntegrationPage';
+import { Nodes } from '@/components/Nodes';
 import apiClient from '@/api/client';
 import { User } from '@/api/types';
 import { toast } from 'sonner';

@@ -16,8 +16,8 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { useModelStatus, type ModelStatusState } from '@/hooks/useModelStatus';
-import { useAutoLoadModel } from '@/hooks/useAutoLoadModel';
+import { useModelStatus, type ModelStatusState } from '@/hooks/model-loading';
+import { useAutoLoadModel } from '@/hooks/model-loading';
 import apiClient from '@/api/client';
 import { toast } from 'sonner';
 import { logger } from '@/utils/logger';
@@ -81,7 +81,7 @@ function formatMemory(mb: number | null): string {
 }
 
 export function ModelStatusBar({ tenantId }: ModelStatusBarProps) {
-  const { status, modelName, modelId, modelPath, memoryUsageMb, errorMessage, refresh } =
+  const { status, modelName, modelId, modelPath, memoryUsageMb, errorMessage, refetch } =
     useModelStatus(tenantId);
   const {
     isAutoLoading,
@@ -110,7 +110,7 @@ export function ModelStatusBar({ tenantId }: ModelStatusBarProps) {
     try {
       await apiClient.unloadBaseModel(modelId);
       toast.success('Model unloaded');
-      await refresh();
+      await refetch();
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to unload model';
       logger.error('Failed to unload model', {

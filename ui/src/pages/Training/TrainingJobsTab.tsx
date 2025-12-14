@@ -8,9 +8,9 @@ import { TrainingJobTable } from './TrainingJobTable';
 import { TrainingJobFilters, type TrainingJobFilterKey } from './TrainingJobFilters';
 import { StartTrainingForm } from './StartTrainingForm';
 import { TrainingProgress } from './TrainingProgress';
-import { useTraining } from '@/hooks/useTraining';
-import { useRBAC } from '@/hooks/useRBAC';
-import { useFilter, type FilterValue } from '@/hooks/useFilter';
+import { useTraining } from '@/hooks/training';
+import { useRBAC } from '@/hooks/security/useRBAC';
+import { useFilter, type FilterValue } from '@/hooks/ui/useFilter';
 import { LastUpdated } from '@/components/ui/last-updated';
 import { PageErrors, usePageErrors } from '@/components/ui/page-error-boundary';
 import { withErrorBoundary } from '@/components/withErrorBoundary';
@@ -175,7 +175,7 @@ export function TrainingJobsTab({
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
           {can('training:start') && (
-            <Button onClick={handleStartTraining}>
+            <Button onClick={handleStartTraining} data-cy="new-training-job-btn">
               <Brain className="h-4 w-4 mr-2" />
               Start Training
             </Button>
@@ -185,6 +185,7 @@ export function TrainingJobsTab({
               disabled
               title="Requires training:start permission"
               className="opacity-50 cursor-not-allowed"
+              data-cy="new-training-job-btn"
             >
               <Brain className="h-4 w-4 mr-2" />
               Start Training
@@ -194,6 +195,15 @@ export function TrainingJobsTab({
 
         <div className="flex items-center gap-4">
           <LastUpdated timestamp={lastUpdated} className="text-sm" />
+          <Button
+            variant="outline"
+            size="sm"
+            data-cy="job-history-tab"
+            onClick={() => setFilter('status', 'completed')}
+            disabled={isLoading}
+          >
+            History
+          </Button>
           <Button
             variant="outline"
             size="sm"
@@ -237,7 +247,7 @@ export function TrainingJobsTab({
       />
 
       {/* Jobs Table */}
-      <Card>
+      <Card data-cy="training-jobs-list">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Brain className="h-5 w-5" />
@@ -254,7 +264,7 @@ export function TrainingJobsTab({
             )}
           </CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent data-cy="completed-jobs-list">
           <TrainingJobTable
             jobs={filteredJobs}
             isLoading={isLoading}

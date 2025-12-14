@@ -1,5 +1,5 @@
 import FeatureLayout from '@/layout/FeatureLayout';
-import { TestingPage as TestingPageComponent } from '@/components/TestingPage';
+import { TestingPage as TestingPageComponent } from '@/pages/Testing/TestingPage';
 import { DensityProvider } from '@/contexts/DensityContext';
 import { Card, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';

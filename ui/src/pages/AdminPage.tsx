@@ -1,6 +1,6 @@
 import FeatureLayout from '@/layout/FeatureLayout';
 import { DensityProvider } from '@/contexts/DensityContext';
-import { useRBAC } from '@/hooks/useRBAC';
+import { useRBAC } from '@/hooks/security/useRBAC';
 import { errorRecoveryTemplates } from '@/components/ui/error-recovery';
 import AdminPolicyConsole from '@/pages/Admin/AdminPolicyConsole';
 

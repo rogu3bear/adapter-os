@@ -18,7 +18,7 @@ interface ErrorFallbackProps {
 }
 
 function ErrorFallback({ error, resetErrorBoundary }: ErrorFallbackProps) {
-  return <ServerErrorPage onRetry={resetErrorBoundary} />;
+  return <ServerErrorPage onRetry={resetErrorBoundary} error={error} />;
 }
 
 interface RouteGuardProps {

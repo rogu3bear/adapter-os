@@ -80,25 +80,61 @@ pub fn parse_rag_doc_id(doc_id: &str) -> Option<ParsedRagDocId> {
     None
 }
 
+/// Truncation strategy for context building
+#[derive(Debug, Clone, Default)]
+pub enum TruncationStrategy {
+    /// Hard cut: stop at first document that doesn't fit (backward compatible)
+    #[default]
+    HardCut,
+    /// Priority-based: allocate budget proportional to relevance score
+    PriorityBased,
+}
+
 /// RAG retrieval configuration
 #[derive(Debug, Clone)]
 pub struct RagRetrievalConfig {
     /// Number of candidate documents to fetch before filtering
     pub candidate_k: usize,
-    /// Maximum documents to return after filtering
+    /// Maximum documents to return after all processing
     pub top_k: usize,
     /// Maximum characters in concatenated context
     pub max_context_chars: usize,
+    /// Minimum relevance score (0.0-1.0). Documents below this are filtered.
+    pub min_relevance_score: f32,
+    /// Maximum chunks from the same source document (0 = unlimited)
+    pub max_chunks_per_document: usize,
+    /// Context truncation strategy
+    pub truncation_strategy: TruncationStrategy,
+    /// Enable hybrid search (vector + FTS5)
+    pub enable_hybrid_search: bool,
 }
 
 impl Default for RagRetrievalConfig {
     fn default() -> Self {
         Self {
-            candidate_k: 15,
+            candidate_k: 20,
             top_k: 5,
             max_context_chars: 4000,
+            min_relevance_score: 0.3,
+            max_chunks_per_document: 3,
+            truncation_strategy: TruncationStrategy::HardCut,
+            enable_hybrid_search: false,
         }
     }
+}
+
+/// Truncate text at a word boundary near the target length
+fn truncate_at_boundary(text: &str, max_len: usize) -> &str {
+    if text.len() <= max_len {
+        return text;
+    }
+
+    // Look for word boundary
+    if let Some(space_pos) = text[..max_len].rfind(char::is_whitespace) {
+        return &text[..space_pos];
+    }
+
+    &text[..max_len]
 }
 
 /// Retrieve RAG context with deterministic ordering and full metadata.
@@ -145,16 +181,32 @@ pub async fn retrieve_rag_context(
     let dimension = embedding_model.dimension();
 
     // Retrieve candidate documents via storage-mode aware Db API
-    let all_results = state
-        .db
-        .retrieve_rag_documents(
-            tenant_id,
-            &model_hash,
-            dimension,
-            &query_embedding,
-            config.candidate_k,
-        )
-        .await?;
+    // Use hybrid search (vector + FTS5) if enabled, otherwise vector-only
+    let all_results = if config.enable_hybrid_search {
+        state
+            .db
+            .retrieve_rag_documents_hybrid(
+                tenant_id,
+                query,
+                &model_hash,
+                dimension,
+                &query_embedding,
+                config.candidate_k,
+                config.min_relevance_score,
+            )
+            .await?
+    } else {
+        state
+            .db
+            .retrieve_rag_documents(
+                tenant_id,
+                &model_hash,
+                dimension,
+                &query_embedding,
+                config.candidate_k,
+            )
+            .await?
+    };
 
     // Get document IDs that belong to the specified collection (efficient - just IDs)
     let collection_doc_ids: HashSet<String> = state
@@ -166,7 +218,7 @@ pub async fn retrieve_rag_context(
 
     // Filter results by collection membership using parsed document_id
     // RAG doc_id format is `{document_id}__chunk_{index}`, we need to extract document_id
-    let results: Vec<_> = all_results
+    let mut results: Vec<_> = all_results
         .into_iter()
         .filter(|doc| {
             if let Some(parsed) = parse_rag_doc_id(&doc.doc_id) {
@@ -176,16 +228,59 @@ pub async fn retrieve_rag_context(
                 collection_doc_ids.contains(&doc.doc_id)
             }
         })
-        .take(config.top_k)
         .collect();
 
     debug!(
         collection_id = %collection_id,
         collection_doc_count = collection_doc_ids.len(),
         candidate_count = config.candidate_k,
-        filtered_results = results.len(),
+        before_filter_count = results.len(),
         "Filtered RAG results by collection membership"
     );
+
+    // Apply relevance score filtering
+    results.retain(|doc| doc.score >= config.min_relevance_score);
+
+    debug!(
+        after_score_filter_count = results.len(),
+        min_score = config.min_relevance_score,
+        "Applied relevance score filtering"
+    );
+
+    // Apply chunk deduplication if configured
+    if config.max_chunks_per_document > 0 {
+        use std::collections::HashMap;
+        let mut doc_counts: HashMap<String, usize> = HashMap::new();
+
+        results = results
+            .into_iter()
+            .filter(|doc| {
+                // Extract base document_id from chunk doc_id format: {uuid}__chunk_{index}
+                let base_doc_id = if let Some(pos) = doc.doc_id.rfind("__chunk_") {
+                    &doc.doc_id[..pos]
+                } else {
+                    &doc.doc_id
+                };
+
+                let count = doc_counts.entry(base_doc_id.to_string()).or_insert(0);
+                if *count < config.max_chunks_per_document {
+                    *count += 1;
+                    true
+                } else {
+                    false
+                }
+            })
+            .collect();
+
+        debug!(
+            after_dedup_count = results.len(),
+            max_per_doc = config.max_chunks_per_document,
+            "Applied chunk deduplication"
+        );
+    }
+
+    // Take top_k after all filtering
+    results.truncate(config.top_k);
 
     if results.is_empty() {
         return Ok(RagContextResult {
@@ -200,31 +295,89 @@ pub async fn retrieve_rag_context(
         });
     }
 
-    // Concatenate results with truncation
+    // Build context with configurable truncation strategy
     let mut context = String::new();
-    for (i, doc) in results.iter().enumerate() {
-        if context.len() + doc.text.len() > config.max_context_chars {
-            break;
+    let mut included_indices = Vec::new();
+
+    match config.truncation_strategy {
+        TruncationStrategy::HardCut => {
+            for (i, doc) in results.iter().enumerate() {
+                let separator_len = if i > 0 { 7 } else { 0 }; // "\n\n---\n\n"
+                if context.len() + separator_len + doc.text.len() > config.max_context_chars {
+                    break;
+                }
+                if i > 0 {
+                    context.push_str("\n\n---\n\n");
+                }
+                context.push_str(&doc.text);
+                included_indices.push(i);
+            }
         }
-        if i > 0 {
-            context.push_str("\n\n---\n\n");
+        TruncationStrategy::PriorityBased => {
+            let total_score: f32 = results.iter().map(|d| d.score).sum();
+            let mut remaining_budget = config.max_context_chars;
+
+            for (i, doc) in results.iter().enumerate() {
+                let separator_len = if i > 0 { 7 } else { 0 };
+
+                if remaining_budget <= separator_len {
+                    break;
+                }
+
+                // Allocate budget proportional to score
+                let proportional_budget = if total_score > 0.0 {
+                    ((doc.score / total_score) * config.max_context_chars as f32) as usize
+                } else {
+                    remaining_budget / (results.len() - i).max(1)
+                };
+
+                let doc_budget =
+                    proportional_budget.min(remaining_budget.saturating_sub(separator_len));
+
+                if doc_budget == 0 {
+                    continue;
+                }
+
+                if i > 0 && remaining_budget > separator_len {
+                    context.push_str("\n\n---\n\n");
+                    remaining_budget -= separator_len;
+                }
+
+                if doc.text.len() <= doc_budget {
+                    context.push_str(&doc.text);
+                    remaining_budget -= doc.text.len();
+                    included_indices.push(i);
+                } else if doc_budget > 100 {
+                    // Partial inclusion: truncate at word boundary
+                    let truncated = truncate_at_boundary(&doc.text, doc_budget);
+                    context.push_str(truncated);
+                    context.push_str("...");
+                    remaining_budget -= truncated.len() + 3;
+                    included_indices.push(i);
+                }
+            }
         }
-        context.push_str(&doc.text);
     }
 
     // Compute context hash for evidence
     let context_hash = B3Hash::hash(context.as_bytes());
 
     // Collect aggregate RAG trace info (doc_ids, chunk_indices, and scores in retrieval order)
+    // Only include documents that made it into the final context
     let mut doc_ids = Vec::new();
     let mut chunk_indices = Vec::new();
-    for doc in results.iter() {
-        if let Some(parsed) = parse_rag_doc_id(&doc.doc_id) {
-            doc_ids.push(parsed.document_id);
-            chunk_indices.push(parsed.chunk_index);
+    for &idx in included_indices.iter() {
+        if let Some(doc) = results.get(idx) {
+            if let Some(parsed) = parse_rag_doc_id(&doc.doc_id) {
+                doc_ids.push(parsed.document_id);
+                chunk_indices.push(parsed.chunk_index);
+            }
         }
     }
-    let scores: Vec<f64> = results.iter().map(|doc| doc.score as f64).collect();
+    let scores: Vec<f64> = included_indices
+        .iter()
+        .filter_map(|&idx| results.get(idx).map(|doc| doc.score as f64))
+        .collect();
 
     info!(
         tenant_id = %tenant_id,
@@ -245,6 +398,143 @@ pub async fn retrieve_rag_context(
         embedding_model_hash: model_hash.to_hex(),
         context_hash: context_hash.to_hex(),
     })
+}
+
+/// Result of evidence storage with partial success tracking
+#[derive(Debug)]
+pub struct EvidenceStorageResult {
+    pub stored_ids: Vec<String>,
+    pub failed_entries: Vec<FailedEvidence>,
+    pub total_attempted: usize,
+}
+
+#[derive(Debug)]
+pub struct FailedEvidence {
+    pub document_id: String,
+    pub chunk_index: i32,
+    pub error: String,
+}
+
+impl EvidenceStorageResult {
+    pub fn success_rate(&self) -> f32 {
+        if self.total_attempted == 0 {
+            1.0
+        } else {
+            self.stored_ids.len() as f32 / self.total_attempted as f32
+        }
+    }
+}
+
+/// Store RAG evidence with partial success handling.
+/// Unlike the original, this continues on individual entry failures.
+pub async fn store_rag_evidence_resilient(
+    state: &AppState,
+    rag_result: &RagContextResult,
+    inference_id: &str,
+    session_id: Option<&str>,
+) -> EvidenceStorageResult {
+    let mut stored_ids = Vec::new();
+    let mut failed_entries = Vec::new();
+    let total_attempted = rag_result.doc_ids.len();
+
+    for (rank, ((doc_id, chunk_index), score)) in rag_result
+        .doc_ids
+        .iter()
+        .zip(rag_result.chunk_indices.iter())
+        .zip(rag_result.scores.iter())
+        .enumerate()
+    {
+        // Look up chunk with explicit error handling
+        let chunk_result = state
+            .db
+            .get_chunk_by_document_and_index(doc_id, *chunk_index)
+            .await;
+
+        let chunk = match chunk_result {
+            Ok(Some(chunk)) => chunk,
+            Ok(None) => {
+                warn!(
+                    document_id = %doc_id,
+                    chunk_index = %chunk_index,
+                    "Chunk not found for evidence creation"
+                );
+                failed_entries.push(FailedEvidence {
+                    document_id: doc_id.clone(),
+                    chunk_index: *chunk_index,
+                    error: "Chunk not found".to_string(),
+                });
+                continue;
+            }
+            Err(e) => {
+                warn!(
+                    document_id = %doc_id,
+                    chunk_index = %chunk_index,
+                    error = %e,
+                    "Failed to look up chunk"
+                );
+                failed_entries.push(FailedEvidence {
+                    document_id: doc_id.clone(),
+                    chunk_index: *chunk_index,
+                    error: e.to_string(),
+                });
+                continue;
+            }
+        };
+
+        // Create evidence params
+        let params = adapteros_db::CreateEvidenceParams {
+            tenant_id: rag_result.tenant_id.clone(),
+            inference_id: inference_id.to_string(),
+            session_id: session_id.map(|s| s.to_string()),
+            message_id: None,
+            document_id: doc_id.clone(),
+            chunk_id: chunk.id.clone(),
+            page_number: chunk.page_number,
+            document_hash: chunk.chunk_hash.clone(),
+            chunk_hash: chunk.chunk_hash.clone(),
+            relevance_score: *score,
+            rank: rank as i32,
+            context_hash: rag_result.context_hash.clone(),
+            rag_doc_ids: Some(rag_result.doc_ids.clone()),
+            rag_scores: Some(rag_result.scores.clone()),
+            rag_collection_id: Some(rag_result.collection_id.clone()),
+        };
+
+        // Insert individual evidence entry
+        match state.db.create_inference_evidence(params).await {
+            Ok(id) => {
+                stored_ids.push(id);
+            }
+            Err(e) => {
+                warn!(
+                    document_id = %doc_id,
+                    chunk_id = %chunk.id,
+                    error = %e,
+                    "Failed to store evidence entry"
+                );
+                failed_entries.push(FailedEvidence {
+                    document_id: doc_id.clone(),
+                    chunk_index: *chunk_index,
+                    error: e.to_string(),
+                });
+            }
+        }
+    }
+
+    if !failed_entries.is_empty() {
+        info!(
+            stored = stored_ids.len(),
+            failed = failed_entries.len(),
+            total = total_attempted,
+            "Evidence storage completed with partial failures"
+        );
+    }
+
+    EvidenceStorageResult {
+        stored_ids,
+        failed_entries,
+        total_attempted,
+    }
 }
 
 /// Store RAG evidence entries in the database for a retrieval.
@@ -482,8 +772,29 @@ mod tests {
     #[test]
     fn test_rag_config_defaults() {
         let config = RagRetrievalConfig::default();
-        assert_eq!(config.candidate_k, 15);
+        assert_eq!(config.candidate_k, 20);
         assert_eq!(config.top_k, 5);
         assert_eq!(config.max_context_chars, 4000);
+        assert_eq!(config.min_relevance_score, 0.3);
+        assert_eq!(config.max_chunks_per_document, 3);
+        assert!(!config.enable_hybrid_search);
+    }
+
+    #[test]
+    fn test_truncate_at_boundary() {
+        let text = "The quick brown fox jumps over the lazy dog";
+
+        // Truncate at word boundary
+        let result = truncate_at_boundary(text, 20);
+        assert_eq!(result, "The quick brown fox");
+
+        // Text shorter than max
+        let result = truncate_at_boundary(text, 100);
+        assert_eq!(result, text);
+
+        // No space found - hard cut
+        let text = "abcdefghijklmnop";
+        let result = truncate_at_boundary(text, 10);
+        assert_eq!(result, "abcdefghij");
     }
 }

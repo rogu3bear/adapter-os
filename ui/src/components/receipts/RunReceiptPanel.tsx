@@ -70,7 +70,7 @@ export function RunReceiptPanel({
       toast.error('Trace ID is unavailable');
       return;
     }
-    navigate(`/telemetry/viewer?requestId=${encodeURIComponent(receipt.trace_id)}`);
+    navigate(`/telemetry?tab=viewer&requestId=${encodeURIComponent(receipt.trace_id)}`);
   };
 
   const handleExportEvidence = () => {

@@ -51,9 +51,10 @@ import {
 } from '@/api/types';
 import apiClient from '@/api/client';
 import { logger } from '@/utils/logger';
+import { formatMB, formatCount } from '@/utils';
 
-import { useFeatureDegradation } from '@/hooks/useFeatureDegradation';
-import { useAdapterOperations } from '@/hooks/useAdapterOperations';
+import { useFeatureDegradation } from '@/hooks/ui/useFeatureDegradation';
+import { useAdapterOperations } from '@/hooks/adapters';
 
 import { toast } from 'sonner';
 import { LIFECYCLE_STATE_LABELS } from '@/constants/terminology';
@@ -185,7 +186,10 @@ export function AdapterLifecycleManager({
             invalidPriority: policy.eviction_priority,
           });
           // Use 'normal' as safe fallback
-          (fetchedPolicies[category] as CategoryPolicy).eviction_priority = 'normal';
+          const key = category as AdapterCategory;
+          if (key in fetchedPolicies) {
+            (fetchedPolicies[key] as CategoryPolicy).eviction_priority = 'normal';
+          }
         }
       }
       
@@ -247,13 +251,13 @@ export function AdapterLifecycleManager({
       const records: AdapterStateRecord[] = adapters.map((adapter, index) => ({
         adapter_id: adapter.adapter_id,
         adapter_idx: index,
-        state: adapter.current_state,
-        pinned: adapter.pinned,
-        memory_bytes: adapter.memory_bytes,
-        category: adapter.category,
-        scope: adapter.scope,
+        state: adapter.current_state ?? 'unloaded',
+        pinned: adapter.pinned ?? false,
+        memory_bytes: adapter.memory_bytes ?? 0,
+        category: adapter.category ?? 'code',
+        scope: adapter.scope ?? 'global',
         last_activated: adapter.last_activated,
-        activation_count: adapter.activation_count,
+        activation_count: adapter.activation_count ?? 0,
         timestamp: adapter.last_activated || new Date().toISOString()
       }));
       setStateRecords(records);
@@ -433,7 +437,10 @@ export function AdapterLifecycleManager({
       localStorage.setItem('adapter_category_policies', JSON.stringify(existing));
 
       // Update local state
-      setPolicies(prev => ({ ...prev, [category]: policy }));
+      setPolicies(prev => {
+        if (!prev) return { [category]: policy } as Record<AdapterCategory, CategoryPolicy>;
+        return { ...prev, [category]: policy };
+      });
       onPolicyUpdate(category, policy);
 
       // Note: Backend endpoint PUT /v1/adapters/category/:category/policy is planned
@@ -598,7 +605,7 @@ export function AdapterLifecycleManager({
                   <TableRow key={adapter.adapter_id}>
                     <TableCell>
                       <div className="flex items-center space-x-2">
-                        {getCategoryIcon(adapter.category)}
+                        {getCategoryIcon(adapter.category ?? 'code')}
                         <div>
                           <div className="font-medium">{adapter.name}</div>
                           <div className="text-sm text-muted-foreground">
@@ -609,16 +616,18 @@ export function AdapterLifecycleManager({
                     </TableCell>
                     <TableCell>
                       <Badge variant="outline" className="flex items-center space-x-1">
-                        {getCategoryIcon(adapter.category)}
-                        <span>{adapter.category}</span>
+                        {getCategoryIcon(adapter.category ?? 'code')}
+                        <span>{adapter.category ?? 'code'}</span>
                       </Badge>
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center space-x-2">
-                        {getStateIcon(adapter.current_state)}
-                        <Badge className={getStateColor(adapter.current_state)}>
-                          {LIFECYCLE_STATE_LABELS[adapter.current_state] || adapter.current_state}
-                        </Badge>
+                        {adapter.current_state && getStateIcon(adapter.current_state)}
+                        {adapter.current_state && (
+                          <Badge className={getStateColor(adapter.current_state)}>
+                            {LIFECYCLE_STATE_LABELS[adapter.current_state] || adapter.current_state}
+                          </Badge>
+                        )}
                         {adapter.pinned && (
                           <Pin className="h-4 w-4 text-purple-500" />
                         )}
@@ -627,13 +636,13 @@ export function AdapterLifecycleManager({
                     <TableCell>
                       <div className="flex items-center space-x-2">
                         <MemoryStick className="h-4 w-4" />
-                        <span>{Math.round(adapter.memory_bytes / 1024 / 1024)} MB</span>
+                        <span>{formatMB(adapter.memory_bytes, 0)}</span>
                       </div>
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center space-x-2">
                         <Target className="h-4 w-4" />
-                        <span>{adapter.activation_count}</span>
+                        <span>{formatCount(adapter.activation_count)}</span>
                       </div>
                     </TableCell>
                     <TableCell>
@@ -812,11 +821,14 @@ function CategoryPolicyEditor({
           <Input
             id="max_in_memory"
             type="number"
-            value={localPolicy.max_in_memory || 0}
-            onChange={(e) => setLocalPolicy({
-              ...localPolicy,
-              max_in_memory: parseInt(e.target.value) || undefined
-            })}
+            value={localPolicy.max_in_memory ?? 0}
+            onChange={(e) => {
+              const val = parseInt(e.target.value);
+              setLocalPolicy({
+                ...localPolicy,
+                max_in_memory: isNaN(val) ? 0 : val
+              });
+            }}
           />
         </div>
       </div>
@@ -896,9 +908,9 @@ function CategoryPolicyEditor({
 }
 
 // Adapter Details View Component
-function AdapterDetailsView({ 
-  adapter, 
-  onStateChange, 
+function AdapterDetailsView({
+  adapter,
+  onStateChange,
   onPinToggle,
   onAdapterUpdate
 }: {
@@ -908,7 +920,7 @@ function AdapterDetailsView({
   onAdapterUpdate: (adapterId: string, updates: Partial<Adapter>) => void;
 }) {
   const states: AdapterState[] = ['unloaded', 'cold', 'warm', 'hot', 'resident'];
-  const [category, setCategory] = useState<AdapterCategory>(adapter.category);
+  const [category, setCategory] = useState<AdapterCategory>(adapter.category ?? 'code');
   const [isUpdatingCategory, setIsUpdatingCategory] = useState(false);
 
   const handleCategoryChange = async (newCategory: AdapterCategory) => {
@@ -981,14 +993,14 @@ function AdapterDetailsView({
         </div>
         <div>
           <Label className="text-sm font-medium">Memory Usage</Label>
-          <p className="text-sm text-muted-foreground">{Math.round(adapter.memory_bytes / 1024 / 1024)} MB</p>
+          <p className="text-sm text-muted-foreground">{formatMB(adapter.memory_bytes, 0)}</p>
         </div>
       </div>
 
       <div className="grid grid-cols-2 gap-4">
         <div>
           <Label className="text-sm font-medium">Activation Count</Label>
-          <p className="text-sm text-muted-foreground">{adapter.activation_count}</p>
+          <p className="text-sm text-muted-foreground">{formatCount(adapter.activation_count)}</p>
         </div>
         <div>
           <Label className="text-sm font-medium">Last Activated</Label>

@@ -4,7 +4,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Settings2, Check, AlertTriangle } from 'lucide-react';
-import { PromptTemplate as PromptTemplateType } from '@/hooks/usePromptTemplates';
+import { PromptTemplate as PromptTemplateType } from '@/hooks/chat/usePromptTemplates';
 
 export interface TemplateManagerProps {
   templates: PromptTemplateType[];

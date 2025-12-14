@@ -8,7 +8,7 @@ import {
   useDocumentChunks,
   useDocumentsApi,
   documentKeys,
-} from '@/hooks/useDocumentsApi';
+} from '@/hooks/documents';
 import type { Document, DocumentChunk } from '@/api/document-types';
 import { withTenantKey } from '@/utils/tenant';
 

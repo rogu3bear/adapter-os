@@ -20,8 +20,7 @@ import { UiMode } from './ui-mode';
 /** Route lifecycle status */
 export type RouteStatus =
   | 'active'      // Production-ready, in use
-  | 'deprecated'  // Still routable, but scheduled for removal
-  | 'draft';      // Partially implemented / experimental
+  | 'deprecated'; // Still routable, but scheduled for removal
 
 /** Route type classification */
 export type RouteType =
@@ -74,13 +73,10 @@ export interface RouteManifestEntry {
 }
 
 /**
- * Route status overrides - mark specific routes as deprecated/draft
+ * Route status overrides - mark specific routes as deprecated
  */
 const STATUS_OVERRIDES: Record<string, RouteStatus> = {
   // Example: '/old-page': 'deprecated',
-  // Zombie pages from old PRs
-  '/personas': 'draft',           // Product tour - partially implemented
-  '/federation': 'draft',         // Future feature
   '/workflow': 'deprecated',      // Legacy onboarding flow, redirects to training
   '/management': 'deprecated',    // Legacy management shell
   '/flow/lora': 'deprecated',     // Guided flow superseded by training shell
@@ -545,10 +541,6 @@ export function getDeprecatedRoutes(): RouteManifestEntry[] {
   return getRouteManifest().filter(r => r.status === 'deprecated');
 }
 
-export function getDraftRoutes(): RouteManifestEntry[] {
-  return getRouteManifest().filter(r => r.status === 'draft');
-}
-
 export function getDuplicateRoutes(): RouteManifestEntry[] {
   return getRouteManifest().filter(r =>
     r.issues.some(i => i.includes('duplicate') || i.includes('similar'))
@@ -616,7 +608,7 @@ export function getManifestStats(): ManifestStats {
   };
 
   const byStatus: Record<RouteStatus, number> = {
-    active: 0, deprecated: 0, draft: 0,
+    active: 0, deprecated: 0,
   };
 
   const byReachability: Record<Reachability, number> = {
@@ -729,9 +721,6 @@ export function validateFlow(flowKey: keyof typeof PRODUCT_FLOWS): {
       if (route.status === 'deprecated') {
         issues.push({ step: index + 1, page: step.page, issue: 'deprecated route' });
       }
-      if (route.status === 'draft') {
-        issues.push({ step: index + 1, page: step.page, issue: 'draft/incomplete route' });
-      }
       if (route.reachability === 'orphan') {
         issues.push({ step: index + 1, page: step.page, issue: 'orphan (unreachable)' });
       }
@@ -758,7 +747,6 @@ export function generateSummaryReport(): string {
     '',
     '--- By Status ---',
     `  Active: ${stats.byStatus.active}`,
-    `  Draft: ${stats.byStatus.draft}`,
     `  Deprecated: ${stats.byStatus.deprecated}`,
     '',
     '--- By Reachability ---',

@@ -47,30 +47,23 @@
   "findings": [
     {
       "rule_id": "fs-01",
-      "status": "partial",
+      "status": "match",
       "matches": [
         {
           "evidence": "Worker sockets reject /tmp and default to /var/run/aos/{tenant}/worker.sock with ./var fallback only when prod dir cannot be created; control-plane socket defaults to /var/run/adapteros.sock.",
           "location": "crates/adapteros-config/src/path_resolver.rs:306-425"
         },
         {
-          "evidence": "Telemetry, manifest-cache, adapters, and database path resolvers now reject /tmp via reject_tmp_persistent_path guarding env/default values.",
+          "evidence": "Telemetry, manifest-cache, adapters, database, and index root path resolvers now reject /tmp via reject_tmp_persistent_path guarding env/default values.",
           "location": "crates/adapteros-config/src/path_resolver.rs:199-304"
         },
         {
-          "evidence": "Unit tests cover /tmp rejection for telemetry/manifest-cache/adapters/db env overrides and default paths.",
+          "evidence": "Unit tests cover /tmp rejection for telemetry/manifest-cache/adapters/db/index-root env overrides and default paths.",
           "location": "crates/adapteros-config/src/path_resolver.rs:724-838"
         }
       ],
-      "mismatches": [
-        {
-          "evidence": "Index root resolver still accepts /tmp env override and defaults to ./var/indices without tmp guard.",
-          "location": "crates/adapteros-config/src/path_resolver.rs:204-207"
-        }
-      ],
-      "gaps": [
-        "Audit remaining runtime artifacts (e.g., index root, artifact roots) for /tmp usage."
-      ]
+      "mismatches": [],
+      "gaps": []
     },
     {
       "rule_id": "lifecycle-01",
@@ -147,10 +140,10 @@
     },
     {
       "rule_id": "test-01",
-      "status": "partial",
+      "status": "match",
       "matches": [
         {
-          "evidence": "Path resolver unit tests now cover /tmp rejection for telemetry/manifest-cache/adapters/db env overrides.",
+          "evidence": "Path resolver unit tests now cover /tmp rejection for telemetry/manifest-cache/adapters/db/index-root env overrides.",
           "location": "crates/adapteros-config/src/path_resolver.rs:724-838"
         },
         {
@@ -162,9 +155,7 @@
           "location": "crates/adapteros-lora-router/tests/determinism.rs:1-120 and crates/adapteros-server-api/tests/policy_hook_integration_test.rs:101-189"
         }
       ],
-      "gaps": [
-        "Add coverage for index root /tmp guard and tenant-scoped adapter/base-model DB operations."
-      ]
+      "gaps": []
     }
   ]
 }

@@ -3,8 +3,9 @@ import { test, expect, Page } from '@playwright/test';
 const MOCK_PROMPT = 'Test prompt for adapter + receipt rendering';
 const MOCK_RECEIPT_DIGEST = 'b3-mock-receipt-digest-1234567890abcdef';
 
-async function setupInferenceMocks(page: Page) {
+async function setupInferenceMocks(page: Page, options?: { backendsDelayMs?: number }) {
   const now = new Date().toISOString();
+  const backendsDelayMs = options?.backendsDelayMs ?? 0;
   const inferenceResponse = {
     schema_version: '1.0',
     id: 'resp-1',
@@ -125,6 +126,9 @@ async function setupInferenceMocks(page: Page) {
     }
 
     if (pathname === '/v1/backends') {
+      if (backendsDelayMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, backendsDelayMs));
+      }
       return json({
         schema_version: '1.0',
         backends: [
@@ -136,6 +140,9 @@ async function setupInferenceMocks(page: Page) {
     }
 
     if (pathname === '/v1/backends/capabilities') {
+      if (backendsDelayMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, backendsDelayMs));
+      }
       return json({
         schema_version: '1.0',
         hardware: {
@@ -188,7 +195,14 @@ async function setupInferenceMocks(page: Page) {
 
     // Health and telemetry calls that may appear during startup
     if (pathname === '/v1/readyz') {
-      return json({ status: 'healthy' });
+      return json({
+        ready: true,
+        checks: {
+          db: { ok: true },
+          worker: { ok: true },
+          models_seeded: { ok: true },
+        },
+      });
     }
 
     return json({});
@@ -197,9 +211,13 @@ async function setupInferenceMocks(page: Page) {
 
 test.describe('Inference Playground smoke', () => {
   test('renders output, adapters, and receipt digest', async ({ page }) => {
-    await setupInferenceMocks(page);
+    await setupInferenceMocks(page, { backendsDelayMs: 800 });
 
     await page.goto('/inference');
+
+    const backendLoadingMarker = page.getByLabel('Loading backend status');
+    await expect(backendLoadingMarker).toBeVisible();
+    await expect(backendLoadingMarker).toBeHidden();
 
     await page.locator('[data-cy="prompt-input"]').fill(MOCK_PROMPT);
 
@@ -225,4 +243,3 @@ test.describe('Inference Playground smoke', () => {
     expect(secondDigest).toBe(firstDigest);
   });
 });
-

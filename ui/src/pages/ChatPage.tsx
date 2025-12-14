@@ -14,7 +14,7 @@ import { useTenant } from '@/providers/FeatureProviders';
 import PageWrapper from '@/layout/PageWrapper';
 import { ChatInterface } from '@/components/ChatInterface';
 import { ChatErrorBoundary } from '@/components/chat/ChatErrorBoundary';
-import { useRBAC } from '@/hooks/useRBAC';
+import { useRBAC } from '@/hooks/security/useRBAC';
 import { PERMISSIONS } from '@/utils/rbac';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { ShieldAlert } from 'lucide-react';
@@ -36,11 +36,12 @@ import {
   RightRailToggle,
   UndoSnackbar,
 } from '@/components/workbench';
-import { useChatSessionsApi } from '@/hooks/useChatSessionsApi';
-import { useAdapterStacks, useGetDefaultStack } from '@/hooks/useAdmin';
+import { useChatSessionsApi } from '@/hooks/chat/useChatSessionsApi';
+import { useSessionScope } from '@/hooks/chat/useSessionScope';
+import { useAdapterStacks, useGetDefaultStack } from '@/hooks/admin/useAdmin';
 import { EvidencePanel } from '@/components/evidence/EvidencePanel';
 import { TraceSummaryPanel } from '@/components/trace/TraceSummaryPanel';
-import { useTrace } from '@/hooks/useTrace';
+import { useTrace } from '@/hooks/observability/useTrace';
 
 export default function ChatPage() {
   const { user } = useAuth();
@@ -79,7 +80,7 @@ export default function ChatPage() {
     >
       <TooltipProvider>
         <WorkbenchProvider>
-          <DatasetChatProvider>
+          <DatasetChatProvider sessionId={sessionId}>
             <WorkbenchContent
               selectedTenant={selectedTenant}
               initialStackId={initialStackId}
@@ -126,6 +127,9 @@ function WorkbenchContent({
     setStrengthOverrides,
   } = useWorkbench();
 
+  // Session scope management
+  const sessionScope = useSessionScope();
+
   // Sessions
   const tenantId = selectedTenant || 'default';
   const {
@@ -138,14 +142,38 @@ function WorkbenchContent({
   // Stacks
   const { data: stacks = [] } = useAdapterStacks();
   const { data: defaultStackData } = useGetDefaultStack(selectedTenant);
-  const [activeStackId, setActiveStackId] = useState<string | null>(
-    initialStackId ?? null
-  );
+
+  // Local stack override - used to force re-render when stack selection changes
+  // This is needed because sessionScope storage doesn't trigger React re-renders
+  const [localStackOverride, setLocalStackOverride] = useState<string | null | undefined>(undefined);
+
+  // Reset local override when sessionId changes (load from storage instead)
+  useEffect(() => {
+    setLocalStackOverride(undefined);
+  }, [sessionId]);
+
+  // Compute effective stack ID with precedence: Local Override > URL > Session Storage > Default
+  const effectiveStackId = useMemo(() => {
+    // 0. Local override (for immediate UI updates after stack change)
+    if (localStackOverride !== undefined) return localStackOverride;
+
+    // 1. URL param (highest priority)
+    if (initialStackId) return initialStackId;
+
+    // 2. Session stored value
+    if (sessionId) {
+      const scope = sessionScope.getSessionScope(sessionId);
+      if (scope.selectedStackId) return scope.selectedStackId;
+    }
+
+    // 3. Default stack (lowest priority)
+    return defaultStackData?.id ?? null;
+  }, [localStackOverride, initialStackId, sessionId, sessionScope, defaultStackData?.id]);
 
   // Find active stack details
   const activeStack = useMemo(
-    () => stacks.find((s) => s.id === activeStackId),
-    [stacks, activeStackId]
+    () => stacks.find((s) => s.id === effectiveStackId),
+    [stacks, effectiveStackId]
   );
 
   // Trace for right rail
@@ -166,34 +194,67 @@ function WorkbenchContent({
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [handleGlobalEscape]);
 
-  // Session selection handler
+  // Session selection handler - also syncs stack from session
   const handleSelectSession = useCallback(
     (sessionId: string) => {
+      // Find session and sync stack selection to session scope
+      const session = sessions.find((s) => s.id === sessionId);
+      if (session?.stackId) {
+        const stack = stacks.find((s) => s.id === session.stackId);
+        sessionScope.setStackSelection(sessionId, session.stackId, stack?.name);
+      }
       setSearchParams((prev) => {
         const next = new URLSearchParams(prev);
         next.set('session', sessionId);
         return next;
       });
     },
-    [setSearchParams]
+    [sessions, stacks, sessionScope, setSearchParams]
   );
 
   // New session handler
   const handleCreateSession = useCallback(async () => {
     try {
-      const session = await createSession('New Chat', activeStackId ?? '');
+      const session = await createSession('New Chat', effectiveStackId ?? '');
       if (session) {
         handleSelectSession(session.id);
       }
     } catch (error) {
       // Error handling is done in the hook
     }
-  }, [createSession, handleSelectSession, activeStackId]);
+  }, [createSession, handleSelectSession, effectiveStackId]);
 
-  // Stack activation handler
+  // Stack activation handler (from StacksTab)
   const handleStackActivated = useCallback((stackId: string) => {
-    setActiveStackId(stackId);
-  }, []);
+    // Update local override for immediate UI feedback
+    setLocalStackOverride(stackId);
+    // Persist to session storage
+    if (sessionId) {
+      const stack = stacks.find((s) => s.id === stackId);
+      sessionScope.setStackSelection(sessionId, stackId, stack?.name);
+    }
+  }, [sessionId, stacks, sessionScope]);
+
+  // Stack change handler (from ChatInterface controlled mode)
+  const handleStackChange = useCallback((stackId: string | null) => {
+    // Update local override for immediate UI feedback
+    setLocalStackOverride(stackId);
+    // Persist to session storage
+    if (sessionId && stackId) {
+      const stack = stacks.find((s) => s.id === stackId);
+      sessionScope.setStackSelection(sessionId, stackId, stack?.name);
+    }
+  }, [sessionId, stacks, sessionScope]);
+
+  // Clear stack handler (for Detach All - sets to "base model only" mode)
+  const handleClearStack = useCallback(() => {
+    // Update local override to null for immediate UI feedback
+    setLocalStackOverride(null);
+    // Clear from session storage
+    if (sessionId) {
+      sessionScope.clearStackSelection(sessionId);
+    }
+  }, [sessionId, sessionScope]);
 
   // Message completion handler (for right rail auto-update)
   const handleMessageComplete = useCallback(
@@ -275,7 +336,7 @@ function WorkbenchContent({
             {/* Right: Status chips */}
             <WorkbenchTopBar
               stackName={activeStack?.name}
-              stackId={activeStackId}
+              stackId={effectiveStackId}
               canExport={!!selectedTraceId}
             />
           </div>
@@ -295,8 +356,10 @@ function WorkbenchContent({
             datasetsContent={<DatasetsTab />}
             stacksContent={
               <StacksTab
-                activeStackId={activeStackId}
+                activeStackId={effectiveStackId}
+                sessionId={sessionId}
                 onStackActivated={handleStackActivated}
+                onClearStack={handleClearStack}
               />
             }
           />
@@ -306,7 +369,8 @@ function WorkbenchContent({
             <Suspense fallback={<ChatSkeleton />}>
               <ChatInterface
                 selectedTenant={selectedTenant}
-                initialStackId={initialStackId}
+                selectedStackId={effectiveStackId}
+                onStackChange={handleStackChange}
                 sessionId={sessionId}
                 streamMode={streamMode}
                 developerMode={developerMode}
@@ -350,7 +414,7 @@ function WorkbenchContent({
       <RightRailToggle />
 
       {/* Undo snackbar for detach actions */}
-      <UndoSnackbar onRestoreOverrides={setStrengthOverrides} />
+      <UndoSnackbar sessionId={sessionId ?? null} onRestoreOverrides={setStrengthOverrides} />
     </>
   );
 }

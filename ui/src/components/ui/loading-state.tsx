@@ -4,6 +4,7 @@ import { Skeleton } from './skeleton';
 import { cn } from './utils';
 
 type LoadingStateSize = 'sm' | 'md';
+type LoadingStateVariant = 'card' | 'minimal';
 
 const sizeClassMap: Record<LoadingStateSize, string> = {
   sm: 'p-4',
@@ -26,6 +27,9 @@ interface LoadingStateProps {
   message?: string;
   skeletonLines?: number;
   size?: LoadingStateSize;
+  variant?: LoadingStateVariant;
+  testId?: string;
+  ariaLabel?: string;
   className?: string;
 }
 
@@ -35,8 +39,37 @@ export function LoadingState({
   message,
   skeletonLines = 0,
   size = 'md',
+  variant = 'card',
+  testId,
+  ariaLabel,
   className,
 }: LoadingStateProps) {
+  const resolvedLabel = ariaLabel || title || message || 'Loading';
+
+  if (variant === 'minimal') {
+    return (
+      <div
+        className={cn('py-8 text-center text-muted-foreground', className)}
+        role="status"
+        aria-live="polite"
+        aria-label={resolvedLabel}
+        data-testid={testId ?? 'loading-state'}
+      >
+        <Loader2 className={cn('mx-auto animate-spin', spinnerClassMap[size])} aria-hidden="true" />
+        {title && <p className="mt-2 text-sm">{title}</p>}
+        {description && <p className="mt-1 text-sm">{description}</p>}
+        {message && <p className="mt-2 text-sm">{message}</p>}
+        {skeletonLines > 0 && (
+          <div className="mt-4 w-full space-y-2">
+            {Array.from({ length: skeletonLines }).map((_, index) => (
+              <Skeleton key={index} className={cn('w-full', skeletonHeightMap[size])} />
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div
       className={cn(
@@ -46,6 +79,8 @@ export function LoadingState({
       )}
       role="status"
       aria-live="polite"
+      aria-label={resolvedLabel}
+      data-testid={testId ?? 'loading-state'}
     >
       <Loader2 className={cn('animate-spin text-primary', spinnerClassMap[size])} aria-hidden="true" />
       {title && <h3 className="mt-3 text-sm font-medium text-foreground">{title}</h3>}

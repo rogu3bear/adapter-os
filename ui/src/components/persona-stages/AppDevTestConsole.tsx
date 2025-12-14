@@ -15,7 +15,7 @@ interface TestResult {
   tokens_generated: number;
   latency_ms: number;
   adapters_used: string[];
-  finish_reason: string;
+  finish_reason?: string;
   timestamp: Date;
 }
 
@@ -62,7 +62,7 @@ export default function AppDevTestConsole() {
 
       setResult({
         id: response.id,
-        text: response.text,
+        text: response.text ?? '',
         tokens_generated: response.tokens_generated,
         latency_ms: response.latency_ms,
         adapters_used: response.adapters_used,

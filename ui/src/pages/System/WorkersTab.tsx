@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import FeatureLayout from '@/layout/FeatureLayout';
 import { DensityProvider } from '@/contexts/DensityContext';
-import { useWorkers, useWorkersHealthSummary } from '@/hooks/useSystemMetrics';
+import { useWorkers, useWorkersHealthSummary } from '@/hooks/system/useSystemMetrics';
 import WorkerTable from './WorkerTable';
 import WorkerLogsModal from './WorkerLogsModal';
 import WorkerIncidentsModal from './WorkerIncidentsModal';
@@ -12,6 +12,8 @@ export default function WorkersTab() {
   const { data: healthSummaries } = useWorkersHealthSummary('normal', true);
   const [selectedWorkerId, setSelectedWorkerId] = useState<string | null>(null);
   const [incidentsWorkerId, setIncidentsWorkerId] = useState<string | null>(null);
+
+  const healthSummariesData = healthSummaries ?? undefined;
 
   if (error) {
     return (
@@ -41,7 +43,7 @@ export default function WorkersTab() {
         <div className="space-y-6">
           <WorkerTable
             workers={workers}
-            healthSummaries={healthSummaries}
+            healthSummaries={healthSummariesData}
             isLoading={isLoading}
             onWorkerSelect={setSelectedWorkerId}
             onIncidentsSelect={setIncidentsWorkerId}

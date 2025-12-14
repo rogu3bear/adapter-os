@@ -14,9 +14,10 @@ export { ChatErrorBoundary } from './ChatErrorBoundary';
 export { default as AdapterLoadingProgress } from './AdapterLoadingProgress';
 export { default as AdapterLoadingStatus } from './AdapterLoadingStatus';
 export { default as PreChatAdapterPrompt } from './PreChatAdapterPrompt';
+export { InlineModelLoadingBlock } from './InlineModelLoadingBlock';
 
 // Evidence & Proof Components
-export { EvidencePanel } from './EvidencePanel';
+export { EvidenceSources } from './EvidenceSources';
 export { EvidenceItem } from './EvidenceItem';
 export { ProofBadge } from './ProofBadge';
 

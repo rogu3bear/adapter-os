@@ -19,7 +19,7 @@ import { ExportDialog, ExportOptions } from './ui/export-dialog';
 import { useUndoRedoContext } from '@/contexts/UndoRedoContext';
 import { useModalManager } from '@/contexts/ModalContext';
 import { TenantImportWizard } from './TenantImportWizard';
-import { useRBAC } from '@/hooks/useRBAC';
+import { useRBAC } from '@/hooks/security/useRBAC';
 import { PageErrorsProvider, PageErrors, usePageErrors } from '@/components/ui/page-error-boundary';
 import { KpiGrid } from './ui/grid';
 
@@ -33,7 +33,7 @@ const MODAL_IDS = {
   EXPORT: 'export-tenants',
   IMPORT: 'import-tenants',
 } as const;
-import { usePolling } from '@/hooks/usePolling';
+import { usePolling } from '@/hooks/realtime/usePolling';
 import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
 import { GlossaryTooltip } from './ui/glossary-tooltip';
 import {
@@ -71,6 +71,7 @@ import * as types from '@/api/types';
 import { Tenant as ApiTenant, User, Policy, Adapter, TenantUsageResponse } from '@/api/types';
 
 import { logger, toError } from '@/utils/logger';
+import { formatPercent, formatCount } from '@/utils';
 import { BookmarkButton } from './ui/bookmark-button';
 
 import { toast } from 'sonner';
@@ -486,7 +487,7 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
 
   const getClassificationBadge = (classification?: ApiTenant['data_classification']) => {
     const current = classification || 'internal';
-    const colors = {
+    const colors: Record<string, string> = {
       public: 'status-info',
       internal: 'status-neutral',
       confidential: 'status-warning',
@@ -494,7 +495,7 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
     };
 
     return (
-      <div className={`status-indicator ${colors[current]}`}>
+      <div className={`status-indicator ${colors[current] || 'status-neutral'}`}>
         <Lock className="h-3 w-3" />
         {current.toUpperCase()}
       </div>
@@ -1004,19 +1005,19 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
                 <input
                   type="checkbox"
                   id={`policy-${policy.cpid}`}
-                  checked={selectedPolicies.includes(policy.cpid)}
+                  checked={selectedPolicies.includes(policy.cpid || '')}
                   onChange={(e) => {
-                    if (e.target.checked) {
+                    if (e.target.checked && policy.cpid) {
                       setSelectedPolicies([...selectedPolicies, policy.cpid]);
-                    } else {
+                    } else if (policy.cpid) {
                       setSelectedPolicies(selectedPolicies.filter(id => id !== policy.cpid));
                     }
                   }}
                   className="h-4 w-4"
                 />
                 <label htmlFor={`policy-${policy.cpid}`} className="flex-1 cursor-pointer">
-                  <p className="font-medium">{policy.cpid}</p>
-                  <p className="text-xs text-muted-foreground">Hash: {policy.schema_hash.substring(0, 16)}</p>
+                  <p className="font-medium">{policy.cpid || 'Unknown Policy'}</p>
+                  <p className="text-xs text-muted-foreground">Hash: {policy.schema_hash?.substring(0, 16) || 'N/A'}</p>
                 </label>
               </div>
             ))}
@@ -1098,26 +1099,26 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
             <div className="space-y-4">
               <div>
                 <Label>CPU Usage</Label>
-                <Progress value={usageData.cpu_usage_pct} className="mt-2" />
-                <p className="text-sm text-muted-foreground mt-1">{usageData.cpu_usage_pct.toFixed(1)}%</p>
+                <Progress value={usageData.cpu_usage_pct ?? 0} className="mt-2" />
+                <p className="text-sm text-muted-foreground mt-1">{formatPercent(usageData.cpu_usage_pct)}</p>
               </div>
               <div>
                 <Label>GPU Usage</Label>
-                <Progress value={usageData.gpu_usage_pct} className="mt-2" />
-                <p className="text-sm text-muted-foreground mt-1">{usageData.gpu_usage_pct.toFixed(1)}%</p>
+                <Progress value={usageData.gpu_usage_pct ?? 0} className="mt-2" />
+                <p className="text-sm text-muted-foreground mt-1">{formatPercent(usageData.gpu_usage_pct)}</p>
               </div>
               <div>
                 <Label>Memory Usage</Label>
-                <p className="text-sm">{usageData.memory_used_gb.toFixed(2)} GB / {usageData.memory_total_gb.toFixed(2)} GB</p>
-                <Progress value={(usageData.memory_used_gb / usageData.memory_total_gb) * 100} className="mt-2" />
+                <p className="text-sm">{(usageData.memory_used_gb ?? 0).toFixed(2)} GB / {(usageData.memory_total_gb ?? 0).toFixed(2)} GB</p>
+                <Progress value={usageData.memory_total_gb ? ((usageData.memory_used_gb ?? 0) / usageData.memory_total_gb) * 100 : 0} className="mt-2" />
               </div>
               <div>
                 <Label>Inference Count (24h)</Label>
-                <p className="text-lg font-medium">{usageData.inference_count_24h.toLocaleString()}</p>
+                <p className="text-lg font-medium">{formatCount(usageData.inference_count_24h)}</p>
               </div>
               <div>
                 <Label>Active Adapters</Label>
-                <p>{usageData.active_adapters_count}</p>
+                <p>{formatCount(usageData.active_adapters_count)}</p>
               </div>
             </div>
           )}
@@ -1128,12 +1129,12 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
                   variant="outline"
                   onClick={() => {
                     const rows = [
-                      ['cpu_usage_pct', usageData.cpu_usage_pct.toFixed(1)],
-                      ['gpu_usage_pct', usageData.gpu_usage_pct.toFixed(1)],
-                      ['memory_used_gb', usageData.memory_used_gb.toFixed(2)],
-                      ['memory_total_gb', usageData.memory_total_gb.toFixed(2)],
-                      ['inference_count_24h', usageData.inference_count_24h.toString()],
-                      ['active_adapters_count', usageData.active_adapters_count.toString()],
+                      ['cpu_usage_pct', (usageData.cpu_usage_pct ?? 0).toFixed(1)],
+                      ['gpu_usage_pct', (usageData.gpu_usage_pct ?? 0).toFixed(1)],
+                      ['memory_used_gb', (usageData.memory_used_gb ?? 0).toFixed(2)],
+                      ['memory_total_gb', (usageData.memory_total_gb ?? 0).toFixed(2)],
+                      ['inference_count_24h', (usageData.inference_count_24h ?? 0).toString()],
+                      ['active_adapters_count', (usageData.active_adapters_count ?? 0).toString()],
                     ];
                     const csv = 'key,value\n' + rows.map(r => r.join(',')).join('\n');
                     const blob = new Blob([csv], { type: 'text/csv' });

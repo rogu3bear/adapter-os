@@ -322,16 +322,16 @@ export function captureException(
   }
 
   if (error instanceof Error) {
-    const anyError = error as unknown as { code?: unknown; status?: number };
+    const errorWithExtras = error as { code?: unknown; status?: number };
     // Ensure code is a string (DOMException.code is a number)
-    const code = typeof anyError.code === 'string' ? anyError.code :
-                 typeof anyError.code === 'number' ? String(anyError.code) :
+    const code = typeof errorWithExtras.code === 'string' ? errorWithExtras.code :
+                 typeof errorWithExtras.code === 'number' ? String(errorWithExtras.code) :
                  error.name || undefined;
     return globalCaptureError({
       message: error.message,
       stack: error.stack,
       code,
-      httpStatus: anyError.status,
+      httpStatus: errorWithExtras.status,
       component: context?.component,
       operation: context?.operation,
       context: context?.extra,

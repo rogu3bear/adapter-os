@@ -2,7 +2,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { useTenant } from '@/providers/FeatureProviders';
 import PageWrapper from '@/layout/PageWrapper';
 import { RouterConfigPage as RouterConfig } from '@/components/RouterConfigPage';
-import { useRBAC } from '@/hooks/useRBAC';
+import { useRBAC } from '@/hooks/security/useRBAC';
 import { ErrorRecovery, errorRecoveryTemplates } from '@/components/ui/error-recovery';
 import { GlossaryTooltip } from '@/components/ui/glossary-tooltip';
 import { parsePreselectParams, removeParams } from '@/utils/urlParams';

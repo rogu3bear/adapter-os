@@ -392,7 +392,9 @@ fn test_stop_policy_digest_changes_with_any_field() {
         repetition_ngram: 3,
         repetition_window: 32,
     };
-    let base_digest = StopController::new(base_policy.clone()).policy_digest().clone();
+    let base_digest = StopController::new(base_policy.clone())
+        .policy_digest()
+        .clone();
 
     // Changing output_max_tokens
     let p1 = StopPolicySpec {

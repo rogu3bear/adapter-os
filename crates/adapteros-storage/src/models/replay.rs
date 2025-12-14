@@ -19,6 +19,8 @@ pub struct ReplayMetadataKv {
     pub coreml_hash_mismatch: Option<bool>,
     pub sampling_algorithm_version: String,
     pub rag_snapshot_hash: Option<String>,
+    /// Dataset version ID for deterministic dataset pinning
+    pub dataset_version_id: Option<String>,
     pub adapter_ids_json: Option<String>,
     pub base_only: Option<bool>,
     pub prompt_text: String,

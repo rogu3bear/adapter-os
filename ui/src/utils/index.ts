@@ -14,10 +14,15 @@ export {
   formatDurationMs,
   formatDurationSeconds,
   formatBytes,
+  formatMB,
   formatTimestamp,
   formatRelativeTime,
   formatPercent,
   formatNumber,
+  formatCount,
+  formatDate,
+  formatDateTime,
+  formatString,
 } from './format';
 
 // Adapter utilities
@@ -79,5 +84,5 @@ export { calculateTrainingETA } from './trainingEta';
 // Peer sync
 export * from './peerSync';
 
-// Mock peer data (for development/testing)
-export * from './mockPeerData';
+// Type guards
+export * from './typeGuards';

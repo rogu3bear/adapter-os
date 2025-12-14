@@ -48,7 +48,7 @@ import {
 const OwnerHomePage = lazy(() => import('@/pages/OwnerHome'));
 const DashboardPage = lazy(() => import('@/pages/DashboardPage'));
 const TenantsPage = lazy(() => import('@/pages/TenantsPage'));
-const TenantDetailPage = lazy(() => import('@/pages/Admin/TenantDetailPage').then(m => ({ default: m.TenantDetailPage })));
+const TenantDetailPage = lazy(() => import('@/pages/Admin/TenantDetailPage').then(m => ({ default: m.TenantDetailPage as React.ComponentType<any> })));
 const AdaptersPage = lazy(() => import('@/pages/AdaptersPage'));
 const AdapterDetailPage = lazy(() => import('@/pages/Adapters/AdapterDetailPage'));
 const AdapterRegisterPage = lazy(() => import('@/pages/Adapters/AdapterRegisterPage'));
@@ -94,6 +94,7 @@ const SystemNodesPage = lazy(() => import('@/pages/System/NodesTab'));
 const SystemWorkersPage = lazy(() => import('@/pages/System/WorkersTab'));
 const SystemMemoryPage = lazy(() => import('@/pages/System/MemoryTab'));
 const SystemMetricsPage = lazy(() => import('@/pages/System/MetricsTab'));
+const PilotStatusPage = lazy(() => import('@/pages/System/PilotStatusPage'));
 const GuidedFlowPage = lazy(() => import('@/pages/GuidedFlowPage'));
 const DocumentLibraryPage = lazy(() => import('@/pages/DocumentLibrary'));
 const DocumentChatPage = lazy(() => import('@/pages/DocumentLibrary/DocumentChatPage'));
@@ -360,6 +361,26 @@ export const routes: RouteConfig[] = [
     roleVisibility: ['admin', 'operator'],
   },
   {
+    path: '/training/artifacts',
+    component: TrainingShellPage,
+    requiresAuth: true,
+    skeletonVariant: 'default',
+    breadcrumb: 'Artifacts',
+    parentPath: '/training',
+    cluster: 'Build',
+    roleVisibility: ['admin', 'operator'],
+  },
+  {
+    path: '/training/settings',
+    component: TrainingShellPage,
+    requiresAuth: true,
+    skeletonVariant: 'form',
+    breadcrumb: 'Settings',
+    parentPath: '/training',
+    cluster: 'Build',
+    roleVisibility: ['admin', 'operator'],
+  },
+  {
     path: '/testing',
     component: TestingPage,
     requiresAuth: true,
@@ -469,6 +490,16 @@ export const routes: RouteConfig[] = [
     requiresAuth: true,
     skeletonVariant: 'default',
     breadcrumb: 'Manifest',
+    parentPath: '/adapters/:adapterId',
+    cluster: 'Build',
+    roleVisibility: ['admin', 'operator'],
+  },
+  {
+    path: '/adapters/:adapterId/policies',
+    component: AdaptersShellPage,
+    requiresAuth: true,
+    skeletonVariant: 'default',
+    breadcrumb: 'Policies',
     parentPath: '/adapters/:adapterId',
     cluster: 'Build',
     roleVisibility: ['admin', 'operator'],
@@ -586,6 +617,21 @@ export const routes: RouteConfig[] = [
     modes: [UiMode.User],
   },
   {
+    path: '/system/pilot-status',
+    component: PilotStatusPage,
+    requiresAuth: true,
+    navGroup: 'Observe',
+    navTitle: 'Pilot Status',
+    navIcon: CheckCircle,
+    navOrder: 6,
+    skeletonVariant: 'dashboard',
+    breadcrumb: 'Pilot Status',
+    parentPath: '/system',
+    cluster: 'Observe',
+    roleVisibility: ['admin', 'operator', 'sre'],
+    modes: [UiMode.User],
+  },
+  {
     path: '/inference',
     component: InferencePage,
     requiresAuth: true,
@@ -696,6 +742,39 @@ export const routes: RouteConfig[] = [
     modes: [UiMode.Audit],
   },
   {
+    path: '/telemetry/alerts',
+    component: TelemetryPage,
+    requiresAuth: true,
+    skeletonVariant: 'table',
+    breadcrumb: 'Alerts',
+    parentPath: '/telemetry',
+    cluster: 'Observe',
+    roleVisibility: ['admin', 'operator', 'sre', 'compliance', 'auditor'],
+    modes: [UiMode.Audit],
+  },
+  {
+    path: '/telemetry/exports',
+    component: TelemetryPage,
+    requiresAuth: true,
+    skeletonVariant: 'default',
+    breadcrumb: 'Exports',
+    parentPath: '/telemetry',
+    cluster: 'Observe',
+    roleVisibility: ['admin', 'operator', 'sre', 'compliance', 'auditor'],
+    modes: [UiMode.Audit],
+  },
+  {
+    path: '/telemetry/filters',
+    component: TelemetryPage,
+    requiresAuth: true,
+    skeletonVariant: 'form',
+    breadcrumb: 'Filters',
+    parentPath: '/telemetry',
+    cluster: 'Observe',
+    roleVisibility: ['admin', 'operator', 'sre', 'compliance', 'auditor'],
+    modes: [UiMode.Audit],
+  },
+  {
     path: '/replay',
     component: ReplayShellPage,
     requiresAuth: true,
@@ -710,6 +789,50 @@ export const routes: RouteConfig[] = [
     modes: [UiMode.Audit],
   },
   {
+    path: '/replay/decision-trace',
+    component: ReplayShellPage,
+    requiresAuth: true,
+    skeletonVariant: 'default',
+    breadcrumb: 'Decision Trace',
+    parentPath: '/replay',
+    cluster: 'Verify',
+    roleVisibility: ['admin', 'operator', 'sre', 'compliance', 'auditor'],
+    modes: [UiMode.Audit],
+  },
+  {
+    path: '/replay/evidence',
+    component: ReplayShellPage,
+    requiresAuth: true,
+    skeletonVariant: 'default',
+    breadcrumb: 'Evidence',
+    parentPath: '/replay',
+    cluster: 'Verify',
+    roleVisibility: ['admin', 'operator', 'sre', 'compliance', 'auditor'],
+    modes: [UiMode.Audit],
+  },
+  {
+    path: '/replay/compare',
+    component: ReplayShellPage,
+    requiresAuth: true,
+    skeletonVariant: 'default',
+    breadcrumb: 'Compare',
+    parentPath: '/replay',
+    cluster: 'Verify',
+    roleVisibility: ['admin', 'operator', 'sre', 'compliance', 'auditor'],
+    modes: [UiMode.Audit],
+  },
+  {
+    path: '/replay/export',
+    component: ReplayShellPage,
+    requiresAuth: true,
+    skeletonVariant: 'default',
+    breadcrumb: 'Export',
+    parentPath: '/replay',
+    cluster: 'Verify',
+    roleVisibility: ['admin', 'operator', 'sre', 'compliance', 'auditor'],
+    modes: [UiMode.Audit],
+  },
+  {
     path: '/security/policies',
     component: PoliciesPage,
     requiresAuth: true,
@@ -719,6 +842,7 @@ export const routes: RouteConfig[] = [
     navOrder: 0,
     skeletonVariant: 'table',
     breadcrumb: 'Guardrails',
+    parentPath: '/security',
     cluster: 'Verify',
     roleVisibility: ['admin', 'compliance', 'auditor'],
     modes: [UiMode.Audit],
@@ -734,6 +858,7 @@ export const routes: RouteConfig[] = [
     navOrder: 1,
     skeletonVariant: 'table',
     breadcrumb: 'Audit',
+    parentPath: '/security',
     cluster: 'Verify',
     roleVisibility: ['admin', 'compliance', 'auditor'],
     modes: [UiMode.Audit],
@@ -749,6 +874,7 @@ export const routes: RouteConfig[] = [
     navOrder: 2,
     skeletonVariant: 'table',
     breadcrumb: 'Compliance',
+    parentPath: '/security',
     cluster: 'Verify',
     roleVisibility: ['admin', 'compliance', 'auditor'],
     modes: [UiMode.Audit],
@@ -763,6 +889,7 @@ export const routes: RouteConfig[] = [
     navOrder: 3,
     skeletonVariant: 'table',
     breadcrumb: 'Evidence',
+    parentPath: '/security',
     cluster: 'Verify',
     roleVisibility: ['admin', 'compliance', 'auditor', 'operator'],
     modes: [UiMode.Audit],
@@ -967,7 +1094,7 @@ export const routes: RouteConfig[] = [
         {
           // IA-EXTRA: dev-only route, excluded from production IA
           path: '/_dev/routes',
-          component: redirectTo('/dashboard', 'Dashboard'),
+          component: RoutesDebugPage,
           requiresAuth: false,
           skeletonVariant: 'table' as const,
           breadcrumb: 'Routes Manifest',
@@ -1016,8 +1143,109 @@ export function formatClusterPrefixedLabel(
   return cluster ? `${cluster}${delimiter}${label}` : label;
 }
 
-// Helper to get breadcrumb trail for a route
-export function getBreadcrumbs(pathname: string): Array<{ path: string; label: string }> {
+/**
+ * Helper to match a route config by parameterized path.
+ * Supports matching parameterized paths like '/adapters/:adapterId'.
+ *
+ * @param path - Path to match (can be parameterized)
+ * @param pathname - Actual pathname with param values
+ * @returns RouteConfig if matched, undefined otherwise
+ */
+function matchRouteConfig(path: string, pathname: string): RouteConfig | undefined {
+  // First try exact match
+  const exactMatch = routes.find(route => route.path === path);
+  if (exactMatch) {
+    return exactMatch;
+  }
+
+  // Then try pattern matching for parameterized paths
+  return routes.find(route => {
+    const routeParts = route.path.split('/');
+    const pathParts = path.split('/');
+
+    if (routeParts.length !== pathParts.length) {
+      return false;
+    }
+
+    return routeParts.every((part, i) => {
+      if (part.startsWith(':')) {
+        return true; // param segment matches any value
+      }
+      return part === pathParts[i];
+    });
+  });
+}
+
+/**
+ * Resolves a parameterized path with actual parameter values.
+ *
+ * @param parameterizedPath - Path with :param placeholders
+ * @param params - Record of param names to values
+ * @returns Resolved path with params replaced
+ */
+function resolvePathWithParams(
+  parameterizedPath: string,
+  params: Record<string, string>
+): string {
+  let resolvedPath = parameterizedPath;
+
+  Object.entries(params).forEach(([paramName, paramValue]) => {
+    const paramPattern = `:${paramName}`;
+    resolvedPath = resolvedPath.replace(paramPattern, paramValue);
+  });
+
+  return resolvedPath;
+}
+
+/**
+ * Extracts parameter values from pathname based on route pattern.
+ *
+ * @param pathname - Actual URL path
+ * @param routePattern - Route pattern with :params
+ * @returns Record of param names to values
+ */
+function extractParamsFromPath(
+  pathname: string,
+  routePattern: string
+): Record<string, string> {
+  const params: Record<string, string> = {};
+
+  const patternParts = routePattern.split('/');
+  const pathParts = pathname.split('/');
+
+  if (patternParts.length !== pathParts.length) {
+    return params;
+  }
+
+  patternParts.forEach((part, index) => {
+    if (part.startsWith(':')) {
+      const paramName = part.slice(1);
+      params[paramName] = pathParts[index];
+    }
+  });
+
+  return params;
+}
+
+/**
+ * Helper to get breadcrumb trail for a route with resolved parameter paths.
+ *
+ * @param pathname - Current pathname (e.g., '/adapters/abc-123/lineage')
+ * @param params - Optional route parameters (from useParams hook)
+ * @returns Array of breadcrumb items with resolved paths and labels
+ *
+ * Example:
+ *   getBreadcrumbs('/adapters/abc-123/lineage', { adapterId: 'abc-123' })
+ *   Returns: [
+ *     { path: '/adapters', label: 'Adapters' },
+ *     { path: '/adapters/abc-123', label: 'Adapter Detail' },
+ *     { path: '/adapters/abc-123/lineage', label: 'Lineage' }
+ *   ]
+ */
+export function getBreadcrumbs(
+  pathname: string,
+  params?: Record<string, string>
+): Array<{ path: string; label: string }> {
   const breadcrumbs: Array<{ path: string; label: string }> = [];
   const currentRoute = matchRoute(pathname);
 
@@ -1025,20 +1253,31 @@ export function getBreadcrumbs(pathname: string): Array<{ path: string; label: s
     return breadcrumbs;
   }
 
+  // Extract params from pathname if not provided
+  const routeParams = params || extractParamsFromPath(pathname, currentRoute.path);
+
   // Build breadcrumb chain by following parentPath
   let route: RouteConfig | undefined = currentRoute;
   const chain: RouteConfig[] = [];
 
   while (route) {
     chain.unshift(route);
-    route = route.parentPath ? getRouteByPath(route.parentPath) : undefined;
+
+    // Match parent route, supporting parameterized paths
+    if (route.parentPath) {
+      // Resolve parent path with current params before matching
+      const resolvedParentPath = resolvePathWithParams(route.parentPath, routeParams);
+      route = matchRouteConfig(route.parentPath, resolvedParentPath);
+    } else {
+      route = undefined;
+    }
   }
 
-  // Convert to breadcrumb format
+  // Convert to breadcrumb format with resolved paths
   chain.forEach(r => {
     if (r.breadcrumb) {
       breadcrumbs.push({
-        path: r.path,
+        path: resolvePathWithParams(r.path, routeParams),
         label: r.breadcrumb,
       });
     }

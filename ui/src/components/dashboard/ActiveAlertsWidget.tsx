@@ -4,9 +4,9 @@ import { Button } from '@/components/ui/button';
 import { AlertTriangle, Bell, CheckCircle, Clock, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useTenant } from '@/providers/FeatureProviders';
-import { usePolling } from '@/hooks/usePolling';
-import { useServiceStatus } from '@/hooks/useServiceStatus';
-import { useRelativeTime } from '@/hooks/useTimestamp';
+import { usePolling } from '@/hooks/realtime/usePolling';
+import { useServiceStatus } from '@/hooks/system/useServiceStatus';
+import { useRelativeTime } from '@/hooks/ui/useTimestamp';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import apiClient from '@/api/client';
 import type { Alert as ApiAlert } from '@/api/types';
@@ -51,8 +51,8 @@ function mapApiAlertToWidgetAlert(apiAlert: ApiAlert): Alert {
   return {
     id: apiAlert.id,
     severity: mapSeverity(apiAlert.severity),
-    title: apiAlert.title,
-    created_at: apiAlert.created_at, // Store ISO timestamp for dynamic calculation
+    title: apiAlert.title ?? 'Unknown Alert',
+    created_at: apiAlert.created_at ?? new Date().toISOString(), // Store ISO timestamp for dynamic calculation
     acknowledged: apiAlert.status === 'acknowledged',
   };
 }
@@ -274,7 +274,7 @@ export function ActiveAlertsWidget() {
         variant="outline"
         size="sm"
         className="w-full"
-        onClick={() => navigate('/monitoring')}
+        onClick={() => navigate('/metrics')}
       >
         View All Alerts
       </Button>

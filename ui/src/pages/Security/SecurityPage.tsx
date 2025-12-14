@@ -11,7 +11,7 @@ import React, { useState } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Shield, FileText, ClipboardCheck, Wrench, CheckSquare } from 'lucide-react';
-import { useRBAC } from '@/hooks/useRBAC';
+import { useRBAC } from '@/hooks/security/useRBAC';
 import { ErrorRecovery } from '@/components/ui/error-recovery';
 import { PageHeader } from '@/components/ui/page-header';
 import { SectionErrorBoundary } from '@/components/ui/section-error-boundary';

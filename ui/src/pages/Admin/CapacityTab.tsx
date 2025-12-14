@@ -29,9 +29,9 @@ interface CapacityResponse {
 }
 
 export function CapacityTab() {
-  const { data, isLoading, error } = useQuery<CapacityResponse>({
+  const { data, isLoading, error } = useQuery({
     queryKey: ['system-capacity'],
-    queryFn: () => apiClient.getCapacity(),
+    queryFn: (): Promise<CapacityResponse> => apiClient.getCapacity(),
     refetchInterval: 10000, // Refresh every 10 seconds
   });
 

@@ -202,8 +202,9 @@ pub fn resolve_telemetry_dir() -> Result<ResolvedPath> {
 }
 
 /// Resolve index root directory with env/default provenance.
-pub fn resolve_index_root() -> ResolvedPath {
-    resolve_env_or_default("AOS_INDEX_DIR", DEFAULT_INDEX_ROOT, "index-root")
+/// Rejects /tmp paths for security.
+pub fn resolve_index_root() -> Result<ResolvedPath> {
+    resolve_env_or_default_no_tmp("AOS_INDEX_DIR", DEFAULT_INDEX_ROOT, "index-root")
 }
 
 /// Resolve manifest cache directory with env/default provenance.
@@ -831,6 +832,15 @@ mod tests {
         assert!(err.contains("must not be under /tmp"));
         assert!(err.contains("adapters-root"));
         std::env::remove_var(AOS_ADAPTERS_DIR_ENV);
+    }
+
+    #[test]
+    fn index_root_rejects_tmp() {
+        std::env::set_var("AOS_INDEX_DIR", "/tmp/indices");
+        let err = resolve_index_root().unwrap_err().to_string();
+        assert!(err.contains("must not be under /tmp"));
+        assert!(err.contains("index-root"));
+        std::env::remove_var("AOS_INDEX_DIR");
     }
 
     #[test]

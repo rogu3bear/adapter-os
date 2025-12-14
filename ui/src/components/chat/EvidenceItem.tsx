@@ -31,6 +31,41 @@ interface EvidenceItemProps {
 }
 
 /**
+ * Evidence metadata structure from API
+ */
+interface EvidenceMetadata {
+  document_id?: string;
+  documentId?: string;
+  chunk_id?: string;
+  chunkId?: string;
+  page_number?: number;
+  pageNumber?: number;
+  bbox?: HighlightBBox;
+  bounding_box?: HighlightBBox;
+}
+
+/**
+ * Base evidence item structure
+ */
+interface BaseEvidenceItem {
+  document_name: string;
+  page_number: number | null;
+  text_preview: string;
+  relevance_score: number;
+  reference?: string;
+  metadata_json?: string | Record<string, unknown>;
+}
+
+/**
+ * Extended evidence item with optional fields from API
+ */
+interface ExtendedEvidenceItem extends BaseEvidenceItem {
+  document_id?: string;
+  chunk_id?: string;
+  bbox?: HighlightBBox;
+}
+
+/**
  * Parse document metadata from evidence item to extract navigation info
  */
 function parseDocumentMetadata(item: EvidenceItemProps['item']): {
@@ -39,42 +74,43 @@ function parseDocumentMetadata(item: EvidenceItemProps['item']): {
   pageNumber?: number;
   bbox?: HighlightBBox;
 } {
-  let metadata: Record<string, unknown> = {};
+  let metadata: EvidenceMetadata = {};
 
   // Parse metadata_json if it's a string
   if (typeof item.metadata_json === 'string') {
     try {
-      metadata = JSON.parse(item.metadata_json);
+      metadata = JSON.parse(item.metadata_json) as EvidenceMetadata;
     } catch {
       // Failed to parse, metadata remains empty
     }
-  } else if (item.metadata_json) {
-    metadata = item.metadata_json;
+  } else if (item.metadata_json && typeof item.metadata_json === 'object') {
+    metadata = item.metadata_json as EvidenceMetadata;
   }
 
+  // Cast item to extended type to access optional fields
+  const extendedItem = item as ExtendedEvidenceItem;
+
   // Extract IDs from metadata or top-level fields
-  const documentId = (metadata.document_id || metadata.documentId || (item as any).document_id) as
-    | string
-    | undefined;
-  const chunkId = (metadata.chunk_id || metadata.chunkId || (item as any).chunk_id) as string | undefined;
-  const pageNumber = item.page_number ?? (metadata.page_number as number | undefined) ?? (metadata.pageNumber as number | undefined);
+  const documentId = metadata.document_id || metadata.documentId || extendedItem.document_id;
+  const chunkId = metadata.chunk_id || metadata.chunkId || extendedItem.chunk_id;
+  const pageNumber = item.page_number ?? metadata.page_number ?? metadata.pageNumber;
 
   // Extract bounding box if available
   let bbox: HighlightBBox | undefined;
-  const bboxData = metadata.bbox || metadata.bounding_box || (item as any).bbox;
+  const bboxData = metadata.bbox || metadata.bounding_box || extendedItem.bbox;
   if (bboxData && typeof bboxData === 'object') {
-    const bboxObj = bboxData as any;
+    // Type guard to validate bounding box structure
     if (
-      typeof bboxObj.x === 'number' &&
-      typeof bboxObj.y === 'number' &&
-      typeof bboxObj.width === 'number' &&
-      typeof bboxObj.height === 'number'
+      typeof bboxData.x === 'number' &&
+      typeof bboxData.y === 'number' &&
+      typeof bboxData.width === 'number' &&
+      typeof bboxData.height === 'number'
     ) {
       bbox = {
-        x: bboxObj.x,
-        y: bboxObj.y,
-        width: bboxObj.width,
-        height: bboxObj.height,
+        x: bboxData.x,
+        y: bboxData.y,
+        width: bboxData.width,
+        height: bboxData.height,
       };
     }
   }

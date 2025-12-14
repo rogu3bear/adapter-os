@@ -42,6 +42,8 @@ pub struct InferenceReplayMetadata {
     pub sampling_algorithm_version: String,
     /// BLAKE3 hash of sorted document hashes (null if no RAG)
     pub rag_snapshot_hash: Option<String>,
+    /// Dataset version ID for deterministic dataset pinning
+    pub dataset_version_id: Option<String>,
     /// JSON array of adapter IDs used (null if none)
     pub adapter_ids_json: Option<String>,
     /// Whether this inference was executed in base-only mode (no adapters)
@@ -103,6 +105,8 @@ pub struct CreateReplayMetadataParams {
     pub coreml_hash_mismatch: Option<bool>,
     pub sampling_algorithm_version: Option<String>,
     pub rag_snapshot_hash: Option<String>,
+    /// Dataset version ID for deterministic dataset pinning
+    pub dataset_version_id: Option<String>,
     /// JSON-serializable list of adapter IDs
     pub adapter_ids: Option<Vec<String>>,
     /// Whether the inference was base-only (no adapters)
@@ -202,7 +206,7 @@ impl Db {
             INSERT INTO inference_replay_metadata (
                 id, inference_id, tenant_id, manifest_hash, base_model_id, router_seed,
                 sampling_params_json, backend, backend_version, coreml_package_hash, coreml_expected_package_hash, coreml_hash_mismatch, sampling_algorithm_version,
-                rag_snapshot_hash, adapter_ids_json, base_only, prompt_text, prompt_truncated,
+                rag_snapshot_hash, dataset_version_id, adapter_ids_json, base_only, prompt_text, prompt_truncated,
                 response_text, response_truncated, rag_doc_ids_json, chat_context_hash,
                 replay_status, latency_ms, tokens_generated, determinism_mode,
                 fallback_triggered, coreml_compute_preference, coreml_compute_units,
@@ -210,7 +214,7 @@ impl Db {
                 execution_policy_version, stop_policy_json, created_at
             )
             VALUES (
-                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                 ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                 datetime('now')
             )
@@ -230,6 +234,7 @@ impl Db {
         .bind(&coreml_hash_mismatch)
         .bind(&sampling_algorithm_version)
         .bind(&params.rag_snapshot_hash)
+        .bind(&params.dataset_version_id)
         .bind(&adapter_ids_json)
         .bind(base_only)
         .bind(&stored_prompt_text)
@@ -334,7 +339,7 @@ impl Db {
                                 r#"
                                 SELECT id, inference_id, tenant_id, manifest_hash, base_model_id, router_seed,
                                        sampling_params_json, backend, backend_version, coreml_package_hash, coreml_expected_package_hash, coreml_hash_mismatch, sampling_algorithm_version,
-                                       rag_snapshot_hash, adapter_ids_json, base_only, prompt_text, prompt_truncated,
+                                       rag_snapshot_hash, dataset_version_id, adapter_ids_json, base_only, prompt_text, prompt_truncated,
                                        response_text, response_truncated, rag_doc_ids_json, chat_context_hash,
                                        replay_status, latency_ms, tokens_generated, determinism_mode,
                                        fallback_triggered, coreml_compute_preference, coreml_compute_units,
@@ -400,7 +405,7 @@ impl Db {
             r#"
             SELECT id, inference_id, tenant_id, manifest_hash, base_model_id, router_seed,
                    sampling_params_json, backend, backend_version, coreml_package_hash, coreml_expected_package_hash, coreml_hash_mismatch, sampling_algorithm_version,
-                   rag_snapshot_hash, adapter_ids_json, base_only, prompt_text, prompt_truncated,
+                   rag_snapshot_hash, dataset_version_id, adapter_ids_json, base_only, prompt_text, prompt_truncated,
                    response_text, response_truncated, rag_doc_ids_json, chat_context_hash,
                    replay_status, latency_ms, tokens_generated, determinism_mode,
                    fallback_triggered, coreml_compute_preference, coreml_compute_units,
@@ -448,7 +453,7 @@ impl Db {
                                 r#"
                                 SELECT id, inference_id, tenant_id, manifest_hash, base_model_id, router_seed,
                                        sampling_params_json, backend, backend_version, coreml_package_hash, coreml_expected_package_hash, coreml_hash_mismatch, sampling_algorithm_version,
-                                       rag_snapshot_hash, adapter_ids_json, base_only, prompt_text, prompt_truncated,
+                                       rag_snapshot_hash, dataset_version_id, adapter_ids_json, base_only, prompt_text, prompt_truncated,
                                        response_text, response_truncated, rag_doc_ids_json, chat_context_hash,
                                        replay_status, latency_ms, tokens_generated, determinism_mode,
                                        fallback_triggered, coreml_compute_preference, coreml_compute_units,
@@ -510,7 +515,7 @@ impl Db {
             r#"
             SELECT id, inference_id, tenant_id, manifest_hash, base_model_id, router_seed,
                    sampling_params_json, backend, backend_version, coreml_package_hash, coreml_expected_package_hash, coreml_hash_mismatch, sampling_algorithm_version,
-                   rag_snapshot_hash, adapter_ids_json, base_only, prompt_text, prompt_truncated,
+                   rag_snapshot_hash, dataset_version_id, adapter_ids_json, base_only, prompt_text, prompt_truncated,
                    response_text, response_truncated, rag_doc_ids_json, chat_context_hash,
                    replay_status, latency_ms, tokens_generated, determinism_mode,
                    fallback_triggered, coreml_compute_preference, coreml_compute_units,
@@ -602,7 +607,7 @@ impl Db {
                                 r#"
                                 SELECT id, inference_id, tenant_id, manifest_hash, base_model_id, router_seed,
                                        sampling_params_json, backend, backend_version, coreml_package_hash, coreml_expected_package_hash, coreml_hash_mismatch, sampling_algorithm_version,
-                                       rag_snapshot_hash, adapter_ids_json, base_only, prompt_text, prompt_truncated,
+                                       rag_snapshot_hash, dataset_version_id, adapter_ids_json, base_only, prompt_text, prompt_truncated,
                                        response_text, response_truncated, rag_doc_ids_json, chat_context_hash,
                                        replay_status, latency_ms, tokens_generated, determinism_mode,
                                        fallback_triggered, coreml_compute_preference, coreml_compute_units,
@@ -656,7 +661,7 @@ impl Db {
             r#"
             SELECT id, inference_id, tenant_id, manifest_hash, base_model_id, router_seed,
                    sampling_params_json, backend, backend_version, coreml_package_hash, coreml_expected_package_hash, coreml_hash_mismatch, sampling_algorithm_version,
-                   rag_snapshot_hash, adapter_ids_json, base_only, prompt_text, prompt_truncated,
+                   rag_snapshot_hash, dataset_version_id, adapter_ids_json, base_only, prompt_text, prompt_truncated,
                    response_text, response_truncated, rag_doc_ids_json, chat_context_hash,
                    replay_status, latency_ms, tokens_generated, determinism_mode,
                    fallback_triggered, coreml_compute_preference, coreml_compute_units,
@@ -710,6 +715,7 @@ struct InferenceReplayMetadataRow {
     coreml_hash_mismatch: Option<i32>,
     sampling_algorithm_version: String,
     rag_snapshot_hash: Option<String>,
+    dataset_version_id: Option<String>,
     adapter_ids_json: Option<String>,
     base_only: Option<i32>,
     prompt_text: String,
@@ -751,6 +757,7 @@ impl From<InferenceReplayMetadataRow> for InferenceReplayMetadata {
             coreml_hash_mismatch: row.coreml_hash_mismatch.map(|v| v != 0),
             sampling_algorithm_version: row.sampling_algorithm_version,
             rag_snapshot_hash: row.rag_snapshot_hash,
+            dataset_version_id: row.dataset_version_id,
             adapter_ids_json: row.adapter_ids_json,
             base_only: row.base_only.map(|v| v != 0),
             prompt_text: row.prompt_text,

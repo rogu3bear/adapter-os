@@ -4,7 +4,7 @@ import { MetricsChart } from '@/components/MetricsChart';
 import { Skeleton } from '@/components/ui/skeleton';
 import apiClient from '@/api/client';
 import { logger } from '@/utils/logger';
-import { usePolling } from '@/hooks/usePolling';
+import { usePolling } from '@/hooks/realtime/usePolling';
 
 interface MetricsSnapshot {
   timestamp: number;
@@ -26,9 +26,9 @@ export function MetricsGrid() {
     const data = await apiClient.getMetricsSnapshot();
     const transformedSnapshot: MetricsSnapshot = {
       timestamp: typeof data.timestamp === 'string' ? parseInt(data.timestamp, 10) : data.timestamp,
-      counters: data.counters,
-      gauges: data.gauges,
-      histograms: data.histograms,
+      counters: data.counters ?? {},
+      gauges: data.gauges ?? {},
+      histograms: data.histograms ?? {},
     };
 
     // Fetch time series data for the last hour

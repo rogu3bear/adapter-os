@@ -9,11 +9,11 @@ import { ContentGrid, KpiGrid } from '@/components/ui/grid';
 import { SectionErrorBoundary } from '@/components/ui/section-error-boundary';
 import { errorRecoveryTemplates } from '@/components/ui/error-recovery';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { useTraining } from '@/hooks/useTraining';
-import { useAdapters } from '@/pages/Adapters/useAdapters';
+import { useTraining } from '@/hooks/training';
+import { useAdapters } from '@/hooks/adapters/useAdapters';
 import { OperatorChatLayout } from '@/components/operator';
-import { useSystemMetrics } from '@/hooks/useSystem';
-import { useSettings } from '@/hooks/useSettings';
+import { useSystemMetrics } from '@/hooks/system/useSystem';
+import { useSettings } from '@/hooks/config/useSettings';
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import { useInferenceSessions } from '@/hooks/inference/useInferenceSessions';
@@ -601,7 +601,7 @@ function TrainingDashboardContent({ selectedTenant }: { selectedTenant: string }
                         </div>
                       )}
                       <div className="text-xs text-muted-foreground">
-                        {formatTimeAgo(job.updated_at || job.created_at)}
+                        {formatTimeAgo((job.updated_at ?? job.created_at) ?? new Date().toISOString())}
                       </div>
                     </div>
                   ))}
@@ -641,7 +641,7 @@ function TrainingDashboardContent({ selectedTenant }: { selectedTenant: string }
                       <div className="flex-1 space-y-1">
                         <p className="text-sm font-medium">{activity.action}</p>
                         <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                          <span>{formatTimeAgo(activity.time)}</span>
+                          <span>{formatTimeAgo(activity.time ?? new Date().toISOString())}</span>
                           <Badge variant={getStatusVariant(activity.status)} className="text-xs">
                             {activity.status}
                           </Badge>

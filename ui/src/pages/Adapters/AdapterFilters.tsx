@@ -18,7 +18,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { Search, Filter, X, SlidersHorizontal } from 'lucide-react';
 import type { AdapterState, AdapterCategory } from '@/api/adapter-types';
-import type { AdapterFilters as FilterValues } from './useAdapters';
+import type { AdapterFilters as FilterValues } from '@/hooks/adapters/useAdapters';
 
 interface AdapterFiltersProps {
   filters: FilterValues;

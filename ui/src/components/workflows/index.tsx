@@ -7,7 +7,7 @@ import { WorkflowHistory } from './WorkflowHistory';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { WorkflowTemplate, WorkflowExecution } from './types';
-import { useWorkflowPersistence } from '@/hooks/useWorkflowPersistence';
+import { useWorkflowPersistence } from '@/hooks/persistence/useWorkflowPersistence';
 import { toast } from 'sonner';
 import { ChevronLeft, History, Layout } from 'lucide-react';
 

@@ -6,7 +6,10 @@ use crate::supervisor_client;
 use crate::types::*;
 use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
 use serde::{Deserialize, Serialize};
+use sqlx::query;
 use std::collections::HashMap;
+use std::time::Duration;
+use tokio::time::timeout;
 use utoipa::ToSchema;
 
 /// Health check endpoint
@@ -27,89 +30,173 @@ pub async fn health() -> impl IntoResponse {
     })
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct ReadyzCheck {
+    pub ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hint: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct ReadyzChecks {
+    pub db: ReadyzCheck,
+    pub worker: ReadyzCheck,
+    pub models_seeded: ReadyzCheck,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct ReadyzResponse {
+    pub ready: bool,
+    pub checks: ReadyzChecks,
+}
+
 /// Readiness check
 #[utoipa::path(
     tag = "system",
     get,
     path = "/readyz",
     responses(
-        (status = 200, description = "Service is ready", body = HealthResponse),
-        (status = 503, description = "Service is not ready", body = HealthResponse)
+        (status = 200, description = "Service is ready", body = ReadyzResponse),
+        (status = 503, description = "Service is not ready", body = ReadyzResponse)
     )
 )]
 pub async fn ready(State(state): State<AppState>) -> impl IntoResponse {
-    let mut ready_status = "ready".to_string();
+    let mut ready = true;
+
+    let mut db_check = ReadyzCheck { ok: true, hint: None };
+    let mut worker_check = ReadyzCheck {
+        ok: true,
+        hint: None,
+    };
+    let mut models_seeded_check = ReadyzCheck {
+        ok: true,
+        hint: None,
+    };
 
     // Check boot state - only return ready if in Ready state
-    if let Some(ref boot_state) = state.boot_state {
-        let mut current = boot_state.current_state();
+    let Some(ref boot_state) = state.boot_state else {
+        ready = false;
+        worker_check.ok = false;
+        worker_check.hint = Some("boot state manager not configured".to_string());
 
-        // During early startup, treat an uninitialized state as booting to avoid
-        // reporting "stopped" in readiness responses.
-        if matches!(current, BootState::Stopped) {
-            current = BootState::Booting;
-        }
-        if current.is_maintenance() {
-            return (
-                StatusCode::SERVICE_UNAVAILABLE,
-                Json(HealthResponse {
-                    schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
-                    status: "maintenance".to_string(),
-                    version: env!("CARGO_PKG_VERSION").to_string(),
-                    models: None,
-                }),
-            );
-        }
-        if current.is_draining() || current.is_shutting_down() {
-            return (
-                StatusCode::SERVICE_UNAVAILABLE,
-                Json(HealthResponse {
-                    schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
-                    status: "draining".to_string(),
-                    version: env!("CARGO_PKG_VERSION").to_string(),
-                    models: None,
-                }),
-            );
-        }
+        let status_code = StatusCode::SERVICE_UNAVAILABLE;
+        return (
+            status_code,
+            Json(ReadyzResponse {
+                ready,
+                checks: ReadyzChecks {
+                    db: db_check,
+                    worker: worker_check,
+                    models_seeded: models_seeded_check,
+                },
+            }),
+        );
+    };
 
-        if !boot_state.is_ready() {
-            return (
-                StatusCode::SERVICE_UNAVAILABLE,
-                Json(HealthResponse {
-                    schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
-                    status: format!("booting: {}", current),
-                    version: env!("CARGO_PKG_VERSION").to_string(),
-                    models: None,
-                }),
-            );
-        }
+    let mut current = boot_state.current_state();
 
-        if boot_state.is_fully_ready() {
-            ready_status = "fully-ready".to_string();
-        }
+    // During early startup, treat an uninitialized state as booting to avoid
+    // reporting "stopped" in readiness responses.
+    if matches!(current, BootState::Stopped) {
+        current = BootState::Booting;
+    }
+
+    if current.is_maintenance() {
+        ready = false;
+        worker_check.ok = false;
+        worker_check.hint = Some("maintenance".to_string());
+    } else if current.is_draining() || current.is_shutting_down() {
+        ready = false;
+        worker_check.ok = false;
+        worker_check.hint = Some("draining".to_string());
+    } else if !boot_state.is_ready() {
+        ready = false;
+        worker_check.ok = false;
+        worker_check.hint = Some(format!("booting: {}", current));
     }
 
     // Check database connectivity
-    match state.db.pool().acquire().await {
-        Ok(_) => (
-            StatusCode::OK,
-            Json(HealthResponse {
-                schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
-                status: ready_status,
-                version: env!("CARGO_PKG_VERSION").to_string(),
-                models: None,
-            }),
-        ),
-        Err(_) => (
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(HealthResponse {
-                schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
-                status: "not ready".to_string(),
-                version: env!("CARGO_PKG_VERSION").to_string(),
-                models: None,
-            }),
-        ),
+    const DB_TIMEOUT: Duration = Duration::from_secs(1);
+    let db_probe = timeout(DB_TIMEOUT, async {
+        let mut conn = state.db.pool().acquire().await?;
+        query("SELECT 1").execute(&mut *conn).await?;
+        Ok::<(), sqlx::Error>(())
+    })
+    .await;
+
+    match db_probe {
+        Ok(Ok(())) => {}
+        Ok(Err(_)) => {
+            ready = false;
+            db_check.ok = false;
+            db_check.hint = Some("db unreachable".to_string());
+        }
+        Err(_) => {
+            ready = false;
+            db_check.ok = false;
+            db_check.hint = Some("db timeout".to_string());
+        }
     }
+
+    if !db_check.ok {
+        worker_check.ok = false;
+        if worker_check.hint.is_none() {
+            worker_check.hint = Some("database unavailable (cannot check workers)".to_string());
+        }
+        models_seeded_check.ok = false;
+        models_seeded_check.hint = Some("database unavailable (cannot check models)".to_string());
+    } else {
+        // Report worker presence as informational readiness checks.
+        if worker_check.ok {
+            match state.db.count_active_workers().await {
+                Ok(count) if count > 0 => {}
+                Ok(_) => {
+                    worker_check.ok = false;
+                    worker_check.hint = Some("no workers registered".to_string());
+                }
+                Err(_) => {
+                    worker_check.ok = false;
+                    worker_check.hint = Some("failed to query workers".to_string());
+                }
+            }
+        }
+
+        match sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM models")
+            .fetch_one(state.db.pool())
+            .await
+        {
+            Ok(count) if count > 0 => {}
+            Ok(_) => {
+                models_seeded_check.ok = false;
+                models_seeded_check.hint = Some("no models seeded".to_string());
+            }
+            Err(_) => {
+                models_seeded_check.ok = false;
+                models_seeded_check.hint = Some("failed to query models".to_string());
+            }
+        }
+    }
+
+    // Final readiness is the conjunction of the individual checks.
+    ready = db_check.ok && worker_check.ok && models_seeded_check.ok;
+
+    let status_code = if ready {
+        StatusCode::OK
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE
+    };
+
+    (
+        status_code,
+        Json(ReadyzResponse {
+            ready,
+            checks: ReadyzChecks {
+                db: db_check,
+                worker: worker_check,
+                models_seeded: models_seeded_check,
+            },
+        }),
+    )
 }
 
 #[allow(dead_code)]

@@ -390,13 +390,22 @@ fn test_json_output_format() {
     let stdout = String::from_utf8_lossy(&output.stdout);
 
     // Output should be valid JSON
-    let parsed: serde_json::Value = serde_json::from_str(&stdout)
-        .expect("Output should be valid JSON");
+    let parsed: serde_json::Value =
+        serde_json::from_str(&stdout).expect("Output should be valid JSON");
 
     // Check for expected fields in JSON output
-    assert!(parsed.get("trace_id").is_some(), "JSON should contain trace_id");
-    assert!(parsed.get("reasons").is_some(), "JSON should contain reasons");
-    assert!(parsed.get("context_digest").is_some(), "JSON should contain context_digest");
+    assert!(
+        parsed.get("trace_id").is_some(),
+        "JSON should contain trace_id"
+    );
+    assert!(
+        parsed.get("reasons").is_some(),
+        "JSON should contain reasons"
+    );
+    assert!(
+        parsed.get("context_digest").is_some(),
+        "JSON should contain context_digest"
+    );
 }
 
 #[test]
@@ -628,14 +637,7 @@ fn test_context_digest_mismatch() {
 fn test_verify_receipt_help() {
     use std::process::Command;
     let output = Command::new("cargo")
-        .args([
-            "run",
-            "--bin",
-            "aosctl",
-            "--",
-            "verify-receipt",
-            "--help",
-        ])
+        .args(["run", "--bin", "aosctl", "--", "verify-receipt", "--help"])
         .output()
         .expect("Failed to execute verify-receipt --help");
 

@@ -23,7 +23,7 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import DocumentChatLayout from '@/components/documents/DocumentChatLayout';
-import { useDocument } from '@/hooks/useDocumentsApi';
+import { useDocument } from '@/hooks/documents';
 import { Link } from 'react-router-dom';
 
 interface DocumentChatParams {
@@ -42,13 +42,13 @@ export default function DocumentChatPage() {
   // Set page title dynamically
   useEffect(() => {
     if (document) {
-      document.title = `Chat: ${document.name} - AdapterOS`;
+      globalThis.document.title = `Chat: ${document.name} - AdapterOS`;
     } else {
-      document.title = 'Document Chat - AdapterOS';
+      globalThis.document.title = 'Document Chat - AdapterOS';
     }
 
     return () => {
-      document.title = 'AdapterOS';
+      globalThis.document.title = 'AdapterOS';
     };
   }, [document]);
 
@@ -218,7 +218,7 @@ export default function DocumentChatPage() {
       </main>
 
       <div className="p-4 border-t text-sm text-muted-foreground">
-        <Link to="/telemetry/viewer" className="underline underline-offset-4">
+        <Link to="/telemetry?tab=viewer" className="underline underline-offset-4">
           View telemetry for this session
         </Link>
       </div>

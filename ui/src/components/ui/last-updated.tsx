@@ -1,6 +1,6 @@
 // 【ui/src/hooks/usePolling.ts】 - lastUpdated timestamp
 import { Clock } from 'lucide-react';
-import { useTimestamp } from '@/hooks/useTimestamp';
+import { useTimestamp } from '@/hooks/ui/useTimestamp';
 
 interface LastUpdatedProps {
   timestamp: Date | null;

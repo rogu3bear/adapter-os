@@ -13,7 +13,7 @@ import {
   useSystemHealthStatus,
   getHealthStatus,
   type HealthStatus,
-} from '@/hooks/useSystemMetrics';
+} from '@/hooks/system/useSystemMetrics';
 import { HealthBadge, MetricCard } from './shared/MetricComponents';
 
 export default function SystemOverviewTab() {

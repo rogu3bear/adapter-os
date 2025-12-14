@@ -12,7 +12,7 @@ import React, { useEffect, useState } from 'react';
 import { Progress } from './progress';
 import { Badge } from './badge';
 import { Clock, CheckCircle, AlertTriangle, X } from 'lucide-react';
-import { useProgressOperation } from '@/hooks/useProgressOperation';
+import { useProgressOperation } from '@/hooks/ui/useProgressOperation';
 
 export interface ProgressIndicatorProps {
   progress: number; // 0-100

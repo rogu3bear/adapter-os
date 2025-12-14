@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { EvidenceStatusBadge } from '@/components/evidence/EvidenceStatusBadge';
-import { useEvidenceApi } from '@/hooks/useEvidenceApi';
+import { useEvidenceApi } from '@/hooks/api/useEvidenceApi';
 import type { Evidence } from '@/api/document-types';
 import { toast } from 'sonner';
 import { Download, PlusCircle, RefreshCw, AlertCircle } from 'lucide-react';

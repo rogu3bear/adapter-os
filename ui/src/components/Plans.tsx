@@ -562,7 +562,7 @@ export function Plans({ user, selectedTenant }: PlansProps) {
                         </ul>
                       </div>
                     )}
-                    {compareResult.adapter_changes.filter(c => c.added).length > 0 && (
+                    {compareResult.adapter_changes && compareResult.adapter_changes.filter(c => c.added).length > 0 && (
                       <div>
                         <p><strong>Adapters Added:</strong></p>
                         <ul className="list-disc list-inside">
@@ -572,7 +572,7 @@ export function Plans({ user, selectedTenant }: PlansProps) {
                         </ul>
                       </div>
                     )}
-                    {compareResult.adapter_changes.filter(c => c.removed).length > 0 && (
+                    {compareResult.adapter_changes && compareResult.adapter_changes.filter(c => c.removed).length > 0 && (
                       <div>
                         <p><strong>Adapters Removed:</strong></p>
                         <ul className="list-disc list-inside">

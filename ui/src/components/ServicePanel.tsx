@@ -42,7 +42,7 @@ import PromptOrchestrationPanel from './PromptOrchestrationPanel';
 import { AuthenticationSettings } from './AuthenticationSettings';
 import { logger, toError } from '@/utils/logger';
 import apiClient from '@/api/client';
-import { useServiceStatus } from '@/hooks/useServiceStatus';
+import { useServiceStatus } from '@/hooks/system/useServiceStatus';
 
 // Simple service interface
 interface SimpleService {

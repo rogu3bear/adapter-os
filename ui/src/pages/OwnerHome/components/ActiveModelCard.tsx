@@ -116,7 +116,7 @@ export function ActiveModelCard({
                   </Badge>
                 </div>
                 <div className="flex flex-wrap items-center gap-2 text-sm text-slate-600">
-                  <span>{formatBytes(loadedModel.size_bytes)}</span>
+                  <span>{formatBytes(loadedModel.size_bytes ?? 0)}</span>
                   {loadedModel.format && (
                     <>
                       <span className="text-slate-300">•</span>
