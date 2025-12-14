@@ -203,7 +203,8 @@ pub async fn chat_completions(
         }
     }
 
-    let prompt = messages_to_prompt(&req.messages).map_err(|e| (StatusCode::BAD_REQUEST, Json(e)))?;
+    let prompt =
+        messages_to_prompt(&req.messages).map_err(|e| (StatusCode::BAD_REQUEST, Json(e)))?;
     let prompt_tokens_estimate = estimate_tokens(&prompt);
 
     let mut infer_req = InferRequest::default();
@@ -238,9 +239,7 @@ pub async fn chat_completions(
         .or(infer_resp.model.clone())
         .unwrap_or_else(|| "adapteros".to_string());
 
-    let prompt_tokens = infer_resp
-        .prompt_tokens
-        .unwrap_or(prompt_tokens_estimate);
+    let prompt_tokens = infer_resp.prompt_tokens.unwrap_or(prompt_tokens_estimate);
     let usage = Some(OpenAiUsage {
         prompt_tokens,
         completion_tokens: infer_resp.tokens_generated,

@@ -148,7 +148,7 @@ pub fn derive_sampler_seed(request_seed: &[u8; 32], step: u64) -> [u8; 32] {
     hasher.update(b"sample");
     hasher.update(request_seed);
     hasher.update(&step.to_le_bytes());
-    hasher.finalize().as_bytes().to_owned().try_into().unwrap()
+    hasher.finalize().as_bytes().to_owned()
 }
 
 /// Expand a legacy u64 seed into 32 bytes using HKDF.
@@ -166,5 +166,5 @@ pub fn derive_router_tiebreak_seed(router_seed_hex: &str) -> [u8; 32] {
     let mut hasher = Hasher::new();
     hasher.update(b"router-tie");
     hasher.update(router_seed_hex.as_bytes());
-    hasher.finalize().as_bytes().to_owned().try_into().unwrap()
+    hasher.finalize().as_bytes().to_owned()
 }

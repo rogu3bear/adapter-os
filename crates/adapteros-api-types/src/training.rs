@@ -570,7 +570,8 @@ mod tests {
         job.weights_hash_b3 = Some(B3Hash::hash(b"weights").to_hex());
         job.data_spec_json = Some(r#"{"dataset":"v1"}"#.to_string());
 
-        let expected_data_spec_hash = B3Hash::hash(job.data_spec_json.as_deref().unwrap().as_bytes()).to_hex();
+        let expected_data_spec_hash =
+            B3Hash::hash(job.data_spec_json.as_deref().unwrap().as_bytes()).to_hex();
         let params = TrainingConfigHashParams {
             rank: job.config.rank as usize,
             alpha: job.config.alpha as f32,
@@ -579,14 +580,18 @@ mod tests {
             epochs: job.config.epochs as usize,
             hidden_dim: 768,
         };
-        let expected_config_hash = B3Hash::hash(serde_json::to_string(&params).unwrap().as_bytes()).to_hex();
+        let expected_config_hash =
+            B3Hash::hash(serde_json::to_string(&params).unwrap().as_bytes()).to_hex();
 
         let resp: TrainingJobResponse = job.into();
 
         assert_eq!(resp.repo_id.as_deref(), Some("repo-1"));
         assert_eq!(resp.adapter_repo_id.as_deref(), Some("repo-1"));
         assert_eq!(resp.adapter_version_id.as_deref(), Some("ver-draft-1"));
-        assert_eq!(resp.config_hash_b3.as_deref(), Some(expected_config_hash.as_str()));
+        assert_eq!(
+            resp.config_hash_b3.as_deref(),
+            Some(expected_config_hash.as_str())
+        );
         assert_eq!(
             resp.data_spec_hash.as_deref(),
             Some(expected_data_spec_hash.as_str())

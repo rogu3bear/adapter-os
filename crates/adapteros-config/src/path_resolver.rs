@@ -44,8 +44,8 @@ pub const DEFAULT_CP_WORKER_SOCKET: &str = "/var/run/adapteros.sock";
 /// Default status file path consumed by the menu bar app.
 pub const DEFAULT_STATUS_PATH: &str = "/var/run/adapteros_status.json";
 
-/// Default SQLite path for the control plane database.
-pub const DEFAULT_DB_PATH: &str = "./var/cp.db";
+/// Default SQLite URL for the control plane database.
+pub const DEFAULT_DB_PATH: &str = "sqlite://var/aos-cp.sqlite3";
 
 /// Primary adapters root environment variable.
 pub const AOS_ADAPTERS_ROOT_ENV: &str = "AOS_ADAPTERS_ROOT";
@@ -267,30 +267,30 @@ pub fn resolve_adapters_root() -> Result<ResolvedPath> {
 /// Resolve database URL with env/default provenance.
 pub fn resolve_database_url() -> Result<ResolvedPath> {
     crate::model::load_dotenv();
-    if let Ok(url) = std::env::var("DATABASE_URL") {
+    if let Ok(url) = std::env::var("AOS_DATABASE_URL") {
         tracing::info!(
             database_url = %url,
-            source = %PathSource::Env("DATABASE_URL"),
+            source = %PathSource::Env("AOS_DATABASE_URL"),
             "Resolved database URL from environment"
         );
         let resolved = ResolvedPath {
             path: PathBuf::from(url),
-            source: PathSource::Env("DATABASE_URL"),
+            source: PathSource::Env("AOS_DATABASE_URL"),
             used_dev_fallback: false,
         };
         reject_tmp_persistent_path(&resolved.path, "database-url")?;
         return Ok(resolved);
     }
 
-    if let Ok(url) = std::env::var("AOS_DATABASE_URL") {
+    if let Ok(url) = std::env::var("DATABASE_URL") {
         tracing::info!(
             database_url = %url,
-            source = %PathSource::Env("AOS_DATABASE_URL"),
+            source = %PathSource::Env("DATABASE_URL"),
             "Resolved database URL from legacy environment variable"
         );
         let resolved = ResolvedPath {
             path: PathBuf::from(url),
-            source: PathSource::Env("AOS_DATABASE_URL"),
+            source: PathSource::Env("DATABASE_URL"),
             used_dev_fallback: false,
         };
         reject_tmp_persistent_path(&resolved.path, "database-url")?;
@@ -483,11 +483,15 @@ fn reject_tmp_persistent_path(path: &Path, kind: &str) -> Result<()> {
     let path_str = path.display().to_string();
     let mut candidate = path_str.as_str();
 
-    for prefix in ["sqlite://", "file://"] {
+    for prefix in ["sqlite://", "sqlite:", "file://", "file:"] {
         if let Some(stripped) = candidate.strip_prefix(prefix) {
             candidate = stripped;
             break;
         }
+    }
+
+    while candidate.starts_with("//") {
+        candidate = &candidate[1..];
     }
 
     if FORBIDDEN_TMP_PREFIXES
@@ -854,9 +858,27 @@ mod tests {
 
     #[test]
     fn database_url_prefers_primary_env() {
-        std::env::set_var("DATABASE_URL", "./var/db.sqlite");
+        std::env::set_var("AOS_DATABASE_URL", "sqlite://var/db-primary.sqlite3");
+        std::env::set_var("DATABASE_URL", "sqlite://var/db-legacy.sqlite3");
         let resolved = resolve_database_url().unwrap();
-        assert_eq!(resolved.path, PathBuf::from("./var/db.sqlite"));
+        assert_eq!(
+            resolved.path,
+            PathBuf::from("sqlite://var/db-primary.sqlite3")
+        );
+        assert_eq!(resolved.source, PathSource::Env("AOS_DATABASE_URL"));
+        std::env::remove_var("AOS_DATABASE_URL");
+        std::env::remove_var("DATABASE_URL");
+    }
+
+    #[test]
+    fn database_url_falls_back_to_legacy_env() {
+        std::env::remove_var("AOS_DATABASE_URL");
+        std::env::set_var("DATABASE_URL", "sqlite://var/db-legacy-only.sqlite3");
+        let resolved = resolve_database_url().unwrap();
+        assert_eq!(
+            resolved.path,
+            PathBuf::from("sqlite://var/db-legacy-only.sqlite3")
+        );
         assert_eq!(resolved.source, PathSource::Env("DATABASE_URL"));
         std::env::remove_var("DATABASE_URL");
     }
@@ -911,6 +933,16 @@ mod tests {
     fn database_url_rejects_tmp_sqlite_scheme() {
         std::env::remove_var("DATABASE_URL");
         std::env::set_var("AOS_DATABASE_URL", "sqlite:///tmp/cp.db");
+        let err = resolve_database_url().unwrap_err().to_string();
+        assert!(err.contains("must not be under /tmp"));
+        assert!(err.contains("database-url"));
+        std::env::remove_var("AOS_DATABASE_URL");
+    }
+
+    #[test]
+    fn database_url_rejects_tmp_sqlite_single_slash_scheme() {
+        std::env::remove_var("DATABASE_URL");
+        std::env::set_var("AOS_DATABASE_URL", "sqlite:/tmp/cp.db");
         let err = resolve_database_url().unwrap_err().to_string();
         assert!(err.contains("must not be under /tmp"));
         assert!(err.contains("database-url"));

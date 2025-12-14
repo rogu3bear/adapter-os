@@ -23,7 +23,7 @@ echo "[db/check_migrations] running numbering/collision checks..."
 bash "${LEGACY_CHECK}"
 
 echo "[db/check_migrations] verifying migration signatures..."
-if command -v python3 >/dev/null 2>&1 && python3 - <<'PY' >/dev/null 2>&1; then
+if command -v python3 >/dev/null 2>&1 && python3 - <<'PY' >/dev/null 2>&1
 import importlib.util, sys
 sys.exit(0 if importlib.util.find_spec("blake3") else 1)
 PY

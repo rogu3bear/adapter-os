@@ -84,6 +84,8 @@ ui/.eslintcache
 
 # Test outputs
 /test-results
+**/test-results/
+**/.last-run.json
 *.repro
 
 # Logs

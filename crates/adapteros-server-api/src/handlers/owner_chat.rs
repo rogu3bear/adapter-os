@@ -432,22 +432,47 @@ async fn try_adapter_response(state: &AppState, user_message: &str) -> Option<St
     // If adapter is configured, verify it exists and is in a usable state
     if let Some(ref id) = adapter_id {
         info!(adapter_id = %id, "Found configured docs adapter");
-        match state.db.get_adapter(id).await {
-            Ok(Some(adapter)) => {
+        let mut found = None;
+
+        match state.db.list_tenants().await {
+            Ok(tenants) => {
+                for tenant in tenants {
+                    match state.db.get_adapter(&tenant.id, id).await {
+                        Ok(Some(adapter)) => {
+                            found = Some(adapter);
+                            break;
+                        }
+                        Ok(None) => continue,
+                        Err(e) => {
+                            warn!(
+                                error = %e,
+                                tenant_id = %tenant.id,
+                                adapter_id = %id,
+                                "Failed to query adapter state for tenant; continuing search"
+                            );
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                warn!(error = %e, "Failed to list tenants while resolving owner chat adapter");
+            }
+        }
+
+        match found {
+            Some(adapter) => {
                 let usable_states = ["hot", "warm", "resident"];
                 if !usable_states.contains(&adapter.current_state.as_str()) {
                     info!(
                         adapter_id = %id,
                         current_state = %adapter.current_state,
+                        tenant_id = %adapter.tenant_id,
                         "Docs adapter not in usable state, falling back to base model"
                     );
                 }
             }
-            Ok(None) => {
+            None => {
                 info!(adapter_id = %id, "Configured docs adapter not found, falling back to base model");
-            }
-            Err(e) => {
-                warn!(error = %e, adapter_id = %id, "Failed to query adapter state, falling back to base model");
             }
         }
     }

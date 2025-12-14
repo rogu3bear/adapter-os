@@ -23,18 +23,13 @@ use adapteros_telemetry::CriticalComponentMetrics;
 use metal::{Buffer, Device, MTLResourceOptions};
 
 /// Eviction policy for memory pressure handling
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum EvictionPolicy {
     /// Only evict COLD entries (never evict HOT entries)
     ColdOnly,
     /// Evict COLD entries first, then HOT entries if needed
+    #[default]
     ColdThenHot,
-}
-
-impl Default for EvictionPolicy {
-    fn default() -> Self {
-        Self::ColdThenHot
-    }
 }
 
 /// GPU memory pool configuration

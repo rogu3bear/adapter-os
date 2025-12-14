@@ -14,12 +14,12 @@ use adapteros_api_types::{
     AdapterProvenance, BaseModelInfo, ChatProvenanceResponse, DatasetProvenance, ProvenanceEvent,
     ProvenanceEventType, SessionSummary, StackProvenance, TrainingJobProvenance,
 };
-use adapteros_db::contacts::ContactUpsertParams;
 use adapteros_db::chat_sessions::UpdateChatSessionParams;
-use adapteros_db::{ 
+use adapteros_db::contacts::ContactUpsertParams;
+use adapteros_db::{
     AddMessageParams, ChatCategory, ChatMessage, ChatSearchResult, ChatSession,
-    ChatSessionWithStatus, ChatTag, CreateChatSessionParams, InferenceEvidence, SessionShare,
-    Contact,
+    ChatSessionWithStatus, ChatTag, Contact, CreateChatSessionParams, InferenceEvidence,
+    SessionShare,
 };
 use axum::{
     extract::{Path, Query, State},
@@ -3115,11 +3115,15 @@ pub async fn list_contacts(
 ) -> impl IntoResponse {
     let limit = params.limit.unwrap_or(20);
     let offset = params.offset.unwrap_or(0);
-    
+
     // Check tenant isolation if needed, though claims usually suffice
     // DB layer filters by tenant_id
-    
-    match state.db.list_contacts(&claims.tenant_id, limit, offset).await {
+
+    match state
+        .db
+        .list_contacts(&claims.tenant_id, limit, offset)
+        .await
+    {
         Ok(contacts) => Json(contacts).into_response(),
         Err(e) => super::utils::aos_error_to_response(e).into_response(),
     }
@@ -3142,7 +3146,10 @@ pub async fn create_contact(
 ) -> impl IntoResponse {
     // Validate tenant isolation
     if payload.tenant_id != claims.tenant_id {
-        return super::utils::aos_error_to_response(adapteros_core::AosError::Authorization("Tenant mismatch".into())).into_response();
+        return super::utils::aos_error_to_response(adapteros_core::AosError::Authorization(
+            "Tenant mismatch".into(),
+        ))
+        .into_response();
     }
 
     match state.db.upsert_contact(payload).await {
@@ -3173,12 +3180,18 @@ pub async fn get_contact(
         Ok(Some(contact)) => {
             // Verify tenant ownership
             if contact.tenant_id != claims.tenant_id {
-                 // Return 404 to avoid leaking existence
-                 return super::utils::aos_error_to_response(adapteros_core::AosError::NotFound("Contact not found".into())).into_response();
+                // Return 404 to avoid leaking existence
+                return super::utils::aos_error_to_response(adapteros_core::AosError::NotFound(
+                    "Contact not found".into(),
+                ))
+                .into_response();
             }
             Json(contact).into_response()
-        },
-        Ok(None) => super::utils::aos_error_to_response(adapteros_core::AosError::NotFound("Contact not found".into())).into_response(),
+        }
+        Ok(None) => super::utils::aos_error_to_response(adapteros_core::AosError::NotFound(
+            "Contact not found".into(),
+        ))
+        .into_response(),
         Err(e) => super::utils::aos_error_to_response(e).into_response(),
     }
 }
@@ -3204,11 +3217,19 @@ pub async fn delete_contact(
     // Check existence and ownership first
     match state.db.get_contact(&id).await {
         Ok(Some(contact)) => {
-             if contact.tenant_id != claims.tenant_id {
-                 return super::utils::aos_error_to_response(adapteros_core::AosError::NotFound("Contact not found".into())).into_response();
-             }
-        },
-        Ok(None) => return super::utils::aos_error_to_response(adapteros_core::AosError::NotFound("Contact not found".into())).into_response(),
+            if contact.tenant_id != claims.tenant_id {
+                return super::utils::aos_error_to_response(adapteros_core::AosError::NotFound(
+                    "Contact not found".into(),
+                ))
+                .into_response();
+            }
+        }
+        Ok(None) => {
+            return super::utils::aos_error_to_response(adapteros_core::AosError::NotFound(
+                "Contact not found".into(),
+            ))
+            .into_response()
+        }
         Err(e) => return super::utils::aos_error_to_response(e).into_response(),
     }
 
@@ -3217,7 +3238,6 @@ pub async fn delete_contact(
         Err(e) => super::utils::aos_error_to_response(e).into_response(),
     }
 }
-
 
 /// Get contact interactions
 #[utoipa::path(
@@ -3245,10 +3265,18 @@ pub async fn get_contact_interactions(
     match state.db.get_contact(&id).await {
         Ok(Some(contact)) => {
             if contact.tenant_id != claims.tenant_id {
-                return super::utils::aos_error_to_response(adapteros_core::AosError::NotFound("Contact not found".into())).into_response();
+                return super::utils::aos_error_to_response(adapteros_core::AosError::NotFound(
+                    "Contact not found".into(),
+                ))
+                .into_response();
             }
-        },
-        Ok(None) => return super::utils::aos_error_to_response(adapteros_core::AosError::NotFound("Contact not found".into())).into_response(),
+        }
+        Ok(None) => {
+            return super::utils::aos_error_to_response(adapteros_core::AosError::NotFound(
+                "Contact not found".into(),
+            ))
+            .into_response()
+        }
         Err(e) => return super::utils::aos_error_to_response(e).into_response(),
     }
 

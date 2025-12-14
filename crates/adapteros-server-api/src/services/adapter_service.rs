@@ -198,6 +198,7 @@ impl DefaultAdapterService {
     async fn execute_transition(
         &self,
         adapter_id: &str,
+        tenant_id: &str,
         old_state_str: &str,
         new_state_str: &str,
         reason: &str,
@@ -241,7 +242,13 @@ impl DefaultAdapterService {
                 let updated = self
                     .state
                     .db
-                    .update_adapter_state_cas(adapter_id, old_state_str, new_state_str, reason)
+                    .update_adapter_state_cas_for_tenant(
+                        tenant_id,
+                        adapter_id,
+                        old_state_str,
+                        new_state_str,
+                        reason,
+                    )
                     .await
                     .map_err(|e| {
                         error!(error = %e, "Failed to update adapter state (CAS)");
@@ -260,7 +267,13 @@ impl DefaultAdapterService {
             let updated = self
                 .state
                 .db
-                .update_adapter_state_cas(adapter_id, old_state_str, new_state_str, reason)
+                .update_adapter_state_cas_for_tenant(
+                    tenant_id,
+                    adapter_id,
+                    old_state_str,
+                    new_state_str,
+                    reason,
+                )
                 .await
                 .map_err(|e| {
                     error!(error = %e, "Failed to update adapter state (CAS)");
@@ -364,6 +377,7 @@ impl AdapterService for DefaultAdapterService {
         let new_state = self
             .execute_transition(
                 adapter_id,
+                tenant_id,
                 &old_state,
                 new_state_str,
                 reason,
@@ -467,6 +481,7 @@ impl AdapterService for DefaultAdapterService {
         let new_state = self
             .execute_transition(
                 adapter_id,
+                tenant_id,
                 &old_state,
                 new_state_str,
                 reason,

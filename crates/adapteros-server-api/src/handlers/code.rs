@@ -583,8 +583,8 @@ pub async fn create_commit_delta(
 // --- Imports for propose_patch ---
 use crate::middleware::require_any_role;
 use crate::uds_client::{UdsClient, UdsClientError};
-use adapteros_db::users::Role;
 use adapteros_db::sqlx;
+use adapteros_db::users::Role;
 
 // --- Moved from handlers.rs ---
 /// Propose code patch

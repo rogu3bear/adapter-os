@@ -1738,8 +1738,8 @@ impl Db {
             AosError::Database("SQL backend unavailable for stack migration".to_string())
         })?;
 
-	        let query = if opts.tenant_filter.is_some() {
-	            r#"
+        let query = if opts.tenant_filter.is_some() {
+            r#"
 	            SELECT id, tenant_id, name, description, adapter_ids_json, workflow_type,
 	                   CAST(version AS INTEGER) AS version, lifecycle_state, created_at,
 	                   updated_at, created_by, determinism_mode, routing_determinism_mode, metadata_json
@@ -1747,15 +1747,15 @@ impl Db {
 	            WHERE tenant_id = ?
 	            ORDER BY created_at DESC, id ASC
 	            "#
-	        } else {
-	            r#"
+        } else {
+            r#"
 	            SELECT id, tenant_id, name, description, adapter_ids_json, workflow_type,
 	                   CAST(version AS INTEGER) AS version, lifecycle_state, created_at,
 	                   updated_at, created_by, determinism_mode, routing_determinism_mode, metadata_json
 	            FROM adapter_stacks
 	            ORDER BY created_at DESC, id ASC
 	            "#
-	        };
+        };
 
         let mut stacks: Vec<StackRecord> = if let Some(tid) = opts.tenant_filter.as_deref() {
             sqlx::query_as::<_, StackRecord>(query)

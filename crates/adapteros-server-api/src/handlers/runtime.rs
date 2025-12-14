@@ -275,7 +275,10 @@ fn get_runtime_paths(state: &AppState) -> RuntimePathsResponse {
             .as_ref()
             .map(|c| c.paths.adapters_root.clone())
             .or_else(|| Some("var/adapters".to_string())),
-        database_path: std::env::var("AOS_DATABASE_URL").ok(),
+        database_path: config
+            .as_ref()
+            .map(|c| c.db.path.clone())
+            .or_else(|| std::env::var("AOS_DATABASE_URL").ok()),
         var_dir: std::env::var("AOS_VAR_DIR").ok(),
     }
 }

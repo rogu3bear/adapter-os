@@ -588,6 +588,31 @@ impl Db {
         Ok(tenant_id)
     }
 
+    async fn get_adapter_pk_for_tenant(
+        &self,
+        tenant_id: &str,
+        adapter_id: &str,
+    ) -> Result<Option<String>> {
+        let ids: Vec<String> = sqlx::query_scalar(
+            "SELECT id FROM adapters WHERE tenant_id = ? AND (adapter_id = ? OR id = ?) LIMIT 2",
+        )
+        .bind(tenant_id)
+        .bind(adapter_id)
+        .bind(adapter_id)
+        .fetch_all(&*self.pool())
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
+
+        match ids.as_slice() {
+            [] => Ok(None),
+            [id] => Ok(Some(id.clone())),
+            _ => Err(AosError::Validation(format!(
+                "Ambiguous adapter reference '{}' for tenant '{}'",
+                adapter_id, tenant_id
+            ))),
+        }
+    }
+
     /// Get adapter directly from KV without SQL tenant lookup
     ///
     /// This is used for KV-only adapters that don't exist in SQL.
@@ -820,6 +845,20 @@ impl Db {
             ADAPTER_SELECT_FIELDS
         );
         let adapters = sqlx::query_as::<_, Adapter>(&query)
+            .fetch_all(&*self.pool())
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
+        Ok(adapters)
+    }
+
+    /// Find expired adapters scoped to a tenant.
+    pub async fn find_expired_adapters_for_tenant(&self, tenant_id: &str) -> Result<Vec<Adapter>> {
+        let query = format!(
+            "SELECT {} FROM adapters WHERE tenant_id = ? AND expires_at IS NOT NULL AND expires_at < datetime('now')",
+            ADAPTER_SELECT_FIELDS
+        );
+        let adapters = sqlx::query_as::<_, Adapter>(&query)
+            .bind(tenant_id)
             .fetch_all(&*self.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
@@ -1202,11 +1241,53 @@ impl Db {
         tenant_id: &str,
         adapter_id: &str,
     ) -> Result<Option<Adapter>> {
-        let adapter = self.get_adapter(adapter_id).await?;
-        Ok(match adapter {
-            Some(a) if a.tenant_id == tenant_id => Some(a),
-            _ => None,
-        })
+        // Try KV first if enabled (tenant-scoped repo avoids cross-tenant leakage)
+        if self.storage_mode().read_from_kv() {
+            if let Some(repo) = self.get_adapter_kv_repo(tenant_id) {
+                match repo.get_adapter_kv(adapter_id).await {
+                    Ok(Some(adapter)) => {
+                        debug!(adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "kv-primary", "Retrieved adapter from KV (tenant-scoped)");
+                        return Ok(Some(adapter));
+                    }
+                    Ok(None) if self.storage_mode().sql_fallback_enabled() => {
+                        self.record_kv_read_fallback("adapters.get_for_tenant.none");
+                        debug!(adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "kv-fallback", "KV returned None, falling back to SQL (tenant-scoped)");
+                    }
+                    Ok(None) => {
+                        return Ok(None);
+                    }
+                    Err(e) if self.storage_mode().sql_fallback_enabled() => {
+                        self.record_kv_read_fallback("adapters.get_for_tenant.error");
+                        warn!(error = %e, adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "kv-fallback", "KV read failed, falling back to SQL (tenant-scoped)");
+                    }
+                    Err(e) => {
+                        return Err(e);
+                    }
+                }
+            }
+        }
+
+        // SQL fallback or primary read (tenant-scoped; supports adapter_id or internal id)
+        let query = format!(
+            "SELECT {} FROM adapters WHERE tenant_id = ? AND (adapter_id = ? OR id = ?) LIMIT 2",
+            ADAPTER_SELECT_FIELDS
+        );
+        let mut adapters = sqlx::query_as::<_, Adapter>(&query)
+            .bind(tenant_id)
+            .bind(adapter_id)
+            .bind(adapter_id)
+            .fetch_all(&*self.pool())
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
+
+        match adapters.len() {
+            0 => Ok(None),
+            1 => Ok(Some(adapters.remove(0))),
+            _ => Err(AosError::Validation(format!(
+                "Ambiguous adapter_id '{}' for tenant '{}'",
+                adapter_id, tenant_id
+            ))),
+        }
     }
 
     /// Find adapter by BLAKE3 hash for deduplication
@@ -1275,7 +1356,9 @@ impl Db {
             .bind(hash_b3)
             .fetch_optional(&*self.pool())
             .await
-            .map_err(|e| AosError::Database(format!("Failed to find adapter by hash for tenant: {}", e)))?;
+            .map_err(|e| {
+                AosError::Database(format!("Failed to find adapter by hash for tenant: {}", e))
+            })?;
         Ok(adapter)
     }
 

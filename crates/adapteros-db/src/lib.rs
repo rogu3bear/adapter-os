@@ -978,10 +978,9 @@ impl Db {
                     column = name,
                     "Workers table missing runtime metadata column; applying runtime patch"
                 );
-                sqlx::query(ddl)
-                    .execute(pool)
-                    .await
-                    .map_err(|e| AosError::Database(format!("Failed to apply workers DDL: {}", e)))?;
+                sqlx::query(ddl).execute(pool).await.map_err(|e| {
+                    AosError::Database(format!("Failed to apply workers DDL: {}", e))
+                })?;
             }
 
             Ok::<(), AosError>(())
@@ -1000,10 +999,12 @@ impl Db {
         .await?;
 
         // Best-effort index for quick grouping/lookup; safe to run repeatedly.
-        sqlx::query("CREATE INDEX IF NOT EXISTS idx_workers_model_hash_b3 ON workers(model_hash_b3)")
-            .execute(pool)
-            .await
-            .map_err(|e| AosError::Database(format!("Failed to ensure workers index: {}", e)))?;
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_workers_model_hash_b3 ON workers(model_hash_b3)",
+        )
+        .execute(pool)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to ensure workers index: {}", e)))?;
 
         Ok(())
     }

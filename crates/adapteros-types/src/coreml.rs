@@ -11,22 +11,17 @@ use std::collections::HashMap;
 use std::str::FromStr;
 
 /// CoreML execution mode for inference/training backend selection.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Default)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum CoreMLMode {
     /// CoreML only; fail fast on any CoreML error (no fallback).
     CoremlStrict,
     /// Prefer CoreML; allow fallback when CoreML cannot be used.
+    #[default]
     CoremlPreferred,
     /// Allow any backend (current auto behavior).
     BackendAuto,
-}
-
-impl Default for CoreMLMode {
-    fn default() -> Self {
-        CoreMLMode::CoremlPreferred
-    }
 }
 
 impl CoreMLMode {

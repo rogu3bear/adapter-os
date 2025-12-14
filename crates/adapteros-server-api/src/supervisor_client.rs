@@ -346,7 +346,10 @@ impl SupervisorClient {
                 Ok(response) => return Ok(response.status().is_success()),
                 Err(e) => {
                     if attempt >= max_attempts {
-                        debug!("Supervisor health check failed after {} attempts: {}", attempt, e);
+                        debug!(
+                            "Supervisor health check failed after {} attempts: {}",
+                            attempt, e
+                        );
                         return Ok(false);
                     }
                     debug!(

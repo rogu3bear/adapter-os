@@ -63,7 +63,10 @@ pub struct ReadyzResponse {
 pub async fn ready(State(state): State<AppState>) -> impl IntoResponse {
     let mut ready = true;
 
-    let mut db_check = ReadyzCheck { ok: true, hint: None };
+    let mut db_check = ReadyzCheck {
+        ok: true,
+        hint: None,
+    };
     let mut worker_check = ReadyzCheck {
         ok: true,
         hint: None,

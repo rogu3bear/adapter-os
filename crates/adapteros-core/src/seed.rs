@@ -26,22 +26,17 @@ pub enum SeedLabel {
 }
 
 /// Execution seed strategy for per-request derivation
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum SeedMode {
     /// Requires manifest hash; fails if missing
     Strict,
     /// Uses manifest hash when present; otherwise uses a scoped fallback hash
+    #[default]
     BestEffort,
     /// Dev-only random seed (non-replayable)
     NonDeterministic,
-}
-
-impl Default for SeedMode {
-    fn default() -> Self {
-        SeedMode::BestEffort
-    }
 }
 
 impl SeedMode {
@@ -170,6 +165,7 @@ pub fn derive_seed_indexed(global: &B3Hash, label: &str, index: usize) -> [u8; 3
 /// - request id
 /// - worker id
 /// - nonce
+///
 /// This makes it explicit that re-running the same request on a different
 /// worker yields a different seed, while the exact same tuple reproduces.
 pub fn derive_request_seed(

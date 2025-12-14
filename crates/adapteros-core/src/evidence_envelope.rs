@@ -57,7 +57,7 @@ impl EvidenceScope {
     }
 
     /// Parse scope from string
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse(s: &str) -> Option<Self> {
         match s {
             "telemetry" => Some(EvidenceScope::Telemetry),
             "policy" => Some(EvidenceScope::Policy),
@@ -615,20 +615,17 @@ mod tests {
     }
 
     #[test]
-    fn test_scope_from_str() {
+    fn test_scope_parse() {
         assert_eq!(
-            EvidenceScope::from_str("telemetry"),
+            EvidenceScope::parse("telemetry"),
             Some(EvidenceScope::Telemetry)
         );
+        assert_eq!(EvidenceScope::parse("policy"), Some(EvidenceScope::Policy));
         assert_eq!(
-            EvidenceScope::from_str("policy"),
-            Some(EvidenceScope::Policy)
-        );
-        assert_eq!(
-            EvidenceScope::from_str("inference"),
+            EvidenceScope::parse("inference"),
             Some(EvidenceScope::Inference)
         );
-        assert_eq!(EvidenceScope::from_str("invalid"), None);
+        assert_eq!(EvidenceScope::parse("invalid"), None);
     }
 
     #[test]

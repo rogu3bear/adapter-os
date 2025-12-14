@@ -225,22 +225,12 @@ fn parse_error_payload(
         if let Ok(text) = std::str::from_utf8(body) {
             let message = text.trim();
             if !message.is_empty() {
-                return (
-                    fallback_code(status),
-                    message.to_string(),
-                    None,
-                    None,
-                );
+                return (fallback_code(status), message.to_string(), None, None);
             }
         }
     }
 
-    (
-        fallback_code(status),
-        fallback_message(status),
-        None,
-        None,
-    )
+    (fallback_code(status), fallback_message(status), None, None)
 }
 
 fn fallback_code(status: StatusCode) -> String {
@@ -269,7 +259,9 @@ fn derive_hint(code: &str, message: &str, detail: Option<&str>, status: StatusCo
     }
 
     if (combined.contains("failed to connect")
-        && (combined.contains("database") || combined.contains("sqlite") || combined.contains("sqlx")))
+        && (combined.contains("database")
+            || combined.contains("sqlite")
+            || combined.contains("sqlx")))
         || combined.contains("database is locked")
         || combined.contains("sqlite_busy")
         || combined.contains("unable to open database file")
@@ -294,7 +286,8 @@ fn derive_hint(code: &str, message: &str, detail: Option<&str>, status: StatusCo
             || combined.contains("no such file")
             || combined.contains("path does not exist"))
     {
-        return "Model files missing: verify `AOS_MODEL_CACHE_DIR`/`AOS_MODEL_PATH` and restart".to_string();
+        return "Model files missing: verify `AOS_MODEL_CACHE_DIR`/`AOS_MODEL_PATH` and restart"
+            .to_string();
     }
 
     // --- Worker not registered / socket issues ---
@@ -330,7 +323,9 @@ fn derive_hint(code: &str, message: &str, detail: Option<&str>, status: StatusCo
             .to_string();
     }
 
-    if (code_upper == "NOT_FOUND" && combined.contains("adapter")) || combined.contains("adapter not found") {
+    if (code_upper == "NOT_FOUND" && combined.contains("adapter"))
+        || combined.contains("adapter not found")
+    {
         return "Adapter not found: list adapters (`GET /v1/adapters`) or seed fixtures (`aosctl db seed-fixtures`), then retry with a valid `adapter_id`"
             .to_string();
     }

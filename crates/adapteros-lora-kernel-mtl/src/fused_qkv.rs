@@ -100,12 +100,12 @@ impl GqaConfig {
         }
 
         // Validate divisibility
-        if hidden_size % num_attention_heads != 0 {
+        if !hidden_size.is_multiple_of(num_attention_heads) {
             return Err(AosError::Validation(
                 "hidden_size must be divisible by num_attention_heads".to_string(),
             ));
         }
-        if num_attention_heads % num_key_value_heads != 0 {
+        if !num_attention_heads.is_multiple_of(num_key_value_heads) {
             return Err(AosError::Validation(
                 "num_attention_heads must be divisible by num_key_value_heads (GQA)".to_string(),
             ));

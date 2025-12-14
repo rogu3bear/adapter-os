@@ -26,6 +26,7 @@ async fn stores_ciphertext_and_recovers_plaintext() {
         coreml_hash_mismatch: None,
         sampling_algorithm_version: None,
         rag_snapshot_hash: None,
+        dataset_version_id: None,
         adapter_ids: None,
         base_only: None,
         prompt_text: "secret prompt text".to_string(),

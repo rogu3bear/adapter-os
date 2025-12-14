@@ -37,7 +37,7 @@ pub fn is_evidence_chain_divergence(err: &AosError) -> bool {
 }
 
 /// Result of single envelope verification
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct EnvelopeVerificationResult {
     /// Overall validity of the envelope
     pub is_valid: bool,
@@ -53,20 +53,6 @@ pub struct EnvelopeVerificationResult {
     pub payload_valid: bool,
     /// Description of the first validation failure (if any)
     pub error_message: Option<String>,
-}
-
-impl Default for EnvelopeVerificationResult {
-    fn default() -> Self {
-        Self {
-            is_valid: false,
-            schema_version_ok: false,
-            signature_valid: false,
-            root_matches: false,
-            chain_link_valid: false,
-            payload_valid: false,
-            error_message: None,
-        }
-    }
 }
 
 /// Result of chain verification

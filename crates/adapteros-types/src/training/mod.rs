@@ -29,7 +29,9 @@ fn default_dataset_weight() -> f32 {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub struct DatasetVersionSelection {
+    /// Unique identifier for the dataset version to use.
     pub dataset_version_id: String,
+    /// Sampling weight for this dataset version (default: 1.0).
     #[serde(default = "default_dataset_weight")]
     pub weight: f32,
 }
@@ -43,7 +45,9 @@ pub struct DatasetVersionSelection {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub struct DatasetVersionTrustSnapshot {
+    /// Unique identifier for the dataset version.
     pub dataset_version_id: String,
+    /// Trust state captured at training time.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub trust_at_training_time: Option<String>,
 }
@@ -64,6 +68,7 @@ pub enum DataLineageMode {
 }
 
 impl DataLineageMode {
+    /// Canonical string representation for serialization/logging.
     pub fn as_str(&self) -> &'static str {
         match self {
             DataLineageMode::Versioned => "versioned",
@@ -88,6 +93,7 @@ pub enum BranchClassification {
 }
 
 impl BranchClassification {
+    /// Canonical string representation for serialization/logging.
     pub fn as_str(&self) -> &'static str {
         match self {
             BranchClassification::Protected => "protected",
@@ -118,11 +124,12 @@ pub enum LoraTier {
 /// CoreML is a first-class training target for LoRA-only runs. Callers may
 /// provide an explicit fallback when CoreML assets/devices are unavailable, but
 /// fallbacks must be surfaced explicitly (no silent redirects).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum TrainingBackendKind {
     /// Deterministic auto-selection (best available)
     #[serde(alias = "autodev", alias = "auto_dev", alias = "default")]
+    #[default]
     Auto,
     /// CoreML / ANE acceleration (inference/export target)
     #[serde(alias = "core-ml", alias = "ane")]
@@ -151,12 +158,6 @@ impl TrainingBackendKind {
     }
 }
 
-impl Default for TrainingBackendKind {
-    fn default() -> Self {
-        TrainingBackendKind::Auto
-    }
-}
-
 impl fmt::Display for TrainingBackendKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.as_str())
@@ -164,10 +165,11 @@ impl fmt::Display for TrainingBackendKind {
 }
 
 /// Backend policy describing how to handle CoreML preference and fallbacks.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum TrainingBackendPolicy {
     /// Deterministic auto-selection (existing behavior).
+    #[default]
     Auto,
     /// Require CoreML; fail fast if CoreML cannot be used.
     CoremlOnly,
@@ -175,13 +177,8 @@ pub enum TrainingBackendPolicy {
     CoremlElseFallback,
 }
 
-impl Default for TrainingBackendPolicy {
-    fn default() -> Self {
-        TrainingBackendPolicy::Auto
-    }
-}
-
 impl TrainingBackendPolicy {
+    /// Canonical string representation for serialization/logging.
     pub fn as_str(&self) -> &'static str {
         match self {
             TrainingBackendPolicy::Auto => "auto",

@@ -90,6 +90,7 @@ mod metal_impl {
     }
 
     impl PurgeableBuffer for Buffer {
+        #[allow(unexpected_cfgs)]
         fn set_purgeable_state(&self, state: PurgeableState) -> Result<PurgeableResult> {
             let mtl_state: MTLPurgeableState = state.into();
 

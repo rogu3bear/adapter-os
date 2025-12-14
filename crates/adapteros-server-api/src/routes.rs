@@ -707,7 +707,10 @@ pub fn build(state: AppState) -> Router {
     // Routes with optional authentication (work with or without auth)
     // These routes provide enhanced functionality when authenticated but still work anonymously
     let optional_auth_routes = Router::new()
-        .route("/v1/models/status", get(handlers::models::get_base_model_status))
+        .route(
+            "/v1/models/status",
+            get(handlers::models::get_base_model_status),
+        )
         .with_state(state.clone())
         .layer(
             ServiceBuilder::new()
@@ -1037,12 +1040,18 @@ pub fn build(state: AppState) -> Router {
             post(handlers::compare_policy_versions),
         )
         .route("/v1/policies/{cpid}/export", get(handlers::export_policy))
-        .route("/v1/policies/assign", post(handlers::tenant_policies::assign_policy))
+        .route(
+            "/v1/policies/assign",
+            post(handlers::tenant_policies::assign_policy),
+        )
         .route(
             "/v1/policies/assignments",
             get(handlers::tenant_policies::list_policy_assignments),
         )
-        .route("/v1/policies/violations", get(handlers::tenant_policies::list_violations))
+        .route(
+            "/v1/policies/violations",
+            get(handlers::tenant_policies::list_violations),
+        )
         .route(
             "/v1/telemetry/bundles",
             get(handlers::list_telemetry_bundles),
@@ -1245,15 +1254,22 @@ pub fn build(state: AppState) -> Router {
         )
         // Adapter routes
         .route("/v1/adapters", get(handlers::adapters::list_adapters))
-        .route("/v1/adapters/{adapter_id}", get(handlers::adapters::get_adapter))
-        .route("/v1/adapters/register", post(handlers::adapters_lifecycle::register_adapter))
+        .route(
+            "/v1/adapters/{adapter_id}",
+            get(handlers::adapters::get_adapter),
+        )
+        .route(
+            "/v1/adapters/register",
+            post(handlers::adapters_lifecycle::register_adapter),
+        )
         .route(
             "/v1/adapters/import",
             post(handlers::adapters::import_adapter),
         )
         .route(
             "/v1/adapter-repositories",
-            get(handlers::adapters::list_adapter_repositories).post(handlers::create_adapter_repository),
+            get(handlers::adapters::list_adapter_repositories)
+                .post(handlers::create_adapter_repository),
         )
         .route(
             "/v1/adapter-repositories/{repo_id}",
@@ -1481,20 +1497,31 @@ pub fn build(state: AppState) -> Router {
         // Contacts routes - Citation: CONTACTS_AND_STREAMS_IMPLEMENTATION_PLAN.md §2.6
         .route(
             "/v1/contacts",
-            get(handlers::chat_sessions::list_contacts).post(handlers::chat_sessions::create_contact),
+            get(handlers::chat_sessions::list_contacts)
+                .post(handlers::chat_sessions::create_contact),
         )
         .route(
             "/v1/contacts/{id}",
-            get(handlers::chat_sessions::get_contact).delete(handlers::chat_sessions::delete_contact),
+            get(handlers::chat_sessions::get_contact)
+                .delete(handlers::chat_sessions::delete_contact),
         )
         .route(
             "/v1/contacts/{id}/interactions",
             get(handlers::chat_sessions::get_contact_interactions),
         )
         // SSE Streaming routes - Citation: CONTACTS_AND_STREAMS_IMPLEMENTATION_PLAN.md §3.5, §4.4
-        .route("/v1/streams/training", get(handlers::streaming::activity_stream))
-        .route("/v1/streams/discovery", get(handlers::streaming::discovery_stream))
-        .route("/v1/streams/contacts", get(handlers::streaming::contacts_stream))
+        .route(
+            "/v1/streams/training",
+            get(handlers::streaming::activity_stream),
+        )
+        .route(
+            "/v1/streams/discovery",
+            get(handlers::streaming::discovery_stream),
+        )
+        .route(
+            "/v1/streams/contacts",
+            get(handlers::streaming::contacts_stream),
+        )
         // Dataset routes
         .route(
             "/v1/datasets/upload",
@@ -1675,7 +1702,10 @@ pub fn build(state: AppState) -> Router {
             post(handlers::code::create_commit_delta),
         )
         // Repository routes (deprecated - use /v1/code/repositories instead)
-        .route("/v1/repositories", get(handlers::adapters::list_repositories))
+        .route(
+            "/v1/repositories",
+            get(handlers::adapters::list_repositories),
+        )
         // System overview routes
         .route(
             "/v1/system/overview",
@@ -1691,9 +1721,18 @@ pub fn build(state: AppState) -> Router {
             get(handlers::system_state::get_system_state),
         )
         // Metrics routes
-        .route("/v1/metrics/quality", get(handlers::adapters::get_quality_metrics))
-        .route("/v1/metrics/adapters", get(handlers::adapters::get_adapter_metrics))
-        .route("/v1/metrics/system", get(handlers::adapters::get_system_metrics))
+        .route(
+            "/v1/metrics/quality",
+            get(handlers::adapters::get_quality_metrics),
+        )
+        .route(
+            "/v1/metrics/adapters",
+            get(handlers::adapters::get_adapter_metrics),
+        )
+        .route(
+            "/v1/metrics/system",
+            get(handlers::adapters::get_system_metrics),
+        )
         .route(
             "/v1/metrics/time-series",
             get(handlers::metrics_time_series::get_metrics_time_series),
@@ -1703,7 +1742,10 @@ pub fn build(state: AppState) -> Router {
             get(handlers::metrics_time_series::get_metrics_snapshot),
         )
         // Memory routes
-        .route("/v1/system/memory", get(handlers::system_info::get_uma_memory))
+        .route(
+            "/v1/system/memory",
+            get(handlers::system_info::get_uma_memory),
+        )
         // Registry status route
         .route(
             "/v1/registry/status",
@@ -1728,10 +1770,19 @@ pub fn build(state: AppState) -> Router {
         // Commit routes
         .route("/v1/commits", get(handlers::adapters::list_commits))
         .route("/v1/commits/{sha}", get(handlers::adapters::get_commit))
-        .route("/v1/commits/{sha}/diff", get(handlers::adapters::get_commit_diff))
+        .route(
+            "/v1/commits/{sha}/diff",
+            get(handlers::adapters::get_commit_diff),
+        )
         // Routing routes
-        .route("/v1/routing/debug", post(handlers::routing_decisions::debug_routing))
-        .route("/v1/routing/history", get(handlers::routing_decisions::get_routing_history))
+        .route(
+            "/v1/routing/debug",
+            post(handlers::routing_decisions::debug_routing),
+        )
+        .route(
+            "/v1/routing/history",
+            get(handlers::routing_decisions::get_routing_history),
+        )
         .route(
             "/v1/routing/decisions",
             get(handlers::routing_decisions::get_routing_decisions),

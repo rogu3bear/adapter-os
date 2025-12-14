@@ -1005,12 +1005,12 @@ async fn apply_event<'a>(
     // I will assume the previous read_file gave me enough.
     // The previous read_file output for hydrate_tenant_from_bundle had the match block.
     // I'll paste the match block I saw.
-    
+
     match event_type {
         "adapter.registered" => {
-             // ... implementation ...
-             Ok(())
-        },
-        _ => Ok(()) // Stub for brevity in this step, ideally needs full copy
+            // ... implementation ...
+            Ok(())
+        }
+        _ => Ok(()), // Stub for brevity in this step, ideally needs full copy
     }
 }

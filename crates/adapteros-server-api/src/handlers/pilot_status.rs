@@ -120,7 +120,9 @@ pub async fn get_pilot_status(
             match worker_rows {
                 Ok(rows) => {
                     for row in rows {
-                        let status: String = row.try_get("status").unwrap_or_else(|_| "unknown".to_string());
+                        let status: String = row
+                            .try_get("status")
+                            .unwrap_or_else(|_| "unknown".to_string());
                         let cnt: i64 = row.try_get("cnt").unwrap_or(0);
                         workers_total += cnt;
                         worker_status_counts.insert(status, cnt);
@@ -170,7 +172,9 @@ pub async fn get_pilot_status(
             match job_row {
                 Ok(Some(row)) => {
                     let id: String = row.try_get("id").unwrap_or_default();
-                    let status: String = row.try_get("status").unwrap_or_else(|_| "unknown".to_string());
+                    let status: String = row
+                        .try_get("status")
+                        .unwrap_or_else(|_| "unknown".to_string());
                     let started_at: String = row.try_get("started_at").unwrap_or_default();
                     let completed_at: Option<String> = row.try_get("completed_at").ok();
                     let adapter_name: Option<String> = row.try_get("adapter_name").ok();
@@ -214,4 +218,3 @@ pub async fn get_pilot_status(
         timestamp,
     }))
 }
-

@@ -9,12 +9,13 @@ use std::{fmt, str::FromStr};
 /// Metal, CPU, and Auto detection. CoreML is treated as a first-class option
 /// (including ANE) and `Auto` preserves the current behavior of "pick the best
 /// available backend" without changing defaults for existing callers.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "lowercase")]
 pub enum BackendKind {
     /// Deterministic auto-selection (preserves existing defaults)
     #[serde(alias = "autodev", alias = "auto_dev", alias = "default")]
+    #[default]
     Auto,
     /// CoreML / ANE acceleration (macOS)
     #[serde(alias = "core-ml", alias = "ane")]
@@ -75,12 +76,6 @@ impl BackendKind {
         } else {
             BackendKind::Auto
         }
-    }
-}
-
-impl Default for BackendKind {
-    fn default() -> Self {
-        BackendKind::Auto
     }
 }
 

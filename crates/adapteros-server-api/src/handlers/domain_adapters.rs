@@ -121,7 +121,7 @@ pub async fn get_domain_adapter(
 
     let adapter = state
         .db
-        .get_adapter(&adapter_id)
+        .get_adapter(&claims.tenant_id, &adapter_id)
         .await
         .map_err(|e| {
             error!(error = %e, adapter_id = %adapter_id, "Failed to get domain adapter");
@@ -298,7 +298,7 @@ pub async fn load_domain_adapter(
     // Get adapter from database
     let adapter = state
         .db
-        .get_adapter(&adapter_id)
+        .get_adapter(&claims.tenant_id, &adapter_id)
         .await
         .map_err(|e| {
             error!(error = %e, adapter_id = %adapter_id, "Failed to get adapter for loading");
@@ -369,7 +369,7 @@ pub async fn load_domain_adapter(
                 // Fallback: update DB state directly
                 state
                     .db
-                    .update_adapter_state_tx(&adapter_id, "cold", "loaded_via_api")
+                    .update_adapter_state_tx_for_tenant(&adapter.tenant_id, &adapter_id, "cold", "loaded_via_api")
                     .await
                     .map_err(|e| {
                         error!(error = %e, adapter_id = %adapter_id, "Failed to update adapter state");
@@ -387,7 +387,12 @@ pub async fn load_domain_adapter(
             // Adapter not found in lifecycle manager, update DB state directly
             state
                 .db
-                .update_adapter_state_tx(&adapter_id, "cold", "loaded_via_api")
+                .update_adapter_state_tx_for_tenant(
+                    &adapter.tenant_id,
+                    &adapter_id,
+                    "cold",
+                    "loaded_via_api",
+                )
                 .await
                 .map_err(|e| {
                     error!(error = %e, adapter_id = %adapter_id, "Failed to update adapter state");
@@ -405,7 +410,12 @@ pub async fn load_domain_adapter(
         // Fallback: direct DB update if no lifecycle manager
         state
             .db
-            .update_adapter_state_tx(&adapter_id, "cold", "loaded_via_api")
+            .update_adapter_state_tx_for_tenant(
+                &adapter.tenant_id,
+                &adapter_id,
+                "cold",
+                "loaded_via_api",
+            )
             .await
             .map_err(|e| {
                 error!(error = %e, adapter_id = %adapter_id, "Failed to update adapter state");
@@ -423,7 +433,7 @@ pub async fn load_domain_adapter(
     // Fetch updated adapter
     let updated_adapter = state
         .db
-        .get_adapter(&adapter_id)
+        .get_adapter(&claims.tenant_id, &adapter_id)
         .await
         .map_err(|e| {
             error!(error = %e, adapter_id = %adapter_id, "Failed to fetch updated adapter");
@@ -483,7 +493,7 @@ pub async fn unload_domain_adapter(
     // Get adapter from database
     let adapter = state
         .db
-        .get_adapter(&adapter_id)
+        .get_adapter(&claims.tenant_id, &adapter_id)
         .await
         .map_err(|e| {
             error!(error = %e, adapter_id = %adapter_id, "Failed to get adapter for unloading");
@@ -529,7 +539,12 @@ pub async fn unload_domain_adapter(
     // Update adapter state to unloaded in database
     state
         .db
-        .update_adapter_state_tx(&adapter_id, "unloaded", "Unloaded via API")
+        .update_adapter_state_tx_for_tenant(
+            &adapter.tenant_id,
+            &adapter_id,
+            "unloaded",
+            "Unloaded via API",
+        )
         .await
         .map_err(|e| {
             error!(error = %e, adapter_id = %adapter_id, "Failed to update adapter state");
@@ -546,7 +561,7 @@ pub async fn unload_domain_adapter(
     // Fetch updated adapter
     let updated_adapter = state
         .db
-        .get_adapter(&adapter_id)
+        .get_adapter(&claims.tenant_id, &adapter_id)
         .await
         .map_err(|e| {
             error!(error = %e, adapter_id = %adapter_id, "Failed to fetch updated adapter");
@@ -611,7 +626,7 @@ pub async fn test_domain_adapter(
     // Get adapter from database
     let adapter = state
         .db
-        .get_adapter(&adapter_id)
+        .get_adapter(&claims.tenant_id, &adapter_id)
         .await
         .map_err(|e| {
             error!(error = %e, adapter_id = %adapter_id, "Failed to get adapter for testing");
@@ -801,7 +816,7 @@ pub async fn get_domain_adapter_manifest(
     // Get adapter from database
     let adapter = state
         .db
-        .get_adapter(&adapter_id)
+        .get_adapter(&claims.tenant_id, &adapter_id)
         .await
         .map_err(|e| {
             error!(error = %e, adapter_id = %adapter_id, "Failed to get adapter manifest");
@@ -902,7 +917,7 @@ pub async fn execute_domain_adapter(
     // Get adapter from database
     let adapter = state
         .db
-        .get_adapter(&adapter_id)
+        .get_adapter(&claims.tenant_id, &adapter_id)
         .await
         .map_err(|e| {
             error!(error = %e, adapter_id = %adapter_id, "Failed to get adapter for execution");
@@ -1072,7 +1087,7 @@ pub async fn delete_domain_adapter(
     // Get adapter to verify it exists and is a domain adapter
     let adapter = state
         .db
-        .get_adapter(&adapter_id)
+        .get_adapter(&claims.tenant_id, &adapter_id)
         .await
         .map_err(|e| {
             error!(error = %e, adapter_id = %adapter_id, "Failed to get adapter for deletion");
@@ -1147,18 +1162,21 @@ pub async fn delete_domain_adapter(
         ));
     }
 
-    // Soft delete the adapter (set active = 0)
-    state.db.delete_adapter(&adapter_id).await.map_err(|e| {
-        error!(error = %e, adapter_id = %adapter_id, "Failed to delete adapter");
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("Failed to delete adapter")
-                    .with_code("INTERNAL_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
+    state
+        .db
+        .delete_adapter_for_tenant(&claims.tenant_id, &adapter_id)
+        .await
+        .map_err(|e| {
+            error!(error = %e, adapter_id = %adapter_id, "Failed to delete adapter");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to delete adapter")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
 
     info!(adapter_id = %adapter_id, "Deleted domain adapter");
 

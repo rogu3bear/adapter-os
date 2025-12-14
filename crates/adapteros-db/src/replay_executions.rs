@@ -509,6 +509,7 @@ mod tests {
             coreml_hash_mismatch: None,
             sampling_algorithm_version: Some("v1.0.0".to_string()),
             rag_snapshot_hash: None,
+            dataset_version_id: None,
             adapter_ids: Some(vec!["adapter1".to_string()]),
             base_only: None,
             prompt_text: "prompt".to_string(),

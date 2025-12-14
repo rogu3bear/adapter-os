@@ -1159,44 +1159,33 @@ pub async fn share_workspace_resource(
     // Validate resource exists and belongs to the tenant
     match resource_type {
         ResourceType::Adapter => {
-            let adapter = state.db.get_adapter(&req.resource_id).await.map_err(|e| {
-                error!("Failed to check adapter existence: {}", e);
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(
-                        ErrorResponse::new("Failed to validate resource")
-                            .with_code("INTERNAL_ERROR"),
-                    ),
-                )
-            })?;
+            let adapter = state
+                .db
+                .get_adapter(&claims.tenant_id, &req.resource_id)
+                .await
+                .map_err(|e| {
+                    error!("Failed to check adapter existence: {}", e);
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(
+                            ErrorResponse::new("Failed to validate resource")
+                                .with_code("INTERNAL_ERROR"),
+                        ),
+                    )
+                })?;
 
-            match adapter {
-                Some(a) if a.tenant_id == claims.tenant_id => {
-                    // TENANT ISOLATION: Adapter exists and belongs to tenant - OK
-                }
-                Some(_) => {
-                    // TENANT ISOLATION VIOLATION: Attempt to share another tenant's adapter
-                    return Err((
-                        StatusCode::FORBIDDEN,
-                        Json(
-                            ErrorResponse::new("Resource belongs to a different tenant")
-                                .with_code("FORBIDDEN"),
-                        ),
-                    ));
-                }
-                None => {
-                    return Err((
-                        StatusCode::NOT_FOUND,
-                        Json(
-                            ErrorResponse::new("Adapter not found")
-                                .with_code("NOT_FOUND")
-                                .with_string_details(format!(
-                                    "Adapter '{}' does not exist",
-                                    req.resource_id
-                                )),
-                        ),
-                    ));
-                }
+            if adapter.is_none() {
+                return Err((
+                    StatusCode::NOT_FOUND,
+                    Json(
+                        ErrorResponse::new("Adapter not found")
+                            .with_code("NOT_FOUND")
+                            .with_string_details(format!(
+                                "Adapter '{}' does not exist",
+                                req.resource_id
+                            )),
+                    ),
+                ));
             }
         }
         ResourceType::Node => {

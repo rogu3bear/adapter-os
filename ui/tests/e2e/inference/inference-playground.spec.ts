@@ -1,7 +1,34 @@
-import { test, expect, Page } from '@playwright/test';
+import { test, expect, type Page, type Route } from '@playwright/test';
 
 const MOCK_PROMPT = 'Test prompt for adapter + receipt rendering';
 const MOCK_RECEIPT_DIGEST = 'b3-mock-receipt-digest-1234567890abcdef';
+
+async function installSseStub(page: Page) {
+  await page.addInitScript(() => {
+    class MockEventSource {
+      url: string;
+      withCredentials: boolean;
+      readyState = 1;
+      onopen: ((event: Event) => void) | null = null;
+      onmessage: ((event: MessageEvent) => void) | null = null;
+      onerror: ((event: Event) => void) | null = null;
+
+      constructor(url: string, options?: EventSourceInit) {
+        this.url = url;
+        this.withCredentials = Boolean(options?.withCredentials);
+        setTimeout(() => this.onopen?.(new Event('open')), 0);
+      }
+
+      addEventListener() {}
+      removeEventListener() {}
+      close() {
+        this.readyState = 2;
+      }
+    }
+
+    window.EventSource = MockEventSource as unknown as typeof EventSource;
+  });
+}
 
 async function setupInferenceMocks(page: Page, options?: { backendsDelayMs?: number }) {
   const now = new Date().toISOString();
@@ -31,17 +58,30 @@ async function setupInferenceMocks(page: Page, options?: { backendsDelayMs?: num
     },
   };
 
+  await installSseStub(page);
+
+  const fulfillJson = (route: Route, body: unknown, status = 200) =>
+    route.fulfill({
+      status,
+      contentType: 'application/json',
+      body: JSON.stringify(body),
+    });
+
+  await page.route('**/healthz', async (route) => fulfillJson(route, { status: 'healthy' }));
+  await page.route('**/healthz/all', async (route) =>
+    fulfillJson(route, { status: 'healthy', components: {}, schema_version: '1.0' })
+  );
+  await page.route('**/readyz', async (route) =>
+    fulfillJson(route, { ready: true, checks: { db: { ok: true }, worker: { ok: true } } })
+  );
+
   await page.route('**/v1/**', async (route) => {
     const url = new URL(route.request().url());
-    const { pathname } = url;
+    const rawPathname = url.pathname;
+    const pathname = rawPathname.startsWith('/api/') ? rawPathname.slice(4) : rawPathname;
     const method = route.request().method();
 
-    const json = (body: unknown, status = 200) =>
-      route.fulfill({
-        status,
-        contentType: 'application/json',
-        body: JSON.stringify(body),
-      });
+    const json = (body: unknown, status = 200) => fulfillJson(route, body, status);
 
     if (method === 'OPTIONS') {
       return route.fulfill({ status: 204 });

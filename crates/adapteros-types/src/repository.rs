@@ -3,22 +3,17 @@ use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 
 /// Repository assurance tier used for backend defaults and promotion policy.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Default)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum RepoTier {
     /// High-assurance repositories (strict CoreML).
     HighAssurance,
     /// Standard repositories (CoreML preferred).
+    #[default]
     Normal,
     /// Experimental repositories (auto backend).
     Experimental,
-}
-
-impl Default for RepoTier {
-    fn default() -> Self {
-        RepoTier::Normal
-    }
 }
 
 impl RepoTier {

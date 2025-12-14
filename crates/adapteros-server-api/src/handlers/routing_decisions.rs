@@ -5,7 +5,6 @@
 //! - GET /v1/routing/decisions/:id - Get specific routing decision
 //! - POST /v1/telemetry/routing - Ingest router decision events (internal)
 
-use std::sync::Arc;
 use crate::auth::Claims;
 use crate::middleware::require_any_role;
 use crate::security::validate_tenant_isolation;
@@ -18,10 +17,11 @@ use adapteros_db::{
 };
 use axum::extract::{Extension, Path, Query, State};
 use axum::http::StatusCode;
-use axum::{Json, response::IntoResponse};
-use serde_json::json;
+use axum::{response::IntoResponse, Json};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde_json::json;
 use serde_json::Value;
+use std::sync::Arc;
 use tracing::{debug, warn};
 use utoipa::ToSchema;
 use uuid::Uuid;

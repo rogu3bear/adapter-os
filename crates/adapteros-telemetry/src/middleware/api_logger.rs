@@ -47,6 +47,7 @@ fn extract_request_id(req: &Request<Body>) -> String {
 ///     .route("/health", get(health))
 ///     .layer(api_logger_layer());
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn api_logger_layer() -> axum::middleware::FromFnLayer<
     fn(
         Request<Body>,
@@ -62,6 +63,7 @@ pub fn api_logger_layer() -> axum::middleware::FromFnLayer<
 ///
 /// Returns a layer that logs only 4xx and 5xx responses.
 /// Use for high-throughput internal servers.
+#[allow(clippy::type_complexity)]
 pub fn api_error_logger_layer() -> axum::middleware::FromFnLayer<
     fn(
         Request<Body>,

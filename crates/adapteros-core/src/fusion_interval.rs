@@ -7,10 +7,11 @@
 use serde::{Deserialize, Serialize};
 
 /// Fusion interval cadence.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum FusionInterval {
     /// Fuse once per request; router gates remain constant for the whole run.
+    #[default]
     PerRequest,
     /// Fuse every N tokens as a compromise between throughput and alignment.
     PerSegment { tokens_per_segment: u32 },
@@ -49,11 +50,5 @@ impl FusionInterval {
             }
             _ => 0,
         }
-    }
-}
-
-impl Default for FusionInterval {
-    fn default() -> Self {
-        FusionInterval::PerRequest
     }
 }

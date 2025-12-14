@@ -33,7 +33,7 @@ use clap::Parser;
 use serde_json::json;
 use std::fs::OpenOptions;
 use std::io::Write;
-use std::net::SocketAddr;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::{Arc, RwLock};
@@ -213,6 +213,70 @@ async fn main() -> Result<()> {
         }
     };
 
+    // Harmonize critical config with canonical env vars so scripts/UI and the server agree.
+    // Precedence: explicit env > config file > defaults.
+    {
+        use adapteros_config::path_resolver::PathSource;
+
+        let mut cfg = server_config
+            .write()
+            .map_err(|e| anyhow::anyhow!("Config lock poisoned: {}", e))?;
+
+        if let Ok(raw) = std::env::var("AOS_SERVER_PORT") {
+            match raw.parse::<u16>() {
+                Ok(port) => cfg.server.port = port,
+                Err(_) => eprintln!("WARNING: Invalid AOS_SERVER_PORT={raw}; ignoring"),
+            }
+        }
+
+        if let Ok(bind) = std::env::var("AOS_SERVER_HOST") {
+            cfg.server.bind = bind;
+        }
+
+        // Production mode should be consistent across the repo; other crates read AOS_SERVER_PRODUCTION_MODE.
+        if let Ok(raw) = std::env::var("AOS_SERVER_PRODUCTION_MODE") {
+            let enabled = matches!(
+                raw.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            );
+            cfg.server.production_mode = enabled;
+        } else {
+            std::env::set_var(
+                "AOS_SERVER_PRODUCTION_MODE",
+                if cfg.server.production_mode {
+                    "true"
+                } else {
+                    "false"
+                },
+            );
+        }
+
+        // Optional: allow coarse log level / format env vars to influence startup logging defaults.
+        if let Ok(level) = std::env::var("AOS_LOG_LEVEL") {
+            let normalized = level.trim().to_ascii_lowercase();
+            match normalized.as_str() {
+                "trace" | "debug" | "info" | "warn" | "error" => cfg.logging.level = normalized,
+                _ => eprintln!("WARNING: Invalid AOS_LOG_LEVEL={level}; ignoring"),
+            }
+        }
+
+        if let Ok(format) = std::env::var("AOS_LOG_FORMAT") {
+            let normalized = format.trim().to_ascii_lowercase();
+            match normalized.as_str() {
+                "json" => cfg.logging.json_format = true,
+                "text" | "pretty" => cfg.logging.json_format = false,
+                _ => eprintln!("WARNING: Invalid AOS_LOG_FORMAT={format}; ignoring"),
+            }
+        }
+
+        // DB URL: prefer AOS_DATABASE_URL; accept DATABASE_URL as legacy alias.
+        if let Ok(resolved) = adapteros_config::path_resolver::resolve_database_url() {
+            if matches!(resolved.source, PathSource::Env(_)) {
+                cfg.db.path = resolved.path.to_string_lossy().to_string();
+            }
+        }
+    }
+
     // Validate base model path early to avoid drift across server/CLI
     if let Err(e) = resolve_base_model_location(None, None, true) {
         eprintln!(
@@ -329,7 +393,12 @@ async fn main() -> Result<()> {
         let env_truthy = |key: &str| -> bool {
             std::env::var(key)
                 .ok()
-                .map(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+                .map(|v| {
+                    matches!(
+                        v.trim().to_ascii_lowercase().as_str(),
+                        "1" | "true" | "yes" | "on"
+                    )
+                })
                 .unwrap_or(false)
         };
 
@@ -340,13 +409,21 @@ async fn main() -> Result<()> {
         let ui_port = parse_env_u16("AOS_UI_PORT");
         let panel_port = parse_env_u16("AOS_PANEL_PORT");
 
-        let demo_mode = panel_port.is_some()
+        let demo_mode = env_truthy("AOS_DEMO_MODE")
+            || panel_port.is_some()
             || std::env::var("AOS_DATABASE_URL")
+                .ok()
+                .is_some_and(|v| v.contains("aos-demo"))
+            || std::env::var("DATABASE_URL")
                 .ok()
                 .is_some_and(|v| v.contains("aos-demo"));
 
         let dev_no_auth_active = cfg!(debug_assertions) && env_truthy("AOS_DEV_NO_AUTH");
-        let auth_mode = if dev_no_auth_active { "dev_no_auth" } else { "jwt" };
+        let auth_mode = if dev_no_auth_active {
+            "dev_no_auth"
+        } else {
+            "jwt"
+        };
 
         info!(
             api_port,
@@ -2216,25 +2293,36 @@ async fn main() -> Result<()> {
     let api_routes = routes::build(state);
     let ui_routes = assets::routes();
 
+    // Legacy API shims (demo safety): support historical root-level paths used by
+    // older scripts/CLI/docs, while keeping `/api/*` as the canonical base.
+    let legacy_api_routes = api_routes.clone();
+
     let app = axum::Router::new()
         .nest("/api", api_routes) // API routes first (higher priority)
+        .merge(legacy_api_routes)
         .merge(ui_routes); // UI fallback for non-API paths
 
     // Bind and serve
-    let (production_mode, uds_socket, port, drain_timeout) = {
+    let (production_mode, uds_socket, bind, port, drain_timeout) = {
         let cfg = server_config
             .read()
             .map_err(|e| anyhow::anyhow!("Config lock poisoned: {}", e))?;
 
-        // Environment variable takes precedence over config file
+        // Environment variables take precedence over config file.
+        //
+        // Canonical: AOS_SERVER_PORT
+        // Legacy aliases (demo safety): ADAPTEROS_SERVER_PORT, API_PORT
         let server_port = std::env::var("AOS_SERVER_PORT")
+            .or_else(|_| std::env::var("ADAPTEROS_SERVER_PORT"))
+            .or_else(|_| std::env::var("API_PORT"))
             .ok()
-            .and_then(|p| p.parse().ok())
+            .and_then(|p| p.parse::<u16>().ok())
             .unwrap_or(cfg.server.port);
 
         (
             cfg.server.production_mode,
             cfg.server.uds_socket.clone(),
+            cfg.server.bind.clone(),
             server_port,
             Duration::from_secs(cfg.server.drain_timeout_secs),
         )
@@ -2302,10 +2390,20 @@ async fn main() -> Result<()> {
             tracing::info!("MLX runtime shut down");
         }
     } else {
-        let addr = SocketAddr::from(([127, 0, 0, 1], port));
+        let bind_ip = bind.parse::<IpAddr>().unwrap_or_else(|_| {
+            warn!(bind = %bind, "Invalid server.bind; falling back to 127.0.0.1");
+            IpAddr::V4(Ipv4Addr::LOCALHOST)
+        });
+
+        let addr = SocketAddr::from((bind_ip, port));
+        let display_host = if bind_ip == IpAddr::V4(Ipv4Addr::UNSPECIFIED) {
+            IpAddr::V4(Ipv4Addr::LOCALHOST)
+        } else {
+            bind_ip
+        };
         info!("Starting control plane on {}", addr);
-        info!("UI available at http://127.0.0.1:{}/", port);
-        info!("API available at http://127.0.0.1:{}/api/", port);
+        info!("UI available at http://{}:{}/", display_host, port);
+        info!("API available at http://{}:{}/api/", display_host, port);
         warn!("Development mode: TCP binding enabled. Set production_mode=true for UDS-only");
 
         // Transition to ready state - server is now accepting requests
@@ -2512,14 +2610,42 @@ async fn download_priority_models() {
         registry_url: std::env::var("AOS_HF_REGISTRY_URL")
             .unwrap_or_else(|_| "https://huggingface.co".to_string()),
         cache_dir: PathBuf::from(cache_dir),
-        max_concurrent_downloads: std::env::var("AOS_MAX_CONCURRENT_DOWNLOADS")
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(4),
-        timeout_secs: std::env::var("AOS_DOWNLOAD_TIMEOUT_SECS")
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(300),
+        max_concurrent_downloads: {
+            let raw = std::env::var("AOS_MAX_CONCURRENT_DOWNLOADS").ok();
+            let parsed = raw
+                .as_deref()
+                .and_then(|s| s.parse::<usize>().ok())
+                .unwrap_or(4);
+            let clamped = parsed.clamp(1, 10);
+            if clamped != parsed {
+                warn!(
+                    env = "AOS_MAX_CONCURRENT_DOWNLOADS",
+                    raw = ?raw,
+                    parsed,
+                    clamped,
+                    "Value out of bounds; clamping to safe range"
+                );
+            }
+            clamped
+        },
+        timeout_secs: {
+            let raw = std::env::var("AOS_DOWNLOAD_TIMEOUT_SECS").ok();
+            let parsed = raw
+                .as_deref()
+                .and_then(|s| s.parse::<u64>().ok())
+                .unwrap_or(300);
+            let clamped = parsed.clamp(30, 3600);
+            if clamped != parsed {
+                warn!(
+                    env = "AOS_DOWNLOAD_TIMEOUT_SECS",
+                    raw = ?raw,
+                    parsed,
+                    clamped,
+                    "Value out of bounds; clamping to safe range"
+                );
+            }
+            clamped
+        },
         hf_token,
     };
 

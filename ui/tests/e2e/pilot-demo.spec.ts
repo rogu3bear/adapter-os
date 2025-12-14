@@ -1,6 +1,5 @@
 import { test, expect, type ConsoleMessage, type Page, type Route } from '@playwright/test';
 
-const DEMO_ROUTES = ['/dashboard', '/inference', '/adapters', '/training', '/metrics'] as const;
 const FIXED_NOW = '2025-01-01T00:00:00.000Z';
 
 function attachConsoleGuards(page: Page) {
@@ -23,6 +22,7 @@ function attachConsoleGuards(page: Page) {
 
 async function setupPilotDemoMocks(page: Page) {
   const now = FIXED_NOW;
+  const delayMs = 800;
   const fulfillJson = (route: Route, body: unknown, status = 200) =>
     route.fulfill({
       status,
@@ -157,6 +157,7 @@ async function setupPilotDemoMocks(page: Page) {
     }
 
     if (pathname === '/v1/backends') {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
       return fulfillJson(route, {
         schema_version: '1.0',
         backends: [
@@ -168,6 +169,7 @@ async function setupPilotDemoMocks(page: Page) {
     }
 
     if (pathname === '/v1/backends/capabilities') {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
       return fulfillJson(route, {
         schema_version: '1.0',
         hardware: {
@@ -184,6 +186,7 @@ async function setupPilotDemoMocks(page: Page) {
     }
 
     if (pathname === '/v1/adapters') {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
       return fulfillJson(route, [
         {
           id: 'adapter-hot',
@@ -218,6 +221,7 @@ async function setupPilotDemoMocks(page: Page) {
     }
 
     if (pathname === '/v1/metrics/system') {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
       return fulfillJson(route, {
         schema_version: '1.0',
         cpu_usage_percent: 1,
@@ -246,6 +250,7 @@ async function setupPilotDemoMocks(page: Page) {
     }
 
     if (pathname === '/v1/training/jobs') {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
       return fulfillJson(route, {
         schema_version: '1.0',
         jobs: [],
@@ -273,22 +278,87 @@ async function setupPilotDemoMocks(page: Page) {
 }
 
 test.describe('Pilot demo smoke', () => {
-  test('demo pages load, no console errors, lists render', async ({ page }) => {
+  test('dashboard shows loading marker then content', async ({ page }) => {
     const { consoleErrors, pageErrors } = attachConsoleGuards(page);
     await setupPilotDemoMocks(page);
 
-    for (const route of DEMO_ROUTES) {
-      await page.goto(route);
-      await expect(
-        page.getByRole('heading', { name: new RegExp(route.replace('/', ''), 'i') })
-      ).toBeVisible();
-    }
+    await page.goto('/dashboard');
+
+    const loadingMarker = page.getByLabel('Loading system health');
+    await expect(loadingMarker).toBeVisible();
+    await expect(loadingMarker).toBeHidden();
+
+    await expect(page.getByRole('heading', { name: 'Dashboard', exact: true }).first()).toBeVisible();
+
+    expect(pageErrors, `page errors: ${pageErrors.join('\n')}`).toEqual([]);
+    expect(consoleErrors, `console errors: ${consoleErrors.join('\n')}`).toEqual([]);
+  });
+
+  test('inference shows loading marker then playground', async ({ page }) => {
+    const { consoleErrors, pageErrors } = attachConsoleGuards(page);
+    await setupPilotDemoMocks(page);
+
+    await page.goto('/inference');
+
+    const loadingMarker = page.getByLabel('Loading backend status');
+    await expect(loadingMarker).toBeVisible();
+    await expect(loadingMarker).toBeHidden();
+
+    await expect(page.getByRole('heading', { name: 'Inference Playground', exact: true }).first()).toBeVisible();
+    await expect(page.locator('[data-cy="prompt-input"]')).toBeVisible();
+
+    expect(pageErrors, `page errors: ${pageErrors.join('\n')}`).toEqual([]);
+    expect(consoleErrors, `console errors: ${consoleErrors.join('\n')}`).toEqual([]);
+  });
+
+  test('adapters shows loading marker then table content', async ({ page }) => {
+    const { consoleErrors, pageErrors } = attachConsoleGuards(page);
+    await setupPilotDemoMocks(page);
 
     await page.goto('/adapters');
-    await expect(page.getByText('Hot Adapter')).toBeVisible();
+
+    const loadingMarker = page.getByLabel('Loading table data');
+    await expect(loadingMarker).toBeVisible();
+    await expect(loadingMarker).toBeHidden();
+
+    await expect(page.getByRole('heading', { name: 'Adapters', exact: true }).first()).toBeVisible();
+    await expect(page.locator('[data-slot="table-body"]').getByText('Hot Adapter', { exact: true })).toBeVisible();
+
+    expect(pageErrors, `page errors: ${pageErrors.join('\n')}`).toEqual([]);
+    expect(consoleErrors, `console errors: ${consoleErrors.join('\n')}`).toEqual([]);
+  });
+
+  test('training shows loading marker then empty state', async ({ page }) => {
+    const { consoleErrors, pageErrors } = attachConsoleGuards(page);
+    await setupPilotDemoMocks(page);
+
+    await page.goto('/training/jobs');
+
+    const loadingMarker = page.getByLabel('Loading training jobs...');
+    await expect(loadingMarker).toBeVisible();
+    await expect(loadingMarker).toBeHidden();
+
+    await expect(page.getByRole('heading', { name: 'Training', exact: true }).first()).toBeVisible();
+    await expect(page.getByText('No training jobs found', { exact: true })).toBeVisible();
+
+    expect(pageErrors, `page errors: ${pageErrors.join('\n')}`).toEqual([]);
+    expect(consoleErrors, `console errors: ${consoleErrors.join('\n')}`).toEqual([]);
+  });
+
+  test('metrics shows loading marker then content', async ({ page }) => {
+    const { consoleErrors, pageErrors } = attachConsoleGuards(page);
+    await setupPilotDemoMocks(page);
+
+    await page.goto('/metrics');
+
+    const loadingMarker = page.getByLabel('Loading metrics...');
+    await expect(loadingMarker).toBeVisible();
+    await expect(loadingMarker).toBeHidden();
+
+    await expect(page.getByRole('heading', { name: 'Metrics', exact: true }).first()).toBeVisible();
+    await expect(page.getByRole('link', { name: 'View related telemetry', exact: true })).toBeVisible();
 
     expect(pageErrors, `page errors: ${pageErrors.join('\n')}`).toEqual([]);
     expect(consoleErrors, `console errors: ${consoleErrors.join('\n')}`).toEqual([]);
   });
 });
-

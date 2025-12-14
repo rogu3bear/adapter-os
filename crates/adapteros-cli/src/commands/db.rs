@@ -901,7 +901,9 @@ async fn run_seed_fixtures(
     // Seed a deterministic training job (so Training UI + lineage have at least one job)
     let training_config_json =
         r#"{"rank":8,"alpha":16,"epochs":1,"learning_rate":0.0005,"batch_size":4}"#;
-    let training_config_hash = blake3::hash(training_config_json.as_bytes()).to_hex().to_string();
+    let training_config_hash = blake3::hash(training_config_json.as_bytes())
+        .to_hex()
+        .to_string();
     let progress_json = json!({
         "progress_pct": 100.0,
         "current_epoch": 1,

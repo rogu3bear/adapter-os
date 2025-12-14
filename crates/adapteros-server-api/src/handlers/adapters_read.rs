@@ -1179,7 +1179,7 @@ pub async fn promote_adapter_version_handler(
 ) -> Result<Json<AdapterResponse>, (StatusCode, Json<ErrorResponse>)> {
     let adapter = state
         .db
-        .get_adapter(&adapter_id)
+        .get_adapter(&claims.tenant_id, &adapter_id)
         .await
         .map_err(|e| {
             (

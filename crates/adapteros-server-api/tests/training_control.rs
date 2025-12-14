@@ -208,13 +208,9 @@ async fn test_training_list_exposes_required_metadata() {
     let mut req = make_request("adapter-meta", repo_id.clone());
     req.data_spec = Some(r#"{"mode":"synthetic","purpose":"metadata-test"}"#.to_string());
 
-    let Json(job) = start_training(
-        State(state.clone()),
-        Extension(claims.clone()),
-        Json(req),
-    )
-    .await
-    .expect("start training");
+    let Json(job) = start_training(State(state.clone()), Extension(claims.clone()), Json(req))
+        .await
+        .expect("start training");
 
     let status = wait_for_terminal(&state, &job.id).await;
     assert_eq!(status, TrainingJobStatus::Completed);
@@ -234,11 +230,26 @@ async fn test_training_list_exposes_required_metadata() {
         .expect("job should appear in list");
 
     assert_eq!(listed.adapter_repo_id.as_deref(), Some(repo_id.as_str()));
-    assert!(listed.adapter_version_id.as_deref().is_some_and(|v| !v.is_empty()));
-    assert!(listed.config_hash_b3.as_deref().is_some_and(|h| !h.is_empty()));
-    assert!(listed.data_spec_hash.as_deref().is_some_and(|h| !h.is_empty()));
-    assert!(listed.artifact_path.as_deref().is_some_and(|p| p.ends_with(".aos")));
-    assert!(listed.artifact_hash_b3.as_deref().is_some_and(|h| !h.is_empty()));
+    assert!(listed
+        .adapter_version_id
+        .as_deref()
+        .is_some_and(|v| !v.is_empty()));
+    assert!(listed
+        .config_hash_b3
+        .as_deref()
+        .is_some_and(|h| !h.is_empty()));
+    assert!(listed
+        .data_spec_hash
+        .as_deref()
+        .is_some_and(|h| !h.is_empty()));
+    assert!(listed
+        .artifact_path
+        .as_deref()
+        .is_some_and(|p| p.ends_with(".aos")));
+    assert!(listed
+        .artifact_hash_b3
+        .as_deref()
+        .is_some_and(|h| !h.is_empty()));
     assert_eq!(listed.artifact_path, listed.aos_path);
     assert_eq!(listed.artifact_hash_b3, listed.package_hash_b3);
 }

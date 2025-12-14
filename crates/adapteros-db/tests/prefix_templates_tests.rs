@@ -902,21 +902,17 @@ async fn test_multiple_templates_same_priority_ordering() {
     let db = setup_db().await;
 
     // Create multiple templates with the same priority
-    let ids: Vec<String> = (0..3)
-        .map(|i| {
-            let created = db
-                .create_prefix_template(CreatePrefixTemplateRequest {
-                    tenant_id: "tenant-1".to_string(),
-                    mode: PrefixMode::User,
-                    template_text: format!("Same priority {}", i),
-                    priority: Some(10),
-                    enabled: Some(true),
-                })
-                .await
-                .unwrap();
-            created.id
+    for i in 0..3 {
+        db.create_prefix_template(CreatePrefixTemplateRequest {
+            tenant_id: "tenant-1".to_string(),
+            mode: PrefixMode::User,
+            template_text: format!("Same priority {}", i),
+            priority: Some(10),
+            enabled: Some(true),
         })
-        .collect();
+        .await
+        .unwrap();
+    }
 
     // List should return all templates, ordered by created_at (secondary sort)
     let templates = db.list_prefix_templates("tenant-1").await.unwrap();

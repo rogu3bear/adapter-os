@@ -159,7 +159,7 @@ impl FileProvider {
     /// Persist the current store to disk
     async fn persist(&self) -> Result<()> {
         let store = self.store.read().await;
-        Self::save_keystore(&self.key_file, &*store)
+        Self::save_keystore(&self.key_file, &store)
     }
 
     /// Get the current timestamp

@@ -1,10 +1,10 @@
 //! Background reconciler to keep storage and DB metadata in sync.
 
-use tracing::{debug, error};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
+use tracing::{debug, error};
 
 use adapteros_core::B3Hash;
 use adapteros_db::NewStorageIssue;

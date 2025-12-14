@@ -165,8 +165,16 @@ fn test_deduplication_preserves_highest_scoring() {
         .filter(|doc| doc.doc_id.starts_with(doc2))
         .collect();
 
-    assert_eq!(doc1_chunks.len(), 2, "Should have exactly 2 chunks from doc1");
-    assert_eq!(doc2_chunks.len(), 2, "Should have exactly 2 chunks from doc2");
+    assert_eq!(
+        doc1_chunks.len(),
+        2,
+        "Should have exactly 2 chunks from doc1"
+    );
+    assert_eq!(
+        doc2_chunks.len(),
+        2,
+        "Should have exactly 2 chunks from doc2"
+    );
 
     // Verify the highest scoring chunks were kept for each document
     assert_eq!(doc1_chunks[0].doc_id, format!("{}__chunk_0", doc1));

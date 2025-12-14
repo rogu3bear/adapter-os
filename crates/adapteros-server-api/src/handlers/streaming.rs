@@ -11,8 +11,8 @@ use axum::{
     extract::Extension,
     extract::State,
     http::StatusCode,
-    response::IntoResponse,
     response::sse::{Event, KeepAlive, Sse},
+    response::IntoResponse,
     Json,
 };
 use futures_util::stream::{self, Stream};

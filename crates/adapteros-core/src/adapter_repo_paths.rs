@@ -254,7 +254,7 @@ impl AdapterPaths {
         if let Ok(entries) = fs::read_dir(&adapter_dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
-                if !path.extension().is_some_and(|ext| ext == "aos") {
+                if path.extension().is_none_or(|ext| ext != "aos") {
                     continue;
                 }
                 if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {

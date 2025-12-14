@@ -40,6 +40,7 @@ async fn replay_metadata_persists_coreml_hashes() {
         coreml_hash_mismatch: Some(true),
         sampling_algorithm_version: Some("v1.0.0".to_string()),
         rag_snapshot_hash: None,
+        dataset_version_id: None,
         adapter_ids: Some(vec!["adapter-1".to_string()]),
         base_only: Some(false),
         prompt_text: "prompt text".to_string(),

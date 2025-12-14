@@ -981,6 +981,15 @@ pub fn default_schema() -> ConfigSchema {
             .build(),
     );
 
+    schema.add_variable(
+        ConfigVariable::new("AOS_DEMO_MODE")
+            .config_type(ConfigType::Bool)
+            .default_value("false")
+            .description("Enable demo mode (service panel + demo-friendly defaults)")
+            .category("SERVER")
+            .build(),
+    );
+
     // ========================================================================
     // DATABASE Configuration
     // ========================================================================
@@ -1145,7 +1154,7 @@ pub fn default_schema() -> ConfigSchema {
             .config_type(ConfigType::Enum {
                 values: vec!["json".to_string(), "text".to_string(), "pretty".to_string()],
             })
-            .default_value("json")
+            .default_value("text")
             .description(
                 "Log output format: json (production), text (simple), pretty (development)",
             )

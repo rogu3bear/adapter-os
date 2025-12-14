@@ -196,6 +196,7 @@ pub fn make_auth_payload(
 }
 
 /// Convenience helper to create a HealthLifecycleEvent with timestamp.
+#[allow(clippy::too_many_arguments)]
 pub fn make_health_payload(
     worker_id: impl Into<String>,
     tenant_id: impl Into<String>,

@@ -81,6 +81,7 @@ pub struct AdapterEvent {
 
 impl AdapterEvent {
     /// Attach backend/segment context without changing the schema
+    #[allow(clippy::too_many_arguments)]
     pub fn with_load_context(
         mut self,
         backend: Option<String>,

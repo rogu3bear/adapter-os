@@ -64,7 +64,6 @@ pub mod git_repository;
 pub mod golden;
 pub mod health;
 pub mod inference;
-pub mod openai_compat;
 pub mod journeys;
 pub mod kv_isolation;
 pub mod memory_detail;
@@ -73,12 +72,13 @@ pub mod models;
 pub mod monitoring;
 pub mod node_detail;
 pub mod notifications;
+pub mod openai_compat;
 pub mod orchestration;
 pub mod owner_chat;
 pub mod owner_cli;
 // pub mod packages; // Feature removed in migration 0200
-pub mod plugins;
 pub mod pilot_status;
+pub mod plugins;
 pub mod promotion;
 pub mod rag_common;
 pub mod registry;
@@ -255,6 +255,7 @@ pub async fn upsert_directory_adapter(
     // Combined blocking operations: path validation, directory analysis, and artifact creation
     // Timeout prevents malicious/large directories from tying up blocking threads indefinitely
     let tenant_id = req.tenant_id.clone();
+    validate_tenant_isolation(&claims, &tenant_id)?;
     let root_str = req.root;
     let path_str = req.path;
 
@@ -408,16 +409,20 @@ pub async fn upsert_directory_adapter(
     // Register adapter if not present
     let existing = {
         tracing::info!(adapter_id = %adapter_id, "checking adapter in db");
-        state.db.get_adapter(&adapter_id).await.map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("failed to query adapter")
-                        .with_code("INTERNAL_SERVER_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?
+        state
+            .db
+            .get_adapter_for_tenant(&tenant_id, &adapter_id)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("failed to query adapter")
+                            .with_code("INTERNAL_SERVER_ERROR")
+                            .with_string_details(e.to_string()),
+                    ),
+                )
+            })?
     };
 
     if existing.is_none() {
@@ -426,6 +431,7 @@ pub async fn upsert_directory_adapter(
 
         tracing::info!(adapter_id = %adapter_id, "registering adapter in db");
         let params = adapteros_db::adapters::AdapterRegistrationBuilder::new()
+            .tenant_id(&tenant_id)
             .adapter_id(&adapter_id)
             .name(&adapter_id)
             .hash_b3(&hash_b3)
@@ -461,7 +467,10 @@ pub async fn upsert_directory_adapter(
     let mut activated = false;
     if req.activate {
         tracing::info!(adapter_id = %adapter_id, "getting adapter for activation");
-        let adapter_result = state.db.get_adapter(&adapter_id).await;
+        let adapter_result = state
+            .db
+            .get_adapter_for_tenant(&tenant_id, &adapter_id)
+            .await;
 
         match adapter_result {
             Ok(Some(_a)) => {
@@ -477,7 +486,12 @@ pub async fn upsert_directory_adapter(
                         // Fallback: update DB state to indicate load failure
                         let _ = state
                             .db
-                            .update_adapter_state_tx(&adapter_id, "cold", "load_failed")
+                            .update_adapter_state_tx_for_tenant(
+                                &tenant_id,
+                                &adapter_id,
+                                "cold",
+                                "load_failed",
+                            )
                             .await;
                     } else {
                         // Update state (handles DB update if db is set)
@@ -495,7 +509,12 @@ pub async fn upsert_directory_adapter(
                                 // Fallback: update DB state directly
                                 let _ = state
                                     .db
-                                    .update_adapter_state_tx(&adapter_id, "cold", "loaded_via_api")
+                                    .update_adapter_state_tx_for_tenant(
+                                        &tenant_id,
+                                        &adapter_id,
+                                        "cold",
+                                        "loaded_via_api",
+                                    )
                                     .await;
                             } else {
                                 tracing::info!(adapter_id = %adapter_id, "adapter loaded successfully");
@@ -506,7 +525,12 @@ pub async fn upsert_directory_adapter(
                             // Fallback: update DB state directly
                             let _ = state
                                 .db
-                                .update_adapter_state_tx(&adapter_id, "cold", "loaded_via_api")
+                                .update_adapter_state_tx_for_tenant(
+                                    &tenant_id,
+                                    &adapter_id,
+                                    "cold",
+                                    "loaded_via_api",
+                                )
                                 .await;
                         }
                     }
@@ -515,7 +539,12 @@ pub async fn upsert_directory_adapter(
                     tracing::info!(adapter_id = %adapter_id, "simulating adapter load (no lifecycle manager)");
                     let _ = state
                         .db
-                        .update_adapter_state_tx(&adapter_id, "warm", "simulated_load")
+                        .update_adapter_state_tx_for_tenant(
+                            &tenant_id,
+                            &adapter_id,
+                            "warm",
+                            "simulated_load",
+                        )
                         .await;
                     activated = true;
                 }
@@ -2399,10 +2428,7 @@ pub async fn worker_spawn(
             Json(
                 ErrorResponse::new("failed to contact node agent")
                     .with_code("INTERNAL_SERVER_ERROR")
-                    .with_string_details(format!(
-                        "{} (after {} attempts)",
-                        e, max_attempts
-                    )),
+                    .with_string_details(format!("{} (after {} attempts)", e, max_attempts)),
             ),
         )
     })?;
@@ -2551,8 +2577,11 @@ pub async fn list_workers(
             _ => return (None, None),
         };
 
-        let parsed = serde_json::from_str::<adapteros_manifest::ManifestV3>(&manifest_row.body_json)
-            .or_else(|_| serde_yaml::from_str::<adapteros_manifest::ManifestV3>(&manifest_row.body_json));
+        let parsed =
+            serde_json::from_str::<adapteros_manifest::ManifestV3>(&manifest_row.body_json)
+                .or_else(|_| {
+                    serde_yaml::from_str::<adapteros_manifest::ManifestV3>(&manifest_row.body_json)
+                });
 
         match parsed {
             Ok(manifest) => (
@@ -7303,7 +7332,12 @@ pub async fn load_adapter(
         // Use transactional version for safety in handlers
         if let Err(e) = state
             .db
-            .update_adapter_state_tx(&adapter_id, "loading", "user_request")
+            .update_adapter_state_tx_for_tenant(
+                &adapter.tenant_id,
+                &adapter_id,
+                "loading",
+                "user_request",
+            )
             .await
         {
             let _ = crate::audit_helper::log_failure(
@@ -7394,7 +7428,12 @@ pub async fn load_adapter(
                 // Note: This is a best-effort fallback, the adapter is already loaded
                 let _ = state
                     .db
-                    .update_adapter_state_tx(&adapter_id, "cold", "loaded_via_api")
+                    .update_adapter_state_tx_for_tenant(
+                        &adapter.tenant_id,
+                        &adapter_id,
+                        "cold",
+                        "loaded_via_api",
+                    )
                     .await;
             }
 
@@ -7416,7 +7455,12 @@ pub async fn load_adapter(
 
         if let Err(e) = state
             .db
-            .update_adapter_state_tx(&adapter_id, "warm", "simulated_load")
+            .update_adapter_state_tx_for_tenant(
+                &adapter.tenant_id,
+                &adapter_id,
+                "warm",
+                "simulated_load",
+            )
             .await
         {
             let _ = crate::audit_helper::log_failure(
@@ -7629,7 +7673,12 @@ pub async fn unload_adapter(
         // Use transactional version for safety in handlers
         if let Err(e) = state
             .db
-            .update_adapter_state_tx(&adapter_id, "unloading", "user_request")
+            .update_adapter_state_tx_for_tenant(
+                &adapter.tenant_id,
+                &adapter_id,
+                "unloading",
+                "user_request",
+            )
             .await
         {
             let _ = crate::audit_helper::log_failure(
@@ -7667,7 +7716,12 @@ pub async fn unload_adapter(
                 // Note: This is a best-effort fallback, adapter may still be loaded in memory
                 let _ = state
                     .db
-                    .update_adapter_state_tx(&adapter_id, "unloaded", "eviction_fallback")
+                    .update_adapter_state_tx_for_tenant(
+                        &adapter.tenant_id,
+                        &adapter_id,
+                        "unloaded",
+                        "eviction_fallback",
+                    )
                     .await;
             }
 
@@ -7680,7 +7734,12 @@ pub async fn unload_adapter(
             // Adapter not found in lifecycle manager, update DB state directly
             if let Err(e) = state
                 .db
-                .update_adapter_state_tx(&adapter_id, "unloaded", "not_found_in_lifecycle_manager")
+                .update_adapter_state_tx_for_tenant(
+                    &adapter.tenant_id,
+                    &adapter_id,
+                    "unloaded",
+                    "not_found_in_lifecycle_manager",
+                )
                 .await
             {
                 let _ = crate::audit_helper::log_failure(
@@ -7712,7 +7771,12 @@ pub async fn unload_adapter(
         // Fallback: direct DB update if no lifecycle manager
         if let Err(e) = state
             .db
-            .update_adapter_state_tx(&adapter_id, "unloaded", "unloaded_via_api")
+            .update_adapter_state_tx_for_tenant(
+                &adapter.tenant_id,
+                &adapter_id,
+                "unloaded",
+                "unloaded_via_api",
+            )
             .await
         {
             let _ = crate::audit_helper::log_failure(
@@ -7734,7 +7798,11 @@ pub async fn unload_adapter(
             ));
         }
 
-        state.db.update_adapter_memory(&adapter_id, 0).await.ok();
+        state
+            .db
+            .update_adapter_memory_for_tenant(&adapter.tenant_id, &adapter_id, 0)
+            .await
+            .ok();
 
         tracing::info!(
             event = "adapter.unload",

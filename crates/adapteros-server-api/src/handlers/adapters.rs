@@ -335,7 +335,7 @@ pub async fn get_adapter_lineage(
     // Verify adapter exists
     let current_adapter = state
         .db
-        .get_adapter(&adapter_id)
+        .get_adapter(&claims.tenant_id, &adapter_id)
         .await
         .map_err(|e| {
             error!("Failed to fetch adapter {}: {}", adapter_id, e);
@@ -362,7 +362,7 @@ pub async fn get_adapter_lineage(
     // Get full lineage tree
     let lineage_adapters = state
         .db
-        .get_adapter_lineage(&adapter_id)
+        .get_adapter_lineage(&claims.tenant_id, &adapter_id)
         .await
         .map_err(|e| {
             error!("Failed to fetch lineage for {}: {}", adapter_id, e);
@@ -594,7 +594,7 @@ pub async fn get_adapter_detail(
 
     let adapter = state
         .db
-        .get_adapter(&adapter_id)
+        .get_adapter(&claims.tenant_id, &adapter_id)
         .await
         .map_err(|e| {
             error!("Failed to fetch adapter {}: {}", adapter_id, e);
@@ -666,7 +666,7 @@ pub async fn update_adapter_strength(
 
     let adapter = state
         .db
-        .get_adapter(&adapter_id)
+        .get_adapter(&claims.tenant_id, &adapter_id)
         .await
         .map_err(|e| {
             error!(adapter_id = %adapter_id, error = %e, "Failed to fetch adapter");
@@ -690,7 +690,7 @@ pub async fn update_adapter_strength(
 
     state
         .db
-        .update_adapter_strength(&adapter_id, req.lora_strength)
+        .update_adapter_strength(&claims.tenant_id, &adapter_id, req.lora_strength)
         .await
         .map_err(|e| {
             error!(adapter_id = %adapter_id, error = %e, "Failed to update adapter strength");
@@ -706,7 +706,7 @@ pub async fn update_adapter_strength(
 
     let updated = state
         .db
-        .get_adapter(&adapter_id)
+        .get_adapter(&claims.tenant_id, &adapter_id)
         .await
         .map_err(|e| {
             error!(adapter_id = %adapter_id, error = %e, "Failed to reload adapter");
@@ -856,7 +856,7 @@ pub async fn pin_adapter(
     // Verify adapter exists
     let adapter = state
         .db
-        .get_adapter(&adapter_id)
+        .get_adapter(&claims.tenant_id, &adapter_id)
         .await
         .map_err(|e| {
             error!("Failed to fetch adapter {}: {}", adapter_id, e);
@@ -880,11 +880,7 @@ pub async fn pin_adapter(
     // Validate tenant isolation
     validate_tenant_isolation(&claims, &adapter.tenant_id)?;
 
-    // Get tenant_id from adapter or use default
-    let tenant_id = adapter
-        .tenant_namespace
-        .clone()
-        .unwrap_or_else(|| "default".to_string());
+    let tenant_id = adapter.tenant_id.clone();
     let pinned_by = claims.sub.clone();
     let pinned_at = chrono::Utc::now().to_rfc3339();
 
@@ -990,7 +986,7 @@ pub async fn unpin_adapter(
     // Verify adapter exists
     let adapter = state
         .db
-        .get_adapter(&adapter_id)
+        .get_adapter(&claims.tenant_id, &adapter_id)
         .await
         .map_err(|e| {
             error!("Failed to fetch adapter {}: {}", adapter_id, e);
@@ -1014,11 +1010,7 @@ pub async fn unpin_adapter(
     // Validate tenant isolation
     validate_tenant_isolation(&claims, &adapter.tenant_id)?;
 
-    // Get tenant_id from adapter or use default
-    let tenant_id = adapter
-        .tenant_namespace
-        .clone()
-        .unwrap_or_else(|| "default".to_string());
+    let tenant_id = adapter.tenant_id.clone();
     let actor = claims.sub.clone();
 
     // Unpin the adapter
@@ -1109,7 +1101,7 @@ pub async fn get_pin_status(
     // Verify adapter exists
     let adapter = state
         .db
-        .get_adapter(&adapter_id)
+        .get_adapter(&claims.tenant_id, &adapter_id)
         .await
         .map_err(|e| {
             error!("Failed to fetch adapter {}: {}", adapter_id, e);
@@ -1133,11 +1125,7 @@ pub async fn get_pin_status(
     // Validate tenant isolation
     validate_tenant_isolation(&claims, &adapter.tenant_id)?;
 
-    // Get tenant_id from adapter or use default
-    let tenant_id = adapter
-        .tenant_namespace
-        .clone()
-        .unwrap_or_else(|| "default".to_string());
+    let tenant_id = adapter.tenant_id.clone();
 
     // Check if pinned
     let is_pinned = state
@@ -1255,7 +1243,7 @@ pub async fn swap_adapters(
     // Verify old adapter exists
     let old_adapter = state
         .db
-        .get_adapter(&req.old_adapter_id)
+        .get_adapter(&claims.tenant_id, &req.old_adapter_id)
         .await
         .map_err(|e| {
             error!("Failed to fetch old adapter {}: {}", req.old_adapter_id, e);
@@ -1286,7 +1274,7 @@ pub async fn swap_adapters(
     // Verify new adapter exists
     let new_adapter = state
         .db
-        .get_adapter(&req.new_adapter_id)
+        .get_adapter(&claims.tenant_id, &req.new_adapter_id)
         .await
         .map_err(|e| {
             error!("Failed to fetch new adapter {}: {}", req.new_adapter_id, e);
@@ -1353,7 +1341,8 @@ pub async fn swap_adapters(
                 // Fallback: update DB state directly
                 state
                     .db
-                    .update_adapter_state_tx(
+                    .update_adapter_state_tx_for_tenant(
+                        &claims.tenant_id,
                         &req.old_adapter_id,
                         "unloaded",
                         "swap_eviction_fallback",
@@ -1375,7 +1364,8 @@ pub async fn swap_adapters(
             // Adapter not found in lifecycle manager, update DB directly
             state
                 .db
-                .update_adapter_state_tx(
+                .update_adapter_state_tx_for_tenant(
+                    &claims.tenant_id,
                     &req.old_adapter_id,
                     "unloaded",
                     "swap_not_found_in_lifecycle",
@@ -1418,7 +1408,12 @@ pub async fn swap_adapters(
                 // Fallback: update DB state directly
                 state
                     .db
-                    .update_adapter_state_tx(&req.new_adapter_id, "warm", "swap_load_fallback")
+                    .update_adapter_state_tx_for_tenant(
+                        &claims.tenant_id,
+                        &req.new_adapter_id,
+                        "warm",
+                        "swap_load_fallback",
+                    )
                     .await
                     .map_err(|e| {
                         error!("Failed to update new adapter state: {}", e);
@@ -1445,7 +1440,12 @@ pub async fn swap_adapters(
         // Fallback: direct DB updates if no lifecycle manager
         state
             .db
-            .update_adapter_state_tx(&req.old_adapter_id, "unloaded", "swap_no_lifecycle_manager")
+            .update_adapter_state_tx_for_tenant(
+                &claims.tenant_id,
+                &req.old_adapter_id,
+                "unloaded",
+                "swap_no_lifecycle_manager",
+            )
             .await
             .map_err(|e| {
                 error!("Failed to update old adapter state: {}", e);
@@ -1461,7 +1461,12 @@ pub async fn swap_adapters(
 
         state
             .db
-            .update_adapter_state_tx(&req.new_adapter_id, "warm", "swap_no_lifecycle_manager")
+            .update_adapter_state_tx_for_tenant(
+                &claims.tenant_id,
+                &req.new_adapter_id,
+                "warm",
+                "swap_no_lifecycle_manager",
+            )
             .await
             .map_err(|e| {
                 error!("Failed to update new adapter state: {}", e);
@@ -1561,7 +1566,7 @@ pub async fn get_adapter_stats(
     // Get adapter from database
     let adapter = state
         .db
-        .get_adapter(&adapter_id)
+        .get_adapter(&claims.tenant_id, &adapter_id)
         .await
         .map_err(|e| {
             error!("Failed to fetch adapter {}: {}", adapter_id, e);
@@ -2577,7 +2582,7 @@ pub async fn get_adapter_training_snapshot(
     // CRITICAL: Fetch adapter first to validate tenant isolation to prevent cross-tenant access
     let adapter = state
         .db
-        .get_adapter(&adapter_id)
+        .get_adapter(&claims.tenant_id, &adapter_id)
         .await
         .map_err(|e| {
             (
@@ -2676,7 +2681,7 @@ pub async fn export_training_provenance(
     // Get adapter details
     let adapter = state
         .db
-        .get_adapter(&adapter_id)
+        .get_adapter(&claims.tenant_id, &adapter_id)
         .await
         .map_err(|e| {
             error!(adapter_id = %adapter_id, error = %e, "Failed to get adapter");
@@ -2885,7 +2890,7 @@ pub async fn archive_adapter(
     // Verify adapter exists
     let adapter = state
         .db
-        .get_adapter(&adapter_id)
+        .get_adapter(&claims.tenant_id, &adapter_id)
         .await
         .map_err(|e| {
             error!("Failed to fetch adapter {}: {}", adapter_id, e);
@@ -3015,7 +3020,7 @@ pub async fn unarchive_adapter(
     // Verify adapter exists
     let adapter = state
         .db
-        .get_adapter(&adapter_id)
+        .get_adapter(&claims.tenant_id, &adapter_id)
         .await
         .map_err(|e| {
             error!("Failed to fetch adapter {}: {}", adapter_id, e);
@@ -3144,7 +3149,7 @@ pub async fn get_archive_status(
     // Fetch adapter
     let adapter = state
         .db
-        .get_adapter(&adapter_id)
+        .get_adapter(&claims.tenant_id, &adapter_id)
         .await
         .map_err(|e| {
             error!("Failed to fetch adapter {}: {}", adapter_id, e);
@@ -3227,7 +3232,7 @@ pub async fn export_adapter(
     // Get adapter details
     let adapter = state
         .db
-        .get_adapter(&adapter_id)
+        .get_adapter(&claims.tenant_id, &adapter_id)
         .await
         .map_err(|e| {
             error!(adapter_id = %adapter_id, error = %e, "Failed to get adapter for export");
