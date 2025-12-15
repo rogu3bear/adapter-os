@@ -301,7 +301,7 @@ vi.mock('@/api/client', () => ({
 }));
 
 // Mock hooks
-vi.mock('@/hooks/useAdmin', () => ({
+vi.mock('@/hooks/admin/useAdmin', () => ({
   useTenants: () => ({
     data: tenantsQueryState.data,
     isLoading: tenantsQueryState.isLoading,
@@ -322,7 +322,7 @@ vi.mock('@/hooks/useAdmin', () => ({
   }),
 }));
 
-vi.mock('@/hooks/useTraining', () => ({
+vi.mock('@/hooks/training', () => ({
   useTraining: {
     useTrainingJobs: () => ({
       data: trainingJobsState.data,
@@ -339,27 +339,34 @@ vi.mock('@/hooks/useTraining', () => ({
   },
 }));
 
-vi.mock('@/pages/Adapters/useAdapters', () => ({
+vi.mock('@/hooks/adapters/useAdapters', () => ({
   useAdapters: () => ({
     data: adaptersState.data,
     isLoading: adaptersState.isLoading,
     error: adaptersState.error,
     refetch: vi.fn(),
+    invalidateAdapters: vi.fn(),
   }),
 }));
 
-vi.mock('@/hooks/useChatSessionsApi', () => ({
+vi.mock('@/hooks/chat/useChatSessionsApi', () => ({
   useChatSessionsApi: () => ({
     sessions: chatSessionsState.sessions,
     isLoading: chatSessionsState.isLoading,
+    isUnsupported: false,
+    unsupportedReason: null,
     createSession: vi.fn(),
     updateSession: vi.fn(),
+    addMessage: vi.fn(),
+    updateMessage: vi.fn(),
     deleteSession: vi.fn(),
+    getSession: vi.fn(),
+    updateSessionCollection: vi.fn(),
   }),
 }));
 
 // Mock useSystemMetrics and other useSystem hooks
-vi.mock('@/hooks/useSystem', () => ({
+vi.mock('@/hooks/system/useSystem', () => ({
   useSystemMetrics: () => ({
     metrics: mockSystemMetrics,
     isLoading: false,
@@ -386,10 +393,7 @@ vi.mock('@/hooks/useSystem', () => ({
     metrics: null,
     isLoading: false,
   }),
-  useSystemHealthStatus: () => ({
-    status: 'healthy',
-    isLoading: false,
-  }),
+  useSystemHealthStatus: () => 'healthy',
   getHealthStatus: () => 'healthy',
   useNodes: () => ({
     nodes: [],
@@ -435,7 +439,7 @@ vi.mock('@/hooks/useSystem', () => ({
 }));
 
 // Mock useSettings
-vi.mock('@/hooks/useSettings', () => ({
+vi.mock('@/hooks/config/useSettings', () => ({
   useSettings: () => ({
     data: {
       security: {
@@ -456,34 +460,34 @@ vi.mock('@/hooks/inference/useInferenceSessions', () => ({
   }),
 }));
 
-// Mock useAutoLoadModel
-vi.mock('@/hooks/useAutoLoadModel', () => ({
-  useAutoLoadModel: () => ({
-    isAutoLoading: false,
-    error: null,
-    isError: false,
-    autoLoadEnabled: true,
-    disableAutoLoad: vi.fn(),
-    enableAutoLoad: vi.fn(),
-    toggleAutoLoad: vi.fn(),
-    loadModel: vi.fn(),
-    retry: vi.fn(),
-    clearError: vi.fn(),
-  }),
-}));
-
-// Mock useModelStatus
-vi.mock('@/hooks/useModelStatus', () => ({
-  useModelStatus: () => ({
-    status: 'ready',
-    modelName: 'test-model',
-    modelId: 'test-model-id',
-    modelPath: '/path/to/model',
-    memoryUsageMb: 2048,
-    errorMessage: null,
-    refresh: vi.fn(),
-  }),
-}));
+// Mock model-loading hooks
+vi.mock('@/hooks/model-loading', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@/hooks/model-loading')>();
+  return {
+    ...original,
+    useAutoLoadModel: () => ({
+      isAutoLoading: false,
+      error: null,
+      isError: false,
+      autoLoadEnabled: true,
+      disableAutoLoad: vi.fn(),
+      enableAutoLoad: vi.fn(),
+      toggleAutoLoad: vi.fn(),
+      loadModel: vi.fn(),
+      retry: vi.fn(),
+      clearError: vi.fn(),
+    }),
+    useModelStatus: () => ({
+      status: 'ready',
+      modelName: 'test-model',
+      modelId: 'test-model-id',
+      modelPath: '/path/to/model',
+      memoryUsageMb: 2048,
+      errorMessage: null,
+      refetch: vi.fn(),
+    }),
+  };
+});
 
 // Mock CoreProviders with AuthContext
 let mockUser: User | null = null;
@@ -587,7 +591,7 @@ vi.mock('@/components/ui/chart', () => ({
 }));
 
 // Mock usePolling
-vi.mock('@/hooks/usePolling', () => ({
+vi.mock('@/hooks/realtime/usePolling', () => ({
   usePolling: (fetcher: () => Promise<unknown>) => ({
     data: null,
     isLoading: false,

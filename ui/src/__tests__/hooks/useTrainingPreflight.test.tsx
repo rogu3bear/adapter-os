@@ -14,12 +14,16 @@ vi.mock('@/api/client', () => ({
   },
 }));
 
-// Mock useModelStatus
+// Mock useModelStatus from model-loading
 const mockUseModelStatus = vi.fn();
 
-vi.mock('@/hooks/useModelStatus', () => ({
-  useModelStatus: (...args: unknown[]) => mockUseModelStatus(...args),
-}));
+vi.mock('@/hooks/model-loading', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@/hooks/model-loading')>();
+  return {
+    ...original,
+    useModelStatus: (...args: unknown[]) => mockUseModelStatus(...args),
+  };
+});
 
 // Mock trainingPreflight utils
 const mockRunClientPreflight = vi.fn();

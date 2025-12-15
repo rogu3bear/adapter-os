@@ -556,7 +556,7 @@ Export document-based chat sessions with citations.
 ### 3. Telemetry Viewer (`ui/src/pages/TelemetryPage.tsx`)
 Export inference traces and chat sessions for audit purposes.
 
-### 4. Replay Interface (`ui/src/pages/ReplayPage.tsx`)
+### 4. Replay Interface (`ui/src/pages/Replay/ReplayShell.tsx`)
 Export replay results with determinism evidence.
 
 ## Completed Features (Evidence + Export Pack v1)

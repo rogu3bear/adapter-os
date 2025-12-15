@@ -1,7 +1,9 @@
 import { createElement, lazy } from 'react';
+import { lazyRouteableNamed } from './route-types';
 import { useLocation, useParams } from 'react-router-dom';
 import LegacyRedirectNotice from '@/components/LegacyRedirectNotice';
 import { lazyWithRetry } from '@/utils/lazyWithRetry';
+import { buildTelemetryEventStreamLink, buildTelemetryTraceLink, buildTelemetryViewerLink } from '@/utils/navLinks';
 import type { UserRole } from '@/api/types';
 import type { LucideIcon } from 'lucide-react';
 import { UiMode } from './ui-mode';
@@ -48,13 +50,10 @@ import {
 const OwnerHomePage = lazy(() => import('@/pages/OwnerHome'));
 const DashboardPage = lazy(() => import('@/pages/DashboardPage'));
 const TenantsPage = lazy(() => import('@/pages/TenantsPage'));
-const TenantDetailPage = lazy(() => import('@/pages/Admin/TenantDetailPage').then(m => ({ default: m.TenantDetailPage as React.ComponentType<any> })));
+const TenantDetailRoutePage = lazy(() => import('@/pages/Admin/TenantDetailPage'));
 const AdaptersPage = lazy(() => import('@/pages/AdaptersPage'));
 const AdapterDetailPage = lazy(() => import('@/pages/Adapters/AdapterDetailPage'));
 const AdapterRegisterPage = lazy(() => import('@/pages/Adapters/AdapterRegisterPage'));
-const AdapterActivationsPage = lazy(() => import('@/pages/Adapters/AdapterActivations'));
-const AdapterLineagePage = lazy(() => import('@/pages/Adapters/AdapterLineage'));
-const AdapterManifestPage = lazy(() => import('@/pages/Adapters/AdapterManifest'));
 const AdaptersShellPage = lazyWithRetry(() => import('@/pages/Adapters/AdaptersShell'));
 const PoliciesPage = lazy(() => import('@/pages/PoliciesPage'));
 const MetricsPage = lazy(() => import('@/pages/MetricsPage'));
@@ -62,28 +61,27 @@ const InferencePage = lazy(() => import('@/pages/InferencePage'));
 const ChatPage = lazy(() => import('@/pages/ChatPage'));
 const AuditPage = lazy(() => import('@/pages/AuditPage'));
 const RepositoriesShellPage = lazy(() => import('@/pages/Repositories/RepositoriesShell'));
-const CompliancePage = lazy(() => import('@/pages/Security/ComplianceTab').then(m => ({ default: m.ComplianceTab })));
+const CompliancePage = lazyRouteableNamed(() => import('@/pages/Security/ComplianceTab'), 'ComplianceTab');
 const EvidencePage = lazy(() => import('@/pages/EvidencePage'));
 const BaseModelsPage = lazy(() => import('@/pages/BaseModelsPage'));
 const WorkflowPage = lazy(() => import('@/pages/WorkflowPage'));
 const TrainingPage = lazy(() => import('@/pages/Training/TrainingPage'));
 const TrainingJobsPage = lazy(() => import('@/pages/Training/TrainingJobsPage'));
 const TrainingJobDetailPage = lazy(() => import('@/pages/Training/TrainingJobDetail'));
-const TrainingDatasetsPage = lazy(() => import('@/pages/Training/DatasetsTab').then(m => ({ default: m.DatasetsTab })));
+const TrainingDatasetsPage = lazyRouteableNamed(() => import('@/pages/Training/DatasetsTab'), 'DatasetsTab');
 const DatasetDetailPage = lazy(() => import('@/pages/Training/DatasetDetailPage'));
 const DatasetChatPage = lazy(() => import('@/pages/Training/DatasetChatPage'));
 const ResultChatPage = lazy(() => import('@/pages/Training/ResultChatPage'));
-const TrainingTemplatesPage = lazy(() => import('@/pages/Training/TemplatesTab').then(m => ({ default: m.TemplatesTab })));
+const TrainingTemplatesPage = lazyRouteableNamed(() => import('@/pages/Training/TemplatesTab'), 'TemplatesTab');
 const TrainingShellPage = lazy(() => import('@/pages/Training/TrainingShell'));
 const CreateAdapterPage = lazy(() => import('@/pages/CreateAdapterPage'));
 const TestingPage = lazy(() => import('@/pages/TestingPage'));
 const GoldenPage = lazy(() => import('@/pages/GoldenPage'));
 const PromotionPage = lazy(() => import('@/pages/PromotionPage'));
 const RoutingPage = lazy(() => import('@/pages/RoutingPage'));
-const ReplayPage = lazy(() => import('@/pages/ReplayPage'));
 const ReplayShellPage = lazy(() => import('@/pages/Replay/ReplayShell'));
 const AdminPage = lazy(() => import('@/pages/AdminPage'));
-const AdminStacksPage = lazy(() => import('@/pages/Admin/AdapterStacksTab').then(m => ({ default: m.AdapterStacksTab })));
+const AdminStacksPage = lazyRouteableNamed(() => import('@/pages/Admin/AdapterStacksTab'), 'AdapterStacksTab');
 const AdminPluginsPage = lazy(() => import('@/pages/Admin/PluginsPage'));
 const AdminSettingsPage = lazy(() => import('@/pages/Admin/SettingsPage'));
 const TrainerPage = lazy(() => import('@/pages/TrainerPage'));
@@ -110,6 +108,21 @@ const redirectTo = (to: string, label?: string) => () => createElement(LegacyRed
 const redirectTelemetry = (tab: 'events' | 'traces' | 'viewer', includeTraceId = false) =>
   () => createElement(TelemetryRedirect, { tab, includeTraceId });
 
+const redirectChatSession = () => () => createElement(ChatSessionRedirect);
+
+function ChatSessionRedirect() {
+  const { sessionId } = useParams();
+  const location = useLocation();
+  const searchParams = new URLSearchParams(location.search);
+
+  if (sessionId) {
+    searchParams.set('session', sessionId);
+  }
+
+  const target = `/chat${searchParams.toString() ? `?${searchParams.toString()}` : ''}`;
+  return createElement(LegacyRedirectNotice, { to: target, label: 'Chat' });
+}
+
 function TelemetryRedirect({
   tab,
   includeTraceId = false,
@@ -121,21 +134,55 @@ function TelemetryRedirect({
   const location = useLocation();
   const searchParams = new URLSearchParams(location.search);
 
-  searchParams.set('tab', tab);
-  if (includeTraceId && traceId) {
-    searchParams.set('trace_id', traceId);
-    searchParams.delete('traceId');
-  }
+  const sourceType = (searchParams.get('source_type') ?? searchParams.get('sourceType') ?? '').trim() || undefined;
+  const target = (() => {
+    switch (tab) {
+      case 'events':
+        return buildTelemetryEventStreamLink({ sourceType });
+      case 'viewer':
+      case 'traces':
+        if (includeTraceId && traceId) {
+          return buildTelemetryTraceLink(traceId, { sourceType });
+        }
+        return buildTelemetryViewerLink({ sourceType });
+      default:
+        return buildTelemetryEventStreamLink({ sourceType });
+    }
+  })();
 
-  const target = `/telemetry?${searchParams.toString()}`;
   return createElement(LegacyRedirectNotice, { to: target, label: 'Telemetry' });
 }
 
 export type RouteCluster = 'Build' | 'Run' | 'Observe' | 'Verify';
 
+/**
+ * A routeable component type - a component that can be rendered without props.
+ * RouteGuard renders components as `<Component />` with no props, so all route
+ * components must have no required props.
+ *
+ * DO NOT use `as any` or `as React.ComponentType<any>` to bypass this constraint.
+ * If you have a component with required props (e.g., a modal), create a `*RoutePage`
+ * wrapper that reads params from the URL and fetches necessary data.
+ */
+type RouteComponent = React.LazyExoticComponent<React.ComponentType<object>> | React.ComponentType<object>;
+
 export interface RouteConfig {
   path: string;
-  component: React.LazyExoticComponent<React.ComponentType<unknown>> | React.ComponentType;
+  /**
+   * The component to render for this route.
+   *
+   * IMPORTANT: This component must be callable with NO PROPS (`<Component />`).
+   * Modal components or components with required props (like `open`, `onClose`,
+   * `tenant`, etc.) should NEVER be used directly here.
+   *
+   * Instead, create a route-safe wrapper (e.g., `TenantDetailRoutePage`) that:
+   * 1. Reads params from URL via `useParams()`
+   * 2. Fetches required data via hooks
+   * 3. Renders the modal/component with proper props
+   *
+   * @see TenantDetailRoutePage for an example of this pattern.
+   */
+  component: RouteComponent;
   requiresAuth?: boolean;
   requiredRoles?: UserRole[];
   requiredPermissions?: string[];
@@ -660,6 +707,17 @@ export const routes: RouteConfig[] = [
     modes: [UiMode.User],
   },
   {
+    path: '/chat/sessions/:sessionId',
+    component: redirectChatSession(),
+    requiresAuth: true,
+    skeletonVariant: 'form',
+    breadcrumb: 'Chat Session',
+    parentPath: '/chat',
+    cluster: 'Run',
+    roleVisibility: ['admin', 'operator'],
+    modes: [UiMode.User],
+  },
+  {
     path: '/documents',
     component: DocumentLibraryPage,
     requiresAuth: true,
@@ -699,7 +757,7 @@ export const routes: RouteConfig[] = [
   },
   {
     path: '/telemetry/viewer',
-    component: redirectTelemetry('viewer'),
+    component: TelemetryPage,
     requiresAuth: true,
     skeletonVariant: 'table',
     breadcrumb: 'Telemetry Viewer',
@@ -710,7 +768,7 @@ export const routes: RouteConfig[] = [
   },
   {
     path: '/telemetry/viewer/:traceId',
-    component: redirectTelemetry('viewer', true),
+    component: TelemetryPage,
     requiresAuth: true,
     skeletonVariant: 'table',
     breadcrumb: 'Telemetry Viewer',
@@ -789,12 +847,34 @@ export const routes: RouteConfig[] = [
     modes: [UiMode.Audit],
   },
   {
+    path: '/replay/:sessionId',
+    component: ReplayShellPage,
+    requiresAuth: true,
+    skeletonVariant: 'default',
+    breadcrumb: 'Session Detail',
+    parentPath: '/replay',
+    cluster: 'Verify',
+    roleVisibility: ['admin', 'operator', 'sre', 'compliance', 'auditor'],
+    modes: [UiMode.Audit],
+  },
+  {
     path: '/replay/decision-trace',
     component: ReplayShellPage,
     requiresAuth: true,
     skeletonVariant: 'default',
     breadcrumb: 'Decision Trace',
     parentPath: '/replay',
+    cluster: 'Verify',
+    roleVisibility: ['admin', 'operator', 'sre', 'compliance', 'auditor'],
+    modes: [UiMode.Audit],
+  },
+  {
+    path: '/replay/:sessionId/decision-trace',
+    component: ReplayShellPage,
+    requiresAuth: true,
+    skeletonVariant: 'default',
+    breadcrumb: 'Decision Trace',
+    parentPath: '/replay/:sessionId',
     cluster: 'Verify',
     roleVisibility: ['admin', 'operator', 'sre', 'compliance', 'auditor'],
     modes: [UiMode.Audit],
@@ -811,6 +891,17 @@ export const routes: RouteConfig[] = [
     modes: [UiMode.Audit],
   },
   {
+    path: '/replay/:sessionId/evidence',
+    component: ReplayShellPage,
+    requiresAuth: true,
+    skeletonVariant: 'default',
+    breadcrumb: 'Evidence',
+    parentPath: '/replay/:sessionId',
+    cluster: 'Verify',
+    roleVisibility: ['admin', 'operator', 'sre', 'compliance', 'auditor'],
+    modes: [UiMode.Audit],
+  },
+  {
     path: '/replay/compare',
     component: ReplayShellPage,
     requiresAuth: true,
@@ -822,12 +913,34 @@ export const routes: RouteConfig[] = [
     modes: [UiMode.Audit],
   },
   {
+    path: '/replay/:sessionId/compare',
+    component: ReplayShellPage,
+    requiresAuth: true,
+    skeletonVariant: 'default',
+    breadcrumb: 'Compare',
+    parentPath: '/replay/:sessionId',
+    cluster: 'Verify',
+    roleVisibility: ['admin', 'operator', 'sre', 'compliance', 'auditor'],
+    modes: [UiMode.Audit],
+  },
+  {
     path: '/replay/export',
     component: ReplayShellPage,
     requiresAuth: true,
     skeletonVariant: 'default',
     breadcrumb: 'Export',
     parentPath: '/replay',
+    cluster: 'Verify',
+    roleVisibility: ['admin', 'operator', 'sre', 'compliance', 'auditor'],
+    modes: [UiMode.Audit],
+  },
+  {
+    path: '/replay/:sessionId/export',
+    component: ReplayShellPage,
+    requiresAuth: true,
+    skeletonVariant: 'default',
+    breadcrumb: 'Export',
+    parentPath: '/replay/:sessionId',
     cluster: 'Verify',
     roleVisibility: ['admin', 'operator', 'sre', 'compliance', 'auditor'],
     modes: [UiMode.Audit],
@@ -927,7 +1040,7 @@ export const routes: RouteConfig[] = [
   },
   {
     path: '/admin/tenants/:tenantId',
-    component: TenantDetailPage,
+    component: TenantDetailRoutePage,
     requiresAuth: true,
     requiredRoles: ['admin'],
     skeletonVariant: 'default',
@@ -1010,7 +1123,7 @@ export const routes: RouteConfig[] = [
   },
   {
     path: '/code-intelligence',
-    component: redirectTo('/telemetry?tab=viewer&source_type=code_intelligence', 'Telemetry'),
+    component: redirectTo(buildTelemetryViewerLink({ sourceType: 'code_intelligence' }), 'Telemetry'),
     requiresAuth: true,
     skeletonVariant: 'table',
     breadcrumb: 'Code Intelligence',

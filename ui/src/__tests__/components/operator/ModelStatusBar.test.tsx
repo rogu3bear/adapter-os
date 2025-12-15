@@ -36,13 +36,14 @@ vi.mock('@/api/client', () => ({
 const mockUseModelStatus = vi.fn();
 const mockUseAutoLoadModel = vi.fn();
 
-vi.mock('@/hooks/useModelStatus', () => ({
-  useModelStatus: (tenantId: string) => mockUseModelStatus(tenantId),
-}));
-
-vi.mock('@/hooks/useAutoLoadModel', () => ({
-  useAutoLoadModel: (tenantId: string, enabled: boolean) => mockUseAutoLoadModel(tenantId, enabled),
-}));
+vi.mock('@/hooks/model-loading', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@/hooks/model-loading')>();
+  return {
+    ...original,
+    useModelStatus: (tenantId: string) => mockUseModelStatus(tenantId),
+    useAutoLoadModel: (tenantId: string, enabled: boolean) => mockUseAutoLoadModel(tenantId, enabled),
+  };
+});
 
 // Mock toast
 vi.mock('sonner', () => ({
@@ -604,7 +605,7 @@ describe('ModelStatusBar', () => {
         memoryUsageMb: 2048,
         errorMessage: null,
         isReady: true,
-        refresh: mockRefresh,
+        refetch: mockRefresh,
       });
 
       mockUseAutoLoadModel.mockReturnValue({
@@ -647,7 +648,7 @@ describe('ModelStatusBar', () => {
         memoryUsageMb: 2048,
         errorMessage: null,
         isReady: true,
-        refresh: mockRefresh,
+        refetch: mockRefresh,
       });
 
       mockUseAutoLoadModel.mockReturnValue({
