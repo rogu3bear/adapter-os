@@ -513,9 +513,10 @@ function AdapterDetailContent() {
 
   const handleLineageLoadMore = useCallback((level: { type: string; next_cursor?: string }) => {
     if (!level.next_cursor) return;
+    const cursor = level.next_cursor;
     setLineageCursors((prev) => ({
       ...prev,
-      [level.type]: level.next_cursor,
+      [level.type]: cursor,
     }));
   }, []);
 
@@ -683,7 +684,7 @@ function AdapterDetailContent() {
             </div>
             <div className="flex flex-wrap gap-2">
               {adapter?.lineage?.training_job_id && (
-                <Button variant="outline" size="sm" onClick={() => navigate(`/training/jobs/${adapter.lineage.training_job_id}`)}>
+                <Button variant="outline" size="sm" onClick={() => navigate(`/training/jobs/${adapter.lineage?.training_job_id}`)}>
                   Origin job
                 </Button>
               )}

@@ -1,3 +1,4 @@
+// Core inference hooks
 export { useInferenceConfig } from './useInferenceConfig';
 export type {
   UseInferenceConfigOptions,
@@ -25,3 +26,25 @@ export type {
   UseStreamingInferenceOptions,
   UseStreamingInferenceReturn,
 } from './useStreamingInference';
+
+// Feature hooks
+export { useBackendSelection } from './useBackendSelection';
+export type {
+  UseBackendSelectionOptions,
+  UseBackendSelectionReturn,
+} from './useBackendSelection';
+
+export { useCoreMLManagement } from './useCoreMLManagement';
+export type {
+  UseCoreMLManagementOptions,
+  UseCoreMLManagementReturn,
+} from './useCoreMLManagement';
+
+export { useAdapterSelection } from './useAdapterSelection';
+export type {
+  UseAdapterSelectionOptions,
+  UseAdapterSelectionReturn,
+} from './useAdapterSelection';
+
+export { useInferenceUrlState } from './useInferenceUrlState';
+export type { UseInferenceUrlStateReturn } from './useInferenceUrlState';

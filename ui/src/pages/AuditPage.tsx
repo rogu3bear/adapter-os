@@ -1,5 +1,5 @@
 // Audit Page - Security and system audit events with RBAC and real-time polling
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import PageWrapper from '@/layout/PageWrapper';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -13,6 +13,7 @@ import { DensityControls } from '@/components/ui/density-controls';
 import { AdvancedFilter, type FilterConfig, type FilterValues } from '@/components/ui/advanced-filter';
 import { useRBAC } from '@/hooks/security/useRBAC';
 import { ErrorRecovery, errorRecoveryTemplates } from '@/components/ui/error-recovery';
+import { PermissionDenied } from '@/components/ui/permission-denied';
 import { GlossaryTooltip } from '@/components/ui/glossary-tooltip';
 import { usePolling } from '@/hooks/realtime/usePolling';
 import { Download, RefreshCw, ChevronLeft, ChevronRight } from 'lucide-react';
@@ -38,9 +39,9 @@ const hashPreview = (value?: string | null) => {
 function PermissionDeniedView() {
   return (
     <PageWrapper pageKey="audit-log" title="Audit Log" description="Security and system audit events">
-      <ErrorRecovery
-        error="You do not have permission to view audit logs. This page requires the audit:view permission (Admin, SRE, or Compliance role)."
-        onRetry={() => window.location.reload()}
+      <PermissionDenied
+        requiredPermission="audit:view"
+        requiredRoles={['admin', 'sre', 'compliance', 'developer']}
       />
     </PageWrapper>
   );
@@ -309,6 +310,24 @@ function AuditPageInner() {
   const [lastChainUpdated, setLastChainUpdated] = useState<Date | undefined>(undefined);
   const [diverging, setDiverging] = useState(false);
   const isE2EMode = import.meta.env.VITE_E2E_MODE === '1';
+  const prevChainValid = useRef<boolean | null>(null);
+
+  // Alert when chain transitions from healthy to diverged
+  useEffect(() => {
+    if (chainStatus === null) return;
+
+    const wasValid = prevChainValid.current;
+    const isValid = chainStatus.valid;
+
+    // Detect transition from healthy (true) to diverged (false)
+    if (wasValid === true && isValid === false) {
+      toast.error('Policy audit chain diverged! Integrity violation detected.', {
+        duration: 10000,
+      });
+    }
+
+    prevChainValid.current = isValid;
+  }, [chainStatus]);
 
   // Filtering state
   const [filterValues, setFilterValues] = useState<FilterValues>({});
@@ -539,8 +558,50 @@ function AuditPageInner() {
     }
   }, []);
 
+  // Fetch chain status on mount and poll every 30 seconds for real-time integrity monitoring
+  // Only polls when tab is visible to save resources
   useEffect(() => {
     fetchPolicyAuditChain();
+
+    const CHAIN_POLL_INTERVAL_MS = 30000; // 30 seconds
+    let intervalId: ReturnType<typeof setInterval> | null = null;
+
+    const startPolling = () => {
+      if (!intervalId) {
+        intervalId = setInterval(() => {
+          fetchPolicyAuditChain();
+        }, CHAIN_POLL_INTERVAL_MS);
+      }
+    };
+
+    const stopPolling = () => {
+      if (intervalId) {
+        clearInterval(intervalId);
+        intervalId = null;
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        // Refetch immediately when tab becomes visible, then resume polling
+        fetchPolicyAuditChain();
+        startPolling();
+      } else {
+        stopPolling();
+      }
+    };
+
+    // Start polling if tab is visible
+    if (document.visibilityState === 'visible') {
+      startPolling();
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      stopPolling();
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, [fetchPolicyAuditChain]);
 
   const handleTriggerDivergence = useCallback(async () => {
