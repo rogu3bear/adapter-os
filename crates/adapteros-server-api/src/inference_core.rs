@@ -1317,16 +1317,22 @@ impl<'a> InferenceCore<'a> {
     }
 
     /// Validate pinned adapters belong to the requesting tenant.
+    ///
+    /// PRD-RECT-001: Uses tenant-scoped query to prevent cross-tenant enumeration.
+    /// Returns `AdapterNotFound` for both missing and cross-tenant adapters.
     async fn validate_pinned_adapters_for_tenant(
         &self,
         tenant_id: &str,
         pins: &[String],
     ) -> Result<(), InferenceError> {
         for pin in pins {
-            let adapter = self
+            // PRD-RECT-001: Use tenant-scoped query instead of get_adapter() + manual check.
+            // This ensures cross-tenant access returns AdapterNotFound (not PermissionDenied)
+            // to prevent tenant enumeration attacks.
+            let _adapter = self
                 .state
                 .db
-                .get_adapter(pin)
+                .get_adapter_for_tenant(tenant_id, pin)
                 .await
                 .map_err(|e| {
                     InferenceError::AdapterNotFound(format!(
@@ -1335,18 +1341,13 @@ impl<'a> InferenceCore<'a> {
                     ))
                 })?
                 .ok_or_else(|| {
+                    // Returns same error for both "not found" and "cross-tenant" cases
                     InferenceError::AdapterNotFound(format!(
-                        "Pinned adapter '{}' not found for tenant {}",
-                        pin, tenant_id
+                        "Pinned adapter '{}' not found",
+                        pin
                     ))
                 })?;
-
-            if adapter.tenant_id != tenant_id {
-                return Err(InferenceError::PermissionDenied(format!(
-                    "Pinned adapter '{}' does not belong to tenant {}",
-                    pin, tenant_id
-                )));
-            }
+            // No manual tenant check needed - query is already tenant-scoped
         }
 
         Ok(())
@@ -1373,19 +1374,22 @@ impl<'a> InferenceCore<'a> {
     }
 
     /// Ensure every adapter in `ids` is permitted for the tenant.
+    ///
+    /// PRD-RECT-001: Returns `AdapterNotFound` instead of `PermissionDenied`
+    /// to prevent tenant enumeration attacks. This makes cross-tenant adapter
+    /// access indistinguishable from "adapter does not exist".
     fn validate_ids_against_allowlist(
         &self,
         ids: &[String],
-        tenant_id: &str,
+        _tenant_id: &str,
         allowlist: &HashSet<String>,
-        context: &str,
+        _context: &str,
     ) -> Result<(), InferenceError> {
         for id in ids {
             if !allowlist.contains(id) {
-                return Err(InferenceError::PermissionDenied(format!(
-                    "{} '{}' is not allowed for tenant {}",
-                    context, id, tenant_id
-                )));
+                // Return AdapterNotFound to avoid leaking existence of adapters
+                // from other tenants (PRD-RECT-001: No existence leaks)
+                return Err(InferenceError::AdapterNotFound(id.clone()));
             }
         }
         Ok(())
@@ -3194,11 +3198,13 @@ mod tests {
             .await
             .unwrap_err();
 
+        // PRD-RECT-001: Cross-tenant access returns AdapterNotFound (not PermissionDenied)
+        // to prevent tenant enumeration attacks.
         match err {
-            InferenceError::PermissionDenied(msg) => {
-                assert!(msg.contains("tenant-1"));
+            InferenceError::AdapterNotFound(msg) => {
+                assert!(msg.contains("tenant2-adapter"));
             }
-            other => panic!("expected PermissionDenied, got {:?}", other),
+            other => panic!("expected AdapterNotFound, got {:?}", other),
         }
     }
 
@@ -3248,12 +3254,13 @@ mod tests {
             )
             .unwrap_err();
 
+        // PRD-RECT-001: Allowlist violations return AdapterNotFound (not PermissionDenied)
+        // to prevent leaking adapter existence across tenants.
         match err {
-            InferenceError::PermissionDenied(msg) => {
+            InferenceError::AdapterNotFound(msg) => {
                 assert!(msg.contains("t2-disallowed"));
-                assert!(msg.contains("tenant-1"));
             }
-            other => panic!("expected PermissionDenied, got {:?}", other),
+            other => panic!("expected AdapterNotFound, got {:?}", other),
         }
     }
 
@@ -3313,5 +3320,305 @@ mod tests {
             }
             other => panic!("expected AdapterNotFound, got {:?}", other),
         }
+    }
+
+    // =========================================================================
+    // Additional inference_core tests (Bundle-G: Security/Quality)
+    // =========================================================================
+
+    #[test]
+    fn test_parse_pinned_adapter_ids_valid_json() {
+        let result = parse_pinned_adapter_ids(Some(r#"["adapter-a", "adapter-b"]"#));
+        assert_eq!(
+            result,
+            Some(vec!["adapter-a".to_string(), "adapter-b".to_string()])
+        );
+    }
+
+    #[test]
+    fn test_parse_pinned_adapter_ids_empty_array() {
+        let result = parse_pinned_adapter_ids(Some("[]"));
+        assert_eq!(result, Some(vec![]));
+    }
+
+    #[test]
+    fn test_parse_pinned_adapter_ids_none_input() {
+        let result = parse_pinned_adapter_ids(None);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_parse_pinned_adapter_ids_invalid_json() {
+        // Malformed JSON should return None (not panic)
+        let result = parse_pinned_adapter_ids(Some("not valid json"));
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_validate_pinned_within_effective_set_success() {
+        let effective = Some(vec!["a".to_string(), "b".to_string(), "c".to_string()]);
+        let pinned = Some(vec!["a".to_string(), "c".to_string()]);
+
+        let result = validate_pinned_within_effective_set(&effective, &pinned);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_pinned_within_effective_set_pinned_outside_fails() {
+        let effective = Some(vec!["a".to_string(), "b".to_string()]);
+        let pinned = Some(vec!["a".to_string(), "not-in-effective".to_string()]);
+
+        let result = validate_pinned_within_effective_set(&effective, &pinned);
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("not-in-effective"));
+    }
+
+    #[test]
+    fn test_validate_pinned_within_effective_set_empty_effective_passes() {
+        // Empty effective set allows any pinned (no restriction enforced)
+        let effective = Some(vec![]);
+        let pinned = Some(vec!["any".to_string()]);
+
+        let result = validate_pinned_within_effective_set(&effective, &pinned);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_resolve_determinism_mode_stack_takes_precedence() {
+        let mode = resolve_determinism_mode(Some("strict"), Some("relaxed"), "besteffort");
+        assert_eq!(mode, DeterminismMode::Strict);
+    }
+
+    #[test]
+    fn test_resolve_determinism_mode_tenant_fallback() {
+        let mode = resolve_determinism_mode(None, Some("relaxed"), "strict");
+        assert_eq!(mode, DeterminismMode::Relaxed);
+    }
+
+    #[test]
+    fn test_resolve_determinism_mode_global_fallback() {
+        let mode = resolve_determinism_mode(None, None, "strict");
+        assert_eq!(mode, DeterminismMode::Strict);
+    }
+
+    #[test]
+    fn test_compute_strict_mode_strict_mode() {
+        let strict_mode = compute_strict_mode(DeterminismMode::Strict, true);
+        assert!(strict_mode, "Strict mode should always return true");
+    }
+
+    #[test]
+    fn test_compute_strict_mode_with_fallback_disabled() {
+        let strict_mode = compute_strict_mode(DeterminismMode::BestEffort, false);
+        assert!(strict_mode, "Fallback disabled should enable strict mode");
+    }
+
+    #[test]
+    fn test_compute_strict_mode_besteffort_with_fallback() {
+        let strict_mode = compute_strict_mode(DeterminismMode::BestEffort, true);
+        assert!(
+            !strict_mode,
+            "BestEffort with fallback should not be strict"
+        );
+    }
+
+    #[test]
+    fn test_validate_strict_mode_constraints_requires_seed() {
+        let result = validate_strict_mode_constraints(DeterminismMode::Strict, None);
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("seed"));
+    }
+
+    #[test]
+    fn test_validate_strict_mode_constraints_with_seed() {
+        let result = validate_strict_mode_constraints(DeterminismMode::Strict, Some(12345));
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_strict_mode_constraints_relaxed_no_seed() {
+        // Relaxed mode doesn't require seed
+        let result = validate_strict_mode_constraints(DeterminismMode::Relaxed, None);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_compute_replay_guarantee_exact_strict() {
+        let guarantee = compute_replay_guarantee(
+            DeterminismMode::Strict,
+            false, // fallback_triggered
+            false, // prompt_truncated
+            false, // response_truncated
+            true,  // seed_present
+        );
+        assert_eq!(guarantee, ReplayGuarantee::Exact);
+    }
+
+    #[test]
+    fn test_compute_replay_guarantee_fallback_degrades_to_approximate() {
+        let guarantee = compute_replay_guarantee(
+            DeterminismMode::Strict,
+            true, // fallback_triggered
+            false,
+            false,
+            true,
+        );
+        assert_eq!(guarantee, ReplayGuarantee::Approximate);
+    }
+
+    #[test]
+    fn test_compute_replay_guarantee_missing_seed_degrades() {
+        let guarantee = compute_replay_guarantee(
+            DeterminismMode::Strict,
+            false,
+            false,
+            false,
+            false, // seed not present
+        );
+        assert_eq!(guarantee, ReplayGuarantee::Approximate);
+    }
+
+    #[test]
+    fn test_compute_replay_guarantee_best_effort_always_approximate() {
+        let guarantee =
+            compute_replay_guarantee(DeterminismMode::BestEffort, false, false, false, true);
+        assert_eq!(guarantee, ReplayGuarantee::Approximate);
+    }
+
+    #[test]
+    fn test_compute_replay_guarantee_relaxed_always_none() {
+        let guarantee =
+            compute_replay_guarantee(DeterminismMode::Relaxed, false, false, false, true);
+        assert_eq!(guarantee, ReplayGuarantee::None);
+    }
+
+    #[test]
+    fn test_strict_runtime_guard_missing_manifest_fails() {
+        let err = enforce_strict_runtime_guards(
+            DeterminismMode::Strict,
+            &Some("mlx".into()),
+            &Some(adapteros_core::version::VERSION.to_string()),
+            &None,
+            &[],
+            None, // No manifest
+        )
+        .unwrap_err();
+
+        assert!(
+            err.to_string().contains("manifest"),
+            "Should mention manifest: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_strict_runtime_guard_missing_backend_fails() {
+        let manifest = B3Hash::hash(b"manifest");
+        let err = enforce_strict_runtime_guards(
+            DeterminismMode::Strict,
+            &None, // No backend
+            &Some(adapteros_core::version::VERSION.to_string()),
+            &None,
+            &[],
+            Some(&manifest),
+        )
+        .unwrap_err();
+
+        assert!(
+            err.to_string().contains("backend"),
+            "Should mention backend: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_strict_runtime_guard_version_mismatch_fails() {
+        let manifest = B3Hash::hash(b"manifest");
+        let err = enforce_strict_runtime_guards(
+            DeterminismMode::Strict,
+            &Some("coreml".into()),
+            &Some("0.0.0-mismatch".to_string()), // Wrong version
+            &None,
+            &[],
+            Some(&manifest),
+        )
+        .unwrap_err();
+
+        assert!(
+            err.to_string().contains("mismatch"),
+            "Should mention mismatch: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_strict_runtime_guard_empty_chain_with_adapters_fails() {
+        let manifest = B3Hash::hash(b"manifest");
+        let err = enforce_strict_runtime_guards(
+            DeterminismMode::Strict,
+            &Some("coreml".into()),
+            &Some(adapteros_core::version::VERSION.to_string()),
+            &Some(vec![]),              // Empty chain
+            &["adapter-a".to_string()], // But adapters used
+            Some(&manifest),
+        )
+        .unwrap_err();
+
+        assert!(
+            err.to_string().contains("non-empty"),
+            "Should require non-empty chain: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_strict_runtime_guard_gate_count_mismatch_fails() {
+        let manifest = B3Hash::hash(b"manifest");
+        let chain = vec![ApiRouterDecisionChainEntry {
+            step: 0,
+            input_token_id: Some(1),
+            adapter_indices: vec![0, 1], // 2 indices
+            adapter_ids: vec!["a".into(), "b".into()],
+            gates_q15: vec![100], // Only 1 gate - mismatch!
+            entropy: 0.0,
+            decision_hash: None,
+            previous_hash: None,
+            entry_hash: "h".into(),
+            policy_mask_digest: None,
+            policy_overrides_applied: None,
+        }];
+
+        let err = enforce_strict_runtime_guards(
+            DeterminismMode::Strict,
+            &Some("coreml".into()),
+            &Some(adapteros_core::version::VERSION.to_string()),
+            &Some(chain),
+            &["adapter-a".to_string()],
+            Some(&manifest),
+        )
+        .unwrap_err();
+
+        assert!(
+            err.to_string().contains("mismatch"),
+            "Should mention gate count mismatch: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_routing_policy_resolved_defaults() {
+        let defaults = RoutingPolicyResolved::default();
+        assert!(!defaults.use_session_stack_for_routing);
+        assert!(!defaults.allow_pins_outside_effective_set);
+    }
+
+    #[test]
+    fn test_golden_policy_resolved_defaults() {
+        let defaults = GoldenPolicyResolved::default();
+        assert!(!defaults.fail_on_drift);
+        assert!(defaults.golden_baseline_id.is_none());
+        assert!((defaults.epsilon_threshold - 1e-6).abs() < 1e-12);
     }
 }
