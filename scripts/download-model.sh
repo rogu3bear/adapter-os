@@ -18,7 +18,7 @@ NC='\033[0m' # No Color
 # Script directory (repo root)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-MODEL_DIR="$REPO_ROOT/models"
+MODEL_DIR="$REPO_ROOT/var/model-cache/models"
 MODEL_NAME="qwen2.5-7b-mlx"
 MODEL_PATH="$MODEL_DIR/$MODEL_NAME"
 
@@ -150,28 +150,37 @@ echo ""
 
 # Check if .env needs updating
 ENV_FILE="$REPO_ROOT/.env"
+CACHE_DIR="./var/model-cache/models"
 if [ -f "$ENV_FILE" ]; then
-    if grep -q "AOS_MLX_FFI_MODEL=./models/$MODEL_NAME" "$ENV_FILE"; then
+    if grep -q "AOS_MODEL_CACHE_DIR=$CACHE_DIR" "$ENV_FILE" && grep -q "AOS_BASE_MODEL_ID=$MODEL_NAME" "$ENV_FILE"; then
         echo -e "${GREEN}✓ .env already configured correctly${NC}"
     else
-        echo -e "${YELLOW}→ Updating .env with model path${NC}"
+        echo -e "${YELLOW}→ Updating .env with model configuration${NC}"
 
-        # Update or add AOS_MLX_FFI_MODEL
-        if grep -q "^AOS_MLX_FFI_MODEL=" "$ENV_FILE"; then
-            sed -i.bak "s|^AOS_MLX_FFI_MODEL=.*|AOS_MLX_FFI_MODEL=./models/$MODEL_NAME|" "$ENV_FILE"
+        # Update or add AOS_MODEL_CACHE_DIR (canonical)
+        if grep -q "^AOS_MODEL_CACHE_DIR=" "$ENV_FILE"; then
+            sed -i.bak "s|^AOS_MODEL_CACHE_DIR=.*|AOS_MODEL_CACHE_DIR=$CACHE_DIR|" "$ENV_FILE"
             rm -f "$ENV_FILE.bak"
         else
             echo "" >> "$ENV_FILE"
-            echo "# Model path (added by download-model.sh)" >> "$ENV_FILE"
-            echo "AOS_MLX_FFI_MODEL=./models/$MODEL_NAME" >> "$ENV_FILE"
+            echo "# Model configuration (added by download-model.sh)" >> "$ENV_FILE"
+            echo "AOS_MODEL_CACHE_DIR=$CACHE_DIR" >> "$ENV_FILE"
         fi
 
-        # Update or add AOS_MODEL_PATH
-        if grep -q "^AOS_MODEL_PATH=" "$ENV_FILE"; then
-            sed -i.bak "s|^AOS_MODEL_PATH=.*|AOS_MODEL_PATH=./models/$MODEL_NAME|" "$ENV_FILE"
+        # Update or add AOS_BASE_MODEL_ID (canonical)
+        if grep -q "^AOS_BASE_MODEL_ID=" "$ENV_FILE"; then
+            sed -i.bak "s|^AOS_BASE_MODEL_ID=.*|AOS_BASE_MODEL_ID=$MODEL_NAME|" "$ENV_FILE"
             rm -f "$ENV_FILE.bak"
         else
-            echo "AOS_MODEL_PATH=./models/$MODEL_NAME" >> "$ENV_FILE"
+            echo "AOS_BASE_MODEL_ID=$MODEL_NAME" >> "$ENV_FILE"
+        fi
+
+        # Update or add AOS_MODEL_PATH (legacy alias for backwards compatibility)
+        if grep -q "^AOS_MODEL_PATH=" "$ENV_FILE"; then
+            sed -i.bak "s|^AOS_MODEL_PATH=.*|AOS_MODEL_PATH=$CACHE_DIR/$MODEL_NAME|" "$ENV_FILE"
+            rm -f "$ENV_FILE.bak"
+        else
+            echo "AOS_MODEL_PATH=$CACHE_DIR/$MODEL_NAME" >> "$ENV_FILE"
         fi
 
         echo -e "${GREEN}✓ .env updated${NC}"
@@ -179,8 +188,8 @@ if [ -f "$ENV_FILE" ]; then
 else
     echo -e "${YELLOW}⚠ No .env file found${NC}"
     echo -e "${BLUE}→ Create .env with:${NC}"
-    echo "    AOS_MLX_FFI_MODEL=./models/$MODEL_NAME"
-    echo "    AOS_MODEL_PATH=./models/$MODEL_NAME"
+    echo "    AOS_MODEL_CACHE_DIR=$CACHE_DIR"
+    echo "    AOS_BASE_MODEL_ID=$MODEL_NAME"
 fi
 
 echo ""
