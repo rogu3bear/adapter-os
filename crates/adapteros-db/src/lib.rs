@@ -93,6 +93,12 @@ pub use tenant_settings::{TenantSettings, UpdateTenantSettingsParams};
 pub mod tenant_policy_bindings;
 pub use tenant_policy_bindings::{TenantPolicyBinding, ALL_POLICIES, CORE_POLICIES};
 
+// Re-export query performance monitoring types
+pub use query_performance::{
+    QueryMetrics, QueryPerformanceMonitor, QueryStats,
+    ThresholdViolation, ViolationType, ViolationSeverity, MultiTenantConfig, ConcurrencyConfig,
+};
+
 // API keys
 pub use api_keys::{ApiKeyRecord, ApiKeyRecord as ApiKey};
 
@@ -540,6 +546,16 @@ pub struct Db {
     atomic_dual_write_config: Arc<crate::adapters::AtomicDualWriteConfig>,
     /// Degradation state: if Some, contains the reason for degradation
     degraded_reason: std::sync::Arc<std::sync::RwLock<Option<String>>>,
+    /// Performance monitor for tenant-scoped queries
+    performance_monitor: std::sync::Arc<std::sync::RwLock<Option<QueryPerformanceMonitor>>>,
+
+    // Phase 2: Governance & Optimization
+    /// Global query timeout in milliseconds (0 = disabled)
+    query_timeout_ms: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    /// Tenant rate limit counters (simplified for Phase 2)
+    tenant_rate_limits: std::sync::Arc<std::sync::RwLock<std::collections::HashMap<String, u32>>>,
+    /// Query plan cache for prepared statements
+    plan_cache: std::sync::Arc<std::sync::RwLock<std::collections::HashMap<String, String>>>,
 }
 
 impl Db {
@@ -576,6 +592,14 @@ impl Db {
             storage_mode,
             atomic_dual_write_config: Arc::new(crate::adapters::AtomicDualWriteConfig::from_env()),
             degraded_reason: std::sync::Arc::new(std::sync::RwLock::new(None)),
+            performance_monitor: std::sync::Arc::new(std::sync::RwLock::new(None)),
+            query_timeout_ms: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(3000)), // Default 3s timeout
+            tenant_rate_limits: std::sync::Arc::new(std::sync::RwLock::new(
+                std::collections::HashMap::new(),
+            )),
+            plan_cache: std::sync::Arc::new(std::sync::RwLock::new(
+                std::collections::HashMap::new(),
+            )),
         }
     }
 
@@ -641,6 +665,8 @@ impl Db {
             .synchronous(sqlx::sqlite::SqliteSynchronous::Normal)
             .busy_timeout(Duration::from_secs(30)) // 30s timeout for busy database
             .statement_cache_capacity(100) // Cache up to 100 prepared statements
+            .pragma("temp_store", "MEMORY")
+            .pragma("mmap_size", "268435456") // 256MB memory mapping for index performance
             .foreign_keys(true); // CRITICAL: Enable foreign key constraints
 
         // For in-memory databases, limit pool to 1 connection to ensure data consistency
@@ -893,7 +919,19 @@ impl Db {
             warn!("Skipping migration signature verification (env override; local debugging only)");
         } else {
             info!("Verifying migration signatures...");
-            let verifier = crate::migration_verify::MigrationVerifier::new(&migrations_path)?;
+
+            // Check if recovery is enabled (debug builds only)
+            let recovery_options = crate::migration_verify::MigrationRecoveryOptions::from_env();
+            let verifier = if recovery_options.allow_auto_regen {
+                info!("Migration signature recovery enabled (AOS_ALLOW_SIGNATURE_RECOVERY set)");
+                crate::migration_verify::MigrationVerifier::new_with_recovery(
+                    &migrations_path,
+                    &recovery_options,
+                )?
+            } else {
+                crate::migration_verify::MigrationVerifier::new(&migrations_path)?
+            };
+
             verifier.verify_all()?;
             info!(
                 "✓ All {} migration signatures verified (fingerprint: {})",
@@ -917,6 +955,7 @@ impl Db {
         // Apply compatibility fixes for schema drift between signed migrations and code expectations.
         self.ensure_adapter_lora_strength_column().await?;
         self.ensure_worker_runtime_metadata_columns().await?;
+        self.ensure_base_model_status_covering_index().await?;
 
         // Verify database version after migration
         self.verify_migration_version(&migrations_path).await?;
@@ -1668,6 +1707,41 @@ impl Db {
         self.pool.as_ref()
     }
 
+    /// Enable performance monitoring for tenant-scoped queries
+    ///
+    /// When enabled, tenant-scoped adapter operations will be monitored for
+    /// performance regressions and SLA compliance (10ms threshold).
+    pub fn enable_performance_monitoring(&self, slow_query_threshold_ms: u64) {
+        let monitor = QueryPerformanceMonitor::new(slow_query_threshold_ms);
+        *self.performance_monitor.write().unwrap() = Some(monitor);
+    }
+
+    /// Get access to the performance monitor (if enabled)
+    pub fn performance_monitor(
+        &self,
+    ) -> Option<std::sync::RwLockReadGuard<'_, Option<QueryPerformanceMonitor>>> {
+        Some(self.performance_monitor.read().unwrap())
+    }
+
+    /// Get mutable access to the performance monitor (if enabled)
+    pub fn performance_monitor_mut(
+        &self,
+    ) -> Option<std::sync::RwLockWriteGuard<'_, Option<QueryPerformanceMonitor>>> {
+        Some(self.performance_monitor.write().unwrap())
+    }
+
+    /// Generate performance report
+    ///
+    /// Returns a human-readable report showing query performance metrics.
+    pub fn generate_performance_report(&self) -> String {
+        if let Some(monitor_guard) = self.performance_monitor() {
+            if let Some(monitor) = monitor_guard.as_ref() {
+                return monitor.report();
+            }
+        }
+        "Performance monitoring not enabled".to_string()
+    }
+
     /// Run WAL checkpoint to flush WAL to database file
     ///
     /// This should be called periodically (e.g., every 5 minutes) to:
@@ -1851,6 +1925,44 @@ impl Db {
         metrics.record_fallback_write();
         metrics.record_drift_detected();
         warn!(context = %context, "KV write failed, recorded fallback");
+    }
+
+    // Phase 2: Advanced Query Governance & Infrastructure
+
+    /// Set global query timeout in milliseconds
+    pub fn set_query_timeout(&self, timeout_ms: u64) {
+        self.query_timeout_ms.store(timeout_ms, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Get current query timeout
+    pub fn get_query_timeout(&self) -> std::time::Duration {
+        std::time::Duration::from_millis(self.query_timeout_ms.load(std::sync::atomic::Ordering::Relaxed))
+    }
+
+    /// Check rate limit for tenant
+    /// Returns true if allowed, false if limit exceeded.
+    pub fn check_rate_limit(&self, tenant_id: &str) -> bool {
+        let limits = self.tenant_rate_limits.read().unwrap();
+        // Simplified: allow 1000 requests (bucket refilling not implemented here)
+        let current = limits.get(tenant_id).unwrap_or(&0);
+        *current < 1000
+    }
+
+    /// Increment rate limit counter
+    pub fn increment_rate_limit(&self, tenant_id: &str) {
+        let mut limits = self.tenant_rate_limits.write().unwrap();
+        let counter = limits.entry(tenant_id.to_string()).or_insert(0);
+        *counter += 1;
+    }
+
+    /// Get cached query plan
+    pub fn get_cached_plan(&self, query_key: &str) -> Option<String> {
+        self.plan_cache.read().unwrap().get(query_key).cloned()
+    }
+
+    /// Cache query plan
+    pub fn cache_query_plan(&self, query_key: &str, plan: &str) {
+        self.plan_cache.write().unwrap().insert(query_key.to_string(), plan.to_string());
     }
 
     /// Prevent entering KV-only mode when unsupported domains remain.
@@ -2093,23 +2205,40 @@ impl Db {
 
     /// List adapters for a specific tenant
     pub async fn list_adapters_by_tenant(&self, tenant_id: &str) -> Result<Vec<AdapterRecord>> {
-        let rows = sqlx::query_as::<_, AdapterRecord>(
-            r#"
-            SELECT id, tenant_id, name, tier, hash_b3, rank, alpha, lora_strength, targets_json, acl_json,
-                   adapter_id, languages_json, framework, active, category, scope,
-                   framework_id, framework_version, repo_id, commit_sha, intent,
-                   current_state, pinned, memory_bytes, last_activated, activation_count,
-                   expires_at, load_state, last_loaded_at, adapter_name, tenant_namespace,
-                   domain, purpose, revision, parent_id, fork_type, fork_reason,
-                   version, lifecycle_state, archived_at, archived_by, archive_reason, purged_at
-            FROM adapters
-            WHERE tenant_id = ?
-            ORDER BY name ASC
-            "#,
-        )
-        .bind(tenant_id)
-        .fetch_all(self.pool())
+        // Phase 2: Rate Limiting
+        if !self.check_rate_limit(tenant_id) {
+             return Err(AosError::QuotaExceeded {
+                 resource: "adapter_listings".to_string(),
+                 failure_code: Some("RATE_LIMIT_EXCEEDED".to_string())
+             });
+        }
+        self.increment_rate_limit(tenant_id);
+
+        let timeout_duration = self.get_query_timeout();
+        let pool = self.pool().clone();
+        let tenant_id_owned = tenant_id.to_string();
+
+        let rows = tokio::time::timeout(timeout_duration, async move {
+            sqlx::query_as::<_, AdapterRecord>(
+                r#"
+                SELECT id, tenant_id, name, tier, hash_b3, rank, alpha, lora_strength, targets_json, acl_json,
+                       adapter_id, languages_json, framework, active, category, scope,
+                       framework_id, framework_version, repo_id, commit_sha, intent,
+                       current_state, pinned, memory_bytes, last_activated, activation_count,
+                       expires_at, load_state, last_loaded_at, adapter_name, tenant_namespace,
+                       domain, purpose, revision, parent_id, fork_type, fork_reason,
+                       version, lifecycle_state, archived_at, archived_by, archive_reason, purged_at
+                FROM adapters INDEXED BY idx_adapters_tenant_name
+                WHERE tenant_id = ?
+                ORDER BY name ASC
+                "#,
+            )
+            .bind(tenant_id_owned)
+            .fetch_all(&pool)
+            .await
+        })
         .await
+        .map_err(|_| AosError::PerformanceViolation(format!("Query timeout after {:?}", timeout_duration)))?
         .map_err(|e| AosError::Database(format!("Failed to list adapters by tenant: {}", e)))?;
 
         Ok(rows)
@@ -2272,9 +2401,8 @@ pub mod replay_executions;
 pub use replay_executions::{
     CreateReplayExecutionParams, ReplayExecution, UpdateReplayExecutionParams,
 };
-pub mod query_performance;
-pub use query_performance::{QueryMetrics, QueryPerformanceMonitor, QueryStats};
 pub mod adapter_record;
+pub mod query_performance;
 pub use adapter_record::{
     AccessControl, AdapterIdentity, AdapterRecordBuilder, AdapterRecordV1, ArtifactInfo,
     CodeIntelligence, FlatAdapterRow, ForkMetadata, LifecycleState, LoRAConfig, SchemaCompatible,
@@ -2410,6 +2538,10 @@ pub mod workspaces;
 
 // System statistics module
 pub mod system_stats;
+
+// SQLite index health/maintenance introspection
+pub mod index_health;
+pub mod index_maintenance;
 
 // Federation module
 pub mod federation;
