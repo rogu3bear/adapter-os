@@ -2,7 +2,25 @@ use adapteros_core::{AosError, Result};
 use adapteros_db::{CreateRepositoryParams, CreateVersionParams, Db, RepositoryGroup};
 use sqlx;
 
+/// Helper to create a test model for FK satisfaction
+async fn create_test_model(db: &Db, model_id: &str) {
+    sqlx::query(
+        "INSERT OR IGNORE INTO models (id, name, hash_b3, config_hash_b3, tokenizer_hash_b3, tokenizer_cfg_hash_b3)
+         VALUES (?, ?, ?, 'config-hash', 'tok-hash', 'tok-cfg-hash')",
+    )
+    .bind(model_id)
+    .bind(format!("model-{}", model_id))
+    .bind(format!("hash-{}", model_id))
+    .execute(&*db.pool())
+    .await
+    .expect("create test model");
+}
+
 async fn create_repo(db: &Db, tenant_id: &str, name: &str, base_model_id: Option<&str>) -> String {
+    // Create model if base_model_id is provided
+    if let Some(model_id) = base_model_id {
+        create_test_model(db, model_id).await;
+    }
     db.create_adapter_repository(CreateRepositoryParams {
         tenant_id,
         name,
@@ -51,10 +69,85 @@ async fn create_version(
     .expect("version created")
 }
 
+/// Create an adapter version with proper dataset linkage (required for promotion tests).
+/// This creates a training dataset, version, and links them to the adapter version.
+/// The dataset version is marked as valid so the adapter trust_state becomes "allowed".
+async fn create_promotable_version(
+    db: &Db,
+    tenant_id: &str,
+    repo_id: &str,
+    branch: &str,
+    version: &str,
+    release_state: &str,
+) -> String {
+    // Create dataset and version for proper linking
+    let dataset_id = db
+        .create_training_dataset(
+            &format!("ds-{}-{}", repo_id, version),
+            None,
+            "jsonl",
+            &format!("hash-{}", version),
+            &format!("var/ds/{}", version),
+            None,
+        )
+        .await
+        .expect("dataset created");
+
+    let ds_version_id = db
+        .create_training_dataset_version(
+            &dataset_id,
+            Some(tenant_id),
+            Some("v1"),
+            &format!("var/ds/{}/v1", version),
+            &format!("hash-{}-v1", version),
+            None,
+            None,
+            None,
+        )
+        .await
+        .expect("dataset version created");
+
+    // Mark dataset version as valid so adapter_trust_state becomes "allowed"
+    // (required for is_serveable_version to return true)
+    db.update_dataset_version_structural_validation(&ds_version_id, "valid", None)
+        .await
+        .expect("validation update");
+
+    db.create_adapter_version(CreateVersionParams {
+        repo_id,
+        tenant_id,
+        version,
+        branch,
+        branch_classification: "protected",
+        aos_path: None,
+        aos_hash: None,
+        manifest_schema_version: None,
+        parent_version_id: None,
+        code_commit_sha: None,
+        data_spec_hash: Some(&format!("hash-{}-v1", version)),
+        training_backend: Some("coreml_train"),
+        coreml_used: Some(false),
+        coreml_device_type: None,
+        dataset_version_ids: Some(&[ds_version_id]),
+        release_state,
+        metrics_snapshot_id: None,
+        evaluation_summary: None,
+        allow_archived: false,
+        actor: Some("tester"),
+        reason: None,
+        train_job_id: None,
+    })
+    .await
+    .expect("version created")
+}
+
 #[tokio::test]
 async fn repo_creation_defaults_and_empty_versions() -> Result<()> {
     let db = Db::new_in_memory().await?;
     let tenant_id = db.create_tenant("tenant-a", false).await?;
+
+    // Create the model first to satisfy FK constraint
+    create_test_model(&db, "base-x").await;
 
     let repo_id = db
         .create_adapter_repository(CreateRepositoryParams {
@@ -160,9 +253,13 @@ async fn resolve_version_prefers_active_then_ready_and_supports_selectors() -> R
     let tenant_id = db.create_tenant("tenant-d", false).await?;
     let repo_id = create_repo(&db, &tenant_id, "resolve-repo", None).await;
 
-    let ready_id = create_version(&db, &tenant_id, &repo_id, "main", "1.0.0", "ready").await;
-    let active_id = create_version(&db, &tenant_id, &repo_id, "main", "1.0.1", "active").await;
-    let tag_id = create_version(&db, &tenant_id, &repo_id, "dev", "2.0.0-dev", "deprecated").await;
+    // Use promotable versions with proper dataset linkage
+    let ready_id =
+        create_promotable_version(&db, &tenant_id, &repo_id, "main", "1.0.0", "ready").await;
+    let active_id =
+        create_promotable_version(&db, &tenant_id, &repo_id, "main", "1.0.1", "active").await;
+    let tag_id =
+        create_promotable_version(&db, &tenant_id, &repo_id, "dev", "2.0.0-dev", "deprecated").await;
 
     let resolved_branch = db
         .resolve_adapter_version(&tenant_id, &repo_id, Some("main"))
@@ -211,8 +308,11 @@ async fn rollback_marks_states_and_writes_history() -> Result<()> {
     let tenant_id = db.create_tenant("tenant-e", false).await?;
     let repo_id = create_repo(&db, &tenant_id, "rollback-repo", None).await;
 
-    let active_id = create_version(&db, &tenant_id, &repo_id, "main", "1.0.0", "active").await;
-    let ready_id = create_version(&db, &tenant_id, &repo_id, "main", "1.1.0", "ready").await;
+    // Use promotable versions with proper dataset linkage
+    let active_id =
+        create_promotable_version(&db, &tenant_id, &repo_id, "main", "1.0.0", "active").await;
+    let ready_id =
+        create_promotable_version(&db, &tenant_id, &repo_id, "main", "1.1.0", "ready").await;
 
     db.rollback_adapter_branch(
         &tenant_id,
@@ -236,14 +336,16 @@ async fn rollback_marks_states_and_writes_history() -> Result<()> {
         .expect("previous exists");
     assert_eq!(deprecated_after.release_state, "deprecated");
 
-    // Ensure history rows exist (deprecate + activate)
+    // Ensure history rows exist:
+    // - 2 from version creation (active + ready)
+    // - 2 from rollback (deprecate old + activate new)
     let history_count: i64 =
         sqlx::query_scalar("SELECT COUNT(1) FROM adapter_version_history WHERE repo_id = ?")
             .bind(&repo_id)
             .fetch_one(&*db.pool())
             .await
             .unwrap();
-    assert_eq!(history_count, 2);
+    assert_eq!(history_count, 4);
 
     Ok(())
 }
@@ -370,8 +472,11 @@ async fn promote_version_marks_active_and_deprecates_previous() -> Result<()> {
     let tenant_id = db.create_tenant("tenant-g", false).await?;
     let repo_id = create_repo(&db, &tenant_id, "promote-repo", None).await;
 
-    let active_id = create_version(&db, &tenant_id, &repo_id, "main", "1.0.0", "active").await;
-    let ready_id = create_version(&db, &tenant_id, &repo_id, "main", "1.1.0", "ready").await;
+    // Use promotable versions with proper dataset linkage (required for promotion)
+    let active_id =
+        create_promotable_version(&db, &tenant_id, &repo_id, "main", "1.0.0", "active").await;
+    let ready_id =
+        create_promotable_version(&db, &tenant_id, &repo_id, "main", "1.1.0", "ready").await;
 
     db.promote_adapter_version(
         &tenant_id,
@@ -480,18 +585,18 @@ async fn coreml_promotion_requires_dataset_and_device() -> Result<()> {
     let repo_id = create_repo(&db, &tenant_id, "coreml-repo", None).await;
 
     let dataset_id = db
-        .create_training_dataset("ds", None, "jsonl", "hash-ds", "/tmp/ds", Some("tester"))
+        .create_training_dataset("ds", None, "jsonl", "hash-ds", "var/ds", None)
         .await?;
     let ds_version_id = db
         .create_training_dataset_version(
             &dataset_id,
             Some(&tenant_id),
             Some("v1"),
-            "/tmp/ds/v1",
+            "var/ds/v1",
             "hash-ds",
             None,
             None,
-            Some("tester"),
+            None,
         )
         .await?;
 
@@ -589,18 +694,18 @@ async fn create_version_persists_dataset_links() -> Result<()> {
     let repo_id = create_repo(&db, &tenant_id, "dataset-link-repo", None).await;
 
     let dataset_id = db
-        .create_training_dataset("ds", None, "jsonl", "hash-ds", "/tmp/ds", Some("tester"))
+        .create_training_dataset("ds", None, "jsonl", "hash-ds", "var/ds", None)
         .await?;
     let ds_version_id = db
         .create_training_dataset_version(
             &dataset_id,
             Some(&tenant_id),
             Some("v1"),
-            "/tmp/ds/v1",
+            "var/ds/v1",
             "hash-ds",
             None,
             None,
-            Some("tester"),
+            None,
         )
         .await?;
 
@@ -646,7 +751,7 @@ async fn adapter_version_captures_trust_snapshot() -> Result<()> {
     let repo_id = create_repo(&db, &tenant_id, "trust-repo", None).await;
 
     let dataset_id = db
-        .create_training_dataset("ds", None, "jsonl", "hash-ds", "/tmp/ds", Some("tester"))
+        .create_training_dataset("ds", None, "jsonl", "hash-ds", "var/ds", None)
         .await?;
     let ds_version_id = db
         .create_training_dataset_version_with_id(
@@ -654,11 +759,11 @@ async fn adapter_version_captures_trust_snapshot() -> Result<()> {
             &dataset_id,
             Some(&tenant_id),
             Some("v1"),
-            "/tmp/ds/v1",
+            "var/ds/v1",
             "hash-ds",
             None,
             None,
-            Some("tester"),
+            None,
         )
         .await?;
 

@@ -109,7 +109,7 @@ impl Db {
              WHERE tenant_id = ?",
         )
         .bind(tenant_id)
-        .fetch_all(&*self.pool())
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(workers)
@@ -121,7 +121,7 @@ impl Db {
              FROM workers
              ORDER BY started_at DESC",
         )
-        .fetch_all(&*self.pool())
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(workers)
@@ -135,7 +135,7 @@ impl Db {
              ORDER BY started_at DESC",
         )
         .bind(node_id)
-        .fetch_all(&*self.pool())
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(workers)
@@ -145,7 +145,7 @@ impl Db {
         sqlx::query("UPDATE workers SET status = ?, last_seen_at = datetime('now') WHERE id = ?")
             .bind(status)
             .bind(worker_id)
-            .execute(&*self.pool())
+            .execute(self.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(())
@@ -184,7 +184,7 @@ impl Db {
         .bind(&params.uds_path)
         .bind(params.pid)
         .bind(&params.status)
-        .execute(&*self.pool())
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(())
@@ -198,7 +198,7 @@ impl Db {
             )
             .bind(st)
             .bind(id)
-            .execute(&*self.pool())
+            .execute(self.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -209,7 +209,7 @@ impl Db {
             let result =
                 sqlx::query("UPDATE workers SET last_seen_at = datetime('now') WHERE id = ?")
                     .bind(id)
-                    .execute(&*self.pool())
+                    .execute(self.pool())
                     .await
                     .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -228,7 +228,29 @@ impl Db {
              WHERE id = ?",
         )
         .bind(worker_id)
-        .fetch_optional(&*self.pool())
+        .fetch_optional(self.pool())
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
+        Ok(worker)
+    }
+
+    /// Get a worker by ID with tenant scoping (PRD-RECT-002)
+    ///
+    /// Returns None if the worker doesn't exist OR belongs to a different tenant,
+    /// preventing cross-tenant enumeration attacks.
+    pub async fn get_worker_for_tenant(
+        &self,
+        tenant_id: &str,
+        worker_id: &str,
+    ) -> Result<Option<Worker>> {
+        let worker = sqlx::query_as::<_, Worker>(
+            "SELECT id, tenant_id, node_id, plan_id, uds_path, pid, status, started_at, last_seen_at, backend, model_hash_b3, capabilities_json
+             FROM workers
+             WHERE id = ? AND tenant_id = ?",
+        )
+        .bind(worker_id)
+        .bind(tenant_id)
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(worker)
@@ -240,7 +262,7 @@ impl Db {
             "SELECT COUNT(*) FROM training_jobs WHERE worker_id = ? AND status = 'running'",
         )
         .bind(worker_id)
-        .fetch_one(&*self.pool())
+        .fetch_one(self.pool())
         .await
         .map_err(|e| {
             AosError::Database(format!("Failed to check worker training status: {}", e))
@@ -258,7 +280,7 @@ impl Db {
             "SELECT COUNT(*) FROM routing_decisions WHERE worker_id = ?",
         )
         .bind(worker_id)
-        .fetch_one(&*self.pool())
+        .fetch_one(self.pool())
         .await
         .unwrap_or(0);
 
@@ -271,7 +293,7 @@ impl Db {
             "SELECT COUNT(*) FROM audit_logs WHERE resource_id = ? AND status = 'error'",
         )
         .bind(worker_id)
-        .fetch_one(&*self.pool())
+        .fetch_one(self.pool())
         .await
         .unwrap_or(0);
 
@@ -284,7 +306,7 @@ impl Db {
             "SELECT AVG(latency_ms) FROM routing_decisions WHERE worker_id = ?",
         )
         .bind(worker_id)
-        .fetch_one(&*self.pool())
+        .fetch_one(self.pool())
         .await
         .unwrap_or(None);
 
@@ -300,7 +322,7 @@ impl Db {
              ORDER BY created_at DESC",
         )
         .bind(worker_id)
-        .fetch_all(&*self.pool())
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to get worker training tasks: {}", e)))?;
 
@@ -316,7 +338,7 @@ impl Db {
              FROM workers WHERE id = ?",
         )
         .bind(worker_id)
-        .fetch_optional(&*self.pool())
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to get worker detail: {}", e)))?;
 
@@ -335,7 +357,7 @@ impl Db {
         )
         .bind(worker_id)
         .bind(event_type)
-        .fetch_one(&*self.pool())
+        .fetch_one(self.pool())
         .await
         .unwrap_or(0);
 
@@ -356,7 +378,7 @@ impl Db {
         )
         .bind(worker_id)
         .bind(format!("-{}", minutes))
-        .fetch_one(&*self.pool())
+        .fetch_one(self.pool())
         .await
         .unwrap_or(None);
 
@@ -374,7 +396,7 @@ impl Db {
              WHERE worker_id = ? AND status IN ('running', 'pending')",
         )
         .bind(worker_id)
-        .fetch_all(&*self.pool())
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to get active training tasks: {}", e)))?;
 
@@ -411,7 +433,7 @@ impl Db {
         .bind(consecutive_slow_responses)
         .bind(consecutive_failures)
         .bind(worker_id)
-        .execute(&*self.pool())
+        .execute(self.pool())
         .await
         .map_err(|e| {
             AosError::Database(format!("Failed to update worker health metrics: {}", e))
@@ -428,7 +450,7 @@ impl Db {
              FROM workers WHERE id = ?",
         )
         .bind(worker_id)
-        .fetch_optional(&*self.pool())
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to get worker health: {}", e)))?;
 
@@ -442,7 +464,7 @@ impl Db {
              FROM workers WHERE health_status = ? ORDER BY started_at DESC",
         )
         .bind(health_status)
-        .fetch_all(&*self.pool())
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to list workers by health: {}", e)))?;
 
@@ -458,7 +480,7 @@ impl Db {
              ORDER BY avg_latency_ms ASC NULLS LAST",
         )
         .bind(tenant_id)
-        .fetch_all(&*self.pool())
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to list healthy workers: {}", e)))?;
 
@@ -493,7 +515,7 @@ impl Db {
         .bind(reason)
         .bind(backtrace_snippet)
         .bind(latency_at_incident_ms)
-        .execute(&*self.pool())
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to insert worker incident: {}", e)))?;
 
@@ -518,7 +540,7 @@ impl Db {
         )
         .bind(worker_id)
         .bind(limit)
-        .fetch_all(&*self.pool())
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to list worker incidents: {}", e)))?;
 
@@ -543,7 +565,7 @@ impl Db {
         )
         .bind(tenant_id)
         .bind(limit)
-        .fetch_all(&*self.pool())
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to list tenant incidents: {}", e)))?;
 
@@ -556,7 +578,7 @@ impl Db {
             "SELECT COUNT(*) FROM worker_incidents WHERE worker_id = ?",
         )
         .bind(worker_id)
-        .fetch_one(&*self.pool())
+        .fetch_one(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to count worker incidents: {}", e)))?;
 
@@ -572,7 +594,7 @@ impl Db {
         )
         .bind(worker_id)
         .bind(format!("-{}", hours))
-        .fetch_one(&*self.pool())
+        .fetch_one(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to count recent incidents: {}", e)))?;
 
@@ -820,7 +842,7 @@ impl Db {
 
         sqlx::query("UPDATE workers SET registered_at = COALESCE(registered_at, datetime('now')) WHERE id = ?")
             .bind(&params.worker_id)
-            .execute(&*self.pool())
+            .execute(self.pool())
             .await
             .map_err(|e| AosError::Database(format!("Failed to stamp registered_at: {}", e)))?;
 
@@ -896,24 +918,25 @@ impl Db {
         if !is_valid {
             // Log invalid transition to audit_logs as security/compliance event
             let audit_id = uuid::Uuid::now_v7().to_string();
-            let details = serde_json::json!({
+            let metadata = serde_json::json!({
                 "worker_id": worker_id,
                 "from_status": current_status,
                 "to_status": new_status,
                 "reason": reason,
                 "error": format!("Invalid transition: {} -> {}", current_status, new_status)
             });
+            let actor_str = actor.unwrap_or("system");
 
             sqlx::query(
                 "INSERT INTO audit_logs
-                 (id, tenant_id, user_id, action, resource_type, resource_id, status, details)
-                 VALUES (?, ?, ?, 'WorkerLifecycleViolation', 'worker', ?, 'error', ?)",
+                 (id, timestamp, tenant_id, user_id, user_role, action, resource_type, resource_id, status, metadata_json)
+                 VALUES (?, datetime('now'), ?, ?, 'system', 'WorkerLifecycleViolation', 'worker', ?, 'error', ?)",
             )
             .bind(&audit_id)
             .bind(&tenant_id)
-            .bind(actor.unwrap_or("system"))
+            .bind(actor_str)
             .bind(worker_id)
-            .bind(details.to_string())
+            .bind(metadata.to_string())
             .execute(&mut *tx)
             .await
             .map_err(|e| AosError::Database(format!("Failed to insert audit log: {}", e)))?;
@@ -981,7 +1004,7 @@ impl Db {
              ORDER BY avg_latency_ms ASC NULLS LAST",
         )
         .bind(manifest_hash)
-        .fetch_all(&*self.pool())
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to list compatible workers: {}", e)))?;
 
@@ -1056,7 +1079,7 @@ impl Db {
         )
         .bind(manifest_hash)
         .bind(tenant_id)
-        .fetch_all(&*self.pool())
+        .fetch_all(self.pool())
         .await
         .map_err(|e| {
             AosError::Database(format!(
@@ -1128,7 +1151,7 @@ impl Db {
                AND (health_status IS NULL OR health_status IN ('healthy', 'unknown'))
              ORDER BY avg_latency_ms ASC NULLS LAST",
         )
-        .fetch_all(&*self.pool())
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to list serving workers: {}", e)))?;
 
@@ -1188,7 +1211,7 @@ impl Db {
         )
         .bind(worker_id)
         .bind(limit)
-        .fetch_all(&*self.pool())
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to get worker status history: {}", e)))?;
 
@@ -1207,7 +1230,7 @@ impl Db {
              FROM workers WHERE id = ?",
         )
         .bind(worker_id)
-        .fetch_optional(&*self.pool())
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to get worker with binding: {}", e)))?;
 
@@ -1218,7 +1241,7 @@ impl Db {
     pub async fn worker_exists(&self, worker_id: &str) -> Result<bool> {
         let count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM workers WHERE id = ?")
             .bind(worker_id)
-            .fetch_one(&*self.pool())
+            .fetch_one(self.pool())
             .await
             .map_err(|e| AosError::Database(format!("Failed to check worker existence: {}", e)))?;
 
@@ -1232,7 +1255,7 @@ impl Db {
              WHERE worker_id = ? AND valid_transition = 0",
         )
         .bind(worker_id)
-        .fetch_one(&*self.pool())
+        .fetch_one(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to count invalid transitions: {}", e)))?;
 

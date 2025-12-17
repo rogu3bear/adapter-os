@@ -71,8 +71,8 @@ impl TryFrom<AdapterRepositoryPolicyRow> for AdapterRepositoryPolicy {
 
     fn try_from(row: AdapterRepositoryPolicyRow) -> std::result::Result<Self, Self::Error> {
         let coreml_mode =
-            CoreMLMode::from_str(&row.coreml_mode).unwrap_or_else(|_| CoreMLMode::CoremlPreferred);
-        let repo_tier = RepoTier::from_str(&row.repo_tier).unwrap_or_else(|_| RepoTier::Normal);
+            CoreMLMode::from_str(&row.coreml_mode).unwrap_or(CoreMLMode::CoremlPreferred);
+        let repo_tier = RepoTier::from_str(&row.repo_tier).unwrap_or(RepoTier::Normal);
 
         Ok(Self {
             repo_id: row.repo_id,
@@ -405,7 +405,7 @@ impl Db {
             .bind(&id)
             .bind(repo_id)
             .bind(tenant_id)
-            .fetch_optional(&*self.pool())
+            .fetch_optional(self.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -465,6 +465,35 @@ impl Db {
         let mut trust_states = Vec::with_capacity(dataset_version_ids.len());
         for ds_ver in dataset_version_ids {
             match self.get_effective_trust_state(ds_ver).await? {
+                Some(state) => trust_states.push(state),
+                None => {
+                    return Err(AosError::Validation(format!(
+                        "dataset version {} not found",
+                        ds_ver
+                    )))
+                }
+            }
+        }
+
+        Ok(map_dataset_trust_to_adapter_trust(&trust_states))
+    }
+
+    /// Derive adapter trust state from dataset versions using an existing transaction.
+    ///
+    /// This variant avoids acquiring new pool connections, preventing pool exhaustion
+    /// when called within an outer transaction.
+    async fn derive_adapter_trust_state_from_dataset_versions_with_tx(
+        &self,
+        tx: &mut Transaction<'_, Sqlite>,
+        dataset_version_ids: &[String],
+    ) -> Result<String> {
+        if dataset_version_ids.is_empty() {
+            return Ok("unknown".to_string());
+        }
+
+        let mut trust_states = Vec::with_capacity(dataset_version_ids.len());
+        for ds_ver in dataset_version_ids {
+            match self.get_effective_trust_state_with_tx(tx, ds_ver).await? {
                 Some(state) => trust_states.push(state),
                 None => {
                     return Err(AosError::Validation(format!(
@@ -582,7 +611,7 @@ impl Db {
                     .bind(repo_id)
                     .bind(tenant_id)
                     .bind(branch)
-                    .fetch_optional(&*self.pool())
+                    .fetch_optional(self.pool())
                     .await
                     .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -605,7 +634,7 @@ impl Db {
                         .bind(tenant_id)
                         .bind(branch)
                         .bind(version_id)
-                        .fetch_optional(&*self.pool())
+                        .fetch_optional(self.pool())
                         .await
                         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -648,7 +677,7 @@ impl Db {
         .bind(default_branch)
         .bind(params.created_by)
         .bind(params.description)
-        .execute(&*self.pool())
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -670,7 +699,7 @@ impl Db {
         )
         .bind(repo_id)
         .bind(tenant_id)
-        .fetch_optional(&*self.pool())
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -707,7 +736,7 @@ impl Db {
 
         let repos = qb
             .build_query_as::<AdapterRepository>()
-            .fetch_all(&*self.pool())
+            .fetch_all(self.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -730,7 +759,7 @@ impl Db {
         )
         .bind(repo_id)
         .bind(tenant_id)
-        .fetch_optional(&*self.pool())
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?
         .map(AdapterRepositoryPolicy::try_from)
@@ -775,7 +804,7 @@ impl Db {
         .bind(coreml_mode)
         .bind(repo_tier)
         .bind(params.auto_rollback_on_trust_regress)
-        .execute(&*self.pool())
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -789,7 +818,7 @@ impl Db {
                 .bind(params.repo_id)
                 .bind(params.tenant_id)
                 .map(|row: sqlx::sqlite::SqliteRow| row.get::<i64, _>("archived"))
-                .fetch_optional(&*self.pool())
+                .fetch_optional(self.pool())
                 .await
                 .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -856,7 +885,7 @@ impl Db {
         }
 
         let adapter_trust_state = if let Some(dataset_ids) = params.dataset_version_ids {
-            self.derive_adapter_trust_state_from_dataset_versions(dataset_ids)
+            self.derive_adapter_trust_state_from_dataset_versions_with_tx(&mut tx, dataset_ids)
                 .await?
         } else {
             "unknown".to_string()
@@ -897,7 +926,7 @@ impl Db {
         .map_err(|e| AosError::Database(e.to_string()))?;
 
         if let Some(dataset_ids) = params.dataset_version_ids {
-            self.upsert_adapter_version_dataset_versions(params.tenant_id, &id, dataset_ids)
+            self.upsert_adapter_version_dataset_versions_with_tx(&mut tx, params.tenant_id, &id, dataset_ids)
                 .await?;
         }
 
@@ -960,7 +989,7 @@ impl Db {
         )
         .bind(params.repo_id)
         .bind(params.tenant_id)
-        .fetch_optional(&*self.pool())
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -989,7 +1018,7 @@ impl Db {
             )
             .bind(parent)
             .bind(params.tenant_id)
-            .fetch_optional(&*self.pool())
+            .fetch_optional(self.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -1025,7 +1054,7 @@ impl Db {
             .map_err(|e| AosError::Database(e.to_string()))?;
 
         let adapter_trust_state = if let Some(dataset_ids) = params.dataset_version_ids {
-            self.derive_adapter_trust_state_from_dataset_versions(dataset_ids)
+            self.derive_adapter_trust_state_from_dataset_versions_with_tx(&mut tx, dataset_ids)
                 .await?
         } else {
             "unknown".to_string()
@@ -1058,7 +1087,7 @@ impl Db {
         .map_err(|e| AosError::Database(e.to_string()))?;
 
         if let Some(dataset_ids) = params.dataset_version_ids {
-            self.upsert_adapter_version_dataset_versions(params.tenant_id, &id, dataset_ids)
+            self.upsert_adapter_version_dataset_versions_with_tx(&mut tx, params.tenant_id, &id, dataset_ids)
                 .await?;
         }
 
@@ -1107,14 +1136,15 @@ impl Db {
             SELECT id, repo_id, tenant_id, version, branch, branch_classification, aos_path, aos_hash,
                    manifest_schema_version, parent_version_id, code_commit_sha,
                    data_spec_hash, training_backend, coreml_used, coreml_device_type,
-                   adapter_trust_state, release_state, metrics_snapshot_id, evaluation_summary, created_at
+                   adapter_trust_state, release_state, metrics_snapshot_id, evaluation_summary, created_at,
+                   attach_mode, required_scope_dataset_version_id, is_archived, published_at, short_description
             FROM adapter_versions
             WHERE id = ? AND tenant_id = ?
             "#,
         )
         .bind(version_id)
         .bind(tenant_id)
-        .fetch_optional(&*self.pool())
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -1133,9 +1163,10 @@ impl Db {
             SELECT id, repo_id, tenant_id, version, branch, branch_classification, aos_path, aos_hash,
                    manifest_schema_version, parent_version_id, code_commit_sha,
                    data_spec_hash, training_backend, coreml_used, coreml_device_type,
-                   adapter_trust_state, release_state, metrics_snapshot_id, evaluation_summary, created_at
+                   adapter_trust_state, release_state, metrics_snapshot_id, evaluation_summary, created_at,
+                   attach_mode, required_scope_dataset_version_id, is_archived, published_at, short_description
             FROM adapter_versions
-            WHERE tenant_id = 
+            WHERE tenant_id =
             "#,
         );
 
@@ -1162,7 +1193,7 @@ impl Db {
 
         let versions: Vec<AdapterVersion> = qb
             .build_query_as()
-            .fetch_all(&*self.pool())
+            .fetch_all(self.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -1191,7 +1222,7 @@ impl Db {
         .bind(params.runtime_state)
         .bind(params.worker_id)
         .bind(params.last_error)
-        .execute(&*self.pool())
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -1210,7 +1241,7 @@ impl Db {
             "#,
         )
         .bind(version_id)
-        .fetch_optional(&*self.pool())
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -1244,7 +1275,8 @@ impl Db {
             SELECT id, repo_id, tenant_id, version, branch, branch_classification, aos_path, aos_hash,
                    manifest_schema_version, parent_version_id, code_commit_sha,
                    data_spec_hash, training_backend, coreml_used, coreml_device_type,
-                   adapter_trust_state, release_state, metrics_snapshot_id, evaluation_summary, created_at
+                   adapter_trust_state, release_state, metrics_snapshot_id, evaluation_summary, created_at,
+                   attach_mode, required_scope_dataset_version_id, is_archived, published_at, short_description
             FROM adapter_versions
             WHERE id = ?
             "#,
@@ -1372,17 +1404,41 @@ impl Db {
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
 
+        self.upsert_adapter_version_dataset_versions_with_tx(
+            &mut tx,
+            tenant_id,
+            version_id,
+            dataset_version_ids,
+        )
+        .await?;
+
+        tx.commit()
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
+        Ok(())
+    }
+
+    /// Replace dataset version links using an existing transaction.
+    ///
+    /// This variant avoids starting a nested transaction, preventing pool exhaustion
+    /// when called within an outer transaction (e.g., from `create_adapter_version`).
+    pub async fn upsert_adapter_version_dataset_versions_with_tx(
+        &self,
+        tx: &mut Transaction<'_, Sqlite>,
+        tenant_id: &str,
+        version_id: &str,
+        dataset_version_ids: &[String],
+    ) -> Result<()> {
         // Validate version belongs to tenant.
         let version_exists: Option<(String,)> = sqlx::query_as(
             "SELECT id FROM adapter_versions WHERE id = ? AND tenant_id = ? LIMIT 1",
         )
         .bind(version_id)
         .bind(tenant_id)
-        .fetch_optional(&mut *tx)
+        .fetch_optional(&mut **tx)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         if version_exists.is_none() {
-            tx.rollback().await.ok();
             return Err(AosError::Validation(
                 "adapter version not found for tenant".to_string(),
             ));
@@ -1390,13 +1446,13 @@ impl Db {
 
         sqlx::query("DELETE FROM adapter_version_dataset_versions WHERE adapter_version_id = ?")
             .bind(version_id)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
 
         for ds_ver in dataset_version_ids {
             // Snapshot trust at the time we link the dataset version.
-            let trust_snapshot = self.get_effective_trust_state(ds_ver).await?;
+            let trust_snapshot = self.get_effective_trust_state_with_tx(tx, ds_ver).await?;
             sqlx::query(
                 "INSERT INTO adapter_version_dataset_versions (adapter_version_id, dataset_version_id, tenant_id, trust_at_training_time)
                  VALUES (?, ?, ?, ?)",
@@ -1405,20 +1461,17 @@ impl Db {
             .bind(ds_ver)
             .bind(tenant_id)
             .bind(trust_snapshot)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
         }
 
         let trust_state = self
-            .derive_adapter_trust_state_from_dataset_versions(dataset_version_ids)
+            .derive_adapter_trust_state_from_dataset_versions_with_tx(tx, dataset_version_ids)
             .await?;
-        self.set_adapter_trust_state(&mut tx, version_id, &trust_state)
+        self.set_adapter_trust_state(tx, version_id, &trust_state)
             .await?;
 
-        tx.commit()
-            .await
-            .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(())
     }
 
@@ -1435,7 +1488,29 @@ impl Db {
             "#,
         )
         .bind(version_id)
-        .fetch_all(&*self.pool())
+        .fetch_all(self.pool())
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
+
+        Ok(rows)
+    }
+
+    /// List dataset versions using an existing transaction.
+    pub async fn list_dataset_versions_for_adapter_version_with_tx(
+        &self,
+        tx: &mut Transaction<'_, Sqlite>,
+        version_id: &str,
+    ) -> Result<Vec<String>> {
+        let rows = sqlx::query_scalar::<Sqlite, String>(
+            r#"
+            SELECT dataset_version_id
+            FROM adapter_version_dataset_versions
+            WHERE adapter_version_id = ?
+            ORDER BY dataset_version_id
+            "#,
+        )
+        .bind(version_id)
+        .fetch_all(&mut **tx)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -1456,7 +1531,7 @@ impl Db {
             "#,
         )
         .bind(version_id)
-        .fetch_all(&*self.pool())
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -1500,7 +1575,8 @@ impl Db {
             SELECT id, repo_id, tenant_id, version, branch, branch_classification, aos_path, aos_hash,
                    manifest_schema_version, parent_version_id, code_commit_sha,
                    data_spec_hash, training_backend, coreml_used, coreml_device_type,
-                   adapter_trust_state, release_state, metrics_snapshot_id, evaluation_summary, created_at
+                   adapter_trust_state, release_state, metrics_snapshot_id, evaluation_summary, created_at,
+                   attach_mode, required_scope_dataset_version_id, is_archived, published_at, short_description
             FROM adapter_versions
             WHERE id = ?
             "#,
@@ -1511,6 +1587,33 @@ impl Db {
         .map_err(|e| AosError::Database(e.to_string()))?
         .ok_or_else(|| AosError::NotFound(format!("adapter version {}", version_id)))?;
         validate_release_transition(Some(&version.release_state), release_state)?;
+
+        // Guard: prevent multiple active versions on the same branch
+        let normalized_new_state = normalize_release_state(release_state);
+        if normalized_new_state == "active" {
+            let existing_active: Option<(String,)> = sqlx::query_as(
+                r#"
+                SELECT id FROM adapter_versions
+                WHERE repo_id = ? AND tenant_id = ? AND branch = ? AND release_state = 'active' AND id != ?
+                LIMIT 1
+                "#,
+            )
+            .bind(&version.repo_id)
+            .bind(&version.tenant_id)
+            .bind(&version.branch)
+            .bind(version_id)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(|e| AosError::Database(e.to_string()))?;
+
+            if existing_active.is_some() {
+                tx.rollback().await.ok();
+                return Err(AosError::Validation(
+                    "branch already has active version; use promote_adapter_version to deprecate it first"
+                        .to_string(),
+                ));
+            }
+        }
 
         sqlx::query(
             r#"
@@ -1560,7 +1663,8 @@ impl Db {
             SELECT id, repo_id, tenant_id, version, branch, branch_classification, aos_path, aos_hash,
                    manifest_schema_version, parent_version_id, code_commit_sha,
                    data_spec_hash, training_backend, coreml_used, coreml_device_type,
-                   adapter_trust_state, release_state, metrics_snapshot_id, evaluation_summary, created_at
+                   adapter_trust_state, release_state, metrics_snapshot_id, evaluation_summary, created_at,
+                   attach_mode, required_scope_dataset_version_id, is_archived, published_at, short_description
             FROM adapter_versions
             WHERE repo_id = ? AND tenant_id = ? AND branch = ? AND release_state = 'active'
             ORDER BY created_at DESC
@@ -1570,7 +1674,7 @@ impl Db {
         .bind(repo_id)
         .bind(tenant_id)
         .bind(branch)
-        .fetch_optional(&*self.pool())
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -1596,7 +1700,8 @@ impl Db {
             SELECT id, repo_id, tenant_id, version, branch, branch_classification, aos_path, aos_hash,
                    manifest_schema_version, parent_version_id, code_commit_sha,
                    data_spec_hash, training_backend, coreml_used, coreml_device_type,
-                   adapter_trust_state, release_state, metrics_snapshot_id, evaluation_summary, created_at
+                   adapter_trust_state, release_state, metrics_snapshot_id, evaluation_summary, created_at,
+                   attach_mode, required_scope_dataset_version_id, is_archived, published_at, short_description
             FROM adapter_versions
             WHERE id = ?
             "#,
@@ -1624,7 +1729,7 @@ impl Db {
         }
 
         let linked_datasets = self
-            .list_dataset_versions_for_adapter_version(version_id)
+            .list_dataset_versions_for_adapter_version_with_tx(&mut tx, version_id)
             .await?;
         let is_legacy_unpinned =
             linked_datasets.is_empty() && target_version.data_spec_hash.is_none();
@@ -1667,7 +1772,8 @@ impl Db {
             SELECT id, repo_id, tenant_id, version, branch, branch_classification, aos_path, aos_hash,
                    manifest_schema_version, parent_version_id, code_commit_sha,
                    data_spec_hash, training_backend, coreml_used, coreml_device_type,
-                   adapter_trust_state, release_state, metrics_snapshot_id, evaluation_summary, created_at
+                   adapter_trust_state, release_state, metrics_snapshot_id, evaluation_summary, created_at,
+                   attach_mode, required_scope_dataset_version_id, is_archived, published_at, short_description
             FROM adapter_versions
             WHERE repo_id = ? AND tenant_id = ? AND branch = ? AND release_state = 'active'
             LIMIT 1
@@ -1865,7 +1971,8 @@ impl Db {
             SELECT id, repo_id, tenant_id, version, branch, branch_classification, aos_path, aos_hash,
                    manifest_schema_version, parent_version_id, code_commit_sha,
                    data_spec_hash, training_backend, coreml_used, coreml_device_type,
-                   adapter_trust_state, release_state, metrics_snapshot_id, evaluation_summary, created_at
+                   adapter_trust_state, release_state, metrics_snapshot_id, evaluation_summary, created_at,
+                   attach_mode, required_scope_dataset_version_id, is_archived, published_at, short_description
             FROM adapter_versions
             WHERE id = ?
             "#,
@@ -1898,7 +2005,8 @@ impl Db {
             SELECT id, repo_id, tenant_id, version, branch, branch_classification, aos_path, aos_hash,
                    manifest_schema_version, parent_version_id, code_commit_sha,
                    data_spec_hash, training_backend, coreml_used, coreml_device_type,
-                   adapter_trust_state, release_state, metrics_snapshot_id, evaluation_summary, created_at
+                   adapter_trust_state, release_state, metrics_snapshot_id, evaluation_summary, created_at,
+                   attach_mode, required_scope_dataset_version_id, is_archived, published_at, short_description
             FROM adapter_versions
             WHERE repo_id = ? AND tenant_id = ? AND branch = ? AND release_state = 'active'
             LIMIT 1
@@ -1988,7 +2096,8 @@ impl Db {
             SELECT id, repo_id, tenant_id, version, branch, branch_classification, aos_path, aos_hash,
                    manifest_schema_version, parent_version_id, code_commit_sha,
                    data_spec_hash, training_backend, coreml_used, coreml_device_type,
-                   adapter_trust_state, release_state, metrics_snapshot_id, evaluation_summary, created_at
+                   adapter_trust_state, release_state, metrics_snapshot_id, evaluation_summary, created_at,
+                   attach_mode, required_scope_dataset_version_id, is_archived, published_at, short_description
             FROM adapter_versions
             WHERE id = ?
             "#,
@@ -2046,7 +2155,8 @@ impl Db {
             SELECT id, repo_id, tenant_id, version, branch, branch_classification, aos_path, aos_hash,
                    manifest_schema_version, parent_version_id, code_commit_sha,
                    data_spec_hash, training_backend, coreml_used, coreml_device_type,
-                   adapter_trust_state, release_state, metrics_snapshot_id, evaluation_summary, created_at
+                   adapter_trust_state, release_state, metrics_snapshot_id, evaluation_summary, created_at,
+                   attach_mode, required_scope_dataset_version_id, is_archived, published_at, short_description
             FROM adapter_versions
             WHERE repo_id = ? AND tenant_id = ? AND branch = ? AND release_state = 'deprecated' AND id != ?
             ORDER BY created_at DESC
@@ -2133,7 +2243,7 @@ impl Db {
         .bind(&version.repo_id)
         .bind(tenant_id)
         .bind(tag_name)
-        .execute(&*self.pool())
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -2151,7 +2261,7 @@ impl Db {
         )
         .bind(repo_id)
         .bind(tenant_id)
-        .execute(&*self.pool())
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -2170,7 +2280,8 @@ impl Db {
             SELECT id, repo_id, tenant_id, version, branch, branch_classification, aos_path, aos_hash,
                    manifest_schema_version, parent_version_id, code_commit_sha,
                    data_spec_hash, training_backend, coreml_used, coreml_device_type,
-                   adapter_trust_state, release_state, metrics_snapshot_id, evaluation_summary, created_at
+                   adapter_trust_state, release_state, metrics_snapshot_id, evaluation_summary, created_at,
+                   attach_mode, required_scope_dataset_version_id, is_archived, published_at, short_description
             FROM adapter_versions
             WHERE tenant_id = ? AND repo_id = ? AND branch = ? AND release_state = 'active'
             ORDER BY created_at DESC
@@ -2180,7 +2291,7 @@ impl Db {
         .bind(tenant_id)
         .bind(repo_id)
         .bind(branch)
-        .fetch_optional(&*self.pool())
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?
         {
@@ -2213,13 +2324,14 @@ impl Db {
         .bind(repo_id)
         .bind(tenant_id)
         .bind(tag)
-        .fetch_optional(&*self.pool())
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
         if let Some((version_id,)) = tagged_version {
-            let version = self.get_adapter_version(tenant_id, &version_id).await?;
-            return Ok(version.filter(|v| is_serveable_version(v)));
+            // Tag lookups should return the version regardless of state.
+            // Tags are often used for release management (rollback targets, audit trails).
+            return self.get_adapter_version(tenant_id, &version_id).await;
         }
 
         Ok(None)
@@ -2237,7 +2349,8 @@ impl Db {
             SELECT id, repo_id, tenant_id, version, branch, branch_classification, aos_path, aos_hash,
                    manifest_schema_version, parent_version_id, code_commit_sha,
                    data_spec_hash, training_backend, coreml_used, coreml_device_type,
-                   adapter_trust_state, release_state, metrics_snapshot_id, evaluation_summary, created_at
+                   adapter_trust_state, release_state, metrics_snapshot_id, evaluation_summary, created_at,
+                   attach_mode, required_scope_dataset_version_id, is_archived, published_at, short_description
             FROM adapter_versions
             WHERE tenant_id = ? AND repo_id = ? AND branch = ? AND version = ?
             LIMIT 1
@@ -2247,11 +2360,13 @@ impl Db {
         .bind(repo_id)
         .bind(branch)
         .bind(version)
-        .fetch_optional(&*self.pool())
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
-        Ok(version.filter(|v| is_serveable_version(v)))
+        // Exact-match lookups should return the version regardless of state.
+        // This allows resolving deprecated/retired versions for auditing, debugging, etc.
+        Ok(version)
     }
 
     /// List adapter artifact paths and hashes for a tenant.
@@ -2267,7 +2382,7 @@ impl Db {
             "#,
         )
         .bind(tenant_id)
-        .fetch_all(&*self.pool())
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
         Ok(rows)
@@ -2289,7 +2404,8 @@ impl Db {
             SELECT id, repo_id, tenant_id, version, branch, branch_classification, aos_path, aos_hash,
                    manifest_schema_version, parent_version_id, code_commit_sha,
                    data_spec_hash, training_backend, coreml_used, coreml_device_type,
-                   adapter_trust_state, release_state, metrics_snapshot_id, evaluation_summary, created_at
+                   adapter_trust_state, release_state, metrics_snapshot_id, evaluation_summary, created_at,
+                   attach_mode, required_scope_dataset_version_id, is_archived, published_at, short_description
             FROM adapter_versions
             "#,
         )
@@ -2305,7 +2421,7 @@ impl Db {
         let count: i64 =
             sqlx::query_scalar("SELECT COUNT(*) as cnt FROM adapter_versions WHERE tenant_id = ?")
                 .bind(tenant_id)
-                .fetch_one(&*self.pool())
+                .fetch_one(self.pool())
                 .await
                 .unwrap_or(0);
         Ok(count)
@@ -2353,7 +2469,7 @@ impl Db {
             )
             .bind(ds_version_id)
             .bind(tenant_id)
-            .fetch_optional(&*self.pool())
+            .fetch_optional(self.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -2374,7 +2490,7 @@ impl Db {
             )
             .bind(version_id)
             .bind(ds_version_id)
-            .fetch_optional(&*self.pool())
+            .fetch_optional(self.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -2417,7 +2533,7 @@ impl Db {
         .bind(version_id)
         .bind(tenant_id)
         .bind(repo_id)
-        .execute(&*self.pool())
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to publish adapter version: {}", e)))?;
 
@@ -2441,7 +2557,7 @@ impl Db {
         )
         .bind(version_id)
         .bind(tenant_id)
-        .execute(&*self.pool())
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to archive adapter version: {}", e)))?;
 
@@ -2464,7 +2580,7 @@ impl Db {
         )
         .bind(version_id)
         .bind(tenant_id)
-        .execute(&*self.pool())
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to unarchive adapter version: {}", e)))?;
 
@@ -2495,7 +2611,7 @@ impl Db {
         )
         .bind(version_id)
         .bind(tenant_id)
-        .fetch_optional(&*self.pool())
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to get attach mode: {}", e)))?;
 
@@ -2521,7 +2637,7 @@ impl Db {
         )
         .bind(version_id)
         .bind(tenant_id)
-        .fetch_optional(&*self.pool())
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to get adapter version: {}", e)))?;
 

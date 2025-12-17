@@ -97,7 +97,7 @@ async fn test_worker_with_binding_fields() {
         DEFAULT_TENANT_ID, // Use seeded tenant
         "manifest-hash-abc",
         "1.0.0",
-        "starting",
+        "created",
     )
     .await;
 
@@ -114,32 +114,32 @@ async fn test_worker_with_binding_fields() {
         Some("manifest-hash-abc")
     );
     assert_eq!(worker.schema_version.as_deref(), Some("1.0.0"));
-    assert_eq!(worker.status, "starting");
+    assert_eq!(worker.status, "created");
 }
 
 #[tokio::test]
 async fn test_list_compatible_workers_filters_by_manifest() {
     let db = create_test_db().await.expect("Failed to create test db");
 
-    // Insert worker with correct manifest (serving status)
+    // Insert worker with correct manifest (healthy status)
     insert_test_worker(
         &db,
         "worker-correct",
         DEFAULT_TENANT_ID,
         "correct-manifest",
         API_SCHEMA_VERSION,
-        "serving",
+        "healthy",
     )
     .await;
 
-    // Insert worker with wrong manifest (serving status)
+    // Insert worker with wrong manifest (healthy status)
     insert_test_worker(
         &db,
         "worker-wrong",
         DEFAULT_TENANT_ID,
         "wrong-manifest",
         API_SCHEMA_VERSION,
-        "serving",
+        "healthy",
     )
     .await;
 
@@ -165,7 +165,7 @@ async fn test_list_compatible_workers_filters_by_schema_version() {
         DEFAULT_TENANT_ID,
         "same-manifest",
         API_SCHEMA_VERSION, // Same as CP
-        "serving",
+        "healthy",
     )
     .await;
 
@@ -176,7 +176,7 @@ async fn test_list_compatible_workers_filters_by_schema_version() {
         DEFAULT_TENANT_ID,
         "same-manifest",
         "99.99.0", // Incompatible
-        "serving",
+        "healthy",
     )
     .await;
 
@@ -202,7 +202,7 @@ async fn test_list_compatible_workers_for_tenant() {
         DEFAULT_TENANT_ID,
         "shared-manifest",
         API_SCHEMA_VERSION,
-        "serving",
+        "healthy",
     )
     .await;
 
@@ -213,7 +213,7 @@ async fn test_list_compatible_workers_for_tenant() {
         "other-tenant",
         "shared-manifest",
         API_SCHEMA_VERSION,
-        "serving",
+        "healthy",
     )
     .await;
 

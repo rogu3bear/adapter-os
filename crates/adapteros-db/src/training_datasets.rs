@@ -5,6 +5,7 @@ use crate::query_helpers::db_err;
 use crate::Db;
 use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
+use sqlx::{Sqlite, Transaction};
 use uuid::Uuid;
 
 /// Derive aggregate safety status from individual signals.
@@ -264,7 +265,7 @@ impl Db {
         .bind(hash_b3)
         .bind(storage_path)
         .bind(created_by)
-        .execute(&*self.pool())
+        .execute(self.pool())
         .await
         .map_err(db_err("create training dataset"))?;
         Ok(id)
@@ -294,7 +295,7 @@ impl Db {
         .bind(hash_b3)
         .bind(storage_path)
         .bind(created_by)
-        .execute(&*self.pool())
+        .execute(self.pool())
         .await
         .map_err(db_err("create training dataset"))?;
         Ok(dataset_id.to_string())
@@ -317,7 +318,7 @@ impl Db {
             "SELECT COALESCE(MAX(version_number), 0) + 1 FROM training_dataset_versions WHERE dataset_id = ?",
         )
         .bind(dataset_id)
-        .fetch_one(&*self.pool())
+        .fetch_one(self.pool())
         .await
         .map_err(db_err("next dataset version number"))?;
 
@@ -339,7 +340,7 @@ impl Db {
         .bind(manifest_path)
         .bind(manifest_json)
         .bind(created_by)
-        .execute(&*self.pool())
+        .execute(self.pool())
         .await
         .map_err(db_err("create training dataset version"))?;
 
@@ -392,7 +393,7 @@ impl Db {
             "SELECT COALESCE(MAX(version_number), 0) + 1 FROM training_dataset_versions WHERE dataset_id = ?",
         )
         .bind(dataset_id)
-        .fetch_one(&*self.pool())
+        .fetch_one(self.pool())
         .await
         .map_err(db_err("next dataset version number"))?;
 
@@ -412,7 +413,7 @@ impl Db {
         .bind(manifest_path)
         .bind(manifest_json)
         .bind(created_by)
-        .execute(&*self.pool())
+        .execute(self.pool())
         .await
         .map_err(db_err("create training dataset version (with id)"))?;
 
@@ -433,7 +434,7 @@ impl Db {
              FROM training_dataset_versions WHERE id = ?",
         )
         .bind(version_id)
-        .fetch_optional(&*self.pool())
+        .fetch_optional(self.pool())
         .await
         .map_err(db_err("get training dataset version"))?;
 
@@ -449,7 +450,7 @@ impl Db {
             "SELECT manifest_json FROM training_dataset_versions WHERE id = ?",
         )
         .bind(dataset_version_id)
-        .fetch_optional(&*self.pool())
+        .fetch_optional(self.pool())
         .await
         .map_err(db_err("get dataset version manifest"))?;
 
@@ -494,7 +495,7 @@ impl Db {
              LIMIT 1",
         )
         .bind(dataset_id)
-        .fetch_optional(&*self.pool())
+        .fetch_optional(self.pool())
         .await
         .map_err(db_err("get latest dataset version"))?;
 
@@ -513,7 +514,7 @@ impl Db {
              LIMIT 1",
         )
         .bind(&version.id)
-        .fetch_optional(&*self.pool())
+        .fetch_optional(self.pool())
         .await
         .map_err(db_err("get dataset version override for effective trust"))?;
 
@@ -539,7 +540,7 @@ impl Db {
              ORDER BY version_number DESC",
         )
         .bind(dataset_id)
-        .fetch_all(&*self.pool())
+        .fetch_all(self.pool())
         .await
         .map_err(db_err("list dataset versions for trust selection"))?;
 
@@ -576,7 +577,7 @@ impl Db {
              ORDER BY version_number DESC",
         )
         .bind(dataset_id)
-        .fetch_all(&*self.pool())
+        .fetch_all(self.pool())
         .await
         .map_err(db_err("list dataset versions for dataset"))?;
 
@@ -596,7 +597,7 @@ impl Db {
             TRAINING_DATASET_COLUMNS
         ))
         .bind(dataset_id)
-        .fetch_optional(&*self.pool())
+        .fetch_optional(self.pool())
         .await
         .map_err(db_err("get training dataset"))?;
         Ok(dataset)
@@ -619,7 +620,7 @@ impl Db {
             TRAINING_DATASET_COLUMNS
         ))
         .bind(limit)
-        .fetch_all(&*self.pool())
+        .fetch_all(self.pool())
         .await
         .map_err(db_err("list training datasets"))?;
         Ok(datasets)
@@ -647,7 +648,7 @@ impl Db {
         ))
         .bind(tenant_id)
         .bind(limit)
-        .fetch_all(&*self.pool())
+        .fetch_all(self.pool())
         .await
         .map_err(|e| {
             AosError::Database(format!(
@@ -683,7 +684,7 @@ impl Db {
             TRAINING_DATASET_COLUMNS
         ))
         .bind(limit)
-        .fetch_all(&*self.pool())
+        .fetch_all(self.pool())
         .await
         .map_err(db_err("list all training datasets (system)"))?;
         Ok(datasets)
@@ -693,7 +694,7 @@ impl Db {
     pub async fn delete_training_dataset(&self, dataset_id: &str) -> Result<()> {
         sqlx::query("DELETE FROM training_datasets WHERE id = ?")
             .bind(dataset_id)
-            .execute(&*self.pool())
+            .execute(self.pool())
             .await
             .map_err(db_err("delete training dataset"))?;
         Ok(())
@@ -721,7 +722,7 @@ impl Db {
         .bind(size_bytes)
         .bind(hash_b3)
         .bind(mime_type)
-        .execute(&*self.pool())
+        .execute(self.pool())
         .await
         .map_err(db_err("add dataset file"))?;
 
@@ -735,7 +736,7 @@ impl Db {
         )
         .bind(size_bytes)
         .bind(dataset_id)
-        .execute(&*self.pool())
+        .execute(self.pool())
         .await
         .map_err(db_err("update dataset file count"))?;
 
@@ -751,7 +752,7 @@ impl Db {
              ORDER BY created_at ASC",
         )
         .bind(dataset_id)
-        .fetch_all(&*self.pool())
+        .fetch_all(self.pool())
         .await
         .map_err(db_err("get dataset files"))?;
         Ok(files)
@@ -763,7 +764,7 @@ impl Db {
             "SELECT COALESCE(SUM(total_size_bytes), 0) as total FROM training_datasets WHERE tenant_id = ?",
         )
         .bind(tenant_id)
-        .fetch_one(&*self.pool())
+        .fetch_one(self.pool())
         .await
         .unwrap_or(0);
         Ok(total)
@@ -775,7 +776,7 @@ impl Db {
             "SELECT COUNT(*) as cnt FROM training_dataset_versions WHERE tenant_id = ?",
         )
         .bind(tenant_id)
-        .fetch_one(&*self.pool())
+        .fetch_one(self.pool())
         .await
         .unwrap_or(0);
         Ok(count)
@@ -791,7 +792,7 @@ impl Db {
                     sensitivity, created_at, created_by, locked_at, soft_deleted_at
              FROM training_dataset_versions",
         )
-        .fetch_all(&*self.pool())
+        .fetch_all(self.pool())
         .await
         .map_err(db_err("list dataset versions"))?;
         Ok(versions)
@@ -803,7 +804,7 @@ impl Db {
             "SELECT id, dataset_id, file_name, file_path, size_bytes, hash_b3, mime_type, created_at
              FROM dataset_files",
         )
-        .fetch_all(&*self.pool())
+        .fetch_all(self.pool())
         .await
         .map_err(db_err("list dataset files"))?;
         Ok(files)
@@ -824,7 +825,7 @@ impl Db {
         .bind(status)
         .bind(errors)
         .bind(dataset_id)
-        .execute(&*self.pool())
+        .execute(self.pool())
         .await
         .map_err(db_err("update dataset validation"))?;
         Ok(())
@@ -871,7 +872,7 @@ impl Db {
         .bind(&trust_state)
         .bind(&trust_state)
         .bind(dataset_version_id)
-        .execute(&*self.pool())
+        .execute(self.pool())
         .await
         .map_err(db_err("update dataset version validation"))?;
 
@@ -945,7 +946,7 @@ impl Db {
         .bind(&trust_state)
         .bind(&trust_state)
         .bind(dataset_version_id)
-        .execute(&*self.pool())
+        .execute(self.pool())
         .await
         .map_err(db_err("update dataset version safety status"))?;
 
@@ -987,7 +988,7 @@ impl Db {
         .bind(validation_errors_json)
         .bind(sample_row_ids_json)
         .bind(created_by)
-        .execute(&*self.pool())
+        .execute(self.pool())
         .await
         .map_err(db_err("record dataset version validation run"))?;
         Ok(id)
@@ -1014,7 +1015,7 @@ impl Db {
         .bind(override_state)
         .bind(reason)
         .bind(created_by)
-        .execute(&*self.pool())
+        .execute(self.pool())
         .await
         .map_err(db_err("create dataset version override"))?;
 
@@ -1050,7 +1051,54 @@ impl Db {
              LIMIT 1",
         )
         .bind(dataset_version_id)
-        .fetch_optional(&*self.pool())
+        .fetch_optional(self.pool())
+        .await
+        .map_err(db_err("get dataset version override"))?;
+
+        let effective = if let Some((ov,)) = override_state {
+            ov
+        } else {
+            version.unwrap().trust_state
+        };
+
+        Ok(Some(effective))
+    }
+
+    /// Compute effective trust_state using an existing transaction.
+    ///
+    /// This variant avoids acquiring a new pool connection, which is critical
+    /// when called within an outer transaction to prevent pool exhaustion.
+    pub async fn get_effective_trust_state_with_tx(
+        &self,
+        tx: &mut Transaction<'_, Sqlite>,
+        dataset_version_id: &str,
+    ) -> Result<Option<String>> {
+        // Inline version lookup to avoid needing another executor variant
+        let version: Option<TrainingDatasetVersion> = sqlx::query_as(
+            "SELECT id, dataset_id, tenant_id, version_number, version_label, storage_path, hash_b3,
+                    manifest_path, manifest_json, validation_status, validation_errors_json,
+                    pii_status, toxicity_status, leak_status, anomaly_status, overall_safety_status,
+                    trust_state, overall_trust_status, sensitivity, created_at, created_by,
+                    locked_at, soft_deleted_at
+             FROM training_dataset_versions WHERE id = ?",
+        )
+        .bind(dataset_version_id)
+        .fetch_optional(&mut **tx)
+        .await
+        .map_err(db_err("get training dataset version"))?;
+
+        if version.is_none() {
+            return Ok(None);
+        }
+
+        let override_state: Option<(String,)> = sqlx::query_as(
+            "SELECT override_state FROM dataset_version_overrides
+             WHERE dataset_version_id = ?
+             ORDER BY created_at DESC
+             LIMIT 1",
+        )
+        .bind(dataset_version_id)
+        .fetch_optional(&mut **tx)
         .await
         .map_err(db_err("get dataset version override"))?;
 
@@ -1076,7 +1124,7 @@ impl Db {
         )
         .bind(storage_path)
         .bind(dataset_id)
-        .execute(&*self.pool())
+        .execute(self.pool())
         .await
         .map_err(db_err("update dataset storage path"))?;
         Ok(())
@@ -1106,7 +1154,7 @@ impl Db {
         .bind(language_distribution)
         .bind(file_type_distribution)
         .bind(total_tokens)
-        .execute(&*self.pool())
+        .execute(self.pool())
         .await
         .map_err(db_err("store dataset statistics"))?;
         Ok(())
@@ -1124,7 +1172,7 @@ impl Db {
              WHERE dataset_id = ?",
         )
         .bind(dataset_id)
-        .fetch_optional(&*self.pool())
+        .fetch_optional(self.pool())
         .await
         .map_err(db_err("get dataset statistics"))?;
         Ok(stats)
@@ -1162,7 +1210,7 @@ impl Db {
         .bind(confidence)
         .bind(created_by)
         .bind(metadata_json)
-        .execute(&*self.pool())
+        .execute(self.pool())
         .await
         .map_err(db_err("create evidence entry"))?;
         Ok(id)
@@ -1226,7 +1274,7 @@ impl Db {
         }
 
         let entries = sqlx_query
-            .fetch_all(&*self.pool())
+            .fetch_all(self.pool())
             .await
             .map_err(db_err("list evidence entries"))?;
         Ok(entries)
@@ -1241,7 +1289,7 @@ impl Db {
              WHERE id = ?",
         )
         .bind(id)
-        .fetch_optional(&*self.pool())
+        .fetch_optional(self.pool())
         .await
         .map_err(db_err("get evidence entry"))?;
         Ok(entry)
@@ -1257,7 +1305,7 @@ impl Db {
              ORDER BY created_at DESC",
         )
         .bind(dataset_id)
-        .fetch_all(&*self.pool())
+        .fetch_all(self.pool())
         .await
         .map_err(db_err("get dataset evidence"))?;
         Ok(entries)
@@ -1273,7 +1321,7 @@ impl Db {
              ORDER BY created_at DESC",
         )
         .bind(adapter_id)
-        .fetch_all(&*self.pool())
+        .fetch_all(self.pool())
         .await
         .map_err(db_err("get adapter evidence"))?;
         Ok(entries)
@@ -1284,7 +1332,7 @@ impl Db {
         let count: (i64,) =
             sqlx::query_as("SELECT COUNT(*) FROM evidence_entries WHERE dataset_id = ?")
                 .bind(dataset_id)
-                .fetch_one(&*self.pool())
+                .fetch_one(self.pool())
                 .await
                 .map_err(|e| {
                     AosError::Database(format!("Failed to count dataset evidence: {}", e))
@@ -1297,7 +1345,7 @@ impl Db {
         let count: (i64,) =
             sqlx::query_as("SELECT COUNT(*) FROM evidence_entries WHERE adapter_id = ?")
                 .bind(adapter_id)
-                .fetch_one(&*self.pool())
+                .fetch_one(self.pool())
                 .await
                 .map_err(|e| {
                     AosError::Database(format!("Failed to count adapter evidence: {}", e))
@@ -1309,7 +1357,7 @@ impl Db {
     pub async fn delete_evidence_entry(&self, entry_id: &str) -> Result<()> {
         sqlx::query("DELETE FROM evidence_entries WHERE id = ?")
             .bind(entry_id)
-            .execute(&*self.pool())
+            .execute(self.pool())
             .await
             .map_err(db_err("delete evidence entry"))?;
         Ok(())
@@ -1336,7 +1384,7 @@ impl Db {
         .bind(dataset_id)
         .bind(adapter_id)
         .bind(link_type)
-        .execute(&*self.pool())
+        .execute(self.pool())
         .await
         .map_err(db_err("create dataset-adapter link"))?;
         Ok(id)
@@ -1351,7 +1399,7 @@ impl Db {
              ORDER BY created_at DESC",
         )
         .bind(dataset_id)
-        .fetch_all(&*self.pool())
+        .fetch_all(self.pool())
         .await
         .map_err(db_err("get dataset adapters"))?;
         Ok(links)
@@ -1374,7 +1422,7 @@ impl Db {
              ORDER BY created_at DESC",
         )
         .bind(adapter_id)
-        .fetch_all(&*self.pool())
+        .fetch_all(self.pool())
         .await
         .map_err(db_err("get adapter datasets"))?;
         Ok(links)
@@ -1394,7 +1442,7 @@ impl Db {
             "SELECT COUNT(DISTINCT adapter_id) FROM dataset_adapter_links WHERE dataset_id = ?",
         )
         .bind(dataset_id)
-        .fetch_one(&*self.pool())
+        .fetch_one(self.pool())
         .await
         .map_err(db_err("count dataset usage"))?;
         Ok(count.0)
@@ -1404,7 +1452,7 @@ impl Db {
     pub async fn delete_dataset_adapter_link(&self, link_id: &str) -> Result<()> {
         sqlx::query("DELETE FROM dataset_adapter_links WHERE id = ?")
             .bind(link_id)
-            .execute(&*self.pool())
+            .execute(self.pool())
             .await
             .map_err(|e| {
                 AosError::Database(format!("Failed to delete dataset-adapter link: {}", e))
@@ -1441,7 +1489,7 @@ impl Db {
         .bind(ownership)
         .bind(tenant_id)
         .bind(dataset_id)
-        .execute(&*self.pool())
+        .execute(self.pool())
         .await
         .map_err(|e| {
             AosError::Database(format!("Failed to update dataset extended fields: {}", e))
@@ -1512,5 +1560,94 @@ mod tests {
     fn safety_warn_when_warn_present() {
         let safety = derive_overall_safety_status("clean", "warn", "clean", "clean");
         assert_eq!(safety, "warn");
+    }
+}
+
+// ==============================================================================
+// Workstream 9: Dataset Integrity Pre-Training Check
+// ==============================================================================
+
+/// File mismatch information for integrity verification
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DatasetFileMismatch {
+    pub file_name: String,
+    pub file_path: String,
+    pub expected_hash: String,
+    pub actual_hash: String,
+}
+
+/// Result of dataset integrity verification
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DatasetIntegrityResult {
+    pub dataset_id: String,
+    pub total_files: usize,
+    pub verified_files: usize,
+    pub mismatches: Vec<DatasetFileMismatch>,
+    pub is_valid: bool,
+}
+
+impl Db {
+    /// Verify dataset integrity before training
+    ///
+    /// Workstream 9: Checks that all dataset files match their stored BLAKE3 hashes.
+    /// This prevents training on corrupted or tampered data.
+    ///
+    /// # Arguments
+    /// * `dataset_id` - The dataset ID to verify
+    ///
+    /// # Returns
+    /// Result containing integrity verification details
+    pub async fn verify_dataset_integrity(
+        &self,
+        dataset_id: &str,
+    ) -> Result<DatasetIntegrityResult> {
+        // Get all files for this dataset
+        let files = self.get_dataset_files(dataset_id).await?;
+        let total_files = files.len();
+        let mut verified_files = 0;
+        let mut mismatches = Vec::new();
+
+        for file in files {
+            // Read file from disk
+            let file_contents = match tokio::fs::read(&file.file_path).await {
+                Ok(contents) => contents,
+                Err(e) => {
+                    // File not found or unreadable is a mismatch
+                    mismatches.push(DatasetFileMismatch {
+                        file_name: file.file_name.clone(),
+                        file_path: file.file_path.clone(),
+                        expected_hash: file.hash_b3.clone(),
+                        actual_hash: format!("ERROR: {}", e),
+                    });
+                    continue;
+                }
+            };
+
+            // Compute BLAKE3 hash
+            let actual_hash = blake3::hash(&file_contents);
+            let actual_hash_hex = actual_hash.to_hex().to_string();
+
+            // Compare with stored hash
+            if actual_hash_hex != file.hash_b3 {
+                mismatches.push(DatasetFileMismatch {
+                    file_name: file.file_name,
+                    file_path: file.file_path,
+                    expected_hash: file.hash_b3,
+                    actual_hash: actual_hash_hex,
+                });
+            } else {
+                verified_files += 1;
+            }
+        }
+
+        let is_valid = mismatches.is_empty();
+
+        Ok(DatasetIntegrityResult {
+            dataset_id: dataset_id.to_string(),
+            total_files,
+            verified_files,
+            mismatches,
+            is_valid,
+        })
     }
 }

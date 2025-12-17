@@ -123,7 +123,7 @@ pub use api_keys::{ApiKeyRecord, ApiKeyRecord as ApiKey};
 /// - **DualWrite**: Use during migration validation to ensure KV writes match SQL writes
 /// - **KvPrimary**: Use during migration cutover to test KV read path while keeping SQL as backup
 /// - **KvOnly**: Final migration state, use when confident KV backend is production-ready
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum StorageMode {
     /// SQL backend only (default, current production mode)
     ///
@@ -154,6 +154,7 @@ pub enum StorageMode {
     /// Start here. Progress to [`DualWrite`] when ready to validate KV writes.
     ///
     /// [`DualWrite`]: StorageMode::DualWrite
+    #[default]
     SqlOnly,
 
     /// Write to both SQL and KV backends, read from SQL (migration validation phase)
@@ -283,12 +284,6 @@ pub enum StorageMode {
     ///
     /// [`KvPrimary`]: StorageMode::KvPrimary
     KvOnly,
-}
-
-impl Default for StorageMode {
-    fn default() -> Self {
-        StorageMode::SqlOnly
-    }
 }
 
 impl std::str::FromStr for StorageMode {
@@ -1452,7 +1447,7 @@ impl Db {
         };
         let rows = sqlx::query_as::<_, StackRecord>(
             r#"
-            SELECT id, tenant_id, name, description, adapter_ids_json, workflow_type, CAST(version AS INTEGER) AS version, lifecycle_state, created_at, updated_at, created_by, determinism_mode, routing_determinism_mode
+            SELECT id, tenant_id, name, description, adapter_ids_json, workflow_type, CAST(version AS INTEGER) AS version, lifecycle_state, created_at, updated_at, created_by, determinism_mode, routing_determinism_mode, metadata_json
             FROM adapter_stacks
             WHERE tenant_id = ?
             ORDER BY created_at DESC
@@ -1487,7 +1482,7 @@ impl Db {
         };
         let row = sqlx::query_as::<_, StackRecord>(
             r#"
-            SELECT id, tenant_id, name, description, adapter_ids_json, workflow_type, CAST(version AS INTEGER) AS version, lifecycle_state, created_at, updated_at, created_by, determinism_mode, routing_determinism_mode
+            SELECT id, tenant_id, name, description, adapter_ids_json, workflow_type, CAST(version AS INTEGER) AS version, lifecycle_state, created_at, updated_at, created_by, determinism_mode, routing_determinism_mode, metadata_json
             FROM adapter_stacks
             WHERE tenant_id = ? AND id = ?
             "#,
@@ -1671,6 +1666,24 @@ impl Db {
     /// Get the underlying pool if attached (KV-only may return None)
     pub fn pool_opt(&self) -> Option<&SqlitePool> {
         self.pool.as_ref()
+    }
+
+    /// Run WAL checkpoint to flush WAL to database file
+    ///
+    /// This should be called periodically (e.g., every 5 minutes) to:
+    /// - Reduce WAL file size
+    /// - Improve read performance
+    /// - Reduce recovery time on restart
+    ///
+    /// Uses PASSIVE mode to avoid blocking concurrent writes.
+    pub async fn wal_checkpoint(&self) -> Result<()> {
+        if let Some(pool) = self.pool.as_ref() {
+            sqlx::query("PRAGMA wal_checkpoint(PASSIVE)")
+                .execute(pool)
+                .await
+                .map_err(|e| AosError::Database(format!("WAL checkpoint failed: {}", e)))?;
+        }
+        Ok(())
     }
 
     /// Get the current storage mode
@@ -2082,7 +2095,7 @@ impl Db {
     pub async fn list_adapters_by_tenant(&self, tenant_id: &str) -> Result<Vec<AdapterRecord>> {
         let rows = sqlx::query_as::<_, AdapterRecord>(
             r#"
-            SELECT id, tenant_id, name, tier, hash_b3, rank, alpha, targets_json, acl_json,
+            SELECT id, tenant_id, name, tier, hash_b3, rank, alpha, lora_strength, targets_json, acl_json,
                    adapter_id, languages_json, framework, active, category, scope,
                    framework_id, framework_version, repo_id, commit_sha, intent,
                    current_state, pinned, memory_bytes, last_activated, activation_count,
@@ -2319,6 +2332,7 @@ pub mod training_jobs;
 pub mod training_jobs_kv;
 pub use training_jobs::{TrainingJobRecord, TrainingMetricRow, TrainingProgress};
 pub mod training_datasets;
+pub mod training_datasets_kv;
 pub use training_datasets::{
     DatasetAdapterLink, DatasetFile, DatasetStatistics, EvidenceEntry, TrainingDataset,
 };
@@ -2462,7 +2476,7 @@ impl Db {
         .bind(investigation_notes)
         .bind(investigated_by)
         .bind(anomaly_id)
-        .execute(&*self.pool())
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to update anomaly status: {}", e)))?;
         Ok(())
@@ -2608,8 +2622,8 @@ impl Db {
             HealthStatus::Unhealthy
         } else {
             // Consider degraded if latencies are high (>100ms for read, >200ms for write)
-            let read_slow = read_latency_ms.map_or(false, |lat| lat > 100.0);
-            let write_slow = write_latency_ms.map_or(false, |lat| lat > 200.0);
+            let read_slow = read_latency_ms.is_some_and(|lat| lat > 100.0);
+            let write_slow = write_latency_ms.is_some_and(|lat| lat > 200.0);
 
             if read_slow || write_slow {
                 HealthStatus::Degraded
@@ -2800,7 +2814,7 @@ impl Db {
         .bind(memory_mb as i64)
         .bind(reason)
         .bind(metadata)
-        .execute(&*self.pool())
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to insert behavior event: {}", e)))?;
 
@@ -2864,7 +2878,7 @@ impl Db {
         }
 
         let rows = q
-            .fetch_all(&*self.pool())
+            .fetch_all(self.pool())
             .await
             .map_err(|e| AosError::Database(format!("Failed to query behavior events: {}", e)))?;
 
@@ -2938,7 +2952,7 @@ impl Db {
             total_q = total_q.bind(tid);
         }
         let total_row = total_q
-            .fetch_one(&*self.pool())
+            .fetch_one(self.pool())
             .await
             .map_err(|e| AosError::Database(format!("Failed to get total count: {}", e)))?;
         let total: i64 = total_row.try_get("total").unwrap_or(0);
@@ -2953,7 +2967,7 @@ impl Db {
             cat_q = cat_q.bind(tid);
         }
         let category_rows = cat_q
-            .fetch_all(&*self.pool())
+            .fetch_all(self.pool())
             .await
             .map_err(|e| AosError::Database(format!("Failed to get category stats: {}", e)))?;
 
@@ -2971,7 +2985,7 @@ impl Db {
             trans_q = trans_q.bind(tid);
         }
         let transition_rows = trans_q
-            .fetch_all(&*self.pool())
+            .fetch_all(self.pool())
             .await
             .map_err(|e| AosError::Database(format!("Failed to get transition stats: {}", e)))?;
 
