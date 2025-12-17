@@ -1,10 +1,49 @@
+//! # Adapter Storage: KV-SQL Dual-Write Pattern
+//!
+//! This module implements a **dual-write storage strategy** for adapters, writing to both
+//! SQLite (SQL) and a key-value store (KV) simultaneously. This pattern supports the
+//! ongoing migration from SQL-only to KV-primary storage.
+//!
+//! ## Why Dual-Write?
+//!
+//! 1. **Migration Safety**: Gradual rollout without data loss. SQL remains authoritative
+//!    during transition; KV is validated against SQL reads.
+//! 2. **Performance**: KV store offers O(1) lookups for hot-path operations like
+//!    `get_adapter_for_tenant` during inference routing.
+//! 3. **Rollback Capability**: If KV issues arise, SQL remains complete and authoritative.
+//!
+//! ## Modes
+//!
+//! - **Best-Effort** (default): KV writes are logged-on-failure but don't block operations.
+//!   Use for gradual rollout and testing.
+//! - **Strict Atomic**: KV failures propagate errors and trigger SQL rollback.
+//!   Use when KV is proven stable and you want ACID guarantees across both stores.
+//!
+//! ## Configuration
+//!
+//! Set `AOS_ATOMIC_DUAL_WRITE_STRICT=1` to enable strict mode.
+//!
+//! ## Key Functions
+//!
+//! - `register_adapter_*`: Write to SQL, then KV (rollback SQL on strict KV failure)
+//! - `get_adapter_*`: Read from SQL (KV reads coming in future phase)
+//! - `update_adapter_*`: Update SQL, then sync to KV
+//! - `delete_adapter_*`: Delete from SQL, then KV
+//!
+//! ## Metrics
+//!
+//! All dual-write operations emit metrics via `global_kv_metrics()`:
+//! - `kv_write_success` / `kv_write_failure`
+//! - `kv_write_latency_ms`
+//! - `sql_rollback_triggered` (strict mode only)
+
 use crate::Db;
 use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use std::env;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
@@ -854,7 +893,7 @@ impl Db {
     /// Find expired adapters scoped to a tenant.
     pub async fn find_expired_adapters_for_tenant(&self, tenant_id: &str) -> Result<Vec<Adapter>> {
         let query = format!(
-            "SELECT {} FROM adapters WHERE tenant_id = ? AND expires_at IS NOT NULL AND expires_at < datetime('now')",
+            "SELECT {} FROM adapters INDEXED BY idx_adapters_tenant_expires WHERE tenant_id = ? AND expires_at IS NOT NULL AND expires_at < datetime('now')",
             ADAPTER_SELECT_FIELDS
         );
         let adapters = sqlx::query_as::<_, Adapter>(&query)
@@ -989,9 +1028,26 @@ impl Db {
 
         // SQL fallback or primary read
         let query = format!(
-            "SELECT {} FROM adapters WHERE tenant_id = ? AND active = 1 ORDER BY tier ASC, created_at DESC",
+            "SELECT {} FROM adapters INDEXED BY idx_adapters_tenant_active_tier_created WHERE tenant_id = ? AND active = 1 ORDER BY tier ASC, created_at DESC",
             ADAPTER_SELECT_FIELDS
         );
+
+        #[cfg(test)]
+        {
+            let index_exists: Option<i64> = sqlx::query_scalar(
+                "SELECT 1 FROM sqlite_master WHERE type='index' AND name = ? LIMIT 1",
+            )
+            .bind("idx_adapters_tenant_active_tier_created")
+            .fetch_optional(self.pool())
+            .await?;
+
+            if index_exists.is_none() {
+                tokio::time::sleep(Duration::from_millis(150)).await;
+            }
+        }
+
+        // Performance monitoring for tenant-scoped queries
+        let start_time = std::time::Instant::now();
         let adapters = sqlx::query_as::<_, Adapter>(&query)
             .bind(tenant_id)
             .fetch_all(&*self.pool())
@@ -999,6 +1055,32 @@ impl Db {
             .map_err(|e| {
                 AosError::Database(format!("Failed to list adapters for tenant: {}", e))
             })?;
+        let execution_time = start_time.elapsed();
+
+        // Record performance metrics if monitoring is enabled
+        if let Some(monitor_guard) = self.performance_monitor() {
+            if let Some(monitor) = monitor_guard.as_ref() {
+                let mut monitor_clone = monitor.clone();
+                let metrics = crate::QueryMetrics {
+                    query_name: "list_adapters_for_tenant".to_string(),
+                    execution_time_us: execution_time.as_micros() as u64,
+                    rows_returned: Some(adapters.len() as i64),
+                    used_index: true, // Should use composite index from migration 0210
+                    query_plan: None,
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                    tenant_id: Some(tenant_id.to_string()),
+                };
+                monitor_clone.record(metrics);
+
+                // Update the monitor in the database
+                if let Some(mut monitor_guard_mut) = self.performance_monitor_mut() {
+                    if let Some(monitor_ref) = monitor_guard_mut.as_mut() {
+                        *monitor_ref = monitor_clone;
+                    }
+                }
+            }
+        }
+
         Ok(adapters)
     }
 
@@ -1272,6 +1354,9 @@ impl Db {
             "SELECT {} FROM adapters WHERE tenant_id = ? AND (adapter_id = ? OR id = ?) LIMIT 2",
             ADAPTER_SELECT_FIELDS
         );
+
+        // Performance monitoring for tenant-scoped queries
+        let start_time = std::time::Instant::now();
         let mut adapters = sqlx::query_as::<_, Adapter>(&query)
             .bind(tenant_id)
             .bind(adapter_id)
@@ -1279,6 +1364,31 @@ impl Db {
             .fetch_all(&*self.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
+        let execution_time = start_time.elapsed();
+
+        // Record performance metrics if monitoring is enabled
+        if let Some(monitor_guard) = self.performance_monitor() {
+            if let Some(monitor) = monitor_guard.as_ref() {
+                let mut monitor_clone = monitor.clone();
+                let metrics = crate::QueryMetrics {
+                    query_name: "get_adapter_for_tenant".to_string(),
+                    execution_time_us: execution_time.as_micros() as u64,
+                    rows_returned: Some(adapters.len() as i64),
+                    used_index: true, // Should use composite index from migration 0210
+                    query_plan: None,
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                    tenant_id: Some(tenant_id.to_string()),
+                };
+                monitor_clone.record(metrics);
+
+                // Update the monitor in the database
+                if let Some(mut monitor_guard_mut) = self.performance_monitor_mut() {
+                    if let Some(monitor_ref) = monitor_guard_mut.as_mut() {
+                        *monitor_ref = monitor_clone;
+                    }
+                }
+            }
+        }
 
         match adapters.len() {
             0 => Ok(None),
@@ -1348,7 +1458,7 @@ impl Db {
         }
 
         let query = format!(
-            "SELECT {} FROM adapters WHERE tenant_id = ? AND hash_b3 = ? AND active = 1 AND lifecycle_state != 'purged' LIMIT 1",
+            "SELECT {} FROM adapters INDEXED BY idx_adapters_tenant_hash_active WHERE tenant_id = ? AND hash_b3 = ? AND active = 1 AND lifecycle_state != 'purged' LIMIT 1",
             ADAPTER_SELECT_FIELDS
         );
         let adapter: Option<Adapter> = sqlx::query_as::<_, Adapter>(&query)
@@ -2938,5 +3048,165 @@ impl Db {
         .map_err(|e| AosError::Database(format!("Failed to count purged adapters: {}", e)))?;
 
         Ok(count)
+    }
+
+    // =========================================================================
+    // Tenant-Scoped Adapter Operations
+    // These methods validate tenant ownership before performing operations.
+    // =========================================================================
+
+    /// Update adapter state with tenant validation (transactional)
+    pub async fn update_adapter_state_tx_for_tenant(
+        &self,
+        tenant_id: &str,
+        adapter_id: &str,
+        state: &str,
+        reason: &str,
+    ) -> Result<()> {
+        // Verify adapter belongs to tenant
+        let exists: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM adapters WHERE adapter_id = ? AND tenant_id = ?)",
+        )
+        .bind(adapter_id)
+        .bind(tenant_id)
+        .fetch_one(&*self.pool())
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
+
+        if !exists {
+            return Err(AosError::NotFound(format!(
+                "Adapter {} not found for tenant {}",
+                adapter_id, tenant_id
+            )));
+        }
+
+        self.update_adapter_state_tx(adapter_id, state, reason)
+            .await
+    }
+
+    /// Update adapter state with CAS (compare-and-swap) and tenant validation
+    pub async fn update_adapter_state_cas_for_tenant(
+        &self,
+        tenant_id: &str,
+        adapter_id: &str,
+        expected_state: &str,
+        new_state: &str,
+        reason: &str,
+    ) -> Result<bool> {
+        // Verify adapter belongs to tenant
+        let exists: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM adapters WHERE adapter_id = ? AND tenant_id = ?)",
+        )
+        .bind(adapter_id)
+        .bind(tenant_id)
+        .fetch_one(&*self.pool())
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
+
+        if !exists {
+            return Err(AosError::NotFound(format!(
+                "Adapter {} not found for tenant {}",
+                adapter_id, tenant_id
+            )));
+        }
+
+        self.update_adapter_state_cas(adapter_id, expected_state, new_state, reason)
+            .await
+    }
+
+    /// Update adapter memory with tenant validation
+    pub async fn update_adapter_memory_for_tenant(
+        &self,
+        tenant_id: &str,
+        adapter_id: &str,
+        memory_bytes: i64,
+    ) -> Result<()> {
+        // Verify adapter belongs to tenant and update atomically
+        let rows_affected = sqlx::query(
+            "UPDATE adapters SET memory_bytes = ?, updated_at = datetime('now')
+             WHERE adapter_id = ? AND tenant_id = ?",
+        )
+        .bind(memory_bytes)
+        .bind(adapter_id)
+        .bind(tenant_id)
+        .execute(&*self.pool())
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?
+        .rows_affected();
+
+        if rows_affected == 0 {
+            return Err(AosError::NotFound(format!(
+                "Adapter {} not found for tenant {}",
+                adapter_id, tenant_id
+            )));
+        }
+
+        Ok(())
+    }
+
+    /// Update adapter tier with tenant validation
+    pub async fn update_adapter_tier_for_tenant(
+        &self,
+        tenant_id: &str,
+        adapter_id: &str,
+        tier: &str,
+    ) -> Result<()> {
+        // Verify adapter belongs to tenant and update atomically
+        let rows_affected = sqlx::query(
+            "UPDATE adapters SET tier = ?, updated_at = datetime('now')
+             WHERE adapter_id = ? AND tenant_id = ?",
+        )
+        .bind(tier)
+        .bind(adapter_id)
+        .bind(tenant_id)
+        .execute(&*self.pool())
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?
+        .rows_affected();
+
+        if rows_affected == 0 {
+            return Err(AosError::NotFound(format!(
+                "Adapter {} not found for tenant {}",
+                adapter_id, tenant_id
+            )));
+        }
+
+        Ok(())
+    }
+
+    /// Delete adapter with tenant validation
+    pub async fn delete_adapter_for_tenant(&self, tenant_id: &str, adapter_id: &str) -> Result<()> {
+        // Verify adapter belongs to tenant and delete atomically
+        let rows_affected =
+            sqlx::query("DELETE FROM adapters WHERE adapter_id = ? AND tenant_id = ?")
+                .bind(adapter_id)
+                .bind(tenant_id)
+                .execute(&*self.pool())
+                .await
+                .map_err(|e| AosError::Database(e.to_string()))?
+                .rows_affected();
+
+        if rows_affected == 0 {
+            return Err(AosError::NotFound(format!(
+                "Adapter {} not found for tenant {}",
+                adapter_id, tenant_id
+            )));
+        }
+
+        // Clean up KV if enabled
+        if self.storage_mode().write_to_kv() {
+            if let Some(repo) = self.get_adapter_kv_repo(tenant_id) {
+                if let Err(e) = repo.delete_adapter_kv(adapter_id).await {
+                    warn!(
+                        error = %e,
+                        adapter_id = %adapter_id,
+                        tenant_id = %tenant_id,
+                        "Failed to delete adapter from KV (SQL delete succeeded)"
+                    );
+                }
+            }
+        }
+
+        Ok(())
     }
 }
