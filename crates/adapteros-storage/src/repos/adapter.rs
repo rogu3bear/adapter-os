@@ -90,14 +90,15 @@ impl AdapterRepository {
             .query_index(adapter_indexes::BY_ADAPTER_ID, adapter_id)
             .await?;
 
-        // Build candidate keys: prefer index-resolved id if present, then canonical adapter_id key
+        // Build candidate keys - try external adapter_id FIRST (matches write path)
         let mut candidate_keys: Vec<String> = Vec::new();
-        if let Some(first) = ids.first() {
-            candidate_keys.push(format!("adapter:{}", first));
-        }
         let adapter_key = format!("adapter:{}", adapter_id);
-        if !candidate_keys.contains(&adapter_key) {
-            candidate_keys.push(adapter_key);
+        candidate_keys.push(adapter_key.clone());
+        // Then try index-resolved key as fallback for legacy entries
+        if let Some(first) = ids.first() {
+            if first != adapter_id {
+                candidate_keys.push(format!("adapter:{}", first));
+            }
         }
 
         // Attempt candidates in order
@@ -748,6 +749,18 @@ mod tests {
             archived_by: None,
             archive_reason: None,
             purged_at: None,
+            // Base model and artifact hardening
+            base_model_id: None,
+            manifest_schema_version: None,
+            content_hash_b3: None,
+            provenance_json: None,
+            // Drift detection fields
+            drift_tier: None,
+            drift_metric: None,
+            drift_loss_metric: None,
+            drift_reference_backend: None,
+            drift_baseline_backend: None,
+            drift_test_backend: None,
             created_at: now.clone(),
             updated_at: now,
         }
