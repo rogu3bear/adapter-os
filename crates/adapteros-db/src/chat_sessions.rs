@@ -401,7 +401,7 @@ impl Db {
                     "SELECT default_pinned_adapter_ids FROM tenants WHERE id = ?",
                 )
                 .bind(&params.tenant_id)
-                .fetch_optional(&*self.pool())
+                .fetch_optional(self.pool())
                 .await
                 .map_err(db_err("fetch tenant default pinned adapters"))?
                 .flatten()
@@ -432,7 +432,7 @@ impl Db {
             .bind(&params.metadata_json)
             .bind(&params.tags_json)
             .bind(&pinned_adapter_ids)
-            .execute(&*self.pool())
+            .execute(self.pool())
             .await
             .map_err(db_err("create chat session"))?;
         } else if !self.storage_mode().write_to_kv() {
@@ -564,7 +564,7 @@ impl Db {
         if self.storage_mode().write_to_sql() {
             builder
                 .build()
-                .execute(&*self.pool())
+                .execute(self.pool())
                 .await
                 .map_err(db_err("update chat session"))?;
         } else if !self.storage_mode().write_to_kv() {
@@ -644,7 +644,7 @@ impl Db {
 
         let query = builder.build_query_as::<ChatSession>();
         let sessions = query
-            .fetch_all(&*self.pool())
+            .fetch_all(self.pool())
             .await
             .map_err(db_err("list chat sessions"))?;
 
@@ -687,7 +687,7 @@ impl Db {
             "#,
         )
         .bind(session_id)
-        .fetch_optional(&*self.pool())
+        .fetch_optional(self.pool())
         .await
         .map_err(db_err("get chat session"))?;
 
@@ -718,7 +718,7 @@ impl Db {
             "#,
             )
             .bind(session_id)
-            .execute(&*self.pool())
+            .execute(self.pool())
             .await
             .map_err(db_err("update session activity"))?;
         } else if !self.storage_mode().write_to_kv() {
@@ -773,7 +773,7 @@ impl Db {
             )
             .bind(&collection_id)
             .bind(session_id)
-            .execute(&*self.pool())
+            .execute(self.pool())
             .await
             .map_err(db_err("update session collection"))?;
         } else if !self.storage_mode().write_to_kv() {
@@ -824,7 +824,7 @@ impl Db {
         .bind(&json)
         .bind(session_id)
         .bind(tenant_id)
-        .execute(&*self.pool())
+        .execute(self.pool())
         .await
         .map_err(db_err("update session pinned adapters"))?
         .rows_affected();
@@ -861,7 +861,7 @@ impl Db {
         )
         .bind(session_id)
         .bind(tenant_id)
-        .fetch_optional(&*self.pool())
+        .fetch_optional(self.pool())
         .await
         .map_err(db_err("get session pinned adapters"))?;
 
@@ -920,7 +920,7 @@ impl Db {
                 "SELECT MAX(sequence) FROM chat_messages WHERE session_id = ?",
             )
             .bind(&params.session_id)
-            .fetch_optional(&*self.pool())
+            .fetch_optional(self.pool())
             .await
             .map_err(db_err("fetch chat message sequence"))?
             .flatten()
@@ -959,7 +959,7 @@ impl Db {
             .bind(next_sequence)
             .bind(&created_at)
             .bind(&created_at)
-            .execute(&*self.pool())
+            .execute(self.pool())
             .await
             .map_err(db_err("add chat message"))?;
         } else if !self.storage_mode().write_to_kv() {
@@ -1015,7 +1015,7 @@ impl Db {
         )
         .bind(session_id)
         .bind(limit)
-        .fetch_all(&*self.pool())
+        .fetch_all(self.pool())
         .await
         .map_err(db_err("get chat messages"))?;
 
@@ -1056,11 +1056,47 @@ impl Db {
         .bind(session_id)
         .bind(trace_type)
         .bind(trace_id)
-        .execute(&*self.pool())
+        .execute(self.pool())
         .await
         .map_err(db_err("add session trace"))?;
 
         Ok(result.last_insert_rowid())
+    }
+
+    /// List all messages for a tenant (admin/audit view)
+    ///
+    /// Uses tenant-scoped index for efficient retrieval.
+    ///
+    /// # Arguments
+    /// * `tenant_id` - The tenant ID
+    /// * `limit` - Maximum number of messages to return
+    /// * `offset` - Number of messages to skip
+    ///
+    /// # Returns
+    /// List of messages ordered by creation time (newest first)
+    pub async fn list_chat_messages_for_tenant(
+        &self,
+        tenant_id: &str,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<ChatMessage>> {
+        let messages = sqlx::query_as::<_, ChatMessage>(
+            r#"
+            SELECT id, session_id, tenant_id, role, content, timestamp, created_at, sequence, metadata_json
+            FROM chat_messages INDEXED BY idx_chat_messages_tenant_created
+            WHERE tenant_id = ? AND deleted_at IS NULL
+            ORDER BY created_at DESC
+            LIMIT ? OFFSET ?
+            "#,
+        )
+        .bind(tenant_id)
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(self.pool())
+        .await
+        .map_err(db_err("list chat messages for tenant"))?;
+
+        Ok(messages)
     }
 
     /// Get all traces for a session
@@ -1080,7 +1116,7 @@ impl Db {
             "#,
         )
         .bind(session_id)
-        .fetch_all(&*self.pool())
+        .fetch_all(self.pool())
         .await
         .map_err(db_err("get session traces"))?;
 
@@ -1127,7 +1163,7 @@ impl Db {
             .bind(&params.inference_call_id)
             .bind(&params.payload_snapshot)
             .bind(&created_at)
-            .execute(&*self.pool())
+            .execute(self.pool())
             .await
             .map_err(db_err("add chat provenance"))?;
         } else {
@@ -1153,7 +1189,7 @@ impl Db {
             "#,
         )
         .bind(session_id)
-        .fetch_all(&*self.pool())
+        .fetch_all(self.pool())
         .await
         .map_err(db_err("list chat provenance by session"))?;
 
@@ -1174,7 +1210,7 @@ impl Db {
             "#,
         )
         .bind(message_id)
-        .fetch_all(&*self.pool())
+        .fetch_all(self.pool())
         .await
         .map_err(db_err("list chat provenance by message"))?;
 
@@ -1193,7 +1229,7 @@ impl Db {
         let message_count: i64 =
             sqlx::query_scalar("SELECT COUNT(*) FROM chat_messages WHERE session_id = ?")
                 .bind(session_id)
-                .fetch_one(&*self.pool())
+                .fetch_one(self.pool())
                 .await
                 .map_err(db_err("count messages"))?;
 
@@ -1207,7 +1243,7 @@ impl Db {
             "#,
         )
         .bind(session_id)
-        .fetch_all(&*self.pool())
+        .fetch_all(self.pool())
         .await
         .map_err(db_err("count traces"))?;
 
@@ -1257,7 +1293,7 @@ impl Db {
         if self.storage_mode().write_to_sql() {
             sqlx::query("DELETE FROM chat_sessions WHERE id = ?")
                 .bind(session_id)
-                .execute(&*self.pool())
+                .execute(self.pool())
                 .await
                 .map_err(db_err("delete chat session"))?;
         } else if !self.storage_mode().write_to_kv() {
@@ -1296,7 +1332,7 @@ impl Db {
         .bind(color)
         .bind(description)
         .bind(created_by)
-        .execute(&*self.pool())
+        .execute(self.pool())
         .await
         .map_err(db_err("create chat tag"))?;
 
@@ -1311,7 +1347,7 @@ impl Db {
             "SELECT id, tenant_id, name, color, description, created_at, created_by FROM chat_session_tags WHERE id = ?"
         )
         .bind(tag_id)
-        .fetch_optional(&*self.pool())
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to get chat tag: {}", e)))
     }
@@ -1327,7 +1363,7 @@ impl Db {
             "#,
         )
         .bind(tenant_id)
-        .fetch_all(&*self.pool())
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to list chat tags: {}", e)))
     }
@@ -1371,7 +1407,7 @@ impl Db {
         }
         q = q.bind(tag_id);
 
-        q.execute(&*self.pool())
+        q.execute(self.pool())
             .await
             .map_err(db_err("update chat tag"))?;
 
@@ -1382,7 +1418,7 @@ impl Db {
     pub async fn delete_chat_tag(&self, tag_id: &str) -> Result<()> {
         sqlx::query("DELETE FROM chat_session_tags WHERE id = ?")
             .bind(tag_id)
-            .execute(&*self.pool())
+            .execute(self.pool())
             .await
             .map_err(db_err("delete chat tag"))?;
         Ok(())
@@ -1405,7 +1441,7 @@ impl Db {
             .bind(session_id)
             .bind(tag_id)
             .bind(assigned_by)
-            .execute(&*self.pool())
+            .execute(self.pool())
             .await
             .map_err(db_err("assign tag"))?;
         }
@@ -1417,7 +1453,7 @@ impl Db {
         sqlx::query("DELETE FROM chat_session_tag_assignments WHERE session_id = ? AND tag_id = ?")
             .bind(session_id)
             .bind(tag_id)
-            .execute(&*self.pool())
+            .execute(self.pool())
             .await
             .map_err(db_err("remove tag"))?;
         Ok(())
@@ -1435,7 +1471,7 @@ impl Db {
             "#,
         )
         .bind(session_id)
-        .fetch_all(&*self.pool())
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to get session tags: {}", e)))
     }
@@ -1477,7 +1513,7 @@ impl Db {
         .bind(tenant_id)
         .bind(parent_id)
         .bind(parent_id)
-        .fetch_one(&*self.pool())
+        .fetch_one(self.pool())
         .await
         .map_err(db_err("get sort order"))?;
 
@@ -1496,7 +1532,7 @@ impl Db {
         .bind(sort_order)
         .bind(icon)
         .bind(color)
-        .execute(&*self.pool())
+        .execute(self.pool())
         .await
         .map_err(db_err("create category"))?;
 
@@ -1514,7 +1550,7 @@ impl Db {
             "#,
         )
         .bind(category_id)
-        .fetch_optional(&*self.pool())
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to get category: {}", e)))
     }
@@ -1530,7 +1566,7 @@ impl Db {
             "#,
         )
         .bind(tenant_id)
-        .fetch_all(&*self.pool())
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to list categories: {}", e)))
     }
@@ -1574,7 +1610,7 @@ impl Db {
         }
         q = q.bind(category_id);
 
-        q.execute(&*self.pool())
+        q.execute(self.pool())
             .await
             .map_err(db_err("update category"))?;
 
@@ -1587,7 +1623,7 @@ impl Db {
         let child_count: i64 =
             sqlx::query_scalar("SELECT COUNT(*) FROM chat_session_categories WHERE parent_id = ?")
                 .bind(category_id)
-                .fetch_one(&*self.pool())
+                .fetch_one(self.pool())
                 .await
                 .map_err(db_err("check children"))?;
 
@@ -1601,7 +1637,7 @@ impl Db {
         let session_count: i64 =
             sqlx::query_scalar("SELECT COUNT(*) FROM chat_sessions WHERE category_id = ?")
                 .bind(category_id)
-                .fetch_one(&*self.pool())
+                .fetch_one(self.pool())
                 .await
                 .map_err(db_err("check sessions"))?;
 
@@ -1613,7 +1649,7 @@ impl Db {
 
         sqlx::query("DELETE FROM chat_session_categories WHERE id = ?")
             .bind(category_id)
-            .execute(&*self.pool())
+            .execute(self.pool())
             .await
             .map_err(db_err("delete category"))?;
 
@@ -1631,7 +1667,7 @@ impl Db {
         )
         .bind(category_id)
         .bind(session_id)
-        .execute(&*self.pool())
+        .execute(self.pool())
         .await
         .map_err(db_err("set session category"))?;
         Ok(())
@@ -1657,7 +1693,7 @@ impl Db {
         )
         .bind(deleted_by)
         .bind(session_id)
-        .execute(&*self.pool())
+        .execute(self.pool())
         .await
         .map_err(db_err("soft delete session"))?;
 
@@ -1686,7 +1722,7 @@ impl Db {
         .bind(archived_by)
         .bind(reason)
         .bind(session_id)
-        .execute(&*self.pool())
+        .execute(self.pool())
         .await
         .map_err(db_err("archive session"))?;
 
@@ -1711,7 +1747,7 @@ impl Db {
             "#,
         )
         .bind(session_id)
-        .execute(&*self.pool())
+        .execute(self.pool())
         .await
         .map_err(db_err("restore session"))?;
 
@@ -1725,7 +1761,7 @@ impl Db {
 
         sqlx::query("DELETE FROM chat_sessions WHERE id = ?")
             .bind(session_id)
-            .execute(&*self.pool())
+            .execute(self.pool())
             .await
             .map_err(db_err("hard delete session"))?;
 
@@ -1756,7 +1792,7 @@ impl Db {
             .bind(tenant_id)
             .bind(uid)
             .bind(limit)
-            .fetch_all(&*self.pool())
+            .fetch_all(self.pool())
             .await
         } else {
             sqlx::query_as::<_, ChatSessionWithStatus>(
@@ -1772,7 +1808,7 @@ impl Db {
             )
             .bind(tenant_id)
             .bind(limit)
-            .fetch_all(&*self.pool())
+            .fetch_all(self.pool())
             .await
         }
         .map_err(db_err("list archived sessions"))?;
@@ -1804,7 +1840,7 @@ impl Db {
             .bind(tenant_id)
             .bind(uid)
             .bind(limit)
-            .fetch_all(&*self.pool())
+            .fetch_all(self.pool())
             .await
         } else {
             sqlx::query_as::<_, ChatSessionWithStatus>(
@@ -1820,7 +1856,7 @@ impl Db {
             )
             .bind(tenant_id)
             .bind(limit)
-            .fetch_all(&*self.pool())
+            .fetch_all(self.pool())
             .await
         }
         .map_err(db_err("list deleted sessions"))?;
@@ -1886,7 +1922,7 @@ impl Db {
 
             let rows: Vec<SessionSearchRow> = q
                 .bind(limit)
-                .fetch_all(&*self.pool())
+                .fetch_all(self.pool())
                 .await
                 .map_err(db_err("search sessions"))?;
 
@@ -1948,7 +1984,7 @@ impl Db {
                 .bind(query)
                 .bind(tenant_id)
                 .bind(limit)
-                .fetch_all(&*self.pool())
+                .fetch_all(self.pool())
                 .await
                 .map_err(db_err("search messages"))?;
 
@@ -2008,14 +2044,14 @@ impl Db {
         .bind(permission)
         .bind(shared_by)
         .bind(expires_at)
-        .execute(&*self.pool())
+        .execute(self.pool())
         .await
         .map_err(db_err("share session with workspace"))?;
 
         // Update is_shared flag
         sqlx::query("UPDATE chat_sessions SET is_shared = 1 WHERE id = ?")
             .bind(session_id)
-            .execute(&*self.pool())
+            .execute(self.pool())
             .await
             .map_err(db_err("update is_shared"))?;
 
@@ -2051,14 +2087,14 @@ impl Db {
         .bind(permission)
         .bind(shared_by)
         .bind(expires_at)
-        .execute(&*self.pool())
+        .execute(self.pool())
         .await
         .map_err(db_err("share session with user"))?;
 
         // Update is_shared flag
         sqlx::query("UPDATE chat_sessions SET is_shared = 1 WHERE id = ?")
             .bind(session_id)
-            .execute(&*self.pool())
+            .execute(self.pool())
             .await
             .map_err(db_err("update is_shared"))?;
 
@@ -2079,7 +2115,7 @@ impl Db {
         );
         sqlx::query(&query)
             .bind(share_id)
-            .execute(&*self.pool())
+            .execute(self.pool())
             .await
             .map_err(db_err("revoke share"))?;
 
@@ -2099,7 +2135,7 @@ impl Db {
             "#,
         )
         .bind(session_id)
-        .fetch_all(&*self.pool())
+        .fetch_all(self.pool())
         .await
         .map_err(db_err("get workspace shares"))?;
 
@@ -2114,7 +2150,7 @@ impl Db {
             "#,
         )
         .bind(session_id)
-        .fetch_all(&*self.pool())
+        .fetch_all(self.pool())
         .await
         .map_err(db_err("get user shares"))?;
 
@@ -2151,7 +2187,7 @@ impl Db {
         )
         .bind(user_id)
         .bind(limit)
-        .fetch_all(&*self.pool())
+        .fetch_all(self.pool())
         .await
         .map_err(|e| {
             AosError::Database(format!("Failed to get directly shared sessions: {}", e))
@@ -2178,7 +2214,7 @@ impl Db {
         .bind(user_id)
         .bind(tenant_id)
         .bind(limit)
-        .fetch_all(&*self.pool())
+        .fetch_all(self.pool())
         .await
         .unwrap_or_default(); // Workspace tables may not exist
 
@@ -2217,7 +2253,7 @@ impl Db {
         )
         .bind(session_id)
         .bind(user_id)
-        .fetch_optional(&*self.pool())
+        .fetch_optional(self.pool())
         .await
         .map_err(db_err("check direct share"))?;
 
@@ -2238,7 +2274,7 @@ impl Db {
         .bind(session_id)
         .bind(user_id)
         .bind(tenant_id)
-        .fetch_optional(&*self.pool())
+        .fetch_optional(self.pool())
         .await
         .unwrap_or(None);
 
@@ -2256,10 +2292,118 @@ impl Db {
         )
         .bind(description)
         .bind(session_id)
-        .execute(&*self.pool())
+        .execute(self.pool())
         .await
         .map_err(db_err("update description"))?;
         Ok(())
+    }
+
+    /// Fork a chat session for the given tenant
+    ///
+    /// Creates a copy of an existing chat session with a new ID.
+    /// Optionally copies all messages from the source session.
+    ///
+    /// # Arguments
+    /// * `tenant_id` - The tenant ID (must match the source session's tenant)
+    /// * `source_session_id` - The session ID to fork
+    /// * `new_name` - Optional name for the forked session (defaults to "{original_name} (forked)")
+    /// * `include_messages` - Whether to copy messages from the source session
+    ///
+    /// # Returns
+    /// The newly created ChatSession
+    pub async fn fork_session(
+        &self,
+        tenant_id: &str,
+        source_session_id: &str,
+        new_name: Option<&str>,
+        include_messages: bool,
+    ) -> Result<ChatSession> {
+        // Fetch the source session
+        let source = self
+            .get_chat_session(source_session_id)
+            .await?
+            .ok_or_else(|| {
+                AosError::NotFound(format!("Session {} not found", source_session_id))
+            })?;
+
+        // Validate tenant isolation
+        if source.tenant_id != tenant_id {
+            return Err(AosError::NotFound(format!(
+                "Session {} not found for tenant {}",
+                source_session_id, tenant_id
+            )));
+        }
+
+        // Generate new session ID
+        let new_session_id = format!("session-{}", uuid::Uuid::now_v7());
+        let name = new_name
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| format!("{} (forked)", source.name));
+
+        // Add fork provenance to metadata
+        let metadata_json = {
+            let mut metadata = source
+                .metadata_json
+                .as_ref()
+                .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok())
+                .unwrap_or_else(|| serde_json::json!({}));
+
+            if let Some(obj) = metadata.as_object_mut() {
+                obj.insert(
+                    "forked_from".to_string(),
+                    serde_json::json!({
+                        "session_id": source_session_id,
+                        "forked_at": chrono::Utc::now().to_rfc3339()
+                    }),
+                );
+            }
+            Some(serde_json::to_string(&metadata).unwrap_or_else(|_| "{}".to_string()))
+        };
+
+        // Create the new session
+        let params = CreateChatSessionParams {
+            id: new_session_id.clone(),
+            tenant_id: tenant_id.to_string(),
+            user_id: source.user_id.clone(),
+            created_by: source.created_by.clone(),
+            stack_id: source.stack_id.clone(),
+            collection_id: source.collection_id.clone(),
+            document_id: source.document_id.clone(),
+            name: name.clone(),
+            title: Some(name.clone()),
+            source_type: source.source_type.clone(),
+            source_ref_id: source.source_ref_id.clone(),
+            metadata_json,
+            tags_json: source.tags_json.clone(),
+            pinned_adapter_ids: source.pinned_adapter_ids.clone(),
+        };
+
+        self.create_chat_session(params).await?;
+
+        // Copy messages if requested
+        if include_messages {
+            let messages = self.get_chat_messages(source_session_id, None).await?;
+            for msg in messages {
+                let add_params = AddMessageParams {
+                    id: format!("msg-{}", uuid::Uuid::now_v7()),
+                    session_id: new_session_id.clone(),
+                    tenant_id: Some(tenant_id.to_string()),
+                    role: msg.role,
+                    content: msg.content,
+                    sequence: None,   // Will be assigned automatically
+                    created_at: None, // Will be set to now
+                    metadata_json: msg.metadata_json,
+                };
+                if let Err(e) = self.add_chat_message(add_params).await {
+                    warn!(error = %e, session_id = %new_session_id, "Failed to copy message during fork");
+                }
+            }
+        }
+
+        // Fetch and return the new session
+        self.get_chat_session(&new_session_id)
+            .await?
+            .ok_or_else(|| AosError::Database("Failed to retrieve forked session".to_string()))
     }
 }
 

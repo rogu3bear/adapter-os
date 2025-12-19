@@ -1745,3 +1745,121 @@ async fn get_worker_socket_path(state: &AppState, _tenant_id: &str) -> Option<Pa
 
     None
 }
+
+// ============================================================================
+// Download Progress Endpoint
+// ============================================================================
+
+/// Progress information for a single model download/import
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct ModelDownloadProgress {
+    pub model_id: String,
+    pub operation_id: String,
+    pub operation: String,
+    pub status: String,
+    pub started_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub progress_pct: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub speed_mbps: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub eta_seconds: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_message: Option<String>,
+}
+
+/// Response for GET /v1/models/download-progress
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct DownloadProgressResponse {
+    pub schema_version: String,
+    pub imports: Vec<ModelDownloadProgress>,
+    pub total_active: usize,
+}
+
+/// Get download/import progress for all active model operations
+///
+/// Returns progress information for all currently in-progress model downloads
+/// and imports for the tenant.
+#[utoipa::path(
+    get,
+    path = "/v1/models/download-progress",
+    responses(
+        (status = 200, description = "Download progress for active imports", body = DownloadProgressResponse),
+        (status = 500, description = "Database error")
+    ),
+    tag = "models"
+)]
+pub async fn get_download_progress(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+) -> Result<Json<DownloadProgressResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let tenant_id = &claims.tenant_id;
+
+    // Get all active import/download operations for the tenant
+    let operations = state.db.get_active_imports(tenant_id).await.map_err(|e| {
+        error!("Failed to get active imports: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("database error")
+                    .with_code("DATABASE_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+
+    // Convert to progress response
+    let imports: Vec<ModelDownloadProgress> = operations
+        .into_iter()
+        .map(|op| {
+            // Estimate progress based on elapsed time (basic heuristic)
+            // In a real implementation, we'd track actual bytes downloaded
+            let progress_pct = estimate_progress(&op);
+
+            ModelDownloadProgress {
+                model_id: op.model_id,
+                operation_id: op.id,
+                operation: op.operation,
+                status: op.status,
+                started_at: op.started_at,
+                progress_pct,
+                speed_mbps: None,  // Would need actual download tracking
+                eta_seconds: None, // Would need actual download tracking
+                error_message: op.error_message,
+            }
+        })
+        .collect();
+
+    let total_active = imports.len();
+
+    Ok(Json(DownloadProgressResponse {
+        schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
+        imports,
+        total_active,
+    }))
+}
+
+/// Estimate progress based on elapsed time
+/// This is a placeholder - real progress tracking would use actual download bytes
+fn estimate_progress(op: &adapteros_db::model_operations::ModelOperation) -> Option<i32> {
+    // Parse started_at and calculate elapsed time
+    if let Ok(started) = chrono::DateTime::parse_from_rfc3339(&op.started_at) {
+        let elapsed = chrono::Utc::now().signed_duration_since(started.with_timezone(&chrono::Utc));
+        let elapsed_secs = elapsed.num_seconds();
+
+        // Assume average model import takes ~60 seconds
+        // This is a rough estimate for UI feedback
+        let estimated_total_secs = 60;
+        let progress =
+            ((elapsed_secs as f64 / estimated_total_secs as f64) * 100.0).min(95.0) as i32;
+
+        Some(progress)
+    } else {
+        None
+    }
+}
+
+// Re-export model handlers from parent module for routes.rs
+pub use super::{__path_get_base_model_status, get_base_model_status};

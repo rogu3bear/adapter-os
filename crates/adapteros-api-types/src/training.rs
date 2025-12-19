@@ -1116,3 +1116,71 @@ pub struct StartTrainingResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft_version_id: Option<String>,
 }
+
+// ============================================================================
+// Training Queue Status Types
+// ============================================================================
+
+/// Response for GET /v1/training/queue
+///
+/// Returns the current training queue status including counts by status
+/// and estimated wait times.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct TrainingQueueResponse {
+    #[serde(default = "schema_version")]
+    pub schema_version: String,
+
+    /// Total number of jobs in the queue (pending + running)
+    pub queue_depth: usize,
+
+    /// Number of jobs waiting to start
+    pub pending_count: usize,
+
+    /// Number of currently running jobs
+    pub running_count: usize,
+
+    /// Average wait time for pending jobs in seconds (0 if no pending jobs)
+    pub avg_wait_time_secs: f64,
+
+    /// Oldest pending job's wait time in seconds (None if no pending jobs)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_wait_time_secs: Option<f64>,
+
+    /// Average training duration for running jobs in seconds (0 if no running jobs)
+    pub avg_training_duration_secs: f64,
+
+    /// Summary of pending jobs (limited to first 10)
+    pub pending_jobs: Vec<TrainingQueueJobSummary>,
+
+    /// Summary of running jobs
+    pub running_jobs: Vec<TrainingQueueJobSummary>,
+}
+
+/// Summary of a job in the training queue
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct TrainingQueueJobSummary {
+    /// Job ID
+    pub id: String,
+
+    /// Adapter name being trained
+    pub adapter_name: String,
+
+    /// Job status
+    pub status: String,
+
+    /// Progress percentage (0-100)
+    pub progress_pct: f32,
+
+    /// When the job was created
+    pub created_at: String,
+
+    /// When the job started (if running)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub started_at: Option<String>,
+
+    /// Tenant ID (for admin view)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tenant_id: Option<String>,
+}

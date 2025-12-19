@@ -50,7 +50,7 @@ impl Db {
         .bind(started_at)
         .bind(completed_at)
         .bind(duration_ms)
-        .execute(&*self.pool())
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -76,7 +76,7 @@ impl Db {
         .bind(completed_at)
         .bind(duration_ms)
         .bind(operation_id)
-        .execute(&*self.pool())
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -98,7 +98,7 @@ impl Db {
         )
         .bind(tenant_id)
         .bind(limit)
-        .fetch_all(&*self.pool())
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -122,7 +122,7 @@ impl Db {
         .bind(tenant_id)
         .bind(model_id)
         .bind(limit)
-        .fetch_all(&*self.pool())
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -144,10 +144,26 @@ impl Db {
         )
         .bind(tenant_id)
         .bind(model_id)
-        .fetch_optional(&*self.pool())
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
         Ok(operation)
+    }
+
+    /// Get all in-progress download/import operations for a tenant
+    pub async fn get_active_imports(&self, tenant_id: &str) -> Result<Vec<ModelOperation>> {
+        let operations = sqlx::query_as::<_, ModelOperation>(
+            "SELECT id, tenant_id, model_id, operation, initiated_by, status, error_message, started_at, completed_at, duration_ms
+             FROM model_operations
+             WHERE tenant_id = ? AND status = 'in_progress' AND operation IN ('import', 'download')
+             ORDER BY started_at DESC",
+        )
+        .bind(tenant_id)
+        .fetch_all(self.pool())
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
+
+        Ok(operations)
     }
 }

@@ -287,7 +287,7 @@ impl Db {
             .bind("pending")
             .bind(&progress_json)
             .bind(created_by)
-            .execute(&*self.pool())
+            .execute(self.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
         } else if !self.storage_mode().write_to_kv() {
@@ -376,7 +376,7 @@ impl Db {
              FROM repository_training_jobs WHERE id = ?",
         )
         .bind(job_id)
-        .fetch_optional(&*self.pool())
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -409,7 +409,7 @@ impl Db {
         )
         .bind(adapter_id)
         .bind(tenant_id)
-        .fetch_optional(&*self.pool())
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -445,7 +445,7 @@ impl Db {
             )
             .bind(&progress_json)
             .bind(job_id)
-            .execute(&*self.pool())
+            .execute(self.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
         } else if !self.storage_mode().write_to_kv() {
@@ -490,7 +490,7 @@ impl Db {
             .bind(status)
             .bind(completed_at)
             .bind(job_id)
-            .execute(&*self.pool())
+            .execute(self.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
         } else if !self.storage_mode().write_to_kv() {
@@ -535,7 +535,7 @@ impl Db {
             .bind(version_id)
             .bind(metrics_snapshot_id)
             .bind(job_id)
-            .execute(&*self.pool())
+            .execute(self.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
         } else if !self.storage_mode().write_to_kv() {
@@ -589,7 +589,7 @@ impl Db {
              ORDER BY started_at DESC",
         )
         .bind(repo_id)
-        .fetch_all(&*self.pool())
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -600,6 +600,11 @@ impl Db {
     ///
     /// Evidence: migrations/0013_git_repository_integration.sql:25-40
     /// Pattern: Database schema for training jobs
+    ///
+    /// # Performance Warning
+    /// This is a cross-tenant query that scans repository_training_jobs by status.
+    /// It should only be used for admin dashboards or background workers.
+    /// For tenant-scoped lists, use `list_training_jobs_for_tenant`.
     pub async fn list_training_jobs_by_status(
         &self,
         status: &str,
@@ -641,7 +646,7 @@ impl Db {
              ORDER BY started_at DESC",
         )
         .bind(status)
-        .fetch_all(&*self.pool())
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -650,26 +655,14 @@ impl Db {
 
     /// List training jobs for a specific tenant
     ///
-    /// Filters training jobs by tenant_id through the created_by user reference.
-    /// This method joins repository_training_jobs with users table to enforce
-    /// tenant isolation in multi-tenant deployments.
+    /// Filters training jobs by tenant_id.
     ///
     /// # Arguments
     /// * `tenant_id` - The tenant ID to filter by
     ///
     /// # Returns
-    /// Vector of training jobs created by users belonging to the specified tenant,
-    /// ordered by start time (newest first)
-    ///
-    /// # Implementation Note
-    /// Since repository_training_jobs doesn't have a direct tenant_id column,
-    /// we filter via created_by (user_id) which links to the users table.
-    /// Users table doesn't have tenant_id either, so this implementation assumes
-    /// that tenant isolation is handled at the application layer or that a future
-    /// migration will add tenant_id columns to these tables.
-    ///
-    /// For now, this method filters by the created_by field matching the tenant_id
-    /// pattern (assuming created_by contains tenant information in format "user@tenant").
+    /// * Vector of training jobs belonging to the specified tenant,
+    /// * ordered by start time (newest first)
     pub async fn list_training_jobs_for_tenant(
         &self,
         tenant_id: &str,
@@ -697,6 +690,8 @@ impl Db {
             return Ok(Vec::new());
         }
 
+        // Optimization: Use direct tenant_id filter (supported since migration 0100)
+        // Optimized with INDEXED BY for migration 0210
         let jobs = sqlx::query_as::<_, TrainingJobRecord>(
             "SELECT rtj.id, rtj.repo_id, rtj.training_config_json, rtj.status, rtj.progress_json,
                     rtj.started_at, rtj.completed_at, rtj.created_by, rtj.adapter_name,
@@ -706,13 +701,12 @@ impl Db {
                     rtj.synthetic_mode, rtj.data_lineage_mode,
                     rtj.retryable, rtj.retry_of_job_id, rtj.stack_id, rtj.adapter_id,
                     rtj.weights_hash_b3, rtj.artifact_path
-             FROM repository_training_jobs rtj
-             WHERE rtj.tenant_id = ? OR rtj.created_by LIKE ?
-             ORDER BY rtj.started_at DESC",
+             FROM repository_training_jobs rtj INDEXED BY idx_training_jobs_tenant_status_created
+             WHERE rtj.tenant_id = ?
+             ORDER BY rtj.created_at DESC",
         )
         .bind(tenant_id)
-        .bind(format!("%{}%", tenant_id))
-        .fetch_all(&*self.pool())
+        .fetch_all(self.pool())
         .await
         .map_err(|e| {
             AosError::Database(format!("Failed to list training jobs for tenant: {}", e))
@@ -736,7 +730,7 @@ impl Db {
         if self.storage_mode().write_to_sql() {
             sqlx::query("DELETE FROM repository_training_jobs WHERE id = ?")
                 .bind(job_id)
-                .execute(&*self.pool())
+                .execute(self.pool())
                 .await
                 .map_err(|e| AosError::Database(e.to_string()))?;
         } else if !self.storage_mode().write_to_kv() {
@@ -809,7 +803,7 @@ impl Db {
             .bind(weights_hash_b3)
             .bind(artifact_path)
             .bind(job_id)
-            .execute(&*self.pool())
+            .execute(self.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
         } else if !self.storage_mode().write_to_kv() {
@@ -849,7 +843,7 @@ impl Db {
             )
             .bind(adapter_name)
             .bind(job_id)
-            .execute(&*self.pool())
+            .execute(self.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
         } else if !self.storage_mode().write_to_kv() {
@@ -912,7 +906,7 @@ impl Db {
              WHERE metadata_json LIKE ?",
         )
         .bind(format!("%\"adapter_id\":\"{}\"%", adapter_id))
-        .fetch_optional(&*self.pool())
+        .fetch_optional(self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -948,7 +942,7 @@ impl Db {
             )
             .bind(config_hash_b3)
             .bind(job_id)
-            .execute(&*self.pool())
+            .execute(self.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
         } else if !self.storage_mode().write_to_kv() {
@@ -1012,7 +1006,7 @@ impl Db {
              ORDER BY started_at DESC",
         )
         .bind(config_hash_b3)
-        .fetch_all(&*self.pool())
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -1104,7 +1098,7 @@ impl Db {
             .bind(if synthetic_mode { 1 } else { 0 })
             .bind(data_lineage_mode)
             .bind(None::<String>)
-            .execute(&*self.pool())
+            .execute(self.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
         } else if !self.storage_mode().write_to_kv() {
@@ -1172,7 +1166,7 @@ impl Db {
              WHERE tj.dataset_id = ?",
         )
         .bind(dataset_id)
-        .fetch_all(&*self.pool())
+        .fetch_all(self.pool())
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -1191,7 +1185,7 @@ impl Db {
         sqlx::query("UPDATE adapters SET training_job_id = ? WHERE id = ?")
             .bind(training_job_id)
             .bind(adapter_id)
-            .execute(&*self.pool())
+            .execute(self.pool())
             .await
             .map_err(|e| AosError::Database(e.to_string()))?;
 
@@ -1234,7 +1228,7 @@ impl Db {
         .bind(epoch)
         .bind(metric_name)
         .bind(value)
-        .execute(&*self.pool())
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to insert training metric: {}", e)))?;
 
@@ -1342,30 +1336,28 @@ impl Db {
                 .bind(job_id)
                 .bind(name)
             }
+        } else if let Some(lim) = limit {
+            sqlx::query_as::<_, TrainingMetricRow>(
+                "SELECT id, training_job_id, step, epoch, metric_name, metric_value, metric_timestamp
+                 FROM repository_training_metrics
+                 WHERE training_job_id = ?
+                 ORDER BY step ASC
+                 LIMIT ?",
+            )
+            .bind(job_id)
+            .bind(lim)
         } else {
-            if let Some(lim) = limit {
-                sqlx::query_as::<_, TrainingMetricRow>(
-                    "SELECT id, training_job_id, step, epoch, metric_name, metric_value, metric_timestamp
-                     FROM repository_training_metrics
-                     WHERE training_job_id = ?
-                     ORDER BY step ASC
-                     LIMIT ?",
-                )
-                .bind(job_id)
-                .bind(lim)
-            } else {
-                sqlx::query_as::<_, TrainingMetricRow>(
-                    "SELECT id, training_job_id, step, epoch, metric_name, metric_value, metric_timestamp
-                     FROM repository_training_metrics
-                     WHERE training_job_id = ?
-                     ORDER BY step ASC",
-                )
-                .bind(job_id)
-            }
+            sqlx::query_as::<_, TrainingMetricRow>(
+                "SELECT id, training_job_id, step, epoch, metric_name, metric_value, metric_timestamp
+                 FROM repository_training_metrics
+                 WHERE training_job_id = ?
+                 ORDER BY step ASC",
+            )
+            .bind(job_id)
         };
 
         let metrics = query
-            .fetch_all(&*self.pool())
+            .fetch_all(self.pool())
             .await
             .map_err(|e| AosError::Database(format!("Failed to fetch training metrics: {}", e)))?;
 
@@ -1395,7 +1387,7 @@ impl Db {
         )
         .bind(retryable_int)
         .bind(job_id)
-        .execute(&*self.pool())
+        .execute(self.pool())
         .await
         .map_err(|e| {
             AosError::Database(format!(
@@ -1435,7 +1427,7 @@ impl Db {
              ORDER BY started_at DESC",
         )
         .bind(original_job_id)
-        .fetch_all(&*self.pool())
+        .fetch_all(self.pool())
         .await
         .map_err(|e| {
             AosError::Database(format!("Failed to get retry chain for job {}: {}", original_job_id, e))
@@ -1464,7 +1456,7 @@ impl Db {
         )
         .bind(original_job_id)
         .bind(job_id)
-        .execute(&*self.pool())
+        .execute(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to update retry_of_job_id: {}", e)))?;
 
@@ -1502,12 +1494,95 @@ impl Db {
         .bind(stack_id)
         .bind(adapter_id)
         .bind(job_id)
-        .execute(&*self.pool())
+        .execute(self.pool())
         .await
         .map_err(|e| {
             AosError::Database(format!("Failed to update training job result IDs: {}", e))
         })?;
 
         Ok(())
+    }
+
+    /// Update training job priority (stored in metadata_json)
+    ///
+    /// Priority ranges from 0 (lowest) to 100 (highest), default is 50.
+    /// Higher priority jobs are scheduled before lower priority ones.
+    ///
+    /// # Arguments
+    /// * `job_id` - Training job identifier
+    /// * `tenant_id` - Tenant ID for isolation validation
+    /// * `priority` - Priority value (0-100)
+    ///
+    /// # Returns
+    /// Error if job not found or doesn't belong to tenant
+    pub async fn update_training_job_priority(
+        &self,
+        job_id: &str,
+        tenant_id: &str,
+        priority: i32,
+    ) -> Result<()> {
+        // First verify the job exists and belongs to the tenant
+        let job = self
+            .get_training_job(job_id)
+            .await?
+            .ok_or_else(|| AosError::NotFound(format!("Training job not found: {}", job_id)))?;
+
+        // Validate tenant isolation
+        if job.tenant_id.as_deref() != Some(tenant_id) {
+            return Err(AosError::PolicyViolation(format!(
+                "Job {} does not belong to tenant {}",
+                job_id, tenant_id
+            )));
+        }
+
+        // Parse existing metadata or create new
+        let mut metadata: serde_json::Value = job
+            .metadata_json
+            .as_ref()
+            .and_then(|m| serde_json::from_str(m).ok())
+            .unwrap_or_else(|| serde_json::json!({}));
+
+        // Update priority
+        if let Some(obj) = metadata.as_object_mut() {
+            obj.insert("priority".to_string(), serde_json::json!(priority));
+        }
+
+        let metadata_json = serde_json::to_string(&metadata).map_err(AosError::Serialization)?;
+
+        sqlx::query(
+            "UPDATE repository_training_jobs
+             SET metadata_json = ?
+             WHERE id = ? AND tenant_id = ?",
+        )
+        .bind(&metadata_json)
+        .bind(job_id)
+        .bind(tenant_id)
+        .execute(self.pool())
+        .await
+        .map_err(|e| {
+            AosError::Database(format!("Failed to update training job priority: {}", e))
+        })?;
+
+        Ok(())
+    }
+
+    /// Get the priority of a training job (from metadata_json)
+    ///
+    /// Returns the priority value (0-100) or 50 if not set
+    pub async fn get_training_job_priority(&self, job_id: &str) -> Result<i32> {
+        let job = self
+            .get_training_job(job_id)
+            .await?
+            .ok_or_else(|| AosError::NotFound(format!("Training job not found: {}", job_id)))?;
+
+        let priority = job
+            .metadata_json
+            .as_ref()
+            .and_then(|m| serde_json::from_str::<serde_json::Value>(m).ok())
+            .and_then(|v| v.get("priority")?.as_i64())
+            .map(|p| p as i32)
+            .unwrap_or(50); // Default priority
+
+        Ok(priority)
     }
 }

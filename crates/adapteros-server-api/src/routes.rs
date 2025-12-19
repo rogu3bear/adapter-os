@@ -19,7 +19,7 @@ use crate::state::AppState;
 use crate::versioning;
 use axum::{
     middleware,
-    routing::{delete, get, post, put},
+    routing::{delete, get, patch, post, put},
     Router,
 };
 use tower::ServiceBuilder;
@@ -138,6 +138,7 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::federation::get_federation_status,
         handlers::federation::get_quarantine_status,
         handlers::federation::release_quarantine,
+        handlers::federation::get_federation_sync_status,
         // Domain adapter handlers
         domain_adapters::list_domain_adapters,
         domain_adapters::get_domain_adapter,
@@ -212,11 +213,15 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::datasets::cancel_chunked_upload,
         handlers::datasets::list_datasets,
         handlers::datasets::get_dataset,
+        handlers::datasets::list_dataset_versions,
+        handlers::datasets::create_dataset_version,
         handlers::datasets::get_dataset_files,
         handlers::datasets::get_dataset_statistics,
         handlers::datasets::validate_dataset,
         handlers::datasets::update_dataset_safety,
         handlers::datasets::override_dataset_trust,
+        handlers::datasets::apply_dataset_version_trust_override,
+        handlers::datasets::update_dataset_version_safety,
         handlers::datasets::preview_dataset,
         handlers::datasets::delete_dataset,
         handlers::datasets::dataset_upload_progress,
@@ -490,6 +495,8 @@ use utoipa_swagger_ui::SwaggerUi;
         // Federation types
         crate::handlers::federation::FederationStatusResponse,
         crate::handlers::federation::QuarantineStatusResponse,
+        crate::handlers::federation::FederationSyncStatusResponse,
+        crate::handlers::federation::PeerSyncSummary,
         adapteros_db::federation::QuarantineDetails,
         // Chunked upload types
         handlers::datasets::InitiateChunkedUploadRequest,
@@ -696,7 +703,9 @@ pub fn build(state: AppState) -> Router {
             ));
 
     // Metrics endpoint (custom auth, not JWT)
+    // Standard /metrics path for Prometheus scraping + versioned /v1/metrics
     let metrics_route = Router::new()
+        .route("/metrics", get(handlers::metrics_handler))
         .route("/v1/metrics", get(handlers::metrics_handler))
         .with_state(state.clone())
         .layer(axum::middleware::from_fn_with_state(
@@ -885,6 +894,10 @@ pub fn build(state: AppState) -> Router {
         .route("/v1/models", get(handlers::models::list_models_with_stats))
         .route("/v1/models/import", post(handlers::models::import_model))
         .route(
+            "/v1/models/download-progress",
+            get(handlers::models::get_download_progress),
+        )
+        .route(
             "/v1/models/status/all",
             get(handlers::models::get_all_models_status),
         )
@@ -956,7 +969,7 @@ pub fn build(state: AppState) -> Router {
             get(handlers::list_worker_incidents),
         )
         .route(
-            "/v1/workers/health-summary",
+            "/v1/workers/health/summary",
             get(handlers::get_worker_health_summary),
         )
         // PRD-01: Worker Registration & Lifecycle
@@ -978,11 +991,19 @@ pub fn build(state: AppState) -> Router {
         )
         .route(
             "/v1/monitoring/rules",
-            get(handlers::list_process_monitoring_rules),
+            get(handlers::monitoring::list_monitoring_rules),
         )
         .route(
             "/v1/monitoring/rules",
-            post(handlers::create_process_monitoring_rule),
+            post(handlers::monitoring::create_monitoring_rule),
+        )
+        .route(
+            "/v1/monitoring/rules/{rule_id}",
+            put(handlers::monitoring::update_monitoring_rule),
+        )
+        .route(
+            "/v1/monitoring/rules/{rule_id}",
+            delete(handlers::monitoring::delete_monitoring_rule),
         )
         .route(
             "/v1/monitoring/alerts",
@@ -990,11 +1011,15 @@ pub fn build(state: AppState) -> Router {
         )
         .route(
             "/v1/monitoring/alerts/{alert_id}/acknowledge",
-            post(handlers::acknowledge_process_alert),
+            post(handlers::monitoring::acknowledge_alert),
+        )
+        .route(
+            "/v1/monitoring/alerts/{alert_id}/resolve",
+            post(handlers::monitoring::resolve_alert),
         )
         .route(
             "/v1/monitoring/anomalies",
-            get(handlers::list_process_anomalies),
+            get(handlers::monitoring::list_process_anomalies),
         )
         .route(
             "/v1/monitoring/anomalies/{anomaly_id}/status",
@@ -1220,6 +1245,11 @@ pub fn build(state: AppState) -> Router {
             "/v1/chat/sessions/{session_id}/category",
             put(handlers::chat_sessions::set_session_category),
         )
+        // Chat session fork
+        .route(
+            "/v1/chat/sessions/{session_id}/fork",
+            post(handlers::chat_sessions::fork_chat_session),
+        )
         // Chat session archive/restore
         .route(
             "/v1/chat/sessions/{session_id}/archive",
@@ -1393,6 +1423,11 @@ pub fn build(state: AppState) -> Router {
                 .post(handlers::adapters::archive_adapter)
                 .delete(handlers::adapters::unarchive_adapter),
         )
+        // Adapter duplicate route
+        .route(
+            "/v1/adapters/{adapter_id}/duplicate",
+            post(handlers::adapters::duplicate_adapter),
+        )
         // Tier-based state promotion (distinct from lifecycle promotion)
         .route(
             "/v1/adapters/{adapter_id}/state/promote",
@@ -1560,6 +1595,14 @@ pub fn build(state: AppState) -> Router {
             "/v1/datasets/{dataset_id}/versions",
             get(handlers::datasets::list_dataset_versions)
                 .post(handlers::datasets::create_dataset_version),
+        )
+        .route(
+            "/v1/datasets/{dataset_id}/versions/{version_id}/trust-override",
+            post(handlers::datasets::apply_dataset_version_trust_override),
+        )
+        .route(
+            "/v1/datasets/{dataset_id}/versions/{version_id}/safety",
+            post(handlers::datasets::update_dataset_version_safety),
         )
         .route(
             "/v1/datasets/{dataset_id}",
@@ -1746,6 +1789,11 @@ pub fn build(state: AppState) -> Router {
             "/v1/system/memory",
             get(handlers::system_info::get_uma_memory),
         )
+        // Resource usage route
+        .route(
+            "/v1/system/resource-usage",
+            get(handlers::system_info::get_resource_usage),
+        )
         // Registry status route
         .route(
             "/v1/registry/status",
@@ -1839,6 +1887,10 @@ pub fn build(state: AppState) -> Router {
         // Training routes
         .route("/v1/training/jobs", get(handlers::list_training_jobs))
         .route(
+            "/v1/training/queue",
+            get(handlers::training::get_training_queue),
+        )
+        .route(
             "/v1/training/jobs/{job_id}",
             get(handlers::get_training_job),
         )
@@ -1854,6 +1906,10 @@ pub fn build(state: AppState) -> Router {
         .route(
             "/v1/training/jobs/{job_id}/retry",
             post(handlers::retry_training),
+        )
+        .route(
+            "/v1/training/jobs/{job_id}/priority",
+            patch(handlers::training::update_training_priority),
         )
         .route(
             "/v1/training/jobs/{job_id}/export/coreml",
@@ -1968,6 +2024,10 @@ pub fn build(state: AppState) -> Router {
         .route(
             "/v1/federation/release-quarantine",
             post(handlers::federation::release_quarantine),
+        )
+        .route(
+            "/v1/federation/sync-status",
+            get(handlers::federation::get_federation_sync_status),
         )
         // Audit endpoints
         .route("/v1/audit/federation", get(handlers::get_federation_audit))
@@ -2230,6 +2290,9 @@ pub fn build(state: AppState) -> Router {
         .layer(axum::middleware::from_fn(security_headers_middleware)) // Add security headers
         .layer(axum::middleware::from_fn(caching::caching_middleware)) // HTTP caching
         .layer(axum::middleware::from_fn(versioning::versioning_middleware)) // API versioning
+        .layer(axum::middleware::from_fn(
+            crate::middleware::trace_context::trace_context_middleware,
+        )) // W3C Trace Context propagation
         .layer(axum::middleware::from_fn(request_id::request_id_middleware)) // Request ID tracking
         .layer(axum::middleware::from_fn(client_ip_middleware)) // Extract client IP
         .layer(axum::middleware::from_fn_with_state(

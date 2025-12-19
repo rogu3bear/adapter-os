@@ -7,7 +7,7 @@
 
 use crate::auth::Claims;
 use crate::permissions::{require_permission, Permission};
-use crate::security::check_tenant_access;
+use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
 use crate::types::ErrorResponse;
 use adapteros_api_types::{
@@ -182,6 +182,11 @@ pub async fn create_chat_session(
         )
     })?;
 
+    let target_tenant = claims.tenant_id.clone();
+
+    // Tenant isolation check
+    validate_tenant_isolation(&claims, &target_tenant)?;
+
     // Validate session name
     if req.name.trim().is_empty() {
         return Err((
@@ -189,8 +194,6 @@ pub async fn create_chat_session(
             Json(ErrorResponse::new("Session name cannot be empty").with_code("VALIDATION_ERROR")),
         ));
     }
-
-    let target_tenant = claims.tenant_id.clone();
 
     let source_type = req.source_type.clone().unwrap_or_else(|| {
         if req.document_id.is_some() {
@@ -468,12 +471,8 @@ pub async fn update_chat_session(
             )
         })?;
 
-    if !check_tenant_access(&claims, &session.tenant_id) {
-        return Err((
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse::new("Access denied").with_code("FORBIDDEN")),
-        ));
-    }
+    // Tenant isolation check
+    validate_tenant_isolation(&claims, &session.tenant_id)?;
 
     let current_source = session
         .source_type
@@ -688,6 +687,9 @@ pub async fn list_chat_sessions(
         )
     })?;
 
+    // Tenant isolation check
+    validate_tenant_isolation(&claims, &claims.tenant_id)?;
+
     // List sessions - filter by user_id if provided, otherwise show all for tenant
     let user_filter = query.user_id.or(Some(claims.sub.clone()));
     let source_filter = query.source_type;
@@ -773,13 +775,8 @@ pub async fn get_chat_session(
             )
         })?;
 
-    // Verify tenant access (includes dev mode bypass)
-    if !check_tenant_access(&claims, &session.tenant_id) {
-        return Err((
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse::new("Access denied").with_code("FORBIDDEN")),
-        ));
-    }
+    // Tenant isolation check
+    validate_tenant_isolation(&claims, &session.tenant_id)?;
 
     Ok(Json(session))
 }
@@ -837,12 +834,8 @@ pub async fn add_chat_message(
             )
         })?;
 
-    if !check_tenant_access(&claims, &session.tenant_id) {
-        return Err((
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse::new("Access denied").with_code("FORBIDDEN")),
-        ));
-    }
+    // Tenant isolation check
+    validate_tenant_isolation(&claims, &session.tenant_id)?;
 
     // Generate message ID
     let message_id = format!("msg-{}", uuid::Uuid::new_v4());
@@ -951,12 +944,8 @@ pub async fn get_chat_messages(
             )
         })?;
 
-    if !check_tenant_access(&claims, &session.tenant_id) {
-        return Err((
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse::new("Access denied").with_code("FORBIDDEN")),
-        ));
-    }
+    // Tenant isolation check
+    validate_tenant_isolation(&claims, &session.tenant_id)?;
 
     // Get limit from query
     let limit = query.get("limit").and_then(|s| s.parse::<i64>().ok());
@@ -1034,12 +1023,8 @@ pub async fn get_session_summary(
             )
         })?;
 
-    if !check_tenant_access(&claims, &session.tenant_id) {
-        return Err((
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse::new("Access denied").with_code("FORBIDDEN")),
-        ));
-    }
+    // Tenant isolation check
+    validate_tenant_isolation(&claims, &session.tenant_id)?;
 
     // Get summary
     let summary = state
@@ -1111,12 +1096,8 @@ pub async fn delete_chat_session(
             )
         })?;
 
-    if !check_tenant_access(&claims, &session.tenant_id) {
-        return Err((
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse::new("Access denied").with_code("FORBIDDEN")),
-        ));
-    }
+    // Tenant isolation check
+    validate_tenant_isolation(&claims, &session.tenant_id)?;
 
     // Soft delete session (moves to trash)
     state
@@ -1250,12 +1231,8 @@ pub async fn get_chat_provenance(
         })?;
 
     // Verify tenant access
-    if !check_tenant_access(&claims, &session.tenant_id) {
-        return Err((
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse::new("Access denied").with_code("FORBIDDEN")),
-        ));
-    }
+    // Tenant isolation check
+    validate_tenant_isolation(&claims, &session.tenant_id)?;
 
     // Count messages for the session
     let messages = state
@@ -1598,12 +1575,8 @@ pub async fn update_session_collection(
             )
         })?;
 
-    if !check_tenant_access(&claims, &session.tenant_id) {
-        return Err((
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse::new("Access denied").with_code("FORBIDDEN")),
-        ));
-    }
+    // Tenant isolation check
+    validate_tenant_isolation(&claims, &session.tenant_id)?;
 
     // Update collection binding
     state
@@ -1701,6 +1674,9 @@ pub async fn list_chat_tags(
         )
     })?;
 
+    // Tenant isolation check
+    validate_tenant_isolation(&claims, &claims.tenant_id)?;
+
     let tags = state
         .db
         .list_chat_tags(&claims.tenant_id)
@@ -1736,6 +1712,9 @@ pub async fn create_chat_tag(
             ),
         )
     })?;
+
+    // Tenant isolation check
+    validate_tenant_isolation(&claims, &claims.tenant_id)?;
 
     if req.name.trim().is_empty() {
         return Err((
@@ -1809,12 +1788,8 @@ pub async fn update_chat_tag(
             )
         })?;
 
-    if tag.tenant_id != claims.tenant_id {
-        return Err((
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse::new("Access denied").with_code("FORBIDDEN")),
-        ));
-    }
+    // Tenant isolation check
+    validate_tenant_isolation(&claims, &tag.tenant_id)?;
 
     state
         .db
@@ -1895,12 +1870,8 @@ pub async fn delete_chat_tag(
             )
         })?;
 
-    if tag.tenant_id != claims.tenant_id {
-        return Err((
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse::new("Access denied").with_code("FORBIDDEN")),
-        ));
-    }
+    // Tenant isolation check
+    validate_tenant_isolation(&claims, &tag.tenant_id)?;
 
     state.db.delete_chat_tag(&tag_id).await.map_err(|e| {
         (
@@ -1954,12 +1925,8 @@ pub async fn assign_tags_to_session(
             )
         })?;
 
-    if !check_tenant_access(&claims, &session.tenant_id) {
-        return Err((
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse::new("Access denied").with_code("FORBIDDEN")),
-        ));
-    }
+    // Tenant isolation check
+    validate_tenant_isolation(&claims, &session.tenant_id)?;
 
     state
         .db
@@ -2027,12 +1994,8 @@ pub async fn get_session_tags(
             )
         })?;
 
-    if !check_tenant_access(&claims, &session.tenant_id) {
-        return Err((
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse::new("Access denied").with_code("FORBIDDEN")),
-        ));
-    }
+    // Tenant isolation check
+    validate_tenant_isolation(&claims, &session.tenant_id)?;
 
     let tags = state.db.get_session_tags(&session_id).await.map_err(|e| {
         (
@@ -2085,12 +2048,8 @@ pub async fn remove_tag_from_session(
             )
         })?;
 
-    if !check_tenant_access(&claims, &session.tenant_id) {
-        return Err((
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse::new("Access denied").with_code("FORBIDDEN")),
-        ));
-    }
+    // Tenant isolation check
+    validate_tenant_isolation(&claims, &session.tenant_id)?;
 
     state
         .db
@@ -2157,6 +2116,9 @@ pub async fn list_chat_categories(
         )
     })?;
 
+    // Tenant isolation check
+    validate_tenant_isolation(&claims, &claims.tenant_id)?;
+
     let categories = state
         .db
         .list_chat_categories(&claims.tenant_id)
@@ -2192,6 +2154,9 @@ pub async fn create_chat_category(
             ),
         )
     })?;
+
+    // Tenant isolation check
+    validate_tenant_isolation(&claims, &claims.tenant_id)?;
 
     if req.name.trim().is_empty() {
         return Err((
@@ -2270,12 +2235,8 @@ pub async fn update_chat_category(
             )
         })?;
 
-    if category.tenant_id != claims.tenant_id {
-        return Err((
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse::new("Access denied").with_code("FORBIDDEN")),
-        ));
-    }
+    // Tenant isolation check
+    validate_tenant_isolation(&claims, &category.tenant_id)?;
 
     state
         .db
@@ -2356,12 +2317,8 @@ pub async fn delete_chat_category(
             )
         })?;
 
-    if category.tenant_id != claims.tenant_id {
-        return Err((
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse::new("Access denied").with_code("FORBIDDEN")),
-        ));
-    }
+    // Tenant isolation check
+    validate_tenant_isolation(&claims, &category.tenant_id)?;
 
     state
         .db
@@ -2424,12 +2381,8 @@ pub async fn set_session_category(
             )
         })?;
 
-    if !check_tenant_access(&claims, &session.tenant_id) {
-        return Err((
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse::new("Access denied").with_code("FORBIDDEN")),
-        ));
-    }
+    // Tenant isolation check
+    validate_tenant_isolation(&claims, &session.tenant_id)?;
 
     state
         .db
@@ -2498,12 +2451,8 @@ pub async fn archive_session(
             )
         })?;
 
-    if !check_tenant_access(&claims, &session.tenant_id) {
-        return Err((
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse::new("Access denied").with_code("FORBIDDEN")),
-        ));
-    }
+    // Tenant isolation check
+    validate_tenant_isolation(&claims, &session.tenant_id)?;
 
     state
         .db
@@ -2564,12 +2513,8 @@ pub async fn restore_session(
             )
         })?;
 
-    if !check_tenant_access(&claims, &session.tenant_id) {
-        return Err((
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse::new("Access denied").with_code("FORBIDDEN")),
-        ));
-    }
+    // Tenant isolation check
+    validate_tenant_isolation(&claims, &session.tenant_id)?;
 
     state.db.restore_session(&session_id).await.map_err(|e| {
         (
@@ -2627,12 +2572,8 @@ pub async fn hard_delete_session(
             )
         })?;
 
-    if !check_tenant_access(&claims, &session.tenant_id) {
-        return Err((
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse::new("Access denied").with_code("FORBIDDEN")),
-        ));
-    }
+    // Tenant isolation check
+    validate_tenant_isolation(&claims, &session.tenant_id)?;
 
     state
         .db
@@ -2674,6 +2615,9 @@ pub async fn list_archived_sessions(
         )
     })?;
 
+    // Tenant isolation check
+    validate_tenant_isolation(&claims, &claims.tenant_id)?;
+
     let sessions = state
         .db
         .list_archived_sessions(&claims.tenant_id, Some(&claims.sub), query.limit)
@@ -2706,6 +2650,9 @@ pub async fn list_deleted_sessions(
             Json(ErrorResponse::new("Permission denied").with_code("FORBIDDEN")),
         )
     })?;
+
+    // Tenant isolation check
+    validate_tenant_isolation(&claims, &claims.tenant_id)?;
 
     let sessions = state
         .db
@@ -2764,6 +2711,9 @@ pub async fn search_chat_sessions(
             Json(ErrorResponse::new("Permission denied").with_code("FORBIDDEN")),
         )
     })?;
+
+    // Tenant isolation check
+    validate_tenant_isolation(&claims, &claims.tenant_id)?;
 
     if query.q.len() < 2 {
         return Err((
@@ -2862,12 +2812,8 @@ pub async fn share_session(
             )
         })?;
 
-    if !check_tenant_access(&claims, &session.tenant_id) {
-        return Err((
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse::new("Access denied").with_code("FORBIDDEN")),
-        ));
-    }
+    // Tenant isolation check
+    validate_tenant_isolation(&claims, &session.tenant_id)?;
 
     let mut share_ids = Vec::new();
 
@@ -2967,12 +2913,8 @@ pub async fn get_session_shares(
             )
         })?;
 
-    if !check_tenant_access(&claims, &session.tenant_id) {
-        return Err((
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse::new("Access denied").with_code("FORBIDDEN")),
-        ));
-    }
+    // Tenant isolation check
+    validate_tenant_isolation(&claims, &session.tenant_id)?;
 
     let shares = state
         .db
@@ -3033,12 +2975,8 @@ pub async fn revoke_session_share(
             )
         })?;
 
-    if !check_tenant_access(&claims, &session.tenant_id) {
-        return Err((
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse::new("Access denied").with_code("FORBIDDEN")),
-        ));
-    }
+    // Tenant isolation check
+    validate_tenant_isolation(&claims, &session.tenant_id)?;
 
     let share_type = params.get("type").map(|s| s.as_str()).unwrap_or("user");
 
@@ -3074,6 +3012,9 @@ pub async fn get_sessions_shared_with_me(
             Json(ErrorResponse::new("Permission denied").with_code("FORBIDDEN")),
         )
     })?;
+
+    // Tenant isolation check
+    validate_tenant_isolation(&claims, &claims.tenant_id)?;
 
     let sessions = state
         .db
@@ -3113,11 +3054,13 @@ pub async fn list_contacts(
     Extension(claims): Extension<Claims>,
     Query(params): Query<crate::types::PaginationParams>,
 ) -> impl IntoResponse {
-    let limit = params.limit.unwrap_or(20);
-    let offset = params.offset.unwrap_or(0);
+    let limit = params.limit as i64;
+    let offset = ((params.page.saturating_sub(1)) * params.limit) as i64;
 
-    // Check tenant isolation if needed, though claims usually suffice
-    // DB layer filters by tenant_id
+    // Tenant isolation check
+    if let Err(e) = validate_tenant_isolation(&claims, &claims.tenant_id) {
+        return e.into_response();
+    }
 
     match state
         .db
@@ -3144,12 +3087,9 @@ pub async fn create_contact(
     Extension(claims): Extension<Claims>,
     Json(payload): Json<adapteros_db::contacts::ContactUpsertParams>,
 ) -> impl IntoResponse {
-    // Validate tenant isolation
-    if payload.tenant_id != claims.tenant_id {
-        return super::utils::aos_error_to_response(adapteros_core::AosError::Authorization(
-            "Tenant mismatch".into(),
-        ))
-        .into_response();
+    // Tenant isolation check
+    if let Err(e) = validate_tenant_isolation(&claims, &payload.tenant_id) {
+        return e.into_response();
     }
 
     match state.db.upsert_contact(payload).await {
@@ -3179,12 +3119,9 @@ pub async fn get_contact(
     match state.db.get_contact(&id).await {
         Ok(Some(contact)) => {
             // Verify tenant ownership
-            if contact.tenant_id != claims.tenant_id {
-                // Return 404 to avoid leaking existence
-                return super::utils::aos_error_to_response(adapteros_core::AosError::NotFound(
-                    "Contact not found".into(),
-                ))
-                .into_response();
+            // Tenant isolation check
+            if let Err(e) = validate_tenant_isolation(&claims, &contact.tenant_id) {
+                return e.into_response();
             }
             Json(contact).into_response()
         }
@@ -3259,7 +3196,7 @@ pub async fn get_contact_interactions(
     Path(id): Path<String>,
     Query(params): Query<crate::types::PaginationParams>,
 ) -> impl IntoResponse {
-    let limit = params.limit.unwrap_or(20);
+    let limit = params.limit as i64;
 
     // Verify ownership
     match state.db.get_contact(&id).await {
@@ -3284,4 +3221,151 @@ pub async fn get_contact_interactions(
         Ok(interactions) => Json(interactions).into_response(),
         Err(e) => super::utils::aos_error_to_response(e).into_response(),
     }
+}
+
+// ============================================================================
+// Chat Session Fork
+// ============================================================================
+
+/// Request to fork a chat session
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct ForkChatSessionRequest {
+    /// Optional name for the forked session (defaults to "{original_name} (forked)")
+    #[serde(default)]
+    pub name: Option<String>,
+
+    /// Whether to copy messages from the source session (default: true)
+    #[serde(default = "default_include_messages")]
+    pub include_messages: bool,
+}
+
+fn default_include_messages() -> bool {
+    true
+}
+
+/// Response from forking a chat session
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct ForkChatSessionResponse {
+    pub session_id: String,
+    pub name: String,
+    pub created_at: String,
+    pub forked_from: ForkedFromInfo,
+}
+
+/// Information about the source session
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct ForkedFromInfo {
+    pub session_id: String,
+    pub name: String,
+}
+
+/// Fork an existing chat session
+///
+/// Creates a copy of a chat session with a new ID. Optionally copies
+/// all messages from the source session.
+#[utoipa::path(
+    post,
+    path = "/v1/chat/sessions/{session_id}/fork",
+    request_body = ForkChatSessionRequest,
+    params(
+        ("session_id" = String, Path, description = "Session ID to fork")
+    ),
+    responses(
+        (status = 201, description = "Session forked successfully", body = ForkChatSessionResponse),
+        (status = 404, description = "Source session not found", body = ErrorResponse),
+        (status = 403, description = "Forbidden", body = ErrorResponse)
+    ),
+    tag = "chat"
+)]
+pub async fn fork_chat_session(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(session_id): Path<String>,
+    Json(req): Json<ForkChatSessionRequest>,
+) -> Result<(StatusCode, Json<ForkChatSessionResponse>), (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::InferenceExecute).map_err(|_| {
+        (
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse::new("Permission denied").with_code("PERMISSION_DENIED")),
+        )
+    })?;
+
+    // First get the source session name for the response
+    let source_session = state
+        .db
+        .get_chat_session(&session_id)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, session_id = %session_id, "Failed to get source session");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new("Database error").with_code("DATABASE_ERROR")),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse::new("Session not found").with_code("NOT_FOUND")),
+            )
+        })?;
+
+    // Validate tenant isolation
+    if source_session.tenant_id != claims.tenant_id {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse::new("Session not found").with_code("NOT_FOUND")),
+        ));
+    }
+
+    let source_name = source_session.name.clone();
+
+    // Fork the session
+    let new_session = state
+        .db
+        .fork_session(
+            &claims.tenant_id,
+            &session_id,
+            req.name.as_deref(),
+            req.include_messages,
+        )
+        .await
+        .map_err(|e| {
+            let error_str = e.to_string();
+            if error_str.contains("not found") || error_str.contains("NotFound") {
+                (
+                    StatusCode::NOT_FOUND,
+                    Json(ErrorResponse::new("Session not found").with_code("NOT_FOUND")),
+                )
+            } else {
+                tracing::error!(error = %e, session_id = %session_id, "Failed to fork session");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new(&format!("Failed to fork session: {}", e))
+                            .with_code("DATABASE_ERROR"),
+                    ),
+                )
+            }
+        })?;
+
+    info!(
+        source_session_id = %session_id,
+        new_session_id = %new_session.id,
+        tenant_id = %claims.tenant_id,
+        include_messages = req.include_messages,
+        "Forked chat session"
+    );
+
+    Ok((
+        StatusCode::CREATED,
+        Json(ForkChatSessionResponse {
+            session_id: new_session.id,
+            name: new_session.name,
+            created_at: new_session.created_at,
+            forked_from: ForkedFromInfo {
+                session_id,
+                name: source_name,
+            },
+        }),
+    ))
 }

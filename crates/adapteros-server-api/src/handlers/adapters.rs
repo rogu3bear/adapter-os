@@ -1,3 +1,6 @@
+// Re-export read handlers (list_adapters, get_adapter, etc.)
+pub use super::adapters_read::*;
+
 #[path = "adapters/fs_utils.rs"]
 mod adapter_fs_utils;
 #[path = "adapters/hashing.rs"]
@@ -28,6 +31,7 @@ use crate::security::validate_tenant_isolation;
 use crate::services::{AdapterService, DefaultAdapterService};
 use crate::state::AppState;
 use crate::types::*;
+use crate::validation::validate_adapter_id;
 use adapter_fs_utils::write_temp_bundle;
 use adapter_hashing::hash_multi_bytes;
 use adapter_paths::resolve_adapter_roots;
@@ -109,8 +113,8 @@ pub async fn promote_adapter_lifecycle(
     Path(adapter_id): Path<String>,
     Json(req): Json<LifecycleTransitionRequest>,
 ) -> Result<Json<LifecycleTransitionResponse>, (StatusCode, Json<ErrorResponse>)> {
-    // Require operator or admin role
-    require_any_role(&claims, &[Role::Operator, Role::Admin])?;
+    // Require AdapterLoad permission (Operator and Admin roles have this)
+    require_permission(&claims, Permission::AdapterLoad)?;
 
     // Use the adapter service to promote lifecycle
     let service = DefaultAdapterService::new(Arc::new(state.clone()));
@@ -142,14 +146,17 @@ pub async fn promote_adapter_lifecycle(
         })?;
 
     // Audit log: adapter lifecycle promoted
-    let _ = crate::audit_helper::log_success(
+    if let Err(e) = crate::audit_helper::log_success(
         &state.db,
         &claims,
         crate::audit_helper::actions::ADAPTER_LIFECYCLE_PROMOTE,
         crate::audit_helper::resources::ADAPTER,
         Some(&adapter_id),
     )
-    .await;
+    .await
+    {
+        tracing::warn!(error = %e, "Audit log failed");
+    }
 
     Ok(Json(LifecycleTransitionResponse {
         adapter_id: result.adapter_id,
@@ -197,8 +204,8 @@ pub async fn demote_adapter_lifecycle(
     Path(adapter_id): Path<String>,
     Json(req): Json<LifecycleTransitionRequest>,
 ) -> Result<Json<LifecycleTransitionResponse>, (StatusCode, Json<ErrorResponse>)> {
-    // Require operator or admin role
-    require_any_role(&claims, &[Role::Operator, Role::Admin])?;
+    // Require AdapterUnload permission (Operator and Admin roles have this)
+    require_permission(&claims, Permission::AdapterUnload)?;
 
     // Use the adapter service to demote lifecycle
     let service = DefaultAdapterService::new(Arc::new(state.clone()));
@@ -230,14 +237,17 @@ pub async fn demote_adapter_lifecycle(
         })?;
 
     // Audit log: adapter lifecycle demoted
-    let _ = crate::audit_helper::log_success(
+    if let Err(e) = crate::audit_helper::log_success(
         &state.db,
         &claims,
         crate::audit_helper::actions::ADAPTER_LIFECYCLE_DEMOTE,
         crate::audit_helper::resources::ADAPTER,
         Some(&adapter_id),
     )
-    .await;
+    .await
+    {
+        tracing::warn!(error = %e, "Audit log failed");
+    }
 
     Ok(Json(LifecycleTransitionResponse {
         adapter_id: result.adapter_id,
@@ -335,7 +345,7 @@ pub async fn get_adapter_lineage(
     // Verify adapter exists
     let current_adapter = state
         .db
-        .get_adapter(&claims.tenant_id, &adapter_id)
+        .get_adapter_for_tenant(&claims.tenant_id, &adapter_id)
         .await
         .map_err(|e| {
             error!("Failed to fetch adapter {}: {}", adapter_id, e);
@@ -362,7 +372,7 @@ pub async fn get_adapter_lineage(
     // Get full lineage tree
     let lineage_adapters = state
         .db
-        .get_adapter_lineage(&claims.tenant_id, &adapter_id)
+        .get_adapter_lineage(&adapter_id)
         .await
         .map_err(|e| {
             error!("Failed to fetch lineage for {}: {}", adapter_id, e);
@@ -594,7 +604,7 @@ pub async fn get_adapter_detail(
 
     let adapter = state
         .db
-        .get_adapter(&claims.tenant_id, &adapter_id)
+        .get_adapter_for_tenant(&claims.tenant_id, &adapter_id)
         .await
         .map_err(|e| {
             error!("Failed to fetch adapter {}: {}", adapter_id, e);
@@ -666,7 +676,7 @@ pub async fn update_adapter_strength(
 
     let adapter = state
         .db
-        .get_adapter(&claims.tenant_id, &adapter_id)
+        .get_adapter_for_tenant(&claims.tenant_id, &adapter_id)
         .await
         .map_err(|e| {
             error!(adapter_id = %adapter_id, error = %e, "Failed to fetch adapter");
@@ -690,7 +700,7 @@ pub async fn update_adapter_strength(
 
     state
         .db
-        .update_adapter_strength(&claims.tenant_id, &adapter_id, req.lora_strength)
+        .update_adapter_strength(&adapter_id, req.lora_strength)
         .await
         .map_err(|e| {
             error!(adapter_id = %adapter_id, error = %e, "Failed to update adapter strength");
@@ -706,7 +716,7 @@ pub async fn update_adapter_strength(
 
     let updated = state
         .db
-        .get_adapter(&claims.tenant_id, &adapter_id)
+        .get_adapter_for_tenant(&claims.tenant_id, &adapter_id)
         .await
         .map_err(|e| {
             error!(adapter_id = %adapter_id, error = %e, "Failed to reload adapter");
@@ -856,7 +866,7 @@ pub async fn pin_adapter(
     // Verify adapter exists
     let adapter = state
         .db
-        .get_adapter(&claims.tenant_id, &adapter_id)
+        .get_adapter_for_tenant(&claims.tenant_id, &adapter_id)
         .await
         .map_err(|e| {
             error!("Failed to fetch adapter {}: {}", adapter_id, e);
@@ -930,14 +940,17 @@ pub async fn pin_adapter(
     );
 
     // Audit log: adapter pinned
-    let _ = crate::audit_helper::log_success(
+    if let Err(e) = crate::audit_helper::log_success(
         &state.db,
         &claims,
         crate::audit_helper::actions::ADAPTER_PIN,
         crate::audit_helper::resources::ADAPTER,
         Some(&adapter_id),
     )
-    .await;
+    .await
+    {
+        tracing::warn!(error = %e, "Audit log failed");
+    }
 
     Ok(Json(PinAdapterResponse {
         adapter_id,
@@ -986,7 +999,7 @@ pub async fn unpin_adapter(
     // Verify adapter exists
     let adapter = state
         .db
-        .get_adapter(&claims.tenant_id, &adapter_id)
+        .get_adapter_for_tenant(&claims.tenant_id, &adapter_id)
         .await
         .map_err(|e| {
             error!("Failed to fetch adapter {}: {}", adapter_id, e);
@@ -1051,14 +1064,17 @@ pub async fn unpin_adapter(
     );
 
     // Audit log: adapter unpinned
-    let _ = crate::audit_helper::log_success(
+    if let Err(e) = crate::audit_helper::log_success(
         &state.db,
         &claims,
         crate::audit_helper::actions::ADAPTER_UNPIN,
         crate::audit_helper::resources::ADAPTER,
         Some(&adapter_id),
     )
-    .await;
+    .await
+    {
+        tracing::warn!(error = %e, "Audit log failed");
+    }
 
     Ok(Json(UnpinAdapterResponse {
         adapter_id,
@@ -1101,7 +1117,7 @@ pub async fn get_pin_status(
     // Verify adapter exists
     let adapter = state
         .db
-        .get_adapter(&claims.tenant_id, &adapter_id)
+        .get_adapter_for_tenant(&claims.tenant_id, &adapter_id)
         .await
         .map_err(|e| {
             error!("Failed to fetch adapter {}: {}", adapter_id, e);
@@ -1243,7 +1259,7 @@ pub async fn swap_adapters(
     // Verify old adapter exists
     let old_adapter = state
         .db
-        .get_adapter(&claims.tenant_id, &req.old_adapter_id)
+        .get_adapter_for_tenant(&claims.tenant_id, &req.old_adapter_id)
         .await
         .map_err(|e| {
             error!("Failed to fetch old adapter {}: {}", req.old_adapter_id, e);
@@ -1274,7 +1290,7 @@ pub async fn swap_adapters(
     // Verify new adapter exists
     let new_adapter = state
         .db
-        .get_adapter(&claims.tenant_id, &req.new_adapter_id)
+        .get_adapter_for_tenant(&claims.tenant_id, &req.new_adapter_id)
         .await
         .map_err(|e| {
             error!("Failed to fetch new adapter {}: {}", req.new_adapter_id, e);
@@ -1566,7 +1582,7 @@ pub async fn get_adapter_stats(
     // Get adapter from database
     let adapter = state
         .db
-        .get_adapter(&claims.tenant_id, &adapter_id)
+        .get_adapter_for_tenant(&claims.tenant_id, &adapter_id)
         .await
         .map_err(|e| {
             error!("Failed to fetch adapter {}: {}", adapter_id, e);
@@ -2021,7 +2037,12 @@ pub async fn import_adapter(
 
     // === DEDUPLICATION CHECK (Issue 4) ===
     // Check if adapter with same hash already exists BEFORE any further processing
-    if let Ok(Some(existing)) = state.db.find_adapter_by_hash(&file_hash).await {
+    // Use tenant hint for 2-phase lookup optimization (Idea 2)
+    if let Ok(Some(existing)) = state
+        .db
+        .find_adapter_by_hash(&file_hash, Some(&claims.tenant_id))
+        .await
+    {
         // Cleanup temp file - we don't need it
         let _ = tokio::fs::remove_file(&temp_path).await;
 
@@ -2347,6 +2368,10 @@ pub async fn import_adapter(
     // === END PRD-ART-01 VALIDATIONS ===
 
     // Extract adapter fields from manifest
+    // Validate user-provided adapter_id if present
+    if let Some(user_adapter_id) = manifest.get("adapter_id").and_then(|v| v.as_str()) {
+        validate_adapter_id(user_adapter_id)?;
+    }
     let adapter_id = manifest
         .get("adapter_id")
         .and_then(|v| v.as_str())
@@ -2359,12 +2384,63 @@ pub async fn import_adapter(
         .map(|s| s.to_string())
         .unwrap_or_else(|| _name.clone());
 
+    // Validate user-provided rank if present (must be positive and reasonable)
+    if let Some(user_rank) = manifest.get("rank").and_then(|v| v.as_i64()) {
+        if user_rank <= 0 {
+            let _ = tokio::fs::remove_file(&temp_path).await;
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse::new("rank must be positive").with_code("VALIDATION_ERROR")),
+            ));
+        }
+        if user_rank > 256 {
+            let _ = tokio::fs::remove_file(&temp_path).await;
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse::new("rank too large (max 256)").with_code("VALIDATION_ERROR")),
+            ));
+        }
+    }
     let rank = manifest
         .get("rank")
         .and_then(|v| v.as_i64())
         .map(|r| r as i32)
         .unwrap_or(16);
 
+    // Validate user-provided version if present (must be semver-like)
+    if let Some(user_version) = manifest.get("version").and_then(|v| v.as_str()) {
+        if user_version.is_empty() {
+            let _ = tokio::fs::remove_file(&temp_path).await;
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse::new("version cannot be empty").with_code("VALIDATION_ERROR")),
+            ));
+        }
+        if user_version.len() > 64 {
+            let _ = tokio::fs::remove_file(&temp_path).await;
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(
+                    ErrorResponse::new("version too long (max 64 chars)")
+                        .with_code("VALIDATION_ERROR"),
+                ),
+            ));
+        }
+        // Basic semver format check (allow alphanumeric, dots, hyphens, underscores)
+        if !user_version
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '.' || c == '-' || c == '_')
+        {
+            let _ = tokio::fs::remove_file(&temp_path).await;
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(
+                    ErrorResponse::new("version contains invalid characters (use alphanumeric, dots, hyphens, underscores)")
+                        .with_code("VALIDATION_ERROR"),
+                ),
+            ));
+        }
+    }
     let version = manifest
         .get("version")
         .and_then(|v| v.as_str())
@@ -2582,7 +2658,7 @@ pub async fn get_adapter_training_snapshot(
     // CRITICAL: Fetch adapter first to validate tenant isolation to prevent cross-tenant access
     let adapter = state
         .db
-        .get_adapter(&claims.tenant_id, &adapter_id)
+        .get_adapter_for_tenant(&claims.tenant_id, &adapter_id)
         .await
         .map_err(|e| {
             (
@@ -2681,7 +2757,7 @@ pub async fn export_training_provenance(
     // Get adapter details
     let adapter = state
         .db
-        .get_adapter(&claims.tenant_id, &adapter_id)
+        .get_adapter_for_tenant(&claims.tenant_id, &adapter_id)
         .await
         .map_err(|e| {
             error!(adapter_id = %adapter_id, error = %e, "Failed to get adapter");
@@ -2890,7 +2966,7 @@ pub async fn archive_adapter(
     // Verify adapter exists
     let adapter = state
         .db
-        .get_adapter(&claims.tenant_id, &adapter_id)
+        .get_adapter_for_tenant(&claims.tenant_id, &adapter_id)
         .await
         .map_err(|e| {
             error!("Failed to fetch adapter {}: {}", adapter_id, e);
@@ -2964,14 +3040,17 @@ pub async fn archive_adapter(
     );
 
     // Audit log: adapter archived
-    let _ = crate::audit_helper::log_success(
+    if let Err(e) = crate::audit_helper::log_success(
         &state.db,
         &claims,
         crate::audit_helper::actions::ADAPTER_ARCHIVE,
         crate::audit_helper::resources::ADAPTER,
         Some(&adapter_id),
     )
-    .await;
+    .await
+    {
+        tracing::warn!(error = %e, "Audit log failed");
+    }
 
     Ok(Json(ArchiveAdapterResponse {
         adapter_id,
@@ -3020,7 +3099,7 @@ pub async fn unarchive_adapter(
     // Verify adapter exists
     let adapter = state
         .db
-        .get_adapter(&claims.tenant_id, &adapter_id)
+        .get_adapter_for_tenant(&claims.tenant_id, &adapter_id)
         .await
         .map_err(|e| {
             error!("Failed to fetch adapter {}: {}", adapter_id, e);
@@ -3099,14 +3178,17 @@ pub async fn unarchive_adapter(
     );
 
     // Audit log: adapter unarchived
-    let _ = crate::audit_helper::log_success(
+    if let Err(e) = crate::audit_helper::log_success(
         &state.db,
         &claims,
         crate::audit_helper::actions::ADAPTER_UNARCHIVE,
         crate::audit_helper::resources::ADAPTER,
         Some(&adapter_id),
     )
-    .await;
+    .await
+    {
+        tracing::warn!(error = %e, "Audit log failed");
+    }
 
     Ok(Json(UnarchiveAdapterResponse {
         adapter_id,
@@ -3149,7 +3231,7 @@ pub async fn get_archive_status(
     // Fetch adapter
     let adapter = state
         .db
-        .get_adapter(&claims.tenant_id, &adapter_id)
+        .get_adapter_for_tenant(&claims.tenant_id, &adapter_id)
         .await
         .map_err(|e| {
             error!("Failed to fetch adapter {}: {}", adapter_id, e);
@@ -3232,7 +3314,7 @@ pub async fn export_adapter(
     // Get adapter details
     let adapter = state
         .db
-        .get_adapter(&claims.tenant_id, &adapter_id)
+        .get_adapter_for_tenant(&claims.tenant_id, &adapter_id)
         .await
         .map_err(|e| {
             error!(adapter_id = %adapter_id, error = %e, "Failed to get adapter for export");
@@ -3342,14 +3424,17 @@ pub async fn export_adapter(
     );
 
     // Audit log: adapter exported
-    let _ = crate::audit_helper::log_success(
+    if let Err(e) = crate::audit_helper::log_success(
         &state.db,
         &claims,
         "adapter.exported",
         crate::audit_helper::resources::ADAPTER,
         Some(&adapter_id),
     )
-    .await;
+    .await
+    {
+        tracing::warn!(error = %e, "Audit log failed");
+    }
 
     // Build response with headers
     Ok((
@@ -3572,3 +3657,113 @@ pub async fn unarchive_adapter_version(
         },
     ))
 }
+
+// ============================================================================
+// Adapter Duplication
+// ============================================================================
+
+/// Request to duplicate an adapter
+#[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct DuplicateAdapterRequest {
+    /// Optional name for the duplicate adapter (defaults to "{original_name} (copy)")
+    #[serde(default)]
+    pub name: Option<String>,
+}
+
+/// Duplicate an existing adapter
+///
+/// Creates a copy of an adapter with a new ID. The duplicate will have
+/// the original adapter set as its parent and fork_type="duplicate".
+#[utoipa::path(
+    post,
+    path = "/v1/adapters/{adapter_id}/duplicate",
+    request_body = DuplicateAdapterRequest,
+    params(
+        ("adapter_id" = String, Path, description = "Adapter ID to duplicate")
+    ),
+    responses(
+        (status = 201, description = "Adapter duplicated successfully", body = AdapterDetailResponse),
+        (status = 404, description = "Source adapter not found", body = ErrorResponse),
+        (status = 403, description = "Forbidden", body = ErrorResponse)
+    ),
+    tag = "adapters"
+)]
+pub async fn duplicate_adapter(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(adapter_id): Path<String>,
+    Json(req): Json<DuplicateAdapterRequest>,
+) -> Result<(StatusCode, Json<AdapterDetailResponse>), (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::AdapterRegister)?;
+
+    // Duplicate the adapter with tenant validation
+    let new_adapter = state
+        .db
+        .duplicate_adapter_for_tenant(&claims.tenant_id, &adapter_id, req.name.as_deref())
+        .await
+        .map_err(|e| {
+            let error_str = e.to_string();
+            if error_str.contains("not found") || error_str.contains("NotFound") {
+                (
+                    StatusCode::NOT_FOUND,
+                    Json(
+                        ErrorResponse::new(&format!("Adapter not found: {}", adapter_id))
+                            .with_code("NOT_FOUND"),
+                    ),
+                )
+            } else {
+                tracing::error!(
+                    adapter_id = %adapter_id,
+                    error = %e,
+                    "Failed to duplicate adapter"
+                );
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new(&format!("Failed to duplicate adapter: {}", e))
+                            .with_code("DATABASE_ERROR"),
+                    ),
+                )
+            }
+        })?;
+
+    let new_adapter_id = new_adapter
+        .adapter_id
+        .clone()
+        .unwrap_or_else(|| new_adapter.id.clone());
+
+    tracing::info!(
+        source_adapter_id = %adapter_id,
+        new_adapter_id = %new_adapter_id,
+        tenant_id = %claims.tenant_id,
+        "Duplicated adapter"
+    );
+
+    // Audit log
+    if let Err(e) = crate::audit_helper::log_success(
+        &state.db,
+        &claims,
+        crate::audit_helper::actions::ADAPTER_REGISTER,
+        crate::audit_helper::resources::ADAPTER,
+        Some(&new_adapter_id),
+    )
+    .await
+    {
+        tracing::warn!(error = %e, "Audit log failed");
+    }
+
+    Ok((
+        StatusCode::CREATED,
+        Json(AdapterDetailResponse::from(new_adapter)),
+    ))
+}
+
+// Re-export adapter functions from parent handlers module for routes.rs
+pub use super::{
+    get_adapter, get_adapter_activations, get_adapter_health, get_adapter_metrics,
+    get_adapter_repository, get_adapter_repository_policy, get_adapter_version, get_commit,
+    get_commit_diff, get_quality_metrics, get_system_metrics, list_adapter_repositories,
+    list_adapter_versions, list_adapters, list_commits, list_repositories, promote_adapter_state,
+    verify_gpu_integrity,
+};

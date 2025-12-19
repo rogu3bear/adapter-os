@@ -627,31 +627,6 @@ impl Db {
         Ok(tenant_id)
     }
 
-    async fn get_adapter_pk_for_tenant(
-        &self,
-        tenant_id: &str,
-        adapter_id: &str,
-    ) -> Result<Option<String>> {
-        let ids: Vec<String> = sqlx::query_scalar(
-            "SELECT id FROM adapters WHERE tenant_id = ? AND (adapter_id = ? OR id = ?) LIMIT 2",
-        )
-        .bind(tenant_id)
-        .bind(adapter_id)
-        .bind(adapter_id)
-        .fetch_all(&*self.pool())
-        .await
-        .map_err(|e| AosError::Database(e.to_string()))?;
-
-        match ids.as_slice() {
-            [] => Ok(None),
-            [id] => Ok(Some(id.clone())),
-            _ => Err(AosError::Validation(format!(
-                "Ambiguous adapter reference '{}' for tenant '{}'",
-                adapter_id, tenant_id
-            ))),
-        }
-    }
-
     /// Get adapter directly from KV without SQL tenant lookup
     ///
     /// This is used for KV-only adapters that don't exist in SQL.
@@ -890,20 +865,6 @@ impl Db {
         Ok(adapters)
     }
 
-    /// Find expired adapters scoped to a tenant.
-    pub async fn find_expired_adapters_for_tenant(&self, tenant_id: &str) -> Result<Vec<Adapter>> {
-        let query = format!(
-            "SELECT {} FROM adapters INDEXED BY idx_adapters_tenant_expires WHERE tenant_id = ? AND expires_at IS NOT NULL AND expires_at < datetime('now')",
-            ADAPTER_SELECT_FIELDS
-        );
-        let adapters = sqlx::query_as::<_, Adapter>(&query)
-            .bind(tenant_id)
-            .fetch_all(&*self.pool())
-            .await
-            .map_err(|e| AosError::Database(e.to_string()))?;
-        Ok(adapters)
-    }
-
     /// List all adapters (DEPRECATED - use list_adapters_for_tenant instead)
     ///
     /// WARNING: This method returns ALL adapters across ALL tenants without filtering.
@@ -1010,10 +971,10 @@ impl Db {
     pub async fn list_adapters_for_tenant(&self, tenant_id: &str) -> Result<Vec<Adapter>> {
         // Phase 2: Rate Limiting
         if !self.check_rate_limit(tenant_id) {
-             return Err(AosError::QuotaExceeded {
-                 resource: "adapter_listings".to_string(),
-                 failure_code: Some("RATE_LIMIT_EXCEEDED".to_string())
-             });
+            return Err(AosError::QuotaExceeded {
+                resource: "adapter_listings".to_string(),
+                failure_code: Some("RATE_LIMIT_EXCEEDED".to_string()),
+            });
         }
         self.increment_rate_limit(tenant_id);
 
@@ -1070,12 +1031,12 @@ impl Db {
 
         // Performance monitoring for tenant-scoped queries
         let start_time = std::time::Instant::now();
-        
+
         // Phase 2: Execution Time Budgets
         let timeout_duration = self.get_query_timeout();
         let pool = self.pool().clone();
         let tenant_id_owned = tenant_id.to_string();
-        
+
         let adapters_future = async move {
             sqlx::query_as::<_, Adapter>(&query)
                 .bind(tenant_id_owned)
@@ -1086,7 +1047,12 @@ impl Db {
         let adapters = if timeout_duration.as_millis() > 0 {
             tokio::time::timeout(timeout_duration, adapters_future)
                 .await
-                .map_err(|_| AosError::PerformanceViolation(format!("Query timeout after {:?}", timeout_duration)))?
+                .map_err(|_| {
+                    AosError::PerformanceViolation(format!(
+                        "Query timeout after {:?}",
+                        timeout_duration
+                    ))
+                })?
                 .map_err(|e| {
                     AosError::Database(format!("Failed to list adapters for tenant: {}", e))
                 })?
@@ -1095,7 +1061,7 @@ impl Db {
                 AosError::Database(format!("Failed to list adapters for tenant: {}", e))
             })?
         };
-        
+
         let execution_time = start_time.elapsed();
 
         // Record performance metrics if monitoring is enabled
@@ -1309,7 +1275,22 @@ impl Db {
         Ok(())
     }
 
-    /// Get adapter by ID
+    /// Get adapter by ID (DEPRECATED - no tenant isolation)
+    ///
+    /// # Security Warning
+    /// This method does NOT enforce tenant isolation. It can return adapters
+    /// from ANY tenant, which is a security risk in multi-tenant environments.
+    ///
+    /// For tenant-scoped access, use [`get_adapter_for_tenant`] instead.
+    ///
+    /// # When to use this method
+    /// - Internal system operations (migrations, garbage collection)
+    /// - Test code where tenant context is not relevant
+    /// - Admin-only operations with explicit authorization
+    #[deprecated(
+        since = "0.1.0",
+        note = "Use get_adapter_for_tenant() for tenant-scoped access. This method lacks tenant isolation."
+    )]
     pub async fn get_adapter(&self, adapter_id: &str) -> Result<Option<Adapter>> {
         // Try KV first if enabled
         if self.storage_mode().read_from_kv() {
@@ -1561,8 +1542,8 @@ impl Db {
                     tenant_id: Some(tenant_id.to_string()),
                 };
                 monitor_clone.record(metrics);
-                
-                 if let Some(mut monitor_guard_mut) = self.performance_monitor_mut() {
+
+                if let Some(mut monitor_guard_mut) = self.performance_monitor_mut() {
                     if let Some(monitor_ref) = monitor_guard_mut.as_mut() {
                         *monitor_ref = monitor_clone;
                     }
@@ -1571,53 +1552,6 @@ impl Db {
         }
 
         Ok(adapter)
-    }
-
-    /// Find expired adapters for a tenant
-    ///
-    /// Uses idx_adapters_tenant_expires for efficient TTL enforcement.
-    pub async fn find_expired_adapters_for_tenant(
-        &self,
-        tenant_id: &str,
-    ) -> Result<Vec<Adapter>> {
-        let start_time = std::time::Instant::now();
-        let query = format!(
-            "SELECT {} FROM adapters INDEXED BY idx_adapters_tenant_expires WHERE tenant_id = ? AND expires_at IS NOT NULL AND expires_at < datetime('now')",
-            ADAPTER_SELECT_FIELDS
-        );
-        
-        let adapters = sqlx::query_as::<_, Adapter>(&query)
-            .bind(tenant_id)
-            .fetch_all(&*self.pool())
-            .await
-            .map_err(|e| AosError::Database(format!("Failed to find expired adapters: {}", e)))?;
-            
-        let execution_time = start_time.elapsed();
-
-        // Performance monitoring
-        if let Some(monitor_guard) = self.performance_monitor() {
-            if let Some(monitor) = monitor_guard.as_ref() {
-                let mut monitor_clone = monitor.clone();
-                let metrics = crate::QueryMetrics {
-                    query_name: "find_expired_adapters_for_tenant".to_string(),
-                    execution_time_us: execution_time.as_micros() as u64,
-                    rows_returned: Some(adapters.len() as i64),
-                    used_index: true,
-                    query_plan: None,
-                    timestamp: chrono::Utc::now().to_rfc3339(),
-                    tenant_id: Some(tenant_id.to_string()),
-                };
-                monitor_clone.record(metrics);
-                
-                if let Some(mut monitor_guard_mut) = self.performance_monitor_mut() {
-                    if let Some(monitor_ref) = monitor_guard_mut.as_mut() {
-                        *monitor_ref = monitor_clone;
-                    }
-                }
-            }
-        }
-        
-        Ok(adapters)
     }
 
     /// Record adapter activation
@@ -3356,5 +3290,100 @@ impl Db {
         }
 
         Ok(())
+    }
+
+    /// Duplicate an adapter for the given tenant
+    ///
+    /// Creates a copy of an existing adapter with a new ID and name.
+    /// The new adapter will have:
+    /// - `parent_id` set to the source adapter's ID
+    /// - `fork_type` set to "duplicate"
+    /// - A new unique ID and hash
+    /// - Initial state set to 'cold'
+    ///
+    /// # Arguments
+    /// * `tenant_id` - The tenant ID (must match the source adapter's tenant)
+    /// * `source_adapter_id` - The adapter ID to duplicate
+    /// * `new_name` - Optional name for the duplicate (defaults to "{original_name} (copy)")
+    ///
+    /// # Returns
+    /// The ID of the newly created adapter
+    pub async fn duplicate_adapter_for_tenant(
+        &self,
+        tenant_id: &str,
+        source_adapter_id: &str,
+        new_name: Option<&str>,
+    ) -> Result<Adapter> {
+        // Fetch the source adapter with tenant validation
+        let source = self
+            .get_adapter_for_tenant(tenant_id, source_adapter_id)
+            .await?
+            .ok_or_else(|| {
+                AosError::NotFound(format!(
+                    "Adapter {} not found for tenant {}",
+                    source_adapter_id, tenant_id
+                ))
+            })?;
+
+        // Generate new identifiers
+        let new_adapter_id = format!("adapter-{}", Uuid::now_v7());
+        let name = new_name
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| format!("{} (copy)", source.name));
+
+        // Generate a new hash for the duplicate
+        let new_hash = {
+            let mut hasher = blake3::Hasher::new();
+            hasher.update(new_adapter_id.as_bytes());
+            hasher.update(chrono::Utc::now().to_rfc3339().as_bytes());
+            hasher.finalize().to_hex().to_string()
+        };
+
+        // Build registration params from source adapter
+        let params = AdapterRegistrationParams {
+            tenant_id: tenant_id.to_string(),
+            adapter_id: new_adapter_id.clone(),
+            name: name.clone(),
+            hash_b3: new_hash,
+            rank: source.rank,
+            tier: source.tier.clone(),
+            alpha: source.alpha,
+            lora_strength: source.lora_strength,
+            targets_json: source.targets_json.clone(),
+            acl_json: source.acl_json.clone(),
+            languages_json: source.languages_json.clone(),
+            framework: source.framework.clone(),
+            category: source.category.clone(),
+            scope: source.scope.clone(),
+            framework_id: source.framework_id.clone(),
+            framework_version: source.framework_version.clone(),
+            repo_id: source.repo_id.clone(),
+            commit_sha: source.commit_sha.clone(),
+            intent: source.intent.clone(),
+            expires_at: None, // Don't copy expiration
+            aos_file_path: source.aos_file_path.clone(),
+            aos_file_hash: source.aos_file_hash.clone(),
+            adapter_name: Some(name.clone()),
+            tenant_namespace: source.tenant_namespace.clone(),
+            domain: source.domain.clone(),
+            purpose: source.purpose.clone(),
+            revision: Some("1".to_string()), // Start at revision 1
+            parent_id: Some(source_adapter_id.to_string()),
+            fork_type: Some("duplicate".to_string()),
+            fork_reason: Some("User-requested copy".to_string()),
+            base_model_id: source.base_model_id.clone(),
+            manifest_schema_version: source.manifest_schema_version.clone(),
+            content_hash_b3: source.content_hash_b3.clone(),
+            provenance_json: source.provenance_json.clone(),
+            metadata_json: source.metadata_json.clone(),
+        };
+
+        // Register the new adapter
+        let new_id = self.register_adapter_extended(params).await?;
+
+        // Fetch and return the new adapter using tenant-scoped access
+        self.get_adapter_for_tenant(tenant_id, &new_id)
+            .await?
+            .ok_or_else(|| AosError::Database("Failed to retrieve duplicated adapter".to_string()))
     }
 }
