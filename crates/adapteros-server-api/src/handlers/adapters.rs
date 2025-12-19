@@ -2808,29 +2808,36 @@ pub async fn export_training_provenance(
     if let Some(ref snapshot) = snapshot {
         // Get training job details
         if let Ok(Some(job)) = state.db.get_training_job(&snapshot.training_job_id).await {
-            // Parse training config JSON
-            let config_value: serde_json::Value =
-                serde_json::from_str(&job.training_config_json).unwrap_or(serde_json::json!({}));
-            training_config = Some(config_value.clone());
+            // SECURITY: Validate training job belongs to adapter's tenant
+            // Skip export if tenant mismatch to prevent cross-tenant data leakage
+            if job.tenant_id.as_ref() == Some(&adapter.tenant_id) {
+                // Parse training config JSON
+                let config_value: serde_json::Value =
+                    serde_json::from_str(&job.training_config_json).unwrap_or(serde_json::json!({}));
+                training_config = Some(config_value.clone());
 
-            training_jobs.push(TrainingExportJob {
-                id: job.id,
-                config_hash: job.config_hash_b3,
-                training_config: config_value,
-                started_at: job.started_at,
-                completed_at: job.completed_at,
-                status: job.status,
-            });
+                training_jobs.push(TrainingExportJob {
+                    id: job.id.clone(),
+                    config_hash: job.config_hash_b3.clone(),
+                    training_config: config_value,
+                    started_at: job.started_at.clone(),
+                    completed_at: job.completed_at.clone(),
+                    status: job.status.clone(),
+                });
 
-            // Get dataset if linked
-            if let Some(ref dataset_id) = job.dataset_id {
-                if let Ok(Some(dataset)) = state.db.get_training_dataset(dataset_id).await {
-                    datasets.push(TrainingExportDataset {
-                        id: dataset.id,
-                        name: dataset.name,
-                        hash: dataset.hash_b3,
-                        source_location: dataset.source_location,
-                    });
+                // Get dataset if linked
+                if let Some(ref dataset_id) = job.dataset_id {
+                    if let Ok(Some(dataset)) = state.db.get_training_dataset(dataset_id).await {
+                        // SECURITY: Validate dataset belongs to adapter's tenant
+                        if dataset.tenant_id.as_ref() == Some(&adapter.tenant_id) {
+                            datasets.push(TrainingExportDataset {
+                                id: dataset.id,
+                                name: dataset.name,
+                                hash: dataset.hash_b3,
+                                source_location: dataset.source_location,
+                            });
+                        }
+                    }
                 }
             }
         }

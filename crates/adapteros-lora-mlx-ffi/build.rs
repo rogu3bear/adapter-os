@@ -423,7 +423,10 @@ fn compile_real_wrapper(include_dir: &Path, lib_dir: &Path) {
         // C++17 standard compatibility flags
         build.flag_if_supported("-std=c++17");
         build.flag_if_supported("-fno-strict-aliasing"); // Safety with C bindings
-        build.flag_if_supported("-ffast-math"); // Fast floating-point (for ML workloads)
+        // NOTE: -ffast-math is explicitly PROHIBITED per CLAUDE.md invariant
+        // "No `-ffast-math` compiler flags - Breaks determinism"
+        // This flag enables unsafe FP optimizations that violate IEEE 754 semantics
+        // and cause non-deterministic inference results across runs.
     }
 
     build.compile("mlx_wrapper");
