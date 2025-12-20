@@ -275,7 +275,7 @@ utoipa-swagger-ui = { version = "9.0", features = ["axum"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 tracing-appender = "0.2"
-sysinfo = "0.30"
+sysinfo = "0.31"
 prometheus = "0.13"
 # OpenTelemetry distributed tracing
 opentelemetry = { version = "0.27", default-features = false, features = ["trace"] }
