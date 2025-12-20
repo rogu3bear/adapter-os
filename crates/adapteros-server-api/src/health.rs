@@ -5,6 +5,7 @@
 
 use crate::state::AppState;
 use crate::worker_health::{WorkerHealthStatus, WorkerHealthSummary};
+use adapteros_api_types::failure_code::FailureCode;
 use axum::{
     extract::{Path, State},
     http::StatusCode,
@@ -66,11 +67,71 @@ pub struct SystemReadyResponse {
     pub maintenance: bool,
     #[serde(default)]
     pub reason: String,
+
+    // Boot error taxonomy fields (added Dec 2024)
+    /// Current boot state from BootStateManager
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub state: Option<String>,
+
+    /// Structured failure code if boot failed
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason_code: Option<FailureCode>,
+
+    /// Timestamp when current state started (milliseconds since epoch)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub since: Option<u64>,
+
+    /// Detailed error message for last failure
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_error: Option<String>,
+
+    /// Whether automatic retry is in progress
+    #[serde(default)]
+    pub retrying: bool,
+
+    /// Per-dependency health status with failure codes
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dependency_status: Vec<DependencyHealth>,
+}
+
+/// Per-dependency health status with structured failure tracking
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct DependencyHealth {
+    /// Dependency name (matches component names: db, router, workers, etc.)
+    pub name: String,
+
+    /// Current status
+    pub status: ComponentStatus,
+
+    /// Failure code if this dependency has failed
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub failure_code: Option<FailureCode>,
+
+    /// Human-readable message
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+
+    /// Whether this dependency is being retried
+    #[serde(default)]
+    pub retrying: bool,
+
+    /// Number of retry attempts
+    #[serde(default)]
+    pub retry_count: u32,
+
+    /// Timestamp of last check (milliseconds since epoch)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_checked: Option<u64>,
 }
 
 const DEFAULT_READY_FLAG_PATH: &str = "var/run/system_ready";
 const DEFAULT_BOOT_LOG_PATH: &str = "var/log/boot-times.log";
-const DEFAULT_UI_HEALTH_URL: &str = "http://127.0.0.1:3200/healthz";
+
+/// Returns the UI health URL, respecting AOS_UI_PORT for port offset strategy
+fn default_ui_health_url() -> String {
+    let port = std::env::var("AOS_UI_PORT").unwrap_or_else(|_| "3200".to_string());
+    format!("http://127.0.0.1:{}/healthz", port)
+}
 
 impl ComponentHealth {
     fn new(
@@ -756,6 +817,65 @@ pub async fn system_ready(State(state): State<AppState>) -> impl IntoResponse {
         StatusCode::SERVICE_UNAVAILABLE
     };
 
+    // Extract boot state info for error taxonomy fields
+    let (boot_state_str, reason_code, last_error, since) =
+        if let Some(ref boot_state) = state.boot_state {
+            let current = boot_state.current_state();
+            let state_str = Some(current.as_str().to_string());
+
+            // Calculate 'since' timestamp (when boot started)
+            let elapsed = boot_state.elapsed();
+            let now_ms = SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64;
+            let since_ms = Some(now_ms.saturating_sub(elapsed.as_millis() as u64));
+
+            // Get failure info if in failed state
+            let (code, error_msg) = if current.is_failed() {
+                if let Some(failure) = boot_state.get_failure_reason() {
+                    (
+                        map_failure_code_from_str(&failure.code),
+                        Some(failure.message.clone()),
+                    )
+                } else {
+                    (None, None)
+                }
+            } else {
+                (None, None)
+            };
+
+            (state_str, code, error_msg, since_ms)
+        } else {
+            (None, None, None, None)
+        };
+
+    // Build dependency status from component health
+    let dependency_status: Vec<DependencyHealth> = components
+        .iter()
+        .map(|comp| {
+            let failure_code = if comp.status != ComponentStatus::Healthy {
+                map_component_to_failure_code(&comp.component, &comp.message)
+            } else {
+                None
+            };
+
+            DependencyHealth {
+                name: comp.component.clone(),
+                status: comp.status.clone(),
+                failure_code,
+                message: if comp.status != ComponentStatus::Healthy {
+                    Some(comp.message.clone())
+                } else {
+                    None
+                },
+                retrying: false,
+                retry_count: 0,
+                last_checked: Some(comp.timestamp * 1000), // Convert to milliseconds
+            }
+        })
+        .collect();
+
     (
         status_code,
         Json(SystemReadyResponse {
@@ -767,8 +887,74 @@ pub async fn system_ready(State(state): State<AppState>) -> impl IntoResponse {
             non_critical_degraded,
             maintenance,
             reason,
+            state: boot_state_str,
+            reason_code,
+            since,
+            last_error,
+            retrying: false,
+            dependency_status,
         }),
     )
+}
+
+/// Map a failure code string to structured FailureCode
+fn map_failure_code_from_str(code: &str) -> Option<FailureCode> {
+    // Try direct mapping first via the existing parse_code method
+    if let Some(fc) = FailureCode::parse_code(code) {
+        return Some(fc);
+    }
+
+    // Map legacy/informal codes to structured boot codes
+    match code.to_uppercase().as_str() {
+        "DB_CONN_TIMEOUT" | "DB_UNREACHABLE" | "DATABASE_ERROR" => {
+            Some(FailureCode::BootDbUnreachable)
+        }
+        "MIGRATION_FAILED" | "SCHEMA_ERROR" => Some(FailureCode::BootMigrationFailed),
+        "SEED_FAILED" | "SEED_ERROR" => Some(FailureCode::BootSeedFailed),
+        "NO_WORKERS" | "WORKER_DISCOVERY_FAILED" => Some(FailureCode::BootNoWorkers),
+        "NO_MODELS" | "MODEL_NOT_FOUND" => Some(FailureCode::BootNoModels),
+        "TIMEOUT" | "DEPENDENCY_TIMEOUT" => Some(FailureCode::BootDependencyTimeout),
+        "CONFIG_INVALID" | "CONFIG_ERROR" | "INVALID_CONFIG" => {
+            Some(FailureCode::BootConfigInvalid)
+        }
+        _ => None,
+    }
+}
+
+/// Map component name and message to appropriate boot failure code
+fn map_component_to_failure_code(component: &str, message: &str) -> Option<FailureCode> {
+    let msg_lower = message.to_lowercase();
+
+    match component {
+        "db" | "kv" => {
+            if msg_lower.contains("unreachable") || msg_lower.contains("connection") {
+                Some(FailureCode::BootDbUnreachable)
+            } else if msg_lower.contains("migration") {
+                Some(FailureCode::BootMigrationFailed)
+            } else {
+                Some(FailureCode::BootDbUnreachable)
+            }
+        }
+        "workers" | "worker" => {
+            if msg_lower.contains("no worker") || msg_lower.contains("unavailable") {
+                Some(FailureCode::BootNoWorkers)
+            } else if msg_lower.contains("timeout") {
+                Some(FailureCode::BootDependencyTimeout)
+            } else {
+                Some(FailureCode::BootNoWorkers)
+            }
+        }
+        "loader" | "models" => {
+            if msg_lower.contains("no model") || msg_lower.contains("not found") {
+                Some(FailureCode::BootNoModels)
+            } else {
+                Some(FailureCode::ModelLoadFailed)
+            }
+        }
+        "kernel" => Some(FailureCode::ModelLoadFailed),
+        "config" => Some(FailureCode::BootConfigInvalid),
+        _ => None,
+    }
 }
 
 /// Extract ComponentHealth from a response
@@ -968,7 +1154,7 @@ fn has_healthy_worker(state: &AppState) -> bool {
 async fn check_ui_health() -> ComponentHealth {
     let url = std::env::var("AOS_UI_HEALTH_URL")
         .ok()
-        .unwrap_or_else(|| DEFAULT_UI_HEALTH_URL.to_string());
+        .unwrap_or_else(default_ui_health_url);
 
     let client = match reqwest::Client::builder()
         .connect_timeout(Duration::from_millis(500))

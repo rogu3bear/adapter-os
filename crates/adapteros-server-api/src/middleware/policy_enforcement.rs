@@ -677,6 +677,48 @@ pub fn create_hook_context(
     .with_resource_id(resource_id.map(|s| s.to_string()).unwrap_or_default())
 }
 
+/// Compute a BLAKE3 digest of policy decisions for deterministic replay
+///
+/// This creates a stable hash of the policy decisions made during inference,
+/// enabling replay verification. The hash is computed from:
+/// - Policy pack IDs (sorted for determinism)
+/// - Decision outcomes (Allow/Deny/Modify)
+/// - Hook points
+///
+/// This digest should be stored with routing decisions to ensure replays
+/// apply the same policy constraints.
+pub fn compute_policy_mask_digest(decisions: &[PolicyDecision]) -> [u8; 32] {
+    use std::io::Write;
+
+    // Sort decisions by policy_pack_id for stable ordering
+    let mut sorted_decisions: Vec<&PolicyDecision> = decisions.iter().collect();
+    sorted_decisions.sort_by(|a, b| a.policy_pack_id.cmp(&b.policy_pack_id));
+
+    // Build canonical representation for hashing
+    let mut hasher = blake3::Hasher::new();
+
+    for decision in sorted_decisions {
+        // Write policy pack ID
+        let _ = hasher.write(decision.policy_pack_id.as_bytes());
+        hasher.update(b":");
+
+        // Write hook name
+        let _ = hasher.write(decision.hook.name().as_bytes());
+        hasher.update(b":");
+
+        // Write decision outcome
+        let outcome = match &decision.decision {
+            Decision::Allow => "allow",
+            Decision::Deny => "deny",
+            Decision::Modify { .. } => "modify",
+        };
+        let _ = hasher.write(outcome.as_bytes());
+        hasher.update(b";");
+    }
+
+    *hasher.finalize().as_bytes()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -735,5 +777,78 @@ mod tests {
         let metadata_json = stable_metadata_json_for_audit(&ctx).expect("expected metadata");
         let parsed: serde_json::Value = serde_json::from_str(&metadata_json).unwrap();
         assert_eq!(parsed["adapter_ids"], json!(["a", "b"]));
+    }
+
+    #[test]
+    fn test_compute_policy_mask_digest_deterministic() {
+        let decisions = vec![
+            PolicyDecision::new(
+                "egress",
+                PolicyHook::OnBeforeInference,
+                Decision::Allow,
+                "egress allowed",
+            ),
+            PolicyDecision::new(
+                "determinism",
+                PolicyHook::OnBeforeInference,
+                Decision::Allow,
+                "determinism check passed",
+            ),
+        ];
+
+        // Compute digest twice - should be identical
+        let digest1 = compute_policy_mask_digest(&decisions);
+        let digest2 = compute_policy_mask_digest(&decisions);
+        assert_eq!(digest1, digest2);
+
+        // Order shouldn't matter (sorted by policy_pack_id)
+        let decisions_reversed = vec![
+            PolicyDecision::new(
+                "determinism",
+                PolicyHook::OnBeforeInference,
+                Decision::Allow,
+                "determinism check passed",
+            ),
+            PolicyDecision::new(
+                "egress",
+                PolicyHook::OnBeforeInference,
+                Decision::Allow,
+                "egress allowed",
+            ),
+        ];
+        let digest3 = compute_policy_mask_digest(&decisions_reversed);
+        assert_eq!(digest1, digest3);
+    }
+
+    #[test]
+    fn test_compute_policy_mask_digest_different_decisions() {
+        let allow_decisions = vec![PolicyDecision::new(
+            "egress",
+            PolicyHook::OnBeforeInference,
+            Decision::Allow,
+            "allowed",
+        )];
+
+        let deny_decisions = vec![PolicyDecision::new(
+            "egress",
+            PolicyHook::OnBeforeInference,
+            Decision::Deny,
+            "denied",
+        )];
+
+        let digest_allow = compute_policy_mask_digest(&allow_decisions);
+        let digest_deny = compute_policy_mask_digest(&deny_decisions);
+
+        // Different decisions should produce different digests
+        assert_ne!(digest_allow, digest_deny);
+    }
+
+    #[test]
+    fn test_compute_policy_mask_digest_empty() {
+        let empty: Vec<PolicyDecision> = vec![];
+        let digest = compute_policy_mask_digest(&empty);
+
+        // Empty decisions should produce a valid hash (empty BLAKE3)
+        assert_eq!(digest.len(), 32);
     }
 }

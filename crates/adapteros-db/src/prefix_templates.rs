@@ -229,7 +229,7 @@ fn row_to_prefix_template(row: &sqlx::sqlite::SqliteRow) -> Result<PrefixTemplat
     let priority: i32 = row.get("priority");
     let enabled: bool = row.get("enabled");
 
-    let mode = PrefixMode::from_str(&mode_str);
+    let mode = PrefixMode::parse_mode(&mode_str);
     let template_hash = B3Hash::from_hex(&template_hash_hex)
         .map_err(|e| AosError::Database(format!("Invalid template hash: {}", e)))?;
 

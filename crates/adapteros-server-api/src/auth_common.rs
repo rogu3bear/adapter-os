@@ -31,7 +31,11 @@ pub struct AuthConfig<'a> {
 impl<'a> AuthConfig<'a> {
     /// Builds the configuration from the current app state.
     pub fn from_state(state: &'a AppState) -> Self {
-        let config = state.config.read().unwrap();
+        // STABILITY: Use poison-safe lock access
+        let config = state.config.read().unwrap_or_else(|e| {
+            tracing::warn!("Config lock was poisoned in auth_common, recovering");
+            e.into_inner()
+        });
         let session_ttl_seconds = if config.auth.session_lifetime > 0 {
             config.auth.session_lifetime
         } else {
@@ -109,7 +113,15 @@ pub struct AuthContext {
     pub mfa_enabled: bool,
     pub password_rotated_at: Option<DateTime<Utc>>,
     pub token_rotated_at: Option<DateTime<Utc>>,
+    pub last_login_at: Option<DateTime<Utc>>,
     pub admin_tenants: Vec<String>,
+}
+
+/// Parse an optional RFC3339 timestamp string into a DateTime<Utc>
+fn parse_timestamp(ts: &Option<String>) -> Option<DateTime<Utc>> {
+    ts.as_ref()
+        .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
+        .map(|dt| dt.with_timezone(&Utc))
 }
 
 impl AuthContext {
@@ -121,6 +133,12 @@ impl AuthContext {
         let display_name = user.display_name.clone();
         let mfa_enabled = user.mfa_enabled;
 
+        // TODO: Add password_rotated_at, token_rotated_at, last_login_at columns to users table
+        // For now, these are defaulted to None as the columns don't exist in schema
+        let password_rotated_at = None;
+        let token_rotated_at = None;
+        let last_login_at = None;
+
         Ok(Self {
             user,
             tenant_id,
@@ -128,8 +146,9 @@ impl AuthContext {
             role,
             permissions,
             mfa_enabled,
-            password_rotated_at: None, // TODO: respect real password rotation metadata
-            token_rotated_at: None,    // TODO: wire token rotation timestamps
+            password_rotated_at,
+            token_rotated_at,
+            last_login_at,
             admin_tenants: Vec::new(),
         })
     }
@@ -194,7 +213,7 @@ pub fn build_user_info(ctx: &AuthContext) -> UserInfoResponse {
         display_name: ctx.display_name.clone(),
         permissions: ctx.permissions.iter().map(|p| p.to_string()).collect(),
         admin_tenants: ctx.admin_tenants.clone(),
-        last_login_at: None, // TODO: surface actual last-login timestamp
+        last_login_at: ctx.last_login_at.map(|dt| dt.to_rfc3339()),
         mfa_enabled: Some(ctx.mfa_enabled),
         token_last_rotated_at: ctx.token_rotated_at.map(|dt| dt.to_rfc3339()),
     }
@@ -350,6 +369,9 @@ mod tests {
             mfa_enrolled_at: None,
             mfa_last_verified_at: None,
             mfa_recovery_last_used_at: None,
+            password_rotated_at: None,
+            token_rotated_at: None,
+            last_login_at: None,
         }
     }
 

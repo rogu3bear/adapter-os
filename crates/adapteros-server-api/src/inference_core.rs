@@ -1,25 +1,122 @@
-//! Unified inference execution core
+//! # Unified Inference Execution Core
 //!
-//! This module provides `InferenceCore` - the ONLY path to execute inference.
-//! All handlers (standard, streaming, batch) MUST use this module.
+//! This module provides `InferenceCore` - the **ONLY** path to execute inference.
+//! All handlers (standard, streaming, batch, replay) **MUST** use this module.
 //!
-//! # Routing Enforcement
+//! ## Pipeline Stages
 //!
-//! The routing guard ensures that all inference requests pass through
-//! `route_and_infer()`. Any attempt to call the worker directly without
-//! going through this module will result in a hard failure.
+//! The `route_and_infer()` function executes an 11-stage pipeline:
 //!
-//! # RAG Support
+//! ```text
+//! ┌─────────────────────────────────────────────────────────────────────────────┐
+//! │  Stage 1: Request Validation                                                │
+//! │  - Tenant isolation check                                                   │
+//! │  - Sampling params validation (temperature, top_p bounds)                   │
+//! │  - Chat session lookup (if session_id provided)                             │
+//! └────────────────────────────────┬────────────────────────────────────────────┘
+//!                                  ▼
+//! ┌─────────────────────────────────────────────────────────────────────────────┐
+//! │  Stage 2: Adapter Resolution                                                │
+//! │  - Load adapters from DB by adapter_ids or stack_id                         │
+//! │  - Apply pinned adapter overrides (CHAT-PIN-02)                             │
+//! │  - Validate all adapters belong to tenant                                   │
+//! └────────────────────────────────┬────────────────────────────────────────────┘
+//!                                  ▼
+//! ┌─────────────────────────────────────────────────────────────────────────────┐
+//! │  Stage 3: Policy Hooks (OnRequestBeforeRouting)                             │
+//! │  - Execute policy packs: egress, determinism, isolation, evidence           │
+//! │  - Generate policy mask for router                                          │
+//! └────────────────────────────────┬────────────────────────────────────────────┘
+//!                                  ▼
+//! ┌─────────────────────────────────────────────────────────────────────────────┐
+//! │  Stage 4: RAG Context Retrieval (if enabled)                                │
+//! │  - Query collection for relevant chunks                                     │
+//! │  - Compute rag_snapshot_hash for replay                                     │
+//! │  - Inject context into prompt                                               │
+//! └────────────────────────────────┬────────────────────────────────────────────┘
+//!                                  ▼
+//! ┌─────────────────────────────────────────────────────────────────────────────┐
+//! │  Stage 5: Router Decision                                                   │
+//! │  - K-sparse top-K selection with Q15 gates                                  │
+//! │  - Deterministic tie-breaking (score DESC, index ASC)                       │
+//! │  - Entropy floor enforcement                                                │
+//! └────────────────────────────────┬────────────────────────────────────────────┘
+//!                                  ▼
+//! ┌─────────────────────────────────────────────────────────────────────────────┐
+//! │  Stage 6: Worker Selection                                                  │
+//! │  - Find worker with required adapters loaded                                │
+//! │  - Placement constraints (memory, backend compatibility)                    │
+//! │  - Hot-swap triggers if adapters not loaded                                 │
+//! └────────────────────────────────┬────────────────────────────────────────────┘
+//!                                  ▼
+//! ┌─────────────────────────────────────────────────────────────────────────────┐
+//! │  Stage 7: Policy Hooks (OnBeforeInference)                                  │
+//! │  - Final policy checks before worker call                                   │
+//! │  - Rate limiting, quota enforcement                                         │
+//! └────────────────────────────────┬────────────────────────────────────────────┘
+//!                                  ▼
+//! ┌─────────────────────────────────────────────────────────────────────────────┐
+//! │  Stage 8: Worker Inference (UDS)                                            │
+//! │  - Send request over Unix Domain Socket                                     │
+//! │  - Execute on CoreML/Metal/MLX backend                                      │
+//! │  - Collect router decisions per token                                       │
+//! └────────────────────────────────┬────────────────────────────────────────────┘
+//!                                  ▼
+//! ┌─────────────────────────────────────────────────────────────────────────────┐
+//! │  Stage 9: Policy Hooks (OnAfterInference)                                   │
+//! │  - Post-inference validation                                                │
+//! │  - Output filtering (if configured)                                         │
+//! └────────────────────────────────┬────────────────────────────────────────────┘
+//!                                  ▼
+//! ┌─────────────────────────────────────────────────────────────────────────────┐
+//! │  Stage 10: Evidence & Telemetry                                             │
+//! │  - Store replay metadata (manifest_hash, router_seed, etc.)                 │
+//! │  - Emit routing telemetry event                                             │
+//! │  - Store RAG evidence (if applicable)                                       │
+//! └────────────────────────────────┬────────────────────────────────────────────┘
+//!                                  ▼
+//! ┌─────────────────────────────────────────────────────────────────────────────┐
+//! │  Stage 11: Response Assembly                                                │
+//! │  - Build InferenceResult with text, tokens, decisions                       │
+//! │  - Include citations from adapters                                          │
+//! │  - Return replay_metadata_id for determinism verification                   │
+//! └─────────────────────────────────────────────────────────────────────────────┘
+//! ```
 //!
-//! RAG context retrieval is available on all inference paths (not just streaming).
-//! Set `rag_enabled = true` and provide a `rag_collection_id` to enable RAG.
+//! ## Error Gates
 //!
-//! # Deterministic Replay
+//! The pipeline has 9 **blocking error gates** that halt execution:
+//! 1. Invalid tenant isolation
+//! 2. Chat session not found (when session_id provided)
+//! 3. No adapters resolved
+//! 4. Policy hook rejection (OnRequestBeforeRouting)
+//! 5. RAG collection not found
+//! 6. No eligible worker found
+//! 7. Policy hook rejection (OnBeforeInference)
+//! 8. Worker inference failure (UDS timeout, backend error)
+//! 9. Policy hook rejection (OnAfterInference)
 //!
-//! Replay uses the same inference path as normal requests. The routing is
-//! deterministic by design (sorted by score, then by index for ties) - the
-//! `router_seed` field is stored for audit purposes but does not affect
-//! routing decisions.
+//! ## Graceful Degradation Paths
+//!
+//! 7 scenarios where the pipeline continues with reduced functionality:
+//! - RAG disabled: Skip stages 4, RAG evidence storage
+//! - No policy hooks configured: Skip stages 3, 7, 9
+//! - Chat session missing pinned_adapter_ids: Use request adapter_ids
+//! - Telemetry write failure: Log warning, continue
+//! - Citation collection failure: Return empty citations
+//! - Replay metadata storage failure: Log warning, return None for replay_metadata_id
+//! - Router decision chain empty: Return None for decision_chain
+//!
+//! ## Routing Enforcement
+//!
+//! The routing guard ensures all inference requests pass through `route_and_infer()`.
+//! Direct worker calls without this module will result in hard failure.
+//!
+//! ## Deterministic Replay
+//!
+//! Replay uses the same inference path as normal requests. Routing is deterministic
+//! by design (sorted by score DESC, then by index ASC for ties). The `router_seed`
+//! field is stored for **audit purposes only** - it does not affect routing decisions.
 //!
 //! For replay, pass a `ReplayContext` to enforce manifest/backend compatibility
 //! and skip metadata capture for the replay itself.
@@ -71,7 +168,11 @@ pub fn parse_pinned_adapter_ids(json: Option<&str>) -> Option<Vec<String>> {
     json.and_then(|s| serde_json::from_str(s).ok())
 }
 
-fn map_router_decisions(events: &[ApiRouterDecision]) -> Vec<RouterDecision> {
+fn map_router_decisions(
+    events: &[ApiRouterDecision],
+    policy_mask_digest: Option<[u8; 32]>,
+) -> Vec<RouterDecision> {
+    // policy_mask_digest is already [u8; 32] which matches adapteros_types::routing::B3Hash
     events
         .iter()
         .map(|d| RouterDecision {
@@ -92,7 +193,7 @@ fn map_router_decisions(events: &[ApiRouterDecision]) -> Vec<RouterDecision> {
             stack_hash: d.stack_hash.clone(),
             interval_id: d.interval_id.clone(),
             allowed_mask: None,
-            policy_mask_digest: None,
+            policy_mask_digest,
             policy_overrides_applied: None,
         })
         .collect()
@@ -395,9 +496,13 @@ pub async fn resolve_tenant_execution_policy(
         // Default to strict to avoid relaxed/best-effort slipping in implicitly.
         .unwrap_or(DeterminismMode::Strict);
 
-    // Use tenant policy's default_mode (even for implicit/default policies)
-    // The implicit default has default_mode = "besteffort" which should be honored
-    let tenant_mode = Some(policy.determinism.default_mode.as_str());
+    // Use tenant policy's default_mode only for explicit policies.
+    // Implicit/default policies should fall through to global mode.
+    let tenant_mode = if policy.is_implicit {
+        None
+    } else {
+        Some(policy.determinism.default_mode.as_str())
+    };
 
     // 3. Resolve determinism mode (stack > tenant > global)
     let effective_determinism_mode =
@@ -847,14 +952,48 @@ impl<'a> InferenceCore<'a> {
         let timeout_secs = if is_replay { 120 } else { 60 };
         let uds_client = UdsClient::new(Duration::from_secs(timeout_secs));
 
+        // Generate worker auth token if signing keypair is available (CP->Worker auth)
+        // This is a short-lived Ed25519-signed JWT for internal authentication
+        let worker_auth_token: Option<String> = if let Some(ref signing_key) =
+            self.state.worker_signing_keypair
+        {
+            // When auth is enabled, we MUST have a valid worker_id.
+            // A token with "unknown" worker_id would be rejected by the worker anyway,
+            // so we fail early with a clear error instead.
+            let worker_id = match selected_worker_id.as_ref() {
+                Some(id) => id.to_string(),
+                None => {
+                    return Err(InferenceError::WorkerIdUnavailable {
+                        tenant_id: request.cpid.clone(),
+                        reason: "Worker selection returned None but auth is required".to_string(),
+                    });
+                }
+            };
+            match adapteros_boot::generate_worker_token(
+                signing_key,
+                &worker_id,
+                &request.request_id,
+                45, // 45 second TTL
+            ) {
+                Ok(token) => Some(token),
+                Err(e) => {
+                    warn!(
+                        error = %e,
+                        request_id = %request.request_id,
+                        "Failed to generate worker auth token, proceeding without"
+                    );
+                    None
+                }
+            }
+        } else {
+            // Fall back to request's worker auth token (legacy API key path)
+            request.worker_auth_token.clone()
+        };
+
         // Wrap the UDS call in routing context to ensure task-local guard is set
         let worker_response = crate::uds_client::run_with_routing_context(async {
             uds_client
-                .infer(
-                    &uds_path,
-                    worker_request,
-                    request.worker_auth_token.as_deref(),
-                )
+                .infer(&uds_path, worker_request, worker_auth_token.as_deref())
                 .await
         })
         .await
@@ -866,6 +1005,21 @@ impl<'a> InferenceCore<'a> {
             crate::uds_client::UdsClientError::RoutingBypass(msg) => {
                 InferenceError::RoutingBypass(msg)
             }
+            crate::uds_client::UdsClientError::CacheBudgetExceeded {
+                needed_mb,
+                freed_mb,
+                pinned_count,
+                active_count,
+                max_mb,
+                model_key,
+            } => InferenceError::CacheBudgetExceeded {
+                needed_mb,
+                freed_mb,
+                pinned_count,
+                active_count,
+                max_mb,
+                model_key,
+            },
             other => InferenceError::WorkerError(other.to_string()),
         })?;
 
@@ -1186,7 +1340,8 @@ impl<'a> InferenceCore<'a> {
         }
 
         if let Some(router_events) = worker_response.trace.router_decisions.clone() {
-            let mapped_decisions = map_router_decisions(&router_events);
+            let mapped_decisions =
+                map_router_decisions(&router_events, request.policy_mask_digest);
             let mapped_chain =
                 map_router_decision_chain(worker_response.trace.router_decision_chain.clone());
             let routing_payload = RoutingTelemetryEvent {
@@ -1342,10 +1497,7 @@ impl<'a> InferenceCore<'a> {
                 })?
                 .ok_or_else(|| {
                     // Returns same error for both "not found" and "cross-tenant" cases
-                    InferenceError::AdapterNotFound(format!(
-                        "Pinned adapter '{}' not found",
-                        pin
-                    ))
+                    InferenceError::AdapterNotFound(format!("Pinned adapter '{}' not found", pin))
                 })?;
             // No manual tenant check needed - query is already tenant-scoped
         }
@@ -1605,10 +1757,26 @@ impl<'a> InferenceCore<'a> {
     }
 
     /// Select a compatible worker with manifest + health filtering.
+    ///
+    /// Uses retry logic with bounded attempts to handle transient worker unavailability.
+    /// In dev mode, returns a degraded error after retries instead of hard failure.
+    ///
+    /// # Retry Behavior
+    ///
+    /// - 3 attempts with 2s, 4s delays between retries
+    /// - Logs attempt number, delay, and remaining budget on each retry
+    /// - In dev mode: returns WorkerDegraded after retries (allows graceful degradation)
+    /// - In prod/staging mode: returns NoCompatibleWorker (hard failure)
     pub(crate) async fn select_worker_for_tenant(
         &self,
         tenant_id: &str,
     ) -> Result<WorkerWithBinding, InferenceError> {
+        use std::time::{Duration, Instant};
+
+        const MAX_ATTEMPTS: u32 = 3;
+        const BASE_DELAY: Duration = Duration::from_secs(2);
+        const MAX_ELAPSED: Duration = Duration::from_secs(30);
+
         let required_manifest = self.state.manifest_hash.as_deref().ok_or_else(|| {
             InferenceError::NoCompatibleWorker {
                 required_hash: "unset".to_string(),
@@ -1618,98 +1786,172 @@ impl<'a> InferenceCore<'a> {
             }
         })?;
 
-        // Use manifest-aware worker selection
-        let workers = self
-            .state
-            .db
-            .list_compatible_workers_for_tenant(required_manifest, tenant_id)
-            .await
-            .map_err(|e| {
-                InferenceError::WorkerError(format!("Failed to list compatible workers: {}", e))
-            })?;
+        let deadline = Instant::now() + MAX_ELAPSED;
+        let mut attempt: u32 = 0;
+        let mut delay = BASE_DELAY;
 
-        if let Some(worker) = self
-            .state
-            .health_monitor
-            .as_ref()
-            .and_then(|hm| hm.get_best_worker_with_binding(&workers))
-            .cloned()
-            .or_else(|| workers.first().cloned())
-        {
-            debug!(
-                tenant_id = %tenant_id,
-                worker_id = %worker.id,
-                manifest_hash = %worker.manifest_hash_b3.as_deref().unwrap_or("none"),
-                required_manifest = %required_manifest,
-                "Selected compatible worker for inference"
-            );
-            return Ok(worker);
-        }
+        loop {
+            attempt += 1;
+            let remaining = deadline.saturating_duration_since(Instant::now());
 
-        // No compatible worker available - build detailed error
-        // Determine the specific reason for failure
-        let (all_count, reason) = {
-            // Get all healthy workers (already filtered by schema version)
-            let all_serving = self
+            // Try to find a compatible worker
+            let workers = self
                 .state
                 .db
-                .list_healthy_workers()
+                .list_compatible_workers_for_tenant(required_manifest, tenant_id)
                 .await
-                .unwrap_or_default();
+                .map_err(|e| {
+                    InferenceError::WorkerError(format!("Failed to list compatible workers: {}", e))
+                })?;
 
-            if all_serving.is_empty() {
+            if let Some(worker) = self
+                .state
+                .health_monitor
+                .as_ref()
+                .and_then(|hm| hm.get_best_worker_with_binding(&workers))
+                .cloned()
+                .or_else(|| workers.first().cloned())
+            {
+                if attempt > 1 {
+                    info!(
+                        tenant_id = %tenant_id,
+                        worker_id = %worker.id,
+                        attempt = attempt,
+                        "Selected compatible worker after retry"
+                    );
+                } else {
+                    debug!(
+                        tenant_id = %tenant_id,
+                        worker_id = %worker.id,
+                        manifest_hash = %worker.manifest_hash_b3.as_deref().unwrap_or("none"),
+                        required_manifest = %required_manifest,
+                        "Selected compatible worker for inference"
+                    );
+                }
+                return Ok(worker);
+            }
+
+            // No worker found - determine reason and decide whether to retry
+            let (available_count, reason) = self
+                .diagnose_worker_unavailability(required_manifest, tenant_id)
+                .await;
+
+            // Check if we should retry
+            let should_retry = attempt < MAX_ATTEMPTS && !remaining.is_zero();
+
+            if should_retry {
+                warn!(
+                    attempt = attempt,
+                    max_attempts = MAX_ATTEMPTS,
+                    delay_ms = delay.as_millis() as u64,
+                    remaining_budget_ms = remaining.as_millis() as u64,
+                    tenant_id = %tenant_id,
+                    reason = %reason,
+                    "No compatible worker found, retrying"
+                );
+
+                // Sleep for the delay (capped by remaining budget)
+                let actual_delay = delay.min(remaining);
+                tokio::time::sleep(actual_delay).await;
+
+                // Calculate next delay (2s -> 4s)
+                delay = delay * 2;
+            } else {
+                // All retries exhausted - check if we're in dev mode for graceful degradation
+                let is_dev_mode = self.state.runtime_mode.map(|m| m.is_dev()).unwrap_or(false);
+
+                if is_dev_mode {
+                    // In dev mode, return a degraded error that can be handled gracefully
+                    warn!(
+                        tenant_id = %tenant_id,
+                        attempts = attempt,
+                        reason = %reason,
+                        "Worker discovery failed in dev mode - system degraded"
+                    );
+                    return Err(InferenceError::WorkerDegraded {
+                        tenant_id: tenant_id.to_string(),
+                        reason: format!(
+                            "No compatible worker after {} attempts (dev mode): {}",
+                            attempt, reason
+                        ),
+                    });
+                } else {
+                    // In prod/staging mode, hard failure
+                    error!(
+                        tenant_id = %tenant_id,
+                        attempts = attempt,
+                        reason = %reason,
+                        "Worker discovery failed after all retries"
+                    );
+                    return Err(InferenceError::NoCompatibleWorker {
+                        required_hash: required_manifest.to_string(),
+                        tenant_id: tenant_id.to_string(),
+                        available_count,
+                        reason,
+                    });
+                }
+            }
+        }
+    }
+
+    /// Diagnose why no compatible worker is available
+    async fn diagnose_worker_unavailability(
+        &self,
+        required_manifest: &str,
+        tenant_id: &str,
+    ) -> (usize, String) {
+        // Get all healthy workers (already filtered by schema version)
+        let all_serving = self
+            .state
+            .db
+            .list_healthy_workers()
+            .await
+            .unwrap_or_default();
+
+        if all_serving.is_empty() {
+            (
+                0,
+                "No healthy workers available (check worker registration and health)".to_string(),
+            )
+        } else {
+            let manifest_matched = all_serving
+                .iter()
+                .filter(|w| w.manifest_hash_b3.as_deref() == Some(required_manifest))
+                .count();
+
+            if manifest_matched == 0 {
                 (
-                    0,
-                    "No healthy workers available (check worker registration and health)"
-                        .to_string(),
+                    all_serving.len(),
+                    format!(
+                        "No workers match required manifest hash. {} serving workers exist with different manifests",
+                        all_serving.len()
+                    ),
                 )
             } else {
-                let manifest_matched = all_serving
+                let tenant_matched = all_serving
                     .iter()
-                    .filter(|w| w.manifest_hash_b3.as_deref() == Some(required_manifest))
+                    .filter(|w| {
+                        w.tenant_id == tenant_id
+                            && w.manifest_hash_b3.as_deref() == Some(required_manifest)
+                    })
                     .count();
 
-                if manifest_matched == 0 {
+                if tenant_matched == 0 {
                     (
                         all_serving.len(),
                         format!(
-                            "No workers match required manifest hash. {} serving workers exist with different manifests",
-                            all_serving.len()
+                            "{} workers match manifest but none belong to tenant '{}'",
+                            manifest_matched, tenant_id
                         ),
                     )
                 } else {
-                    let tenant_matched = all_serving
-                        .iter()
-                        .filter(|w| {
-                            w.tenant_id == tenant_id
-                                && w.manifest_hash_b3.as_deref() == Some(required_manifest)
-                        })
-                        .count();
-
-                    if tenant_matched == 0 {
-                        (
-                            all_serving.len(),
-                            format!(
-                                "{} workers match manifest but none belong to tenant '{}'",
-                                manifest_matched, tenant_id
-                            ),
-                        )
-                    } else {
-                        (
-                            all_serving.len(),
-                            "Workers filtered out by schema version incompatibility".to_string(),
-                        )
-                    }
+                    (
+                        all_serving.len(),
+                        "Workers filtered out by schema version incompatibility".to_string(),
+                    )
                 }
             }
-        };
-
-        Err(InferenceError::NoCompatibleWorker {
-            required_hash: required_manifest.to_string(),
-            tenant_id: tenant_id.to_string(),
-            available_count: all_count,
-            reason,
-        })
+        }
     }
 
     /// Resolve the worker UDS path from database or environment

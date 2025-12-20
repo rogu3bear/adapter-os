@@ -1,7 +1,7 @@
-//! Orthogonal constraint enforcement for MPLoRA
+//! Orthogonal constraint enforcement for DIR (Deterministic Inference Runtime)
 //!
 //! Implements orthogonal multi-path LoRA routing as described in:
-//! MPLoRA: Orthogonal Multi-Path Low-Rank Adaptation for Parameter Efficient Fine-Tuning
+//! DIR: Orthogonal Multi-Path Low-Rank Adaptation for Parameter Efficient Fine-Tuning
 //! https://openreview.net/pdf?id=jqz6Msm3AF
 
 use crate::ROUTER_GATE_Q15_DENOM;
@@ -19,6 +19,23 @@ pub struct OrthogonalConstraints {
     penalty_weight: f32,
     /// History window size
     history_window: usize,
+}
+
+/// Snapshot of orthogonal constraints for replay determinism
+///
+/// This struct captures the full state needed to restore orthogonal constraints
+/// during deterministic replay, ensuring the same activation history influences
+/// subsequent routing decisions identically.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct OrthogonalConstraintsSnapshot {
+    /// Flattened activation history (Vec<Vec<f32>> serialized)
+    pub activation_history: Vec<Vec<f32>>,
+    /// Similarity threshold
+    pub similarity_threshold: f32,
+    /// Penalty weight
+    pub penalty_weight: f32,
+    /// History window size
+    pub history_window: usize,
 }
 
 impl OrthogonalConstraints {
@@ -161,6 +178,49 @@ impl OrthogonalConstraints {
 
         total_penalty
     }
+
+    /// Capture current state as a snapshot for replay
+    ///
+    /// This is used during inference to record the orthogonal constraint state
+    /// so that replay can restore identical routing behavior.
+    pub fn to_snapshot(&self) -> OrthogonalConstraintsSnapshot {
+        OrthogonalConstraintsSnapshot {
+            activation_history: self.activation_history.iter().cloned().collect(),
+            similarity_threshold: self.similarity_threshold,
+            penalty_weight: self.penalty_weight,
+            history_window: self.history_window,
+        }
+    }
+
+    /// Restore state from a snapshot for deterministic replay
+    ///
+    /// This restores the exact activation history that was present during
+    /// the original inference, ensuring orthogonal penalties are computed
+    /// identically during replay.
+    pub fn from_snapshot(snapshot: OrthogonalConstraintsSnapshot) -> Self {
+        Self {
+            activation_history: snapshot.activation_history.into_iter().collect(),
+            similarity_threshold: snapshot.similarity_threshold,
+            penalty_weight: snapshot.penalty_weight,
+            history_window: snapshot.history_window,
+        }
+    }
+
+    /// Check if constraints have any activation history
+    ///
+    /// Useful for determining whether orthogonal state needs to be
+    /// captured for replay (empty history = no effect on routing).
+    pub fn has_history(&self) -> bool {
+        !self.activation_history.is_empty()
+    }
+
+    /// Clear activation history
+    ///
+    /// Resets the constraint tracker to initial state without
+    /// creating a new instance.
+    pub fn clear_history(&mut self) {
+        self.activation_history.clear();
+    }
 }
 
 #[cfg(test)]
@@ -245,5 +305,71 @@ mod tests {
         constraints.update_history(&[2, 3], &[16383, 16383]);
         let score = constraints.diversity_score();
         assert!(score > 0.0);
+    }
+
+    #[test]
+    fn test_snapshot_roundtrip() {
+        let mut constraints = OrthogonalConstraints::new(0.7, 0.1, 10);
+
+        // Add some history
+        constraints.update_history(&[0, 1], &[16383, 16383]);
+        constraints.update_history(&[2, 3], &[32767, 16383]);
+
+        // Capture snapshot
+        let snapshot = constraints.to_snapshot();
+
+        // Verify snapshot fields
+        assert_eq!(snapshot.activation_history.len(), 2);
+        assert_eq!(snapshot.similarity_threshold, 0.7);
+        assert_eq!(snapshot.penalty_weight, 0.1);
+        assert_eq!(snapshot.history_window, 10);
+
+        // Restore from snapshot
+        let restored = OrthogonalConstraints::from_snapshot(snapshot);
+
+        // Verify restored state matches original
+        assert_eq!(
+            restored.activation_history.len(),
+            constraints.activation_history.len()
+        );
+        assert_eq!(restored.similarity_threshold, constraints.similarity_threshold);
+        assert_eq!(restored.penalty_weight, constraints.penalty_weight);
+        assert_eq!(restored.history_window, constraints.history_window);
+
+        // Verify penalty computation is identical
+        let original_penalty = constraints.compute_penalty(&[0, 1], &[16383, 16383]);
+        let restored_penalty = restored.compute_penalty(&[0, 1], &[16383, 16383]);
+        assert_eq!(original_penalty, restored_penalty);
+    }
+
+    #[test]
+    fn test_snapshot_serialization() {
+        let mut constraints = OrthogonalConstraints::new(0.8, 0.2, 5);
+        constraints.update_history(&[0], &[32767]);
+
+        let snapshot = constraints.to_snapshot();
+
+        // Verify JSON round-trip for replay storage
+        let json = serde_json::to_string(&snapshot).expect("serialization should succeed");
+        let deserialized: OrthogonalConstraintsSnapshot =
+            serde_json::from_str(&json).expect("deserialization should succeed");
+
+        assert_eq!(deserialized.similarity_threshold, 0.8);
+        assert_eq!(deserialized.penalty_weight, 0.2);
+        assert_eq!(deserialized.history_window, 5);
+        assert_eq!(deserialized.activation_history.len(), 1);
+    }
+
+    #[test]
+    fn test_has_history() {
+        let mut constraints = OrthogonalConstraints::new(0.7, 0.1, 10);
+
+        assert!(!constraints.has_history());
+
+        constraints.update_history(&[0], &[16383]);
+        assert!(constraints.has_history());
+
+        constraints.clear_history();
+        assert!(!constraints.has_history());
     }
 }

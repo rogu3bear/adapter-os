@@ -16,7 +16,6 @@
 //! - Policy hooks and worker health-based selection
 
 use crate::auth::Claims;
-use crate::determinism_context::DeterminismContext;
 use crate::inference_core::InferenceCore;
 use crate::middleware::policy_enforcement::{create_hook_context, enforce_at_hook};
 use crate::security::check_tenant_access;
@@ -676,6 +675,7 @@ pub async fn execute_replay(
         stop_policy, // Restored from original inference for deterministic replay
         created_at: std::time::Instant::now(),
         worker_auth_token: None,
+        policy_mask_digest: None, // TODO: Restore from metadata when stored
     };
 
     if base_only

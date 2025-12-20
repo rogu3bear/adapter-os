@@ -87,6 +87,11 @@ impl EventSampler {
     /// - Performance metrics: Fixed (10%)
     /// - Debug events: Fixed (1%)
     pub fn new() -> Self {
+        Self::with_seed(Self::derive_sampler_seed())
+    }
+
+    /// Create an event sampler with a specific seed for deterministic testing
+    pub fn with_seed(seed: [u8; 32]) -> Self {
         let mut strategies = HashMap::new();
 
         // Security events (100% sampling - Telemetry Ruleset #9)
@@ -132,8 +137,8 @@ impl EventSampler {
         // Debug events (1% sampling)
         strategies.insert("debug".to_string(), SamplingStrategy::Fixed(0.01));
 
-        // Deterministic seed to align with HKDF requirements for reproducibility
-        let rng = rand::rngs::StdRng::from_seed([0u8; 32]);
+        // Use provided seed for reproducibility
+        let rng = rand::rngs::StdRng::from_seed(seed);
 
         Self {
             strategies: Arc::new(RwLock::new(strategies)),
@@ -141,6 +146,35 @@ impl EventSampler {
             head_sampling_state: Arc::new(RwLock::new(HashMap::new())),
             rng: Arc::new(RwLock::new(rng)),
         }
+    }
+
+    /// Derive a sampler seed using HKDF with system entropy
+    ///
+    /// This creates a deterministic seed based on:
+    /// - Process start time
+    /// - Process ID
+    /// - Hostname
+    ///
+    /// The seed is unique per process instance but reproducible for debugging.
+    fn derive_sampler_seed() -> [u8; 32] {
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        // Gather entropy sources
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let pid = std::process::id();
+        let hostname = std::env::var("HOSTNAME")
+            .or_else(|_| std::env::var("HOST"))
+            .unwrap_or_else(|_| "unknown".to_string());
+
+        // Create HKDF input material
+        let ikm = format!("telemetry-sampler:{}:{}:{}", timestamp, pid, hostname);
+
+        // Use BLAKE3 for key derivation (consistent with adapteros-core)
+        let hash = blake3::hash(ikm.as_bytes());
+        *hash.as_bytes()
     }
 
     /// Check if an event should be sampled

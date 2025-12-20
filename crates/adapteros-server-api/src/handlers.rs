@@ -37,6 +37,7 @@ use uuid::Uuid;
 pub mod activity;
 pub mod adapter_stacks;
 pub mod adapters;
+pub mod adapters_read;
 pub mod admin;
 pub mod admin_lifecycle;
 pub mod api_keys;
@@ -108,6 +109,11 @@ pub mod worker_detail;
 pub mod worker_manifests;
 pub mod workers;
 pub mod workspaces;
+
+// Inline module to re-export adapter lifecycle functions for routes.rs
+pub mod adapters_lifecycle {
+    pub use super::{delete_adapter, load_adapter, register_adapter, unload_adapter};
+}
 
 // Re-export utils for error handling
 use utils::aos_error_to_response;
@@ -283,10 +289,11 @@ pub async fn upsert_directory_adapter(
         )
     };
 
+    let tenant_id_for_blocking = tenant_id.clone();
     let (adapter_id, hash_hex, hash_b3, analysis) = tokio::time::timeout(
         Duration::from_secs(timeout_secs),
         tokio::task::spawn_blocking(move || {
-            let _span = info_span!("directory_adapter_blocking_ops", tenant = %tenant_id).entered();
+            let _span = info_span!("directory_adapter_blocking_ops", tenant = %tenant_id_for_blocking).entered();
 
             // Phase 1: Validate paths
             let _validation_span = info_span!("path_validation").entered();
@@ -339,7 +346,7 @@ pub async fn upsert_directory_adapter(
             // Build adapter_id and synthetic artifact hash from fingerprint
             let adapter_id = format!(
                 "directory::{}::{}",
-                tenant_id,
+                tenant_id_for_blocking,
                 analysis.fingerprint.to_short_hex()
             );
             let hash_hex = analysis.fingerprint.to_hex();
@@ -1949,7 +1956,7 @@ pub async fn get_base_model_status(
                 )
             })?;
 
-        let status_enum = adapteros_api_types::ModelLoadStatus::from_str(&status_record.status);
+        let status_enum = adapteros_api_types::ModelLoadStatus::parse_status(&status_record.status);
         let is_loaded = status_enum.is_ready();
 
         Ok(Json(BaseModelStatusResponse {
@@ -2519,6 +2526,10 @@ pub async fn worker_spawn(
         model_id: None,
         model_hash: None,
         model_loaded: false,
+        cache_used_mb: None,
+        cache_max_mb: None,
+        cache_pinned_entries: None,
+        cache_active_entries: None,
     }))
 }
 
@@ -2630,6 +2641,10 @@ pub async fn list_workers(
             model_id,
             model_hash,
             model_loaded,
+            cache_used_mb: runtime.cache_used_mb,
+            cache_max_mb: runtime.cache_max_mb,
+            cache_pinned_entries: runtime.cache_pinned_entries,
+            cache_active_entries: runtime.cache_active_entries,
         });
     }
 
@@ -2964,7 +2979,7 @@ pub struct ListIncidentsParams {
 /// **Permissions:** Operator, Admin, SRE
 #[utoipa::path(
     get,
-    path = "/v1/workers/health-summary",
+    path = "/v1/workers/health/summary",
     tag = "workers",
     responses(
         (status = 200, description = "Worker health summary"),
@@ -6812,7 +6827,7 @@ pub async fn get_adapter(
 ) -> Result<Json<AdapterResponse>, (StatusCode, Json<ErrorResponse>)> {
     let adapter = state
         .db
-        .get_adapter(&adapter_id)
+        .get_adapter_for_tenant(&claims.tenant_id, &adapter_id)
         .await
         .map_err(|e| {
             (
@@ -6830,9 +6845,6 @@ pub async fn get_adapter(
                 Json(ErrorResponse::new("adapter not found").with_code("NOT_FOUND")),
             )
         })?;
-
-    // Validate tenant isolation
-    validate_tenant_isolation(&claims, &adapter.tenant_id)?;
 
     let (total, selected, avg_gate) = state
         .db
@@ -7200,10 +7212,10 @@ pub async fn delete_adapter(
     // Role check: Admin-only (destructive operation)
     crate::permissions::require_permission(&claims, crate::permissions::Permission::AdapterDelete)?;
 
-    // Get adapter to validate tenant isolation
-    let adapter = state
+    // Get adapter with tenant-scoped query
+    let _adapter = state
         .db
-        .get_adapter(&adapter_id)
+        .get_adapter_for_tenant(&claims.tenant_id, &adapter_id)
         .await
         .map_err(|e| {
             (
@@ -7222,10 +7234,11 @@ pub async fn delete_adapter(
             )
         })?;
 
-    // Validate tenant isolation
-    validate_tenant_isolation(&claims, &adapter.tenant_id)?;
-
-    if let Err(e) = state.db.delete_adapter(&adapter_id).await {
+    if let Err(e) = state
+        .db
+        .delete_adapter_for_tenant(&claims.tenant_id, &adapter_id)
+        .await
+    {
         // Audit log: adapter deletion failure
         let _ = crate::audit_helper::log_failure(
             &state.db,
@@ -7281,8 +7294,12 @@ pub async fn load_adapter(
     // Role check: Operator, SRE, and Admin can load adapters
     crate::permissions::require_permission(&claims, crate::permissions::Permission::AdapterLoad)?;
 
-    // Get adapter from database
-    let adapter = match state.db.get_adapter(&adapter_id).await {
+    // Get adapter from database with tenant-scoped query
+    let adapter = match state
+        .db
+        .get_adapter_for_tenant(&claims.tenant_id, &adapter_id)
+        .await
+    {
         Ok(Some(adapter)) => adapter,
         Ok(None) => {
             return Err((
@@ -7310,9 +7327,6 @@ pub async fn load_adapter(
             ));
         }
     };
-
-    // Validate tenant isolation
-    validate_tenant_isolation(&claims, &adapter.tenant_id)?;
 
     // Use lifecycle manager if available to update state to 'loading'
     if let Some(ref lifecycle) = state.lifecycle_manager {
@@ -7622,8 +7636,12 @@ pub async fn unload_adapter(
     // Hot-swap guard: prevent unloading while other requests are active
     guard_in_flight_requests(&state.in_flight_requests)?;
 
-    // Get adapter from database
-    let adapter = match state.db.get_adapter(&adapter_id).await {
+    // Get adapter from database with tenant-scoped query
+    let adapter = match state
+        .db
+        .get_adapter_for_tenant(&claims.tenant_id, &adapter_id)
+        .await
+    {
         Ok(Some(adapter)) => adapter,
         Ok(None) => {
             return Err((
@@ -7651,9 +7669,6 @@ pub async fn unload_adapter(
             ));
         }
     };
-
-    // Validate tenant isolation
-    validate_tenant_isolation(&claims, &adapter.tenant_id)?;
 
     // Use lifecycle manager if available to update state to 'unloading'
     if let Some(ref lifecycle) = state.lifecycle_manager {
@@ -7983,10 +7998,10 @@ pub async fn promote_adapter_state(
 ) -> Result<Json<AdapterStateResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
 
-    // Get current adapter state
+    // Get current adapter state with tenant-scoped query
     let adapter = state
         .db
-        .get_adapter(&adapter_id)
+        .get_adapter_for_tenant(&claims.tenant_id, &adapter_id)
         .await
         .map_err(|e| {
             (
@@ -8032,10 +8047,10 @@ pub async fn promote_adapter_state(
 
     let old_tier = adapter.tier.clone();
 
-    // Update adapter tier in database
+    // Update adapter tier in database (tenant-scoped to prevent TOCTOU)
     state
         .db
-        .update_adapter_tier(&adapter_id, &new_tier)
+        .update_adapter_tier_for_tenant(&claims.tenant_id, &adapter_id, &new_tier)
         .await
         .map_err(|e| {
             (
@@ -8065,7 +8080,7 @@ pub async fn download_adapter_manifest(
 ) -> Result<Json<AdapterManifest>, (StatusCode, Json<ErrorResponse>)> {
     let adapter = state
         .db
-        .get_adapter(&adapter_id)
+        .get_adapter_for_tenant(&claims.tenant_id, &adapter_id)
         .await
         .map_err(|e| {
             (
@@ -8083,9 +8098,6 @@ pub async fn download_adapter_manifest(
                 Json(ErrorResponse::new("adapter not found").with_code("NOT_FOUND")),
             )
         })?;
-
-    // CRITICAL: Validate tenant isolation - PRD-03
-    validate_tenant_isolation(&claims, &adapter.tenant_id)?;
 
     let manifest = AdapterManifest {
         adapter_id: adapter
@@ -8226,10 +8238,10 @@ pub async fn get_adapter_health(
     Extension(claims): Extension<Claims>,
     Path(adapter_id): Path<String>,
 ) -> Result<Json<AdapterHealthResponse>, (StatusCode, Json<ErrorResponse>)> {
-    // CRITICAL: Fetch adapter first to validate tenant isolation - PRD-03
+    // Fetch adapter with tenant-scoped query
     let adapter = state
         .db
-        .get_adapter(&adapter_id)
+        .get_adapter_for_tenant(&claims.tenant_id, &adapter_id)
         .await
         .map_err(|e| {
             (
@@ -8247,9 +8259,6 @@ pub async fn get_adapter_health(
                 Json(ErrorResponse::new("adapter not found").with_code("NOT_FOUND")),
             )
         })?;
-
-    // CRITICAL: Validate tenant isolation - PRD-03
-    validate_tenant_isolation(&claims, &adapter.tenant_id)?;
 
     // Health thresholds (drift/per-tier)
     let (drift_hard_threshold, high_tier_block_threshold) = adapteros_config::effective_config()
@@ -8519,16 +8528,17 @@ pub async fn get_adapter_health(
 
 // ===== Repository Management Endpoints =====
 
-/// List repositories
+/// List repositories (legacy endpoint - use /v1/code/repositories instead)
 #[utoipa::path(
     tag = "system",
     get,
     path = "/v1/repositories",
+    operation_id = "list_repositories_legacy",
     responses(
         (status = 200, description = "List of repositories", body = Vec<RepositoryResponse>)
     )
 )]
-pub async fn list_repositories(
+pub async fn list_repositories_legacy(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<Vec<RepositoryResponse>>, (StatusCode, Json<ErrorResponse>)> {
@@ -9003,6 +9013,7 @@ pub async fn debug_routing(
                 framework: adapter.framework.clone(),
                 languages,
                 tier: adapter.tier.clone(),
+                base_model: adapter.base_model_id.clone(),
                 ..Default::default()
             }
         })
@@ -9487,6 +9498,33 @@ pub async fn metrics_handler(State(state): State<AppState>) -> impl IntoResponse
         .await
     {
         tracing::warn!("Failed to update worker metrics: {}", e);
+    }
+
+    // Update alert metrics from database
+    {
+        use adapteros_db::process_monitoring::{AlertFilters, ProcessAlert};
+
+        let filters = AlertFilters::default();
+        match ProcessAlert::list(state.db.pool(), filters).await {
+            Ok(alerts) => {
+                let alert_tuples: Vec<(String, String, String, String, String)> = alerts
+                    .iter()
+                    .map(|a| {
+                        (
+                            a.title.clone(),
+                            format!("{:?}", a.severity).to_lowercase(),
+                            a.tenant_id.clone(),
+                            a.worker_id.clone(),
+                            format!("{:?}", a.status).to_lowercase(),
+                        )
+                    })
+                    .collect();
+                state.metrics_exporter.update_alert_metrics(&alert_tuples);
+            }
+            Err(e) => {
+                tracing::warn!("Failed to fetch alerts for metrics: {}", e);
+            }
+        }
     }
 
     // Render metrics

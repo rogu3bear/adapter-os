@@ -13,7 +13,9 @@ use crate::auth::Claims;
 use crate::backpressure::check_uma_backpressure;
 use crate::chat_context::build_chat_prompt;
 use crate::inference_core::InferenceCore;
-use crate::middleware::policy_enforcement::{create_hook_context, enforce_at_hook};
+use crate::middleware::policy_enforcement::{
+    compute_policy_mask_digest, create_hook_context, enforce_at_hook,
+};
 use crate::middleware::request_id::RequestId;
 use crate::middleware::ApiKeyToken;
 use crate::permissions::Permission;
@@ -73,18 +75,32 @@ pub async fn infer(
         .map(|a| a.join(","))
         .or_else(|| req.adapter_stack.as_ref().map(|s| s.join(",")));
 
-    let _ = crate::audit_helper::log_success(
+    if let Err(e) = crate::audit_helper::log_success(
         &state.db,
         &claims,
         crate::audit_helper::actions::INFERENCE_EXECUTE,
         crate::audit_helper::resources::ADAPTER,
         adapters_requested.as_deref(),
     )
-    .await;
+    .await
+    {
+        tracing::warn!(
+            request_id = %request_id_str,
+            tenant_id = %claims.tenant_id,
+            error = %e,
+            "Audit log failed"
+        );
+    }
 
     check_uma_backpressure(&state)?;
 
+    // Validate tenant isolation if tenant_id provided in request
+    if let Some(ref tenant_id) = req.tenant_id {
+        crate::security::validate_tenant_isolation(&claims, tenant_id)?;
+    }
+
     // PRD-06: Enforce policies at OnRequestBeforeRouting hook (before adapter selection)
+    // Capture policy decisions for digest computation
     let routing_hook_ctx = create_hook_context(
         &claims,
         &request_id_str,
@@ -92,18 +108,21 @@ pub async fn infer(
         "inference",
         None, // No adapter selected yet
     );
-    if let Err(violation) = enforce_at_hook(&state, &routing_hook_ctx).await {
-        let code = violation.code.as_deref().unwrap_or("POLICY_HOOK_VIOLATION");
-        return Err((
-            StatusCode::FORBIDDEN,
-            Json(
-                ErrorResponse::new("policy hook violation (pre-routing)")
-                    .with_code(code)
-                    .with_failure_code(FailureCode::PolicyDivergence)
-                    .with_string_details(violation.message),
-            ),
-        ));
-    }
+    let routing_decisions = match enforce_at_hook(&state, &routing_hook_ctx).await {
+        Ok(decisions) => decisions,
+        Err(violation) => {
+            let code = violation.code.as_deref().unwrap_or("POLICY_HOOK_VIOLATION");
+            return Err((
+                StatusCode::FORBIDDEN,
+                Json(
+                    ErrorResponse::new("policy hook violation (pre-routing)")
+                        .with_code(code)
+                        .with_failure_code(FailureCode::PolicyDivergence)
+                        .with_string_details(violation.message),
+                ),
+            ));
+        }
+    };
 
     // PRD-06: Enforce policies at OnBeforeInference hook
     let hook_ctx = create_hook_context(
@@ -113,27 +132,45 @@ pub async fn infer(
         "inference",
         adapters_requested.as_deref(),
     );
-    if let Err(violation) = enforce_at_hook(&state, &hook_ctx).await {
-        let code = violation.code.as_deref().unwrap_or("POLICY_HOOK_VIOLATION");
-        return Err((
-            StatusCode::FORBIDDEN,
-            Json(
-                ErrorResponse::new("policy hook violation")
-                    .with_code(code)
-                    .with_failure_code(FailureCode::PolicyDivergence)
-                    .with_string_details(violation.message),
-            ),
-        ));
-    }
+    let inference_decisions = match enforce_at_hook(&state, &hook_ctx).await {
+        Ok(decisions) => decisions,
+        Err(violation) => {
+            let code = violation.code.as_deref().unwrap_or("POLICY_HOOK_VIOLATION");
+            return Err((
+                StatusCode::FORBIDDEN,
+                Json(
+                    ErrorResponse::new("policy hook violation")
+                        .with_code(code)
+                        .with_failure_code(FailureCode::PolicyDivergence)
+                        .with_string_details(violation.message),
+                ),
+            ));
+        }
+    };
+
+    // Compute policy mask digest from all policy decisions
+    // This enables deterministic replay verification
+    let mut all_decisions = routing_decisions;
+    all_decisions.extend(inference_decisions);
+    let policy_mask_digest = if all_decisions.is_empty() {
+        None
+    } else {
+        Some(compute_policy_mask_digest(&all_decisions))
+    };
 
     // Build multi-turn prompt if session_id is provided
     // This loads chat history and formats it with role markers for context
     let (base_prompt, chat_context_hash) = if let Some(ref session_id) = req.session_id {
-        let chat_config = state.config.read().unwrap().chat_context.clone();
+        // STABILITY: Use poison-safe lock access
+        let chat_config = state.config.read().unwrap_or_else(|e| {
+            tracing::warn!("Config lock poisoned in inference, recovering");
+            e.into_inner()
+        }).chat_context.clone();
         match build_chat_prompt(&state.db, session_id, &req.prompt, &chat_config).await {
             Ok(result) => {
                 info!(
                     request_id = %request_id_str,
+                    tenant_id = %claims.tenant_id,
                     session_id = %session_id,
                     message_count = result.message_count,
                     truncated = result.truncated,
@@ -145,6 +182,7 @@ pub async fn infer(
             Err(e) => {
                 warn!(
                     request_id = %request_id_str,
+                    tenant_id = %claims.tenant_id,
                     session_id = %session_id,
                     error = %e,
                     "Failed to build multi-turn prompt, using single-turn"
@@ -161,6 +199,7 @@ pub async fn infer(
     let mut internal = InferenceRequestInternal::from((&req, &claims));
     internal.prompt = base_prompt;
     internal.chat_context_hash = chat_context_hash;
+    internal.policy_mask_digest = policy_mask_digest;
     if let Some(token) = api_key {
         internal.worker_auth_token = Some(token.0 .0.clone());
     }
@@ -181,14 +220,23 @@ pub async fn infer(
             );
 
             // Log failure to audit trail
-            let _ = crate::audit_helper::log_failure(
+            if let Err(audit_err) = crate::audit_helper::log_failure(
                 &state.db,
                 &claims,
                 crate::audit_helper::actions::INFERENCE_EXECUTE,
                 crate::audit_helper::resources::ADAPTER,
                 adapters_requested.as_deref(),
                 &e.to_string(),
-            );
+            )
+            .await
+            {
+                tracing::warn!(
+                    request_id = %request_id_str,
+                    tenant_id = %claims.tenant_id,
+                    error = %audit_err,
+                    "Audit log failed"
+                );
+            }
 
             if matches!(
                 e,

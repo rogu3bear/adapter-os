@@ -17,7 +17,8 @@ pub struct ContactUpsertBuilder {
 }
 
 /// Parameters for contact upsert operation
-#[derive(Debug)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct ContactUpsertParams {
     pub tenant_id: String,
     pub name: String,
@@ -97,6 +98,7 @@ impl ContactUpsertBuilder {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct Contact {
     pub id: String,
     pub tenant_id: String,
@@ -116,6 +118,7 @@ pub struct Contact {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct ContactInteraction {
     pub id: String,
     pub contact_id: String,

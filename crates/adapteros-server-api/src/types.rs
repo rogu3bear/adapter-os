@@ -382,6 +382,12 @@ pub struct SpawnWorkerRequest {
     pub uid: u32,
     #[serde(default = "default_gid")]
     pub gid: u32,
+    /// Model cache budget in megabytes (propagated to worker as AOS_MODEL_CACHE_MAX_MB)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_cache_max_mb: Option<u64>,
+    /// Path to config TOML file (propagated to worker as AOS_CONFIG_TOML)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub config_toml_path: Option<String>,
 }
 
 /// Worker fatal error message
@@ -1949,49 +1955,6 @@ pub fn training_job_to_response(job: adapteros_orchestrator::TrainingJob) -> Tra
     TrainingJobResponse::from(job)
 }
 
-/// Calculate estimated completion time for a training job
-///
-/// Uses progress percentage and elapsed time to estimate when the job will complete.
-/// Returns None if the job is not running or progress data is insufficient.
-fn calculate_estimated_completion(job: &adapteros_orchestrator::TrainingJob) -> Option<String> {
-    use chrono::{DateTime, Duration, Utc};
-
-    // Only calculate for running jobs with meaningful progress
-    if !matches!(
-        job.status,
-        adapteros_orchestrator::TrainingJobStatus::Running
-    ) {
-        return None;
-    }
-
-    // Need started_at timestamp and non-zero progress
-    let started_at = job.started_at.as_ref()?;
-    if job.progress_pct <= 0.0 || job.progress_pct >= 100.0 {
-        return None;
-    }
-
-    // Parse started_at as RFC3339 timestamp
-    let start_time: DateTime<Utc> = started_at.parse().ok()?;
-    let now = Utc::now();
-
-    // Calculate elapsed time
-    let elapsed = now.signed_duration_since(start_time);
-    if elapsed.num_seconds() <= 0 {
-        return None;
-    }
-
-    // Estimate total time based on current progress
-    // Formula: total_time = elapsed_time / (progress_pct / 100)
-    let progress_fraction = job.progress_pct as f64 / 100.0;
-    let estimated_total_seconds = elapsed.num_seconds() as f64 / progress_fraction;
-    let remaining_seconds = (estimated_total_seconds - elapsed.num_seconds() as f64).max(0.0);
-
-    // Add remaining time to now
-    let estimated_completion = now + Duration::seconds(remaining_seconds as i64);
-
-    Some(estimated_completion.to_rfc3339())
-}
-
 /// Convert orchestrator TrainingTemplate to TrainingTemplateResponse
 pub fn training_template_to_response(
     template: adapteros_orchestrator::TrainingTemplate,
@@ -2800,6 +2763,11 @@ pub struct InferenceRequestInternal {
     /// When a session_id is provided and multi-turn context is built, this hash
     /// enables deterministic replay verification. Stored in replay_metadata.
     pub chat_context_hash: Option<String>,
+    /// BLAKE3 digest of policy decisions applied during request processing
+    ///
+    /// This captures the policy enforcement state for deterministic replay.
+    /// Computed from the sorted policy_pack_ids, hooks, and decisions.
+    pub policy_mask_digest: Option<[u8; 32]>,
 
     // === Model Selection ===
     /// Model identifier (if specific model requested)
@@ -2853,6 +2821,7 @@ impl InferenceRequestInternal {
             session_id: None,
             pinned_adapter_ids: None,
             chat_context_hash: None,
+            policy_mask_digest: None,
             model: None,
             stop_policy: None,
             created_at: std::time::Instant::now(),
@@ -3007,6 +2976,37 @@ pub struct ChunkReference {
     pub rank: usize,
 }
 
+/// Structured error details from worker responses
+///
+/// This enum mirrors `adapteros_lora_worker::InferenceErrorDetails` for
+/// deserialization from worker UDS responses and API transport.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, PartialEq, Eq)]
+#[serde(tag = "type")]
+pub enum WorkerErrorDetails {
+    /// Model cache budget exceeded during eviction
+    #[serde(rename = "cache_budget_exceeded")]
+    CacheBudgetExceeded {
+        /// Memory needed in megabytes
+        needed_mb: u64,
+        /// Memory freed during eviction attempt in megabytes
+        freed_mb: u64,
+        /// Number of pinned entries that blocked eviction
+        pinned_count: usize,
+        /// Number of active entries that blocked eviction
+        active_count: usize,
+        /// Maximum cache budget in megabytes
+        max_mb: u64,
+        /// Optional model key identifier (for diagnostics)
+        model_key: Option<String>,
+    },
+    /// Generic worker error (fallback for unstructured errors)
+    #[serde(rename = "worker_error")]
+    WorkerError {
+        /// Error message
+        message: String,
+    },
+}
+
 /// Error type for inference operations
 #[derive(Debug, Clone)]
 pub enum InferenceError {
@@ -3036,8 +3036,46 @@ pub enum InferenceError {
         /// Specific reason why no compatible workers were found
         reason: String,
     },
+    /// Worker discovery failed but system is in degraded mode (dev mode only)
+    ///
+    /// This error indicates that no compatible worker was found after retries,
+    /// but the system is in dev mode and can operate in a degraded state.
+    WorkerDegraded {
+        tenant_id: String,
+        /// Reason for degradation
+        reason: String,
+    },
     /// Adapter not found or not loadable (archived/purged)
     AdapterNotFound(String),
+    /// Worker ID unavailable for token generation
+    ///
+    /// When worker authentication is enabled (signing keypair present), we require
+    /// a valid worker_id to generate tokens. This error occurs when worker selection
+    /// fails to provide a worker_id.
+    WorkerIdUnavailable {
+        /// Tenant ID for the request
+        tenant_id: String,
+        /// Reason worker ID is unavailable
+        reason: String,
+    },
+    /// Model cache budget exceeded in worker
+    ///
+    /// This error occurs when the worker's model cache cannot free enough
+    /// memory to accommodate a new model load.
+    CacheBudgetExceeded {
+        /// Memory needed in megabytes
+        needed_mb: u64,
+        /// Memory freed during eviction attempt in megabytes
+        freed_mb: u64,
+        /// Number of pinned entries that blocked eviction
+        pinned_count: usize,
+        /// Number of active entries that blocked eviction
+        active_count: usize,
+        /// Maximum cache budget in megabytes
+        max_mb: u64,
+        /// Optional model key identifier (for diagnostics)
+        model_key: Option<String>,
+    },
 }
 
 impl std::fmt::Display for InferenceError {
@@ -3062,7 +3100,29 @@ impl std::fmt::Display for InferenceError {
                 "No compatible worker for tenant {} with manifest {} ({} workers available). Reason: {}",
                 tenant_id, required_hash, available_count, reason
             ),
+            Self::WorkerDegraded { tenant_id, reason } => write!(
+                f,
+                "Worker degraded for tenant {}: {}",
+                tenant_id, reason
+            ),
             Self::AdapterNotFound(msg) => write!(f, "Adapter not found: {}", msg),
+            Self::WorkerIdUnavailable { tenant_id, reason } => write!(
+                f,
+                "Worker ID unavailable for tenant {}: {}",
+                tenant_id, reason
+            ),
+            Self::CacheBudgetExceeded {
+                needed_mb,
+                freed_mb,
+                pinned_count,
+                active_count,
+                max_mb,
+                ..
+            } => write!(
+                f,
+                "Model cache budget exceeded: needed {} MB, freed {} MB (pinned={}, active={}), max {} MB",
+                needed_mb, freed_mb, pinned_count, active_count, max_mb
+            ),
         }
     }
 }
@@ -3084,7 +3144,10 @@ impl InferenceError {
             Self::RoutingBypass(_) => StatusCode::INTERNAL_SERVER_ERROR,
             Self::ModelNotReady(_) => StatusCode::SERVICE_UNAVAILABLE,
             Self::NoCompatibleWorker { .. } => StatusCode::SERVICE_UNAVAILABLE,
+            Self::WorkerDegraded { .. } => StatusCode::SERVICE_UNAVAILABLE,
             Self::AdapterNotFound(_) => StatusCode::NOT_FOUND,
+            Self::WorkerIdUnavailable { .. } => StatusCode::SERVICE_UNAVAILABLE,
+            Self::CacheBudgetExceeded { .. } => StatusCode::SERVICE_UNAVAILABLE,
         }
     }
 
@@ -3101,7 +3164,10 @@ impl InferenceError {
             Self::RoutingBypass(_) => "ROUTING_BYPASS",
             Self::ModelNotReady(_) => "MODEL_NOT_READY",
             Self::NoCompatibleWorker { .. } => "NO_COMPATIBLE_WORKER",
+            Self::WorkerDegraded { .. } => "WORKER_DEGRADED",
             Self::AdapterNotFound(_) => "ADAPTER_NOT_FOUND",
+            Self::WorkerIdUnavailable { .. } => "WORKER_ID_UNAVAILABLE",
+            Self::CacheBudgetExceeded { .. } => "CACHE_BUDGET_EXCEEDED",
         }
     }
 
@@ -3133,7 +3199,10 @@ impl InferenceError {
                 }
             }
             Self::NoCompatibleWorker { .. } => Some(FailureCode::BackendFallback),
+            Self::WorkerDegraded { .. } => Some(FailureCode::BackendFallback),
             Self::AdapterNotFound(_) => None,
+            Self::WorkerIdUnavailable { .. } => Some(FailureCode::BackendFallback),
+            Self::CacheBudgetExceeded { .. } => Some(FailureCode::OutOfMemory),
         }
     }
 }
@@ -3179,6 +3248,7 @@ impl From<(&InferRequest, &Claims)> for InferenceRequestInternal {
             session_id: req.session_id.clone(),
             pinned_adapter_ids: None, // Populated by InferenceCore from session
             chat_context_hash: None,
+            policy_mask_digest: None, // Computed by handler from enforce_at_hook
             model: req.model.clone(),
             stop_policy: req.stop_policy.clone(),
             created_at: std::time::Instant::now(),

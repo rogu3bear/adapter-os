@@ -216,6 +216,16 @@ impl From<Adapter> for AdapterKv {
             archived_by: adapter.archived_by,
             archive_reason: adapter.archive_reason,
             purged_at: adapter.purged_at,
+            base_model_id: adapter.base_model_id,
+            manifest_schema_version: adapter.manifest_schema_version,
+            content_hash_b3: adapter.content_hash_b3,
+            provenance_json: adapter.provenance_json,
+            drift_tier: adapter.drift_tier,
+            drift_metric: adapter.drift_metric,
+            drift_loss_metric: adapter.drift_loss_metric,
+            drift_reference_backend: adapter.drift_reference_backend,
+            drift_baseline_backend: adapter.drift_baseline_backend,
+            drift_test_backend: adapter.drift_test_backend,
             created_at: adapter.created_at,
             updated_at: adapter.updated_at,
         }
@@ -275,18 +285,18 @@ impl From<AdapterKv> for Adapter {
             archived_by: kv.archived_by,
             archive_reason: kv.archive_reason,
             purged_at: kv.purged_at,
-            // Base model and artifact hardening (not stored in KV yet)
-            base_model_id: None,
-            manifest_schema_version: None,
-            content_hash_b3: None,
-            provenance_json: None,
-            // Drift fields (not stored in KV)
-            drift_tier: None,
-            drift_metric: None,
-            drift_loss_metric: None,
-            drift_reference_backend: None,
-            drift_baseline_backend: None,
-            drift_test_backend: None,
+            // Base model and artifact hardening
+            base_model_id: kv.base_model_id,
+            manifest_schema_version: kv.manifest_schema_version,
+            content_hash_b3: kv.content_hash_b3,
+            provenance_json: kv.provenance_json,
+            // Drift fields
+            drift_tier: kv.drift_tier,
+            drift_metric: kv.drift_metric,
+            drift_loss_metric: kv.drift_loss_metric,
+            drift_reference_backend: kv.drift_reference_backend,
+            drift_baseline_backend: kv.drift_baseline_backend,
+            drift_test_backend: kv.drift_test_backend,
         }
     }
 }
@@ -360,6 +370,18 @@ impl AdapterKvOps for AdapterKvRepository {
             archived_by: None,
             archive_reason: None,
             purged_at: None,
+            // Base model and artifact hardening fields
+            base_model_id: None,
+            manifest_schema_version: None,
+            content_hash_b3: None,
+            provenance_json: None,
+            // Drift tracking fields default to None for new adapters
+            drift_tier: None,
+            drift_metric: None,
+            drift_loss_metric: None,
+            drift_reference_backend: None,
+            drift_baseline_backend: None,
+            drift_test_backend: None,
         };
 
         self.repo

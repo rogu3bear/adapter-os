@@ -8,7 +8,6 @@ use crate::auth::{
 };
 use crate::auth_common::{
     attach_auth_cookie, attach_csrf_cookie, attach_refresh_cookie, clear_auth_cookies, AuthConfig,
-    AuthContext,
 };
 use crate::ip_extraction::ClientIp;
 use crate::mfa::{
@@ -185,6 +184,52 @@ async fn emit_auth_event(
     if let Ok(event) = build_auth_event(identity, payload) {
         let _ = state.telemetry_buffer.push(event).await;
     }
+}
+
+/// Log a failed token refresh attempt for audit purposes.
+/// This captures failures where we may not have valid claims.
+async fn log_refresh_failure(
+    db: &Db,
+    session_id: Option<&str>,
+    user_id: Option<&str>,
+    tenant_id: Option<&str>,
+    error_code: &str,
+    error_detail: &str,
+    ip_address: Option<&str>,
+) {
+    let metadata = serde_json::json!({ "error_code": error_code });
+    let _ = db
+        .log_audit(
+            user_id.unwrap_or("unknown"),
+            "unknown",
+            tenant_id.unwrap_or("unknown"),
+            "auth.refresh_failed",
+            "session",
+            session_id,
+            "failure",
+            Some(error_detail),
+            ip_address,
+            Some(&metadata.to_string()),
+        )
+        .await;
+}
+
+/// Emit telemetry event for failed refresh
+async fn emit_refresh_failure(
+    state: &AppState,
+    user_id: Option<&str>,
+    tenant_id: Option<&str>,
+    error_code: &str,
+) {
+    emit_auth_event(
+        state,
+        user_id.unwrap_or("unknown"),
+        tenant_id.unwrap_or("unknown"),
+        "refresh",
+        false,
+        Some(error_code),
+    )
+    .await;
 }
 
 async fn collect_tenant_summaries(
@@ -1094,6 +1139,10 @@ pub async fn login_handler(
         .await
         .ok();
 
+    // TODO: Add last_login column to users table and implement update_user_last_login method
+    // For now, last login tracking is skipped as the column doesn't exist in schema
+    tracing::debug!(user_id = %user.id, "Login successful (last_login tracking not implemented)");
+
     // Log audit (best effort, doesn't fail login)
     log_auth_event(
         &state.db,
@@ -1287,16 +1336,37 @@ pub async fn refresh_token_handler(
         .and_then(|v| v.to_str().ok())
         .map(|s| s.to_string());
 
-    let refresh_token = extract_cookie_token(&headers, "refresh_token").ok_or_else(|| {
-        (
-            StatusCode::UNAUTHORIZED,
-            Json(
-                ErrorResponse::new("session expired")
-                    .with_code("SESSION_EXPIRED")
-                    .with_string_details("refresh token missing"),
-            ),
-        )
-    })?;
+    // Extract client IP for audit logging
+    let client_ip = headers
+        .get("x-forwarded-for")
+        .or_else(|| headers.get("x-real-ip"))
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.split(',').next().unwrap_or(s).trim().to_string());
+
+    let refresh_token = match extract_cookie_token(&headers, "refresh_token") {
+        Some(token) => token,
+        None => {
+            log_refresh_failure(
+                &state.db,
+                None,
+                None,
+                None,
+                "MISSING_TOKEN",
+                "refresh token missing",
+                client_ip.as_deref(),
+            )
+            .await;
+            emit_refresh_failure(&state, None, None, "MISSING_TOKEN").await;
+            return Err((
+                StatusCode::UNAUTHORIZED,
+                Json(
+                    ErrorResponse::new("session expired")
+                        .with_code("SESSION_EXPIRED")
+                        .with_string_details("refresh token missing"),
+                ),
+            ));
+        }
+    };
 
     let refresh_claims = match if state.use_ed25519 {
         validate_refresh_token_ed25519(
@@ -1314,6 +1384,17 @@ pub async fn refresh_token_handler(
         Ok(claims) => claims,
         Err(e) => {
             warn!(error = %e, "Failed to validate refresh token");
+            log_refresh_failure(
+                &state.db,
+                None,
+                None,
+                None,
+                "INVALID_TOKEN",
+                "refresh token invalid or expired",
+                client_ip.as_deref(),
+            )
+            .await;
+            emit_refresh_failure(&state, None, None, "INVALID_TOKEN").await;
             return Err((
                 StatusCode::UNAUTHORIZED,
                 Json(
@@ -1327,6 +1408,23 @@ pub async fn refresh_token_handler(
 
     let session_id = refresh_claims.session_id.clone();
     if session_id.is_empty() {
+        log_refresh_failure(
+            &state.db,
+            None,
+            Some(&refresh_claims.sub),
+            Some(&refresh_claims.tenant_id),
+            "MISSING_SESSION_ID",
+            "missing session_id in token",
+            client_ip.as_deref(),
+        )
+        .await;
+        emit_refresh_failure(
+            &state,
+            Some(&refresh_claims.sub),
+            Some(&refresh_claims.tenant_id),
+            "MISSING_SESSION_ID",
+        )
+        .await;
         return Err((
             StatusCode::UNAUTHORIZED,
             Json(
@@ -1355,6 +1453,23 @@ pub async fn refresh_token_handler(
     {
         if let Ok(baseline_dt) = chrono::DateTime::parse_from_rfc3339(&baseline) {
             if refresh_claims.iat < baseline_dt.timestamp() {
+                log_refresh_failure(
+                    &state.db,
+                    Some(&session_id),
+                    Some(&refresh_claims.sub),
+                    Some(&refresh_claims.tenant_id),
+                    "BASELINE_VIOLATION",
+                    "refresh issued before tenant baseline",
+                    client_ip.as_deref(),
+                )
+                .await;
+                emit_refresh_failure(
+                    &state,
+                    Some(&refresh_claims.sub),
+                    Some(&refresh_claims.tenant_id),
+                    "BASELINE_VIOLATION",
+                )
+                .await;
                 return Err((
                     StatusCode::UNAUTHORIZED,
                     Json(
@@ -1378,6 +1493,23 @@ pub async fn refresh_token_handler(
             )
         })?;
     if revoked {
+        log_refresh_failure(
+            &state.db,
+            Some(&session_id),
+            Some(&refresh_claims.sub),
+            Some(&refresh_claims.tenant_id),
+            "TOKEN_REVOKED",
+            "session revoked",
+            client_ip.as_deref(),
+        )
+        .await;
+        emit_refresh_failure(
+            &state,
+            Some(&refresh_claims.sub),
+            Some(&refresh_claims.tenant_id),
+            "TOKEN_REVOKED",
+        )
+        .await;
         return Err((
             StatusCode::UNAUTHORIZED,
             Json(
@@ -1388,27 +1520,62 @@ pub async fn refresh_token_handler(
         ));
     }
 
-    let session = get_session_by_id(&state.db, &session_id)
-        .await
-        .map_err(|e| {
-            warn!(error = %e, "Failed to load session for refresh");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new("internal error").with_code("INTERNAL_ERROR")),
+    let session = match get_session_by_id(&state.db, &session_id).await {
+        Ok(Some(s)) => s,
+        Ok(None) => {
+            log_refresh_failure(
+                &state.db,
+                Some(&session_id),
+                Some(&refresh_claims.sub),
+                Some(&refresh_claims.tenant_id),
+                "SESSION_NOT_FOUND",
+                "session not found",
+                client_ip.as_deref(),
             )
-        })?
-        .ok_or_else(|| {
-            (
+            .await;
+            emit_refresh_failure(
+                &state,
+                Some(&refresh_claims.sub),
+                Some(&refresh_claims.tenant_id),
+                "SESSION_NOT_FOUND",
+            )
+            .await;
+            return Err((
                 StatusCode::UNAUTHORIZED,
                 Json(
                     ErrorResponse::new("session expired")
                         .with_code("SESSION_EXPIRED")
                         .with_string_details("session not found"),
                 ),
-            )
-        })?;
+            ));
+        }
+        Err(e) => {
+            warn!(error = %e, "Failed to load session for refresh");
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new("internal error").with_code("INTERNAL_ERROR")),
+            ));
+        }
+    };
 
     if session.locked != 0 {
+        log_refresh_failure(
+            &state.db,
+            Some(&session_id),
+            Some(&refresh_claims.sub),
+            Some(&refresh_claims.tenant_id),
+            "SESSION_LOCKED",
+            "session locked",
+            client_ip.as_deref(),
+        )
+        .await;
+        emit_refresh_failure(
+            &state,
+            Some(&refresh_claims.sub),
+            Some(&refresh_claims.tenant_id),
+            "SESSION_LOCKED",
+        )
+        .await;
         return Err((
             StatusCode::UNAUTHORIZED,
             Json(
@@ -1429,6 +1596,23 @@ pub async fn refresh_token_handler(
                 session_device = %session_device,
                 "Device mismatch on refresh"
             );
+            log_refresh_failure(
+                &state.db,
+                Some(&session_id),
+                Some(&refresh_claims.sub),
+                Some(&refresh_claims.tenant_id),
+                "DEVICE_MISMATCH",
+                "device mismatch",
+                client_ip.as_deref(),
+            )
+            .await;
+            emit_refresh_failure(
+                &state,
+                Some(&refresh_claims.sub),
+                Some(&refresh_claims.tenant_id),
+                "DEVICE_MISMATCH",
+            )
+            .await;
             return Err((
                 StatusCode::UNAUTHORIZED,
                 Json(
@@ -1443,6 +1627,23 @@ pub async fn refresh_token_handler(
     if let Some(stored_rot) = session.rot_id.as_ref() {
         if stored_rot != &incoming_rot {
             warn!(session_id = %session_id, "Rotation id mismatch on refresh");
+            log_refresh_failure(
+                &state.db,
+                Some(&session_id),
+                Some(&refresh_claims.sub),
+                Some(&refresh_claims.tenant_id),
+                "ROTATION_MISMATCH",
+                "rotation mismatch",
+                client_ip.as_deref(),
+            )
+            .await;
+            emit_refresh_failure(
+                &state,
+                Some(&refresh_claims.sub),
+                Some(&refresh_claims.tenant_id),
+                "ROTATION_MISMATCH",
+            )
+            .await;
             return Err((
                 StatusCode::UNAUTHORIZED,
                 Json(
@@ -1457,6 +1658,23 @@ pub async fn refresh_token_handler(
     if let Some(stored_hash) = session.refresh_hash.as_ref() {
         if stored_hash != &refresh_hash {
             warn!(session_id = %session_id, "Refresh hash mismatch");
+            log_refresh_failure(
+                &state.db,
+                Some(&session_id),
+                Some(&refresh_claims.sub),
+                Some(&refresh_claims.tenant_id),
+                "HASH_MISMATCH",
+                "refresh mismatch",
+                client_ip.as_deref(),
+            )
+            .await;
+            emit_refresh_failure(
+                &state,
+                Some(&refresh_claims.sub),
+                Some(&refresh_claims.tenant_id),
+                "HASH_MISMATCH",
+            )
+            .await;
             return Err((
                 StatusCode::UNAUTHORIZED,
                 Json(
@@ -1477,6 +1695,23 @@ pub async fn refresh_token_handler(
         .unwrap_or(refresh_claims.exp);
 
     if refresh_claims.exp <= now_ts || session_exp_ts <= now_ts {
+        log_refresh_failure(
+            &state.db,
+            Some(&session_id),
+            Some(&refresh_claims.sub),
+            Some(&refresh_claims.tenant_id),
+            "SESSION_EXPIRED",
+            "session expired",
+            client_ip.as_deref(),
+        )
+        .await;
+        emit_refresh_failure(
+            &state,
+            Some(&refresh_claims.sub),
+            Some(&refresh_claims.tenant_id),
+            "SESSION_EXPIRED",
+        )
+        .await;
         return Err((
             StatusCode::UNAUTHORIZED,
             Json(
@@ -3024,14 +3259,17 @@ pub async fn mfa_start_handler(
 
     let otpauth = otpauth_uri(&claims.email, "AdapterOS", &secret_b32);
 
-    let _ = audit_helper::log_success(
+    if let Err(e) = audit_helper::log_success(
         &state.db,
         &claims,
         "auth.mfa.start",
         "user",
         Some(&claims.sub),
     )
-    .await;
+    .await
+    {
+        tracing::warn!(error = %e, "Audit log failed");
+    }
 
     Ok(Json(MfaEnrollStartResponse {
         secret: secret_b32,
@@ -3128,14 +3366,17 @@ pub async fn mfa_verify_handler(
             )
         })?;
 
-    let _ = audit_helper::log_success(
+    if let Err(e) = audit_helper::log_success(
         &state.db,
         &claims,
         "auth.mfa.enable",
         "user",
         Some(&claims.sub),
     )
-    .await;
+    .await
+    {
+        tracing::warn!(error = %e, "Audit log failed");
+    }
 
     Ok(Json(MfaEnrollVerifyResponse { backup_codes }))
 }
@@ -3246,14 +3487,17 @@ pub async fn mfa_disable_handler(
         )
     })?;
 
-    let _ = audit_helper::log_success(
+    if let Err(e) = audit_helper::log_success(
         &state.db,
         &claims,
         "auth.mfa.disable",
         "user",
         Some(&claims.sub),
     )
-    .await;
+    .await
+    {
+        tracing::warn!(error = %e, "Audit log failed");
+    }
 
     Ok(StatusCode::NO_CONTENT)
 }
