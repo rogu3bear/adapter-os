@@ -287,7 +287,7 @@ mod tests {
         let document = IngestedDocument {
             source: DocumentSource::Pdf,
             source_name: "test.pdf".to_string(),
-            source_path: Some(PathBuf::from("/tmp/test.pdf")),
+            source_path: Some(PathBuf::from("var/test.pdf")),
             doc_hash: B3Hash::hash(b"test"),
             byte_len: 100,
             page_count: Some(1),

@@ -2,7 +2,7 @@
 
 **Purpose**: Comprehensive guide to understanding and using the AdapterOS CLI (`aosctl`)  
 **Last Updated**: 2025-01-15  
-**Version**: v0.3-alpha
+**Version**: alpha-v0.11-unstable-pre-release
 
 ---
 
@@ -1497,8 +1497,8 @@ aosctl manual <ARGS>
 
 ## See Also
 
-- [Architecture Overview](ARCHITECTURE_INDEX.md) - System architecture
-- [Control Plane](control-plane.md) - Control plane API documentation
+- [Architecture Overview](ARCHITECTURE.md) - System architecture
+- [Control Plane](ARCHITECTURE.md#architecture-components) - Control plane architecture
 - [API Reference](API_REFERENCE.md) - REST API documentation
 - [CLAUDE.md](../CLAUDE.md) - Complete developer reference
 

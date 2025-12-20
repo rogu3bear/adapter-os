@@ -176,7 +176,7 @@ interface PolicyCheck {
 
 ## 23 Canonical Policies
 
-See [docs/ARCHITECTURE_INDEX.md](../../docs/ARCHITECTURE_INDEX.md) for detailed descriptions.
+See [docs/ARCHITECTURE.md](../../docs/ARCHITECTURE.md) for detailed descriptions.
 
 **Security (7)**
 - Egress Control
@@ -448,7 +448,7 @@ npm test components/__integration__/PromotionFlow.test.tsx
 ## References
 
 - CLAUDE.md: Policy pack definitions
-- docs/ARCHITECTURE_PATTERNS.md: Promotion workflow patterns
+- docs/ARCHITECTURE.md#adapter-lifecycle: Promotion workflow patterns
 - docs/RBAC.md: Role-based access control
 - ui/src/components/Promotion.tsx: Existing promotion component
 

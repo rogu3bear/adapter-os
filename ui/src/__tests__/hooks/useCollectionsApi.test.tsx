@@ -22,7 +22,7 @@ const mockDeleteCollection = vi.fn();
 const mockAddDocumentToCollection = vi.fn();
 const mockRemoveDocumentFromCollection = vi.fn();
 
-vi.mock('@/api/client', () => ({
+vi.mock('@/api/services', () => ({
   apiClient: {
     listCollections: (...args: unknown[]) => mockListCollections(...args),
     getCollection: (...args: unknown[]) => mockGetCollection(...args),

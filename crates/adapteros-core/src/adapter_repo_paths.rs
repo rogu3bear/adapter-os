@@ -169,8 +169,24 @@ pub fn resolve_adapter_roots_from_strings(
         .unwrap_or_else(|| DEFAULT_REPO_DIR.to_string());
     let cache_root = cache_env.unwrap_or_else(|| DEFAULT_CACHE_DIR.to_string());
 
-    let repo_abs = absolutize(PathBuf::from(repo_root));
-    let cache_abs = absolutize(PathBuf::from(cache_root));
+    let mut repo_abs = absolutize(PathBuf::from(repo_root));
+    let mut cache_abs = absolutize(PathBuf::from(cache_root));
+
+    if crate::path_security::is_forbidden_tmp_path(&repo_abs) {
+        tracing::warn!(
+            path = %repo_abs.display(),
+            "Refusing to use forbidden temp directory for adapter repo root; falling back to default"
+        );
+        repo_abs = absolutize(PathBuf::from(DEFAULT_REPO_DIR));
+    }
+
+    if crate::path_security::is_forbidden_tmp_path(&cache_abs) {
+        tracing::warn!(
+            path = %cache_abs.display(),
+            "Refusing to use forbidden temp directory for adapter cache root; falling back to default"
+        );
+        cache_abs = absolutize(PathBuf::from(DEFAULT_CACHE_DIR));
+    }
 
     debug_assert!(repo_abs.is_absolute());
     debug_assert!(cache_abs.is_absolute());
@@ -294,10 +310,16 @@ fn parse_semver(input: &str) -> Option<(u64, u64, u64)> {
 mod tests {
     use super::*;
 
+    fn new_test_tempdir() -> tempfile::TempDir {
+        let root = PathBuf::from("var").join("tmp");
+        fs::create_dir_all(&root).expect("create var/tmp");
+        tempfile::tempdir_in(&root).expect("tempdir")
+    }
+
     #[test]
     fn env_overrides_are_absolute() {
-        let repo = "/tmp/a-repo".to_string();
-        let cache = "/tmp/a-cache".to_string();
+        let repo = "/var/a-repo".to_string();
+        let cache = "/var/a-cache".to_string();
         let paths =
             resolve_adapter_roots_from_strings(Some(repo.clone()), Some(cache.clone()), None);
         assert_eq!(paths.repo_root, PathBuf::from(repo));
@@ -354,7 +376,7 @@ mod tests {
 
     #[test]
     fn resolve_existing_lex_picks_latest() {
-        let temp = tempfile::tempdir().unwrap();
+        let temp = new_test_tempdir();
         let repo = temp.path().join("repo");
         let cache = temp.path().join("cache");
         fs::create_dir_all(repo.join("tenant").join("adapter")).unwrap();
@@ -380,7 +402,7 @@ mod tests {
 
     #[test]
     fn resolve_existing_falls_back_to_flat() {
-        let temp = tempfile::tempdir().unwrap();
+        let temp = new_test_tempdir();
         let repo = temp.path().join("repo");
         let cache = temp.path().join("cache");
         let tenant_flat = repo.join("tenant").join("adapter");
@@ -401,7 +423,7 @@ mod tests {
 
     #[test]
     fn resolve_existing_semver_orders_correctly() {
-        let temp = tempfile::tempdir().unwrap();
+        let temp = new_test_tempdir();
         let repo = temp.path().join("repo");
         let cache = temp.path().join("cache");
         fs::create_dir_all(repo.join("tenant").join("adapter")).unwrap();
@@ -480,7 +502,7 @@ mod tests {
 
     #[test]
     fn resolve_latest_semver_for_cli_picks_highest() {
-        let temp = tempfile::tempdir().unwrap();
+        let temp = new_test_tempdir();
         let repo = temp.path().join("repo");
         let cache = temp.path().join("cache");
         fs::create_dir_all(repo.join("tenant").join("adapter")).unwrap();

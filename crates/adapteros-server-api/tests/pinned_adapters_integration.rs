@@ -159,6 +159,7 @@ fn test_inference_request_internal_with_pinned_adapters() {
         batch_item_id: None,
         rag_enabled: false,
         rag_collection_id: None,
+        dataset_version_id: None,
         adapter_stack: None,
         adapters: None,
         stack_id: None,

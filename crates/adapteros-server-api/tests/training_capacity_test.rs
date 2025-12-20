@@ -25,7 +25,7 @@ async fn check_training_capacity_counts_running_jobs() {
     )
     .bind("repo-1-id")
     .bind("repo-1")
-    .bind("/tmp/repo-1")
+    .bind("var/repo-1")
     .bind("main")
     .bind("{}")
     .bind("{}")

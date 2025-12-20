@@ -5,8 +5,11 @@ const fs = require('fs');
 const cors = require('cors');
 
 const app = express();
-const PORT = 3301;
-const API_PROXY_TARGET = process.env.API_PROXY_TARGET || 'http://localhost:8080';
+// Port configuration - respects environment variables for multi-developer setups
+const PORT = parseInt(process.env.AOS_PANEL_PORT || '3301', 10);
+const BACKEND_PORT = process.env.AOS_SERVER_PORT || '8080';
+const UI_PORT = process.env.AOS_UI_PORT || '3200';
+const API_PROXY_TARGET = process.env.API_PROXY_TARGET || `http://localhost:${BACKEND_PORT}`;
 
 // Compute project root as parent of ui/ directory
 // This allows the server to work from any location where the project is cloned
@@ -72,8 +75,8 @@ const serviceConfigs = {
     startCommand: `cd "${UI_DIR}" && SERVICE_PANEL_SECRET=adapteros-local-dev pnpm service-panel`,
     stopCommand: 'pkill -f "node server.js"',
     statusCommand: 'pgrep -f "node server.js" >/dev/null && echo "running" || echo "stopped"',
-    healthCommand: 'curl -f http://localhost:3301/health >/dev/null 2>&1 && echo "healthy" || echo "unhealthy"',
-    port: 3301,
+    healthCommand: `curl -f http://localhost:${PORT}/health >/dev/null 2>&1 && echo "healthy" || echo "unhealthy"`,
+    port: PORT,
     category: 'management',
     essential: true,
     dependencies: [],
@@ -84,8 +87,8 @@ const serviceConfigs = {
     startCommand: `cd "${PROJECT_ROOT}" && cargo run -p adapteros-server-api --release 2>&1 | head -100`,
     stopCommand: 'pkill -f "adapteros-server-api"',
     statusCommand: 'pgrep -f "adapteros-server-api" >/dev/null && echo "running" || echo "stopped"',
-    healthCommand: 'curl -f http://localhost:8080/healthz >/dev/null 2>&1 && echo "healthy" || echo "unhealthy"',
-    port: 8080,
+    healthCommand: `curl -f http://localhost:${BACKEND_PORT}/healthz >/dev/null 2>&1 && echo "healthy" || echo "unhealthy"`,
+    port: parseInt(BACKEND_PORT, 10),
     category: 'core',
     essential: true,
     dependencies: [],
@@ -93,11 +96,11 @@ const serviceConfigs = {
   },
   'ui-frontend': {
     name: 'UI Frontend',
-    startCommand: `cd "${UI_DIR}" && pnpm dev -- --host 0.0.0.0 --port 3200`,
-    stopCommand: 'pkill -f "vite.*3200"',
-    statusCommand: 'pgrep -f "vite.*3200" >/dev/null && echo "running" || echo "stopped"',
-    healthCommand: 'curl -f http://localhost:3200 >/dev/null 2>&1 && echo "healthy" || echo "unhealthy"',
-    port: 3200,
+    startCommand: `cd "${UI_DIR}" && pnpm dev -- --host 0.0.0.0 --port ${UI_PORT}`,
+    stopCommand: `pkill -f "vite.*${UI_PORT}"`,
+    statusCommand: `pgrep -f "vite.*${UI_PORT}" >/dev/null && echo "running" || echo "stopped"`,
+    healthCommand: `curl -f http://localhost:${UI_PORT} >/dev/null 2>&1 && echo "healthy" || echo "unhealthy"`,
+    port: parseInt(UI_PORT, 10),
     category: 'core',
     essential: false,
     dependencies: [],

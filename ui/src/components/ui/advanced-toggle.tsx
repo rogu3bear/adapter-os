@@ -2,7 +2,7 @@ import React from 'react';
 import { Switch } from './switch';
 import { Label } from './label';
 import { Settings, Eye, EyeOff } from 'lucide-react';
-import { cn } from './utils';
+import { cn } from '@/lib/utils';
 
 interface AdvancedToggleProps {
   checked: boolean;

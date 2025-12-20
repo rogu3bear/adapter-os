@@ -5,12 +5,22 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
 # Color codes for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
+
+TMP_ROOT="${AOS_VAR_DIR:-${REPO_ROOT}/var}/tmp"
+if [[ "$TMP_ROOT" == /tmp* || "$TMP_ROOT" == /private/tmp* ]]; then
+    echo -e "${RED}Error: Refusing temporary directory under /tmp: ${TMP_ROOT}${NC}"
+    exit 1
+fi
+mkdir -p "${TMP_ROOT}"
 
 echo -e "${BLUE}========================================${NC}"
 echo -e "${BLUE}AdapterOS Metal Toolchain Installer${NC}"
@@ -48,7 +58,7 @@ echo ""
 echo -e "${BLUE}Checking Metal Toolchain installation...${NC}"
 
 # Test Metal compilation with a simple shader
-TEST_DIR=$(mktemp -d)
+TEST_DIR="$(mktemp -d "${TMP_ROOT}/metal-toolchain.XXXXXX")"
 TEST_METAL="${TEST_DIR}/test.metal"
 TEST_AIR="${TEST_DIR}/test.air"
 
@@ -103,7 +113,7 @@ fi
 echo ""
 echo -e "${BLUE}Verifying Metal Toolchain installation...${NC}"
 
-TEST_DIR=$(mktemp -d)
+TEST_DIR="$(mktemp -d "${TMP_ROOT}/metal-toolchain-verify.XXXXXX")"
 TEST_METAL="${TEST_DIR}/verify.metal"
 TEST_AIR="${TEST_DIR}/verify.air"
 

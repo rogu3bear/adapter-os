@@ -18,15 +18,18 @@ vi.mock('@/hooks/model-loading/internal/loadingCoordinator', () => ({
 }));
 
 // Mock API client
-vi.mock('@/api/client', () => ({
-  default: {
-    getAdapterStack: vi.fn().mockResolvedValue({
-      id: 'test-stack',
-      name: 'Test Stack',
-      adapter_ids: ['adapter-1', 'adapter-2'],
-    }),
-    loadAdaptersToWarm: vi.fn().mockResolvedValue({ success: true }),
-  },
+const mockApiMethods = vi.hoisted(() => ({
+  getAdapterStack: vi.fn().mockResolvedValue({
+    id: 'test-stack',
+    name: 'Test Stack',
+    adapter_ids: ['adapter-1', 'adapter-2'],
+  }),
+  loadAdaptersToWarm: vi.fn().mockResolvedValue({ success: true }),
+}));
+
+vi.mock('@/api/services', () => ({
+  default: mockApiMethods,
+  apiClient: mockApiMethods,
 }));
 
 // Mock retry utility
@@ -190,8 +193,8 @@ describe('useModelLoader', () => {
 
   describe('error handling', () => {
     it('sets error when stack load fails', async () => {
-      const apiClient = await import('@/api/client');
-      vi.mocked(apiClient.default.getAdapterStack).mockRejectedValueOnce(new Error('Stack not found'));
+      const { apiClient } = await import('@/api/services');
+      vi.mocked(apiClient.getAdapterStack).mockRejectedValueOnce(new Error('Stack not found'));
 
       const { result } = renderHook(() => useModelLoader());
 

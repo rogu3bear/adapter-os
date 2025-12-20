@@ -13,6 +13,7 @@ use tracing::info;
 
 /// Check if claims contain required role
 /// 【2025-01-27†refactor(server)†extract-auth-utils】
+#[deprecated(since = "0.12.0", note = "Use crate::permissions::require_role instead")]
 pub fn require_role(claims: &Claims, required: &str) -> Result<(), AosError> {
     if !claims.roles.contains(&required.to_string()) {
         Err(AosError::PolicyViolation(format!("Role {} required", required)))
@@ -23,6 +24,7 @@ pub fn require_role(claims: &Claims, required: &str) -> Result<(), AosError> {
 
 /// Check if claims contain any of the required roles
 /// 【2025-01-27†refactor(server)†extract-auth-utils】
+#[deprecated(since = "0.12.0", note = "Use crate::permissions::require_any_role instead")]
 pub fn require_any_role(claims: &Claims, roles: &[&str]) -> Result<(), AosError> {
     if claims.roles.iter().any(|r| roles.contains(&r.as_str())) {
         Ok(())

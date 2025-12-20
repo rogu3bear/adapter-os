@@ -3,7 +3,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { Database, Info, Loader2, Play, Square } from 'lucide-react';
 import { toast } from 'sonner';
 
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { useTenant } from '@/providers/FeatureProviders';
 import PageWrapper from '@/layout/PageWrapper';
 import { ErrorRecovery } from '@/components/ui/error-recovery';
@@ -12,7 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { formatBytes } from '@/utils/format';
+import { formatBytes } from '@/lib/formatters';
 import PageTable from '@/components/ui/PageTable';
 
 import type { BaseModelStatus, ModelWithStatsResponse } from '@/api/types';

@@ -741,7 +741,14 @@ impl LanguageParser for TypeScriptParser {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
     use tempfile::TempDir;
+
+    fn new_test_tempdir() -> TempDir {
+        let root = PathBuf::from("var").join("tmp");
+        std::fs::create_dir_all(&root).expect("create var/tmp");
+        TempDir::new_in(&root).expect("Test temp directory creation should succeed")
+    }
 
     #[test]
     fn test_typescript_parser_creation() {
@@ -752,7 +759,7 @@ mod tests {
     #[test]
     fn test_parse_simple_function() {
         let mut parser = TypeScriptParser::new().expect("TypeScriptParser creation should succeed");
-        let temp_dir = TempDir::new().expect("Test temp directory creation should succeed");
+        let temp_dir = new_test_tempdir();
         let test_file = temp_dir.path().join("test.ts");
 
         std::fs::write(
@@ -776,7 +783,7 @@ mod tests {
     #[test]
     fn test_parse_class() {
         let mut parser = TypeScriptParser::new().expect("TypeScriptParser creation should succeed");
-        let temp_dir = TempDir::new().expect("Test temp directory creation should succeed");
+        let temp_dir = new_test_tempdir();
         let test_file = temp_dir.path().join("test.ts");
 
         std::fs::write(&test_file, "class TestClass {\n    constructor() {}\n}")
@@ -799,7 +806,7 @@ mod tests {
     #[test]
     fn test_parse_interface() {
         let mut parser = TypeScriptParser::new().expect("TypeScriptParser creation should succeed");
-        let temp_dir = TempDir::new().expect("Test temp directory creation should succeed");
+        let temp_dir = new_test_tempdir();
         let test_file = temp_dir.path().join("test.ts");
 
         std::fs::write(
@@ -822,7 +829,7 @@ mod tests {
     #[test]
     fn test_parse_type_alias() {
         let mut parser = TypeScriptParser::new().expect("TypeScriptParser creation should succeed");
-        let temp_dir = TempDir::new().expect("Test temp directory creation should succeed");
+        let temp_dir = new_test_tempdir();
         let test_file = temp_dir.path().join("test.ts");
 
         std::fs::write(&test_file, "type TestType = string | number;")
@@ -842,7 +849,7 @@ mod tests {
     #[test]
     fn test_parse_import() {
         let mut parser = TypeScriptParser::new().expect("TypeScriptParser creation should succeed");
-        let temp_dir = TempDir::new().expect("Test temp directory creation should succeed");
+        let temp_dir = new_test_tempdir();
         let test_file = temp_dir.path().join("test.ts");
 
         std::fs::write(&test_file, "import { Component } from 'react';")
@@ -864,7 +871,7 @@ mod tests {
     #[test]
     fn test_parse_enum() {
         let mut parser = TypeScriptParser::new().expect("TypeScriptParser creation should succeed");
-        let temp_dir = TempDir::new().expect("Test temp directory creation should succeed");
+        let temp_dir = new_test_tempdir();
         let test_file = temp_dir.path().join("test.ts");
 
         std::fs::write(&test_file, "enum TestEnum {\n    VALUE1,\n    VALUE2\n}")

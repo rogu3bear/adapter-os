@@ -20,6 +20,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { logger } from '@/utils/logger';
 
 // ============================================================================
 // Example 1: Using Pre-built Dialog Managers
@@ -71,7 +72,13 @@ export function AdapterListExample() {
               onClick={() => {
                 const data = dialogs.getData('delete');
                 if (data) {
-                  console.log('Deleting adapter:', data.adapterId);
+                  if (import.meta.env.DEV) {
+                    logger.debug('Deleting adapter', {
+                      component: 'AdapterListExample',
+                      operation: 'delete',
+                      adapterId: data.adapterId,
+                    });
+                  }
                   dialogs.closeDialog('delete');
                 }
               }}
@@ -243,7 +250,13 @@ export function ChatSessionListExample() {
               onClick={() => {
                 const data = dialogs.getData('delete');
                 if (data) {
-                  console.log('Deleting session:', data.sessionId);
+                  if (import.meta.env.DEV) {
+                    logger.debug('Deleting session', {
+                      component: 'ChatSessionExample',
+                      operation: 'delete',
+                      sessionId: data.sessionId,
+                    });
+                  }
                   dialogs.closeDialog('delete');
                 }
               }}

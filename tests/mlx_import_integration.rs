@@ -9,6 +9,12 @@ use std::path::PathBuf;
 use std::process::Command;
 use tempfile::TempDir;
 
+fn new_test_tempdir() -> TempDir {
+    let root = PathBuf::from("var").join("tmp");
+    std::fs::create_dir_all(&root).expect("create var/tmp");
+    TempDir::new_in(&root).expect("Failed to create temp directory")
+}
+
 #[test]
 #[cfg(any(feature = "mlx-ffi-backend", feature = "multi-backend"))]
 fn test_mlx_import_command_exists_with_feature() {
@@ -47,7 +53,7 @@ fn test_mlx_import_command_not_available_without_feature() {
     // Note: This test may not run if extended-tests feature is required
     // but mlx-ffi-backend is not enabled
 
-    let temp_dir = TempDir::new().expect("Failed to create temp directory");
+    let temp_dir = new_test_tempdir();
     let test_weights = temp_dir.path().join("weights.safetensors");
     let test_config = temp_dir.path().join("config.json");
     let test_tokenizer = temp_dir.path().join("tokenizer.json");
@@ -108,7 +114,7 @@ fn test_mlx_import_command_not_available_without_feature() {
 fn test_mlx_import_validates_files_exist() {
     // Test that import command validates all required files exist
 
-    let temp_dir = TempDir::new().expect("Failed to create temp directory");
+    let temp_dir = new_test_tempdir();
 
     // Create paths that don't exist
     let missing_weights = temp_dir.path().join("missing_weights.safetensors");

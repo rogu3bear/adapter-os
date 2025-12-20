@@ -502,7 +502,7 @@ impl RuntimeConfig {
     /// Get deprecated variables that are set
     pub fn deprecated_vars_in_use(&self) -> Vec<(&str, &str, &str)> {
         let mut deprecated = Vec::new();
-        for (name, _) in &self.values {
+        for name in self.values.keys() {
             if let Some(var) = self.schema.get_variable(name) {
                 if let Some(dep) = &var.deprecated {
                     deprecated.push((

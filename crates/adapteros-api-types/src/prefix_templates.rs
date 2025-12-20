@@ -38,7 +38,7 @@ impl PrefixMode {
     }
 
     /// Parse from string representation
-    pub fn from_str(s: &str) -> Self {
+    pub fn parse_mode(s: &str) -> Self {
         match s {
             "system" => PrefixMode::System,
             "user" => PrefixMode::User,
@@ -209,7 +209,7 @@ mod tests {
 
         for mode in modes {
             let s = mode.as_str();
-            let parsed = PrefixMode::from_str(s);
+            let parsed = PrefixMode::parse_mode(s);
             assert_eq!(mode, parsed);
         }
     }

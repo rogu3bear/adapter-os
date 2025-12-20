@@ -13,7 +13,7 @@ import {
   Server as ServerIcon,
   Zap
 } from 'lucide-react';
-import { cn } from './ui/utils';
+import { cn } from '@/lib/utils';
 interface Service {
   id: string;
   name: string;

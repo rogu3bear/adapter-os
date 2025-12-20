@@ -1,54 +1,122 @@
 /**
- * API Types Aggregate
+ * API Types Barrel Export
  *
- * This is the canonical import point for all API types in the AdapterOS UI.
- * 【2025-11-19†types†modularization】
- *
- * # Re-export Strategy
- *
- * This file re-exports all types from modular files to provide:
- *
- * 1. **Single entry point**: Consumers import from `@/api/types` only
- * 2. **Internal organization**: Types are logically organized in sub-modules:
- *    - `auth-types.ts`: Authentication, user, session, workspace types
- *    - `adapter-types.ts`: Adapter lifecycle, stacks, manifests, policies
- *    - `training-types.ts`: Training jobs, datasets, configurations
- *    - `api-types.ts`: Request/response wrappers, error types
- * 3. **Maintenance**: Developers can modify sub-modules without updating imports
- *
- * # Import Guidelines
- *
- * Always import from this file:
- * ```tsx
- * import type { Adapter, User, TrainingJob } from '@/api/types';
- * ```
- *
- * Never import from sub-modules directly:
- * ```tsx
- * // ❌ DO NOT DO THIS:
- * import type { Adapter } from '@/api/adapter-types';
- * import type { User } from '@/api/auth-types';
- * ```
- *
- * # Sub-module Coupling
- *
- * This creates multiple paths to the same types:
- * - `User` (and 30+ other types from `auth-types`)
- * - `Adapter` (and 60+ other types from `adapter-types`)
- * - `TrainingJob` (and 10+ other types from `training-types`)
- * - Error types and wrappers from `api-types`
- *
- * All re-exported types are publicly available at this namespace to avoid
- * confusion from mixed import sources.
+ * This file re-exports all API types for convenient importing.
+ * For Zod validation schemas, import from '@/api/schemas' directly.
+ * Prefer importing from specific files for better tree-shaking.
  */
 
-// Re-export all types from modular files
-export * from '@/api/auth-types';
-export * from '@/api/adapter-types';
-export * from '@/api/training-types';
-export * from '@/api/api-types';
-export * from '@/api/federation-types';
-export * from '@/api/plugin-types';
-export * from '@/api/streaming-types';
-export * from '@/api/owner-types';
-export * from '@/api/lineage-types';
+// Generated types (auto-generated, DO NOT EDIT generated.ts directly)
+export type { components, paths, operations } from './generated';
+
+// Transformers
+export { toCamelCase, toSnakeCase } from './transformers';
+export type { CamelCaseKeys, SnakeCaseKeys, SnakeToCamel, CamelToSnake } from './transformers';
+
+// ============================================================================
+// Type files - ordered to handle conflicts (later exports win)
+// ============================================================================
+
+// Foundation types (no conflicts)
+export * from './federation-types';
+export * from './plugin-types';
+export * from './lineage-types';
+export * from './replay-types';
+export * from './pilot-status-types';
+export * from './activityEventTypes';
+
+// Document types (foundation for evidence types)
+export * from './document-types';
+
+// Training types (re-exports EvidenceType from document-types)
+export * from './training-types';
+
+// Chat types
+export * from './chat-types';
+
+// Auth types
+export * from './auth-types';
+
+// Streaming types (unique event types)
+export * from './streaming-types';
+
+// Owner types (has ServiceHealthStatus which may conflict)
+export * from './owner-types';
+
+// System state types - export explicitly to avoid conflicts
+// AdapterSummary, AdapterLifecycleState, etc. also in api-types/adapter-types
+export type {
+  StateOrigin,
+  ServiceState,
+  MemoryPressureLevel,
+  AneMemoryState,
+  MemoryState,
+  SystemStateResponse,
+  SystemStateQuery,
+} from './system-state-types';
+
+// Policy types - export explicitly to avoid PolicyCheck/PolicyPreflightResponse conflicts
+export type {
+  PolicyStatus,
+  PolicyCategory,
+  PolicySeverity,
+  PolicyCheckDetails,
+  PolicyCheckRequest,
+  PolicyCheckResponse,
+  PolicyCheckSummary,
+  PolicyOverrideRequest,
+  PolicyOverrideResponse,
+  DryRunPromotionWithPoliciesRequest,
+  DryRunPromotionWithPoliciesResponse,
+  PromotionGateResult,
+  PolicyPreflightRequest,
+} from './policyTypes';
+
+// Repo types - export explicitly to avoid CoreMLMode conflict with api-types
+export type {
+  RepoStatus,
+  RepoBranchSummary,
+  RepoSummary,
+  RepoDetail,
+  ReleaseState,
+  RepoVersionSummary,
+  RepoVersionDetail,
+  RepoTimelineEventType,
+  RepoTimelineEvent,
+  RepoTrainingJobLink,
+  CreateRepoRequest,
+  UpdateRepoRequest,
+  PromoteVersionRequest,
+  RollbackVersionRequest,
+  TagVersionRequest,
+  StartTrainingFromVersionRequest,
+  RepoAssuranceTier,
+  AdapterRepositoryPolicy,
+  UpdateAdapterRepositoryPolicyRequest,
+} from './repo-types';
+
+// API types (canonical source for inference, tenant, node types)
+export * from './api-types';
+
+// Adapter types (canonical source for adapter types)
+// These take precedence over policyTypes for PolicyCheck, PolicyPreflightResponse
+export * from './adapter-types';
+
+// ============================================================================
+// API utilities
+// ============================================================================
+export * from './helpers';
+export * from './status';
+export * from './queryInvalidation';
+export * from './queryOptions';
+
+// ============================================================================
+// API services (domain-organized clients)
+// ============================================================================
+export * from './services';
+
+// ============================================================================
+// Note: Zod validation schemas are NOT re-exported here.
+// Import from '@/api/schemas' directly if needed.
+// This avoids type conflicts between Zod-inferred types and hand-written types.
+// ============================================================================

@@ -378,6 +378,7 @@ impl CoreMLBackend {
     /// Model files are cached for reuse based on plan hash.
     #[cfg(feature = "coreml-backend")]
     fn load_model(&mut self, plan_bytes: &[u8]) -> Result<()> {
+        use adapteros_platform::common::PlatformUtils;
         use std::fs;
         use std::io::Write;
 
@@ -394,9 +395,16 @@ impl CoreMLBackend {
             cached_path.clone()
         } else {
             // Write plan bytes to a temporary .mlmodelc file
-            let temp_dir = std::env::temp_dir();
+            let cache_root = PlatformUtils::temp_dir().join("adapteros-coremlc");
+            fs::create_dir_all(&cache_root).map_err(|e| {
+                AosError::Io(format!(
+                    "Failed to create CoreML cache dir {}: {}",
+                    cache_root.display(),
+                    e
+                ))
+            })?;
             let model_path =
-                temp_dir.join(format!("aos_coreml_{}.mlmodelc", plan_hash.to_short_hex()));
+                cache_root.join(format!("aos_coreml_{}.mlmodelc", plan_hash.to_short_hex()));
 
             // Create the model directory and write the plan bytes
             fs::create_dir_all(&model_path)

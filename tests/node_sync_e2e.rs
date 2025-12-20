@@ -12,9 +12,15 @@ use adapteros_artifacts::{create_manifest, verify_replication, CasStore, Replica
 use std::path::PathBuf;
 use tempfile::TempDir;
 
+fn new_test_tempdir() -> TempDir {
+    let root = PathBuf::from("var").join("tmp");
+    std::fs::create_dir_all(&root).expect("create var/tmp");
+    TempDir::new_in(&root).unwrap()
+}
+
 #[test]
 fn test_create_replication_manifest() {
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = new_test_tempdir();
     let cas_store = CasStore::new(temp_dir.path()).unwrap();
 
     let adapter_ids = vec![
@@ -34,7 +40,7 @@ fn test_create_replication_manifest() {
 
 #[test]
 fn test_manifest_serialization() {
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = new_test_tempdir();
     let cas_store = CasStore::new(temp_dir.path()).unwrap();
 
     let adapter_ids = vec!["adapter1".to_string()];
@@ -55,7 +61,7 @@ async fn test_sparse_transfer_skip_existing() {
     // This test would verify that replication skips artifacts already present on target
     // For now, just test the logic flow
 
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = new_test_tempdir();
     let cas_store = CasStore::new(temp_dir.path()).unwrap();
 
     let adapter_ids = vec!["adapter1".to_string(), "adapter2".to_string()];
@@ -71,7 +77,7 @@ async fn test_sparse_transfer_skip_existing() {
 
 #[test]
 fn test_air_gap_export_import_cycle() {
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = new_test_tempdir();
     let cas_store = CasStore::new(temp_dir.path()).unwrap();
 
     let adapter_ids = vec!["adapter1".to_string(), "adapter2".to_string()];
@@ -92,7 +98,7 @@ fn test_air_gap_export_import_cycle() {
 
 #[test]
 fn test_chunk_descriptors() {
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = new_test_tempdir();
     let cas_store = CasStore::new(temp_dir.path()).unwrap();
 
     let adapter_ids = vec!["large_adapter".to_string()];
@@ -111,7 +117,7 @@ fn test_chunk_descriptors() {
 
 #[test]
 fn test_replication_session_id_uniqueness() {
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = new_test_tempdir();
     let cas_store = CasStore::new(temp_dir.path()).unwrap();
 
     let adapter_ids = vec!["adapter1".to_string()];
@@ -129,7 +135,7 @@ fn test_replication_session_id_uniqueness() {
 
 #[test]
 fn test_manifest_signature_present() {
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = new_test_tempdir();
     let cas_store = CasStore::new(temp_dir.path()).unwrap();
 
     let adapter_ids = vec!["adapter1".to_string()];
@@ -145,8 +151,8 @@ fn test_manifest_signature_present() {
 #[test]
 fn test_cas_equality_after_replication() {
     // Verify that replicated artifacts have identical hashes
-    let temp_dir1 = TempDir::new().unwrap();
-    let temp_dir2 = TempDir::new().unwrap();
+    let temp_dir1 = new_test_tempdir();
+    let temp_dir2 = new_test_tempdir();
 
     let cas_store1 = CasStore::new(temp_dir1.path()).unwrap();
     let cas_store2 = CasStore::new(temp_dir2.path()).unwrap();

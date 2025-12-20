@@ -170,7 +170,7 @@ async fn query_base_model_status(db: &adapteros_db::Db) -> Result<BaseModelStatu
             .map(|m| m.name)
             .unwrap_or_else(|| "Unknown".to_string());
 
-        let status_enum = adapteros_api_types::ModelLoadStatus::from_str(&status_record.status);
+        let status_enum = adapteros_api_types::ModelLoadStatus::parse_status(&status_record.status);
         let is_loaded = status_enum.is_ready();
 
         Ok(BaseModelStatusInfo {
@@ -226,7 +226,13 @@ async fn check_deterministic_mode() -> Option<bool> {
 async fn write_status_file(status: &AdapterOSStatus) -> Result<()> {
     let json = serde_json::to_string_pretty(status).context("Failed to serialize status")?;
 
-    let resolved_status = resolve_status_path();
+    let resolved_status = match resolve_status_path() {
+        Ok(resolved) => resolved,
+        Err(e) => {
+            warn!(error = %e, "Invalid status path configuration; falling back to local path");
+            return write_status_file_local(status).await;
+        }
+    };
     let status_path = resolved_status.path.clone();
     let temp_path = status_path.with_extension("json.tmp");
 

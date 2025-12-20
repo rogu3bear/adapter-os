@@ -188,14 +188,14 @@ pub async fn list_telemetry_events(
         }))?;
     } else {
         output.print_line("Telemetry Bundles:")?;
-        output.print_line(&format!(
+        output.print_line(format!(
             "{:<36} {:<20} {:<12} {:>8}",
             "Bundle ID", "Tenant ID", "CPID", "Events"
         ))?;
-        output.print_line(&"-".repeat(80))?;
+        output.print_line("-".repeat(80))?;
 
         for bundle in &results {
-            output.print_line(&format!(
+            output.print_line(format!(
                 "{:<36} {:<20} {:<12} {:>8}",
                 bundle["bundle_id"].as_str().unwrap_or(""),
                 bundle["tenant_id"].as_str().unwrap_or(""),
@@ -205,7 +205,7 @@ pub async fn list_telemetry_events(
         }
 
         output.print_line("")?;
-        output.print_line(&format!("Total bundles: {}", results.len()))?;
+        output.print_line(format!("Total bundles: {}", results.len()))?;
 
         if by_stack.is_some() || event_type.is_some() {
             output.print_line("")?;

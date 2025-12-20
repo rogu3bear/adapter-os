@@ -37,8 +37,9 @@ import {
   Copy,
   Check,
 } from 'lucide-react';
-import { cn } from '@/components/ui/utils';
+import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { formatRelativeTime } from '@/lib/formatters';
 
 // Category configuration
 const CATEGORY_CONFIG: Record<
@@ -128,25 +129,13 @@ const CATEGORIES: ErrorCategory[] = [
   'unknown',
 ];
 
+// Local timestamp formatter for this specific format
 function formatTimestamp(date: Date): string {
   return date.toLocaleTimeString('en-US', {
     hour: '2-digit',
     minute: '2-digit',
     second: '2-digit',
   });
-}
-
-function formatRelativeTime(date: Date): string {
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffSec = Math.floor(diffMs / 1000);
-  const diffMin = Math.floor(diffSec / 60);
-  const diffHour = Math.floor(diffMin / 60);
-
-  if (diffSec < 60) return `${diffSec}s ago`;
-  if (diffMin < 60) return `${diffMin}m ago`;
-  if (diffHour < 24) return `${diffHour}h ago`;
-  return formatTimestamp(date);
 }
 
 interface ErrorItemProps {

@@ -504,6 +504,7 @@ CREATE TABLE adapter_stacks (
 **Indexes:**
 - `idx_adapter_stacks_name` on `name`
 - `idx_adapter_stacks_created_at` on `created_at`
+- `idx_adapter_stacks_tenant_name_active` on `(tenant_id, name, lifecycle_state)` filtered to active stacks for tenant-scoped routing lookups
 
 **Example Queries:**
 ```sql
@@ -1189,14 +1190,15 @@ systemctl restart adapteros-server
 # Schedule weekly during low-traffic windows
 # Example cron: 0 2 * * 0 /usr/local/bin/aos-compact-kv.sh
 
-#!/bin/bash
-# aos-compact-kv.sh
-systemctl stop adapteros-server
-cp var/aos-kv.redb /tmp/aos-kv-compact.redb
-rm var/aos-kv.redb
-mv /tmp/aos-kv-compact.redb var/aos-kv.redb
-systemctl start adapteros-server
-```
+	#!/bin/bash
+	# aos-compact-kv.sh
+	systemctl stop adapteros-server
+	mkdir -p var/tmp
+	cp var/aos-kv.redb var/tmp/aos-kv-compact.redb
+	rm var/aos-kv.redb
+	mv var/tmp/aos-kv-compact.redb var/aos-kv.redb
+	systemctl start adapteros-server
+	```
 
 ### Downgrade-to-kv_primary Playbook
 
@@ -1677,6 +1679,9 @@ PRAGMA synchronous = NORMAL;
 -- Memory-mapped I/O for large databases
 PRAGMA mmap_size = 268435456;  -- 256MB
 
+-- Use memory for temp tables (sorting/joins)
+PRAGMA temp_store = MEMORY;
+
 -- Analyze tables for better query planning
 ANALYZE;
 ```
@@ -1762,6 +1767,32 @@ Regularly test recovery procedures:
 
 ---
 
+### Tenant-Scoped Query Optimization
+
+**Migration 0210** introduced composite indexes to optimize high-frequency tenant-scoped operations, eliminating temporary B-tree sorts and table scans.
+
+#### 1. Composite Indexes
+These indexes follow the pattern `(tenant_id, filter_col, sort_col)` to support efficient filtering and ordering.
+
+| Index | Table | Columns | Use Case |
+|-------|-------|---------|----------|
+| `idx_adapters_tenant_active_tier_created` | `adapters` | `tenant_id, active, tier, created_at DESC` | Adapter listing |
+| `idx_documents_tenant_created` | `documents` | `tenant_id, created_at DESC` | Document pagination |
+| `idx_chat_messages_tenant_created` | `chat_messages` | `tenant_id, created_at DESC` | Chat history |
+| `idx_routing_decisions_tenant_timestamp_stack` | `routing_decisions` | `tenant_id, timestamp DESC, stack_id` | Telemetry analysis |
+
+#### 2. Covering Indexes
+For critical lookups, covering indexes include all selected columns to avoid primary key lookups.
+
+- `idx_adapters_tenant_hash_active_covering`: Supports sub-millisecond hash deduplication.
+
+#### 3. Maintenance
+- Run `scripts/monitor_index_performance.sh` to validate index usage.
+- Ensure `ANALYZE` is run after bulk data loads.
+- Monitor `sqlite_stat1` to ensure query planner has accurate statistics.
+
+---
+
 ## Additional Resources
 
 - **CLAUDE.md:** `/CLAUDE.md` - Developer quick reference (source of truth)
@@ -1776,4 +1807,4 @@ Regularly test recovery procedures:
 ---
 
 **Maintained by:** AdapterOS Engineering Team
-**MLNavigator Inc** 2025-12-11
+**MLNavigator Inc** 2025-12-17

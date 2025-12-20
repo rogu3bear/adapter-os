@@ -43,7 +43,7 @@ impl ModelLoadStatus {
     /// - "loaded" -> Ready
     /// - "unloaded" -> NoModel
     /// - "ready" -> Ready
-    pub fn from_str(status: &str) -> Self {
+    pub fn parse_status(status: &str) -> Self {
         match status {
             "ready" | "loaded" => ModelLoadStatus::Ready,
             "loading" => ModelLoadStatus::Loading,

@@ -6,7 +6,7 @@ import { MemoryRouter } from 'react-router-dom';
 
 const refetchMock = vi.hoisted(() => vi.fn());
 
-vi.mock('@/api/client', () => {
+vi.mock('@/api/services', () => {
   return {
     __esModule: true,
     default: {
@@ -44,7 +44,7 @@ vi.mock('@/api/client', () => {
   };
 });
 
-vi.mock('@/hooks/usePolling', () => ({
+vi.mock('@/hooks/realtime/usePolling', () => ({
   usePolling: vi.fn().mockReturnValue({
     data: [
       { id: '1', severity: 'high', title: 'High latency', message: 'p95 = 30ms', status: 'active', created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
@@ -56,7 +56,7 @@ vi.mock('@/hooks/usePolling', () => ({
   }),
 }));
 
-vi.mock('@/hooks/useServiceStatus', () => ({
+vi.mock('@/hooks/system/useServiceStatus', () => ({
   useServiceStatus: () => ({
     status: { services: [] },
     isLoading: false,
@@ -70,7 +70,7 @@ vi.mock('@/providers/FeatureProviders', () => ({
   useTenant: () => ({ selectedTenant: 'test-tenant' }),
 }));
 
-vi.mock('@/hooks/useTimestamp', () => ({
+vi.mock('@/hooks/ui/useTimestamp', () => ({
   useRelativeTime: () => 'moments ago',
 }));
 

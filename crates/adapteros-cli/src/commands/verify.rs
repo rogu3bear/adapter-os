@@ -3,6 +3,7 @@
 use crate::output::OutputWriter;
 use adapteros_artifacts::bundle;
 use adapteros_core::B3Hash;
+use adapteros_platform::common::PlatformUtils;
 use anyhow::{Context, Result};
 use clap::Subcommand;
 use serde::{Deserialize, Serialize};
@@ -175,7 +176,17 @@ async fn run_bundle(bundle_path: &Path, output: &OutputWriter) -> Result<()> {
     output.info(format!("Verifying bundle: {}", bundle_path.display()));
 
     // Create temporary directory for extraction
-    let temp_dir = tempfile::tempdir().context("Failed to create temporary directory")?;
+    let temp_root = PlatformUtils::temp_dir();
+    fs::create_dir_all(&temp_root).with_context(|| {
+        format!(
+            "Failed to create AdapterOS temp directory {}",
+            temp_root.display()
+        )
+    })?;
+    let temp_dir = tempfile::Builder::new()
+        .prefix("adapteros-verify-")
+        .tempdir_in(&temp_root)
+        .context("Failed to create temporary directory")?;
 
     output.progress("Extracting bundle");
 

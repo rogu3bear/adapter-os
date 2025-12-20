@@ -22,6 +22,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { LoadingState } from '@/components/ui/loading-state';
+import { PermissionDenied } from '@/components/ui/permission-denied';
 import { useRBAC } from '@/hooks/security/useRBAC';
 import { useTheme } from '@/providers/CoreProviders';
 import { useSettings, useUpdateSettings } from '@/hooks/config/useSettings';
@@ -189,13 +190,10 @@ function PermissionDeniedView() {
   return (
     <DensityProvider pageKey="settings">
       <FeatureLayout title="System Settings" description="Configure system-wide settings">
-        <Alert variant="destructive">
-          <AlertCircle className="h-4 w-4" />
-          <AlertTitle>Permission Denied</AlertTitle>
-          <AlertDescription>
-            You do not have permission to access system settings. Admin role required.
-          </AlertDescription>
-        </Alert>
+        <PermissionDenied
+          requiredPermission="tenant:manage"
+          requiredRoles={['admin', 'developer']}
+        />
       </FeatureLayout>
     </DensityProvider>
   );

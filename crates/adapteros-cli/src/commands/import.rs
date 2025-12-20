@@ -3,6 +3,7 @@
 use crate::output::OutputWriter;
 use adapteros_artifacts::bundle;
 use adapteros_db::Db;
+use adapteros_platform::common::PlatformUtils;
 use anyhow::{Context, Result};
 use serde::Serialize;
 use std::fs;
@@ -24,7 +25,17 @@ pub async fn run(bundle_path: &Path, verify: bool, output: &OutputWriter) -> Res
     }
 
     // Create temporary directory for extraction
-    let temp_dir = tempfile::tempdir().context("Failed to create temporary directory")?;
+    let temp_root = PlatformUtils::temp_dir();
+    fs::create_dir_all(&temp_root).with_context(|| {
+        format!(
+            "Failed to create AdapterOS temp directory {}",
+            temp_root.display()
+        )
+    })?;
+    let temp_dir = tempfile::Builder::new()
+        .prefix("adapteros-import-")
+        .tempdir_in(&temp_root)
+        .context("Failed to create temporary directory")?;
 
     output.progress("Extracting bundle");
 

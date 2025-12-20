@@ -1,9 +1,16 @@
 /**
+ * @deprecated ORPHAN PAGE - Not routed in routes.ts
+ * This page was created as part of CONTACTS_AND_STREAMS_IMPLEMENTATION_PLAN.md
+ * but was never integrated into the routing system.
+ *
+ * TODO: Either add a route or delete this file.
+ * Audit date: 2025-12-19
+ *
  * DiscoveryStreamPage Component
- * 
+ *
  * Displays real-time repository scanning and code discovery events.
  * Shows progress bars, symbol counts, and framework detection.
- * 
+ *
  * Citation: CONTACTS_AND_STREAMS_IMPLEMENTATION_PLAN.md §8.3
  */
 
@@ -13,7 +20,7 @@ import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { useTimestamp } from '@/hooks/ui/useTimestamp';
 import { useLiveData } from '@/hooks/realtime/useLiveData';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 
 interface DiscoveryEvent {
   type: string;

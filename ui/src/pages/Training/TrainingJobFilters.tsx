@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 import type { TrainingStatus } from '@/api/training-types';
 import type { FilterValue } from '@/hooks/ui/useFilter';
-import { cn } from '@/components/ui/utils';
+import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 
 export type TrainingJobFilterKey = 'search' | 'status' | 'dateRange';

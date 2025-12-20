@@ -9,6 +9,7 @@
 
 use adapteros_core::B3Hash;
 use adapteros_crypto::signature::Keypair;
+use adapteros_platform::common::PlatformUtils;
 use anyhow::Result;
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
@@ -16,6 +17,12 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 use tempfile::TempDir;
+
+fn new_test_tempdir() -> TempDir {
+    let root = PlatformUtils::temp_dir();
+    std::fs::create_dir_all(&root).expect("create var/tmp");
+    TempDir::new_in(&root).expect("create temp dir")
+}
 
 // Re-export types from verify_receipt module for testing
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -285,7 +292,7 @@ fn create_valid_bundle(dir: &PathBuf) -> PathBuf {
 
 #[test]
 fn test_valid_receipt_verification() {
-    let temp_dir = TempDir::new().expect("create temp dir");
+    let temp_dir = new_test_tempdir();
     let bundle_path = create_valid_bundle(&temp_dir.path().to_path_buf());
 
     // Run verification using the command module
@@ -318,7 +325,7 @@ fn test_valid_receipt_verification() {
 
 #[test]
 fn test_tampered_receipt_detection() {
-    let temp_dir = TempDir::new().expect("create temp dir");
+    let temp_dir = new_test_tempdir();
     let bundle_path = create_valid_bundle(&temp_dir.path().to_path_buf());
 
     // Read and tamper with the bundle
@@ -362,7 +369,7 @@ fn test_tampered_receipt_detection() {
 
 #[test]
 fn test_json_output_format() {
-    let temp_dir = TempDir::new().expect("create temp dir");
+    let temp_dir = new_test_tempdir();
     let bundle_path = create_valid_bundle(&temp_dir.path().to_path_buf());
 
     // Run verification with --json flag
@@ -420,7 +427,7 @@ fn test_missing_file_error() {
             "--",
             "verify-receipt",
             "--bundle",
-            "/tmp/nonexistent-receipt.json",
+            "var/nonexistent-receipt.json",
         ])
         .output()
         .expect("Failed to execute verify-receipt");
@@ -440,7 +447,7 @@ fn test_missing_file_error() {
 
 #[test]
 fn test_directory_with_default_bundle_filename() {
-    let temp_dir = TempDir::new().expect("create temp dir");
+    let temp_dir = TempDir::new_in(".").expect("create temp dir");
     let bundle_path = create_valid_bundle(&temp_dir.path().to_path_buf());
 
     // The bundle was created at temp_dir/receipt_bundle.json
@@ -468,7 +475,7 @@ fn test_directory_with_default_bundle_filename() {
 
 #[test]
 fn test_invalid_json_error() {
-    let temp_dir = TempDir::new().expect("create temp dir");
+    let temp_dir = new_test_tempdir();
     let bundle_path = temp_dir.path().join("invalid.json");
 
     // Write invalid JSON
@@ -503,7 +510,7 @@ fn test_invalid_json_error() {
 
 #[test]
 fn test_backend_mismatch_detection() {
-    let temp_dir = TempDir::new().expect("create temp dir");
+    let temp_dir = new_test_tempdir();
     let bundle_path = create_valid_bundle(&temp_dir.path().to_path_buf());
 
     // Read and modify backend expectation
@@ -547,7 +554,7 @@ fn test_backend_mismatch_detection() {
 
 #[test]
 fn test_output_digest_mismatch() {
-    let temp_dir = TempDir::new().expect("create temp dir");
+    let temp_dir = new_test_tempdir();
     let bundle_path = create_valid_bundle(&temp_dir.path().to_path_buf());
 
     // Read and tamper with output tokens
@@ -591,7 +598,7 @@ fn test_output_digest_mismatch() {
 
 #[test]
 fn test_context_digest_mismatch() {
-    let temp_dir = TempDir::new().expect("create temp dir");
+    let temp_dir = new_test_tempdir();
     let bundle_path = create_valid_bundle(&temp_dir.path().to_path_buf());
 
     // Read and tamper with context

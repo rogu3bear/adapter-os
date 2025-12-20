@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient, type UseMutationOptions, type UseQueryOptions } from '@tanstack/react-query';
-import { apiClient } from '@/api/client';
+import { apiClient } from '@/api/services';
 import { createResourceHooks } from '@/hooks/factories/createApiHooks';
 import { QUERY_STANDARD } from '@/api/queryOptions';
 import { useTenant } from '@/providers/FeatureProviders';

@@ -44,63 +44,16 @@
 
 import { useState, useCallback, useRef } from 'react';
 import { toast } from 'sonner';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { logger, toError } from '@/utils/logger';
 import { useUndoRedoContext } from '@/contexts/UndoRedoContext';
 import type { Adapter } from '@/api/types';
-
-export interface UseAdapterBulkActionsOptions {
-  /** Callback on successful operation completion */
-  onSuccess?: (action: string, count: number) => void;
-  /** Callback on operation error */
-  onError?: (error: Error, action: string) => void;
-  /** Query keys to invalidate on success (for react-query integration) */
-  invalidateKeys?: string[][];
-  /** Optional adapters list for snapshot/rollback */
-  adapters?: Adapter[];
-  /** Callback to refresh adapters list */
-  onDataRefresh?: () => void | Promise<void>;
-}
-
-export interface BulkOperationProgress {
-  /** Current item being processed */
-  current: number;
-  /** Total items to process */
-  total: number;
-}
-
-export interface BulkActionConfirmationState {
-  /** Whether confirmation dialog is open */
-  isOpen: boolean;
-  /** Action being confirmed (load, unload, delete) */
-  action: string;
-  /** Adapter IDs to operate on */
-  ids: string[];
-}
-
-export interface UseAdapterBulkActionsReturn {
-  // Selection state
-  selectedIds: Set<string>;
-  setSelectedIds: (ids: Set<string>) => void;
-  selectAll: (ids: string[]) => void;
-  clearSelection: () => void;
-  toggleSelection: (id: string) => void;
-
-  // Bulk operations
-  bulkLoad: (ids: string[]) => Promise<void>;
-  bulkUnload: (ids: string[]) => Promise<void>;
-  bulkDelete: (ids: string[]) => Promise<void>;
-
-  // State
-  isBulkOperationRunning: boolean;
-  bulkOperationProgress: BulkOperationProgress | null;
-
-  // Confirmation
-  confirmationState: BulkActionConfirmationState | null;
-  requestConfirmation: (action: string, ids: string[]) => void;
-  confirmAction: () => Promise<void>;
-  cancelConfirmation: () => void;
-}
+import type {
+  UseAdapterBulkActionsOptions,
+  BulkOperationProgress,
+  BulkActionConfirmationState,
+  UseAdapterBulkActionsReturn,
+} from '@/types/hooks';
 
 /**
  * Hook for managing bulk adapter operations with confirmation and progress tracking.

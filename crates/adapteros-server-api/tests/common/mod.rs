@@ -64,7 +64,30 @@ pub async fn setup_state(_uds_path: Option<&PathBuf>) -> anyhow::Result<AppState
     // 3. Create test JWT secret
     let jwt_secret = b"test-jwt-secret-for-integration-tests-32bytes!".to_vec();
 
-    // 4. Create API config with all required fields
+    // 4. Create isolated filesystem roots for tests (never under /tmp)
+    let base_dir = PathBuf::from("var")
+        .join("tmp")
+        .join("server-api-tests")
+        .join(uuid::Uuid::new_v4().to_string());
+    std::fs::create_dir_all(&base_dir)?;
+    let artifacts_root = base_dir.join("artifacts");
+    let bundles_root = base_dir.join("bundles");
+    let adapters_root = base_dir.join("adapters");
+    let plan_dir = base_dir.join("plan");
+    let datasets_root = base_dir.join("datasets");
+    let documents_root = base_dir.join("documents");
+    for dir in [
+        &artifacts_root,
+        &bundles_root,
+        &adapters_root,
+        &plan_dir,
+        &datasets_root,
+        &documents_root,
+    ] {
+        std::fs::create_dir_all(dir)?;
+    }
+
+    // 5. Create API config with all required fields
     let config = Arc::new(RwLock::new(ApiConfig {
         metrics: MetricsConfig {
             enabled: true,
@@ -80,12 +103,12 @@ pub async fn setup_state(_uds_path: Option<&PathBuf>) -> anyhow::Result<AppState
         self_hosting: Default::default(),
         performance: Default::default(),
         paths: PathsConfig {
-            artifacts_root: "/tmp/test-artifacts".to_string(),
-            bundles_root: "/tmp/test-bundles".to_string(),
-            adapters_root: "/tmp/test-adapters".to_string(),
-            plan_dir: "/tmp/test-plan".to_string(),
-            datasets_root: "/tmp/test-datasets".to_string(),
-            documents_root: "/tmp/test-documents".to_string(),
+            artifacts_root: artifacts_root.to_string_lossy().to_string(),
+            bundles_root: bundles_root.to_string_lossy().to_string(),
+            adapters_root: adapters_root.to_string_lossy().to_string(),
+            plan_dir: plan_dir.to_string_lossy().to_string(),
+            datasets_root: datasets_root.to_string_lossy().to_string(),
+            documents_root: documents_root.to_string_lossy().to_string(),
         },
         chat_context: Default::default(),
         seed_mode: SeedMode::BestEffort,

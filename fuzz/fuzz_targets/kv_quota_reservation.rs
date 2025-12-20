@@ -61,7 +61,7 @@ fuzz_target!(|data: &[u8]| {
         let op_type = u.int_in_range::<u8>(0..=6).unwrap_or(0);
 
         match op_type {
-            0 | 1 | 2 => {
+            0..=2 => {
                 // Reserve (60% of operations)
                 let size = match u.int_in_range::<u64>(1..=10000) {
                     Ok(s) => s,
@@ -92,7 +92,7 @@ fuzz_target!(|data: &[u8]| {
                         .int_in_range::<usize>(0..=(active_reservations.len() - 1))
                         .unwrap_or(0);
                     let reservation = active_reservations.remove(idx);
-                    let size = reservation.size_bytes;
+                    let _size = reservation.size_bytes;
 
                     let usage_before = qm.usage();
                     let _ = qm.finalize(reservation);

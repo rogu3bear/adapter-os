@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-BASE_URL="${AOS_SERVER_URL:-http://localhost:8080}"
+BASE_URL="${AOS_SERVER_URL:-http://localhost:${AOS_SERVER_PORT:-8080}}"
 BASE_URL="${BASE_URL%/}"
 
 CURL_MAX_TIME="${AOS_CURL_MAX_TIME:-60}"

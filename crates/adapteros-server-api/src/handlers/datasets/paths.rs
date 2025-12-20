@@ -1,7 +1,6 @@
+use adapteros_core::{reject_forbidden_tmp_path, AosError, Result};
 use std::env;
 use std::path::{Path, PathBuf};
-
-use adapteros_storage::FsObjectStore;
 
 pub const FILES_DIR_NAME: &str = "files";
 pub const TEMP_DIR_NAME: &str = "temp";
@@ -36,26 +35,35 @@ impl DatasetPaths {
 }
 
 /// Resolve dataset root preferring env override and returning an absolute path.
-pub fn resolve_dataset_root(state: &crate::state::AppState) -> PathBuf {
-    let root_str = env::var("AOS_DATASETS_DIR").unwrap_or_else(|_| {
-        let config = state.config.read().expect("Config lock poisoned");
-        config.paths.datasets_root.clone()
+pub fn resolve_dataset_root(state: &crate::state::AppState) -> Result<PathBuf> {
+    let root_str = env::var("AOS_DATASETS_DIR").unwrap_or_else(|_| match state.config.read() {
+        Ok(config) => config.paths.datasets_root.clone(),
+        Err(_) => {
+            tracing::error!("Config lock poisoned in resolve_dataset_root");
+            "var/datasets".to_string()
+        }
     });
 
     let root = PathBuf::from(root_str);
     if root.is_absolute() {
-        return root;
+        reject_forbidden_tmp_path(&root, "datasets-root")?;
+        // SECURITY: Canonicalize to resolve symlinks after validation
+        // This prevents symlink attacks that bypass the /tmp check
+        let canonical = root
+            .canonicalize()
+            .map_err(|e| AosError::Validation(format!("Invalid datasets root path: {}", e)))?;
+        reject_forbidden_tmp_path(&canonical, "datasets-root-canonical")?;
+        return Ok(canonical);
     }
 
-    env::current_dir()
+    let resolved = env::current_dir()
         .unwrap_or_else(|_| Path::new("/").to_path_buf())
-        .join(root)
-}
-
-/// Build a filesystem-backed object store rooted at configured dataset and adapter paths.
-pub fn object_store_for_state(state: &crate::state::AppState) -> FsObjectStore {
-    let cfg = state.config.read().expect("Config lock poisoned");
-    let dataset_root = cfg.paths.datasets_root.clone();
-    let adapter_root = cfg.paths.adapters_root.clone();
-    FsObjectStore::new(dataset_root, adapter_root)
+        .join(root);
+    reject_forbidden_tmp_path(&resolved, "datasets-root")?;
+    // SECURITY: Canonicalize to resolve symlinks after validation
+    let canonical = resolved
+        .canonicalize()
+        .map_err(|e| AosError::Validation(format!("Invalid datasets path: {}", e)))?;
+    reject_forbidden_tmp_path(&canonical, "datasets-root-canonical")?;
+    Ok(canonical)
 }

@@ -5,10 +5,12 @@
 
 use crate::audit_helper::{actions, log_success, resources};
 use crate::auth::Claims;
-use crate::error_helpers::{bad_request, db_error, not_found, payload_too_large};
+use crate::error_helpers::{bad_request, db_error, internal_error, not_found, payload_too_large};
 use crate::permissions::{require_permission, Permission};
+use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
 use crate::types::{ErrorResponse, PaginatedResponse};
+use adapteros_core::reject_forbidden_tmp_path;
 use axum::{
     extract::{Multipart, Path, Query, State},
     http::StatusCode,
@@ -16,7 +18,7 @@ use axum::{
     Extension,
 };
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path as StdPath, PathBuf};
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
 use tracing::{debug, info, warn};
@@ -115,14 +117,33 @@ pub async fn upload_document(
     // Check permission
     require_permission(&claims, Permission::DatasetUpload)?;
 
+    // Validate tenant isolation
+    validate_tenant_isolation(&claims, &claims.tenant_id)?;
+
     let document_id = Uuid::now_v7().to_string();
-    let storage_root = std::env::var("AOS_DOCUMENTS_DIR").ok().unwrap_or_else(|| {
-        let config = state.config.read().expect("Config lock poisoned");
-        config.paths.documents_root.clone()
-    });
+    let storage_root =
+        std::env::var("AOS_DOCUMENTS_DIR")
+            .ok()
+            .unwrap_or_else(|| match state.config.read() {
+                Ok(config) => config.paths.documents_root.clone(),
+                Err(_) => {
+                    tracing::error!("Config lock poisoned in upload_document");
+                    "var/documents".to_string()
+                }
+            });
+
+    let root = PathBuf::from(&storage_root);
+    let root = if root.is_absolute() {
+        root
+    } else {
+        std::env::current_dir()
+            .unwrap_or_else(|_| StdPath::new("/").to_path_buf())
+            .join(root)
+    };
+    reject_forbidden_tmp_path(&root, "documents-root").map_err(internal_error)?;
 
     // Create tenant-specific document directory
-    let tenant_path = PathBuf::from(&storage_root).join(&claims.tenant_id);
+    let tenant_path = root.join(&claims.tenant_id);
     fs::create_dir_all(&tenant_path).await.map_err(db_error)?;
 
     let mut document_name = String::new();
@@ -293,6 +314,9 @@ pub async fn list_documents(
     // Check permission
     require_permission(&claims, Permission::DatasetView)?;
 
+    // Validate tenant isolation
+    validate_tenant_isolation(&claims, &claims.tenant_id)?;
+
     let offset = (pagination.page.saturating_sub(1)) * pagination.limit;
     let (documents, total) = state
         .db
@@ -347,6 +371,9 @@ pub async fn get_document(
 
     let document = document.ok_or_else(|| not_found("Document"))?;
 
+    // Validate tenant isolation
+    validate_tenant_isolation(&claims, &document.tenant_id)?;
+
     Ok(Json(DocumentResponse::from(document)))
 }
 
@@ -381,6 +408,9 @@ pub async fn delete_document(
         .map_err(db_error)?;
 
     let document = document.ok_or_else(|| not_found("Document"))?;
+
+    // Validate tenant isolation
+    validate_tenant_isolation(&claims, &document.tenant_id)?;
 
     // Delete from database (cascades to chunks)
     state.db.delete_document(&id).await.map_err(db_error)?;
@@ -449,6 +479,9 @@ pub async fn list_document_chunks(
 
     let document = document.ok_or_else(|| not_found("Document"))?;
 
+    // Validate tenant isolation
+    validate_tenant_isolation(&claims, &document.tenant_id)?;
+
     let chunks = state
         .db
         .get_document_chunks(&claims.tenant_id, &id)
@@ -503,6 +536,9 @@ pub async fn download_document(
         .map_err(db_error)?;
 
     let document = document.ok_or_else(|| not_found("Document"))?;
+
+    // Validate tenant isolation
+    validate_tenant_isolation(&claims, &document.tenant_id)?;
 
     // Read file
     let file_data = fs::read(&document.file_path).await.map_err(db_error)?;
@@ -577,6 +613,9 @@ pub async fn process_document(
         .await
         .map_err(db_error)?;
     let document = document.ok_or_else(|| not_found("Document"))?;
+
+    // Validate tenant isolation
+    validate_tenant_isolation(&claims, &document.tenant_id)?;
 
     // Check document state - validate current status
     match document.status.as_str() {
@@ -889,6 +928,9 @@ pub async fn retry_document(
         .map_err(db_error)?
         .ok_or_else(|| not_found("Document"))?;
 
+    // Validate tenant isolation
+    validate_tenant_isolation(&claims, &document.tenant_id)?;
+
     // Only failed documents can be retried
     if document.status != "failed" {
         return Err(bad_request(&format!(
@@ -960,6 +1002,9 @@ pub async fn list_failed_documents(
     Query(params): Query<ListFailedParams>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::DatasetView)?;
+
+    // Validate tenant isolation
+    validate_tenant_isolation(&claims, &claims.tenant_id)?;
 
     let limit = params.limit.unwrap_or(50);
 

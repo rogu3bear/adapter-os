@@ -4,14 +4,13 @@ import userEvent from '@testing-library/user-event';
 import { TraceSummaryPanel } from '@/components/trace/TraceSummaryPanel';
 import type { TraceResponseV1 } from '@/api/types';
 
-// Mock clipboard API
 const mockWriteText = vi.fn();
-Object.defineProperty(navigator, 'clipboard', {
-  writable: true,
-  value: {
-    writeText: mockWriteText,
-  },
-});
+
+function setupUser() {
+  const user = userEvent.setup();
+  navigator.clipboard.writeText = mockWriteText as unknown as Clipboard['writeText'];
+  return user;
+}
 
 const mockTrace: TraceResponseV1 = {
   trace_id: 'trace-123',
@@ -90,8 +89,7 @@ describe('TraceSummaryPanel', () => {
   });
 
   it('copies context digest to clipboard when copy button is clicked', async () => {
-    const user = userEvent.setup();
-    mockWriteText.mockImplementation(() => {});
+    const user = setupUser();
     render(<TraceSummaryPanel trace={mockTrace} />);
 
     const copyButtons = screen.getAllByLabelText(/Copy/i);
@@ -102,8 +100,7 @@ describe('TraceSummaryPanel', () => {
   });
 
   it('copies policy digest to clipboard when copy button is clicked', async () => {
-    const user = userEvent.setup();
-    mockWriteText.mockImplementation(() => {});
+    const user = setupUser();
     render(<TraceSummaryPanel trace={mockTrace} />);
 
     const copyButtons = screen.getAllByLabelText(/Copy/i);
@@ -126,7 +123,7 @@ describe('TraceSummaryPanel', () => {
   });
 
   it('calls onExport when Export Evidence Bundle button is clicked', async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const mockOnExport = vi.fn();
     render(<TraceSummaryPanel trace={mockTrace} onExport={mockOnExport} />);
 

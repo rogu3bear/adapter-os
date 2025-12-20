@@ -49,7 +49,7 @@ import {
   AdapterActivationEvent,
   AdapterEvictionEvent
 } from '@/api/types';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { logger } from '@/utils/logger';
 import { formatMB, formatCount } from '@/utils';
 

@@ -436,11 +436,11 @@ async fn system_status(server_url: &str, timeout: u64, output: &OutputWriter) ->
             Some(meta)
         }
         Ok(resp) => {
-            output.warning(&format!("Could not fetch metadata: HTTP {}", resp.status()));
+            output.warning(format!("Could not fetch metadata: HTTP {}", resp.status()));
             None
         }
         Err(e) => {
-            output.warning(&format!("Could not fetch metadata: {}", e));
+            output.warning(format!("Could not fetch metadata: {}", e));
             None
         }
     };
@@ -462,14 +462,14 @@ async fn system_status(server_url: &str, timeout: u64, output: &OutputWriter) ->
             Some(health)
         }
         Ok(resp) => {
-            output.warning(&format!(
+            output.warning(format!(
                 "Could not fetch health status: HTTP {}",
                 resp.status()
             ));
             None
         }
         Err(e) => {
-            output.warning(&format!("Could not fetch health status: {}", e));
+            output.warning(format!("Could not fetch health status: {}", e));
             None
         }
     };
@@ -488,7 +488,7 @@ async fn system_status(server_url: &str, timeout: u64, output: &OutputWriter) ->
             Some(count)
         }
         Err(e) => {
-            output.warning(&format!("Could not connect to database: {}", e));
+            output.warning(format!("Could not connect to database: {}", e));
             None
         }
     };

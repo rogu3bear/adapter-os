@@ -25,7 +25,7 @@ import {
   CheckCircle,
   AlertTriangle
 } from 'lucide-react';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { TrainingTemplate, TrainingConfig } from '@/api/types';
 import { toast } from 'sonner';
 import { logger, toError } from '@/utils/logger';

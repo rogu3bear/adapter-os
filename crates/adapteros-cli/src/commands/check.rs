@@ -70,7 +70,7 @@ async fn startup_check(server_url: &str, timeout: u64, output: &OutputWriter) ->
     let mut results = Vec::new();
 
     // Check 1: Server health endpoint
-    let health_result = match client.get(&format!("{}/healthz", base)).send().await {
+    let health_result = match client.get(format!("{}/healthz", base)).send().await {
         Ok(resp) if resp.status().is_success() => CheckResult {
             name: "Server reachable".to_string(),
             status: CheckStatus::Pass,
@@ -100,7 +100,7 @@ async fn startup_check(server_url: &str, timeout: u64, output: &OutputWriter) ->
     }
 
     // Check 2: Full health check
-    let health_all = match client.get(&format!("{}/healthz/all", base)).send().await {
+    let health_all = match client.get(format!("{}/healthz/all", base)).send().await {
         Ok(resp) if resp.status().is_success() => {
             let body: serde_json::Value = resp.json().await.unwrap_or_default();
             let status = body["overall_status"].as_str().unwrap_or("unknown");
@@ -133,7 +133,7 @@ async fn startup_check(server_url: &str, timeout: u64, output: &OutputWriter) ->
 
     // Check 3: Meta endpoint (version/env sanity)
     let mut server_version: Option<String> = None;
-    let meta_check = match client.get(&format!("{}/v1/meta", base)).send().await {
+    let meta_check = match client.get(format!("{}/v1/meta", base)).send().await {
         Ok(resp) if resp.status().is_success() => {
             let body: serde_json::Value = resp.json().await.unwrap_or_default();
             let version = body["version"].as_str().unwrap_or("unknown");
@@ -179,7 +179,7 @@ async fn startup_check(server_url: &str, timeout: u64, output: &OutputWriter) ->
     results.push(version_check);
 
     // Check 5: Auth endpoint reachable (401 without token is OK - means auth is working)
-    let auth_check = match client.get(&format!("{}/v1/auth/me", base)).send().await {
+    let auth_check = match client.get(format!("{}/v1/auth/me", base)).send().await {
         Ok(resp) => {
             // 401 is expected without token, means auth is working
             if resp.status().as_u16() == 401 || resp.status().is_success() {
@@ -206,7 +206,7 @@ async fn startup_check(server_url: &str, timeout: u64, output: &OutputWriter) ->
 
     // Check 6: Database health via /healthz/all (includes db component)
     // Parse the full health response to check database specifically
-    let db_check = match client.get(&format!("{}/healthz/all", base)).send().await {
+    let db_check = match client.get(format!("{}/healthz/all", base)).send().await {
         Ok(resp) if resp.status().is_success() => {
             let body: serde_json::Value = resp.json().await.unwrap_or_default();
             // Look for database component in the components array
@@ -249,7 +249,7 @@ async fn startup_check(server_url: &str, timeout: u64, output: &OutputWriter) ->
     results.push(db_check);
 
     // Check 7: Readiness endpoint (confirms server is ready to serve requests)
-    let ready_check = match client.get(&format!("{}/readyz", base)).send().await {
+    let ready_check = match client.get(format!("{}/readyz", base)).send().await {
         Ok(resp) if resp.status().is_success() => CheckResult {
             name: "Server readiness".to_string(),
             status: CheckStatus::Pass,
@@ -278,9 +278,9 @@ async fn startup_check(server_url: &str, timeout: u64, output: &OutputWriter) ->
 
     output.blank();
     if passed == total {
-        output.success(&format!("All {} startup checks passed", total));
+        output.success(format!("All {} startup checks passed", total));
     } else {
-        output.warning(&format!("{}/{} startup checks passed", passed, total));
+        output.warning(format!("{}/{} startup checks passed", passed, total));
         std::process::exit(1);
     }
 

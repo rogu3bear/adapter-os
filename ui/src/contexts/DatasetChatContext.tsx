@@ -15,6 +15,7 @@
 import { createContext, useContext, useState, useCallback, useEffect, useRef, ReactNode } from 'react';
 import { useSessionScope } from '@/hooks/chat/useSessionScope';
 import type { SessionScope } from '@/types/session-scope';
+import { logger } from '@/utils/logger';
 
 interface DatasetChatState {
   /** Currently active dataset ID */
@@ -158,7 +159,10 @@ export function DatasetChatProvider({
   const setActiveDataset = useCallback(
     (dataset: { id: string; name: string; collectionId?: string; versionId?: string }) => {
       if (!sessionId) {
-        console.warn('setActiveDataset called without sessionId');
+        logger.warn('setActiveDataset called without sessionId', {
+          component: 'DatasetChatContext',
+          operation: 'setActiveDataset',
+        });
         return;
       }
 
@@ -186,7 +190,10 @@ export function DatasetChatProvider({
 
   const clearActiveDataset = useCallback(() => {
     if (!sessionId) {
-      console.warn('clearActiveDataset called without sessionId');
+      logger.warn('clearActiveDataset called without sessionId', {
+        component: 'DatasetChatContext',
+        operation: 'clearActiveDataset',
+      });
       return;
     }
 

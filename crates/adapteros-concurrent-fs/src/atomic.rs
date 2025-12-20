@@ -367,12 +367,18 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
+    fn new_test_tempdir() -> Result<TempDir> {
+        let root = PathBuf::from("var").join("tmp");
+        std::fs::create_dir_all(&root)?;
+        Ok(TempDir::new_in(&root)?)
+    }
+
     #[tokio::test]
     async fn test_atomic_file_write() -> Result<()> {
         let config = crate::ConcurrentFsConfig::default();
         let manager = AtomicManager::new(&config)?;
 
-        let temp_dir = TempDir::new()?;
+        let temp_dir = new_test_tempdir()?;
         let test_file = temp_dir.path().join("test.txt");
 
         // Test atomic file write
@@ -392,7 +398,7 @@ mod tests {
         let config = crate::ConcurrentFsConfig::default();
         let manager = AtomicManager::new(&config)?;
 
-        let temp_dir = TempDir::new()?;
+        let temp_dir = new_test_tempdir()?;
         let src_file = temp_dir.path().join("src.txt");
         let dst_file = temp_dir.path().join("dst.txt");
 
@@ -417,7 +423,7 @@ mod tests {
         let config = crate::ConcurrentFsConfig::default();
         let manager = AtomicManager::new(&config)?;
 
-        let temp_dir = TempDir::new()?;
+        let temp_dir = new_test_tempdir()?;
         let src_file = temp_dir.path().join("src.txt");
         let dst_file = temp_dir.path().join("dst.txt");
 

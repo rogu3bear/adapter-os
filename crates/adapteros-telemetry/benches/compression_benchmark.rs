@@ -229,9 +229,12 @@ fn benchmark_bundle_writer(c: &mut Criterion) {
     let mut group = c.benchmark_group("bundle_writer");
     group.sample_size(10);
 
+    let tmp_root = std::path::PathBuf::from("var").join("tmp");
+    std::fs::create_dir_all(&tmp_root).expect("create var/tmp for benches");
+
     group.bench_function("bundle_write_with_compression", |b| {
         b.iter(|| {
-            let temp_dir = tempfile::tempdir().unwrap();
+            let temp_dir = tempfile::tempdir_in(&tmp_root).expect("tempdir");
             let mut writer = BundleWriter::with_compression(
                 temp_dir.path(),
                 10000,
@@ -256,7 +259,7 @@ fn benchmark_bundle_writer(c: &mut Criterion) {
 
     group.bench_function("bundle_write_without_compression", |b| {
         b.iter(|| {
-            let temp_dir = tempfile::tempdir().unwrap();
+            let temp_dir = tempfile::tempdir_in(&tmp_root).expect("tempdir");
             let mut config = CompressionConfig::default();
             config.enabled = false;
             let mut writer =

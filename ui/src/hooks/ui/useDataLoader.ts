@@ -70,7 +70,8 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useLiveData, PollingSpeed, ConnectionStatus } from '@/hooks/realtime/useLiveData';
+import { useLiveData, PollingSpeed } from '@/hooks/realtime/useLiveData';
+import type { ConnectionStatus } from '@/hooks/realtime/useSSEWithPollingFallback';
 import { logger, toError } from '@/utils/logger';
 
 // ============================================================================

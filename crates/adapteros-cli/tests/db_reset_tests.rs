@@ -45,7 +45,7 @@ fn test_db_reset_requires_confirmation() {
             "db",
             "reset",
             "--db-path",
-            "/tmp/test-reset.db",
+            "var/test-reset.db",
         ])
         .output()
         .expect("Failed to run aosctl db reset without confirmation");
@@ -69,7 +69,7 @@ fn test_db_reset_with_force_flag() {
             "db",
             "reset",
             "--db-path",
-            "/tmp/test-reset-force.db",
+            "var/test-reset-force.db",
             "--force",
         ])
         .output()

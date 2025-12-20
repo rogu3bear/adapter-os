@@ -21,7 +21,7 @@ import {
   TrendingDown,
   BarChart3
 } from 'lucide-react';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 
 import { TrainingJob, TrainingSession, TrainingMetrics, TrainingArtifactsResponse } from '@/api/types';
 import { logger, toError } from '@/utils/logger';
@@ -34,7 +34,8 @@ import { SectionErrorBoundary } from './ui/section-error-boundary';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { calculateTrainingETA, formatDuration as formatDurationUtil } from '@/utils/trainingEta';
-import { formatDurationSeconds, formatRelativeTime } from '@/utils/format';
+import { formatDurationSeconds, formatRelativeTime } from '@/lib/formatters';
+import { buildInferenceLink } from '@/utils/navLinks';
 
 interface TrainingMonitorProps {
   sessionId?: string;
@@ -552,16 +553,16 @@ export function TrainingMonitor({ sessionId, jobId, onClose }: TrainingMonitorPr
               </div>
               <div>
                 <div className="text-muted-foreground">Category</div>
-                <div className="font-medium">{job.config.category}</div>
+                <div className="font-medium">{job.config.category ?? 'N/A'}</div>
               </div>
               <div>
                 <div className="text-muted-foreground">Scope</div>
-                <div className="font-medium">{job.config.scope}</div>
+                <div className="font-medium">{job.config.scope ?? 'N/A'}</div>
               </div>
-              {job.config.framework_id && (
+              {job.config.repo_id && (
                 <div>
-                  <div className="text-muted-foreground">Framework</div>
-                  <div className="font-medium">{job.config.framework_id} {job.config.framework_version}</div>
+                  <div className="text-muted-foreground">Repository</div>
+                  <div className="font-medium">{String(job.config.repo_id)}</div>
                 </div>
               )}
             </div>
@@ -643,7 +644,7 @@ export function TrainingMonitor({ sessionId, jobId, onClose }: TrainingMonitorPr
                       View Adapter
                     </Button>
                   </Link>
-                  <Link to="/inference">
+                  <Link to={buildInferenceLink()}>
                     <Button variant="default" size="sm">
                       Test in Chat
                     </Button>

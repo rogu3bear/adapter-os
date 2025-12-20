@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { CheckCircle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { buildTrainingOverviewLink, buildTrainingDatasetsLink } from '@/utils/navLinks';
 
 interface DatasetConfig {
   name: string;
@@ -30,7 +31,7 @@ export function DatasetBuilderExample() {
 
   const handleCancel = () => {
     if (window.confirm('Are you sure you want to cancel? Any unsaved changes will be lost.')) {
-      navigate('/training');
+      navigate(buildTrainingOverviewLink());
     }
   };
 
@@ -113,7 +114,7 @@ export function DatasetBuilderWithDefaults() {
         onDatasetCreated={(datasetId, _config) => {
           navigate(`/training/configure?dataset=${datasetId}`);
         }}
-        onCancel={() => navigate('/training/datasets')}
+        onCancel={() => navigate(buildTrainingDatasetsLink())}
       />
     </div>
   );

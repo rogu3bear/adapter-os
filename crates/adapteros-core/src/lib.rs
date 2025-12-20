@@ -46,6 +46,7 @@ pub mod index_snapshot;
 pub mod json;
 pub mod lifecycle;
 pub mod naming;
+pub mod path_security;
 pub mod paths;
 pub mod plugin_events;
 pub mod plugins;
@@ -57,6 +58,8 @@ pub mod singleflight;
 pub mod stack;
 pub mod status;
 pub mod telemetry;
+pub mod tenant;
+pub mod tenant_isolation;
 pub mod tenant_snapshot;
 pub mod time;
 pub mod timeout;
@@ -105,6 +108,10 @@ pub use hash::B3Hash;
 pub use id::CPID;
 pub use lifecycle::{LifecycleState, LifecycleTransition, SemanticVersion, TransitionReason};
 pub use naming::{AdapterName, ForkType, StackName};
+pub use path_security::{
+    is_forbidden_tmp_path, is_forbidden_tmp_path_str, reject_forbidden_tmp_path,
+    reject_forbidden_tmp_path_like, FORBIDDEN_TMP_PREFIXES,
+};
 pub use paths::{get_adapter_path, get_default_adapters_root, AdapterPaths};
 pub use plugin_events::{
     AdapterEvent, AuditEvent, InferenceEvent, MetricsTickEvent, PluginEvent, PolicyViolationEvent,
@@ -131,6 +138,12 @@ pub use telemetry::{
     AUDIT_DIVERGENCE_ERROR, AUDIT_DIVERGENCE_METRIC, DETERMINISM_VIOLATION_METRIC,
     POLICY_DENY_OVERRIDE_ERROR, POLICY_OVERRIDE_METRIC, RECEIPT_MISMATCH_ERROR,
     RECEIPT_MISMATCH_METRIC, STRICT_DETERMINISM_ERROR, STRICT_DETERMINISM_METRIC,
+};
+pub use tenant::{TenantContext, TenantId, WorkspaceId};
+pub use tenant_isolation::{
+    TenantIsolationAction, TenantIsolationConfig, TenantIsolationDecision, TenantIsolationEngine,
+    TenantIsolationReason, TenantIsolationRequest, TenantIsolationTarget, TenantIsolationVerdict,
+    TenantIsolationViolation, TenantPrincipal, TENANT_ISOLATION_ERROR_CODE,
 };
 pub use timeout::TimeoutExt;
 pub use training::{TrainingConfig, TrainingJob, TrainingJobStatus, TrainingTemplate};

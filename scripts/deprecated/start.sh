@@ -283,7 +283,8 @@ fi
 
 # Start backend
 export RUST_LOG="${RUST_LOG:-info}"
-"$SERVER_BIN" --config configs/cp.toml > /tmp/aos-server.log 2>&1 &
+mkdir -p var/log
+"$SERVER_BIN" --config configs/cp.toml > var/log/aos-server.log 2>&1 &
 SERVER_PID=$!
 info "Backend starting (PID: $SERVER_PID)..."
 
@@ -300,7 +301,7 @@ done
 
 if [ $WAITED -ge $MAX_WAIT ]; then
     error "Backend failed to start"
-    echo "  Check logs: /tmp/aos-server.log"
+    echo "  Check logs: var/log/aos-server.log"
     exit 1
 fi
 success "Backend running at http://localhost:$API_PORT"
@@ -308,7 +309,7 @@ success "Backend running at http://localhost:$API_PORT"
 # Start UI
 if [ "$START_UI" = true ]; then
     cd "$UI_DIR"
-    AOS_UI_PORT="$UI_PORT" pnpm dev -- --port "$UI_PORT" > /tmp/aos-ui.log 2>&1 &
+    VITE_PORT="$UI_PORT" AOS_UI_PORT="$UI_PORT" pnpm dev -- --port "$UI_PORT" > var/log/aos-ui.log 2>&1 &
     UI_PID=$!
     cd "$PROJECT_ROOT"
 
@@ -316,7 +317,7 @@ if [ "$START_UI" = true ]; then
     if kill -0 "$UI_PID" 2>/dev/null; then
         success "UI running at http://localhost:$UI_PORT"
     else
-        warn "UI may have failed to start. Check: /tmp/aos-ui.log"
+        warn "UI may have failed to start. Check: var/log/aos-ui.log"
     fi
 fi
 
@@ -335,9 +336,9 @@ if [ "$START_UI" = true ]; then
 fi
 echo ""
 echo "  Logs:"
-echo "    Backend: /tmp/aos-server.log"
+echo "    Backend: var/log/aos-server.log"
 if [ "$START_UI" = true ]; then
-    echo "    UI:      /tmp/aos-ui.log"
+    echo "    UI:      var/log/aos-ui.log"
 fi
 echo ""
 echo -e "${YELLOW}Press Ctrl+C to stop${NC}"

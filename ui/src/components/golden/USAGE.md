@@ -356,4 +356,4 @@ test('displays pass rate correctly', () => {
 - Verify policy names/descriptions are populated
 - Check that search query is lowercase
 
-For more details, see [docs/ARCHITECTURE_PATTERNS.md](../../docs/ARCHITECTURE_PATTERNS.md)
+For more details, see [docs/ARCHITECTURE.md#architecture-components](../../docs/ARCHITECTURE.md#architecture-components)

@@ -26,17 +26,15 @@ use crate::output::OutputWriter;
 use adapteros_core::{AosError, Result};
 use adapteros_crypto::Keypair;
 use adapteros_single_file_adapter::{
-    AdapterManifest, AdapterWeights, Aos2PackageOptions, Aos2Packager, CompressionLevel,
-    LineageInfo, LoadOptions, PackageOptions, SingleFileAdapter, SingleFileAdapterLoader,
-    SingleFileAdapterPackager, SingleFileAdapterValidator, TrainingConfig, TrainingExample,
-    ValidationResult, WeightGroup, WeightGroupType, WeightMetadata,
+    Aos2PackageOptions, Aos2Packager, CompressionLevel, LineageInfo, LoadOptions, PackageOptions,
+    SingleFileAdapter, SingleFileAdapterLoader, SingleFileAdapterPackager,
+    SingleFileAdapterValidator, TrainingConfig,
 };
 use chrono::Utc;
 
 use clap::{Parser, Subcommand};
 use serde::Serialize;
 use std::fs;
-use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 
 #[derive(Debug, Parser, Clone)]
@@ -202,7 +200,7 @@ pub async fn run(args: AosArgs, output: &OutputWriter) -> Result<()> {
 }
 
 pub async fn create_aos(args: CreateArgs, output: &OutputWriter) -> Result<()> {
-    output.info(&format!(
+    output.info(format!(
         "Creating .aos file from: {}",
         args.source.display()
     ));
@@ -214,12 +212,12 @@ pub async fn create_aos(args: CreateArgs, output: &OutputWriter) -> Result<()> {
 
     // 2. Load training data from JSONL if provided
     let training_data = if let Some(ref training_data_path) = args.training_data {
-        output.info(&format!(
+        output.info(format!(
             "Loading training data from: {}",
             training_data_path.display()
         ));
         let data = aos_impl::load_training_data(training_data_path)?;
-        output.success(&format!("Loaded {} training examples", data.len()));
+        output.success(format!("Loaded {} training examples", data.len()));
         data
     } else {
         output.info("No training data provided, using empty dataset");
@@ -228,7 +226,7 @@ pub async fn create_aos(args: CreateArgs, output: &OutputWriter) -> Result<()> {
 
     // 3. Load config from TOML if provided
     let config = if let Some(ref config_path) = args.config {
-        output.info(&format!("Loading config from: {}", config_path.display()));
+        output.info(format!("Loading config from: {}", config_path.display()));
         aos_impl::load_config(config_path)?
     } else {
         output.info("No config provided, using defaults");
@@ -299,7 +297,7 @@ pub async fn create_aos(args: CreateArgs, output: &OutputWriter) -> Result<()> {
     };
 
     // 8. Save using appropriate packager
-    output.info(&format!("Packaging adapter with format: {}", args.format));
+    output.info(format!("Packaging adapter with format: {}", args.format));
     match args.format.to_lowercase().as_str() {
         "zip" => {
             let package_options = PackageOptions {
@@ -332,7 +330,7 @@ pub async fn create_aos(args: CreateArgs, output: &OutputWriter) -> Result<()> {
     }
 
     // 9. Output summary
-    output.success(&format!(
+    output.success(format!(
         "Successfully created .aos file: {}",
         args.output.display()
     ));
@@ -354,7 +352,7 @@ pub async fn create_aos(args: CreateArgs, output: &OutputWriter) -> Result<()> {
 
 pub async fn load_aos(args: LoadArgs, output: &OutputWriter) -> Result<()> {
     // Step 1: Load the .aos file
-    output.info(&format!("Loading .aos file: {}", args.path.display()));
+    output.info(format!("Loading .aos file: {}", args.path.display()));
 
     let load_options = LoadOptions::default();
     let adapter = SingleFileAdapterLoader::load_with_options(&args.path, load_options).await?;
@@ -364,7 +362,7 @@ pub async fn load_aos(args: LoadArgs, output: &OutputWriter) -> Result<()> {
         .adapter_id
         .unwrap_or_else(|| adapter.manifest.adapter_id.clone());
 
-    output.info(&format!("Adapter ID: {}", adapter_id));
+    output.info(format!("Adapter ID: {}", adapter_id));
 
     // Step 3: Create registration request payload
     #[derive(serde::Serialize)]
@@ -401,7 +399,7 @@ pub async fn load_aos(args: LoadArgs, output: &OutputWriter) -> Result<()> {
         args.base_url.trim_end_matches('/')
     );
 
-    output.info(&format!("Registering adapter with control plane: {}", url));
+    output.info(format!("Registering adapter with control plane: {}", url));
 
     let response = client
         .post(&url)
@@ -427,9 +425,9 @@ pub async fn load_aos(args: LoadArgs, output: &OutputWriter) -> Result<()> {
         .map_err(|e| AosError::Http(e.to_string()))?;
 
     if output.is_json() {
-        output.result(&serde_json::to_string_pretty(&value).unwrap());
+        output.result(serde_json::to_string_pretty(&value).unwrap());
     } else {
-        output.success(&format!("Adapter registered successfully: {}", adapter_id));
+        output.success(format!("Adapter registered successfully: {}", adapter_id));
         output.kv("Adapter ID", &adapter_id);
         output.kv("Version", &adapter.manifest.version);
         output.kv("Rank", &adapter.manifest.rank.to_string());
@@ -478,7 +476,7 @@ pub async fn verify_aos(args: VerifyArgs, output: &OutputWriter) -> Result<()> {
         if !report.errors.is_empty() {
             output.error("Validation Errors:");
             for error in &report.errors {
-                output.error(&format!("  - {}", error));
+                output.error(format!("  - {}", error));
             }
             output.blank();
         }
@@ -487,7 +485,7 @@ pub async fn verify_aos(args: VerifyArgs, output: &OutputWriter) -> Result<()> {
         if !report.warnings.is_empty() {
             output.warning("Validation Warnings:");
             for warning in &report.warnings {
-                output.warning(&format!("  - {}", warning));
+                output.warning(format!("  - {}", warning));
             }
             output.blank();
         }

@@ -362,12 +362,10 @@ impl ConfigSchema {
             }
         }
         // Then check config_key matches (for vars without explicit toml_key)
-        for var in self.variables.values() {
-            if var.toml_key.is_none() && var.config_key == toml_key {
-                return Some(var);
-            }
-        }
-        None
+        self.variables
+            .values()
+            .find(|&var| var.toml_key.is_none() && var.config_key == toml_key)
+            .map(|v| v as _)
     }
 
     /// Build a map from TOML keys to config_key for efficient loading

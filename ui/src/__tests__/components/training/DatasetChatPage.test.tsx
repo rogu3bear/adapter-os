@@ -21,11 +21,11 @@ import DatasetChatPage from '@/pages/Training/DatasetChatPage';
 import type { Dataset } from '@/api/training-types';
 
 // Mock hooks
-const mockUseDataset = vi.fn();
-const mockUseNavigate = vi.fn();
-const mockUseTenant = vi.fn();
+const mockUseDataset = vi.hoisted(() => vi.fn());
+const mockUseNavigate = vi.hoisted(() => vi.fn());
+const mockUseTenant = vi.hoisted(() => vi.fn());
 
-vi.mock('@/hooks/useTraining', () => ({
+vi.mock('@/hooks/training', () => ({
   useTraining: {
     useDataset: vi.fn((...args: any[]) => mockUseDataset(...args)),
   },
@@ -74,11 +74,37 @@ vi.mock('@/contexts/DatasetChatContext', () => ({
 }));
 
 // Mock toast
-const mockToastInfo = vi.fn();
+const mockToastInfo = vi.hoisted(() => vi.fn());
 
 vi.mock('sonner', () => ({
   toast: {
-    info: mockToastInfo,
+    info: (...args: unknown[]) => mockToastInfo(...args),
+  },
+}));
+
+// Mock API client
+vi.mock('@/api/services', () => ({
+  __esModule: true,
+  default: {
+    createChatSession: vi.fn(() =>
+      Promise.resolve({
+        session_id: 'session-123',
+        name: 'Test Session',
+        stack_id: null,
+        messages: [],
+        created_at: '2025-01-01T10:00:00Z',
+      })
+    ),
+    addChatMessage: vi.fn(() => Promise.resolve()),
+    request: vi.fn(() =>
+      Promise.resolve({
+        dataset_id: 'dataset-123',
+        format: 'jsonl',
+        total_examples: 10,
+        examples: [{ input: 'test', output: 'response' }],
+      })
+    ),
+    getToken: vi.fn(() => 'test-token'),
   },
 }));
 
@@ -227,7 +253,7 @@ describe('DatasetChatPage', () => {
       });
     });
 
-    it('wraps chat in DatasetChatProvider', async () => {
+    it('renders ChatInterface with dataset context', async () => {
       mockUseDataset.mockReturnValue({
         data: mockDataset,
         isLoading: false,
@@ -242,7 +268,8 @@ describe('DatasetChatPage', () => {
       );
 
       await waitFor(() => {
-        expect(screen.getByTestId('dataset-chat-provider')).toBeInTheDocument();
+        expect(screen.getByTestId('chat-interface')).toBeInTheDocument();
+        expect(screen.getByTestId('dataset-context')).toHaveTextContent('Test Dataset');
       });
     });
   });

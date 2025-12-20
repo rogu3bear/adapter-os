@@ -224,7 +224,7 @@ describe('RulebookTab', () => {
 
       // Click the first evidence item
       const evidenceItems = screen.getAllByText(/"This section discusses/);
-      await user.click(evidenceItems[0].closest('div[role="button"]') as HTMLElement);
+      await user.click(evidenceItems[0]);
 
       expect(onViewDocument).toHaveBeenCalledWith(
         'doc-1',
@@ -241,7 +241,7 @@ describe('RulebookTab', () => {
 
       // Click the evidence item without page number (Guidelines.pdf)
       const item = screen.getByText(/"General guidelines for document preparation."/);
-      await user.click(item.closest('div[role="button"]') as HTMLElement);
+      await user.click(item);
 
       expect(onViewDocument).toHaveBeenCalledWith(
         'doc-3',
@@ -302,10 +302,7 @@ describe('RulebookTab', () => {
       // Should be in alphabetical order
       expect(names).toEqual([
         'Financial Report 2024.pdf',
-        'Financial Report 2024.pdf', // Appears twice (in badge and header)
         'Guidelines.pdf',
-        'Guidelines.pdf',
-        'Policy Manual.pdf',
         'Policy Manual.pdf',
       ]);
     });

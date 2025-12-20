@@ -12,7 +12,7 @@ import {
   GitBranch,
   Clock,
 } from 'lucide-react';
-import { cn } from '@/components/ui/utils';
+import { cn } from '@/lib/utils';
 import { Adapter } from '@/api/types';
 import { LIFECYCLE_STATE_LABELS } from '@/constants/terminology';
 import { formatMB, formatCount } from '@/utils';

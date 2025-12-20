@@ -13,10 +13,9 @@ describe('SessionModeBanner', () => {
     expect(screen.queryByText(/Commit:/)).not.toBeInTheDocument();
   });
 
-  test('renders short commit sha when available', () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- tests modify import.meta.env
-    const meta = import.meta as any;
-    Object.assign(meta.env ?? {}, { VITE_COMMIT_SHA: 'abcdef1234567890' });
+	  test('renders short commit sha when available', () => {
+	    const meta = import.meta as any;
+	    Object.assign(meta.env ?? {}, { VITE_COMMIT_SHA: 'abcdef1234567890' });
 
     render(<SessionModeBanner sessionMode="normal" />);
 

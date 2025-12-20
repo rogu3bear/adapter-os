@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { buildTrainingOverviewLink, buildTrainingJobsLink, buildTrainingJobDetailLink, buildTrainingJobChatLink, buildDatasetDetailLink } from '@/utils/navLinks';
 import FeatureLayout from '@/layout/FeatureLayout';
 import { DensityProvider } from '@/contexts/DensityContext';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -29,7 +31,7 @@ import {
   MessageSquare,
   Send,
 } from 'lucide-react';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { useLiveData } from '@/hooks/realtime/useLiveData';
 import { logger } from '@/utils/logger';
 import { useToast } from '@/hooks/use-toast';
@@ -84,8 +86,10 @@ const formatDuration = (seconds?: number) => {
 };
 
 export function buildBackendTimeline(job: TrainingJob, backendLabel: string): BackendTimelineEntry[] {
-  if (job.backend_attempts && job.backend_attempts.length > 0) {
-    return job.backend_attempts.map((attempt: BackendAttempt) => ({
+  // Note: backend_attempts not in generated types yet
+  const backendAttempts = (job as any).backend_attempts;
+  if (backendAttempts && backendAttempts.length > 0) {
+    return backendAttempts.map((attempt: BackendAttempt) => ({
       backend: attempt.backend,
       result: attempt.result ?? 'selected',
       reason: attempt.reason,
@@ -94,8 +98,8 @@ export function buildBackendTimeline(job: TrainingJob, backendLabel: string): Ba
     }));
   }
 
-  const requested = job.requested_backend || job.config?.preferred_backend;
-  const backendReason = job.backend_reason;
+  const requested = job.requested_backend;
+  const backendReason = job.backend_reason ?? undefined;
 
   if (requested && backendLabel && requested !== backendLabel) {
     return [
@@ -125,12 +129,17 @@ export function buildBackendTimeline(job: TrainingJob, backendLabel: string): Ba
 }
 
 export function classifyErrorCategory(job: TrainingJob): TrainingErrorCategory | undefined {
-  if (job.error_category) return job.error_category;
-  if (job.dataset_trust_state === 'blocked' || job.dataset_trust_state === 'needs_approval') {
+  // Note: error_category, dataset_trust_state, error_detail not in generated types yet
+  const errorCategory = (job as any).error_category;
+  if (errorCategory) return errorCategory;
+
+  const datasetTrustState = (job as any).dataset_trust_state;
+  if (datasetTrustState === 'blocked' || datasetTrustState === 'needs_approval') {
     return 'dataset_trust';
   }
 
-  const message = (job.error_message || job.error_detail || '').toLowerCase();
+  const errorDetail = (job as any).error_detail;
+  const message = (job.error_message ?? errorDetail ?? '').toLowerCase();
   if (!message) return undefined;
 
   if (message.includes('coreml')) return 'coreml_compile';
@@ -144,27 +153,62 @@ function TrainingJobDetailContent() {
   const { jobId } = useParams<{ jobId: string }>();
   const navigate = useNavigate();
   const { toast } = useToast();
+  const queryClient = useQueryClient();
 
-  const [job, setJob] = useState<TrainingJob | null>(null);
-  const [logs, setLogs] = useState<string[]>([]);
-  const [metrics, setMetrics] = useState<TrainingMetrics | null>(null);
-  const [artifacts, setArtifacts] = useState<TrainingArtifact[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState('overview');
   const [stackModalOpen, setStackModalOpen] = useState(false);
   const [publishDialogOpen, setPublishDialogOpen] = useState(false);
+  const [downloadingArtifacts, setDownloadingArtifacts] = useState<Set<string>>(() => new Set());
   const missingJobId = !jobId;
 
-  // SSE for real-time updates when job is active
-  const isJobActive = job?.status === 'running' || job?.status === 'pending';
+  // Fetch job data using React Query
+  const isJobActive = (job: TrainingJob | null) =>
+    job?.status === 'running' || job?.status === 'pending';
 
-  useEffect(() => {
-    if (missingJobId) {
-      setIsLoading(false);
-      setError('No training job ID provided');
-    }
-  }, [missingJobId]);
+  const {
+    data: job = null,
+    isLoading: isJobLoading,
+    error: jobError,
+    refetch: refetchJob
+  } = useQuery({
+    queryKey: ['training-job', jobId],
+    queryFn: () => apiClient.getTrainingJob(jobId!),
+    enabled: !!jobId,
+    refetchInterval: (query) => isJobActive(query.state.data ?? null) ? 5000 : false,
+  });
+
+  // Fetch metrics using React Query
+  const { data: metrics, isLoading: isMetricsLoading } = useQuery({
+    queryKey: ['training-job-metrics', jobId],
+    queryFn: async () => {
+      if (!jobId) return null;
+      return await apiClient.getTrainingMetrics(jobId);
+    },
+    enabled: !!jobId,
+    refetchInterval: () => isJobActive(job) ? 5000 : false,
+  });
+
+  // Fetch artifacts using React Query
+  const { data: artifacts = [], isLoading: isArtifactsLoading } = useQuery({
+    queryKey: ['training-job-artifacts', jobId],
+    queryFn: async () => {
+      if (!jobId) return [];
+      const result = await apiClient.getTrainingArtifacts(jobId);
+      return result.artifacts || [];
+    },
+    enabled: !!jobId,
+  });
+
+  // Fetch logs using React Query with automatic polling when job is active
+  const { data: logs = [], isLoading: isLogsLoading, refetch: refetchLogs } = useQuery({
+    queryKey: ['training-job-logs', jobId],
+    queryFn: () => apiClient.getTrainingLogs(jobId!),
+    enabled: !!jobId,
+    refetchInterval: isJobActive(job) ? 5000 : false,
+  });
+
+  // SSE for real-time updates when job is active
+  const isJobCurrentlyActive = isJobActive(job);
 
   useLiveData({
     sseEndpoint: '/v1/streams/training',
@@ -175,26 +219,29 @@ function TrainingJobDetailContent() {
       const jobData = await apiClient.getTrainingJob(jobId);
       return jobData;
     },
-    enabled: isJobActive && !!jobId,
+    enabled: isJobCurrentlyActive && !!jobId,
     pollingSpeed: 'fast',
     onSSEMessage: (event) => {
       const progressEvent = event as TrainingProgressEvent;
       if (progressEvent.job_id === jobId) {
-        setJob(prev => prev ? {
-          ...prev,
-          status: progressEvent.status,
-          progress_pct: progressEvent.progress_pct,
-          current_epoch: progressEvent.current_epoch,
-          total_epochs: progressEvent.total_epochs,
-          current_loss: progressEvent.current_loss,
-          tokens_per_second: progressEvent.tokens_per_second,
-          tokens_processed: progressEvent.tokens_processed ?? prev.tokens_processed,
-          eta_seconds: progressEvent.estimated_time_remaining_sec,
-          error_message: progressEvent.error,
-        } : prev);
+        // Update job data in React Query cache
+        queryClient.setQueryData(['training-job', jobId], (prev: TrainingJob | undefined) =>
+          prev ? {
+            ...prev,
+            status: progressEvent.status,
+            progress_pct: progressEvent.progress_pct,
+            current_epoch: progressEvent.current_epoch,
+            total_epochs: progressEvent.total_epochs,
+            current_loss: progressEvent.current_loss,
+            tokens_per_second: progressEvent.tokens_per_second,
+            tokens_processed: progressEvent.tokens_processed ?? prev.tokens_processed,
+            eta_seconds: progressEvent.estimated_time_remaining_sec,
+            error_message: progressEvent.error,
+          } : prev
+        );
 
         if (progressEvent.current_loss !== undefined) {
-          setMetrics(prev => ({
+          queryClient.setQueryData(['training-job-metrics', jobId], (prev: TrainingMetrics | undefined) => ({
             ...prev,
             loss: progressEvent.current_loss,
             learning_rate: progressEvent.learning_rate,
@@ -208,49 +255,32 @@ function TrainingJobDetailContent() {
     },
   });
 
-  const fetchJobDetails = useCallback(async () => {
+  const handleDownloadArtifact = useCallback(async (artifact: TrainingArtifact) => {
     if (!jobId) return;
-
-    setIsLoading(true);
-    setError(null);
+    setDownloadingArtifacts((prev) => {
+      const next = new Set(prev);
+      next.add(artifact.id);
+      return next;
+    });
 
     try {
-      const [jobData, logsData, metricsData, artifactsData] = await Promise.allSettled([
-        apiClient.getTrainingJob(jobId),
-        apiClient.getTrainingLogs(jobId),
-        apiClient.getTrainingMetrics(jobId),
-        apiClient.getTrainingArtifacts(jobId),
-      ]);
-
-      if (jobData.status === 'fulfilled') {
-        setJob(jobData.value);
-      } else {
-        throw new Error('Failed to fetch job details');
-      }
-
-      if (logsData.status === 'fulfilled') {
-        setLogs(logsData.value);
-      }
-
-      if (metricsData.status === 'fulfilled') {
-        setMetrics(metricsData.value);
-      }
-
-      if (artifactsData.status === 'fulfilled') {
-        setArtifacts(artifactsData.value.artifacts || []);
-      }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to load job details';
-      setError(message);
-      logger.error('Failed to fetch training job details', { jobId }, err as Error);
+      const filename = artifact.path?.split('/').pop() || `${artifact.type}-${artifact.id}`;
+      await apiClient.downloadArtifact(jobId, artifact.id, filename);
+      toast({ title: 'Download started', description: filename });
+    } catch (error) {
+      toast({
+        title: 'Download failed',
+        description: error instanceof Error ? error.message : 'Failed to download artifact',
+        variant: 'destructive',
+      });
     } finally {
-      setIsLoading(false);
+      setDownloadingArtifacts((prev) => {
+        const next = new Set(prev);
+        next.delete(artifact.id);
+        return next;
+      });
     }
-  }, [jobId]);
-
-  useEffect(() => {
-    fetchJobDetails();
-  }, [fetchJobDetails]);
+  }, [jobId, toast]);
 
   const handleStackCreated = useCallback((stackId: string) => {
     setStackModalOpen(false);
@@ -267,29 +297,13 @@ function TrainingJobDetailContent() {
     }, 2000);
   }, [toast]);
 
-  // Auto-refresh logs for active jobs
-  useEffect(() => {
-    if (!isJobActive || !jobId) return;
-
-    const interval = setInterval(async () => {
-      try {
-        const newLogs = await apiClient.getTrainingLogs(jobId);
-        setLogs(newLogs);
-      } catch (err) {
-        logger.warn('Failed to refresh logs', { jobId });
-      }
-    }, 5000);
-
-    return () => clearInterval(interval);
-  }, [isJobActive, jobId]);
-
   if (missingJobId) {
     return (
       <Card className="border-destructive">
         <CardContent className="pt-6">
           <p className="text-destructive">Missing training job ID.</p>
           <div className="mt-3">
-            <Button variant="outline" onClick={() => navigate('/training/jobs')}>
+            <Button variant="outline" onClick={() => navigate(buildTrainingJobsLink())}>
               <ArrowLeft className="h-4 w-4 mr-2" />
               Back to jobs
             </Button>
@@ -299,7 +313,7 @@ function TrainingJobDetailContent() {
     );
   }
 
-  if (isLoading) {
+  if (isJobLoading) {
     return (
       <div className="flex items-center justify-center h-64">
         <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -307,20 +321,21 @@ function TrainingJobDetailContent() {
     );
   }
 
-  if (error || !job) {
+  if (jobError || !job) {
+    const errorMessage = jobError instanceof Error ? jobError.message : 'Job not found';
     return (
       <Card className="border-destructive">
         <CardContent className="pt-6">
           <div className="flex items-center gap-2 text-destructive mb-4">
             <AlertTriangle className="h-5 w-5" />
-            <span>{error || 'Job not found'}</span>
+            <span>{errorMessage}</span>
           </div>
           <div className="flex gap-2">
-            <Button variant="outline" onClick={() => navigate('/training')}>
+            <Button variant="outline" onClick={() => navigate(buildTrainingOverviewLink())}>
               <ArrowLeft className="h-4 w-4 mr-2" />
               Back to Jobs
             </Button>
-            <Button variant="outline" onClick={fetchJobDetails}>
+            <Button variant="outline" onClick={() => refetchJob()}>
               <RefreshCw className="h-4 w-4 mr-2" />
               Retry
             </Button>
@@ -330,7 +345,7 @@ function TrainingJobDetailContent() {
     );
   }
 
-  const statusConfig = {
+  const statusConfig: Record<string, { icon: React.ElementType; className: string; label: string }> = {
     pending: { icon: Clock, className: 'text-yellow-500', label: 'Pending' },
     running: { icon: Activity, className: 'text-blue-500 animate-pulse', label: 'Running' },
     completed: { icon: CheckCircle, className: 'text-green-500', label: 'Completed' },
@@ -341,16 +356,16 @@ function TrainingJobDetailContent() {
 
   const StatusIcon = statusConfig[job.status]?.icon || Clock;
   const statusClass = statusConfig[job.status]?.className || 'text-gray-500';
-  const backendLabel = job.backend || metrics?.backend || 'unknown';
-  const requestedBackend = job.requested_backend || job.config?.preferred_backend;
-  const coremlFallback = job.coreml_training_fallback || job.config?.coreml_training_fallback;
-  const backendDevice = job.backend_device || metrics?.backend_device;
-  const backendDeviceLower = (backendDevice || '').toLowerCase();
-  const backendLower = (job.backend || '').toLowerCase();
-  const determinismLabel = job.determinism_mode || 'n/a';
+  const backendLabel = job.backend ?? metrics?.backend ?? 'unknown';
+  const requestedBackend = job.requested_backend ?? undefined;
+  const coremlFallback = job.coreml_training_fallback ?? undefined;
+  const backendDevice = job.backend_device ?? metrics?.backend_device ?? undefined;
+  const backendDeviceLower = (backendDevice ?? '').toLowerCase();
+  const backendLower = (job.backend ?? '').toLowerCase();
+  const determinismLabel = job.determinism_mode ?? 'n/a';
   const seedLabel = job.training_seed !== undefined ? `seed ${job.training_seed}` : null;
   const backendPolicyMode = normalizeBackendPolicy(
-    job.backend_policy_mode || job.backend_policy || job.config?.backend_policy
+    job.backend_policy ?? undefined
   );
   const backendTimeline = buildBackendTimeline(job, backendLabel);
   const errorCategory = classifyErrorCategory(job);
@@ -359,14 +374,15 @@ function TrainingJobDetailContent() {
     || backendDeviceLower.includes('ane')
     || backendLower.includes('metal')
     || backendLower.includes('coreml');
-  const latestLoss = metrics?.loss ?? job.current_loss ?? job.loss;
-  const tokensProcessed = job.tokens_processed ?? metrics?.tokens_processed;
-  const examplesProcessed = job.examples_processed ?? metrics?.examples_processed;
+  const latestLoss = metrics?.loss ?? job.current_loss;
+  const tokensProcessed = job.tokens_processed ?? metrics?.tokens_processed ?? undefined;
+  const examplesProcessed = job.examples_processed ?? metrics?.examples_processed ?? undefined;
   const tokensPerSecond = job.tokens_per_second ?? metrics?.tokens_per_second;
-  const examplesPerSecond = metrics?.throughput_examples_per_sec ?? job.throughput_examples_per_sec;
-  const batchSize = job.config?.batch_size;
-  const lossCurveSnippet = job.loss_curve?.slice(-5);
-  const driftMetrics = job.drift_metrics;
+  const examplesPerSecond = metrics?.throughput_examples_per_sec ?? job.throughput_examples_per_sec ?? undefined;
+  // Note: batch_size, loss_curve, drift_metrics not in generated types yet
+  const batchSize = (job as any).config?.batch_size;
+  const lossCurveSnippet = (job as any).loss_curve?.slice(-5);
+  const driftMetrics = (job as any).drift_metrics;
   const durationSeconds = job.training_time_ms
     ? job.training_time_ms / 1000
     : (job.started_at && job.completed_at
@@ -407,7 +423,7 @@ function TrainingJobDetailContent() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
-          <Button variant="ghost" size="sm" onClick={() => navigate('/training')}>
+          <Button variant="ghost" size="sm" onClick={() => navigate(buildTrainingOverviewLink())}>
             <ArrowLeft className="h-4 w-4 mr-2" />
             Back
           </Button>
@@ -418,7 +434,7 @@ function TrainingJobDetailContent() {
         <div className="flex items-center gap-2">
           {job.status === 'completed' && job.stack_id && (
             <Button
-              onClick={() => navigate(`/training/jobs/${job.id}/chat`)}
+              onClick={() => navigate(buildTrainingJobChatLink(job.id))}
               variant="default"
               data-testid="open-result-chat"
             >
@@ -666,7 +682,7 @@ function TrainingJobDetailContent() {
                     <div className="p-3 bg-muted rounded-lg">
                       <div className="text-sm text-muted-foreground">Loss Curve (last)</div>
                       <div className="text-xs font-mono">
-                        {lossCurveSnippet.map(val => val.toFixed(3)).join(', ')}
+                        {lossCurveSnippet.map((val: number) => val.toFixed(3)).join(', ')}
                       </div>
                     </div>
                   )}
@@ -753,7 +769,7 @@ function TrainingJobDetailContent() {
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => navigate(`/training/datasets/${job.dataset_id}`)}
+                        onClick={() => navigate(buildDatasetDetailLink(job.dataset_id!))}
                       >
                         <ExternalLink className="h-3 w-3" />
                       </Button>
@@ -797,7 +813,7 @@ function TrainingJobDetailContent() {
                                 <Button
                                   variant="ghost"
                                   size="sm"
-                                  onClick={() => navigate(`/training/datasets/${job.dataset_id}?datasetVersionId=${v.dataset_version_id}`)}
+                                  onClick={() => navigate(buildDatasetDetailLink(job.dataset_id!, { datasetVersionId: v.dataset_version_id }))}
                                 >
                                   <ExternalLink className="h-3 w-3" />
                                 </Button>
@@ -933,11 +949,7 @@ function TrainingJobDetailContent() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={async () => {
-                  if (!jobId) return;
-                  const newLogs = await apiClient.getTrainingLogs(jobId);
-                  setLogs(newLogs);
-                }}
+                onClick={() => refetchLogs()}
               >
                 <RefreshCw className="h-4 w-4 mr-2" />
                 Refresh
@@ -974,26 +986,34 @@ function TrainingJobDetailContent() {
                 </div>
               ) : (
                 <div className="space-y-2">
-                  {artifacts.map((artifact) => (
-                    <div
-                      key={artifact.id}
-                      className="flex items-center justify-between p-3 rounded-lg border"
-                    >
-                      <div className="flex items-center gap-3">
-                        <Package className="h-4 w-4 text-muted-foreground" />
-                        <div>
-                          <div className="font-medium">{artifact.type}</div>
-                          <div className="text-sm text-muted-foreground">
-                            {(artifact.size_bytes / 1024 / 1024).toFixed(2)} MB
+                  {artifacts.map((artifact) => {
+                    const isDownloading = downloadingArtifacts.has(artifact.id);
+                    return (
+                      <div
+                        key={artifact.id}
+                        className="flex items-center justify-between p-3 rounded-lg border"
+                      >
+                        <div className="flex items-center gap-3">
+                          <Package className="h-4 w-4 text-muted-foreground" />
+                          <div>
+                            <div className="font-medium">{artifact.type}</div>
+                            <div className="text-sm text-muted-foreground">
+                              {(artifact.size_bytes / 1024 / 1024).toFixed(2)} MB
+                            </div>
                           </div>
                         </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleDownloadArtifact(artifact)}
+                          disabled={isDownloading}
+                        >
+                          <Download className="h-4 w-4 mr-2" />
+                          {isDownloading ? 'Downloading…' : 'Download'}
+                        </Button>
                       </div>
-                      <Button variant="outline" size="sm">
-                        <Download className="h-4 w-4 mr-2" />
-                        Download
-                      </Button>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </CardContent>
@@ -1038,7 +1058,7 @@ function TrainingJobDetailContent() {
                   </div>
                   <div>
                     <dt className="text-sm text-muted-foreground">Gradient Clip</dt>
-                    <dd className="font-mono">{job.config.gradient_clip ?? '-'}</dd>
+                    <dd className="font-mono">{(job.config as any).gradient_clip ?? '-'}</dd>
                   </div>
                   <div>
                     <dt className="text-sm text-muted-foreground">Max Seq Length</dt>
@@ -1073,7 +1093,7 @@ function TrainingJobDetailContent() {
           trainingJob={job}
           onPublished={() => {
             // Refetch job to update published_at status
-            fetchJobDetails();
+            refetchJob();
           }}
         />
       )}

@@ -286,6 +286,7 @@ pub struct ExecutionPolicyResponse {
 /// Request to create or update an execution policy
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub struct CreateExecutionPolicyRequest {
     /// Determinism policy configuration
     pub determinism: DeterminismPolicy,
@@ -302,17 +303,6 @@ pub struct CreateExecutionPolicyRequest {
     /// Default: false (unsigned adapters allowed)
     #[serde(default)]
     pub require_signed_adapters: bool,
-}
-
-impl Default for CreateExecutionPolicyRequest {
-    fn default() -> Self {
-        Self {
-            determinism: DeterminismPolicy::default(),
-            routing: None,
-            golden: None,
-            require_signed_adapters: false,
-        }
-    }
 }
 
 /// Request to update an existing execution policy

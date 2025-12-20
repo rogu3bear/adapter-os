@@ -610,7 +610,7 @@ pub async fn run_migrate(args: RegistryMigrateArgs, output: &OutputWriter) -> Re
         return Ok(());
     }
 
-    output.info(&format!(
+    output.info(format!(
         "Found {} tenants and {} adapters to migrate",
         tenants.len(),
         adapters.len()
@@ -623,10 +623,7 @@ pub async fn run_migrate(args: RegistryMigrateArgs, output: &OutputWriter) -> Re
     } else {
         match Registry::open(&args.to_db) {
             Ok(reg) => {
-                output.success(&format!(
-                    "New registry database created at {:?}",
-                    args.to_db
-                ));
+                output.success(format!("New registry database created at {:?}", args.to_db));
                 Some(reg)
             }
             Err(e) => {
@@ -660,18 +657,18 @@ pub async fn run_migrate(args: RegistryMigrateArgs, output: &OutputWriter) -> Re
     output.info("");
     output.info("Migration Complete");
     output.info("==================");
-    output.info(&format!("Elapsed time: {:.2}s", elapsed.as_secs_f64()));
+    output.info(format!("Elapsed time: {:.2}s", elapsed.as_secs_f64()));
     output.info("");
-    output.info(&format!("Tenants:"));
-    output.info(&format!("  Processed: {}", stats.tenants_processed));
-    output.info(&format!("  Migrated:  {}", stats.tenants_migrated));
-    output.info(&format!("  Skipped:   {}", stats.tenants_skipped));
-    output.info(&format!("  Failed:    {}", stats.tenants_failed));
-    output.info(&format!("Adapters:"));
-    output.info(&format!("  Processed: {}", stats.adapters_processed));
-    output.info(&format!("  Migrated:  {}", stats.adapters_migrated));
-    output.info(&format!("  Skipped:   {}", stats.adapters_skipped));
-    output.info(&format!("  Failed:    {}", stats.adapters_failed));
+    output.info("Tenants:");
+    output.info(format!("  Processed: {}", stats.tenants_processed));
+    output.info(format!("  Migrated:  {}", stats.tenants_migrated));
+    output.info(format!("  Skipped:   {}", stats.tenants_skipped));
+    output.info(format!("  Failed:    {}", stats.tenants_failed));
+    output.info("Adapters:");
+    output.info(format!("  Processed: {}", stats.adapters_processed));
+    output.info(format!("  Migrated:  {}", stats.adapters_migrated));
+    output.info(format!("  Skipped:   {}", stats.adapters_skipped));
+    output.info(format!("  Failed:    {}", stats.adapters_failed));
     output.info("");
 
     // Summary line
@@ -679,7 +676,7 @@ pub async fn run_migrate(args: RegistryMigrateArgs, output: &OutputWriter) -> Re
     let total_failed = stats.tenants_failed + stats.adapters_failed;
     let total_skipped = stats.tenants_skipped + stats.adapters_skipped;
 
-    output.info(&format!(
+    output.info(format!(
         "Summary: {} succeeded, {} skipped, {} failed",
         total_success, total_skipped, total_failed
     ));

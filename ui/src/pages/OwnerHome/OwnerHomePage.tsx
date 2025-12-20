@@ -21,7 +21,7 @@ import { toast } from 'sonner';
 
 import { useAuth } from '@/providers/CoreProviders';
 import PageWrapper from '@/layout/PageWrapper';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import type { ModelWithStatsResponse, BaseModelStatus, Adapter, Tenant as ApiTenant, AdapterStack } from '@/api/types';
 import type { MetricsSnapshotEvent } from '@/api/streaming-types';
 import type { SystemOverview } from '@/api/owner-types';
@@ -48,6 +48,7 @@ import { CliConsole } from './components/CliConsole';
 
 import { useSystemState } from '@/hooks/system/useSystemState';
 import { useLiveData } from '@/hooks/realtime/useLiveData';
+import { buildReplayLink, buildDashboardLink, buildTestingLink, buildSecurityPoliciesLink, buildAdaptersRegisterLink } from '@/utils/navLinks';
 
 const MODEL_STATUS_VALUES = ['ready', 'loading', 'error', 'no-model', 'unloading', 'checking', 'available'] as const;
 type ModelStatusValue = (typeof MODEL_STATUS_VALUES)[number];
@@ -274,7 +275,7 @@ export default function OwnerHomePage() {
             <div className="flex flex-wrap items-center gap-2">
               <LiveDataBadge
                 isLive={metricsConnected}
-                connectionStatus={metricsConnectionStatus}
+                connectionStatus={metricsConnectionStatus as any}
                 freshnessLevel={metricsFreshness}
                 lastUpdated={metricsLastUpdated}
                 onReconnect={reconnectMetrics}
@@ -282,35 +283,35 @@ export default function OwnerHomePage() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => navigate('/dashboard')}
+                onClick={() => navigate(buildDashboardLink())}
               >
                 Dashboard
               </Button>
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => navigate('/testing')}
+                onClick={() => navigate(buildTestingLink())}
               >
                 Testing
               </Button>
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => navigate('/replay')}
+                onClick={() => navigate(buildReplayLink())}
               >
                 Replay
               </Button>
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => navigate('/security/policies')}
+                onClick={() => navigate(buildSecurityPoliciesLink())}
               >
                 Guardrails
               </Button>
               <Button
                 variant="default"
                 size="sm"
-                onClick={() => navigate('/create-adapter')}
+                onClick={() => navigate(buildAdaptersRegisterLink())}
                 className="bg-blue-600 hover:bg-blue-700"
               >
                 <PlusCircle className="h-4 w-4 mr-1.5" />

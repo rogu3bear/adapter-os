@@ -58,7 +58,7 @@ async fn create_test_repo(db: &Db, repo_id: &str) -> Result<()> {
 async fn create_test_dataset(db: &Db, dataset_id: &str, tenant_id: &str) -> Result<()> {
     sqlx::query(
         "INSERT INTO training_datasets (id, name, tenant_id, format, storage_path, hash_b3, validation_status, created_at)
-         VALUES (?, ?, ?, 'jsonl', '/tmp/test', 'dummy_hash', 'valid', datetime('now'))",
+         VALUES (?, ?, ?, 'jsonl', 'var/test-datasets', 'dummy_hash', 'valid', datetime('now'))",
     )
     .bind(dataset_id)
     .bind(format!("dataset-{}", dataset_id))

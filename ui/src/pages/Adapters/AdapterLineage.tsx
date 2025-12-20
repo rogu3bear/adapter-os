@@ -13,7 +13,8 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { GlossaryTooltip } from '@/components/ui/glossary-tooltip';
 import { AdapterLineageResponse } from '@/api/adapter-types';
 import { formatDistanceToNow, parseISO } from 'date-fns';
-import { formatRelativeTime } from '@/utils/format';
+import { formatRelativeTime } from '@/lib/formatters';
+import { buildAdapterDetailLink, buildTrainingJobDetailLink, buildDatasetDetailLink } from '@/utils/navLinks';
 
 interface AdapterLineageProps {
   adapterId: string;
@@ -59,7 +60,7 @@ export default function AdapterLineage({ adapterId, lineage, isLoading }: Adapte
   }
 
   const handleNavigateToAdapter = (adapterIdToNavigate: string) => {
-    navigate(`/adapters/${adapterIdToNavigate}`);
+    navigate(buildAdapterDetailLink(adapterIdToNavigate));
   };
 
   return (
@@ -210,7 +211,7 @@ export default function AdapterLineage({ adapterId, lineage, isLoading }: Adapte
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => navigate(`/training/jobs/${trainingJobId}`)}
+                    onClick={() => navigate(buildTrainingJobDetailLink(trainingJobId))}
                   >
                     <ExternalLink className="h-4 w-4" />
                   </Button>
@@ -227,7 +228,7 @@ export default function AdapterLineage({ adapterId, lineage, isLoading }: Adapte
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => navigate(`/training/datasets/${datasetId}`)}
+                    onClick={() => navigate(buildDatasetDetailLink(datasetId))}
                   >
                     <ExternalLink className="h-4 w-4" />
                   </Button>

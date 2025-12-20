@@ -25,7 +25,7 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
 import { KpiGrid } from '@/components/ui/grid';
-import { cn } from '@/components/ui/utils';
+import { cn } from '@/lib/utils';
 import type { SystemOverview } from '@/api/owner-types';
 import type { Tenant } from '@/api/api-types';
 import type { Adapter } from '@/api/types';

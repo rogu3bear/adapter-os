@@ -7,7 +7,7 @@ async fn manifest_helpers_round_trip_and_enforce_tenant() -> Result<()> {
     let db = Db::new_in_memory().await?;
 
     let dataset_id = db
-        .create_training_dataset("ds", None, "jsonl", "hash", "/tmp/ds", None)
+        .create_training_dataset("ds", None, "jsonl", "hash", "var/ds", None)
         .await?;
 
     let version_id = db
@@ -16,9 +16,9 @@ async fn manifest_helpers_round_trip_and_enforce_tenant() -> Result<()> {
             &dataset_id,
             Some("tenant-a"),
             Some("v1"),
-            "/tmp/ds/canonical.jsonl",
+            "var/ds/canonical.jsonl",
             "hash",
-            Some("/tmp/ds/manifest.json"),
+            Some("var/ds/manifest.json"),
             Some(r#"{"total_rows":1}"#),
             Some("tester"),
         )

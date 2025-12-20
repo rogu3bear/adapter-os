@@ -329,11 +329,10 @@ mod tests {
     use super::*;
     use crate::CleanupPolicy;
     use std::fs;
-    use tempfile::TempDir;
 
     #[tokio::test]
     async fn test_cleanup_manager() -> Result<()> {
-        let temp_dir = TempDir::new()?;
+        let temp_dir = crate::tests::new_test_tempdir()?;
         let config = StorageConfig {
             max_disk_space_bytes: 1000,
             max_files: 100,

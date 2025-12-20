@@ -257,9 +257,15 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
+    fn new_test_tempdir() -> Result<TempDir> {
+        let root = std::path::PathBuf::from("var").join("tmp");
+        std::fs::create_dir_all(&root)?;
+        Ok(TempDir::new_in(&root)?)
+    }
+
     #[tokio::test]
     async fn test_atomic_file_writer() -> Result<()> {
-        let temp_dir = TempDir::new()?;
+        let temp_dir = new_test_tempdir()?;
         let file_path = temp_dir.path().join("test.txt");
 
         let writer = AtomicFileWriter::new(file_path.clone())?;
@@ -275,7 +281,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_atomic_file_reader() -> Result<()> {
-        let temp_dir = TempDir::new()?;
+        let temp_dir = new_test_tempdir()?;
         let file_path = temp_dir.path().join("test.txt");
         fs::write(&file_path, b"hello world").await?;
 
@@ -288,7 +294,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_atomic_directory_operations() -> Result<()> {
-        let temp_dir = TempDir::new()?;
+        let temp_dir = new_test_tempdir()?;
         let src_dir = temp_dir.path().join("src");
         let dst_dir = temp_dir.path().join("dst");
 

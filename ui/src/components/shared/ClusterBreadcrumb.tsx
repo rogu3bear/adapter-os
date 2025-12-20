@@ -1,7 +1,7 @@
 import { Link, useLocation } from 'react-router-dom';
 import type { RouteCluster } from '@/config/routes';
 import { getBreadcrumbs, getClusterForPath } from '@/config/routes';
-import { cn } from '@/components/ui/utils';
+import { cn } from '@/lib/utils';
 
 interface ClusterBreadcrumbProps {
   cluster?: RouteCluster;

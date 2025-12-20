@@ -8,7 +8,7 @@
 import React, { useState, useEffect } from 'react';
 import { TrainingComparison } from './TrainingComparison';
 import { TrainingJob } from '@/api/types';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { logger } from '@/utils/logger';
 import { toast } from 'sonner';
 

@@ -33,7 +33,7 @@ vi.mock('@/utils/logger', () => ({
 // Mock the API client
 const mockSearchChatSessions = vi.fn();
 
-vi.mock('@/api/client', () => ({
+vi.mock('@/api/services', () => ({
   __esModule: true,
   default: {
     searchChatSessions: (...args: unknown[]) => mockSearchChatSessions(...args),

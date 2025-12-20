@@ -248,7 +248,14 @@ pub mod utils {
 mod tests {
     use super::*;
     use std::fs;
+    use std::path::PathBuf;
     use tempfile::TempDir;
+
+    fn new_test_tempdir() -> TempDir {
+        let root = PathBuf::from("var").join("tmp");
+        std::fs::create_dir_all(&root).expect("create var/tmp");
+        TempDir::new_in(&root).expect("create temp dir")
+    }
 
     #[test]
     fn test_language_detection() {
@@ -284,7 +291,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_parse_directory() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
 
         // Create test files
         fs::write(temp_dir.path().join("test.rs"), "fn test() {}").unwrap();

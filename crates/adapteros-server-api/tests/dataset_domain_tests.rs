@@ -37,7 +37,7 @@ async fn create_dataset(state: &AppState) -> String {
             None,
             "jsonl",
             "hash",
-            "/tmp/raw",
+            "var/raw",
             Some("tester"),
         )
         .await
@@ -45,8 +45,8 @@ async fn create_dataset(state: &AppState) -> String {
     dataset_id
 }
 
-async fn write_jsonl(lines: &[&str]) -> std::path::PathBuf {
-    let dir = tempfile::tempdir().expect("tempdir");
+async fn write_jsonl(lines: &[&str]) -> (tempfile::TempDir, std::path::PathBuf) {
+    let dir = tempfile::TempDir::new_in(".").expect("tempdir");
     let path = dir.path().join("data.jsonl");
     let mut file = fs::File::create(&path).await.expect("file create");
     for line in lines {
@@ -54,7 +54,7 @@ async fn write_jsonl(lines: &[&str]) -> std::path::PathBuf {
         file.write_all(b"\n").await.expect("newline");
     }
     file.flush().await.expect("flush");
-    path
+    (dir, path)
 }
 
 #[tokio::test]
@@ -63,7 +63,7 @@ async fn manifest_and_streaming_are_deterministic_and_tenant_safe() {
     let dataset_id = create_dataset(&state).await;
     let claims = test_admin_claims();
 
-    let jsonl_path = write_jsonl(&[
+    let (_jsonl_dir, jsonl_path) = write_jsonl(&[
         r#"{"prompt":"p1","response":"r1","split":"train"}"#,
         r#"{"prompt":"p2","response":"r2","split":"eval"}"#,
     ])

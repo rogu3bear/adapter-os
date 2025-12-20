@@ -19,7 +19,7 @@ import type {
   ReplayStatus,
 } from '@/api/replay-types';
 import { getReplayStatusColor, getReplayStatusLabel } from '@/api/replay-types';
-import { apiClient } from '@/api/client';
+import { apiClient } from '@/api/services';
 import { logger } from '@/utils/logger';
 
 interface ReplayButtonProps {

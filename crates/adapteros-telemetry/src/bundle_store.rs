@@ -483,9 +483,15 @@ mod tests {
     use std::time::SystemTime;
     use tempfile::TempDir;
 
+    fn new_test_tempdir() -> TempDir {
+        let root = std::path::PathBuf::from("var").join("tmp");
+        std::fs::create_dir_all(&root).expect("create var/tmp");
+        TempDir::new_in(&root).expect("tempdir")
+    }
+
     #[test]
     fn test_bundle_store_content_addressing() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let policy = RetentionPolicy::default();
         let mut store = BundleStore::new(temp_dir.path(), policy).unwrap();
 
@@ -526,7 +532,7 @@ mod tests {
 
     #[test]
     fn test_retention_policy() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let policy = RetentionPolicy {
             keep_bundles_per_cpid: 2,
             ..Default::default()
@@ -571,7 +577,7 @@ mod tests {
 
     #[test]
     fn test_incident_bundle_protection() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let policy = RetentionPolicy {
             keep_bundles_per_cpid: 1,
             keep_incident_bundles: true,

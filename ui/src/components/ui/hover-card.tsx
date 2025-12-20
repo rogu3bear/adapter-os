@@ -7,7 +7,7 @@ import {
   cn,
   MENU_ANIMATION_CLASSES,
   FROST_POPOVER,
-} from "./utils";
+} from "@/lib/utils";
 
 function HoverCard({
   ...props

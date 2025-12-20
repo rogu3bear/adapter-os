@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Input } from '@/components/ui/input';
 import { Terminal, ChevronRight, Loader2 } from 'lucide-react';
-import { apiClient } from '@/api/client';
+import { apiClient } from '@/api/services';
 
 /**
  * CliConsole - Live CLI Execution Interface
@@ -47,7 +47,7 @@ const ALLOWED_COMMANDS = [
 const FALLBACK_RESPONSES: Record<string, string> = {
   'aosctl status': `AdapterOS Status
 =================
-Version: v0.3.0-alpha
+Version: alpha-v0.11-unstable-pre-release
 Uptime: 2h 34m 12s
 Active Adapters: 3
 Active Workers: 2
@@ -150,11 +150,8 @@ export const CliConsole: React.FC = () => {
       // Call the live backend API endpoint: POST /v1/cli/owner-run
       const result = await apiClient.runOwnerCli(trimmedCmd);
 
-      // Combine stdout and stderr
-      let output = result.stdout;
-      if (result.stderr) {
-        output += result.stderr ? `\n${result.stderr}` : '';
-      }
+      // Use the output from the API response
+      let output = result.output;
 
       // If no output, show success message
       if (!output.trim()) {

@@ -482,7 +482,7 @@ impl RuleBasedLlmBackend {
         if let Some(pos) = desc_lower.find("rename ") {
             let rest = &description[pos + 7..];
             let parts: Vec<&str> = rest
-                .split(|c| c == ' ' || c == '-' || c == '>')
+                .split([' ', '-', '>'])
                 .filter(|s| !s.is_empty() && *s != "to")
                 .collect();
             if parts.len() >= 2 {

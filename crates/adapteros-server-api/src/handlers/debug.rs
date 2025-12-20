@@ -179,14 +179,20 @@ pub async fn debug_infer_with_mode(
         .map(|a| a.join(","))
         .or_else(|| req.adapter_stack.as_ref().map(|s| s.join(",")));
 
-    let _ = crate::audit_helper::log_success(
+    if let Err(e) = crate::audit_helper::log_success(
         &state.db,
         &claims,
         crate::audit_helper::actions::INFERENCE_EXECUTE,
         crate::audit_helper::resources::ADAPTER,
         adapters_requested.as_deref(),
     )
-    .await;
+    .await {
+
+
+        tracing::warn!(error = %e, "Audit log failed");
+
+
+    }
 
     check_uma_backpressure(&state)?;
 
@@ -238,7 +244,11 @@ pub async fn debug_infer_with_mode(
 
     // Build multi-turn prompt if session_id is provided
     let (base_prompt, chat_context_hash) = if let Some(ref session_id) = req.session_id {
-        let chat_config = state.config.read().unwrap().chat_context.clone();
+        // STABILITY: Use poison-safe lock access
+        let chat_config = state.config.read().unwrap_or_else(|e| {
+            tracing::warn!("Config lock poisoned in debug handler, recovering");
+            e.into_inner()
+        }).chat_context.clone();
         match build_chat_prompt(&state.db, session_id, &req.prompt, &chat_config).await {
             Ok(result) => {
                 info!(
@@ -274,14 +284,18 @@ pub async fn debug_infer_with_mode(
     let core = InferenceCore::new(&state);
     let result = core.route_and_infer(internal, None).await.map_err(|e| {
         // Log failure to audit trail
-        let _ = crate::audit_helper::log_failure(
+        if let Err(e) = crate::audit_helper::log_failure(
             &state.db,
             &claims,
             crate::audit_helper::actions::INFERENCE_EXECUTE,
             crate::audit_helper::resources::ADAPTER,
             adapters_requested.as_deref(),
             &e.to_string(),
-        );
+        ) {
+
+            tracing::warn!(error = %e, "Audit log failed");
+
+        }
 
         // Convert InferenceError to HTTP error response
         <(StatusCode, Json<ErrorResponse>)>::from(e)

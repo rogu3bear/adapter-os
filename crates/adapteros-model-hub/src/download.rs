@@ -438,9 +438,15 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
+    fn new_test_tempdir() -> TempDir {
+        let root = std::path::PathBuf::from("var").join("tmp");
+        std::fs::create_dir_all(&root).expect("create var/tmp");
+        TempDir::new_in(&root).expect("tempdir")
+    }
+
     #[tokio::test]
     async fn test_download_manager_creation() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let manager = DownloadManager::new(temp_dir.path().to_path_buf(), 3).unwrap();
 
         assert_eq!(manager.max_concurrent(), 3);
@@ -449,7 +455,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_progress_subscription() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let manager = DownloadManager::new(temp_dir.path().to_path_buf(), 3).unwrap();
 
         let mut rx1 = manager.subscribe_progress();

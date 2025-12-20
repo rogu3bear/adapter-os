@@ -21,7 +21,7 @@ const mockGetSessionsSharedWithMe = vi.fn();
 const mockShareSession = vi.fn();
 const mockRevokeSessionShare = vi.fn();
 
-vi.mock('@/api/client', () => ({
+vi.mock('@/api/services', () => ({
   default: {
     getSessionShares: (...args: unknown[]) => mockGetSessionShares(...args),
     getSessionsSharedWithMe: (...args: unknown[]) => mockGetSessionsSharedWithMe(...args),

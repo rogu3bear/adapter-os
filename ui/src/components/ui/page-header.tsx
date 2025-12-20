@@ -2,7 +2,7 @@ import React from 'react';
 import { Button } from './button';
 import { Badge } from './badge';
 import { GlossaryTooltip } from './glossary-tooltip';
-import { cn } from './utils';
+import { cn } from '@/lib/utils';
 import { LucideIcon, ChevronRight } from 'lucide-react';
 import { useDensity } from '@/contexts/DensityContext';
 

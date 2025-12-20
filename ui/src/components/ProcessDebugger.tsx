@@ -59,7 +59,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 
 import { logger, toError } from '@/utils/logger';
 

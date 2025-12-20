@@ -35,9 +35,13 @@ fn hash_token_hex(token: &str) -> String {
     blake3::hash(token.as_bytes()).to_hex().to_string()
 }
 
+/// Derive a key ID from arbitrary bytes.
+///
+/// Uses BLAKE3 hash truncated to 16 bytes (128 bits / 32 hex chars).
+/// This provides sufficient entropy to avoid birthday-bound collisions.
 pub fn derive_kid_from_bytes(data: &[u8]) -> String {
     let hash = blake3::hash(data);
-    hex::encode(&hash.as_bytes()[..8])
+    hex::encode(&hash.as_bytes()[..16])
 }
 
 pub fn derive_kid_from_str(data: &str) -> String {

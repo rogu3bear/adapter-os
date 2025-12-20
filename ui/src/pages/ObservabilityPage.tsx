@@ -5,23 +5,28 @@ import { SectionErrorBoundary } from '@/components/ui/section-error-boundary';
 import { Card, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Link } from 'react-router-dom';
+import {
+  buildTelemetryLink,
+  buildMetricsLink,
+  buildSystemLink,
+} from '@/utils/navLinks';
 
 export default function ObservabilityPage() {
   const observeActions = [
     {
       title: 'Metrics',
       description: 'View performance and saturation dashboards.',
-      to: '/metrics',
+      to: buildMetricsLink(),
     },
     {
       title: 'System',
       description: 'Inspect nodes, workers, and memory footprint.',
-      to: '/system',
+      to: buildSystemLink(),
     },
     {
       title: 'Telemetry',
       description: 'Audit event history and drill into traces.',
-      to: '/telemetry',
+      to: buildTelemetryLink(),
     },
   ];
 
@@ -32,9 +37,9 @@ export default function ObservabilityPage() {
         description="System health, telemetry, and routing signals"
       >
         <div className="flex flex-wrap gap-3 mb-4 text-sm">
-          <Link to="/metrics" className="underline underline-offset-4">Metrics</Link>
-          <Link to="/system" className="underline underline-offset-4">System</Link>
-          <Link to="/telemetry" className="underline underline-offset-4">Telemetry</Link>
+          <Link to={buildMetricsLink()} className="underline underline-offset-4">Metrics</Link>
+          <Link to={buildSystemLink()} className="underline underline-offset-4">System</Link>
+          <Link to={buildTelemetryLink()} className="underline underline-offset-4">Telemetry</Link>
         </div>
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 mb-6">
           {observeActions.map(action => (

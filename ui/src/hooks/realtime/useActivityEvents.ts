@@ -8,7 +8,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { logger, toError } from '@/utils/logger';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { ActivityEvent, CreateActivityEventRequest } from '@/api/types';
 
 export interface UseActivityEventsOptions {

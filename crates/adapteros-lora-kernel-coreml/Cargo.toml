@@ -39,6 +39,7 @@ adapteros-aos = { path = "../adapteros-aos" }
 adapteros-lora-kernel-api = { path = "../adapteros-lora-kernel-api" }
 adapteros-telemetry = { path = "../adapteros-telemetry" }
 adapteros-types = { path = "../adapteros-types" }
+adapteros-platform = { path = "../adapteros-platform" }
 thiserror = { workspace = true }
 serde = { workspace = true }
 serde_derive = { workspace = true }

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { Adapter } from '@/api/types';
 import { logger, toError } from '@/utils/logger';
 import { toast } from 'sonner';

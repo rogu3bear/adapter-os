@@ -8,6 +8,7 @@ export const BACKEND_LABELS: Record<BackendName, string> = {
   coreml: 'CoreML',
   mlx: 'MLX',
   metal: 'Metal',
+  cpu: 'CPU',
 };
 
 /**

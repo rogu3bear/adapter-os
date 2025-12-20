@@ -1,6 +1,6 @@
 import React from 'react';
 import { Skeleton } from './skeleton';
-import { cn } from './utils';
+import { cn } from '@/lib/utils';
 import type { UseQueryResult } from '@tanstack/react-query';
 
 const DEFAULT_LOADING_TEST_ID = 'loading-state';

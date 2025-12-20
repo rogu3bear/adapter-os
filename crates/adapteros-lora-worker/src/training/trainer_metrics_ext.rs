@@ -47,7 +47,8 @@ impl TrainerMetricsExt for MicroLoRATrainer {
                 }
 
                 // Export metrics periodically
-                if export_interval > 0 && epoch_metrics.epoch % export_interval as u32 == 0 {
+                if export_interval > 0 && epoch_metrics.epoch.is_multiple_of(export_interval as u32)
+                {
                     if let Err(e) = metrics.export_to_telemetry() {
                         warn!("Failed to export metrics to telemetry: {}", e);
                     }

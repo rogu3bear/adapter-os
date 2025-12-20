@@ -7,13 +7,18 @@
 //! Handlers remain thin, focusing on HTTP concerns (auth, validation, response formatting).
 
 use crate::state::AppState;
-use adapteros_core::error::AosError;
-use adapteros_db::adapters::Adapter;
+use adapteros_core::{error::AosError, identity::IdentityEnvelope};
+use adapteros_db::{
+    adapters::Adapter,
+    query_performance::{QueryMetrics, ThresholdViolation, ViolationType},
+};
 use adapteros_lora_lifecycle::AdapterState;
 use adapteros_manifest::AssuranceTier;
+use adapteros_telemetry::unified_events::{EventType, LogLevel, TelemetryEventBuilder};
 use async_trait::async_trait;
-use serde_json::Value;
+use serde_json::{json, Value};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 use tracing::{error, info, warn};
 
@@ -115,17 +120,18 @@ pub trait AdapterService: Send + Sync {
     /// - `AosError::Database` on database errors
     async fn get_health(&self, adapter_id: &str, tenant_id: &str) -> Result<AdapterHealthResponse>;
 
-    /// Get adapter by ID
+    /// Get adapter by ID with tenant isolation
     ///
     /// # Arguments
     /// * `adapter_id` - Unique identifier for the adapter
+    /// * `tenant_id` - Tenant ID for isolation validation
     ///
     /// # Returns
     /// Result containing adapter or None if not found
     ///
     /// # Errors
     /// - `AosError::Database` on database errors
-    async fn get_adapter(&self, adapter_id: &str) -> Result<Option<Adapter>>;
+    async fn get_adapter(&self, adapter_id: &str, tenant_id: &str) -> Result<Option<Adapter>>;
 }
 
 /// Default implementation of AdapterService using AppState
@@ -290,25 +296,15 @@ impl DefaultAdapterService {
     }
 }
 
-#[async_trait]
-impl AdapterService for DefaultAdapterService {
-    #[tracing::instrument(
-        skip(self),
-        fields(
-            otel.kind = "server",
-            adapter.id = %adapter_id,
-            tenant.id = %tenant_id,
-            transition.direction = "promote"
-        )
-    )]
-    async fn promote_lifecycle(
+impl DefaultAdapterService {
+    async fn promote_lifecycle_impl(
         &self,
         adapter_id: &str,
         tenant_id: &str,
         reason: &str,
         actor: &str,
     ) -> Result<LifecycleTransitionResult> {
-        let start = std::time::Instant::now();
+        let telemetry_start = Instant::now();
 
         // Get current adapter
         let adapter = self
@@ -386,13 +382,11 @@ impl AdapterService for DefaultAdapterService {
             )
             .await?;
 
-        // Calculate transition duration for metrics
-        let duration_secs = start.elapsed().as_secs_f64();
+        let duration_secs = telemetry_start.elapsed().as_secs_f64();
         tracing::Span::current().record("transition.duration_ms", duration_secs * 1000.0);
 
         let timestamp = chrono::Utc::now().to_rfc3339();
 
-        // Emit structured telemetry event (Policy Pack #9: Canonical JSON logging)
         let telemetry_event = serde_json::json!({
             "event_type": "adapter.lifecycle.promoted",
             "component": "adapteros-server-api",
@@ -429,25 +423,15 @@ impl AdapterService for DefaultAdapterService {
         })
     }
 
-    #[tracing::instrument(
-        skip(self),
-        fields(
-            otel.kind = "server",
-            adapter.id = %adapter_id,
-            tenant.id = %tenant_id,
-            transition.direction = "demote"
-        )
-    )]
-    async fn demote_lifecycle(
+    async fn demote_lifecycle_impl(
         &self,
         adapter_id: &str,
         tenant_id: &str,
         reason: &str,
         actor: &str,
     ) -> Result<LifecycleTransitionResult> {
-        let start = std::time::Instant::now();
+        let telemetry_start = Instant::now();
 
-        // Get current adapter
         let adapter = self
             .state
             .db
@@ -462,7 +446,6 @@ impl AdapterService for DefaultAdapterService {
                 AosError::NotFound(format!("Adapter not found: {}", adapter_id))
             })?;
 
-        // Validate tenant isolation
         if adapter.tenant_id != tenant_id {
             return Err(AosError::Validation(format!(
                 "Tenant isolation violation: adapter belongs to {}, requested by {}",
@@ -473,11 +456,9 @@ impl AdapterService for DefaultAdapterService {
         let old_state = adapter.current_state.clone();
         let new_state_str = Self::previous_state(&old_state)?;
 
-        // Record span fields for observability
         tracing::Span::current().record("transition.old_state", &old_state);
         tracing::Span::current().record("transition.new_state", new_state_str);
 
-        // Execute state transition with CAS to prevent TOCTOU races
         let new_state = self
             .execute_transition(
                 adapter_id,
@@ -490,13 +471,11 @@ impl AdapterService for DefaultAdapterService {
             )
             .await?;
 
-        // Calculate transition duration for metrics
-        let duration_secs = start.elapsed().as_secs_f64();
+        let duration_secs = telemetry_start.elapsed().as_secs_f64();
         tracing::Span::current().record("transition.duration_ms", duration_secs * 1000.0);
 
         let timestamp = chrono::Utc::now().to_rfc3339();
 
-        // Emit structured telemetry event (Policy Pack #9: Canonical JSON logging)
         let telemetry_event = serde_json::json!({
             "event_type": "adapter.lifecycle.demoted",
             "component": "adapteros-server-api",
@@ -533,8 +512,11 @@ impl AdapterService for DefaultAdapterService {
         })
     }
 
-    async fn get_health(&self, adapter_id: &str, tenant_id: &str) -> Result<AdapterHealthResponse> {
-        // Get adapter
+    async fn get_health_inner(
+        &self,
+        adapter_id: &str,
+        tenant_id: &str,
+    ) -> Result<AdapterHealthResponse> {
         let adapter = self
             .state
             .db
@@ -549,7 +531,6 @@ impl AdapterService for DefaultAdapterService {
                 AosError::NotFound(format!("Adapter not found: {}", adapter_id))
             })?;
 
-        // Validate tenant isolation
         if adapter.tenant_id != tenant_id {
             return Err(AosError::Validation(format!(
                 "Tenant isolation violation: adapter belongs to {}, requested by {}",
@@ -564,15 +545,297 @@ impl AdapterService for DefaultAdapterService {
             current_state: adapter.current_state.clone(),
             is_loaded,
             last_used: adapter.last_activated.clone(),
-            memory_usage: None, // TODO: Integrate with memory monitoring
+            memory_usage: None,
         })
     }
 
-    async fn get_adapter(&self, adapter_id: &str) -> Result<Option<Adapter>> {
-        self.state.db.get_adapter(adapter_id).await.map_err(|e| {
-            error!(adapter_id = %adapter_id, error = %e, "Failed to fetch adapter");
-            AosError::Database(format!("Failed to fetch adapter: {}", e))
-        })
+    async fn get_adapter_inner(
+        &self,
+        adapter_id: &str,
+        tenant_id: &str,
+    ) -> Result<Option<Adapter>> {
+        self.state
+            .db
+            .get_adapter_for_tenant(adapter_id, tenant_id)
+            .await
+            .map_err(|e| {
+                error!(adapter_id = %adapter_id, tenant_id = %tenant_id, error = %e, "Failed to fetch adapter");
+                AosError::Database(format!("Failed to fetch adapter: {}", e))
+            })
+    }
+
+    async fn instrument_tenant_operation(
+        &self,
+        query_name: &str,
+        tenant_id: Option<&str>,
+        duration: Duration,
+        rows_returned: Option<i64>,
+        used_index: bool,
+        query_plan: Option<String>,
+    ) {
+        let metric = QueryMetrics {
+            query_name: query_name.to_string(),
+            execution_time_us: duration.as_micros() as u64,
+            rows_returned,
+            used_index,
+            query_plan,
+            timestamp: chrono::Utc::now().to_rfc3339(),
+            tenant_id: tenant_id.map(|tid| tid.to_string()),
+        };
+
+        let alerts = self.capture_query_metrics(metric);
+
+        if !alerts.is_empty() {
+            if let Some(tenant) = tenant_id {
+                for alert in alerts {
+                    self.publish_regression_event(tenant, query_name, &alert)
+                        .await;
+                }
+            } else {
+                warn!(
+                    query = %query_name,
+                    "Performance regression detected for non-tenant operation"
+                );
+            }
+        }
+
+        let registry = self.state.metrics_registry.clone();
+        let metric_name = format!("adapter_service.{}.duration_ms", query_name);
+        let value_ms = duration.as_secs_f64() * 1000.0;
+        tokio::spawn(async move {
+            registry.record_metric(metric_name, value_ms).await;
+        });
+    }
+
+    fn capture_query_metrics(&self, metric: QueryMetrics) -> Vec<ThresholdViolation> {
+        if let Some(mut guard) = self.state.db.performance_monitor_mut() {
+            if let Some(monitor) = guard.as_mut() {
+                monitor.record(metric);
+                return monitor.check_threshold_violations();
+            }
+        }
+        Vec::new()
+    }
+
+    async fn publish_regression_event(
+        &self,
+        tenant_id: &str,
+        query_name: &str,
+        alert: &ThresholdViolation,
+    ) {
+        warn!(
+            tenant_id = %tenant_id,
+            query = %query_name,
+            severity = ?alert.severity,
+            violation = ?alert.violation_type,
+            "Performance regression detected"
+        );
+
+        let (description, detail) = Self::describe_violation(&alert.violation_type);
+        let identity = IdentityEnvelope::new(
+            tenant_id.to_string(),
+            "adapter_service".to_string(),
+            "tenant_isolation_monitoring".to_string(),
+            IdentityEnvelope::default_revision(),
+        );
+
+        let event = match TelemetryEventBuilder::new(
+            EventType::Custom("adapter.performance.regression".to_string()),
+            LogLevel::Warn,
+            format!(
+                "Tenant {} query {} triggered regression: {}",
+                tenant_id, query_name, description
+            ),
+            identity,
+        )
+        .component("adapter_service.performance_monitor".to_string())
+        .metadata(json!({
+            "tenant_id": tenant_id,
+            "query_name": query_name,
+            "severity": format!("{:?}", alert.severity),
+            "violation": detail,
+            "timestamp": alert.timestamp,
+        }))
+        .build()
+        {
+            Ok(event) => event,
+            Err(err) => {
+                warn!(error = %err, "Failed to build telemetry regression event");
+                return;
+            }
+        };
+
+        if let Err(err) = self.state.telemetry_buffer.push(event.clone()).await {
+            warn!(error = %err, tenant_id = %tenant_id, "Telemetry buffer rejected regression event");
+        }
+        if let Err(err) = self.state.telemetry_tx.send(event) {
+            warn!(error = %err, tenant_id = %tenant_id, "Telemetry broadcast failed for regression event");
+        }
+    }
+
+    fn describe_violation(violation: &ViolationType) -> (String, serde_json::Value) {
+        match violation {
+            ViolationType::P95LatencyExceeded {
+                actual_ms,
+                threshold_ms,
+            } => (
+                format!("P95 latency {}ms exceeded {}ms", actual_ms, threshold_ms),
+                json!({
+                    "type": "p95_latency",
+                    "actual_ms": actual_ms,
+                    "threshold_ms": threshold_ms,
+                }),
+            ),
+            ViolationType::P99LatencyExceeded {
+                actual_ms,
+                threshold_ms,
+            } => (
+                format!("P99 latency {}ms exceeded {}ms", actual_ms, threshold_ms),
+                json!({
+                    "type": "p99_latency",
+                    "actual_ms": actual_ms,
+                    "threshold_ms": threshold_ms,
+                }),
+            ),
+            ViolationType::LowIndexUsage {
+                actual_pct,
+                threshold_pct,
+            } => (
+                format!(
+                    "Index usage {:.1}% below threshold {:.1}%",
+                    actual_pct, threshold_pct
+                ),
+                json!({
+                    "type": "low_index_usage",
+                    "actual_pct": actual_pct,
+                    "threshold_pct": threshold_pct,
+                }),
+            ),
+            ViolationType::HighVariance {
+                coefficient,
+                threshold,
+            } => (
+                format!(
+                    "High variance coefficient {:.2} exceeds {:.2}",
+                    coefficient, threshold
+                ),
+                json!({
+                    "type": "high_variance",
+                    "coefficient": coefficient,
+                    "threshold": threshold,
+                }),
+            ),
+        }
+    }
+}
+
+#[async_trait]
+impl AdapterService for DefaultAdapterService {
+    #[tracing::instrument(
+        skip(self),
+        fields(
+            otel.kind = "server",
+            adapter.id = %adapter_id,
+            tenant.id = %tenant_id,
+            transition.direction = "promote"
+        )
+    )]
+    async fn promote_lifecycle(
+        &self,
+        adapter_id: &str,
+        tenant_id: &str,
+        reason: &str,
+        actor: &str,
+    ) -> Result<LifecycleTransitionResult> {
+        let start = Instant::now();
+        let result = self
+            .promote_lifecycle_impl(adapter_id, tenant_id, reason, actor)
+            .await;
+        let duration = start.elapsed();
+        self.instrument_tenant_operation(
+            "adapter_service.promote_lifecycle",
+            Some(tenant_id),
+            duration,
+            Some(1),
+            true,
+            None,
+        )
+        .await;
+        result
+    }
+
+    #[tracing::instrument(
+        skip(self),
+        fields(
+            otel.kind = "server",
+            adapter.id = %adapter_id,
+            tenant.id = %tenant_id,
+            transition.direction = "demote"
+        )
+    )]
+    async fn demote_lifecycle(
+        &self,
+        adapter_id: &str,
+        tenant_id: &str,
+        reason: &str,
+        actor: &str,
+    ) -> Result<LifecycleTransitionResult> {
+        let start = Instant::now();
+        let result = self
+            .demote_lifecycle_impl(adapter_id, tenant_id, reason, actor)
+            .await;
+        let duration = start.elapsed();
+        self.instrument_tenant_operation(
+            "adapter_service.demote_lifecycle",
+            Some(tenant_id),
+            duration,
+            Some(1),
+            true,
+            None,
+        )
+        .await;
+        result
+    }
+
+    async fn get_health(&self, adapter_id: &str, tenant_id: &str) -> Result<AdapterHealthResponse> {
+        let start = Instant::now();
+        let result = self.get_health_inner(adapter_id, tenant_id).await;
+        let duration = start.elapsed();
+        let rows_returned = match &result {
+            Ok(_) => Some(1),
+            Err(_) => None,
+        };
+        self.instrument_tenant_operation(
+            "adapter_service.get_health",
+            Some(tenant_id),
+            duration,
+            rows_returned,
+            true,
+            None,
+        )
+        .await;
+        result
+    }
+
+    async fn get_adapter(&self, adapter_id: &str, tenant_id: &str) -> Result<Option<Adapter>> {
+        let start = Instant::now();
+        let result = self.get_adapter_inner(adapter_id, tenant_id).await;
+        let duration = start.elapsed();
+        let rows_returned = match &result {
+            Ok(Some(_)) => Some(1),
+            Ok(None) => Some(0),
+            Err(_) => None,
+        };
+        self.instrument_tenant_operation(
+            "adapter_service.get_adapter",
+            Some(tenant_id),
+            duration,
+            rows_returned,
+            true,
+            None,
+        )
+        .await;
+        result
     }
 }
 

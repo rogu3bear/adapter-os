@@ -12,6 +12,12 @@ use tower::ServiceExt;
 
 mod common;
 
+fn new_test_tempdir() -> TempDir {
+    let root = PathBuf::from("var").join("tmp");
+    fs::create_dir_all(&root).expect("create var/tmp");
+    TempDir::new_in(&root).expect("create temp dir")
+}
+
 /// Helper to check if the dev/contracts endpoint is available in the current build
 /// Returns true if the endpoint is registered (debug builds), false otherwise
 async fn is_dev_contracts_endpoint_available(app: &axum::Router) -> bool {
@@ -262,7 +268,7 @@ async fn contract_samples_loads_from_default_directory() {
 #[cfg(debug_assertions)]
 #[tokio::test]
 async fn contract_samples_loads_from_custom_directory() {
-    let temp_dir = TempDir::new().expect("create temp dir");
+    let temp_dir = new_test_tempdir();
     let contracts_dir = setup_contract_samples(&temp_dir);
 
     env::set_var("AOS_CONTRACT_SAMPLE_DIR", contracts_dir.to_str().unwrap());
@@ -317,7 +323,7 @@ async fn contract_samples_loads_from_custom_directory() {
 #[cfg(debug_assertions)]
 #[tokio::test]
 async fn contract_samples_redacts_pii() {
-    let temp_dir = TempDir::new().expect("create temp dir");
+    let temp_dir = new_test_tempdir();
     let contracts_dir = setup_contracts_with_pii(&temp_dir);
 
     env::set_var("AOS_CONTRACT_SAMPLE_DIR", contracts_dir.to_str().unwrap());
@@ -423,7 +429,7 @@ async fn contract_samples_redacts_pii() {
 #[cfg(debug_assertions)]
 #[tokio::test]
 async fn contract_samples_missing_inference_file() {
-    let temp_dir = TempDir::new().expect("create temp dir");
+    let temp_dir = new_test_tempdir();
     let contracts_dir = temp_dir.path().join("contracts");
     fs::create_dir(&contracts_dir).expect("create contracts dir");
 
@@ -489,7 +495,7 @@ async fn contract_samples_missing_inference_file() {
 #[cfg(debug_assertions)]
 #[tokio::test]
 async fn contract_samples_missing_trace_file() {
-    let temp_dir = TempDir::new().expect("create temp dir");
+    let temp_dir = new_test_tempdir();
     let contracts_dir = temp_dir.path().join("contracts");
     fs::create_dir(&contracts_dir).expect("create contracts dir");
 
@@ -542,7 +548,7 @@ async fn contract_samples_missing_trace_file() {
 #[cfg(debug_assertions)]
 #[tokio::test]
 async fn contract_samples_missing_evidence_file() {
-    let temp_dir = TempDir::new().expect("create temp dir");
+    let temp_dir = new_test_tempdir();
     let contracts_dir = temp_dir.path().join("contracts");
     fs::create_dir(&contracts_dir).expect("create contracts dir");
 
@@ -599,7 +605,7 @@ async fn contract_samples_missing_evidence_file() {
 #[cfg(debug_assertions)]
 #[tokio::test]
 async fn contract_samples_invalid_json_in_inference() {
-    let temp_dir = TempDir::new().expect("create temp dir");
+    let temp_dir = new_test_tempdir();
     let contracts_dir = temp_dir.path().join("contracts");
     fs::create_dir(&contracts_dir).expect("create contracts dir");
 
@@ -673,7 +679,7 @@ async fn contract_samples_invalid_json_in_inference() {
 #[cfg(debug_assertions)]
 #[tokio::test]
 async fn contract_samples_schema_validation_inference() {
-    let temp_dir = TempDir::new().expect("create temp dir");
+    let temp_dir = new_test_tempdir();
     let contracts_dir = temp_dir.path().join("contracts");
     fs::create_dir(&contracts_dir).expect("create contracts dir");
 
@@ -726,7 +732,7 @@ async fn contract_samples_schema_validation_inference() {
 #[cfg(debug_assertions)]
 #[tokio::test]
 async fn contract_samples_schema_validation_trace() {
-    let temp_dir = TempDir::new().expect("create temp dir");
+    let temp_dir = new_test_tempdir();
     let contracts_dir = temp_dir.path().join("contracts");
     fs::create_dir(&contracts_dir).expect("create contracts dir");
 
@@ -783,7 +789,7 @@ async fn contract_samples_schema_validation_trace() {
 #[cfg(debug_assertions)]
 #[tokio::test]
 async fn contract_samples_validates_all_contract_types() {
-    let temp_dir = TempDir::new().expect("create temp dir");
+    let temp_dir = new_test_tempdir();
     let contracts_dir = setup_contract_samples(&temp_dir);
 
     env::set_var("AOS_CONTRACT_SAMPLE_DIR", contracts_dir.to_str().unwrap());
@@ -845,7 +851,7 @@ async fn contract_samples_validates_all_contract_types() {
 #[cfg(debug_assertions)]
 #[tokio::test]
 async fn contract_samples_response_structure() {
-    let temp_dir = TempDir::new().expect("create temp dir");
+    let temp_dir = new_test_tempdir();
     let contracts_dir = setup_contract_samples(&temp_dir);
 
     env::set_var("AOS_CONTRACT_SAMPLE_DIR", contracts_dir.to_str().unwrap());
@@ -895,7 +901,7 @@ async fn contract_samples_endpoint_not_available_in_release() {
 #[cfg(debug_assertions)]
 #[tokio::test]
 async fn contract_samples_env_var_override() {
-    let temp_dir = TempDir::new().expect("create temp dir");
+    let temp_dir = new_test_tempdir();
     let contracts_dir = setup_contract_samples(&temp_dir);
 
     // Test that AOS_CONTRACT_SAMPLE_DIR env var is respected
@@ -924,7 +930,7 @@ async fn contract_samples_env_var_override() {
 #[cfg(debug_assertions)]
 #[tokio::test]
 async fn contract_samples_redaction_preserves_structure() {
-    let temp_dir = TempDir::new().expect("create temp dir");
+    let temp_dir = new_test_tempdir();
     let contracts_dir = setup_contracts_with_pii(&temp_dir);
 
     env::set_var("AOS_CONTRACT_SAMPLE_DIR", contracts_dir.to_str().unwrap());

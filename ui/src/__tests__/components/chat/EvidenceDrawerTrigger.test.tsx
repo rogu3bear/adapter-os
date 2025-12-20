@@ -4,6 +4,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 import { EvidenceDrawerTrigger } from '@/components/chat/EvidenceDrawerTrigger';
 import { EvidenceDrawerProvider } from '@/contexts/EvidenceDrawerContext';
+import { TooltipProvider } from '@/components/ui/tooltip';
 import type { EvidenceItem } from '@/components/chat/ChatMessage';
 import type { ExtendedRouterDecision } from '@/api/types';
 
@@ -46,9 +47,11 @@ interface WrapperProps {
 function TestWrapper({ children }: WrapperProps) {
   return (
     <MemoryRouter>
-      <EvidenceDrawerProvider>
-        {children}
-      </EvidenceDrawerProvider>
+      <TooltipProvider>
+        <EvidenceDrawerProvider>
+          {children}
+        </EvidenceDrawerProvider>
+      </TooltipProvider>
     </MemoryRouter>
   );
 }

@@ -19,9 +19,9 @@ import { LineChart, Line, CartesianGrid, XAxis, YAxis, Tooltip as ReTooltip, Res
 import { ErrorRecovery } from '@/components/ui/error-recovery';
 import { useSessionTelemetry } from '@/hooks/realtime/useSessionTelemetry';
 import { CHART_COLORS } from '@/constants/chart-colors';
-import { cn } from '@/components/ui/utils';
+import { cn } from '@/lib/utils';
 import { Link, useNavigate } from 'react-router-dom';
-import { buildReplayRunsLink } from '@/utils/navLinks';
+import { buildReplayRunsLink, buildTelemetryTraceLink } from '@/utils/navLinks';
 import { ProofBar } from '@/components/receipts/ProofBar';
 
 interface TelemetryViewerProps {
@@ -111,7 +111,7 @@ export function TelemetryViewer({
   const timelineTitle = selectedRequestId ? `Session ${selectedRequestId}` : 'Select a session';
   const handleOpenTrace = () => {
     if (!selectedRequestId) return;
-    navigate(`/telemetry?tab=viewer&requestId=${encodeURIComponent(selectedRequestId)}`);
+    navigate(buildTelemetryTraceLink(selectedRequestId, { sourceType }));
   };
 
   return (
@@ -394,4 +394,3 @@ export function TelemetryViewer({
 }
 
 export default TelemetryViewer;
-

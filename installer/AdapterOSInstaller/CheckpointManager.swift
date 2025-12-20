@@ -8,7 +8,14 @@
 import Foundation
 
 class CheckpointManager {
-    private let checkpointPath = "/tmp/adapteros_install.state"
+    private let checkpointPath: String
+    
+    init() {
+        let baseDir = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/AdapterOS/installer", isDirectory: true)
+        try? FileManager.default.createDirectory(at: baseDir, withIntermediateDirectories: true)
+        self.checkpointPath = baseDir.appendingPathComponent("adapteros_install.state").path
+    }
     
     func hasCheckpoint() -> Bool {
         return FileManager.default.fileExists(atPath: checkpointPath)
@@ -53,4 +60,3 @@ class CheckpointManager {
         }
     }
 }
-

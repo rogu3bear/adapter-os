@@ -4,7 +4,7 @@ import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Alert, AlertDescription } from './ui/alert';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { GoldenRunSummary, GoldenCompareResult } from '@/api/types';
 import { logger, toError } from '@/utils/logger';
 import { errorRecoveryTemplates } from './ui/error-recovery';

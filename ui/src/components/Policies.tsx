@@ -13,7 +13,7 @@ import { BulkActionBar, BulkAction } from './ui/bulk-action-bar';
 import { ConfirmationDialog, ConfirmationOptions } from './ui/confirmation-dialog';
 
 import { toast } from 'sonner';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { Policy, User, SignPolicyResponse, PolicyComparisonResponse } from '@/api/types';
 import { useTimestamp } from '@/hooks/ui/useTimestamp';
 import { PolicyEditor } from './PolicyEditor';

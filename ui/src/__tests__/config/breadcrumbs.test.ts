@@ -113,4 +113,56 @@ describe('getBreadcrumbs - Parameterized Route Resolution', () => {
 
     expect(breadcrumbs).toHaveLength(0);
   });
+
+  it('should resolve breadcrumbs for security routes', () => {
+    const breadcrumbs = getBreadcrumbs('/security/policies', {});
+
+    expect(breadcrumbs).toHaveLength(2);
+    expect(breadcrumbs[0]).toEqual({ path: '/security', label: 'Security' });
+    expect(breadcrumbs[1]).toEqual({ path: '/security/policies', label: 'Guardrails' });
+  });
+
+  it('should resolve breadcrumbs for /security/audit', () => {
+    const breadcrumbs = getBreadcrumbs('/security/audit', {});
+
+    expect(breadcrumbs).toHaveLength(2);
+    expect(breadcrumbs[0]).toEqual({ path: '/security', label: 'Security' });
+    expect(breadcrumbs[1]).toEqual({ path: '/security/audit', label: 'Audit' });
+  });
+
+  it('should resolve breadcrumbs for /security/compliance', () => {
+    const breadcrumbs = getBreadcrumbs('/security/compliance', {});
+
+    expect(breadcrumbs).toHaveLength(2);
+    expect(breadcrumbs[0]).toEqual({ path: '/security', label: 'Security' });
+    expect(breadcrumbs[1]).toEqual({ path: '/security/compliance', label: 'Compliance' });
+  });
+
+  it('should resolve breadcrumbs for /security/evidence', () => {
+    const breadcrumbs = getBreadcrumbs('/security/evidence', {});
+
+    expect(breadcrumbs).toHaveLength(2);
+    expect(breadcrumbs[0]).toEqual({ path: '/security', label: 'Security' });
+    expect(breadcrumbs[1]).toEqual({ path: '/security/evidence', label: 'Evidence' });
+  });
+
+  it('should handle error when parent route does not exist', () => {
+    // This tests a route configuration error scenario
+    // If a route has a parentPath that doesn't exist in the routes array,
+    // the breadcrumb chain should gracefully stop at the current route
+    // Note: This is a defensive test - in practice, routes should have valid parentPaths
+
+    // Test with a route that exists but might have an invalid parent chain
+    // The function should not throw and should return partial breadcrumbs
+    const breadcrumbs = getBreadcrumbs('/adapters/test-123/lineage', { adapterId: 'test-123' });
+
+    // Should still return valid breadcrumbs even if there were issues
+    expect(breadcrumbs).toBeDefined();
+    expect(Array.isArray(breadcrumbs)).toBe(true);
+
+    // Verify no exceptions are thrown for edge cases
+    expect(() => getBreadcrumbs('/nonexistent', {})).not.toThrow();
+    expect(() => getBreadcrumbs('', {})).not.toThrow();
+    expect(() => getBreadcrumbs('/adapters/123', {})).not.toThrow();
+  });
 });

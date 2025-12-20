@@ -605,9 +605,9 @@ pub async fn propose_patch(
     require_any_role(&claims, &[Role::Operator])?;
 
     // Validate inputs
-    validate_repo_id(&req.repo_id)?;
-    validate_description(&req.description)?;
-    validate_file_paths(&req.target_files)?;
+    validate_repo_id(&req.repo_id).map_err(super::utils::aos_error_to_response)?;
+    validate_description(&req.description).map_err(super::utils::aos_error_to_response)?;
+    validate_file_paths(&req.target_files).map_err(super::utils::aos_error_to_response)?;
 
     // Get available workers from database
     let workers = state.db.list_all_workers().await.map_err(|e| {

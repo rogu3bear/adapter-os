@@ -19,7 +19,7 @@ import {
   PeerSyncStatus,
   PeerHealthStatus
 } from '@/api/federation-types';
-import { formatRelativeTime, formatDurationMs } from '@/utils/format';
+import { formatRelativeTime, formatDurationMs } from '@/lib/formatters';
 
 interface PeerSyncStatusCardProps {
   peers: PeerSyncInfo[];

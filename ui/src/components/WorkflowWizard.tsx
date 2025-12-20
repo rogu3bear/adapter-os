@@ -10,6 +10,7 @@ import { ArrowRight, CheckCircle, Circle, Shield, Zap, Activity } from 'lucide-r
 import { useAuth } from '@/providers/CoreProviders';
 import { useTenant } from '@/providers/FeatureProviders';
 import { logger, toError } from '@/utils/logger';
+import { buildAdaptersRegisterLink, buildAdaptersListLink, buildSecurityPoliciesLink, buildRoutingLink } from '@/utils/navLinks';
 
 type StepStatus = 'not_started' | 'in_progress' | 'done';
 
@@ -27,7 +28,7 @@ const CHECKLIST_STEPS: ChecklistStep[] = [
     title: 'Connect base model & register adapter',
     description: 'Load a base model and register your first adapter.',
     primaryLink: { label: 'Base models', href: '/base-models' },
-    secondaryLink: { label: 'Create adapter', href: '/create-adapter' },
+    secondaryLink: { label: 'Create adapter', href: buildAdaptersRegisterLink() },
   },
   {
     id: 'probe',
@@ -219,15 +220,15 @@ export function WorkflowWizard() {
           <CardDescription>Continue strengthening your deployment.</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-wrap gap-2">
-          <Button variant="outline" size="sm" onClick={() => navigate('/adapters')}>
+          <Button variant="outline" size="sm" onClick={() => navigate(buildAdaptersListLink())}>
             <Zap className="h-4 w-4 mr-2" />
             Adapters
           </Button>
-          <Button variant="outline" size="sm" onClick={() => navigate('/security/policies')}>
+          <Button variant="outline" size="sm" onClick={() => navigate(buildSecurityPoliciesLink())}>
             <Shield className="h-4 w-4 mr-2" />
             Policies
           </Button>
-          <Button variant="outline" size="sm" onClick={() => navigate('/routing')}>
+          <Button variant="outline" size="sm" onClick={() => navigate(buildRoutingLink())}>
             <Activity className="h-4 w-4 mr-2" />
             Routing
           </Button>

@@ -164,7 +164,7 @@ async fn dev_down(output: &OutputWriter) -> Result<()> {
 
     // Stop API server
     if let Some(pid) = read_pid_file(API_SERVER_PID)? {
-        output.progress(&format!("Stopping API server (PID {})...", pid));
+        output.progress(format!("Stopping API server (PID {})...", pid));
         if stop_process(pid)? {
             fs::remove_file(API_SERVER_PID).ok();
             output.progress_done(true);
@@ -177,7 +177,7 @@ async fn dev_down(output: &OutputWriter) -> Result<()> {
 
     // Stop UI server
     if let Some(pid) = read_pid_file(UI_SERVER_PID)? {
-        output.progress(&format!("Stopping UI server (PID {})...", pid));
+        output.progress(format!("Stopping UI server (PID {})...", pid));
         if stop_process(pid)? {
             fs::remove_file(UI_SERVER_PID).ok();
             output.progress_done(true);
@@ -192,7 +192,7 @@ async fn dev_down(output: &OutputWriter) -> Result<()> {
         output.warning("No running services found");
     } else {
         output.blank();
-        output.success(&format!("Stopped {} service(s)", stopped_count));
+        output.success(format!("Stopped {} service(s)", stopped_count));
     }
 
     Ok(())
@@ -269,11 +269,11 @@ async fn dev_logs(service: Option<String>, lines: usize, output: &OutputWriter) 
     for log_file in log_files {
         let path = Path::new(log_file);
         if !path.exists() {
-            output.warning(&format!("Log file not found: {}", log_file));
+            output.warning(format!("Log file not found: {}", log_file));
             continue;
         }
 
-        output.info(&format!("=== {} ===", log_file));
+        output.info(format!("=== {} ===", log_file));
         output.blank();
 
         // Read last N lines (simple implementation)
@@ -283,7 +283,7 @@ async fn dev_logs(service: Option<String>, lines: usize, output: &OutputWriter) 
             }
             Err(e) => {
                 error!(error = %e, log_file = %log_file, "Failed to read log file");
-                output.error(&format!("Failed to read log: {}", e));
+                output.error(format!("Failed to read log: {}", e));
             }
         }
 
@@ -305,10 +305,10 @@ fn reset_database(output: &OutputWriter) -> Result<()> {
 }
 
 /// Run database migrations
-fn run_migrations(output: &OutputWriter) -> Result<()> {
+fn run_migrations(_output: &OutputWriter) -> Result<()> {
     // Use aosctl db migrate command (assuming it exists)
     let status = Command::new("cargo")
-        .args(&["run", "-p", "adapteros-cli", "--", "db", "migrate"])
+        .args(["run", "-p", "adapteros-cli", "--", "db", "migrate"])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()
@@ -341,7 +341,7 @@ async fn start_api_server(output: &OutputWriter) -> Result<()> {
         .map_err(|e| AosError::Io(format!("Failed to open log file: {}", e)))?;
 
     let mut child = TokioCommand::new("cargo")
-        .args(&["run", "--release", "-p", "adapteros-server-api"])
+        .args(["run", "--release", "-p", "adapteros-server-api"])
         .env("RUST_LOG", "info")
         .env("DATABASE_URL", "sqlite://var/aos-cp.sqlite3")
         .stdout(Stdio::from(stdout_file))
@@ -363,7 +363,7 @@ async fn start_api_server(output: &OutputWriter) -> Result<()> {
         }
     });
 
-    output.verbose(&format!("API server started (PID: {})", pid));
+    output.verbose(format!("API server started (PID: {})", pid));
     Ok(())
 }
 
@@ -392,7 +392,7 @@ async fn start_ui_server(output: &OutputWriter) -> Result<()> {
         .map_err(|e| AosError::Io(format!("Failed to open log file: {}", e)))?;
 
     let mut child = TokioCommand::new("pnpm")
-        .args(&["dev"])
+        .args(["dev"])
         .current_dir(ui_dir)
         .stdout(Stdio::from(stdout_file))
         .stderr(Stdio::from(stderr_file))
@@ -413,7 +413,7 @@ async fn start_ui_server(output: &OutputWriter) -> Result<()> {
         }
     });
 
-    output.verbose(&format!("UI server started (PID: {})", pid));
+    output.verbose(format!("UI server started (PID: {})", pid));
     Ok(())
 }
 
@@ -469,9 +469,8 @@ fn process_exists(pid: u32) -> Result<bool> {
     // Use platform-specific approach
     #[cfg(unix)]
     {
-        use std::os::unix::process::ExitStatusExt;
         let status = Command::new("kill")
-            .args(&["-0", &pid.to_string()])
+            .args(["-0", &pid.to_string()])
             .status()
             .map_err(|e| AosError::Io(format!("Failed to check process: {}", e)))?;
 
@@ -491,7 +490,7 @@ fn stop_process(pid: u32) -> Result<bool> {
     #[cfg(unix)]
     {
         let status = Command::new("kill")
-            .args(&[&pid.to_string()])
+            .args([&pid.to_string()])
             .status()
             .map_err(|e| AosError::Io(format!("Failed to stop process: {}", e)))?;
 

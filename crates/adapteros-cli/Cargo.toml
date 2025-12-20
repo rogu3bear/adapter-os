@@ -43,6 +43,7 @@ adapteros-trace = { path = "../adapteros-trace" }
 adapteros-verify = { path = "../adapteros-verify", features = ["clap"] }
 adapteros-deterministic-exec = { path = "../adapteros-deterministic-exec" }
 adapteros-lora-lifecycle = { path = "../adapteros-lora-lifecycle" }
+adapteros-platform = { path = "../adapteros-platform" }
 # adapteros-codegraph = { path = "../adapteros-codegraph" }  # Temporarily disabled due to SQLite conflict
 clap = { workspace = true }
 clap_complete = "4.4"

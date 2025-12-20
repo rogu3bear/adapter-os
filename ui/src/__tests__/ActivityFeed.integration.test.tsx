@@ -4,9 +4,9 @@ import { render, screen, waitFor, within, fireEvent } from '@testing-library/rea
 import { MemoryRouter } from 'react-router-dom';
 import { ActivityFeedWidget } from '@/components/dashboard/ActivityFeedWidget';
 import { logger } from '@/utils/logger';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 
-vi.mock('@/api/client', () => {
+vi.mock('@/api/services', () => {
   const mock = {
     getRecentActivityEvents: vi.fn(),
     listActivityEvents: vi.fn().mockResolvedValue([]),
@@ -109,12 +109,14 @@ describe('ActivityFeedWidget integration', () => {
     const EventSourceMock = vi.fn(() => ({
       addEventListener: vi.fn((type: string, listener: any) => {
         if (type === 'activity') {
+          // `useSSEWithPollingFallback` replaces the full dataset on each SSE message,
+          // so provide a full list payload (oldest -> newest) and assert UI sorting.
           setTimeout(() => listener({
-            data: JSON.stringify({ id: 's1', timestamp: new Date(now - 100).toISOString(), event_type: 'node_recovery', level: 'info', message: 'Node recovered' }),
+            data: JSON.stringify([
+              { id: 's1', timestamp: new Date(now - 100).toISOString(), event_type: 'node_recovery', level: 'info', message: 'Node recovered' },
+              { id: 's2', timestamp: new Date(now + 100).toISOString(), event_type: 'security_violation', level: 'error', message: 'Unauthorized access' },
+            ]),
           }), 0);
-          setTimeout(() => listener({
-            data: JSON.stringify({ id: 's2', timestamp: new Date(now + 100).toISOString(), event_type: 'security_violation', level: 'error', message: 'Unauthorized access' }),
-          }), 5);
         }
       }),
       close: vi.fn(),
@@ -136,7 +138,7 @@ describe('ActivityFeedWidget integration', () => {
 
   it('SSE disconnect triggers polling fallback', async () => {
     apiClientMock.getRecentActivityEvents.mockResolvedValue([]);
-    const intervalSpy = vi.spyOn(global, 'setInterval');
+    const timeoutSpy = vi.spyOn(global, 'setTimeout');
 
     vi.stubGlobal('EventSource', vi.fn(() => ({
       addEventListener: vi.fn((type: string, listener: any) => {
@@ -150,7 +152,7 @@ describe('ActivityFeedWidget integration', () => {
     renderWidget();
 
     await waitFor(() => {
-      expect(intervalSpy).toHaveBeenCalledWith(expect.any(Function), 5000);
+      expect(timeoutSpy).toHaveBeenCalledWith(expect.any(Function), 5000);
     });
   });
 
@@ -172,7 +174,7 @@ describe('ActivityFeedWidget integration', () => {
     await waitFor(() => {
       expect(errorSpy).toHaveBeenCalled();
       const calls = (errorSpy as any).mock.calls as any[];
-      expect(calls.some((c) => String(c[0]).includes('Activity SSE unauthorized'))).toBe(true);
+      expect(calls.some((c) => String(c[0]).includes('Activity feed error from sse'))).toBe(true);
     });
   });
 

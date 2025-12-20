@@ -9,6 +9,20 @@ use std::path::PathBuf;
 use tempfile::TempDir;
 use tracing::debug;
 
+fn new_test_tempdir_result() -> Result<TempDir> {
+    let root = PathBuf::from("var").join("tmp");
+    std::fs::create_dir_all(&root).map_err(|e| {
+        adapteros_core::AosError::Internal(format!("Failed to create var/tmp: {}", e))
+    })?;
+    TempDir::new_in(&root).map_err(|e| {
+        adapteros_core::AosError::Internal(format!("Failed to create temp directory: {}", e))
+    })
+}
+
+fn new_test_tempdir() -> TempDir {
+    new_test_tempdir_result().expect("create temp directory under var/tmp")
+}
+
 /// Test database wrapper with cleanup support
 ///
 /// Automatically handles database lifecycle including migrations,
@@ -92,7 +106,7 @@ impl TestDb {
     /// Creates temporary directories for both SQLite and KV storage.
     /// Required for testing KvPrimary and KvOnly modes.
     async fn new_persistent_with_mode(mode: StorageMode) -> Self {
-        let temp_dir = TempDir::new().expect("Failed to create temp directory");
+        let temp_dir = new_test_tempdir();
 
         // Create paths for databases
         let db_path = temp_dir.path().join("test.db");
@@ -168,7 +182,6 @@ impl TestDb {
 /// ```
 pub async fn create_test_db() -> Result<Db> {
     let db = Db::new_in_memory().await?;
-    db.migrate().await?;
     db.seed_dev_data().await?;
     Ok(db)
 }
@@ -230,9 +243,7 @@ pub async fn create_test_db_with_mode(mode: StorageMode) -> Result<Db> {
 /// }
 /// ```
 pub async fn create_test_db_with_kv(mode: StorageMode) -> Result<(Db, TempDir)> {
-    let temp_dir = TempDir::new().map_err(|e| {
-        adapteros_core::AosError::Internal(format!("Failed to create temp directory: {}", e))
-    })?;
+    let temp_dir = new_test_tempdir_result()?;
 
     // Create paths
     let db_path = temp_dir.path().join("test.db");

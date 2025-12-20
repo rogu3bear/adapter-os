@@ -294,7 +294,14 @@ impl Default for MacOSSettings {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::common::PlatformUtils;
     use tempfile::TempDir;
+
+    fn new_test_tempdir() -> Result<TempDir> {
+        let root = PlatformUtils::temp_dir();
+        std::fs::create_dir_all(&root)?;
+        Ok(TempDir::new_in(&root)?)
+    }
 
     #[test]
     fn test_macos_handler() -> Result<()> {
@@ -315,7 +322,7 @@ mod tests {
     #[test]
     fn test_macos_path_normalization() -> Result<()> {
         let handler = MacOSHandler::new(None)?;
-        let temp_dir = TempDir::new()?;
+        let temp_dir = new_test_tempdir()?;
         let test_path = temp_dir.path().join("test.txt");
 
         let normalized = handler.normalize_path(&test_path)?;
@@ -327,7 +334,7 @@ mod tests {
     #[test]
     fn test_macos_file_metadata() -> Result<()> {
         let handler = MacOSHandler::new(None)?;
-        let temp_dir = TempDir::new()?;
+        let temp_dir = new_test_tempdir()?;
         let test_file = temp_dir.path().join("test.txt");
         std::fs::write(&test_file, "hello")?;
 

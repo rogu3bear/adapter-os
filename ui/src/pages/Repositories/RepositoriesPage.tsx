@@ -16,6 +16,7 @@ import { HealthBadge } from '@/components/shared/TrustHealthBadge';
 import { isAdapterHealthFlag } from '@/utils/typeGuards';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
+import { buildRepoDetailLink, buildTrainingJobsLink, buildAdaptersListLink } from '@/utils/navLinks';
 
 export interface ReposByBaseModel {
   baseModel: string;
@@ -131,7 +132,7 @@ export default function RepositoriesPage() {
     onSuccess: (repo) => {
       toast.success('Repository created', { description: repo.name });
       setDialogOpen(false);
-      navigate(`/repos/${repo.id}`);
+      navigate(buildRepoDetailLink(repo.id));
     },
     onError: (error) => {
       toast.error('Failed to create repository', { description: error.message });
@@ -176,7 +177,7 @@ export default function RepositoriesPage() {
       .sort((a, b) => new Date(b.updated_at || b.created_at).getTime() - new Date(a.updated_at || a.created_at).getTime());
   }, [repoList, search, baseModelFilter, healthFilter, tenantFilter]);
 
-  const openDetail = (id: string) => navigate(`/repos/${id}`);
+  const openDetail = (id: string) => navigate(buildRepoDetailLink(id));
 
   return (
     <PageWrapper
@@ -208,10 +209,10 @@ export default function RepositoriesPage() {
             <span>Base models: {baseModelOptions.length}</span>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Button variant="secondary" onClick={() => navigate('/training/jobs')}>
+            <Button variant="secondary" onClick={() => navigate(buildTrainingJobsLink())}>
               Training jobs
             </Button>
-            <Button variant="secondary" onClick={() => navigate('/adapters')}>
+            <Button variant="secondary" onClick={() => navigate(buildAdaptersListLink())}>
               Adapters
             </Button>
           </div>

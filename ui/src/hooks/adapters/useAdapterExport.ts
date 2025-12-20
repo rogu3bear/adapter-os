@@ -47,7 +47,7 @@
  */
 
 import { useState, useCallback } from 'react';
-import { apiClient } from '@/api/client';
+import { apiClient } from '@/api/services';
 import type { Adapter, AdapterManifest } from '@/api/adapter-types';
 import { logger, toError } from '@/utils/logger';
 import { toast } from 'sonner';

@@ -29,8 +29,9 @@ import {
 import { useNodes, useWorkers, useSystemMetrics, useSystemHealthStatus, getHealthStatus } from '@/hooks/system/useSystem';
 import type { Node, WorkerResponse } from '@/api/types';
 import { usePolling } from '@/hooks/realtime/usePolling';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { toast } from 'sonner';
+import { buildReplayLink, buildSecurityAuditLink, buildMetricsLink, ROUTE_PATHS } from '@/utils/navLinks';
 
 interface SREDashboardProps {
   selectedTenant?: string;
@@ -120,14 +121,14 @@ export default function SREDashboard({ selectedTenant = 'default' }: SREDashboar
       icon: FileText,
       color: 'text-blue-600',
       helpId: 'sre-action-audit',
-      onClick: () => navigate('/security/audit'),
+      onClick: () => navigate(buildSecurityAuditLink()),
     },
     {
       label: 'Node Diagnostics',
       icon: Search,
       color: 'text-purple-600',
       helpId: 'sre-action-diagnostics',
-      onClick: () => navigate('/system/nodes'),
+      onClick: () => navigate(ROUTE_PATHS.system.nodes),
     },
     {
       label: 'Spawn Worker',
@@ -144,7 +145,7 @@ export default function SREDashboard({ selectedTenant = 'default' }: SREDashboar
       icon: PlayCircle,
       color: 'text-amber-600',
       helpId: 'sre-action-replay',
-      onClick: () => navigate('/replay'),
+      onClick: () => navigate(buildReplayLink()),
     },
   ], [navigate]);
 
@@ -356,7 +357,7 @@ export default function SREDashboard({ selectedTenant = 'default' }: SREDashboar
                   );
                 })}
                 {nodes.length > 5 && (
-                  <Button variant="outline" className="w-full mt-2" onClick={() => navigate('/system/nodes')}>
+                  <Button variant="outline" className="w-full mt-2" onClick={() => navigate(ROUTE_PATHS.system.nodes)}>
                     View all {nodes.length} nodes
                   </Button>
                 )}
@@ -518,7 +519,7 @@ export default function SREDashboard({ selectedTenant = 'default' }: SREDashboar
                     </div>
                   </div>
                 ))}
-                <Button variant="outline" className="w-full mt-2" onClick={() => navigate('/metrics')}>
+                <Button variant="outline" className="w-full mt-2" onClick={() => navigate(buildMetricsLink())}>
                   View all alerts
                 </Button>
               </div>

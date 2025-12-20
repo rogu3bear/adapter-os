@@ -53,7 +53,7 @@ pub async fn cleanup_test_db(db: &Db) -> Result<()> {
 ///
 /// #[tokio::test]
 /// async fn test_example() {
-///     let temp_dir = Path::new("/tmp/test-dir");
+///     let temp_dir = Path::new("var/test-dir");
 ///     // ... create test files ...
 ///     cleanup_test_files(temp_dir).await.unwrap();
 /// }
@@ -86,8 +86,8 @@ pub async fn cleanup_test_files(path: &Path) -> Result<()> {
 /// #[tokio::test]
 /// async fn test_example() {
 ///     let paths = vec![
-///         PathBuf::from("/tmp/test-adapters"),
-///         PathBuf::from("/tmp/test-datasets"),
+///         PathBuf::from("var/test-adapters"),
+///         PathBuf::from("var/test-datasets"),
 ///     ];
 ///     cleanup_test_paths(&paths).await.unwrap();
 /// }
@@ -114,7 +114,7 @@ pub async fn cleanup_test_paths(paths: &[PathBuf]) -> Result<()> {
 ///
 /// #[tokio::test]
 /// async fn test_example() {
-///     let file = Path::new("/tmp/test.aos");
+///     let file = Path::new("var/test.aos");
 ///     // ... create test file ...
 ///     cleanup_test_file(file).await.unwrap();
 /// }
@@ -147,7 +147,7 @@ pub async fn cleanup_test_file(path: &Path) -> Result<()> {
 /// #[tokio::test]
 /// async fn test_example() {
 ///     let db = create_test_db().await.unwrap();
-///     let temp_dir = PathBuf::from("/tmp/test-dir");
+///     let temp_dir = PathBuf::from("var/test-dir");
 ///
 ///     let _guard = TestCleanupGuard::new(db.clone(), vec![temp_dir]);
 ///
@@ -227,6 +227,12 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
+    fn new_test_tempdir() -> TempDir {
+        let root = std::path::PathBuf::from("var").join("tmp");
+        std::fs::create_dir_all(&root).expect("create var/tmp");
+        TempDir::new_in(&root).expect("tempdir")
+    }
+
     #[tokio::test]
     async fn test_cleanup_nonexistent_path() {
         let result = cleanup_test_files(Path::new("/nonexistent/path")).await;
@@ -235,7 +241,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cleanup_test_file() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let test_file = temp_dir.path().join("test.txt");
 
         tokio::fs::write(&test_file, b"test content").await.unwrap();
@@ -247,7 +253,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cleanup_test_files() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let test_file = temp_dir.path().join("test.txt");
 
         tokio::fs::write(&test_file, b"test content").await.unwrap();
@@ -259,8 +265,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_cleanup_multiple_paths() {
-        let temp_dir1 = TempDir::new().unwrap();
-        let temp_dir2 = TempDir::new().unwrap();
+        let temp_dir1 = new_test_tempdir();
+        let temp_dir2 = new_test_tempdir();
 
         let paths = vec![
             temp_dir1.path().to_path_buf(),
@@ -275,7 +281,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cleanup_guard_files_only() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let path = temp_dir.path().to_path_buf();
 
         {

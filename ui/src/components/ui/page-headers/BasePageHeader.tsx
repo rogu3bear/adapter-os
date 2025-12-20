@@ -1,6 +1,6 @@
 import React from 'react';
 import { Button } from '@/components/ui/button';
-import { cn } from '@/components/ui/utils';
+import { cn } from '@/lib/utils';
 import { BasePageHeaderProps, BasePageHeaderAction } from './types';
 
 // 【2025-01-20†deduplication†base_page_header】

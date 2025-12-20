@@ -13,17 +13,10 @@
     <key>RunAtLoad</key>
     <true/>
     
-    <key>KeepAlive</key>
-    <true/>
-    
-    <key>StandardErrorPath</key>
-    <string>/tmp/aos-menu.err</string>
-    
-    <key>StandardOutPath</key>
-    <string>/tmp/aos-menu.out</string>
-    
-    <key>ProcessType</key>
-    <string>Interactive</string>
+	    <key>KeepAlive</key>
+	    <true/>
+	    
+	    <key>ProcessType</key>
+	    <string>Interactive</string>
 </dict>
 </plist>
-

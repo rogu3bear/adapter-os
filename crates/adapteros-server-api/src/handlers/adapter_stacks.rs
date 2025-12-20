@@ -94,6 +94,67 @@ pub enum WorkflowType {
     Sequential,
 }
 
+/// Validates that all adapters in a stack share the same base model.
+async fn validate_stack_base_model_compatibility(
+    db: &adapteros_db::Db,
+    tenant_id: &str,
+    adapter_ids: &[String],
+) -> Result<Option<String>, (StatusCode, Json<ErrorResponse>)> {
+    if adapter_ids.is_empty() {
+        return Ok(None);
+    }
+
+    let mut expected_base_model: Option<String> = None;
+
+    for adapter_id in adapter_ids {
+        let adapter = db
+            .get_adapter_for_tenant(tenant_id, adapter_id)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::NOT_FOUND,
+                    Json(
+                        ErrorResponse::new(&format!("Adapter '{}' not found: {}", adapter_id, e))
+                            .with_code("ADAPTER_NOT_FOUND"),
+                    ),
+                )
+            })?
+            .ok_or_else(|| {
+                (
+                    StatusCode::NOT_FOUND,
+                    Json(
+                        ErrorResponse::new(&format!("Adapter '{}' not found", adapter_id))
+                            .with_code("ADAPTER_NOT_FOUND"),
+                    ),
+                )
+            })?;
+
+        match (&expected_base_model, &adapter.base_model_id) {
+            (None, Some(model)) => {
+                expected_base_model = Some(model.clone());
+            }
+            (None, None) => {
+                tracing::warn!(adapter_id = %adapter_id, "Adapter missing base_model_id");
+            }
+            (Some(expected), Some(actual)) if expected != actual => {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(ErrorResponse::new(&format!(
+                        "Stack adapters must target same base model. Expected '{}', got '{}' for adapter '{}'",
+                        expected, actual, adapter_id
+                    )).with_code("BASE_MODEL_MISMATCH")),
+                ));
+            }
+            (Some(_), None) => {
+                tracing::warn!(adapter_id = %adapter_id, "Adapter missing base_model_id in stack");
+            }
+            _ => {} // Match
+        }
+    }
+
+    Ok(expected_base_model)
+}
+
 /// Create a new adapter stack
 #[utoipa::path(
     post,
@@ -136,6 +197,10 @@ pub async fn create_stack(
         adapter_count = req.adapter_ids.len(),
         "Creating adapter stack"
     );
+
+    // Validate that all adapters in the stack share the same base model
+    let _base_model =
+        validate_stack_base_model_compatibility(&state.db, &tenant_id, &req.adapter_ids).await?;
 
     // Guardrail: Warn if stack creation would likely exceed capacity limits (memory guardrails)
     let uma_stats = state.uma_monitor.get_uma_stats().await;
@@ -747,14 +812,17 @@ pub async fn activate_stack(
     );
 
     // Audit log: stack activated
-    let _ = crate::audit_helper::log_success(
+    if let Err(e) = crate::audit_helper::log_success(
         &state.db,
         &claims,
         crate::audit_helper::actions::STACK_ACTIVATE,
         crate::audit_helper::resources::ADAPTER_STACK,
         Some(&id),
     )
-    .await;
+    .await
+    {
+        tracing::warn!(error = %e, "Audit log failed");
+    }
 
     // Notify the router about the stack change via training signal broadcast
     // This enables SSE clients to receive stack activation events in real-time
@@ -956,14 +1024,17 @@ pub async fn clear_stack_adapters(
     );
 
     // Audit log: stack adapters cleared
-    let _ = crate::audit_helper::log_success(
+    if let Err(e) = crate::audit_helper::log_success(
         &state.db,
         &claims,
         "stack.clear_adapters",
         crate::audit_helper::resources::ADAPTER_STACK,
         Some(&id),
     )
-    .await;
+    .await
+    {
+        tracing::warn!(error = %e, "Audit log failed");
+    }
 
     Ok(Json(ClearStackAdaptersResponse {
         message: format!(
@@ -1011,14 +1082,17 @@ pub async fn deactivate_stack(
             info!(tenant_id = %tenant_id, "Deactivated adapter stack '{}' for tenant {}", stack_id, tenant_id);
 
             // Audit log: stack deactivated
-            let _ = crate::audit_helper::log_success(
+            if let Err(e) = crate::audit_helper::log_success(
                 &state.db,
                 &claims,
                 crate::audit_helper::actions::STACK_DEACTIVATE,
                 crate::audit_helper::resources::ADAPTER_STACK,
                 Some(&stack_id),
             )
-            .await;
+            .await
+            {
+                tracing::warn!(error = %e, "Audit log failed");
+            }
 
             // Notify the router about the stack deactivation via training signal broadcast
             let mut payload = std::collections::HashMap::new();

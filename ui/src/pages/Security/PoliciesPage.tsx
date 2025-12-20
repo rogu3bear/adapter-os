@@ -1,3 +1,11 @@
+/**
+ * @deprecated DUPLICATE PAGE - Naming conflict with pages/PoliciesPage.tsx
+ * Routes use pages/PoliciesPage.tsx for /security/policies route.
+ * This file appears to be an alternative security policies implementation.
+ *
+ * TODO: Rename to SecurityPoliciesPage.tsx or merge with pages/PoliciesPage.tsx
+ * Audit date: 2025-12-19
+ */
 // Security Policies Page - Policy management with apply, sign, compare functionality
 // Citation: CLAUDE.md L573-L608 "Policies endpoints"
 
@@ -25,6 +33,7 @@ import { ApplyPolicyDialog, ComparePoliciesDialog } from './PolicyDialogs';
 import { usePolicies, usePolicyMutations } from '@/hooks/security/usePolicies';
 import { useRBAC } from '@/hooks/security/useRBAC';
 import { ErrorRecovery } from '@/components/ui/error-recovery';
+import { PermissionDenied } from '@/components/ui/permission-denied';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { Policy, PolicyComparisonResponse } from '@/api/types';
 
@@ -52,9 +61,9 @@ export default function PoliciesPage() {
   if (!can('policy:view')) {
     return (
       <div className="container mx-auto p-6">
-        <ErrorRecovery
-          error="You do not have permission to view policies. This page requires the policy:view permission."
-          onRetry={() => window.location.reload()}
+        <PermissionDenied
+          requiredPermission="policy:view"
+          requiredRoles={['admin', 'operator', 'sre', 'compliance', 'developer']}
         />
       </div>
     );

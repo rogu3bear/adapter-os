@@ -7,7 +7,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useModelStatus } from './useModelStatus';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { logger } from '@/utils/logger';
 import { toast } from 'sonner';
 

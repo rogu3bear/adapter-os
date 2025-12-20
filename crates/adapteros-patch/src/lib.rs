@@ -3,7 +3,7 @@
 //! Deterministic, policy-compliant code patching with cryptographic verification.
 //!
 //! This crate provides:
-//! - Secure patch validation against all 20 policy packs
+//! - Secure patch validation against all 25 policy packs
 //! - Cryptographic signature verification (Ed25519 + BLAKE3)
 //! - Deterministic patch application with rollback support
 //! - Full audit trail and compliance reporting

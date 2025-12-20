@@ -1,100 +1,26 @@
 #![allow(unused_variables)]
 
 use crate::auth::Claims;
-use crate::middleware::{require_any_role, require_role};
 use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
 use crate::types::*; // This already re-exports adapteros_api_types::*
-use crate::uds_client::{UdsClient, UdsClientError};
-use crate::validation::*;
-use adapteros_core::tenant_snapshot::TenantStateSnapshot;
-use adapteros_core::{AosError, B3Hash};
 use adapteros_db::{
     AdapterRepository, AdapterVersionRuntimeState,
     CreateDraftVersionParams as CreateDraftAdapterVersionParams,
     CreateRepositoryParams as CreateAdapterRepositoryParams, UpsertAdapterRepositoryPolicyParams,
 };
-use adapteros_lora_lifecycle::GpuIntegrityReport;
 use adapteros_types::training::LoraTier;
-use sqlx::{Row, Sqlite, Transaction};
-// System metrics integration
-use adapteros_system_metrics;
-use adapteros_system_metrics::monitoring_types::{
-    AcknowledgeAlertRequest, AlertResponse, AnomalyResponse, BaselineResponse,
-    CreateMonitoringRuleApiRequest, MonitoringRuleResponse, RecalculateBaselineRequest,
-    UpdateAnomalyStatusRequest, UpdateMonitoringRuleApiRequest,
-};
-use axum::response::Response;
-use chrono::Utc;
-use serde_json::json;
 use serde_json::Value;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use utoipa::{IntoParams, ToSchema};
-use uuid::Uuid;
+use utoipa::IntoParams;
 
-
-// Re-export utils for error handling
-use utils::aos_error_to_response;
-
-// Re-export adapter lifecycle and lineage handlers
-pub use adapters::*;
-
-// Re-export tenant handlers
-pub use tenants::*;
-
-// Re-export tenant policy handlers (including utoipa path types for OpenAPI)
-pub use tenant_policies::{
-    __path_list_tenant_policy_bindings, __path_query_policy_decisions, __path_toggle_tenant_policy,
-    __path_verify_policy_audit_chain, list_tenant_policy_bindings, query_policy_decisions,
-    toggle_tenant_policy, verify_policy_audit_chain,
-};
-
-// Re-export auth handlers (including utoipa path types)
-pub use auth::{__path_auth_login, auth_login, auth_me};
-pub use auth_enhanced::{
-    __path_mfa_disable_handler, __path_mfa_start_handler, __path_mfa_status_handler,
-    __path_mfa_verify_handler, mfa_disable_handler, mfa_start_handler, mfa_status_handler,
-    mfa_verify_handler,
-};
-
-// Re-export training handlers
-pub use training::*;
-
-// Re-export health and system info handlers
-pub use coreml_verification::*;
-pub use health::*;
-pub use system_info::*;
-
-// Re-export system state handler
-pub use system_state::*;
-
-// Re-export boot progress (specific to avoid ambiguity with streaming module)
-pub use boot_progress::{boot_progress_stream, BootProgressEvent};
-
-// Re-export streaming handlers
-pub use streaming::*;
-
-// Re-export adapter_stacks streaming handler
-pub use adapter_stacks::stack_policy_stream;
-
-// Re-export inference handler (including utoipa path types)
-pub use inference::{__path_infer, infer};
-
-// Re-export domain adapter handlers
-use adapteros_db::sqlx;
-use adapteros_db::users::Role;
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
-    response::IntoResponse,
     Extension, Json,
 };
-pub use domain_adapters::*;
-use serde::{Deserialize, Serialize};
-// use serde_json::json; // unused
-use tracing::{error, info, info_span, warn};
+use serde::Deserialize;
 
 fn lora_tier_from_provenance(provenance_json: &Option<String>) -> Option<LoraTier> {
     provenance_json
@@ -168,13 +94,8 @@ pub async fn list_adapters(
 
     let mut responses = Vec::new();
     for adapter in adapters {
-        // Enforce tenant isolation: skip adapters not belonging to user's tenant
-        // (admin users can see all adapters)
-        if claims.role != "admin" {
-            if let Err(_) = validate_tenant_isolation(&claims, &adapter.tenant_id) {
-                continue; // Skip this adapter
-            }
-        }
+        // Note: list_adapters_for_tenant() already scoped to claims.tenant_id,
+        // so all adapters here belong to the user's tenant. No additional validation needed.
 
         // Filter by tier if specified
         if let Some(tier) = query.tier {
@@ -1179,7 +1100,7 @@ pub async fn promote_adapter_version_handler(
 ) -> Result<Json<AdapterResponse>, (StatusCode, Json<ErrorResponse>)> {
     let adapter = state
         .db
-        .get_adapter(&claims.tenant_id, &adapter_id)
+        .get_adapter_for_tenant(&claims.tenant_id, &adapter_id)
         .await
         .map_err(|e| {
             (

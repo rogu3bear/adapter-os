@@ -32,7 +32,7 @@ impl WorkflowType {
     }
 
     /// Parse workflow type from string
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse_workflow(s: &str) -> Option<Self> {
         match s {
             "Parallel" => Some(WorkflowType::Parallel),
             "UpstreamDownstream" => Some(WorkflowType::UpstreamDownstream),
@@ -76,7 +76,7 @@ impl LifecycleState {
     }
 
     /// Parse lifecycle state from string
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse_state(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "draft" => Some(LifecycleState::Draft),
             "active" => Some(LifecycleState::Active),
@@ -166,6 +166,7 @@ impl AdapterStackKv {
 /// this conversion is provided for future migration compatibility.
 impl AdapterStackKv {
     /// Convert from SQL row representation
+    #[allow(clippy::too_many_arguments)]
     pub fn from_sql_row(
         id: String,
         tenant_id: String,
@@ -186,10 +187,10 @@ impl AdapterStackKv {
             .map_err(|e| format!("Failed to parse adapter_ids_json: {}", e))?;
 
         // Parse workflow type
-        let workflow_type = workflow_type.and_then(|wt| WorkflowType::from_str(&wt));
+        let workflow_type = workflow_type.and_then(|wt| WorkflowType::parse_workflow(&wt));
 
         // Parse lifecycle state
-        let lifecycle_state = LifecycleState::from_str(&lifecycle_state)
+        let lifecycle_state = LifecycleState::parse_state(&lifecycle_state)
             .ok_or_else(|| format!("Invalid lifecycle state: {}", lifecycle_state))?;
 
         // Parse timestamps
@@ -230,39 +231,39 @@ mod tests {
     #[test]
     fn test_workflow_type_conversion() {
         assert_eq!(
-            WorkflowType::from_str("Parallel"),
+            WorkflowType::parse_workflow("Parallel"),
             Some(WorkflowType::Parallel)
         );
         assert_eq!(
-            WorkflowType::from_str("UpstreamDownstream"),
+            WorkflowType::parse_workflow("UpstreamDownstream"),
             Some(WorkflowType::UpstreamDownstream)
         );
         assert_eq!(
-            WorkflowType::from_str("Sequential"),
+            WorkflowType::parse_workflow("Sequential"),
             Some(WorkflowType::Sequential)
         );
-        assert_eq!(WorkflowType::from_str("Invalid"), None);
+        assert_eq!(WorkflowType::parse_workflow("Invalid"), None);
     }
 
     #[test]
     fn test_lifecycle_state_conversion() {
         assert_eq!(
-            LifecycleState::from_str("draft"),
+            LifecycleState::parse_state("draft"),
             Some(LifecycleState::Draft)
         );
         assert_eq!(
-            LifecycleState::from_str("active"),
+            LifecycleState::parse_state("active"),
             Some(LifecycleState::Active)
         );
         assert_eq!(
-            LifecycleState::from_str("deprecated"),
+            LifecycleState::parse_state("deprecated"),
             Some(LifecycleState::Deprecated)
         );
         assert_eq!(
-            LifecycleState::from_str("retired"),
+            LifecycleState::parse_state("retired"),
             Some(LifecycleState::Retired)
         );
-        assert_eq!(LifecycleState::from_str("invalid"), None);
+        assert_eq!(LifecycleState::parse_state("invalid"), None);
     }
 
     #[test]

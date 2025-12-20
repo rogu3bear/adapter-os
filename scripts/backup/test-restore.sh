@@ -4,13 +4,15 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+TMP_ROOT="${REPO_ROOT}/var/tmp"
+mkdir -p "${TMP_ROOT}"
 
 BACKUP_ROOT="${AOS_BACKUP_ROOT:-/var/backups/aos}"
 KEY_PATH="${AOS_BACKUP_KEY_PATH:-/etc/aos/backup.key}"
 VERIFY_PUBKEY="${AOS_BACKUP_VERIFY_PUBKEY:-}"
 REQUIRE_SIGNATURE="${AOS_BACKUP_REQUIRE_SIGNATURE:-0}"
-TARGET_ROOT="${AOS_TARGET_ROOT:-$(mktemp -d "${TMPDIR:-/tmp}/aos-restore.XXXXXX")}"
-TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/aos-restore-work.XXXXXX")"
+TARGET_ROOT="${AOS_TARGET_ROOT:-$(mktemp -d "${TMP_ROOT}/aos-restore.XXXXXX")}"
+TMP_DIR="$(mktemp -d "${TMP_ROOT}/aos-restore-work.XXXXXX")"
 EXTRACT_DIR="${TMP_DIR}/extract"
 
 log_json() {
@@ -142,4 +144,3 @@ else
 fi
 
 log_json "info" "Restore test completed; data available at ${TARGET_ROOT}"
-

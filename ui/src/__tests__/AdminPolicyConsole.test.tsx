@@ -1,17 +1,17 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import AdminPolicyConsole from '@/pages/Admin/AdminPolicyConsole';
 import type { AdapterRepositorySummary } from '@/api/repo-types';
 import type { Dataset } from '@/api/training-types';
 
-const mockListAdapterRepositories = vi.fn();
-const mockUpdateAdapterRepositoryPolicy = vi.fn();
-const mockListDatasets = vi.fn();
-const mockApplyDatasetTrustOverride = vi.fn();
-const mockGetTenantStorageUsage = vi.fn();
+const mockListAdapterRepositories = vi.hoisted(() => vi.fn());
+const mockUpdateAdapterRepositoryPolicy = vi.hoisted(() => vi.fn());
+const mockListDatasets = vi.hoisted(() => vi.fn());
+const mockApplyDatasetTrustOverride = vi.hoisted(() => vi.fn());
+const mockGetTenantStorageUsage = vi.hoisted(() => vi.fn());
 
-vi.mock('@/api/client', () => ({
+vi.mock('@/api/services', () => ({
   __esModule: true,
   default: {
     listAdapterRepositories: mockListAdapterRepositories,
@@ -25,6 +25,36 @@ vi.mock('@/api/client', () => ({
 vi.mock('@/components/ui/use-toast', () => ({
   useToast: () => ({ toast: vi.fn() }),
 }));
+
+// Simplify Select to avoid Radix pointer-capture issues in JSDOM
+vi.mock('@/components/ui/select', () => {
+  const React = require('react');
+  const Select = ({ value, onValueChange, children, ...props }: any) => (
+    <select
+      value={value ?? ''}
+      onChange={(e) => onValueChange?.((e.target as HTMLSelectElement).value)}
+      {...props}
+    >
+      {children}
+    </select>
+  );
+
+  return {
+    Select,
+    SelectTrigger: ({ children }: any) => <>{children}</>,
+    SelectContent: ({ children }: any) => <>{children}</>,
+    SelectItem: ({ value, children, ...props }: any) => (
+      <option value={value} {...props}>
+        {children}
+      </option>
+    ),
+    SelectValue: ({ placeholder }: any) => (
+      <option value="" hidden>
+        {placeholder}
+      </option>
+    ),
+  };
+});
 
 const repoFixture: AdapterRepositorySummary = {
   id: 'repo-1',
@@ -114,8 +144,8 @@ describe('AdminPolicyConsole', () => {
     await screen.findByText('Dataset One');
     await userEvent.click(screen.getByRole('button', { name: /override/i }));
 
-    await userEvent.click(screen.getByText(/blocked/i));
-    await userEvent.click(await screen.findByText(/allowed/i));
+    const dialog = await screen.findByRole('dialog');
+    await userEvent.selectOptions(within(dialog).getByRole('combobox'), 'allowed');
 
     expect(screen.getByText(/moving from blocked/)).toBeInTheDocument();
 

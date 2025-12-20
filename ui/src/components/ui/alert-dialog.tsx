@@ -8,7 +8,7 @@ import {
   MENU_ANIMATION_CLASSES,
   FROST_BACKGROUND,
   FROST_OVERLAY,
-} from "./utils";
+} from "@/lib/utils";
 import { buttonVariants } from "./button";
 
 function AlertDialog({

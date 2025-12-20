@@ -1,7 +1,6 @@
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import FeatureLayout from '@/layout/FeatureLayout';
-import { DensityProvider } from '@/contexts/DensityContext';
+import PageWrapper from '@/layout/PageWrapper';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -282,15 +281,11 @@ export default function TrainingJobsPage({
   preselectedDatasetId?: string;
 }) {
   return (
-    <DensityProvider pageKey="training-jobs">
-      <FeatureLayout title="Training Jobs" description="Manage training jobs">
-        <PageErrorsProvider>
-          <TrainingJobsPageContent
-            preselectedAdapterId={preselectedAdapterId}
-            preselectedDatasetId={preselectedDatasetId}
-          />
-        </PageErrorsProvider>
-      </FeatureLayout>
-    </DensityProvider>
+    <PageWrapper pageKey="training-jobs" title="Training Jobs" description="Manage training jobs">
+      <TrainingJobsPageContent
+        preselectedAdapterId={preselectedAdapterId}
+        preselectedDatasetId={preselectedDatasetId}
+      />
+    </PageWrapper>
   );
 }

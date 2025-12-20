@@ -1,4 +1,4 @@
-.PHONY: help build prepare test test-rust test-ui test-e2e clean fmt clippy metal ui ui-dev menu-bar menu-bar-dev menu-bar-install infra-check dev dev-no-auth build-mlx test-mlx bench-mlx verify-mlx-env cli
+.PHONY: help build prepare test test-rust test-ui test-e2e clean fmt clippy metal ui ui-dev menu-bar menu-bar-dev menu-bar-install infra-check dev dev-no-auth build-mlx test-mlx bench-mlx verify-mlx-env cli setup-git-hooks lint-fix mvp-demo
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -37,6 +37,9 @@ prepare: ## Prepare build environment: stop services, clean ports
 download-model: ## Download Qwen 2.5 7B Instruct model (~3.8GB)
 	@./scripts/download-model.sh
 
+mvp-demo: ## One-command MVP demo setup (deps, model, build, db, demo data)
+	@./scripts/mvp-demo-setup.sh
+
 check-system: ## Check system readiness before launch (preflight checks)
 	@./scripts/check-system.sh
 
@@ -73,7 +76,7 @@ license-check: ## Check dependency license compliance
 fmt: ## Format code
 	cargo fmt --all
 
-clippy: ## Run clippy
+clippy: ## Run clippy (with smart test/example suppression via clippy.toml)
 	cargo clippy --all-features -- -D warnings
 
 metal: ## Build Metal shaders
@@ -131,6 +134,16 @@ deploy-prod: ## Deploy to production environment (requires manual approval)
 	@echo "⚠️  Production deployment requires manual approval"
 	@echo "Run: git commit --allow-empty -m '[deploy prod] Deploy to production'"
 	@echo "Then push to main branch"
+
+setup-git-hooks: ## Setup git hooks for code quality (run once after cloning)
+	@echo "🔧 Setting up git hooks..."
+	@./scripts/setup-git-hooks.sh
+
+lint-fix: ## Auto-fix common linting issues (unused imports, formatting, etc.)
+	@echo "🔧 Auto-fixing lint issues..."
+	cargo clippy --fix --allow-dirty --allow-staged
+	cargo fmt --all
+	@echo "✅ Auto-fix complete! Run 'make clippy' to check remaining issues."
 
 check: fmt clippy test determinism-check ## Run all checks
 

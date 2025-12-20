@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useCreateAdapterStack, useUpdateAdapterStack } from '@/hooks/admin/useAdmin';
 import { useQuery } from '@tanstack/react-query';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import type { AdapterStack, CreateAdapterStackRequest, ActiveAdapter } from '@/api/types';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';

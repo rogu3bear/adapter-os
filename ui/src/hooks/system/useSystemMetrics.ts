@@ -1,7 +1,7 @@
 import { useCallback, useMemo } from 'react';
 import { usePolling, type PollingSpeed } from '@/hooks/realtime/usePolling';
 import { useAsyncOperation } from '@/hooks/async/useAsyncOperation';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import type {
   SystemMetrics,
   MetricsSnapshotResponse,

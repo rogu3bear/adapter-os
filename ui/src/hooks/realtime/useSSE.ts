@@ -8,6 +8,10 @@ import { TENANT_SWITCH_EVENT } from '@/utils/tenant';
 //! - TypeScript best practices: Avoid `any` types for type safety
 //! - CONTRIBUTING.md L118-122: "Follow Rust naming conventions"
 
+// SSE keepalive timeout constants
+const KEEPALIVE_TIMEOUT_MS = 60000; // 60 seconds
+const KEEPALIVE_CHECK_INTERVAL_MS = 30000; // Check every 30 seconds
+
 /**
  * Circuit breaker state for SSE connections
  * Prevents rapid reconnection attempts when service is down
@@ -73,6 +77,8 @@ export function useSSE<T = unknown>(
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const circuitRecoveryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const connectRef = useRef<(() => void) | null>(null);
+  const lastActivityRef = useRef<number>(Date.now());
+  const keepaliveIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Store callbacks in refs to avoid reconnection on every parent re-render
   const onErrorRef = useRef(onError);
@@ -83,6 +89,11 @@ export function useSSE<T = unknown>(
   const MAX_RECONNECT_ATTEMPTS = 10;
   const INITIAL_BACKOFF_MS = 1000;
   const MAX_BACKOFF_MS = 30000;
+
+  // Helper to update last activity timestamp
+  const updateLastActivity = useCallback(() => {
+    lastActivityRef.current = Date.now();
+  }, []);
 
   // Circuit breaker helpers
   const recordSuccess = useCallback(() => {
@@ -177,9 +188,11 @@ export function useSSE<T = unknown>(
           setError(null);
           reconnectAttemptsRef.current = 0; // Reset attempts on successful connection
           recordSuccess(); // Reset circuit breaker on successful connection
+          updateLastActivity(); // Update activity on connection open
         };
 
       eventSource.onmessage = (event) => {
+        updateLastActivity(); // Update activity on message
         try {
           const parsed = JSON.parse(event.data);
           setData(parsed);
@@ -196,6 +209,7 @@ export function useSSE<T = unknown>(
 
       // Handle custom event types (metrics, adapters, bundles, etc.)
       const handleCustomEvent = (event: MessageEvent) => {
+        updateLastActivity(); // Update activity on custom event
         try {
           const parsed = JSON.parse(event.data);
           setData(parsed);
@@ -215,7 +229,7 @@ export function useSSE<T = unknown>(
       eventSource.addEventListener('adapters', handleCustomEvent);
       eventSource.addEventListener('bundles', handleCustomEvent);
       eventSource.addEventListener('keepalive', () => {
-        // Just acknowledge keepalive
+        updateLastActivity(); // Update activity on keepalive
       });
 
       // Consolidated error handler (previously had dual handlers which could conflict)
@@ -293,6 +307,31 @@ export function useSSE<T = unknown>(
 
     connect();
 
+    // Setup keepalive timeout check
+    if (keepaliveIntervalRef.current) {
+      clearInterval(keepaliveIntervalRef.current);
+    }
+    keepaliveIntervalRef.current = setInterval(() => {
+      const elapsed = Date.now() - lastActivityRef.current;
+      if (elapsed > KEEPALIVE_TIMEOUT_MS && eventSourceRef.current) {
+        logger.warn('SSE connection stale, reconnecting', {
+          component: 'useSSE',
+          endpoint,
+          lastActivityMs: elapsed,
+        });
+        if (eventSourceRef.current) {
+          eventSourceRef.current.close();
+          eventSourceRef.current = null;
+        }
+        setConnected(false);
+        recordError('Connection stale - no keepalive received');
+        // Trigger reconnection
+        if (connectRef.current) {
+          connectRef.current();
+        }
+      }
+    }, KEEPALIVE_CHECK_INTERVAL_MS);
+
     return () => {
       if (eventSourceRef.current) {
         eventSourceRef.current.close();
@@ -306,11 +345,15 @@ export function useSSE<T = unknown>(
         clearTimeout(circuitRecoveryTimeoutRef.current);
         circuitRecoveryTimeoutRef.current = null;
       }
+      if (keepaliveIntervalRef.current) {
+        clearInterval(keepaliveIntervalRef.current);
+        keepaliveIntervalRef.current = null;
+      }
       reconnectAttemptsRef.current = 0;
     };
     // onError and onMessage are stored in refs to avoid reconnection on parent re-renders
     // Circuit breaker functions are memoized with useCallback
-  }, [endpoint, enabled, shouldAllowConnection, recordSuccess, recordError, circuitBreaker.openedAt, circuitBreakerRecoveryMs, circuitBreaker.errorCount, circuitBreaker.isOpen]);
+  }, [endpoint, enabled, shouldAllowConnection, recordSuccess, recordError, updateLastActivity, circuitBreaker.openedAt, circuitBreakerRecoveryMs, circuitBreaker.errorCount, circuitBreaker.isOpen]);
 
   // Manual reconnect function - resets attempts, circuit breaker, and reconnects
   const reconnect = useCallback(() => {
@@ -322,6 +365,10 @@ export function useSSE<T = unknown>(
       clearTimeout(circuitRecoveryTimeoutRef.current);
       circuitRecoveryTimeoutRef.current = null;
     }
+    if (keepaliveIntervalRef.current) {
+      clearInterval(keepaliveIntervalRef.current);
+      keepaliveIntervalRef.current = null;
+    }
     reconnectAttemptsRef.current = 0;
     setError(null);
     // Reset circuit breaker on manual reconnect
@@ -331,10 +378,11 @@ export function useSSE<T = unknown>(
       openedAt: null,
       lastError: null,
     });
+    updateLastActivity(); // Reset last activity on manual reconnect
     if (connectRef.current && enabled) {
       connectRef.current();
     }
-  }, [enabled]);
+  }, [enabled, updateLastActivity]);
 
   useEffect(() => {
     const handleTenantSwitch = () => {
@@ -350,18 +398,23 @@ export function useSSE<T = unknown>(
         clearTimeout(circuitRecoveryTimeoutRef.current);
         circuitRecoveryTimeoutRef.current = null;
       }
+      if (keepaliveIntervalRef.current) {
+        clearInterval(keepaliveIntervalRef.current);
+        keepaliveIntervalRef.current = null;
+      }
       reconnectAttemptsRef.current = 0;
       setConnected(false);
       setData(null);
       setError(null);
       recordSuccess();
+      updateLastActivity(); // Reset last activity on tenant switch
       if (connectRef.current && enabled) {
         connectRef.current();
       }
     };
     window.addEventListener(TENANT_SWITCH_EVENT, handleTenantSwitch);
     return () => window.removeEventListener(TENANT_SWITCH_EVENT, handleTenantSwitch);
-  }, [enabled, recordSuccess]);
+  }, [enabled, recordSuccess, updateLastActivity]);
 
   return {
     data,

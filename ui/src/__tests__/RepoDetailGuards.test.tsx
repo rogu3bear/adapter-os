@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { computeVersionGuards } from '@/pages/Repositories/versionGuards';
+import { computeVersionGuards } from '@/hooks/repositories/useVersionGuards';
 import type { RepoVersionSummary } from '@/api/repo-types';
 
 const baseVersion: RepoVersionSummary = {

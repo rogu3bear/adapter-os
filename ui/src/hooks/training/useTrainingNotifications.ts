@@ -1,7 +1,7 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { toast } from 'sonner';
 import { useQuery } from '@tanstack/react-query';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { logger } from '@/utils/logger';
 import type { TrainingJob } from '@/api/types';
 import { usePersistentNotifications, usePersistentNotificationsAvailable } from '@/components/PersistentNotifications';

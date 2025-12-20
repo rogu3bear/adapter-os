@@ -99,11 +99,18 @@ pub fn verify_cross_language_imports(result: &ParseResult, expected_import_count
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
     use tempfile::TempDir;
+
+    fn new_test_tempdir() -> TempDir {
+        let root = PathBuf::from("var").join("tmp");
+        std::fs::create_dir_all(&root).expect("create var/tmp");
+        TempDir::new_in(&root).expect("create temp dir")
+    }
 
     #[test]
     fn test_create_test_symbol() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let test_file = temp_dir.path().join("test.rs");
 
         let symbol = create_test_symbol(
@@ -120,7 +127,7 @@ mod tests {
 
     #[test]
     fn test_create_test_parse_result() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let test_file = temp_dir.path().join("test.rs");
 
         let symbols = vec![
@@ -136,7 +143,7 @@ mod tests {
 
     #[test]
     fn test_create_multi_language_test_files() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
 
         create_multi_language_test_files(temp_dir.path()).unwrap();
 
@@ -150,7 +157,7 @@ mod tests {
 
     #[test]
     fn test_verify_language_parsing() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let test_file = temp_dir.path().join("test.rs");
 
         let symbols = vec![
@@ -166,7 +173,7 @@ mod tests {
 
     #[test]
     fn test_verify_cross_language_imports() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let test_file = temp_dir.path().join("test.rs");
 
         let symbols = vec![

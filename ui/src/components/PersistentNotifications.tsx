@@ -14,7 +14,7 @@ import React, { createContext, useContext, useState, useCallback, useEffect, use
 import { X, CheckCircle2, AlertCircle, Loader2, ExternalLink, ChevronDown, ChevronUp } from 'lucide-react';
 import { Button } from './ui/button';
 import { Progress } from './ui/progress';
-import { cn } from './ui/utils';
+import { cn } from '@/lib/utils';
 import { useNavigate } from 'react-router-dom';
 import { logger } from '@/utils/logger';
 

@@ -4,19 +4,9 @@
 //!
 //! 【2025-01-20†rectification†auth_handlers_expanded】
 
-use crate::audit_helper;
-use crate::auth::{
-    dev_no_auth_enabled, hash_password, verify_password, AuthMode, Claims, PrincipalType,
-    JWT_ISSUER,
-};
-use crate::auth_common::{
-    attach_auth_cookie, attach_csrf_cookie, attach_refresh_cookie, build_auth_token,
-    build_user_info, clear_auth_cookies, AuthConfig, AuthContext,
-};
+use crate::auth::{dev_no_auth_enabled, Claims};
+use crate::auth_common::{build_user_info, AuthContext};
 use crate::ip_extraction::ClientIp;
-use crate::mfa::{
-    decrypt_mfa_secret, derive_mfa_key, verify_and_mark_backup_code, verify_totp, BackupCode,
-};
 use crate::state::AppState;
 use crate::types::*;
 use axum::{
@@ -26,7 +16,7 @@ use axum::{
     Extension,
 };
 use chrono::Utc;
-use tracing::{error, info, warn};
+use tracing::error;
 use utoipa;
 
 /// Login endpoint

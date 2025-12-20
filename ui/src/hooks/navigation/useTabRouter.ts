@@ -1,5 +1,6 @@
 import { useCallback, useMemo } from 'react';
 import { useNavigate, useLocation, useParams } from 'react-router-dom';
+import { ROUTE_PATHS } from '@/utils/navLinks';
 
 /**
  * Configuration for a single tab within a tabbed interface.
@@ -139,22 +140,22 @@ export function useTabRouter<T extends string>(options: UseTabRouterOptions<T>) 
  */
 export function useAdapterTabRouter() {
   return useTabRouter({
-    basePath: '/adapters',
+    basePath: ROUTE_PATHS.adapters.list,
     defaultTab: 'list',
     tabs: [
-      { id: 'list', label: 'All Adapters', path: '/adapters' },
-      { id: 'register', label: 'Register', path: '/adapters/new' },
-      { id: 'overview', label: 'Overview', path: '/adapters/:adapterId', requiresParam: 'adapterId' },
+      { id: 'list', label: 'All Adapters', path: ROUTE_PATHS.adapters.list },
+      { id: 'register', label: 'Register', path: ROUTE_PATHS.adapters.register },
+      { id: 'overview', label: 'Overview', path: ROUTE_PATHS.adapters.overview, requiresParam: 'adapterId' },
       {
         id: 'activations',
         label: 'Activations',
-        path: '/adapters/:adapterId/activations',
+        path: ROUTE_PATHS.adapters.activations,
         requiresParam: 'adapterId',
       },
-      { id: 'usage', label: 'Usage', path: '/adapters/:adapterId/usage', requiresParam: 'adapterId' },
-      { id: 'lineage', label: 'Lineage', path: '/adapters/:adapterId/lineage', requiresParam: 'adapterId' },
-      { id: 'manifest', label: 'Manifest', path: '/adapters/:adapterId/manifest', requiresParam: 'adapterId' },
-      { id: 'policies', label: 'Policies', path: '/adapters/:adapterId/policies', requiresParam: 'adapterId' },
+      { id: 'usage', label: 'Usage', path: ROUTE_PATHS.adapters.usage, requiresParam: 'adapterId' },
+      { id: 'lineage', label: 'Lineage', path: ROUTE_PATHS.adapters.lineage, requiresParam: 'adapterId' },
+      { id: 'manifest', label: 'Manifest', path: ROUTE_PATHS.adapters.manifest, requiresParam: 'adapterId' },
+      { id: 'policies', label: 'Policies', path: ROUTE_PATHS.adapters.policies, requiresParam: 'adapterId' },
     ],
   });
 }
@@ -165,34 +166,34 @@ export function useAdapterTabRouter() {
  */
 export function useTrainingTabRouter() {
   return useTabRouter({
-    basePath: '/training',
+    basePath: ROUTE_PATHS.training.overview,
     defaultTab: 'overview',
     tabs: [
-      { id: 'overview', label: 'Overview', path: '/training' },
-      { id: 'jobs', label: 'Jobs', path: '/training/jobs' },
-      { id: 'job-detail', label: 'Job Details', path: '/training/jobs/:jobId', requiresParam: 'jobId' },
+      { id: 'overview', label: 'Overview', path: ROUTE_PATHS.training.overview },
+      { id: 'jobs', label: 'Jobs', path: ROUTE_PATHS.training.jobs },
+      { id: 'job-detail', label: 'Job Details', path: ROUTE_PATHS.training.jobDetail, requiresParam: 'jobId' },
       {
         id: 'job-chat',
         label: 'Result Chat',
-        path: '/training/jobs/:jobId/chat',
+        path: ROUTE_PATHS.training.jobChat,
         requiresParam: 'jobId',
       },
-      { id: 'datasets', label: 'Datasets', path: '/training/datasets' },
+      { id: 'datasets', label: 'Datasets', path: ROUTE_PATHS.training.datasets },
       {
         id: 'dataset-detail',
         label: 'Dataset Details',
-        path: '/training/datasets/:datasetId',
+        path: ROUTE_PATHS.training.datasetDetail,
         requiresParam: 'datasetId',
       },
       {
         id: 'dataset-chat',
         label: 'Dataset Chat',
-        path: '/training/datasets/:datasetId/chat',
+        path: ROUTE_PATHS.training.datasetChat,
         requiresParam: 'datasetId',
       },
-      { id: 'templates', label: 'Templates', path: '/training/templates' },
-      { id: 'artifacts', label: 'Artifacts', path: '/training/artifacts' },
-      { id: 'settings', label: 'Settings', path: '/training/settings' },
+      { id: 'templates', label: 'Templates', path: ROUTE_PATHS.training.templates },
+      { id: 'artifacts', label: 'Artifacts', path: ROUTE_PATHS.training.artifacts },
+      { id: 'settings', label: 'Settings', path: ROUTE_PATHS.training.settings },
     ],
   });
 }
@@ -203,15 +204,15 @@ export function useTrainingTabRouter() {
  */
 export function useTelemetryTabRouter() {
   return useTabRouter({
-    basePath: '/telemetry',
+    basePath: ROUTE_PATHS.telemetry.eventStream,
     defaultTab: 'event-stream',
     tabs: [
-      { id: 'event-stream', label: 'Event Stream', path: '/telemetry' },
-      { id: 'viewer', label: 'Viewer', path: '/telemetry/viewer' },
-      { id: 'viewer-trace', label: 'Trace', path: '/telemetry/viewer/:traceId', requiresParam: 'traceId' },
-      { id: 'alerts', label: 'Alerts', path: '/telemetry/alerts' },
-      { id: 'exports', label: 'Exports', path: '/telemetry/exports' },
-      { id: 'filters', label: 'Filters', path: '/telemetry/filters' },
+      { id: 'event-stream', label: 'Event Stream', path: ROUTE_PATHS.telemetry.eventStream },
+      { id: 'viewer', label: 'Viewer', path: ROUTE_PATHS.telemetry.viewer },
+      { id: 'viewer-trace', label: 'Trace', path: ROUTE_PATHS.telemetry.viewerTrace, requiresParam: 'traceId' },
+      { id: 'alerts', label: 'Alerts', path: ROUTE_PATHS.telemetry.alerts },
+      { id: 'exports', label: 'Exports', path: ROUTE_PATHS.telemetry.exports },
+      { id: 'filters', label: 'Filters', path: ROUTE_PATHS.telemetry.filters },
     ],
   });
 }
@@ -219,17 +220,23 @@ export function useTelemetryTabRouter() {
 /**
  * Pre-configured tab router for Replay pages.
  * Handles run history, decision traces, and evidence.
+ * Supports optional sessionId parameter for session-specific views.
  */
 export function useReplayTabRouter() {
   return useTabRouter({
-    basePath: '/replay',
+    basePath: ROUTE_PATHS.replay.runs,
     defaultTab: 'runs',
     tabs: [
-      { id: 'runs', label: 'Runs', path: '/replay' },
-      { id: 'decision-trace', label: 'Decision Trace', path: '/replay/decision-trace' },
-      { id: 'evidence', label: 'Evidence', path: '/replay/evidence' },
-      { id: 'compare', label: 'Compare', path: '/replay/compare' },
-      { id: 'export', label: 'Export', path: '/replay/export' },
+      { id: 'runs', label: 'Runs', path: ROUTE_PATHS.replay.runs },
+      { id: 'runs-with-session', label: 'Runs', path: ROUTE_PATHS.replay.runsWithSession, requiresParam: 'sessionId' },
+      { id: 'decision-trace', label: 'Decision Trace', path: ROUTE_PATHS.replay.decisionTrace },
+      { id: 'decision-trace-with-session', label: 'Decision Trace', path: ROUTE_PATHS.replay.decisionTraceWithSession, requiresParam: 'sessionId' },
+      { id: 'evidence', label: 'Evidence', path: ROUTE_PATHS.replay.evidence },
+      { id: 'evidence-with-session', label: 'Evidence', path: ROUTE_PATHS.replay.evidenceWithSession, requiresParam: 'sessionId' },
+      { id: 'compare', label: 'Compare', path: ROUTE_PATHS.replay.compare },
+      { id: 'compare-with-session', label: 'Compare', path: ROUTE_PATHS.replay.compareWithSession, requiresParam: 'sessionId' },
+      { id: 'export', label: 'Export', path: ROUTE_PATHS.replay.export },
+      { id: 'export-with-session', label: 'Export', path: ROUTE_PATHS.replay.exportWithSession, requiresParam: 'sessionId' },
     ],
   });
 }
@@ -240,15 +247,15 @@ export function useReplayTabRouter() {
  */
 export function useRepositoryTabRouter() {
   return useTabRouter({
-    basePath: '/repos',
+    basePath: ROUTE_PATHS.repos.list,
     defaultTab: 'list',
     tabs: [
-      { id: 'list', label: 'All Repositories', path: '/repos' },
-      { id: 'detail', label: 'Repository Detail', path: '/repos/:repoId', requiresParam: 'repoId' },
+      { id: 'list', label: 'All Repositories', path: ROUTE_PATHS.repos.list },
+      { id: 'detail', label: 'Repository Detail', path: ROUTE_PATHS.repos.detail, requiresParam: 'repoId' },
       {
         id: 'version',
         label: 'Version Detail',
-        path: '/repos/:repoId/versions/:versionId',
+        path: ROUTE_PATHS.repos.version,
         requiresParam: 'versionId',
       },
     ],

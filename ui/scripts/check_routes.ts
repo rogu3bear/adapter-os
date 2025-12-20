@@ -48,6 +48,10 @@ function main() {
   errors.push(...validateModeFiltering(devRoutes, 'development'));
   errors.push(...validateDevRoutesExcluded(prodRoutes));
   errors.push(...validatePrimarySpine(primarySpine, prodRoutes, devRoutes));
+  errors.push(...validateNoTypeCasts(sourceText));
+  errors.push(...validateNoModalComponents(prodRoutes));
+  errors.push(...validateNoModalComponents(devRoutes));
+  errors.push(...validateComponentProps(lazyImports, prodRoutes));
 
   if (errors.length > 0) {
     console.error('Route validation failed:');
@@ -79,13 +83,15 @@ function extractLazyImports(source: ts.SourceFile): Map<string, string> {
   return map;
 }
 
+const ALLOWED_LAZY_FUNCTIONS = ['lazy', 'lazyWithRetry', 'lazyRouteable', 'lazyRouteableNamed'];
+
 function getLazyImportPath(expr: ts.Expression): string | undefined {
   if (!ts.isCallExpression(expr)) {
     return undefined;
   }
 
   const callee = expr.expression;
-  if (!ts.isIdentifier(callee) || (callee.text !== 'lazy' && callee.text !== 'lazyWithRetry')) {
+  if (!ts.isIdentifier(callee) || !ALLOWED_LAZY_FUNCTIONS.includes(callee.text)) {
     return undefined;
   }
 
@@ -492,6 +498,231 @@ function validatePrimarySpine(primarySpine: string[], prodRoutes: ParsedRoute[],
       }
     } else if (!prodPaths.has(pathEntry)) {
       errors.push(`[production] PRIMARY_SPINE entry ${pathEntry} missing from prod routes`);
+    }
+  }
+
+  return errors;
+}
+
+/**
+ * Option B Guardrail: Analyze component prop signatures using TypeScript compiler.
+ * Detects components with required props that would crash when rendered without them.
+ */
+function validateComponentProps(lazyImports: Map<string, string>, routes: ParsedRoute[]): string[] {
+  const errors: string[] = [];
+
+  // Create a TypeScript program with the project's tsconfig
+  const configPath = path.join(projectRoot, 'tsconfig.json');
+  const configFile = ts.readConfigFile(configPath, ts.sys.readFile);
+  if (configFile.error) {
+    console.warn('Warning: Could not read tsconfig.json for prop analysis');
+    return [];
+  }
+
+  const parsedConfig = ts.parseJsonConfigFileContent(configFile.config, ts.sys, projectRoot);
+
+  // Collect component files to analyze
+  const componentFiles: Array<{ name: string; importPath: string; filePath: string }> = [];
+
+  for (const route of routes) {
+    if (!route.componentName) continue;
+
+    const importPath = lazyImports.get(route.componentName);
+    if (!importPath) continue;
+
+    const resolved = resolveImportPath(importPath);
+    if (!resolved) continue;
+
+    componentFiles.push({
+      name: route.componentName,
+      importPath,
+      filePath: resolved,
+    });
+  }
+
+  if (componentFiles.length === 0) return [];
+
+  // Create program with all component files
+  const program = ts.createProgram(
+    componentFiles.map(c => c.filePath),
+    parsedConfig.options
+  );
+  const checker = program.getTypeChecker();
+
+  for (const { name, filePath } of componentFiles) {
+    const sourceFile = program.getSourceFile(filePath);
+    if (!sourceFile) continue;
+
+    const requiredProps = getComponentRequiredProps(sourceFile, checker);
+    if (requiredProps.length > 0) {
+      errors.push(
+        `Component "${name}" has required props: ${requiredProps.join(', ')}. ` +
+        `Create a *RoutePage wrapper that reads params from URL and fetches data.`
+      );
+    }
+  }
+
+  return errors;
+}
+
+/**
+ * Extract required props from a component's default export.
+ * Returns array of required prop names, or empty array if no required props.
+ */
+function getComponentRequiredProps(sourceFile: ts.SourceFile, checker: ts.TypeChecker): string[] {
+  const requiredProps: string[] = [];
+
+  // Find the default export
+  let defaultExportSymbol: ts.Symbol | undefined;
+
+  for (const statement of sourceFile.statements) {
+    // Handle: export default function Foo() {} or export default Foo
+    if (ts.isExportAssignment(statement) && !statement.isExportEquals) {
+      const expr = statement.expression;
+      if (ts.isIdentifier(expr)) {
+        defaultExportSymbol = checker.getSymbolAtLocation(expr);
+      } else if (ts.isFunctionExpression(expr) || ts.isArrowFunction(expr)) {
+        // Inline function - get its type directly
+        const type = checker.getTypeAtLocation(expr);
+        return extractRequiredPropsFromType(type, checker);
+      }
+    }
+    // Handle: export default function Foo() {}
+    if (ts.isFunctionDeclaration(statement) && statement.modifiers?.some(m => m.kind === ts.SyntaxKind.ExportKeyword && statement.modifiers?.some(m2 => m2.kind === ts.SyntaxKind.DefaultKeyword))) {
+      const type = checker.getTypeAtLocation(statement);
+      return extractRequiredPropsFromType(type, checker);
+    }
+  }
+
+  if (defaultExportSymbol) {
+    const type = checker.getTypeOfSymbolAtLocation(defaultExportSymbol, sourceFile);
+    return extractRequiredPropsFromType(type, checker);
+  }
+
+  return requiredProps;
+}
+
+/**
+ * Extract required props from a function/component type.
+ */
+function extractRequiredPropsFromType(type: ts.Type, checker: ts.TypeChecker): string[] {
+  const requiredProps: string[] = [];
+
+  // Get call signatures (for function components)
+  const signatures = type.getCallSignatures();
+  if (signatures.length === 0) return requiredProps;
+
+  const firstSignature = signatures[0];
+  const params = firstSignature.getParameters();
+
+  if (params.length === 0) return requiredProps;
+
+  // First parameter is props
+  const propsParam = params[0];
+  const propsType = checker.getTypeOfSymbolAtLocation(propsParam, propsParam.valueDeclaration!);
+
+  // Check each property of the props type
+  for (const prop of propsType.getProperties()) {
+    const propDecl = prop.valueDeclaration;
+    if (!propDecl) continue;
+
+    // Check if the property is optional (has ? modifier)
+    const isOptional = (prop.flags & ts.SymbolFlags.Optional) !== 0;
+
+    if (!isOptional) {
+      // Also check if property has undefined in its type (union with undefined)
+      const propType = checker.getTypeOfSymbolAtLocation(prop, propDecl);
+      const hasUndefined = propType.isUnion() && propType.types.some(t => t.flags & ts.TypeFlags.Undefined);
+
+      if (!hasUndefined) {
+        requiredProps.push(prop.name);
+      }
+    }
+  }
+
+  return requiredProps;
+}
+
+/**
+ * Option C Guardrail: Detect type casts that bypass prop safety.
+ * Patterns like `as any`, `as ComponentType<any>`, `as React.ComponentType<any>`
+ * allow components with required props to slip through.
+ */
+function validateNoTypeCasts(sourceText: string): string[] {
+  const errors: string[] = [];
+
+  // Strip comments before checking for patterns (to avoid false positives from docs)
+  const codeOnly = stripComments(sourceText);
+
+  const dangerousPatterns = [
+    { pattern: /as\s+any\b/g, description: '`as any` cast' },
+    { pattern: /as\s+ComponentType<any>/g, description: '`as ComponentType<any>` cast' },
+    { pattern: /as\s+React\.ComponentType<any>/g, description: '`as React.ComponentType<any>` cast' },
+    { pattern: /as\s+LazyExoticComponent<any>/g, description: '`as LazyExoticComponent<any>` cast' },
+    { pattern: /as\s+React\.LazyExoticComponent<any>/g, description: '`as React.LazyExoticComponent<any>` cast' },
+  ];
+
+  for (const { pattern, description } of dangerousPatterns) {
+    const matches = codeOnly.match(pattern);
+    if (matches) {
+      errors.push(`routes.ts contains ${description} which bypasses prop type safety (${matches.length} occurrence(s))`);
+    }
+  }
+
+  return errors;
+}
+
+/**
+ * Strip single-line (//) and multi-line comments from source text.
+ * Also strips string literals to avoid false positives.
+ */
+function stripComments(source: string): string {
+  // Remove multi-line comments (/* ... */ and /** ... */)
+  let result = source.replace(/\/\*[\s\S]*?\*\//g, '');
+  // Remove single-line comments (// ...)
+  result = result.replace(/\/\/.*$/gm, '');
+  // Remove template literals and strings to avoid matching patterns inside them
+  result = result.replace(/`[^`]*`/g, '""');
+  result = result.replace(/'[^']*'/g, '""');
+  result = result.replace(/"[^"]*"/g, '""');
+  return result;
+}
+
+/**
+ * Option C Guardrail: Detect modal/dialog components routed directly.
+ * Components matching modal patterns (Modal, Dialog, Drawer, Sheet, Popup, Overlay)
+ * likely have required props (open, onClose) and will crash when rendered without them.
+ * Exception: *RoutePage wrappers are allowed as they handle the prop bridging.
+ */
+function validateNoModalComponents(routes: ParsedRoute[]): string[] {
+  const errors: string[] = [];
+  const modalPatterns = [
+    /Modal$/,
+    /Dialog$/,
+    /Drawer$/,
+    /Sheet$/,
+    /Popup$/,
+    /Overlay$/,
+  ];
+
+  for (const route of routes) {
+    if (!route.componentName) {
+      continue;
+    }
+
+    // *RoutePage wrappers are the correct pattern - don't flag them
+    if (route.componentName.endsWith('RoutePage')) {
+      continue;
+    }
+
+    for (const pattern of modalPatterns) {
+      if (pattern.test(route.componentName)) {
+        errors.push(
+          `${route.path} uses component "${route.componentName}" which matches modal pattern ${pattern}. ` +
+          `Modal components typically require props (open, onClose). Create a *RoutePage wrapper instead.`
+        );
+        break;
+      }
     }
   }
 

@@ -33,10 +33,17 @@ pub struct ServerConfig {
     /// Timeout in seconds for draining in-flight requests during shutdown (default: 30)
     #[serde(default = "default_drain_timeout")]
     pub drain_timeout_secs: u64,
+    /// Timeout in seconds for the entire boot sequence (default: 300)
+    #[serde(default = "default_boot_timeout")]
+    pub boot_timeout_secs: u64,
 }
 
 fn default_drain_timeout() -> u64 {
     30
+}
+
+fn default_boot_timeout() -> u64 {
+    300
 }
 
 fn default_bind() -> String {

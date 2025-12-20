@@ -86,11 +86,14 @@ async fn test_adapter_default_version_and_lifecycle() -> anyhow::Result<()> {
         .find(|a| a.adapter_id.as_deref() == Some(adapter_id))
         .expect("Adapter should exist");
 
-    // Verify default values (from migration 0068)
+    // Verify default values
+    // Note: Migration 0068 has DEFAULT 'active', but the INSERT statement in
+    // register_adapter explicitly sets 'draft'. This is intentional - new adapters
+    // start in draft state and must go through training -> ready -> active.
     assert_eq!(adapter.version, "1.0.0", "Default version should be 1.0.0");
     assert_eq!(
-        adapter.lifecycle_state, "active",
-        "Default lifecycle_state should be active"
+        adapter.lifecycle_state, "draft",
+        "Default lifecycle_state should be draft (adapters start in draft state)"
     );
 
     Ok(())
@@ -139,8 +142,8 @@ async fn test_adapter_to_adaptermeta_conversion() -> anyhow::Result<()> {
     assert!(!adapter_meta.scope.is_empty());
     assert!(!adapter_meta.tier.is_empty());
 
-    // Verify lifecycle_state enum conversion
-    assert_eq!(adapter_meta.lifecycle_state, LifecycleState::Active);
+    // Verify lifecycle_state enum conversion (adapters start in draft state)
+    assert_eq!(adapter_meta.lifecycle_state, LifecycleState::Draft);
 
     Ok(())
 }
@@ -243,7 +246,7 @@ async fn test_adapter_meta_has_all_required_fields() -> anyhow::Result<()> {
     assert!(!meta.hash_b3.is_empty());
     assert_eq!(meta.rank, 16);
     assert!(!meta.tier.is_empty());
-    assert_eq!(meta.lifecycle_state, LifecycleState::Active); // Lifecycle state
+    assert_eq!(meta.lifecycle_state, LifecycleState::Draft); // Lifecycle state (adapters start in draft)
     assert!(!meta.category.is_empty());
     assert!(!meta.scope.is_empty());
     assert!(!meta.created_at.is_empty());
@@ -284,7 +287,7 @@ async fn test_explicit_field_query() -> anyhow::Result<()> {
 
     let (version, lifecycle_state) = result;
     assert_eq!(version, "1.0.0");
-    assert_eq!(lifecycle_state, "active");
+    assert_eq!(lifecycle_state, "draft"); // Adapters start in draft state
 
     Ok(())
 }

@@ -197,7 +197,7 @@ async fn deploy_directory_adapter(
                 fs::create_dir_all(backup_path.parent().unwrap_or_else(|| Path::new(".")))?;
                 fs_extra::dir::copy(
                     &target_dir,
-                    &backup_path.parent().unwrap_or(root),
+                    backup_path.parent().unwrap_or(root),
                     &fs_extra::dir::CopyOptions::new().content_only(false),
                 )
                 .with_context(|| {
@@ -320,7 +320,7 @@ async fn deploy_aos_adapter(
                     backup_path.display()
                 ));
             } else {
-                fs::create_dir_all(backup_path.parent().unwrap_or_else(|| root.as_path()))?;
+                fs::create_dir_all(backup_path.parent().unwrap_or(root.as_path()))?;
                 fs::copy(&target_path, &backup_path).with_context(|| {
                     format!(
                         "backing up existing .aos {} -> {}",

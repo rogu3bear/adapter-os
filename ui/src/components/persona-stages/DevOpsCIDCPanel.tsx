@@ -7,7 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { usePolling } from '@/hooks/realtime/usePolling';
-import { apiClient } from '@/api/client';
+import { apiClient } from '@/api/services';
 
 interface Pipeline {
   id: string;
@@ -55,9 +55,9 @@ interface CICDData {
 const fetchCICDData = async (): Promise<CICDData> => {
   try {
     const [pipelines, deployments, webhooks] = await Promise.all([
-      apiClient.get<Pipeline[]>('/cicd/pipelines').catch(() => []),
-      apiClient.get<Deployment[]>('/cicd/deployments').catch(() => []),
-      apiClient.get<Webhook[]>('/cicd/webhooks').catch(() => [])
+      apiClient.request<Pipeline[]>('/cicd/pipelines').catch(() => []),
+      apiClient.request<Deployment[]>('/cicd/deployments').catch(() => []),
+      apiClient.request<Webhook[]>('/cicd/webhooks').catch(() => [])
     ]);
 
     return {

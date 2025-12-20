@@ -11,7 +11,7 @@
 
 import { useCallback, useMemo, useRef, useEffect } from 'react';
 import { logger } from '@/utils/logger';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import type { RecentActivityEvent } from '@/api/types';
 import { useSSEWithPollingFallback } from '@/hooks/realtime';
 

@@ -85,7 +85,7 @@ impl Gate for MetallibGate {
             Some(metallib_path.to_path_buf())
         } else {
             // Try alternate paths
-            let alt_paths = vec![
+            let alt_paths = [
                 "crates/mplora-kernel-mtl/shaders/aos_kernels.metallib",
                 "target/shaders/aos_kernels.metallib",
             ];

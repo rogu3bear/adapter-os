@@ -4,7 +4,7 @@ import * as React from "react";
 import * as RechartsPrimitive from "recharts@2.15.2";
 import DOMPurify from "dompurify";
 
-import { cn } from "./utils";
+import { cn } from "@/lib/utils";
 
 // Format: { THEME_NAME: CSS_SELECTOR }
 const THEMES = { light: "", dark: ".dark" } as const;

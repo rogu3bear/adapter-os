@@ -17,7 +17,7 @@ use adapteros_lora_kernel_api::{FusedKernels, IoBuffers, RouterRing};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
-use tracing::info;
+use tracing::{info, warn};
 
 /// Request for exporting a CoreML fused package.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -159,7 +159,7 @@ pub fn export_coreml_adapter(req: &CoreMLExportRequest) -> Result<CoreMLExportOu
     }
     fs::write(
         &metadata_path,
-        serde_json::to_vec_pretty(&metadata).map_err(|e| AosError::Serialization(e))?,
+        serde_json::to_vec_pretty(&metadata).map_err(AosError::Serialization)?,
     )
     .map_err(|e| {
         AosError::Io(format!(
@@ -195,7 +195,7 @@ pub fn validate_coreml_fusion(metadata_path: &Path) -> Result<CoreMLFusionMetada
         ))
     })?;
     let metadata: CoreMLFusionMetadata =
-        serde_json::from_slice(&bytes).map_err(|e| AosError::Serialization(e))?;
+        serde_json::from_slice(&bytes).map_err(AosError::Serialization)?;
     metadata.verify()?;
     Ok(metadata)
 }
@@ -210,7 +210,7 @@ fn apply_stub_fusion(compute_units: ComputeUnits, adapter_payload: &[u8]) -> Res
 
     let mut io = IoBuffers::new(8);
     io.input_ids = vec![1, 2, 3];
-    backend.run_step(&mut ring, &mut io)?;
+    backend.run_step(&ring, &mut io)?;
     Ok(())
 }
 

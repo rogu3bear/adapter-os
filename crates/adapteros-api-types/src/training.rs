@@ -14,6 +14,123 @@ use utoipa::{IntoParams, ToSchema};
 
 use crate::schema_version;
 
+// ===== Core Enums =====
+
+/// Training job status
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum TrainingStatus {
+    Pending,
+    Running,
+    Completed,
+    Failed,
+    Cancelled,
+    Paused,
+}
+
+impl TrainingStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            TrainingStatus::Pending => "pending",
+            TrainingStatus::Running => "running",
+            TrainingStatus::Completed => "completed",
+            TrainingStatus::Failed => "failed",
+            TrainingStatus::Cancelled => "cancelled",
+            TrainingStatus::Paused => "paused",
+        }
+    }
+
+    pub fn from_db_string(value: &str) -> Self {
+        match value.to_ascii_lowercase().as_str() {
+            "running" => Self::Running,
+            "completed" => Self::Completed,
+            "failed" => Self::Failed,
+            "cancelled" => Self::Cancelled,
+            "paused" => Self::Paused,
+            _ => Self::Pending,
+        }
+    }
+}
+
+impl std::fmt::Display for TrainingStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
+/// Dataset trust state
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum TrustState {
+    Allowed,
+    AllowedWithWarning,
+    Blocked,
+    NeedsApproval,
+    Unknown,
+}
+
+impl TrustState {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            TrustState::Allowed => "allowed",
+            TrustState::AllowedWithWarning => "allowed_with_warning",
+            TrustState::Blocked => "blocked",
+            TrustState::NeedsApproval => "needs_approval",
+            TrustState::Unknown => "unknown",
+        }
+    }
+
+    pub fn from_db_string(value: &str) -> Self {
+        match value.to_ascii_lowercase().as_str() {
+            "allowed" => Self::Allowed,
+            "allowed_with_warning" => Self::AllowedWithWarning,
+            "blocked" => Self::Blocked,
+            "needs_approval" => Self::NeedsApproval,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+impl std::fmt::Display for TrustState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
+/// Dataset source type
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DatasetSourceType {
+    CodeRepo,
+    UploadedFiles,
+    Generated,
+}
+
+impl DatasetSourceType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            DatasetSourceType::CodeRepo => "code_repo",
+            DatasetSourceType::UploadedFiles => "uploaded_files",
+            DatasetSourceType::Generated => "generated",
+        }
+    }
+
+    pub fn from_db_string(value: &str) -> Self {
+        match value.to_ascii_lowercase().as_str() {
+            "code_repo" => Self::CodeRepo,
+            "uploaded_files" => Self::UploadedFiles,
+            "generated" => Self::Generated,
+            _ => Self::Generated,
+        }
+    }
+}
+
+impl std::fmt::Display for DatasetSourceType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
 fn default_dataset_weight() -> f32 {
     1.0
 }
@@ -46,25 +163,41 @@ impl From<CoreDatasetVersionSelection> for DatasetVersionSelection {
 }
 
 /// Dataset validation status
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, ToSchema)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum DatasetValidationStatus {
-    Draft,
+    Pending,
     Validating,
     Valid,
     Invalid,
-    Failed,
+    Skipped,
 }
 
 impl DatasetValidationStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            DatasetValidationStatus::Pending => "pending",
+            DatasetValidationStatus::Validating => "validating",
+            DatasetValidationStatus::Valid => "valid",
+            DatasetValidationStatus::Invalid => "invalid",
+            DatasetValidationStatus::Skipped => "skipped",
+        }
+    }
+
     pub fn from_db_string(value: &str) -> Self {
         match value.to_ascii_lowercase().as_str() {
             "validating" => Self::Validating,
             "valid" => Self::Valid,
             "invalid" => Self::Invalid,
-            "failed" => Self::Failed,
-            _ => Self::Draft,
+            "skipped" => Self::Skipped,
+            _ => Self::Pending,
         }
+    }
+}
+
+impl std::fmt::Display for DatasetValidationStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
     }
 }
 

@@ -4,7 +4,7 @@ use adapteros_core::{AosError, Result};
 use adapteros_lora_worker::training::DatasetSubsample;
 use adapteros_lora_worker::training::{
     compute_drift, deterministic_slice, run_backend_with_examples, DriftMetrics,
-    HarnessHyperparams, TrainingBackend, TrainingExample, TrainingResult,
+    HarnessHyperparams, TrainingBackend, TrainingExample,
 };
 use adapteros_manifest::{AssuranceTier, ManifestV3};
 use serde::{Deserialize, Serialize};

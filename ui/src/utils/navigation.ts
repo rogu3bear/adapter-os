@@ -4,6 +4,8 @@ import type { LucideIcon } from 'lucide-react';
 import type { UserRole } from '@/api/types';
 import { UiMode } from '@/config/ui-mode';
 
+const DEMO_PRIMARY_SPINE = ['/chat', '/adapters', '/training'] as const;
+
 export interface NavItem {
   to: string;
   label: string;
@@ -27,8 +29,11 @@ export function generateNavigationGroups(
   userRole?: string,
   userPermissions?: string[],
   uiMode: UiMode = UiMode.User,
+  options: { demoMode?: boolean } = {},
 ): NavGroup[] {
-  const spineOrder = new Map<string, number>(PRIMARY_SPINE.map((path, index) => [path, index]));
+  const demoMode = options.demoMode === true;
+  const spine = demoMode ? DEMO_PRIMARY_SPINE : PRIMARY_SPINE;
+  const spineOrder = new Map<string, number>(spine.map((path, index) => [path, index]));
   const groupsMap = new Map<string, NavGroup>();
 
   const isDeveloper = userRole?.toLowerCase() === 'developer';
@@ -45,8 +50,9 @@ export function generateNavigationGroups(
       continue;
     }
 
-    // Developer bypasses UI mode filtering - sees all routes
-    if (!isDeveloper && route.modes && !route.modes.includes(uiMode)) {
+    // Developer bypasses UI mode filtering - sees all routes.
+    // Demo mode also bypasses UI mode filtering (demo nav spans chat + training).
+    if (!isDeveloper && !demoMode && route.modes && !route.modes.includes(uiMode)) {
       continue;
     }
 

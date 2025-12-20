@@ -9,7 +9,7 @@ import { ScrollArea } from './ui/scroll-area';
 import { Search, X, HelpCircle, BookOpen, ChevronRight } from 'lucide-react';
 import { helpTextDatabase, getHelpTextByCategory, type HelpTextItem } from '@/data/help-text';
 import type { HelpTextItem as HelpTextItemType } from '@/data/help-text';
-import { cn } from './ui/utils';
+import { cn } from '@/lib/utils';
 
 interface HelpCenterProps {
   open: boolean;

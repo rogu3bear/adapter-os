@@ -94,7 +94,7 @@ impl EvictionManager {
             cache: Some(vec![5, 6, 7, 8]),
             vram_handle: Some(12345),
             vram_size: 1024,
-            cache_path: Some("/tmp/cache".to_string()),
+            cache_path: None,
             last_used: std::time::Instant::now(),
             priority: 1,
             size: 1024,

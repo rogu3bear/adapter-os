@@ -1,11 +1,11 @@
-//! Integration tests for all 20 policy packs
+//! Integration tests for all 25 policy packs
 //!
 //! These tests verify that all policy packs work together correctly
 //! and enforce the rules as defined in .cursor/rules/global.mdc
 //!
 //! # Citations
 //! - Policy Pack #1-20: Complete integration testing of all policy packs
-//! - CLAUDE.md L142: "Policy Engine: Enforces 20 policy packs"
+//! - CLAUDE.md L142: "Policy Engine: Enforces 25 policy packs"
 //! - .cursor/rules/global.mdc: Policy pack definitions and enforcement rules
 
 use adapteros_policy::policy_packs::{
@@ -15,12 +15,12 @@ use adapteros_policy::policy_packs::{
 use adapteros_policy::ViolationSeverity;
 use serde_json;
 
-/// Test all 20 policy packs integration
+/// Test all 25 policy packs integration
 #[tokio::test]
 async fn test_all_policy_packs_integration() {
     let manager = PolicyPackManager::new();
 
-    // Verify all 20 policy packs are initialized
+    // Verify all 25 policy packs are initialized
     let configs = manager.get_all_configs();
     assert_eq!(configs.len(), 20);
 

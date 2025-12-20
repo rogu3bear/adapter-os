@@ -15,8 +15,9 @@ import { OperatorChatLayout } from '@/components/operator';
 import { useSystemMetrics } from '@/hooks/system/useSystem';
 import { useSettings } from '@/hooks/config/useSettings';
 import { useQuery } from '@tanstack/react-query';
-import { apiClient } from '@/api/client';
+import { apiClient } from '@/api/services';
 import { useInferenceSessions } from '@/hooks/inference/useInferenceSessions';
+import { buildTrainingDatasetsLink, buildTrainingJobsLink, buildTrainingOverviewLink, buildAdaptersListLink, buildInferenceLink } from '@/utils/navLinks';
 import {
   Upload,
   Play,
@@ -196,7 +197,7 @@ function OperatorSummaryCards() {
               size="sm"
               onClick={() => {
                 const preset = recentSessions[0];
-                navigate('/inference', preset ? { state: { presetSession: preset } } : undefined);
+                navigate(buildInferenceLink(), preset ? { state: { presetSession: preset } } : undefined);
               }}
             >
               Run probe
@@ -401,26 +402,26 @@ function TrainingDashboardContent({ selectedTenant }: { selectedTenant: string }
         <CardContent>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
             <Button asChild variant="default" className="w-full h-auto p-3 sm:p-4">
-              <Link to="/training/datasets" state={{ openUpload: true }}>
+              <Link to={buildTrainingDatasetsLink()} state={{ openUpload: true }}>
                 <Upload className="h-4 w-4 mr-2" />
                 <span className="text-sm">Upload Dataset</span>
               </Link>
             </Button>
             <Button asChild variant="default" className="w-full h-auto p-3 sm:p-4">
-              <Link to="/training" state={{ openTrainingWizard: true }}>
+              <Link to={buildTrainingOverviewLink()} state={{ openTrainingWizard: true }}>
                 <Play className="h-4 w-4 mr-2" />
                 <span className="text-sm">Start Training</span>
               </Link>
             </Button>
             <Button asChild variant="outline" className="w-full h-auto p-3 sm:p-4">
-              <Link to="/training/jobs">
+              <Link to={buildTrainingJobsLink()}>
                 <List className="h-4 w-4 mr-2" />
                 <span className="text-sm hidden sm:inline">View Training Jobs</span>
                 <span className="text-sm sm:hidden">Jobs</span>
               </Link>
             </Button>
             <Button asChild variant="outline" className="w-full h-auto p-3 sm:p-4">
-              <Link to="/adapters">
+              <Link to={buildAdaptersListLink()}>
                 <Settings className="h-4 w-4 mr-2" />
                 <span className="text-sm hidden sm:inline">Manage Adapters</span>
                 <span className="text-sm sm:hidden">Adapters</span>
@@ -567,7 +568,7 @@ function TrainingDashboardContent({ selectedTenant }: { selectedTenant: string }
                   <p className="text-sm">No training jobs yet</p>
                   <p className="text-xs mt-1">Start your first training job</p>
                   <Button asChild className="mt-4" size="sm">
-                    <Link to="/training" state={{ openTrainingWizard: true }}>
+                    <Link to={buildTrainingOverviewLink()} state={{ openTrainingWizard: true }}>
                       Start Training
                     </Link>
                   </Button>
@@ -606,7 +607,7 @@ function TrainingDashboardContent({ selectedTenant }: { selectedTenant: string }
                     </div>
                   ))}
                   <Button asChild variant="outline" className="w-full" size="sm">
-                    <Link to="/training/jobs">View All Jobs</Link>
+                    <Link to={buildTrainingJobsLink()}>View All Jobs</Link>
                   </Button>
                 </div>
               )}

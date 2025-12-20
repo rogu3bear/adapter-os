@@ -262,7 +262,7 @@ Check error message which includes:
 ## Documentation
 
 - **API Reference:** `docs/GPU_TRAINING_INTEGRATION.md`
-- **Architecture:** `docs/ARCHITECTURE_PATTERNS.md`
+- **Architecture:** `docs/ARCHITECTURE.md#architecture-components`
 - **Training Pipeline:** `docs/TRAINING_PIPELINE.md`
 
 ## Running Tests
@@ -292,7 +292,7 @@ cargo run --bin gpu_training_benchmark --release
 
 - [docs/GPU_TRAINING_INTEGRATION.md](docs/GPU_TRAINING_INTEGRATION.md) - Complete GPU training API reference
 - [docs/TRAINING_PIPELINE.md](docs/TRAINING_PIPELINE.md) - Training pipeline architecture
-- [docs/ARCHITECTURE_PATTERNS.md](docs/ARCHITECTURE_PATTERNS.md) - Architectural patterns and diagrams
+- [docs/ARCHITECTURE.md#architecture-components](docs/ARCHITECTURE.md#architecture-components) - Architectural patterns and diagrams
 - [docs/MLX_INTEGRATION.md](docs/MLX_INTEGRATION.md) - MLX backend for research/training
 - [docs/COREML_INTEGRATION.md](docs/COREML_INTEGRATION.md) - CoreML backend with ANE acceleration
 - [docs/FEATURE_FLAGS.md](docs/FEATURE_FLAGS.md) - Feature flag reference for backend selection

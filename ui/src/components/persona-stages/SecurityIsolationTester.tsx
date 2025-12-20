@@ -22,7 +22,7 @@ import {
   RefreshCw,
   AlertTriangle,
 } from 'lucide-react';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { IsolationTestResult, IsolationTestScenario } from '@/api/types';
 import { toast } from 'sonner';
 import { logger } from '@/utils/logger';

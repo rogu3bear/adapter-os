@@ -307,11 +307,18 @@ impl LanguageDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use adapteros_platform::common::PlatformUtils;
     use tempfile::TempDir;
+
+    fn new_test_tempdir() -> TempDir {
+        let root = PlatformUtils::temp_dir();
+        std::fs::create_dir_all(&root).expect("create var/tmp");
+        TempDir::new_in(&root).expect("create temp dir")
+    }
 
     #[test]
     fn test_language_detector_creation() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let detector = LanguageDetector::new(temp_dir.path());
         assert_eq!(detector.repo_path, temp_dir.path());
     }

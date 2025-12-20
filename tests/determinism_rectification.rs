@@ -140,6 +140,7 @@ fn test_router_determinism_with_decision_hash() {
             tier: "persistent".to_string(),
             scope_path: None,
             lora_tier: None,
+            base_model: None,
         })
         .collect();
 

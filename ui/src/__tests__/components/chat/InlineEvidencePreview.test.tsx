@@ -38,7 +38,7 @@ const mockEvidence: EvidenceItem[] = [
     chunk_id: 'chunk-4',
     page_number: 5,
     text_preview: 'Additional text',
-    relevance_score: 0.65,
+    relevance_score: 0.45,
     rank: 4,
   },
   {

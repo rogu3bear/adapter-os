@@ -18,8 +18,6 @@ use axum::extract::{Extension, State};
 use axum::http::StatusCode;
 use axum::Json;
 use serde::Serialize;
-use std::path::Path;
-use tokio::fs;
 use tracing::{debug, warn};
 use utoipa::ToSchema;
 
@@ -239,7 +237,13 @@ pub async fn get_tenant_storage_usage(
         .unwrap_or(0);
 
     let adapters_root = {
-        let cfg = state.config.read().expect("Config lock poisoned");
+        let cfg = state.config.read().map_err(|_| {
+            tracing::error!("Config lock poisoned");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new("config lock poisoned").with_code("CONFIG_UNAVAILABLE")),
+            )
+        })?;
         std::path::PathBuf::from(&cfg.paths.adapters_root.clone())
     };
     let artifact_bytes = artifact_usage(&adapters_root, &tenant_id).await;

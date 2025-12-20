@@ -8,8 +8,15 @@ use adapteros_lora_worker::{
     AdapterPackager, LoRAQuantizer, MicroLoRATrainer, TrainingBackend, TrainingConfig,
     TrainingExample,
 };
+use adapteros_platform::common::PlatformUtils;
 use std::collections::HashMap;
 use tempfile::TempDir;
+
+fn new_test_tempdir() -> TempDir {
+    let root = PlatformUtils::temp_dir();
+    std::fs::create_dir_all(&root).expect("create var/tmp");
+    TempDir::new_in(&root).expect("temp dir creation")
+}
 
 fn create_examples(n: usize) -> Vec<TrainingExample> {
     (0..n)
@@ -63,7 +70,7 @@ async fn test_e2e_minimal_training() {
 /// Test full pipeline: train → quantize → package → verify output exists
 #[tokio::test]
 async fn test_e2e_full_pipeline() {
-    let temp = TempDir::new().expect("temp dir creation");
+    let temp = new_test_tempdir();
 
     let config = TrainingConfig {
         rank: 4,

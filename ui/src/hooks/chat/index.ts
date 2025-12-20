@@ -24,9 +24,11 @@ export {
 // Streaming
 export {
   useChatStreaming,
-  type UseChatStreamingOptions,
-  type UseChatStreamingReturn,
 } from './useChatStreaming';
+export type {
+  UseChatStreamingOptions,
+  UseChatStreamingReturn,
+} from '@/types/hooks/chat';
 
 // Session management
 export {

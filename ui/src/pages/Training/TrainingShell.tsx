@@ -11,7 +11,7 @@ import { TemplatesTab as TrainingTemplatesPage } from '@/pages/Training/Template
 import TrainingJobDetailPage from '@/pages/Training/TrainingJobDetail';
 import DatasetDetailPage from '@/pages/Training/DatasetDetailPage';
 import { useTrainingTabRouter } from '@/hooks/navigation/useTabRouter';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';

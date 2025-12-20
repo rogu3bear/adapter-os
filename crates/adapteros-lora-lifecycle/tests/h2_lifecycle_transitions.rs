@@ -8,6 +8,16 @@ use adapteros_lora_lifecycle::{AdapterState, LifecycleManager};
 use adapteros_manifest::Policies;
 use std::collections::HashMap;
 use std::path::PathBuf;
+use tempfile::TempDir;
+
+fn new_test_adapters_dir() -> TempDir {
+    let base_dir = PathBuf::from("var").join("tmp");
+    let _ = std::fs::create_dir_all(&base_dir);
+    tempfile::Builder::new()
+        .prefix("lifecycle_test_")
+        .tempdir_in(&base_dir)
+        .expect("tempdir")
+}
 
 #[tokio::test]
 async fn test_h2_manual_state_promotions() {
@@ -16,11 +26,12 @@ async fn test_h2_manual_state_promotions() {
     hashes.insert("test-adapter".to_string(), B3Hash::hash(b"test"));
 
     let policies = Policies::default();
+    let temp_dir = new_test_adapters_dir();
     let manager = LifecycleManager::new(
         adapter_names,
         hashes,
         &policies,
-        PathBuf::from("/tmp"),
+        temp_dir.path().to_path_buf(),
         None,
         3,
     );
@@ -62,11 +73,12 @@ async fn test_h2_manual_state_demotions() {
     hashes.insert("test-adapter".to_string(), B3Hash::hash(b"test"));
 
     let policies = Policies::default();
+    let temp_dir = new_test_adapters_dir();
     let manager = LifecycleManager::new(
         adapter_names,
         hashes,
         &policies,
-        PathBuf::from("/tmp"),
+        temp_dir.path().to_path_buf(),
         None,
         3,
     );
@@ -113,11 +125,12 @@ async fn test_h2_state_machine_completeness() {
     hashes.insert("test-adapter".to_string(), B3Hash::hash(b"test"));
 
     let policies = Policies::default();
+    let temp_dir = new_test_adapters_dir();
     let manager = LifecycleManager::new(
         adapter_names,
         hashes,
         &policies,
-        PathBuf::from("/tmp"),
+        temp_dir.path().to_path_buf(),
         None,
         3,
     );
@@ -158,11 +171,12 @@ async fn test_h2_activation_recording() {
     hashes.insert("test-adapter".to_string(), B3Hash::hash(b"test"));
 
     let policies = Policies::default();
+    let temp_dir = new_test_adapters_dir();
     let manager = LifecycleManager::new(
         adapter_names,
         hashes,
         &policies,
-        PathBuf::from("/tmp"),
+        temp_dir.path().to_path_buf(),
         None,
         3,
     );

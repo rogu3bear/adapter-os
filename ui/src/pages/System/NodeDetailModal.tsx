@@ -1,8 +1,12 @@
+import { useNavigate, useParams } from 'react-router-dom';
 import { Modal } from '@/components/shared/Modal';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { useNodeDetails } from '@/hooks/system/useSystemMetrics';
+import { LoadingState } from '@/components/ui/loading-state';
+import { ErrorRecovery } from '@/components/ui/error-recovery';
+import { useNodeDetails, useNodes } from '@/hooks/system/useSystemMetrics';
 
 interface NodeDetailModalProps {
   nodeId: string;
@@ -10,7 +14,7 @@ interface NodeDetailModalProps {
   onClose: () => void;
 }
 
-export default function NodeDetailModal({ nodeId, open, onClose }: NodeDetailModalProps) {
+export function NodeDetailModal({ nodeId, open, onClose }: NodeDetailModalProps) {
   const { data: nodeDetails, isLoading } = useNodeDetails(nodeId, open);
 
   return (
@@ -148,4 +152,74 @@ export default function NodeDetailModal({ nodeId, open, onClose }: NodeDetailMod
         )}
     </Modal>
   );
+}
+
+/**
+ * Route-safe wrapper for NodeDetailModal.
+ * This component reads nodeId from URL params and fetches the node data,
+ * rendering the modal NodeDetailModal with proper props.
+ *
+ * NOTE: Modal components with required props should NEVER be used directly as route components.
+ * Always use a *RoutePage wrapper that reads params and fetches data.
+ */
+export default function NodeDetailRoutePage() {
+  const navigate = useNavigate();
+  const { nodeId } = useParams<{ nodeId: string }>();
+  const { nodes, isLoading, error, refetch } = useNodes('normal');
+
+  const handleClose = () => {
+    navigate('/system/nodes');
+  };
+
+  // Loading state
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <LoadingState message="Loading node details..." />
+      </div>
+    );
+  }
+
+  // Error state
+  if (error) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <ErrorRecovery
+          error={error instanceof Error ? error.message : String(error)}
+          onRetry={refetch}
+        />
+      </div>
+    );
+  }
+
+  // Find the node from the list
+  const node = nodes?.find((n) => n.id === nodeId);
+
+  // Not found state
+  if (!node && nodeId) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
+        <Card className="max-w-md">
+          <CardHeader>
+            <CardTitle>Node Not Found</CardTitle>
+            <CardDescription>
+              The node with ID <span className="font-mono">{nodeId}</span> could not be found.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button onClick={handleClose} variant="outline">
+              Back to Nodes
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  // Render the modal with node data
+  if (!nodeId) {
+    return null;
+  }
+
+  return <NodeDetailModal nodeId={nodeId} open={true} onClose={handleClose} />;
 }

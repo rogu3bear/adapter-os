@@ -2549,6 +2549,9 @@ pub async fn update_training_priority(
                 adapteros_core::AosError::PolicyViolation(_) => {
                     (StatusCode::FORBIDDEN, "FORBIDDEN")
                 }
+                adapteros_core::AosError::Validation(_) => {
+                    (StatusCode::BAD_REQUEST, "INVALID_STATUS")
+                }
                 _ => (StatusCode::INTERNAL_SERVER_ERROR, "DATABASE_ERROR"),
             };
             error!(error = %e, job_id = %job_id, "Failed to update training priority");

@@ -94,7 +94,7 @@ fn create_test_claims(user_id: &str, email: &str, role: &str, tenant_id: &str) -
 async fn create_test_dataset(db: &Db, dataset_id: &str, tenant_id: &str, name: &str) -> Result<()> {
     sqlx::query(
         "INSERT INTO training_datasets (id, name, tenant_id, format, storage_path, hash_b3, validation_status, created_at)
-         VALUES (?, ?, ?, 'jsonl', '/tmp/test', ?, 'valid', datetime('now'))",
+         VALUES (?, ?, ?, 'jsonl', 'var/test-datasets', ?, 'valid', datetime('now'))",
     )
     .bind(dataset_id)
     .bind(name)
@@ -385,7 +385,7 @@ async fn test_dataset_validate_enforces_tenant_isolation() -> Result<()> {
             Some("desc"),
             "jsonl",
             "hash-iso",
-            "/tmp/ds",
+            "var/ds",
             Some("tester"),
         )
         .await?;
@@ -495,7 +495,7 @@ async fn test_repository_register_blocks_cross_tenant() -> Result<()> {
         Json(RegisterRepositoryRequest {
             tenant_id: "tenant-a".to_string(),
             repo_id: "repo-cross".to_string(),
-            path: "/tmp/repo".to_string(),
+            path: "var/repo".to_string(),
             languages: vec!["rust".to_string()],
             default_branch: "main".to_string(),
         }),

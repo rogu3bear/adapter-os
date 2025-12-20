@@ -278,7 +278,7 @@ const resolveCommonApiMocks = () => {
   mockListDocuments.mockResolvedValue([]);
 };
 
-vi.mock('@/api/client', () => ({
+vi.mock('@/api/services', () => ({
   __esModule: true,
   default: {
     listTenants: (...args: unknown[]) => mockListTenants(...args),

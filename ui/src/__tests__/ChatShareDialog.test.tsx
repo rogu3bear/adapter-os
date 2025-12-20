@@ -100,7 +100,7 @@ const mockRevokeMutation = {
   isPending: false,
 };
 
-vi.mock('@/hooks/useChatSharing', () => ({
+vi.mock('@/hooks/chat/useChatSharing', () => ({
   useSessionShares: (...args: unknown[]) => mockUseSessionShares(...args),
   useShareSession: (options?: { onSuccess?: () => void; onError?: (error: Error) => void; onSettled?: () => void }) => {
     // Store callbacks for later invocation in tests
@@ -925,7 +925,7 @@ describe('ChatShareDialog', () => {
 
       await waitFor(() => {
         expect(writeTextMock).toHaveBeenCalledWith(
-          expect.stringContaining('/chat/sessions/session-123')
+          expect.stringContaining('/chat?session=session-123')
         );
         expect(mockToast.success).toHaveBeenCalledWith('Link copied to clipboard');
       });

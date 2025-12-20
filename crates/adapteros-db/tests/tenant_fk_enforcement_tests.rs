@@ -30,7 +30,7 @@ async fn create_test_tenant(db: &Db, tenant_id: &str) -> Result<()> {
 async fn create_test_document(db: &Db, doc_id: &str, tenant_id: &str) -> Result<()> {
     sqlx::query(
         "INSERT INTO documents (id, tenant_id, name, content_hash, file_path, file_size, mime_type, status)
-         VALUES (?, ?, 'test.pdf', 'hash123', '/tmp/test.pdf', 1000, 'application/pdf', 'indexed')",
+         VALUES (?, ?, 'test.pdf', 'hash123', 'var/test.pdf', 1000, 'application/pdf', 'indexed')",
     )
     .bind(doc_id)
     .bind(tenant_id)
@@ -203,7 +203,7 @@ async fn test_adapter_dataset_trigger_rejects_cross_tenant() -> Result<()> {
     // Create dataset in tenant-b
     sqlx::query(
         "INSERT INTO training_datasets (id, name, tenant_id, format, storage_path, hash_b3, validation_status, created_at)
-         VALUES (?, 'Dataset B', ?, 'jsonl', '/tmp/test', 'hash', 'valid', datetime('now'))",
+         VALUES (?, 'Dataset B', ?, 'jsonl', 'var/test-datasets', 'hash', 'valid', datetime('now'))",
     )
     .bind("dataset-b-1")
     .bind("tenant-b")
@@ -234,6 +234,154 @@ async fn test_adapter_dataset_trigger_rejects_cross_tenant() -> Result<()> {
         err_msg.contains("Tenant mismatch") || err_msg.to_lowercase().contains("tenant"),
         "Error should mention tenant mismatch, got: {}",
         err_msg
+    );
+
+    Ok(())
+}
+
+// =============================================================================
+// TEST: dataset_files trigger tenant validation
+// =============================================================================
+
+#[tokio::test]
+async fn test_dataset_files_trigger_rejects_missing_dataset() -> Result<()> {
+    let db = Db::new_in_memory().await?;
+
+    create_test_tenant(&db, "tenant-a").await?;
+
+    // Try to add file to non-existent dataset
+    let result = sqlx::query(
+        "INSERT INTO dataset_files (id, dataset_id, tenant_id, file_name, file_path, size_bytes, hash_b3)
+         VALUES (?, ?, ?, 'test.jsonl', 'var/test.jsonl', 1000, 'hash123')",
+    )
+    .bind(Uuid::new_v4().to_string())
+    .bind("non-existent-dataset")
+    .bind("tenant-a")
+    .execute(db.pool())
+    .await;
+
+    assert!(
+        result.is_err(),
+        "Insert to non-existent dataset should be rejected by trigger"
+    );
+
+    let err_msg = result.unwrap_err().to_string();
+    assert!(
+        err_msg.contains("dataset does not exist") || err_msg.contains("Invalid dataset_id"),
+        "Error should mention missing dataset, got: {}",
+        err_msg
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_dataset_files_trigger_rejects_null_tenant_on_parent() -> Result<()> {
+    let db = Db::new_in_memory().await?;
+
+    create_test_tenant(&db, "tenant-a").await?;
+
+    // Create dataset WITHOUT tenant_id (NULL)
+    sqlx::query(
+        "INSERT INTO training_datasets (id, name, format, storage_path, hash_b3, validation_status, created_at)
+         VALUES (?, 'Dataset No Tenant', 'jsonl', 'var/test-datasets', 'hash', 'valid', datetime('now'))",
+    )
+    .bind("dataset-no-tenant")
+    .execute(db.pool())
+    .await?;
+
+    // Try to add file to dataset that has NULL tenant_id
+    let result = sqlx::query(
+        "INSERT INTO dataset_files (id, dataset_id, tenant_id, file_name, file_path, size_bytes, hash_b3)
+         VALUES (?, ?, ?, 'test.jsonl', 'var/test.jsonl', 1000, 'hash123')",
+    )
+    .bind(Uuid::new_v4().to_string())
+    .bind("dataset-no-tenant")
+    .bind("tenant-a")
+    .execute(db.pool())
+    .await;
+
+    assert!(
+        result.is_err(),
+        "Insert to dataset with NULL tenant_id should be rejected by trigger"
+    );
+
+    let err_msg = result.unwrap_err().to_string();
+    assert!(
+        err_msg.contains("tenant_id") || err_msg.contains("Tenant"),
+        "Error should mention tenant_id requirement, got: {}",
+        err_msg
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_dataset_files_allows_same_tenant() -> Result<()> {
+    let db = Db::new_in_memory().await?;
+
+    create_test_tenant(&db, "tenant-a").await?;
+
+    // Create dataset with proper tenant_id
+    sqlx::query(
+        "INSERT INTO training_datasets (id, name, tenant_id, format, storage_path, hash_b3, validation_status, created_at)
+         VALUES (?, 'Dataset A', ?, 'jsonl', 'var/test-datasets', 'hash', 'valid', datetime('now'))",
+    )
+    .bind("dataset-a")
+    .bind("tenant-a")
+    .execute(db.pool())
+    .await?;
+
+    // Add file with matching tenant_id - should succeed
+    let result = sqlx::query(
+        "INSERT INTO dataset_files (id, dataset_id, tenant_id, file_name, file_path, size_bytes, hash_b3)
+         VALUES (?, ?, ?, 'test.jsonl', 'var/test.jsonl', 1000, 'hash123')",
+    )
+    .bind(Uuid::new_v4().to_string())
+    .bind("dataset-a")
+    .bind("tenant-a")
+    .execute(db.pool())
+    .await;
+
+    assert!(
+        result.is_ok(),
+        "Same-tenant dataset_file insert should succeed: {:?}",
+        result.err()
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_dataset_files_allows_null_file_tenant_id() -> Result<()> {
+    let db = Db::new_in_memory().await?;
+
+    create_test_tenant(&db, "tenant-a").await?;
+
+    // Create dataset with proper tenant_id
+    sqlx::query(
+        "INSERT INTO training_datasets (id, name, tenant_id, format, storage_path, hash_b3, validation_status, created_at)
+         VALUES (?, 'Dataset A', ?, 'jsonl', 'var/test-datasets', 'hash', 'valid', datetime('now'))",
+    )
+    .bind("dataset-a")
+    .bind("tenant-a")
+    .execute(db.pool())
+    .await?;
+
+    // Add file without tenant_id (NULL) - should succeed per trigger logic
+    let result = sqlx::query(
+        "INSERT INTO dataset_files (id, dataset_id, file_name, file_path, size_bytes, hash_b3)
+         VALUES (?, ?, 'test.jsonl', 'var/test.jsonl', 1000, 'hash123')",
+    )
+    .bind(Uuid::new_v4().to_string())
+    .bind("dataset-a")
+    .execute(db.pool())
+    .await;
+
+    assert!(
+        result.is_ok(),
+        "NULL tenant_id on dataset_file should succeed: {:?}",
+        result.err()
     );
 
     Ok(())

@@ -64,7 +64,7 @@ async fn delete_endpoints_succeed_and_404() {
             tenant_id: "system".to_string(),
             name: "doc".to_string(),
             content_hash: "hash".to_string(),
-            file_path: "/tmp/aos-test-doc".to_string(),
+            file_path: "var/test-documents/aos-test-doc".to_string(),
             file_size: 0,
             mime_type: "text/plain".to_string(),
             page_count: None,
@@ -92,7 +92,7 @@ async fn delete_endpoints_succeed_and_404() {
             Some("test"),
             "jsonl",
             "hash",
-            "/tmp/aos-test-dataset",
+            "var/test-datasets/aos-test-dataset",
             None,
         )
         .await

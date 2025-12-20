@@ -23,7 +23,8 @@ import {
 } from '@/hooks/api/useReposApi';
 import type { RepoTimelineEvent, RepoVersionSummary } from '@/api/repo-types';
 import { useQueryClient } from '@tanstack/react-query';
-import { computeVersionGuards } from './versionGuards';
+import { useVersionGuards } from '@/hooks/repositories/useVersionGuards';
+import { buildRepoVersionLink, buildTrainingJobDetailLink } from '@/utils/navLinks';
 
 function StatusBadge({ status }: { status?: string }) {
   if (!status) return <Badge variant="secondary">unknown</Badge>;
@@ -71,7 +72,7 @@ function VersionRow({
   onTrain: () => void;
   disabled: boolean;
 }) {
-  const { promoteDisabledReason, trainDisabledReason } = computeVersionGuards(version);
+  const { promoteDisabledReason, trainDisabledReason } = useVersionGuards(version);
   const datasetCount = version.dataset_version_ids?.length ?? 0;
   const serveable = version.serveable ?? false;
   const serveableReason = version.serveable_reason ?? (serveable ? undefined : 'Not serveable');
@@ -320,7 +321,7 @@ export default function RepoDetailPage() {
                         disabled={isBusy}
                         onPromote={() => promote.mutate({ versionId: v.id })}
                         onRollback={() => rollback.mutate({ versionId: v.id })}
-                        onView={() => navigate(`/repos/${repoId}/versions/${v.id}`)}
+                        onView={() => navigate(buildRepoVersionLink(repoId, v.id))}
                         onTrain={() => startTrain.mutate({ versionId: v.id, payload: {} })}
                       />
                     ))}
@@ -375,7 +376,7 @@ export default function RepoDetailPage() {
                     <td className="px-3 py-3 text-sm capitalize">{job.status}</td>
                     <td className="px-3 py-3 text-sm">
                       {job.version_id ? (
-                        <Button variant="link" size="sm" onClick={() => navigate(`/repos/${repoId}/versions/${job.version_id}`)}>
+                        <Button variant="link" size="sm" onClick={() => navigate(buildRepoVersionLink(repoId, job.version_id!))}>
                           {job.version_id}
                         </Button>
                       ) : (
@@ -386,7 +387,7 @@ export default function RepoDetailPage() {
                       {job.created_at ? new Date(job.created_at).toLocaleString() : '—'}
                     </td>
                     <td className="px-3 py-3 text-right">
-                      <Button variant="ghost" size="sm" onClick={() => navigate(`/training/jobs/${job.id}`)}>
+                      <Button variant="ghost" size="sm" onClick={() => navigate(buildTrainingJobDetailLink(job.id))}>
                         Open
                       </Button>
                     </td>

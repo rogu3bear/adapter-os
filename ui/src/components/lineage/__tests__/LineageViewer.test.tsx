@@ -1,7 +1,7 @@
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { vi } from 'vitest';
-import { LineageViewer } from '../LineageViewer';
+import { LineageViewer } from '@/components/lineage/LineageViewer';
 import type { LineageGraphResponse } from '@/api/types';
 
 const mockData: LineageGraphResponse = {

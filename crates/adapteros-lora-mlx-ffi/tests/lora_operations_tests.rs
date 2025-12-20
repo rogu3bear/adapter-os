@@ -409,11 +409,18 @@ mod lora_transform_tests {
 #[cfg(test)]
 mod lora_loading_tests {
     use adapteros_lora_mlx_ffi::lora::{LoRAAdapter, LoRAConfig};
+    use std::path::PathBuf;
     use tempfile::TempDir;
+
+    fn new_test_tempdir() -> TempDir {
+        let root = PathBuf::from("var").join("tmp");
+        std::fs::create_dir_all(&root).expect("create var/tmp");
+        TempDir::new_in(&root).expect("create temp dir")
+    }
 
     #[test]
     fn test_lora_adapter_load_mock() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let adapter_path = temp_dir.path().join("adapter");
 
         let config = LoRAConfig::default();

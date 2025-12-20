@@ -1,11 +1,3 @@
 {
-  "mcpServers": {
-    "adapteros-ui": {
-      "command": "node",
-      "args": ["/Users/mln-dev/Dev/adapter-os/ui/mcp-server/dist/index.js"],
-      "env": {
-        "AOS_UI_URL": "http://localhost:3200"
-      }
-    }
-  }
+  "mcpServers": {}
 }

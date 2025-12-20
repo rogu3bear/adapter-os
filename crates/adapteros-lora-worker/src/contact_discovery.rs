@@ -398,10 +398,10 @@ impl SignalHandler for ContactDiscoveryHandler {
 mod tests {
     use super::*;
     use crate::signal::{SignalBuilder, SignalPriority};
-    use std::env;
+    use adapteros_platform::common::PlatformUtils;
 
     fn test_telemetry() -> TelemetryWriter {
-        let temp_dir = env::temp_dir().join("mplora_test_telemetry");
+        let temp_dir = PlatformUtils::temp_dir().join("mplora_test_telemetry");
         std::fs::create_dir_all(&temp_dir).expect("Test temp directory creation should succeed");
         TelemetryWriter::new(temp_dir, 1000, 1_000_000)
             .expect("Test telemetry writer creation should succeed")

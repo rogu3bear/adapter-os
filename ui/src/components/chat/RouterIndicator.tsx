@@ -18,9 +18,10 @@ import { RouterDetailsModal } from './RouterDetailsModal';
 import { Layers, ChevronDown, Info, AlertTriangle, Activity } from 'lucide-react';
 import type { ExtendedRouterDecision } from '@/api/types';
 import { useQuery } from '@tanstack/react-query';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { logger } from '@/utils/logger';
 import { Link } from 'react-router-dom';
+import { buildTelemetryTraceLink } from '@/utils/navLinks';
 
 interface RouterIndicatorProps {
   decision: ExtendedRouterDecision | null;
@@ -146,7 +147,7 @@ export function RouterIndicator({ decision, className, unavailablePinnedAdapters
               size="sm"
               className="h-7 text-xs gap-1"
             >
-              <Link to={`/telemetry?tab=viewer&requestId=${encodeURIComponent(decision.request_id)}`}>
+              <Link to={buildTelemetryTraceLink(decision.request_id)}>
                 <Activity className="h-3.5 w-3.5" />
                 View telemetry
               </Link>

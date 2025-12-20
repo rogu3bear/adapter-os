@@ -19,6 +19,7 @@ use adapteros_lora_kernel_api::attestation::BackendType;
 use adapteros_lora_kernel_api::FusedKernels;
 use adapteros_telemetry::TelemetryWriter;
 use once_cell::sync::Lazy;
+use safetensors::{tensor::TensorView, SafeTensors};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tracing::{debug, error, info, warn};
@@ -30,6 +31,16 @@ use serde_json::Value;
 use adapteros_config::CoreMLComputePreference;
 #[cfg(all(target_os = "macos", feature = "coreml-backend"))]
 use std::str::FromStr;
+
+/// Structure representing the safetensors index file for sharded models
+#[derive(serde::Deserialize)]
+struct SafeTensorsIndex {
+    weight_map: std::collections::HashMap<String, String>,
+    /// Metadata from index file (unused but part of the format)
+    #[serde(default)]
+    #[allow(dead_code)]
+    metadata: Option<serde_json::Value>,
+}
 
 /// Shared kernel object type with Send + Sync for use across async boundaries
 pub type KernelBox = Box<dyn FusedKernels + Send + Sync>;
@@ -100,29 +111,181 @@ fn resolve_model_cache_budget_bytes() -> Result<u64> {
 /// Per-worker model cache singleton
 ///
 /// This cache ensures that the same model is only loaded once per worker process.
-/// Budget must be explicitly provided (env or TOML); missing/zero budgets abort startup.
-static MODEL_CACHE: Lazy<ModelHandleCache> = Lazy::new(|| {
-    let max_bytes = match resolve_model_cache_budget_bytes() {
-        Ok(bytes) => bytes,
+/// Budget must be explicitly provided (env or TOML); missing/zero budgets return errors
+/// at first use rather than panicking at initialization.
+static MODEL_CACHE: Lazy<std::result::Result<ModelHandleCache, String>> =
+    Lazy::new(|| match resolve_model_cache_budget_bytes() {
+        Ok(max_bytes) => {
+            let max_mb = max_bytes / BYTES_PER_MB;
+            info!(
+                max_memory_mb = max_mb,
+                "Initializing per-worker model cache with explicit budget"
+            );
+            Ok(ModelHandleCache::new(max_bytes))
+        }
         Err(err) => {
             error!(
                 error = %err,
-                "Model cache budget missing or invalid; worker cannot start"
+                "Model cache budget missing or invalid; model loading will fail"
             );
-            panic!("Model cache budget error: {}", err);
+            Err(err.to_string())
         }
+    });
+
+/// Get reference to the model cache, returning an error if initialization failed
+///
+/// This function is public to allow cleanup during worker shutdown.
+pub fn get_model_cache() -> Result<&'static ModelHandleCache> {
+    MODEL_CACHE
+        .as_ref()
+        .map_err(|e| AosError::Config(format!("Model cache initialization failed: {}", e)))
+}
+
+/// Validate model cache budget is configured and return the budget in bytes.
+///
+/// Call this early in worker startup to fail fast with a clear error message
+/// rather than discovering the problem during backend creation.
+///
+/// # Returns
+/// - `Ok(budget_bytes)` if the cache is properly configured
+/// - `Err(AosError::Config(...))` if budget is missing or invalid
+pub fn validate_model_cache_budget() -> Result<u64> {
+    // Check environment variable first
+    let env_value = std::env::var("AOS_MODEL_CACHE_MAX_MB").ok();
+
+    // Check config file
+    let config_value = {
+        let explicit_toml_path = std::env::var("AOS_CONFIG_TOML").ok();
+        let default_toml_path = {
+            let default_path = Path::new("configs/cp.toml");
+            if default_path.exists() {
+                Some(default_path.to_string_lossy().to_string())
+            } else {
+                None
+            }
+        };
+        let toml_path = explicit_toml_path.or(default_toml_path);
+
+        ConfigLoader::new()
+            .load(Vec::new(), toml_path.clone())
+            .ok()
+            .and_then(|cfg| cfg.get("model.cache.max.mb").map(String::from))
     };
-    let max_mb = max_bytes / BYTES_PER_MB;
-    info!(
-        max_memory_mb = max_mb,
-        "Initializing per-worker model cache with explicit budget"
+
+    debug!(
+        env_var = ?env_value,
+        config_value = ?config_value,
+        "Model cache budget configuration check"
     );
-    ModelHandleCache::new(max_bytes)
-});
+
+    match get_model_cache() {
+        Ok(cache) => {
+            let budget_bytes = cache.max_memory_bytes();
+            let budget_mb = budget_bytes / BYTES_PER_MB;
+            info!(
+                budget_mb = budget_mb,
+                budget_bytes = budget_bytes,
+                source = if env_value.is_some() {
+                    "AOS_MODEL_CACHE_MAX_MB"
+                } else {
+                    "config file"
+                },
+                "Model cache budget validated"
+            );
+            Ok(budget_bytes)
+        }
+        Err(e) => {
+            // Build a helpful error message with context
+            let mut error_msg = String::from("Model cache budget not configured.\n\n");
+
+            error_msg.push_str("Configuration Status:\n");
+            if let Some(ref val) = env_value {
+                error_msg.push_str(&format!(
+                    "  - AOS_MODEL_CACHE_MAX_MB: '{}' (found but may be invalid)\n",
+                    val
+                ));
+            } else {
+                error_msg.push_str("  - AOS_MODEL_CACHE_MAX_MB: not set\n");
+            }
+
+            if let Some(ref val) = config_value {
+                error_msg.push_str(&format!(
+                    "  - model.cache.max.mb (config): '{}' (found but may be invalid)\n",
+                    val
+                ));
+            } else {
+                error_msg.push_str("  - model.cache.max.mb (config): not set\n");
+            }
+
+            error_msg.push_str("\nHow to fix:\n");
+            error_msg.push_str("  1. Set environment variable:\n");
+            error_msg.push_str("     export AOS_MODEL_CACHE_MAX_MB=8192  # For 8GB cache\n\n");
+            error_msg
+                .push_str("  2. Or add to config file (configs/cp.toml or configs/aos.toml):\n");
+            error_msg.push_str("     [model.cache]\n");
+            error_msg.push_str("     max.mb = 8192  # For 8GB cache\n\n");
+
+            error_msg.push_str("Recommended minimums by model size:\n");
+            error_msg.push_str("  - 7B models (4-bit):   4096 MB (4GB)\n");
+            error_msg.push_str("  - 7B models (fp16):    16384 MB (16GB)\n");
+            error_msg.push_str("  - 13B models (4-bit):  8192 MB (8GB)\n");
+            error_msg.push_str("  - 32B+ models:         24576+ MB (24GB+)\n\n");
+
+            error_msg.push_str("Documentation: docs/ARCHITECTURE.md#model-caching\n");
+            error_msg.push_str(&format!("\nOriginal error: {}", e));
+
+            Err(AosError::Config(error_msg))
+        }
+    }
+}
 
 /// Configure telemetry writer for model cache failure reporting.
 pub fn configure_model_cache_telemetry(writer: TelemetryWriter) {
-    MODEL_CACHE.set_telemetry(writer);
+    if let Ok(cache) = get_model_cache() {
+        cache.set_telemetry(writer);
+    }
+}
+
+/// Load and validate model configuration from config.json
+///
+/// Load and validate model config - returns error on GQA validation failure
+///
+/// This helper function:
+/// 1. Loads the config.json from the model path
+/// 2. Validates GQA configuration (attention heads divisible by KV heads)
+/// 3. Returns FATAL error on validation failures (BREAKING CHANGE from prior behavior)
+///
+/// Returns `Ok(Some(config))` if loading and validation succeed.
+/// Returns `Ok(None)` if config.json is missing (backend will use defaults).
+/// Returns `Err(...)` if validation fails (GQA misconfiguration is FATAL).
+#[cfg(any(target_os = "macos", feature = "multi-backend"))]
+fn load_and_validate_model_config(model_path: &Path) -> Result<Option<ModelConfig>> {
+    match ModelConfig::from_config_json(model_path) {
+        Ok(config) => {
+            // Validate GQA configuration - this is now FATAL on failure
+            config.validate().map_err(|e| {
+                error!(
+                    model_path = %model_path.display(),
+                    error = %e,
+                    "Model configuration validation FAILED - cannot proceed with invalid config"
+                );
+                AosError::Config(format!(
+                    "Model config validation failed for '{}': {}",
+                    model_path.display(),
+                    e
+                ))
+            })?;
+            Ok(Some(config))
+        }
+        Err(e) => {
+            warn!(
+                model_path = %model_path.display(),
+                error = %e,
+                "Failed to load model config.json - backend may use default parameters"
+            );
+            Ok(None)
+        }
+    }
 }
 
 #[cfg(any(target_os = "macos", feature = "multi-backend"))]
@@ -173,22 +336,64 @@ fn detect_quantization_mode(model_path: &Path) -> Option<String> {
         model_path.to_path_buf()
     };
 
-    let contents = std::fs::read_to_string(&config_path).ok()?;
-    let json: Value = serde_json::from_str(&contents).ok()?;
+    let contents = match std::fs::read_to_string(&config_path) {
+        Ok(c) => c,
+        Err(e) => {
+            // Log instead of silently ignoring - this helps diagnose model loading issues
+            debug!(
+                config_path = %config_path.display(),
+                error = %e,
+                "Could not read config.json for quantization detection"
+            );
+            return None;
+        }
+    };
+
+    let json: Value = match serde_json::from_str(&contents) {
+        Ok(j) => j,
+        Err(e) => {
+            // Log parse errors - malformed config.json is a significant issue
+            warn!(
+                config_path = %config_path.display(),
+                error = %e,
+                "Failed to parse config.json - model may have invalid configuration"
+            );
+            return None;
+        }
+    };
 
     if let Some(qcfg) = json.get("quantization_config") {
         let digest = B3Hash::hash(serde_json::to_vec(qcfg).unwrap_or_default().as_slice());
+        debug!(
+            config_path = %config_path.display(),
+            quantization_hash = %&digest.to_hex()[..12],
+            "Detected quantization_config in model"
+        );
         return Some(format!("quant_cfg-{}", &digest.to_hex()[..12]));
     }
 
     if let Some(q) = json.get("quantization") {
         if let Some(as_str) = q.as_str() {
+            debug!(
+                config_path = %config_path.display(),
+                quantization = %as_str,
+                "Detected quantization string in model"
+            );
             return Some(format!("quantization-{as_str}"));
         }
         let digest = B3Hash::hash(serde_json::to_vec(q).unwrap_or_default().as_slice());
+        debug!(
+            config_path = %config_path.display(),
+            quantization_hash = %&digest.to_hex()[..12],
+            "Detected quantization object in model"
+        );
         return Some(format!("quantization-{}", &digest.to_hex()[..12]));
     }
 
+    debug!(
+        config_path = %config_path.display(),
+        "No quantization config found in model config.json"
+    );
     None
 }
 
@@ -708,8 +913,8 @@ pub fn create_backend_with_model(choice: BackendChoice, model_path: &Path) -> Re
             "CPU backend is not supported for inference kernels".to_string(),
         )),
         BackendChoice::Metal => {
-            // Delegate to helper (no manifest hash in this legacy path)
-            create_metal_backend(model_path, None)
+            // Delegate to helper (no manifest hash in this legacy path, no integrity verification)
+            create_metal_backend(model_path, None, None)
         }
         BackendChoice::CoreML => {
             #[cfg(all(target_os = "macos", feature = "coreml-backend"))]
@@ -721,8 +926,8 @@ pub fn create_backend_with_model(choice: BackendChoice, model_path: &Path) -> Re
 
                 let settings = resolve_coreml_backend_settings();
 
-                // Load model configuration from config.json if available
-                let model_config = ModelConfig::from_config_json(model_path).ok();
+                // Load model configuration from config.json if available (with validation)
+                let model_config = load_and_validate_model_config(model_path)?;
                 if let Some(ref cfg) = model_config {
                     info!(
                         architecture = %cfg.architecture,
@@ -780,7 +985,7 @@ pub fn create_backend_with_model(choice: BackendChoice, model_path: &Path) -> Re
                 ))
             }
         }
-        BackendChoice::Mlx => create_mlx_backend(model_path, None),
+        BackendChoice::Mlx => create_mlx_backend(model_path, None, None),
     }
 }
 
@@ -807,22 +1012,55 @@ pub fn create_backend_with_model(choice: BackendChoice, model_path: &Path) -> Re
 ///     Some(&hash)
 /// )?;
 /// ```
+#[deprecated(
+    since = "0.12.0",
+    note = "Use create_backend_with_model_hashes() which properly separates manifest_hash (for cache key) from model_weights_hash (for integrity verification). This function skips integrity verification."
+)]
 pub fn create_backend_with_model_and_hash(
     choice: BackendChoice,
     model_path: &Path,
     manifest_hash: Option<&B3Hash>,
 ) -> Result<KernelBox> {
+    warn!(
+        "create_backend_with_model_and_hash is deprecated: model integrity verification SKIPPED. \
+         Use create_backend_with_model_hashes with manifest.base.model_hash for proper verification."
+    );
+    create_backend_with_model_hashes(choice, model_path, manifest_hash, None)
+}
+
+/// Create a backend with proper hash verification
+///
+/// # Arguments
+/// * `choice` - Backend type to create
+/// * `model_path` - Path to model directory
+/// * `manifest_hash` - Hash of manifest JSON (used for cache key identity)
+/// * `model_weights_hash` - Hash of model weights from manifest.base.model_hash (used for integrity verification)
+///
+/// If `model_weights_hash` is None, integrity verification is skipped with a warning.
+pub fn create_backend_with_model_hashes(
+    choice: BackendChoice,
+    model_path: &Path,
+    manifest_hash: Option<&B3Hash>,
+    model_weights_hash: Option<&B3Hash>,
+) -> Result<KernelBox> {
     match choice {
-        BackendChoice::Mlx => create_mlx_backend(model_path, manifest_hash),
-        BackendChoice::Metal => create_metal_backend(model_path, manifest_hash),
-        // CoreML doesn't cache model bytes (FFI manages internally)
+        BackendChoice::Mlx => create_mlx_backend(model_path, manifest_hash, model_weights_hash),
+        BackendChoice::Metal => create_metal_backend(model_path, manifest_hash, model_weights_hash),
+        BackendChoice::CoreML => {
+            create_coreml_backend(model_path, manifest_hash, model_weights_hash)
+        }
+        // Other backends fallback to basic path (no hash verification)
         _ => create_backend_with_model(choice, model_path),
     }
 }
 
 /// Internal helper to create MLX backend with optional manifest hash
 #[cfg(feature = "multi-backend")]
-fn create_mlx_backend(model_path: &Path, manifest_hash: Option<&B3Hash>) -> Result<KernelBox> {
+fn create_mlx_backend(
+    model_path: &Path,
+    manifest_hash: Option<&B3Hash>,
+    model_weights_hash: Option<&B3Hash>,
+) -> Result<KernelBox> {
     use adapteros_lora_mlx_ffi::{
         mlx_runtime_init, mlx_runtime_is_initialized, MLXFFIBackend, MLXFFIModel,
     };
@@ -832,6 +1070,7 @@ fn create_mlx_backend(model_path: &Path, manifest_hash: Option<&B3Hash>) -> Resu
     info!(
         model_path = %model_path_str,
         has_manifest_hash = manifest_hash.is_some(),
+        has_model_weights_hash = model_weights_hash.is_some(),
         "Creating MLX FFI kernel backend"
     );
 
@@ -841,6 +1080,9 @@ fn create_mlx_backend(model_path: &Path, manifest_hash: Option<&B3Hash>) -> Resu
                 .to_string(),
         )
     })?;
+
+    // Verify model integrity before loading (using model weights hash, not manifest hash)
+    verify_model_integrity(&model_path, model_weights_hash, "MLX")?;
 
     // Ensure MLX runtime is initialized
     if !mlx_runtime_is_initialized() {
@@ -854,7 +1096,7 @@ fn create_mlx_backend(model_path: &Path, manifest_hash: Option<&B3Hash>) -> Resu
         *manifest_hash,
         build_model_cache_identity(BackendType::Mlx, &model_path),
     );
-    let model_arc = MODEL_CACHE
+    let model_arc = get_model_cache()?
         .get_or_load(&cache_key, || {
             let model = MLXFFIModel::load(&model_path).map_err(|e| {
                 AosError::Config(format!(
@@ -863,7 +1105,7 @@ fn create_mlx_backend(model_path: &Path, manifest_hash: Option<&B3Hash>) -> Resu
                 ))
             })?;
             // Estimate memory: use config if available, otherwise estimate from architecture
-            let memory_bytes = estimate_mlx_model_memory(&model_path);
+            let memory_bytes = estimate_mlx_model_memory(&model_path)?;
             Ok((ModelHandle::Mlx(Arc::new(model)), memory_bytes))
         })?
         .as_mlx_model()?;
@@ -884,9 +1126,9 @@ fn create_mlx_backend(model_path: &Path, manifest_hash: Option<&B3Hash>) -> Resu
 
 /// Estimate MLX model memory usage from config.json
 #[cfg(feature = "multi-backend")]
-fn estimate_mlx_model_memory(model_path: &Path) -> u64 {
-    // Try to load config.json for accurate estimate
-    if let Ok(config) = ModelConfig::from_config_json(model_path) {
+fn estimate_mlx_model_memory(model_path: &Path) -> Result<u64> {
+    // Try to load config.json for accurate estimate (uses validated config loader)
+    if let Some(config) = load_and_validate_model_config(model_path)? {
         // Estimate: 4 bytes per param (f32), with typical model structure
         // hidden_size * num_layers * 12 (approx params per layer) * 4 bytes
         let params_estimate = config.hidden_size as u64
@@ -897,15 +1139,32 @@ fn estimate_mlx_model_memory(model_path: &Path) -> u64 {
         let memory_estimate = params_estimate * 4; // 4 bytes per f32 param
 
         // Add 10% overhead
-        return (memory_estimate as f64 * 1.1) as u64;
+        let estimate = (memory_estimate as f64 * 1.1) as u64;
+        debug!(
+            model_path = %model_path.display(),
+            hidden_size = config.hidden_size,
+            num_layers = config.num_layers,
+            estimated_memory_mb = estimate / (1024 * 1024),
+            "Estimated model memory from config.json"
+        );
+        return Ok(estimate);
     }
 
     // Fallback: assume 7B model (~14GB for fp16, ~28GB for fp32)
-    14 * 1024 * 1024 * 1024 // 14GB default estimate
+    warn!(
+        model_path = %model_path.display(),
+        default_estimate_gb = 14,
+        "Could not load config.json for memory estimation, using 14GB default"
+    );
+    Ok(14 * 1024 * 1024 * 1024) // 14GB default estimate
 }
 
 #[cfg(not(feature = "multi-backend"))]
-fn create_mlx_backend(_model_path: &Path, _manifest_hash: Option<&B3Hash>) -> Result<KernelBox> {
+fn create_mlx_backend(
+    _model_path: &Path,
+    _manifest_hash: Option<&B3Hash>,
+    _model_weights_hash: Option<&B3Hash>,
+) -> Result<KernelBox> {
     Err(AosError::Config(
         "MLX backend requires 'multi-backend' feature to be enabled. \
          Build with: cargo build --features multi-backend"
@@ -915,7 +1174,11 @@ fn create_mlx_backend(_model_path: &Path, _manifest_hash: Option<&B3Hash>) -> Re
 
 /// Internal helper to create Metal backend with optional manifest hash for cache key
 #[cfg(target_os = "macos")]
-fn create_metal_backend(model_path: &Path, manifest_hash: Option<&B3Hash>) -> Result<KernelBox> {
+fn create_metal_backend(
+    model_path: &Path,
+    manifest_hash: Option<&B3Hash>,
+    model_weights_hash: Option<&B3Hash>,
+) -> Result<KernelBox> {
     use adapteros_lora_kernel_mtl::{GqaConfig, MetalKernels};
     let manifest_hash = manifest_hash.ok_or_else(|| {
         AosError::Config(
@@ -926,11 +1189,12 @@ fn create_metal_backend(model_path: &Path, manifest_hash: Option<&B3Hash>) -> Re
     info!(
         model_path = %model_path.display(),
         has_manifest_hash = true,
+        has_model_weights_hash = model_weights_hash.is_some(),
         "Creating Metal kernel backend"
     );
 
-    // Load model configuration from config.json if available
-    let model_config = ModelConfig::from_config_json(model_path).ok();
+    // Load model configuration from config.json if available (with validation)
+    let model_config = load_and_validate_model_config(model_path)?;
     if let Some(ref cfg) = model_config {
         info!(
             architecture = %cfg.architecture,
@@ -948,12 +1212,16 @@ fn create_metal_backend(model_path: &Path, manifest_hash: Option<&B3Hash>) -> Re
         *manifest_hash,
         build_model_cache_identity(BackendType::Metal, model_path),
     );
-    let model_bytes_arc = MODEL_CACHE
+    let model_bytes_arc = get_model_cache()?
         .get_or_load(&cache_key, || {
-            let bytes = load_model_bytes(model_path)?;
+            // Load and verify atomically to eliminate TOCTOU gap
+            let (bytes, computed_hash) =
+                load_model_bytes_atomic_verified(model_path, model_weights_hash)?;
             let memory_bytes = bytes.len() as u64;
             info!(
                 model_size_mb = memory_bytes / BYTES_PER_MB,
+                computed_hash = %computed_hash.to_hex(),
+                verified = model_weights_hash.is_some(),
                 "Loaded model weights for Metal backend"
             );
             Ok((ModelHandle::Metal(Arc::new(bytes)), memory_bytes))
@@ -1006,8 +1274,110 @@ fn create_metal_backend(model_path: &Path, manifest_hash: Option<&B3Hash>) -> Re
 }
 
 #[cfg(not(target_os = "macos"))]
-fn create_metal_backend(_model_path: &Path, _manifest_hash: Option<&B3Hash>) -> Result<KernelBox> {
+fn create_metal_backend(
+    _model_path: &Path,
+    _manifest_hash: Option<&B3Hash>,
+    _model_weights_hash: Option<&B3Hash>,
+) -> Result<KernelBox> {
     Err(AosError::Config("Metal backend requires macOS".to_string()))
+}
+
+/// Internal helper to create CoreML backend with optional hash verification
+#[cfg(all(target_os = "macos", feature = "coreml-backend"))]
+fn create_coreml_backend(
+    model_path: &Path,
+    _manifest_hash: Option<&B3Hash>,
+    model_weights_hash: Option<&B3Hash>,
+) -> Result<KernelBox> {
+    use adapteros_lora_kernel_coreml::{init_coreml, CoreMLBackend, CoreMLModelParams};
+
+    // Initialize CoreML runtime
+    init_coreml()?;
+
+    let settings = resolve_coreml_backend_settings();
+
+    // Load model configuration from config.json if available (with validation)
+    let model_config = load_and_validate_model_config(model_path)?;
+    if let Some(ref cfg) = model_config {
+        info!(
+            architecture = %cfg.architecture,
+            hidden_size = cfg.hidden_size,
+            num_attention_heads = cfg.num_attention_heads,
+            num_kv_heads = cfg.num_key_value_heads,
+            rope_theta = cfg.rope_theta,
+            "Loaded model configuration for CoreML backend"
+        );
+    }
+
+    // Verify model integrity before CoreML loads it
+    if let Some(expected_hash) = model_weights_hash {
+        let actual_hash = compute_model_directory_hash(model_path)?;
+        if actual_hash != *expected_hash {
+            return Err(AosError::CacheCorruption {
+                path: model_path.display().to_string(),
+                expected: expected_hash.to_hex(),
+                actual: actual_hash.to_hex(),
+            });
+        }
+        info!(
+            model_path = %model_path.display(),
+            verified_hash = %actual_hash.to_hex(),
+            "CoreML model integrity verified"
+        );
+    }
+
+    info!(
+        backend = "coreml",
+        model_path = %model_path.display(),
+        compute_preference = %settings.preference,
+        compute_units = ?settings.compute_units,
+        production_mode = settings.production_mode,
+        gpu_available = settings.gpu_available,
+        ane_available = settings.ane_available,
+        gpu_used = settings.gpu_used,
+        ane_used = settings.ane_used,
+        has_model_weights_hash = model_weights_hash.is_some(),
+        "Creating CoreML kernel backend"
+    );
+    let mut backend = CoreMLBackend::new(settings.compute_units, settings.production_mode)?;
+
+    // Set model parameters from config.json if available
+    if let Some(cfg) = model_config {
+        backend.set_model_params(CoreMLModelParams::new(
+            cfg.hidden_size,
+            cfg.num_attention_heads,
+            cfg.num_key_value_heads,
+            cfg.intermediate_size,
+            cfg.rope_theta,
+            cfg.max_seq_len,
+        ));
+    }
+
+    Ok(Box::new(backend))
+}
+
+#[cfg(all(target_os = "macos", not(feature = "coreml-backend")))]
+fn create_coreml_backend(
+    _model_path: &Path,
+    _manifest_hash: Option<&B3Hash>,
+    _model_weights_hash: Option<&B3Hash>,
+) -> Result<KernelBox> {
+    Err(AosError::Config(
+        "CoreML backend requires 'coreml-backend' feature to be enabled. \
+         Build with: cargo build --features coreml-backend"
+            .to_string(),
+    ))
+}
+
+#[cfg(not(target_os = "macos"))]
+fn create_coreml_backend(
+    _model_path: &Path,
+    _manifest_hash: Option<&B3Hash>,
+    _model_weights_hash: Option<&B3Hash>,
+) -> Result<KernelBox> {
+    Err(AosError::Config(
+        "CoreML backend requires macOS".to_string(),
+    ))
 }
 
 fn validate_mlx_model_dir(model_path: &Path) -> Result<PathBuf> {
@@ -1025,7 +1395,19 @@ fn validate_mlx_model_dir(model_path: &Path) -> Result<PathBuf> {
         )));
     }
 
-    let config_path = model_path.join("config.json");
+    // SECURITY: Canonicalize path to resolve symlinks and validate location
+    let canonical_path = model_path.canonicalize().map_err(|e| {
+        AosError::Config(format!(
+            "Failed to canonicalize model path '{}': {}",
+            model_path.display(),
+            e
+        ))
+    })?;
+
+    // SECURITY: Reject /tmp paths for model storage (data persistence requirement)
+    adapteros_core::reject_forbidden_tmp_path(&canonical_path, "model-path")?;
+
+    let config_path = canonical_path.join("config.json");
     if !config_path.exists() {
         return Err(AosError::Config(format!(
             "config.json not found at '{}'. Set AOS_MODEL_PATH to a model directory containing config.json.",
@@ -1033,7 +1415,7 @@ fn validate_mlx_model_dir(model_path: &Path) -> Result<PathBuf> {
         )));
     }
 
-    Ok(model_path.to_path_buf())
+    Ok(canonical_path)
 }
 
 fn resolve_mlx_model_path_from_env() -> Result<PathBuf> {
@@ -1156,6 +1538,14 @@ pub fn create_backend(choice: BackendChoice) -> Result<KernelBox> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use adapteros_platform::common::PlatformUtils;
+    use tempfile::TempDir;
+
+    fn new_test_tempdir() -> TempDir {
+        let root = PlatformUtils::temp_dir();
+        std::fs::create_dir_all(&root).expect("create var/tmp");
+        TempDir::new_in(&root).expect("create temp dir")
+    }
 
     #[test]
     fn backend_kind_identity_in_choice() {
@@ -1404,6 +1794,155 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_compute_model_directory_hash_single_file() {
+        let dir = new_test_tempdir();
+        let model_file = dir.path().join("model.safetensors");
+        std::fs::write(&model_file, b"test model content").unwrap();
+
+        let hash = compute_model_directory_hash(dir.path()).unwrap();
+        let expected = B3Hash::hash(b"test model content");
+        assert_eq!(hash, expected);
+    }
+
+    #[test]
+    fn test_verify_model_integrity_mismatch() {
+        let dir = new_test_tempdir();
+        std::fs::write(dir.path().join("model.safetensors"), b"actual content").unwrap();
+
+        let wrong_hash = B3Hash::hash(b"different content");
+        let result = verify_model_integrity(dir.path(), Some(&wrong_hash), "Test");
+
+        assert!(matches!(result, Err(AosError::CacheCorruption { .. })));
+    }
+
+    #[test]
+    fn test_verify_model_integrity_success() {
+        let dir = new_test_tempdir();
+        let content = b"test model content for verification";
+        std::fs::write(dir.path().join("model.safetensors"), content).unwrap();
+
+        let correct_hash = B3Hash::hash(content);
+        let result = verify_model_integrity(dir.path(), Some(&correct_hash), "Test");
+
+        assert!(
+            result.is_ok(),
+            "Verification should succeed with matching hash"
+        );
+    }
+
+    #[test]
+    fn test_verify_model_integrity_skipped_without_hash() {
+        let dir = new_test_tempdir();
+        std::fs::write(dir.path().join("model.safetensors"), b"content").unwrap();
+
+        // Should succeed (skip verification) when no hash provided
+        let result = verify_model_integrity(dir.path(), None, "Test");
+        assert!(
+            result.is_ok(),
+            "Should skip verification when no hash provided"
+        );
+    }
+
+    #[test]
+    fn test_compute_model_directory_hash_sharded() {
+        let dir = new_test_tempdir();
+
+        // Create sharded model files
+        let shard1 = b"shard 1 content";
+        let shard2 = b"shard 2 content";
+        std::fs::write(dir.path().join("model-00001-of-00002.safetensors"), shard1).unwrap();
+        std::fs::write(dir.path().join("model-00002-of-00002.safetensors"), shard2).unwrap();
+
+        let hash = compute_model_directory_hash(dir.path()).unwrap();
+
+        // Expected hash is BLAKE3 of shard1 || shard2 (sorted order)
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(shard1);
+        hasher.update(shard2);
+        let expected = B3Hash::from_bytes(*hasher.finalize().as_bytes());
+
+        assert_eq!(
+            hash, expected,
+            "Sharded hash should match concatenated shards"
+        );
+    }
+
+    #[test]
+    fn test_parse_safetensors_index() {
+        let dir = new_test_tempdir();
+
+        // Create a valid index file
+        let index_content = r#"{
+            "weight_map": {
+                "layer.0.weight": "model-00001-of-00002.safetensors",
+                "layer.1.weight": "model-00002-of-00002.safetensors",
+                "layer.2.weight": "model-00001-of-00002.safetensors"
+            }
+        }"#;
+        std::fs::write(
+            dir.path().join("model.safetensors.index.json"),
+            index_content,
+        )
+        .unwrap();
+
+        let result = parse_safetensors_index(dir.path()).unwrap();
+        assert!(result.is_some(), "Should parse valid index");
+
+        let shards = result.unwrap();
+        assert_eq!(shards.len(), 2, "Should deduplicate shard files");
+        assert!(shards.contains(&"model-00001-of-00002.safetensors".to_string()));
+        assert!(shards.contains(&"model-00002-of-00002.safetensors".to_string()));
+    }
+
+    #[test]
+    fn test_parse_safetensors_index_missing() {
+        let dir = new_test_tempdir();
+
+        // No index file
+        let result = parse_safetensors_index(dir.path()).unwrap();
+        assert!(result.is_none(), "Should return None when no index exists");
+    }
+
+    #[test]
+    fn test_validate_model_cache_budget_error_message() {
+        // Temporarily unset the env var to test error message
+        let original_env = std::env::var("AOS_MODEL_CACHE_MAX_MB").ok();
+        std::env::remove_var("AOS_MODEL_CACHE_MAX_MB");
+
+        // Force the cache to not be initialized by clearing it
+        // (we can't actually clear the Lazy static, but we can test the error path)
+        let result = validate_model_cache_budget();
+
+        // Restore original env var if it existed
+        if let Some(val) = original_env {
+            std::env::set_var("AOS_MODEL_CACHE_MAX_MB", val);
+        }
+
+        // In CI/test environments, the cache may or may not be initialized
+        // If it fails, verify the error message contains helpful information
+        if let Err(e) = result {
+            let error_msg = e.to_string();
+            assert!(
+                error_msg.contains("Model cache budget not configured")
+                    || error_msg.contains("Configuration Status"),
+                "Error message should contain configuration guidance: {}",
+                error_msg
+            );
+            assert!(
+                error_msg.contains("AOS_MODEL_CACHE_MAX_MB") || error_msg.contains("How to fix"),
+                "Error message should mention AOS_MODEL_CACHE_MAX_MB: {}",
+                error_msg
+            );
+            assert!(
+                error_msg.contains("Recommended minimums") || error_msg.contains("7B models"),
+                "Error message should include recommended minimums: {}",
+                error_msg
+            );
+        }
+        // If it succeeds, that's fine too - means cache was already initialized
+    }
 }
 
 /// Create backend with automatic selection and model size consideration
@@ -1590,58 +2129,589 @@ pub mod capabilities {
     }
 }
 
-/// Load model bytes from a model directory
+/// Compute BLAKE3 hash of all model files in a directory
+#[allow(dead_code)] // Used by verify_model_integrity for backwards compatibility
+fn compute_model_directory_hash(model_path: &Path) -> Result<B3Hash> {
+    let single_model_path = model_path.join("model.safetensors");
+
+    if single_model_path.exists() {
+        let bytes = std::fs::read(&single_model_path).map_err(|e| {
+            AosError::Io(format!(
+                "Failed to read model file '{}': {}",
+                single_model_path.display(),
+                e
+            ))
+        })?;
+        return Ok(B3Hash::hash(&bytes));
+    }
+
+    // Sharded model: collect all shards, sort, hash in order
+    let mut shard_paths: Vec<PathBuf> = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(model_path) {
+        for entry in entries.flatten() {
+            let file_name = entry.file_name().to_string_lossy().to_string();
+            if file_name.starts_with("model-") && file_name.ends_with(".safetensors") {
+                shard_paths.push(entry.path());
+            }
+        }
+    }
+
+    if shard_paths.is_empty() {
+        return Err(AosError::Config(format!(
+            "No model files found in '{}'",
+            model_path.display()
+        )));
+    }
+
+    shard_paths.sort();
+    let mut hasher = blake3::Hasher::new();
+    for shard_path in &shard_paths {
+        let bytes = std::fs::read(shard_path).map_err(|e| {
+            AosError::Io(format!(
+                "Failed to read shard '{}': {}",
+                shard_path.display(),
+                e
+            ))
+        })?;
+        hasher.update(&bytes);
+    }
+    Ok(B3Hash::from_bytes(*hasher.finalize().as_bytes()))
+}
+
+/// Verify model bytes against expected manifest hash
 ///
-/// Supports both single model files (model.safetensors) and sharded models
-/// (model-00001-of-00003.safetensors, etc.). For sharded models, loads the
-/// first shard which typically contains the embedding weights needed for
-/// the Metal backend initialization.
+/// # Deprecation Warning
+///
+/// This function has a TOCTOU (time-of-check-time-of-use) vulnerability because
+/// it verifies the model hash but doesn't return the verified bytes. The model
+/// could theoretically change between verification and loading.
+///
+/// **Prefer `load_model_bytes_atomic_verified()` instead**, which computes the hash
+/// from the exact bytes returned, eliminating the TOCTOU gap.
+///
+/// This function remains for backwards compatibility with existing Metal/CoreML
+/// backend code that loads models through platform-specific APIs.
+#[allow(dead_code)] // Retained for Metal/CoreML backend compatibility
+fn verify_model_integrity(
+    model_path: &Path,
+    manifest_hash: Option<&B3Hash>,
+    backend_name: &str,
+) -> Result<()> {
+    if std::env::var("AOS_SKIP_MODEL_HASH_VERIFY").is_ok() {
+        warn!(backend = %backend_name, "Model hash verification SKIPPED");
+        return Ok(());
+    }
+
+    let expected = match manifest_hash {
+        Some(h) => h,
+        None => {
+            warn!(backend = %backend_name, "No manifest_hash provided; skipping verification");
+            return Ok(());
+        }
+    };
+
+    let actual = compute_model_directory_hash(model_path)?;
+    if actual != *expected {
+        error!(backend = %backend_name, expected = %expected.to_hex(), actual = %actual.to_hex(),
+               "MODEL INTEGRITY VERIFICATION FAILED");
+        return Err(AosError::CacheCorruption {
+            path: model_path.display().to_string(),
+            expected: expected.to_hex(),
+            actual: actual.to_hex(),
+        });
+    }
+
+    info!(backend = %backend_name, hash = %actual.to_short_hex(), "Model integrity verified");
+    Ok(())
+}
+
+/// Load model bytes from a model directory with integrity verification
+///
+/// Supports both single model files (model.safetensors) and sharded models.
+/// For sharded models, loads and merges ALL shards into a single byte buffer.
+///
+/// # Loading Strategy (Priority Order)
+///
+/// 1. **Single file**: If `model.safetensors` exists, load it directly
+/// 2. **Index-based**: If `model.safetensors.index.json` exists, parse it and load all shards
+/// 3. **Pattern-based**: Detect shard pattern (model-XXXXX-of-YYYYY.safetensors) and load all
+///
+/// # Sharded Model Detection
+///
+/// Detects when sharded models are incomplete (missing shards) and returns an error
+/// with details about which shards are missing. Warns when shards are loaded without
+/// an index.json file (Priority 3 fallback).
+///
+/// # Hash Verification
+///
+/// Computes BLAKE3 hash of loaded bytes and logs for audit. For full verification
+/// against expected `weights_hash` from the model registry, use
+/// [`load_model_bytes_verified`] with the expected hash from the control plane.
 fn load_model_bytes(model_path: &Path) -> Result<Vec<u8>> {
+    load_model_bytes_verified(model_path, None)
+}
+
+/// Load model bytes with atomic integrity verification
+///
+/// This function combines loading and hash verification in a single operation,
+/// eliminating TOCTOU (time-of-check-time-of-use) vulnerabilities.
+///
+/// # Returns
+///
+/// Returns a tuple of `(bytes, computed_hash)` where:
+/// - `bytes`: The loaded model bytes
+/// - `computed_hash`: BLAKE3 hash of the exact bytes returned
+///
+/// # Errors
+///
+/// Returns `AosError::CacheCorruption` if:
+/// - The computed hash doesn't match the expected hash (when provided)
+/// - This indicates potential corruption or tampering
+///
+/// # TOCTOU Safety
+///
+/// Unlike the separate `verify_model_integrity()` + `load_model_bytes()` pattern,
+/// this function computes the hash from the EXACT bytes returned, making it
+/// impossible for the model to change between verification and use.
+///
+/// # Example
+///
+/// ```no_run
+/// # use adapteros_core::{B3Hash, Result};
+/// # use std::path::Path;
+/// # fn example(model_path: &Path, expected: &B3Hash) -> Result<()> {
+/// let (bytes, hash) = load_model_bytes_atomic_verified(model_path, Some(expected))?;
+/// // bytes are guaranteed to match the hash - no TOCTOU gap
+/// # Ok(())
+/// # }
+/// ```
+fn load_model_bytes_atomic_verified(
+    model_path: &Path,
+    expected_hash: Option<&B3Hash>,
+) -> Result<(Vec<u8>, B3Hash)> {
+    let bytes = load_model_bytes(model_path)?;
+    let computed_hash = B3Hash::hash(&bytes);
+
+    if let Some(expected) = expected_hash {
+        if computed_hash != *expected {
+            error!(
+                model_path = %model_path.display(),
+                computed = %computed_hash.to_hex(),
+                expected = %expected.to_hex(),
+                "MODEL INTEGRITY FAILURE: Hash mismatch"
+            );
+            return Err(AosError::CacheCorruption {
+                path: model_path.display().to_string(),
+                expected: expected.to_hex(),
+                actual: computed_hash.to_hex(),
+            });
+        }
+        info!(
+            model_path = %model_path.display(),
+            hash = %computed_hash.to_short_hex(),
+            "Model integrity verified"
+        );
+    }
+    Ok((bytes, computed_hash))
+}
+
+/// Load model bytes with optional hash verification against expected value
+///
+/// When `expected_hash` is `Some`, verifies loaded bytes match the expected hash
+/// and returns an error if there's a mismatch (indicating corruption or tampering).
+///
+/// Implements a 3-priority loading strategy:
+/// 1. Single model.safetensors (if exists)
+/// 2. Sharded model via index.json (if exists) - loads ALL shards
+/// 3. Sharded model via pattern detection - loads ALL shards with warning
+///
+/// # Arguments
+///
+/// * `model_path` - Path to model directory
+/// * `expected_hash` - Optional expected BLAKE3 hash (e.g., from model registry `weights_hash`)
+///
+/// # Errors
+///
+/// Returns `AosError::Config` if:
+/// - Model file/shards are missing
+/// - Hash mismatch when `expected_hash` is provided
+/// - Sharded model is incomplete (missing shards)
+pub fn load_model_bytes_verified(
+    model_path: &Path,
+    expected_hash: Option<&B3Hash>,
+) -> Result<Vec<u8>> {
     // Try single model file first
     let single_model_path = model_path.join("model.safetensors");
     if single_model_path.exists() {
         info!(path = %single_model_path.display(), "Loading single model file");
-        return std::fs::read(&single_model_path).map_err(|e| {
+        let bytes = std::fs::read(&single_model_path).map_err(|e| {
             AosError::Config(format!(
                 "Failed to read model file '{}': {}",
                 single_model_path.display(),
                 e
             ))
-        });
+        })?;
+
+        // Compute and log BLAKE3 hash for audit
+        let computed_hash = B3Hash::hash(&bytes);
+        info!(
+            path = %single_model_path.display(),
+            hash = %computed_hash,
+            size_bytes = bytes.len(),
+            "Model file loaded and hashed"
+        );
+
+        // Verify against expected hash if provided
+        if let Some(expected) = expected_hash {
+            if computed_hash != *expected {
+                error!(
+                    path = %single_model_path.display(),
+                    computed = %computed_hash,
+                    expected = %expected,
+                    "MODEL INTEGRITY FAILURE: Hash mismatch detected!"
+                );
+                return Err(AosError::Config(format!(
+                    "Model integrity verification failed for '{}': computed hash {} != expected {}. \
+                     Model file may be corrupted or tampered with.",
+                    single_model_path.display(),
+                    computed_hash,
+                    expected
+                )));
+            }
+            info!(
+                path = %single_model_path.display(),
+                hash = %computed_hash,
+                "Model integrity verified: hash matches expected value"
+            );
+        }
+
+        return Ok(bytes);
     }
 
-    // Try sharded model (first shard contains embeddings)
-    let first_shard_path = model_path.join("model-00001-of-00003.safetensors");
-    if first_shard_path.exists() {
-        info!(path = %first_shard_path.display(), "Loading first shard of sharded model");
-        return std::fs::read(&first_shard_path).map_err(|e| {
+    // Priority 2: Try loading via index.json if present
+    if let Some(shard_files) = parse_safetensors_index(model_path)? {
+        info!(
+            model_path = %model_path.display(),
+            num_shards = shard_files.len(),
+            "Loading sharded model via index.json"
+        );
+
+        let bytes = load_and_merge_shards(model_path, &shard_files)?;
+
+        // Compute and log BLAKE3 hash for audit
+        let computed_hash = B3Hash::hash(&bytes);
+        info!(
+            model_path = %model_path.display(),
+            hash = %computed_hash,
+            size_bytes = bytes.len(),
+            num_shards = shard_files.len(),
+            "Sharded model loaded and hashed via index.json"
+        );
+
+        // Verify against expected hash if provided
+        if let Some(expected) = expected_hash {
+            if computed_hash != *expected {
+                error!(
+                    model_path = %model_path.display(),
+                    computed = %computed_hash,
+                    expected = %expected,
+                    "SHARDED MODEL INTEGRITY FAILURE: Hash mismatch detected!"
+                );
+                return Err(AosError::Config(format!(
+                    "Model integrity verification failed for sharded model at '{}': computed hash {} != expected {}. \
+                     Model may be corrupted or tampered with.",
+                    model_path.display(),
+                    computed_hash,
+                    expected
+                )));
+            }
+            info!(
+                model_path = %model_path.display(),
+                hash = %computed_hash,
+                "Sharded model integrity verified: hash matches expected value"
+            );
+        }
+
+        return Ok(bytes);
+    }
+
+    // Priority 3: Detect shard pattern and load all shards (warn about missing index)
+    let sharded_model = detect_sharded_model(model_path)?;
+    if let Some((_first_shard_path, total_shards, found_shards)) = sharded_model {
+        warn!(
+            model_path = %model_path.display(),
+            total_shards = total_shards,
+            "Sharded model detected but no index.json found - loading shards by pattern"
+        );
+
+        // Check for missing shards
+        if found_shards.len() < total_shards {
+            let missing: Vec<usize> = (1..=total_shards)
+                .filter(|i| !found_shards.contains(i))
+                .collect();
+            warn!(
+                model_path = %model_path.display(),
+                total_shards = total_shards,
+                found_shards = found_shards.len(),
+                missing_shards = ?missing,
+                "Sharded model is incomplete - some shards are missing"
+            );
+            return Err(AosError::Config(format!(
+                "Sharded model at '{}' is incomplete: expected {} shards, found {}. Missing shards: {:?}",
+                model_path.display(),
+                total_shards,
+                found_shards.len(),
+                missing
+            )));
+        }
+
+        // Build shard file list from pattern
+        let shard_files: Vec<String> = (1..=total_shards)
+            .map(|i| format!("model-{:05}-of-{:05}.safetensors", i, total_shards))
+            .collect();
+
+        info!(
+            model_path = %model_path.display(),
+            total_shards = total_shards,
+            "Loading all shards by pattern"
+        );
+
+        let bytes = load_and_merge_shards(model_path, &shard_files)?;
+
+        // Compute and log BLAKE3 hash for audit
+        let computed_hash = B3Hash::hash(&bytes);
+        info!(
+            model_path = %model_path.display(),
+            hash = %computed_hash,
+            size_bytes = bytes.len(),
+            num_shards = shard_files.len(),
+            "All shards loaded and hashed (pattern-based)"
+        );
+
+        // Verify against expected hash if provided
+        if let Some(expected) = expected_hash {
+            if computed_hash != *expected {
+                error!(
+                    model_path = %model_path.display(),
+                    computed = %computed_hash,
+                    expected = %expected,
+                    "SHARDED MODEL INTEGRITY FAILURE: Hash mismatch detected!"
+                );
+                return Err(AosError::Config(format!(
+                    "Model integrity verification failed for sharded model at '{}': computed hash {} != expected {}. \
+                     Model may be corrupted or tampered with.",
+                    model_path.display(),
+                    computed_hash,
+                    expected
+                )));
+            }
+            info!(
+                model_path = %model_path.display(),
+                hash = %computed_hash,
+                "Sharded model integrity verified: hash matches expected value"
+            );
+        }
+
+        return Ok(bytes);
+    }
+
+    Err(AosError::Config(format!(
+        "No model file found in '{}'. Expected 'model.safetensors' or sharded model files (model-00001-of-NNNNN.safetensors).",
+        model_path.display()
+    )))
+}
+
+/// Parse the safetensors index file and extract unique shard filenames
+fn parse_safetensors_index(model_path: &Path) -> Result<Option<Vec<String>>> {
+    let index_path = model_path.join("model.safetensors.index.json");
+    if !index_path.exists() {
+        return Ok(None);
+    }
+
+    let content = std::fs::read_to_string(&index_path).map_err(|e| {
+        AosError::Config(format!(
+            "Failed to read index file '{}': {}",
+            index_path.display(),
+            e
+        ))
+    })?;
+
+    let index: SafeTensorsIndex = serde_json::from_str(&content).map_err(|e| {
+        AosError::Config(format!(
+            "Failed to parse index JSON '{}': {}",
+            index_path.display(),
+            e
+        ))
+    })?;
+
+    let mut shards: Vec<String> = index.weight_map.values().cloned().collect();
+    shards.sort();
+    shards.dedup();
+
+    if shards.is_empty() {
+        return Err(AosError::Config(format!(
+            "Index file '{}' contains no shard references",
+            index_path.display()
+        )));
+    }
+
+    info!(index_path = %index_path.display(), num_shards = shards.len(), "Parsed safetensors index");
+    Ok(Some(shards))
+}
+
+/// Load all shards and merge into a single valid SafeTensors buffer
+///
+/// Each shard file is a complete SafeTensors file with its own header.
+/// This function parses each shard, extracts all tensors, and re-serializes
+/// them into a single unified SafeTensors buffer that can be deserialized.
+fn load_and_merge_shards(model_path: &Path, shard_files: &[String]) -> Result<Vec<u8>> {
+    // Collect all tensor data from all shards
+    // We need to keep the raw bytes alive while we build TensorViews
+    let mut shard_bytes: Vec<Vec<u8>> = Vec::with_capacity(shard_files.len());
+
+    for (idx, shard_file) in shard_files.iter().enumerate() {
+        let shard_path = model_path.join(shard_file);
+        if !shard_path.exists() {
+            return Err(AosError::Config(format!(
+                "Shard file '{}' referenced in index but not found",
+                shard_path.display()
+            )));
+        }
+
+        info!(shard = idx + 1, total = shard_files.len(), path = %shard_path.display(), "Loading shard");
+
+        let bytes = std::fs::read(&shard_path).map_err(|e| {
             AosError::Config(format!(
-                "Failed to read model shard '{}': {}",
-                first_shard_path.display(),
+                "Failed to read shard '{}': {}",
+                shard_path.display(),
                 e
             ))
-        });
+        })?;
+        shard_bytes.push(bytes);
     }
 
-    // Try to find any sharded model pattern
-    if let Ok(entries) = std::fs::read_dir(model_path) {
-        for entry in entries.flatten() {
-            let file_name = entry.file_name().to_string_lossy().to_string();
-            if file_name.starts_with("model-00001-of-") && file_name.ends_with(".safetensors") {
-                info!(path = %entry.path().display(), "Loading first shard (auto-detected)");
-                return std::fs::read(entry.path()).map_err(|e| {
+    // Parse all shards and collect tensor views
+    let mut all_tensors: Vec<(String, TensorView<'_>)> = Vec::new();
+    let mut parsed_shards: Vec<SafeTensors<'_>> = Vec::with_capacity(shard_bytes.len());
+
+    // First pass: parse all shards (we need to keep SafeTensors alive for borrowing)
+    for (idx, bytes) in shard_bytes.iter().enumerate() {
+        let tensors = SafeTensors::deserialize(bytes).map_err(|e| {
+            AosError::Config(format!(
+                "Failed to parse shard {} as SafeTensors: {}",
+                shard_files[idx], e
+            ))
+        })?;
+        parsed_shards.push(tensors);
+    }
+
+    // Second pass: collect all tensor names and views
+    for (shard_idx, shard) in parsed_shards.iter().enumerate() {
+        for (name, _) in shard.tensors() {
+            // Get the tensor view from this shard
+            let view = shard.tensor(&name).map_err(|e| {
+                AosError::Config(format!(
+                    "Failed to get tensor '{}' from shard {}: {}",
+                    name, shard_files[shard_idx], e
+                ))
+            })?;
+
+            // Create a proper TensorView for serialization
+            let tensor_view = TensorView::new(view.dtype(), view.shape().to_vec(), view.data())
+                .map_err(|e| {
                     AosError::Config(format!(
-                        "Failed to read model shard '{}': {}",
-                        entry.path().display(),
-                        e
+                        "Failed to create tensor view for '{}': {}",
+                        name, e
                     ))
-                });
+                })?;
+
+            all_tensors.push((name, tensor_view));
+        }
+    }
+
+    info!(
+        total_shards = shard_files.len(),
+        total_tensors = all_tensors.len(),
+        "Collected tensors from all shards, serializing unified buffer"
+    );
+
+    // Serialize all tensors into a single SafeTensors buffer
+    let merged_bytes = safetensors::serialize(all_tensors, &None)
+        .map_err(|e| AosError::Config(format!("Failed to serialize merged tensors: {}", e)))?;
+
+    info!(
+        total_shards = shard_files.len(),
+        total_bytes = merged_bytes.len(),
+        "Merged all shards into unified SafeTensors buffer"
+    );
+
+    Ok(merged_bytes)
+}
+
+/// Detect sharded model pattern and return shard information
+///
+/// Returns `Some((first_shard_path, total_shards, found_shard_indices))` if sharded model found,
+/// `None` if no sharded model pattern detected.
+fn detect_sharded_model(model_path: &Path) -> Result<Option<(PathBuf, usize, Vec<usize>)>> {
+    let entries = match std::fs::read_dir(model_path) {
+        Ok(entries) => entries,
+        Err(e) => {
+            warn!(
+                path = %model_path.display(),
+                error = %e,
+                "Failed to read model directory"
+            );
+            return Ok(None);
+        }
+    };
+
+    // Pattern: model-XXXXX-of-YYYYY.safetensors
+    let shard_pattern =
+        regex::Regex::new(r"^model-(\d+)-of-(\d+)\.safetensors$").expect("Shard regex is valid");
+
+    let mut first_shard_path: Option<PathBuf> = None;
+    let mut total_shards: Option<usize> = None;
+    let mut found_shards: Vec<usize> = Vec::new();
+
+    for entry in entries.flatten() {
+        let file_name = entry.file_name().to_string_lossy().to_string();
+        if let Some(caps) = shard_pattern.captures(&file_name) {
+            let shard_num: usize = caps[1].parse().unwrap_or(0);
+            let total: usize = caps[2].parse().unwrap_or(0);
+
+            if total_shards.is_none() {
+                total_shards = Some(total);
+            } else if total_shards != Some(total) {
+                // Inconsistent total shard count - this shouldn't happen in valid models
+                warn!(
+                    file = %file_name,
+                    expected_total = ?total_shards,
+                    found_total = total,
+                    "Inconsistent shard total in filename"
+                );
+            }
+
+            found_shards.push(shard_num);
+
+            if shard_num == 1 {
+                first_shard_path = Some(entry.path());
             }
         }
     }
 
-    Err(AosError::Config(format!(
-        "No model file found in '{}'. Expected 'model.safetensors' or sharded model files.",
-        model_path.display()
-    )))
+    match (first_shard_path, total_shards) {
+        (Some(path), Some(total)) => {
+            found_shards.sort();
+            Ok(Some((path, total, found_shards)))
+        }
+        (None, Some(total)) => {
+            // Found shard metadata but no first shard
+            Err(AosError::Config(format!(
+                "Sharded model at '{}' is missing first shard (model-00001-of-{:05}.safetensors)",
+                model_path.display(),
+                total
+            )))
+        }
+        _ => Ok(None),
+    }
 }

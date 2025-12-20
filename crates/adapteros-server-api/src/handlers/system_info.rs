@@ -121,12 +121,13 @@ pub async fn get_resource_usage(
         .count();
 
     // Get loaded adapters count
-    let loaded_adapters = state
-        .db
-        .list_adapters_by_state("hot")
-        .await
-        .map(|a| a.len())
-        .unwrap_or(0);
+    let loaded_adapters = match state.db.list_adapters_by_state("hot").await {
+        Ok(adapters) => adapters.len(),
+        Err(e) => {
+            tracing::warn!(error = %e, "Failed to count loaded adapters - defaulting to 0");
+            0
+        }
+    };
 
     // Build worker summaries
     let worker_summaries: Vec<WorkerResourceSummary> = workers

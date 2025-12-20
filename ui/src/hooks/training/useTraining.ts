@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient, UseQueryOptions, UseMutationOptions, type QueryClient } from '@tanstack/react-query';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import type {
   TrainingJob,
   TrainingTemplate,
@@ -17,6 +17,8 @@ import type {
   CreateChatFromJobRequest,
   CreateChatFromJobResponse,
 } from '@/api/training-types';
+import { useTenant } from '@/providers/FeatureProviders';
+import { withTenantKey } from '@/utils/tenant';
 
 type TrainingMetrics = {
   step?: number;
@@ -35,23 +37,22 @@ type TrainingMetrics = {
   validation_loss?: number;
 };
 
-const QUERY_KEYS = {
-  trainingJobs: ['training', 'jobs'] as const,
-  trainingJob: (id: string) => ['training', 'jobs', id] as const,
-  jobLogs: (id: string) => ['training', 'jobs', id, 'logs'] as const,
-  jobMetrics: (id: string) => ['training', 'jobs', id, 'metrics'] as const,
-  jobArtifacts: (id: string) => ['training', 'jobs', id, 'artifacts'] as const,
-  chatBootstrap: (jobId: string) => ['training', 'chat-bootstrap', jobId] as const,
-  datasets: ['training', 'datasets'] as const,
-  dataset: (id: string) => ['training', 'datasets', id] as const,
-  datasetVersions: (id: string) => ['training', 'datasets', id, 'versions'] as const,
-  templates: ['training', 'templates'] as const,
-  template: (id: string) => ['training', 'templates', id] as const,
-};
+const createQueryKeys = (tenantId?: string | null) => ({
+  trainingJobs: withTenantKey(['training', 'jobs'], tenantId),
+  trainingJob: (id: string) => withTenantKey(['training', 'jobs', id], tenantId),
+  jobLogs: (id: string) => withTenantKey(['training', 'jobs', id, 'logs'], tenantId),
+  jobMetrics: (id: string) => withTenantKey(['training', 'jobs', id, 'metrics'], tenantId),
+  jobArtifacts: (id: string) => withTenantKey(['training', 'jobs', id, 'artifacts'], tenantId),
+  chatBootstrap: (jobId: string) => withTenantKey(['training', 'chat-bootstrap', jobId], tenantId),
+  datasets: withTenantKey(['training', 'datasets'], tenantId),
+  dataset: (id: string) => withTenantKey(['training', 'datasets', id], tenantId),
+  datasetVersions: (id: string) => withTenantKey(['training', 'datasets', id, 'versions'], tenantId),
+  templates: withTenantKey(['training', 'templates'], tenantId),
+  template: (id: string) => withTenantKey(['training', 'templates', id], tenantId),
+});
 
-export const TRAINING_QUERY_KEYS = QUERY_KEYS;
-
-export async function invalidateTrainingCaches(queryClient: QueryClient) {
+export async function invalidateTrainingCaches(queryClient: QueryClient, tenantId?: string | null) {
+  const QUERY_KEYS = createQueryKeys(tenantId);
   await Promise.all([
     queryClient.invalidateQueries({ queryKey: QUERY_KEYS.trainingJobs }),
     queryClient.invalidateQueries({ queryKey: QUERY_KEYS.datasets }),
@@ -64,6 +65,9 @@ export function useTrainingJobs(
   params?: { dataset_id?: string; status?: string; adapter_name?: string; template_id?: string; page?: number; page_size?: number },
   options?: Omit<UseQueryOptions<ListTrainingJobsResponse, Error>, 'queryKey' | 'queryFn'>
 ) {
+  const { selectedTenant } = useTenant();
+  const QUERY_KEYS = createQueryKeys(selectedTenant);
+
   return useQuery<ListTrainingJobsResponse, Error>({
     queryKey: [...QUERY_KEYS.trainingJobs, params],
     queryFn: async () => {
@@ -79,6 +83,9 @@ export function useTrainingJob(
   jobId: string,
   options?: Omit<UseQueryOptions<TrainingJob, Error>, 'queryKey' | 'queryFn'>
 ) {
+  const { selectedTenant } = useTenant();
+  const QUERY_KEYS = createQueryKeys(selectedTenant);
+
   return useQuery<TrainingJob, Error>({
     queryKey: QUERY_KEYS.trainingJob(jobId),
     queryFn: () => apiClient.getTrainingJob(jobId),
@@ -117,6 +124,9 @@ export function useJobLogs(
   jobId: string,
   options?: Omit<UseQueryOptions<string[], Error>, 'queryKey' | 'queryFn'>
 ) {
+  const { selectedTenant } = useTenant();
+  const QUERY_KEYS = createQueryKeys(selectedTenant);
+
   return useQuery<string[], Error>({
     queryKey: QUERY_KEYS.jobLogs(jobId),
     queryFn: () => apiClient.getTrainingLogs(jobId),
@@ -130,6 +140,9 @@ export function useJobMetrics(
   jobId: string,
   options?: Omit<UseQueryOptions<TrainingMetrics, Error>, 'queryKey' | 'queryFn'>
 ) {
+  const { selectedTenant } = useTenant();
+  const QUERY_KEYS = createQueryKeys(selectedTenant);
+
   return useQuery<TrainingMetrics, Error>({
     queryKey: QUERY_KEYS.jobMetrics(jobId),
     queryFn: () => apiClient.getTrainingMetrics(jobId),
@@ -143,6 +156,9 @@ export function useJobArtifacts(
   jobId: string,
   options?: Omit<UseQueryOptions<TrainingArtifactsResponse, Error>, 'queryKey' | 'queryFn'>
 ) {
+  const { selectedTenant } = useTenant();
+  const QUERY_KEYS = createQueryKeys(selectedTenant);
+
   return useQuery<TrainingArtifactsResponse, Error>({
     queryKey: QUERY_KEYS.jobArtifacts(jobId),
     queryFn: () => apiClient.getTrainingArtifacts(jobId),
@@ -157,6 +173,9 @@ export function useDatasets(
   params?: { page?: number; page_size?: number },
   options?: Omit<UseQueryOptions<ListDatasetsResponse, Error>, 'queryKey' | 'queryFn'>
 ) {
+  const { selectedTenant } = useTenant();
+  const QUERY_KEYS = createQueryKeys(selectedTenant);
+
   return useQuery<ListDatasetsResponse, Error>({
     queryKey: [...QUERY_KEYS.datasets, params],
     queryFn: () => apiClient.listDatasets(params),
@@ -168,6 +187,9 @@ export function useDataset(
   datasetId: string,
   options?: Omit<UseQueryOptions<Dataset, Error>, 'queryKey' | 'queryFn'>
 ) {
+  const { selectedTenant } = useTenant();
+  const QUERY_KEYS = createQueryKeys(selectedTenant);
+
   return useQuery<Dataset, Error>({
     queryKey: QUERY_KEYS.dataset(datasetId),
     queryFn: () => apiClient.getDataset(datasetId),
@@ -180,6 +202,9 @@ export function useDatasetVersions(
   datasetId: string,
   options?: Omit<UseQueryOptions<DatasetVersionListResponse, Error>, 'queryKey' | 'queryFn'>
 ) {
+  const { selectedTenant } = useTenant();
+  const QUERY_KEYS = createQueryKeys(selectedTenant);
+
   return useQuery<DatasetVersionListResponse, Error>({
     queryKey: QUERY_KEYS.datasetVersions(datasetId),
     queryFn: () => apiClient.listDatasetVersions(datasetId),
@@ -228,6 +253,7 @@ export function useCreateDatasetFromDocuments(
   >
 ) {
   const queryClient = useQueryClient();
+  const { selectedTenant } = useTenant();
   const { onSuccess, ...restOptions } = options ?? {};
 
   return useMutation<
@@ -238,7 +264,7 @@ export function useCreateDatasetFromDocuments(
     mutationFn: (params) => apiClient.createDatasetFromDocuments(params),
     ...restOptions,
     onSuccess: async (data, variables, context, mutation) => {
-      await invalidateTrainingCaches(queryClient);
+      await invalidateTrainingCaches(queryClient, selectedTenant);
       // Call user-provided onSuccess if any
       await onSuccess?.(data, variables, context, mutation);
     },
@@ -250,6 +276,9 @@ export function useCreateDatasetFromDocuments(
 export function useTemplates(
   options?: Omit<UseQueryOptions<TrainingTemplate[], Error>, 'queryKey' | 'queryFn'>
 ) {
+  const { selectedTenant } = useTenant();
+  const QUERY_KEYS = createQueryKeys(selectedTenant);
+
   return useQuery<TrainingTemplate[], Error>({
     queryKey: QUERY_KEYS.templates,
     queryFn: () => apiClient.listTrainingTemplates(),
@@ -261,6 +290,9 @@ export function useTemplate(
   templateId: string,
   options?: Omit<UseQueryOptions<TrainingTemplate, Error>, 'queryKey' | 'queryFn'>
 ) {
+  const { selectedTenant } = useTenant();
+  const QUERY_KEYS = createQueryKeys(selectedTenant);
+
   return useQuery<TrainingTemplate, Error>({
     queryKey: QUERY_KEYS.template(templateId),
     queryFn: () => apiClient.getTrainingTemplate(templateId),
@@ -281,6 +313,9 @@ export function useChatBootstrap(
   jobId: string | undefined,
   options?: Omit<UseQueryOptions<ChatBootstrapResponse, Error>, 'queryKey' | 'queryFn'>
 ) {
+  const { selectedTenant } = useTenant();
+  const QUERY_KEYS = createQueryKeys(selectedTenant);
+
   return useQuery<ChatBootstrapResponse, Error>({
     queryKey: QUERY_KEYS.chatBootstrap(jobId!),
     queryFn: () => apiClient.getChatBootstrap(jobId!),
@@ -297,6 +332,7 @@ export function useCreateChatFromJob(
   options?: UseMutationOptions<CreateChatFromJobResponse, Error, CreateChatFromJobRequest>
 ) {
   const queryClient = useQueryClient();
+  const { selectedTenant } = useTenant();
   const { onSuccess, ...restOptions } = options ?? {};
 
   return useMutation<CreateChatFromJobResponse, Error, CreateChatFromJobRequest>({
@@ -304,7 +340,7 @@ export function useCreateChatFromJob(
     ...restOptions,
     onSuccess: async (data, variables, context, mutation) => {
       // Invalidate chat sessions list to show the new session
-      await queryClient.invalidateQueries({ queryKey: ['chat', 'sessions'] });
+      await queryClient.invalidateQueries({ queryKey: withTenantKey(['chat', 'sessions'], selectedTenant) });
       // Call user-provided onSuccess if any
       await onSuccess?.(data, variables, context, mutation);
     },

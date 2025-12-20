@@ -111,13 +111,14 @@ pub async fn get_federation_status(
 #[utoipa::path(
     get,
     path = "/v1/federation/quarantine",
+    operation_id = "get_federation_quarantine_status",
     responses(
         (status = 200, description = "Quarantine status retrieved successfully", body = QuarantineStatusResponse),
         (status = 503, description = "Federation daemon not available")
     ),
     tags = ["federation"]
 )]
-pub async fn get_quarantine_status(
+pub async fn get_federation_quarantine_status(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
 ) -> std::result::Result<Json<QuarantineStatusResponse>, AppError> {
@@ -311,15 +312,15 @@ pub async fn get_federation_sync_status(
 
     info!("Fetching federation sync status");
 
-    // Get total hosts from database
-    let total_hosts = state.db.get_federation_host_count().await.unwrap_or(0);
-
     // Get peer details from database (limited)
-    // Note: list_federation_hosts may not exist; use fallback
-    let peers: Vec<PeerSyncSummary> = Vec::new(); // Simplified - full peer list requires DB schema
+    // Note: Full peer sync status tracking not yet implemented
+    let peers: Vec<PeerSyncSummary> = Vec::new();
 
+    // Derive counts from actual peer data to ensure consistency
+    // When peers is empty, all counts are 0 (no data available)
     let peers_in_sync = peers.iter().filter(|p| p.in_sync).count();
     let peers_out_of_sync = peers.len().saturating_sub(peers_in_sync);
+    let total_peers = peers.len();
 
     // Determine sync status based on daemon availability and quarantine state
     let (syncing, progress_pct, last_sync_at) = if let Some(daemon) = &state.federation_daemon {
@@ -343,7 +344,7 @@ pub async fn get_federation_sync_status(
         progress_pct,
         peers_in_sync,
         peers_out_of_sync,
-        total_peers: total_hosts,
+        total_peers,
         peers,
         last_sync_at,
         timestamp: chrono::Utc::now().to_rfc3339(),

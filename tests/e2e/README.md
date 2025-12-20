@@ -170,7 +170,7 @@ Tests can be configured via environment variables:
 ADAPTEROS_E2E_TIMEOUT=600
 
 # Telemetry directory
-ADAPTEROS_E2E_TELEMETRY_DIR=/tmp/adapteros_e2e_telemetry
+ADAPTEROS_E2E_TELEMETRY_DIR=var/tmp/adapteros_e2e_telemetry
 
 # Verbose logging
 ADAPTEROS_E2E_VERBOSE=1
@@ -266,7 +266,7 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           name: e2e-results
-          path: /tmp/adapteros_e2e/
+          path: var/tmp/adapteros_e2e/
 ```
 
 ## Troubleshooting

@@ -6,6 +6,7 @@
 
 import React from 'react';
 import { formatDistanceToNow } from 'date-fns';
+import { formatBytes } from '@/lib/formatters';
 import {
   Database,
   MessageSquare,
@@ -31,14 +32,15 @@ import { TrustBadge } from '@/components/shared/TrustHealthBadge';
 import { cn } from '@/lib/utils';
 import { useNavigate } from 'react-router-dom';
 import type { Dataset } from '@/api/training-types';
+import { buildDatasetDetailLink } from '@/utils/navLinks';
 
 // Validation status styles
 const VALIDATION_STYLES: Record<string, { bg: string; text: string; label: string }> = {
   valid: { bg: 'bg-emerald-100', text: 'text-emerald-800', label: 'Valid' },
   validating: { bg: 'bg-blue-100', text: 'text-blue-800', label: 'Validating' },
-  draft: { bg: 'bg-slate-100', text: 'text-slate-700', label: 'Draft' },
+  pending: { bg: 'bg-slate-100', text: 'text-slate-700', label: 'Pending' },
   invalid: { bg: 'bg-red-100', text: 'text-red-800', label: 'Invalid' },
-  failed: { bg: 'bg-red-100', text: 'text-red-800', label: 'Failed' },
+  skipped: { bg: 'bg-gray-100', text: 'text-gray-700', label: 'Skipped' },
 };
 
 export interface DatasetDetailDrawerProps {
@@ -69,10 +71,10 @@ export function DatasetDetailDrawer({
 
   if (!dataset) return null;
 
-  const validationStatus = dataset.validation_status ?? 'draft';
-  const statusStyle = VALIDATION_STYLES[validationStatus] ?? VALIDATION_STYLES.draft;
+  const validationStatus = dataset.validation_status ?? 'pending';
+  const statusStyle = VALIDATION_STYLES[validationStatus] ?? VALIDATION_STYLES.pending;
   const canTalk = validationStatus === 'valid';
-  const canValidate = validationStatus === 'draft' || validationStatus === 'invalid';
+  const canValidate = validationStatus === 'pending' || validationStatus === 'invalid';
   const canTrain =
     validationStatus === 'valid' &&
     (dataset.trust_state === 'allowed' || dataset.trust_state === 'allowed_with_warning');
@@ -86,7 +88,7 @@ export function DatasetDetailDrawer({
   };
 
   const handleViewFullDetails = () => {
-    navigate(`/training/datasets/${dataset.id}`);
+    navigate(buildDatasetDetailLink(dataset.id));
     onClose();
   };
 
@@ -246,15 +248,6 @@ export function DatasetDetailDrawer({
       </SheetContent>
     </Sheet>
   );
-}
-
-// Helper function to format bytes
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return '0 B';
-  const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
 }
 
 export default DatasetDetailDrawer;

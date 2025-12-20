@@ -468,7 +468,14 @@ pub fn timeseries_to_tensor(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
     use tempfile::NamedTempFile;
+
+    fn new_test_tempfile() -> NamedTempFile {
+        let root = PathBuf::from("var").join("tmp");
+        std::fs::create_dir_all(&root).expect("create var/tmp");
+        NamedTempFile::new_in(&root).expect("create temp file")
+    }
 
     fn create_test_manifest() -> (AdapterManifest, NamedTempFile) {
         use crate::manifest::{save_manifest, AdapterManifest};
@@ -498,7 +505,7 @@ mod tests {
             serde_json::Value::Number(serde_json::Number::from_f64(50.0).unwrap()),
         );
 
-        let temp_file = NamedTempFile::new().unwrap();
+        let temp_file = new_test_tempfile();
         save_manifest(&manifest, temp_file.path()).unwrap();
 
         (manifest, temp_file)

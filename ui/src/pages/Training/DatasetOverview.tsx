@@ -6,9 +6,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
 import { LoadingState } from '@/components/ui/loading-state';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import type { Dataset, DatasetVersionSummary } from '@/api/training-types';
-import { formatBytes, formatTimestamp, formatNumber } from '@/utils/format';
+import { formatBytes, formatTimestamp, formatNumber } from '@/lib/formatters';
 
 interface DatasetOverviewProps {
   dataset: Dataset;

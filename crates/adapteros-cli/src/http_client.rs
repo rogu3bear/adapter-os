@@ -1,6 +1,5 @@
 use crate::auth_store::{load_auth, save_auth, AuthStore};
 use anyhow::{anyhow, bail, Context, Result};
-use chrono::Utc;
 use reqwest::{header, Client, RequestBuilder, StatusCode};
 use serde::{Deserialize, Serialize};
 
@@ -93,6 +92,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use adapteros_platform::common::PlatformUtils;
     use axum::{
         body::Body,
         extract::State,
@@ -105,6 +105,12 @@ mod tests {
     use tempfile::TempDir;
     use tokio::net::TcpListener;
     use tokio::task::JoinHandle;
+
+    fn new_test_tempdir() -> TempDir {
+        let root = PlatformUtils::temp_dir();
+        std::fs::create_dir_all(&root).expect("create var/tmp");
+        TempDir::new_in(&root).expect("create temp dir")
+    }
 
     #[derive(Clone)]
     struct ServerState {
@@ -178,7 +184,7 @@ mod tests {
 
     #[tokio::test]
     async fn send_with_refresh_retries_on_401() {
-        let temp = TempDir::new().unwrap();
+        let temp = new_test_tempdir();
         let auth_path = temp.path().join("auth.json");
         std::env::set_var("AOSCTL_AUTH_PATH", &auth_path);
 
@@ -214,7 +220,7 @@ mod tests {
 
     #[tokio::test]
     async fn send_with_refresh_fails_when_refresh_denied() {
-        let temp = TempDir::new().unwrap();
+        let temp = new_test_tempdir();
         let auth_path = temp.path().join("auth.json");
         std::env::set_var("AOSCTL_AUTH_PATH", &auth_path);
 

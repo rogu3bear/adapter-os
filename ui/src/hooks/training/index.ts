@@ -25,7 +25,7 @@ export * from './useBehaviorTraining';
 
 // Training preflight checks
 export { useTrainingPreflight } from './useTrainingPreflight';
-export type { TrainingPreflightResult } from './useTrainingPreflight';
+export type { TrainingPreflightResult, UseTrainingPreflightOptions } from '@/types/hooks/training';
 
 // Training data orchestration
 export { useTrainingDataOrchestrator } from './useTrainingDataOrchestrator';

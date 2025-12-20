@@ -6,7 +6,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from './ui/badge';
 import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
 import { CheckCircle, XCircle, Copy, ExternalLink } from 'lucide-react';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { CursorConfigResponse } from '@/api/types';
 import { useDataLoader } from '@/hooks/ui/useDataLoader';
 

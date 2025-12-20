@@ -34,12 +34,13 @@ import { TENANT_SWITCH_EVENT } from '@/utils/tenant';
 // ============================================================================
 
 export type ConnectionStatus = 'sse' | 'polling' | 'disconnected';
-export type PollingSpeed = 'fast' | 'normal' | 'slow';
+export type PollingSpeed = 'fast' | 'normal' | 'slow' | 'realtime';
 
 const POLLING_INTERVALS: Record<PollingSpeed, number> = {
-  fast: 2000,    // Real-time (training progress, alerts)
-  normal: 5000,  // Standard (metrics, dashboard)
-  slow: 30000,   // Background (system health, admin)
+  realtime: 1000, // Ultra-fast (real-time updates)
+  fast: 2000,     // Real-time (training progress, alerts)
+  normal: 5000,   // Standard (metrics, dashboard)
+  slow: 30000,    // Background (system health, admin)
 };
 
 export interface UseSSEWithPollingFallbackOptions<T> {

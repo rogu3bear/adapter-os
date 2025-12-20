@@ -143,6 +143,7 @@ pub mod context;
 pub mod observability;
 pub mod policy_enforcement;
 pub mod request_id;
+pub mod trace_context;
 pub mod versioning;
 
 pub use caching::{caching_middleware, CacheControl};
@@ -150,6 +151,7 @@ pub use compression::compression_middleware;
 pub use observability::observability_middleware;
 pub use policy_enforcement::policy_enforcement_middleware;
 pub use request_id::request_id_middleware;
+pub use trace_context::{trace_context_middleware, TraceContextExtension};
 pub use versioning::{versioning_middleware, ApiVersion, DeprecationInfo};
 
 /// SECURITY: Dev no-auth bypass is centralized in crate::auth so release builds

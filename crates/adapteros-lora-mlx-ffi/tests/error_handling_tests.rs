@@ -202,11 +202,18 @@ mod lora_error_tests {
 #[cfg(test)]
 mod model_error_tests {
     use adapteros_lora_mlx_ffi::MLXFFIModel;
+    use std::path::PathBuf;
     use tempfile::TempDir;
+
+    fn new_test_tempdir() -> TempDir {
+        let root = PathBuf::from("var").join("tmp");
+        std::fs::create_dir_all(&root).expect("create var/tmp");
+        TempDir::new_in(&root).expect("create temp dir")
+    }
 
     #[test]
     fn test_model_load_missing_config() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
 
         // Try to load from directory without config.json
         let result = MLXFFIModel::load(temp_dir.path());
@@ -231,7 +238,7 @@ mod model_error_tests {
 
     #[test]
     fn test_model_load_malformed_config() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
 
         // Create invalid config.json
         let config_path = temp_dir.path().join("config.json");

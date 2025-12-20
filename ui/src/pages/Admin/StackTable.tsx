@@ -31,8 +31,10 @@ import {
 } from '@/components/ui/dialog';
 import { useTenant } from '@/providers/FeatureProviders';
 import { PolicyPreflightDialog } from '@/components/PolicyPreflightDialog';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { toast } from 'sonner';
+import { useRBAC } from '@/hooks/security/useRBAC';
+import { PERMISSIONS } from '@/utils/rbac';
 
 interface StackTableProps {
   stacks: AdapterStack[];
@@ -41,6 +43,7 @@ interface StackTableProps {
 export function StackTable({ stacks }: StackTableProps) {
   const { selectedTenant } = useTenant();
   const tenantId = selectedTenant || 'default';
+  const { can } = useRBAC();
   const [editingStack, setEditingStack] = useState<AdapterStack | null>(null);
   const [viewingStack, setViewingStack] = useState<AdapterStack | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<AdapterStack | null>(null);
@@ -328,7 +331,7 @@ export function StackTable({ stacks }: StackTableProps) {
             setShowPreflightDialog(false);
             setPendingActivation(null);
           }}
-          isAdmin={false} // TODO: Get from user context
+          isAdmin={can(PERMISSIONS.POLICY_OVERRIDE)}
           isLoading={activateStack.isPending}
         />
       )}

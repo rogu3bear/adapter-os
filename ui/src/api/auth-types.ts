@@ -1,70 +1,145 @@
 // Authentication and user-related type definitions
 // Extracted from types.ts to improve maintainability
 //
-// 【2025-01-20†refactor†auth_types】
+// 【2025-12-19†security-critical†auth_types_migration】
+//
+// SECURITY REVIEW CHECKLIST:
+// ✓ Password fields are only in LoginRequest (never logged or stored in frontend state)
+// ✓ Token fields are security-sensitive (JWT access tokens, handle with care)
+// ✓ admin_tenants wildcard ("*") ONLY works in debug builds with AOS_DEV_NO_AUTH=1
+// ✓ UserRole enum matches backend exactly (7 roles)
+// ✓ LoginRequest username field is optional (email is primary)
+// ✓ LoginResponse does NOT include admin_tenants (only in UserInfoResponse and Claims)
 
-export interface LoginRequest {
-  username: string;  // Required by backend
-  email: string;
-  password: string;
-  totp_code?: string;
-  device_id?: string;
-}
+import type { components } from './generated';
 
-export type SessionMode = 'normal' | 'dev_bypass';
+// =============================================================================
+// MIGRATED FROM GENERATED (Core Auth Types)
+// =============================================================================
 
-export interface LoginResponse {
-  schema_version: string;  // Required by backend API
-  token: string;
-  user_id: string;
-  tenant_id: string;  // Required by backend (not optional)
-  role: string;
-  expires_in: number;  // Changed from expires_at to expires_in (seconds)
-  tenants?: TenantSummary[];
-  mfa_level?: string;
-  admin_tenants?: string[]; // Tenant IDs the admin can manage; "*" wildcard is dev-only (debug / dev-bypass)
-  session_mode?: SessionMode;
-}
+/**
+ * Login request
+ * SECURITY: Password field is sensitive - never log or store unencrypted
+ */
+export type LoginRequest = components['schemas']['LoginRequest'];
 
-export interface RefreshResponse {
-  token: string;
-  expires_at: number;
-}
+/**
+ * Login response with JWT token
+ * SECURITY: Token field contains JWT access token - handle with care
+ * NOTE: admin_tenants is NOT included here (only in UserInfoResponse)
+ */
+export type LoginResponse = components['schemas']['LoginResponse'] & {
+  // UI-specific session fields
+  session_mode?: string;
+};
 
-export interface TenantSummary {
-  schema_version: string;
-  id: string;
-  name: string;
-  status?: string | null;
-  created_at?: string | null;
-}
+/**
+ * User information response
+ * SECURITY: admin_tenants field contains tenant access list
+ * - Empty array = user can only access their own tenant
+ * - ["*"] = wildcard admin access (DEBUG BUILDS ONLY with AOS_DEV_NO_AUTH=1)
+ * - ["tenant-id-1", "tenant-id-2"] = specific tenant access for admins
+ */
+export type UserInfoResponse = components['schemas']['UserInfoResponse'];
 
+/**
+ * Minimal tenant summary for tenant picker
+ */
+export type TenantSummary = components['schemas']['TenantSummary'];
+
+/**
+ * Tenant list response (for /v1/auth/me endpoint)
+ */
 export interface TenantListResponse {
   schema_version: string;
   tenants: TenantSummary[];
 }
 
+/**
+ * Switch tenant request
+ * NOTE: Backend endpoint not yet implemented (type defined for future use)
+ */
 export interface SwitchTenantRequest {
   tenant_id: string;
 }
 
+/**
+ * Switch tenant response (reuses LoginResponse shape)
+ * NOTE: Backend endpoint not yet implemented (type defined for future use)
+ */
 export type SwitchTenantResponse = LoginResponse;
 
-export interface UserInfoResponse {
-  schema_version: string;  // Required by backend API
-  user_id: string;
-  email: string;
-  role: string;
-  created_at: string;  // Required by backend (not optional)
-  display_name?: string;
-  tenant_id?: string;
-  last_login_at?: string;
-  mfa_enabled?: boolean;
-  permissions?: string[];
-  token_last_rotated_at?: string;
-  admin_tenants?: string[]; // Tenant IDs the admin can manage; "*" wildcard is dev-only (debug / dev-bypass)
+/**
+ * Logout request (empty for now, extensible)
+ * Backend does not accept request body for logout (POST /v1/auth/logout)
+ */
+export interface LogoutRequest {
+  token?: string; // Frontend-only field for compatibility
 }
 
+/**
+ * Token refresh response
+ */
+export interface RefreshResponse {
+  token: string;
+  expires_at: number;
+}
+
+// =============================================================================
+// MANUAL TYPES (Frontend-Specific, Security, or UI-Only)
+// =============================================================================
+
+/**
+ * Session mode (frontend state for dev bypass)
+ * SECURITY: 'dev_bypass' mode ONLY works in debug builds with AOS_DEV_NO_AUTH=1
+ * Production builds ignore this and always use 'normal' mode
+ */
+export type SessionMode = 'normal' | 'dev_bypass';
+
+/**
+ * Frontend wrapper for auth token (UI state management)
+ */
+export interface AuthToken {
+  token: string;
+  token_type: string;
+  expires_in: number;
+  user: User;
+}
+
+/**
+ * Cursor IDE integration config response (UI-only)
+ */
+export interface CursorConfigResponse {
+  cursor_id: string;
+  config: Record<string, unknown>;
+  created_at: string;
+  is_ready?: boolean;
+  model_name?: string;
+  api_endpoint?: string;
+  setup_instructions?: string;
+}
+
+/**
+ * Cursor model info (UI-only)
+ */
+export interface CursorModelInfo {
+  id: string;
+  name: string;
+  provider?: string;
+  context_length?: number;
+  capabilities?: string[];
+}
+
+/**
+ * User role enum
+ * SECURITY: Must match backend exactly (crates/adapteros-api-types/src/auth.rs)
+ * Backend roles: Admin, Developer, Operator, Sre, Compliance, Auditor, Viewer
+ */
+export type UserRole = 'admin' | 'developer' | 'operator' | 'sre' | 'compliance' | 'auditor' | 'viewer';
+
+/**
+ * User entity (UI compatibility wrapper with alias fields)
+ */
 export interface User {
   user_id?: string;
   id?: string;  // Alias for user_id for compatibility
@@ -82,8 +157,9 @@ export interface User {
   admin_tenants?: string[]; // Tenant IDs the admin can manage; "*" wildcard is dev-only (debug / dev-bypass)
 }
 
-export type UserRole = 'admin' | 'developer' | 'operator' | 'sre' | 'compliance' | 'auditor' | 'viewer';
-
+/**
+ * Register user request (admin functionality)
+ */
 export interface RegisterUserRequest {
   email: string;
   password: string;
@@ -92,25 +168,41 @@ export interface RegisterUserRequest {
   tenant_id?: string;
 }
 
+/**
+ * Update user request
+ */
 export interface UpdateUserRequest {
   display_name?: string;
   role?: UserRole;
   is_active?: boolean;
 }
 
+/**
+ * Change password request
+ * SECURITY: Both passwords are sensitive - never log
+ */
 export interface ChangePasswordRequest {
   current_password: string;
   new_password: string;
 }
 
+/**
+ * Reset password request
+ */
 export interface ResetPasswordRequest {
   email: string;
 }
 
+/**
+ * User response wrapper
+ */
 export interface UserResponse {
   user: User;
 }
 
+/**
+ * List users response (paginated)
+ */
 export interface ListUsersResponse {
   users: User[];
   total: number;
@@ -118,17 +210,16 @@ export interface ListUsersResponse {
   page_size: number;
 }
 
-export interface AuthToken {
-  token: string;
-  token_type: string;
-  expires_in: number;
-  user: User;
-}
-
+/**
+ * Refresh token request
+ */
 export interface RefreshTokenRequest {
   refresh_token: string;
 }
 
+/**
+ * Rotate token response
+ */
 export interface RotateTokenResponse {
   token: string;
   token_type: string;
@@ -138,10 +229,9 @@ export interface RotateTokenResponse {
   last_rotated_at?: string;
 }
 
-export interface LogoutRequest {
-  token?: string;
-}
-
+/**
+ * Session information (for audit/management)
+ */
 export interface SessionInfo {
   id: string;
   device?: string;
@@ -153,6 +243,9 @@ export interface SessionInfo {
   is_current: boolean;
 }
 
+/**
+ * Token metadata (audit/tracking)
+ */
 export interface TokenMetadata {
   token_id?: string;
   user_id?: string;
@@ -165,11 +258,17 @@ export interface TokenMetadata {
   ip_address?: string;
 }
 
+/**
+ * Update profile request
+ */
 export interface UpdateProfileRequest {
   display_name?: string;
   email?: string;
 }
 
+/**
+ * Profile response
+ */
 export interface ProfileResponse {
   user_id: string;
   email: string;
@@ -181,6 +280,9 @@ export interface ProfileResponse {
   last_login_at?: string;
 }
 
+/**
+ * Auth configuration response (public subset)
+ */
 export interface AuthConfigResponse {
   allow_registration: boolean;
   require_email_verification: boolean;
@@ -198,26 +300,10 @@ export interface AuthConfigResponse {
   token_expiry_hours?: number;
 }
 
-// Cursor/Config types
-export interface CursorConfigResponse {
-  cursor_id: string;
-  config: Record<string, unknown>;
-  created_at: string;
-  is_ready?: boolean;
-  model_name?: string;
-  api_endpoint?: string;
-  setup_instructions?: string;
-}
-
-export interface CursorModelInfo {
-  id: string;
-  name: string;
-  provider?: string;
-  context_length?: number;
-  capabilities?: string[];
-}
-
+// =============================================================================
 // Contact/Message types (for support/feedback)
+// =============================================================================
+
 export interface Contact {
   id: string;
   name: string;
@@ -248,7 +334,10 @@ export interface Message {
   edited_at?: string;
 }
 
+// =============================================================================
 // Workspace types
+// =============================================================================
+
 export interface Workspace {
   id: string;
   name: string;
@@ -269,7 +358,10 @@ export interface WorkspaceMember {
   user_email?: string;
 }
 
+// =============================================================================
 // Session types
+// =============================================================================
+
 export interface Session {
   session_id: string;
   user_id: string;
@@ -281,7 +373,10 @@ export interface Session {
   device_info?: string;
 }
 
+// =============================================================================
 // Activity tracking types
+// =============================================================================
+
 export interface ActivityEvent {
   id: string;
   type?: string;
@@ -295,7 +390,20 @@ export interface ActivityEvent {
   event_type?: string;
 }
 
+export interface RecentActivityEvent extends ActivityEvent {
+  user_name?: string;
+  resource_name?: string;
+  user_id?: string;
+  tenant_id?: string;
+  message?: string;
+  level?: string;
+  component?: string;
+}
+
+// =============================================================================
 // Workspace resource types
+// =============================================================================
+
 export interface WorkspaceResource {
   id: string;
   workspace_id: string;
@@ -307,15 +415,9 @@ export interface WorkspaceResource {
   shared_by?: string;
 }
 
-export interface RecentActivityEvent extends ActivityEvent {
-  user_name?: string;
-  resource_name?: string;
-  user_id?: string;
-  tenant_id?: string;
-  message?: string;
-  level?: string;
-  component?: string;
-}
+// =============================================================================
+// Request types (Create/Add operations)
+// =============================================================================
 
 export interface CreateMessageRequest {
   to?: string;

@@ -35,6 +35,7 @@ fn create_adapter(
         tier: tier.to_string(),
         lora_tier: None,
         scope_path: None,
+        base_model: None,
     }
 }
 

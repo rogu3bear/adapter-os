@@ -47,8 +47,8 @@
 
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { toast } from 'sonner';
-import apiClient from '@/api/client';
-import type { InferResponse, InferenceConfig, StreamingChunk, Citation } from '@/api/types';
+import { apiClient } from '@/api/services';
+import type { InferResponse, InferenceConfig, StreamingChunk, Citation, StreamingInferRequest } from '@/api/types';
 import { logger, toError } from '@/utils/logger';
 
 /** Individual streaming token with timestamp */
@@ -192,23 +192,25 @@ export function useStreamingInference(
     });
 
     try {
+      const requestData: StreamingInferRequest = {
+        prompt,
+        backend: effectiveBackend === 'cpu' ? 'auto' : effectiveBackend,
+        model: effectiveModel ?? undefined,
+        max_tokens: overrides?.max_tokens ?? config.max_tokens ?? undefined,
+        temperature: overrides?.temperature ?? config.temperature ?? undefined,
+        top_k: overrides?.top_k ?? config.top_k ?? undefined,
+        top_p: overrides?.top_p ?? config.top_p ?? undefined,
+        seed: overrides?.seed ?? config.seed ?? undefined,
+        routing_determinism_mode: overrides?.routing_determinism_mode ?? config.routing_determinism_mode,
+        adapter_stack: overrides?.adapter_stack
+          ? overrides.adapter_stack as string[]
+          : stackId
+            ? [stackId]
+            : (adapterId && adapterId !== 'none' ? [adapterId] : undefined),
+      };
+
       await apiClient.streamInfer(
-        {
-          prompt,
-          backend: effectiveBackend,
-          model: effectiveModel,
-          max_tokens: overrides?.max_tokens ?? config.max_tokens,
-          temperature: overrides?.temperature ?? config.temperature,
-          top_k: overrides?.top_k ?? config.top_k,
-          top_p: overrides?.top_p ?? config.top_p,
-          seed: overrides?.seed ?? config.seed,
-          routing_determinism_mode: overrides?.routing_determinism_mode ?? config.routing_determinism_mode,
-          adapter_stack: overrides?.adapter_stack
-            ? overrides.adapter_stack as string[]
-            : stackId
-              ? [stackId]
-              : (adapterId && adapterId !== 'none' ? [adapterId] : undefined),
-        },
+        requestData,
         {
           onToken: (token: string, chunk: StreamingChunk) => {
             tokenCount++;
@@ -227,7 +229,16 @@ export function useStreamingInference(
               onToken(token);
             }
           },
-          onComplete: (fullText: string, finishReason: string | null, metadata?: { request_id?: string, unavailable_pinned_adapters?: string[], pinned_routing_fallback?: string, citations?: Citation[] }) => {
+          onComplete: (
+            fullText: string,
+            finishReason: string | null,
+            metadata?: {
+              request_id?: string;
+              unavailable_pinned_adapters?: string[];
+              pinned_routing_fallback?: InferResponse['pinned_routing_fallback'];
+              citations?: Citation[];
+            }
+          ) => {
             const elapsed = Date.now() - startTime;
 
             // Map streaming finish reason to InferResponse finish reason
@@ -252,8 +263,14 @@ export function useStreamingInference(
               adapters_used: adapterId && adapterId !== 'none' ? [adapterId] : [],
               finish_reason: mapFinishReason(finishReason),
               citations: metadata?.citations || [],
-              unavailable_pinned_adapters: metadata?.unavailable_pinned_adapters,
-              pinned_routing_fallback: metadata?.pinned_routing_fallback as any,
+              unavailable_pinned_adapters: metadata?.unavailable_pinned_adapters ?? undefined,
+              pinned_routing_fallback: metadata?.pinned_routing_fallback ?? undefined,
+              tokens: [], // Streaming doesn't provide individual tokens
+              trace: { // Minimal trace for streaming
+                request_id: responseId,
+                adapters_used: adapterId && adapterId !== 'none' ? [adapterId] : [],
+                latency_ms: elapsed,
+              } as any, // Type assertion - streaming provides minimal trace
             };
 
             setStreamingState(prev => ({

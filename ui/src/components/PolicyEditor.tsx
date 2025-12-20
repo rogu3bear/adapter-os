@@ -15,7 +15,7 @@ import { FileJson, FileText, AlertTriangle, CheckCircle, Save, X } from 'lucide-
 
 // 【ui/src/components/PolicyEditor.tsx§1-45】 - Replace toast notifications with ErrorRecovery patterns
 import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { POLICY_PACKS, getDefaultPolicyConfig, PolicyFieldDefinition } from '@/constants/policySchema';
 import { PolicyPackConfig } from '@/api/types';
 import { logger, toError } from '@/utils/logger';

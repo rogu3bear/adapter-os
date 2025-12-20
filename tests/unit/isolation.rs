@@ -43,7 +43,9 @@ impl TestSandbox {
     /// Create a new test sandbox with a temporary root directory
     pub fn new() -> Self {
         let seed = B3Hash::hash(b"test_sandbox");
-        let root = std::env::temp_dir().join(format!("adapteros_test_{}", seed.to_hex()));
+        let base = PathBuf::from("var/tmp");
+        std::fs::create_dir_all(&base).expect("Failed to create test sandbox base directory");
+        let root = base.join(format!("adapteros_test_{}", seed.to_hex()));
         std::fs::create_dir_all(&root).expect("Failed to create test sandbox");
 
         Self {
@@ -56,7 +58,9 @@ impl TestSandbox {
     /// Create a new test sandbox with a specific seed for deterministic behavior
     pub fn with_seed(seed: u64) -> Self {
         let seed_hash = B3Hash::hash(&seed.to_le_bytes());
-        let root = std::env::temp_dir().join(format!("adapteros_test_{}", seed_hash.to_hex()));
+        let base = PathBuf::from("var/tmp");
+        std::fs::create_dir_all(&base).expect("Failed to create test sandbox base directory");
+        let root = base.join(format!("adapteros_test_{}", seed_hash.to_hex()));
         std::fs::create_dir_all(&root).expect("Failed to create test sandbox");
 
         Self {
@@ -320,7 +324,7 @@ impl TestEnvironment {
     pub fn new() -> Self {
         Self {
             seed: 42,
-            temp_dir: std::env::temp_dir().join("adapteros_test_env"),
+            temp_dir: PathBuf::from("var/tmp").join("adapteros_test_env"),
             log_level: "error".to_string(),
             features: Vec::new(),
         }

@@ -20,89 +20,16 @@
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useSSEWithPollingFallback } from './useSSEWithPollingFallback';
-import type { ConnectionStatus, PollingSpeed } from './useSSEWithPollingFallback';
-
-// ============================================================================
-// Types
-// ============================================================================
+import type {
+  ConnectionStatus,
+  PollingSpeed,
+  DataFreshnessLevel,
+  UseLiveDataOptions,
+  UseLiveDataReturn,
+} from '@/types/hooks';
 
 // Re-export types for backwards compatibility
-export type { PollingSpeed, ConnectionStatus };
-
-export type DataFreshnessLevel = 'live' | 'fresh' | 'recent' | 'stale' | 'very_stale';
-
-export interface UseLiveDataOptions<T> {
-  /** SSE endpoint path (e.g., '/v1/stream/metrics') */
-  sseEndpoint?: string;
-
-  /** SSE event type to listen for (e.g., 'metrics', 'adapters') */
-  sseEventType?: string;
-
-  /** Function to fetch data for polling/initial load */
-  fetchFn: () => Promise<T>;
-
-  /** Polling speed preset */
-  pollingSpeed?: PollingSpeed;
-
-  /** Enable/disable the hook */
-  enabled?: boolean;
-
-  /** Transform SSE data before merging with state */
-  transformSSE?: (sseData: unknown) => Partial<T>;
-
-  /** How to combine SSE data with existing data */
-  mergeStrategy?: 'replace' | 'merge';
-
-  /** Callback when SSE message received */
-  onSSEMessage?: (data: unknown) => void;
-
-  /** Callback on error */
-  onError?: (error: Error, source: 'sse' | 'polling') => void;
-
-  /** Callback when connection status changes */
-  onConnectionChange?: (status: ConnectionStatus) => void;
-
-  /** Circuit breaker: failures before opening (default: 5) */
-  circuitBreakerThreshold?: number;
-
-  /** Circuit breaker: reset delay in ms (default: 30000) */
-  circuitBreakerResetMs?: number;
-
-  /** Operation name for logging */
-  operationName?: string;
-}
-
-export interface UseLiveDataReturn<T> {
-  /** Current data */
-  data: T | null;
-
-  /** Loading state */
-  isLoading: boolean;
-
-  /** Last error */
-  error: Error | null;
-
-  /** SSE connection status */
-  sseConnected: boolean;
-
-  /** Overall connection status */
-  connectionStatus: ConnectionStatus;
-
-  /** Timestamp of last update */
-  lastUpdated: Date | null;
-
-  /** Data freshness level */
-  freshnessLevel: DataFreshnessLevel;
-
-  /** Manually refetch data */
-  refetch: () => Promise<void>;
-
-  /** Manually reconnect SSE */
-  reconnect: () => void;
-
-  /** Toggle SSE on/off */
-  toggleSSE: (enabled: boolean) => void;
-}
+export type { PollingSpeed, ConnectionStatus, DataFreshnessLevel, UseLiveDataOptions, UseLiveDataReturn };
 
 // ============================================================================
 // Constants

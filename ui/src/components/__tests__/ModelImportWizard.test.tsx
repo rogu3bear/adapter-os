@@ -1,7 +1,7 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { vi } from 'vitest';
 import { ModelImportWizard } from '@/components/ModelImportWizard';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { toast } from 'sonner';
 
 // Mock dependencies

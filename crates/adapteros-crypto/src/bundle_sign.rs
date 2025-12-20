@@ -61,9 +61,52 @@ impl BundleSignature {
     }
 
     /// Save signature to file
+    ///
+    /// Uses atomic write (temp-then-rename) and sets 0644 permissions on Unix.
+    /// Signature files are public (contain public key), so they should be
+    /// world-readable but not writable.
     pub fn save_to_file(&self, path: &Path) -> Result<()> {
+        use std::io::Write;
+        use std::time::{SystemTime, UNIX_EPOCH};
+
         let json = serde_json::to_string_pretty(self)?;
-        fs::write(path, json)?;
+
+        // Ensure parent directory exists
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+
+        // Generate unique temp file name
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let temp_path = path.with_extension(format!("sig.tmp.{}", nanos));
+
+        // Write to temp file with proper permissions
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            let mut file = fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .mode(0o644) // World-readable, owner-writable
+                .open(&temp_path)?;
+            file.write_all(json.as_bytes())?;
+            file.sync_all()?;
+        }
+
+        #[cfg(not(unix))]
+        {
+            fs::write(&temp_path, &json)?;
+        }
+
+        // Atomic rename
+        fs::rename(&temp_path, path).inspect_err(|_e| {
+            let _ = fs::remove_file(&temp_path);
+        })?;
+
         Ok(())
     }
 
@@ -223,22 +266,44 @@ pub fn verify_bundle_from_file(
 /// Compute deterministic key ID from public key
 ///
 /// Per Secrets Ruleset #14: kid = blake3(pubkey)
+/// Uses 32 hex characters (128 bits) to avoid birthday-bound collisions.
 pub fn compute_key_id(public_key: &PublicKey) -> String {
     let key_bytes = public_key.to_bytes();
     let hash = B3Hash::hash(&key_bytes);
-    format!("kid-{}", &hash.to_hex()[..16])
+    format!("kid-{}", &hash.to_hex()[..32])
 }
 
 /// Load signing keypair from file
 ///
 /// In production, this would integrate with Secure Enclave
 /// Per Secrets Ruleset #14: key material stored securely
+///
+/// This function validates file permissions on Unix systems and warns if
+/// the private key is world-readable (security risk).
 pub fn load_signing_key(key_path: &Path) -> Result<Keypair> {
     if !key_path.exists() {
         return Err(AosError::Crypto(format!(
             "Signing key not found: {}",
             key_path.display()
         )));
+    }
+
+    // Validate file permissions on Unix
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(metadata) = fs::metadata(key_path) {
+            let mode = metadata.permissions().mode();
+            // Check if world or group readable/writable (bits 077)
+            if mode & 0o077 != 0 {
+                tracing::warn!(
+                    path = %key_path.display(),
+                    mode = format!("{:o}", mode & 0o777),
+                    "Private key file has loose permissions (should be 0600). \
+                     This is a security risk - the key may be readable by other users."
+                );
+            }
+        }
     }
 
     let key_bytes = fs::read(key_path)?;
@@ -293,6 +358,12 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
+    fn new_test_tempdir() -> TempDir {
+        let root = std::path::PathBuf::from("var").join("tmp");
+        std::fs::create_dir_all(&root).expect("create var/tmp");
+        TempDir::new_in(&root).expect("tempdir")
+    }
+
     #[test]
     fn test_bundle_signing() {
         let keypair = Keypair::generate();
@@ -309,7 +380,7 @@ mod tests {
 
     #[test]
     fn test_bundle_sign_and_save() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let signatures_dir = temp_dir.path().join("signatures");
 
         let keypair = Keypair::generate();
@@ -359,7 +430,7 @@ mod tests {
 
     #[test]
     fn test_generate_and_load_key() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let key_path = temp_dir.path().join("signing.key");
 
         // Generate key
@@ -381,7 +452,7 @@ mod tests {
     fn test_key_permissions() {
         use std::os::unix::fs::PermissionsExt;
 
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let key_path = temp_dir.path().join("signing.key");
 
         generate_signing_key(&key_path).unwrap();

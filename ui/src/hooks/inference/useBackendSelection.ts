@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { BackendName, BackendStatus, BackendCapability, HardwareCapabilities } from '@/api/types';
 import { BackendOption, BackendSelectionResult } from '@/components/inference/types';
 import { BACKEND_LABELS, BACKEND_PRIORITY, BACKEND_PREF_KEY } from '@/components/inference/constants';

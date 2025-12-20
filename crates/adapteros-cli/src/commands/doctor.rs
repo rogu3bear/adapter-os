@@ -145,7 +145,7 @@ fn display_health_summary(health: &SystemHealthResponse, output: &OutputWriter) 
     // Display details if any component has them
     for component in &health.components {
         if let Some(details) = &component.details {
-            output.info(&format!("\n{} Details:", component.component));
+            output.info(format!("\n{} Details:", component.component));
             println!("{}", serde_json::to_string_pretty(details)?);
         }
     }

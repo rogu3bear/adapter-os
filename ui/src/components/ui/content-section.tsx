@@ -1,7 +1,7 @@
 import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './card';
 import { Separator } from './separator';
-import { cn } from './utils';
+import { cn } from '@/lib/utils';
 import { getContentSectionClasses, getCardHierarchyClasses } from '@/utils/visual-hierarchy';
 
 interface ContentSectionProps {

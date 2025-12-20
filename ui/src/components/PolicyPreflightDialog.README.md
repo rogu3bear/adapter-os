@@ -223,5 +223,5 @@ See `__tests__/PolicyPreflightDialog.test.tsx` for comprehensive test suite cove
 
 - [CLAUDE.md](../../../../CLAUDE.md) - Policy Packs section
 - [docs/RBAC.md](../../../../docs/RBAC.md) - Admin permissions
-- [docs/ARCHITECTURE_PATTERNS.md](../../../../docs/ARCHITECTURE_PATTERNS.md) - Policy enforcement patterns
+- [docs/ARCHITECTURE.md#architecture-components](../../../../docs/ARCHITECTURE.md#architecture-components) - Policy enforcement patterns
 - `ui/src/components/golden/PolicyCheckDisplay.tsx` - Related component for promotion workflows

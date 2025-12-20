@@ -38,9 +38,12 @@ pub struct TestConfig {
 impl Default for TestConfig {
     fn default() -> Self {
         Self {
-            test_dir: PathBuf::from("/tmp/adapteros_e2e"),
-            telemetry_dir: PathBuf::from("/tmp/adapteros_e2e/telemetry"),
-            model_registry: PathBuf::from("/tmp/adapteros_e2e/models"),
+            test_dir: PathBuf::from("var").join("tmp").join("adapteros_e2e"),
+            telemetry_dir: PathBuf::from("var")
+                .join("tmp")
+                .join("adapteros_e2e")
+                .join("telemetry"),
+            model_registry: PathBuf::from("var").join("tmp").join("adapteros_e2e").join("models"),
             policy_config: serde_json::json!({
                 "min_evidence_spans": 1,
                 "require_evidence": true,

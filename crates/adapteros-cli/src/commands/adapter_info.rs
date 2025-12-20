@@ -79,8 +79,8 @@ async fn get_provenance(db: &adapteros_db::Db, adapter_id: &str) -> Result<Optio
 }
 
 async fn get_provenance_sqlite(
-    pool: &sqlx::SqlitePool,
-    adapter_id: &str,
+    _pool: &sqlx::SqlitePool,
+    _adapter_id: &str,
 ) -> Result<Option<ProvenanceInfo>> {
     // Temporarily disabled until migrations are run
     // TODO: Re-enable after running database migrations
@@ -88,6 +88,7 @@ async fn get_provenance_sqlite(
 }
 
 /// Extract key name from signer key string
+#[allow(dead_code)] // Reserved for future key registry integration
 fn extract_key_name(signer_key: &str) -> String {
     // For now, just return a mock key name
     // In production, this would query a key registry

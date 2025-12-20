@@ -26,7 +26,7 @@ import { NotificationCenter } from '@/components/NotificationCenter';
 import { useKeyboardShortcuts } from '@/utils/accessibility';
 import { generateNavigationGroups, shouldShowNavGroup } from '@/utils/navigation';
 import { logger } from '@/utils/logger';
-import { cn } from '@/components/ui/utils';
+import { cn } from '@/lib/utils';
 import { Lock, ChevronDown, ChevronRight, RefreshCw, LogOut, CheckCircle2, ArrowRight } from 'lucide-react';
 import { LiveDataStatusProvider } from '@/hooks/realtime/useLiveDataStatus';
 import { ConnectionStatusIndicator } from '@/components/header/ConnectionStatusIndicator';
@@ -43,6 +43,7 @@ import { useUiMode } from '@/hooks/ui/useUiMode';
 import { UiMode } from '@/config/ui-mode';
 import { FetchErrorPanel } from '@/components/ui/fetch-error-panel';
 import { useBackendReachability } from '@/stores/backendReachability';
+import { isDemoMvpMode } from '@/config/demo';
 
 const COLLAPSED_GROUPS_KEY = 'aos_sidebar_collapsed_groups';
 
@@ -142,6 +143,35 @@ function RootLayoutContent({
       window.removeEventListener('aos:open-help', helpListener);
     };
   }, []);
+
+  useEffect(() => {
+    const targetId = (location.hash ?? '').replace(/^#/, '').trim();
+    if (!targetId || targetId.includes('=')) return;
+
+    let cancelled = false;
+    let attempts = 0;
+    const maxAttempts = 40;
+    const delayMs = 50;
+
+    const tryScroll = () => {
+      if (cancelled) return;
+
+      const element = document.getElementById(targetId);
+      if (element) {
+        element.scrollIntoView({ block: 'start' });
+        return;
+      }
+
+      attempts += 1;
+      if (attempts >= maxAttempts) return;
+      setTimeout(tryScroll, delayMs);
+    };
+
+    tryScroll();
+    return () => {
+      cancelled = true;
+    };
+  }, [location.hash, location.pathname]);
 
   // Persist collapsed groups state
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>(() => {
@@ -266,7 +296,14 @@ function RootLayoutContent({
       {/* Main content area — SidebarInset owns the primary vertical scroll. Inner panels should only scroll when truly overflowed. */}
       <SidebarInset>
         {/* Header */}
-        <header className="flex items-center border-b bg-background/80 backdrop-blur-sm sticky top-0 z-10">
+        <header
+          className="flex items-center border-b bg-background/80 backdrop-blur-sm sticky top-0 z-10"
+          style={{
+            paddingTop: 'env(safe-area-inset-top, 0px)',
+            paddingLeft: 'env(safe-area-inset-left, 0px)',
+            paddingRight: 'env(safe-area-inset-right, 0px)',
+          }}
+        >
           <AppHeader
             user={user ?? { email: 'guest@example.com', role: 'viewer' }}
             sessionMode={sessionMode}
@@ -276,7 +313,7 @@ function RootLayoutContent({
             onOpenNotifications={setNotificationCenterOpen}
             onOpenPalette={openPalette}
             onToggleTheme={toggleTheme}
-            className="flex-1"
+            className="flex-1 static top-auto z-auto border-0 bg-transparent"
             uiMode={uiMode}
             onChangeUiMode={onChangeUiMode}
           />
@@ -289,43 +326,51 @@ function RootLayoutContent({
         {/* Content */}
         <main
           id="main-content"
-          className="flex-1"
+          className="flex min-h-0 flex-1 flex-col"
           role="main"
           tabIndex={-1}
           style={{
             paddingLeft: 'max(var(--space-4), env(safe-area-inset-left, 0px))',
             paddingRight: 'max(var(--space-4), env(safe-area-inset-right, 0px))',
             paddingTop: 'var(--space-4)',
-            paddingBottom: 'var(--space-4)',
+            paddingBottom: 'max(var(--space-4), env(safe-area-inset-bottom, 0px))',
           }}
         >
-          <div className="mx-auto w-full" style={{ maxWidth: 'var(--layout-content-width-xl)' }}>
-            <SessionModeBanner sessionMode={sessionMode} />
-            {backendReachability.status === 'offline' && (
-              <div className="mb-4">
-                <FetchErrorPanel
-                  title="Backend unavailable"
-                  description="The UI can’t reach the AdapterOS API. Start the control plane and retry."
-                  error={backendReachability.lastError?.error}
-                />
-              </div>
-            )}
-            {tenantAccessDenied && (
-              <Alert variant="destructive" className="mb-4 flex items-start gap-3">
-                <div className="flex-1">
-                  <AlertTitle>TENANT_ACCESS_DENIED</AlertTitle>
-                  <AlertDescription>
-                    Your session lacks access to this tenant. Switch tenants and retry the action.
-                  </AlertDescription>
+          <div
+            className="mx-auto flex min-h-0 w-full flex-1 flex-col"
+            style={{ maxWidth: 'var(--layout-content-width-xl)' }}
+          >
+            <div className="flex-none">
+              <SessionModeBanner sessionMode={sessionMode} />
+              {backendReachability.status === 'offline' && (
+                <div className="mb-4">
+                  <FetchErrorPanel
+                    title="Backend unavailable"
+                    description="The UI can’t reach the AdapterOS API. Start the control plane and retry."
+                    error={backendReachability.lastError?.error}
+                  />
                 </div>
-                <Button size="sm" variant="outline" onClick={clearTenantAccessDenied}>
-                  Dismiss
-                </Button>
-              </Alert>
-            )}
-            <SectionErrorBoundary sectionName="Page Content">
-              <Outlet />
-            </SectionErrorBoundary>
+              )}
+              {tenantAccessDenied && (
+                <Alert variant="destructive" className="mb-4 flex items-start gap-3">
+                  <div className="flex-1">
+                    <AlertTitle>TENANT_ACCESS_DENIED</AlertTitle>
+                    <AlertDescription>
+                      Your session lacks access to this tenant. Switch tenants and retry the action.
+                    </AlertDescription>
+                  </div>
+                  <Button size="sm" variant="outline" onClick={clearTenantAccessDenied}>
+                    Dismiss
+                  </Button>
+                </Alert>
+              )}
+            </div>
+
+            <div className="min-h-0 flex-1">
+              <SectionErrorBoundary sectionName="Page Content">
+                <Outlet />
+              </SectionErrorBoundary>
+            </div>
           </div>
         </main>
       </SidebarInset>
@@ -346,7 +391,7 @@ function RootLayoutContent({
 }
 
 export default function RootLayout() {
-  const { user, isLoading, logout } = useAuth();
+  const { user, isLoading, logout, sessionMode } = useAuth();
   const { selectedTenant, tenants, setSelectedTenant, isLoading: tenantsLoading, refreshTenants } = useTenant();
   const location = useLocation();
   const [tenantError, setTenantError] = useState<string | null>(null);
@@ -363,9 +408,10 @@ export default function RootLayout() {
   }, []);
 
   // Generate navigation groups from centralized route config
+  const demoMode = isDemoMvpMode(sessionMode);
   const navigationGroups = useMemo(
-    () => generateNavigationGroups(user?.role, user?.permissions, uiMode),
-    [user?.role, user?.permissions, uiMode],
+    () => generateNavigationGroups(user?.role, user?.permissions, uiMode, { demoMode }),
+    [demoMode, user?.permissions, user?.role, uiMode],
   );
 
   // Convert navigation groups to command items for command palette

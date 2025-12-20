@@ -368,7 +368,9 @@ cp /var/lib/adapteros/aos-cp.sqlite3 /var/lib/adapteros/aos-cp.sqlite3.pre-resto
 
 # 3. Restore from backup
 BACKUP_FILE="/var/backups/adapteros/aos-backup-20250101_120000.tar.gz"
-cd /tmp
+WORK_DIR="/var/lib/adapteros/restore-work"
+mkdir -p "$WORK_DIR"
+cd "$WORK_DIR"
 tar xzf "$BACKUP_FILE"
 cp aos-db-20250101_120000.sqlite3 /var/lib/adapteros/aos-cp.sqlite3
 
@@ -654,7 +656,7 @@ aosctl metrics config --key cpu_warning --value 75.0
    ```
 3. Preserve GPU state for forensics
    ```bash
-   aosctl worker debug dump --file /tmp/gpu_state.bin
+   aosctl worker debug dump --file /var/lib/adapteros/forensics/gpu_state.bin
    ```
 
 **Investigation:**
@@ -783,7 +785,32 @@ Total RAM = 5GB + (3 × 64MB) + 15% + 2GB = ~8.5GB minimum
 - **Growth Rate**: +1-10GB/month depending on training
 - **Backup Storage**: 2× primary storage for retention
 
-### Example Deployments
+#### Database Capacity Planning
+
+#### Tenant Data Scaling
+Based on Migration 0210 performance characteristics:
+
+| Metric | Growth per 10k Items | Index Overhead | Recommended Action |
+|--------|----------------------|----------------|-------------------|
+| Adapters | ~15 MB | ~5 MB | Reindex monthly |
+| Documents | ~50 MB | ~10 MB | Partition > 1M docs |
+| Chat Msgs | ~200 MB | ~40 MB | Archive > 90 days |
+| Routing Decisions | ~500 MB | ~100 MB | Rotate monthly |
+
+#### Composite Index Impact
+- **Storage:** Indexes increase storage by ~30-40%.
+- **Write Latency:** ~5-10% overhead on INSERT/UPDATE.
+- **Read Latency:** ~50% improvement (sub-millisecond).
+
+#### Monitoring
+Use `scripts/monitor_index_performance.sh` to track:
+- `page_count`: Total database size pages.
+- `leaf_pages`: Index efficiency.
+- `overflow_pages`: Large content rows.
+
+---
+
+## Example Deployments
 
 #### Small Production (Development Teams)
 

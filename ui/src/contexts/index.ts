@@ -65,12 +65,6 @@ export {
   default as HistoryContext,
 } from './HistoryContext';
 
-// Modal management - Modal state coordination
-export {
-  ModalProvider,
-  useModalManager,
-} from './ModalContext';
-
 // Undo/Redo - Global undo/redo with keyboard shortcuts
 export {
   UndoRedoProvider,

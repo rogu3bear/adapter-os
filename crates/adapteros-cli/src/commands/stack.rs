@@ -6,7 +6,7 @@ use clap::Subcommand;
 use comfy_table::{modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL, Table};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use tracing::{error, info};
+use tracing::info;
 
 /// Request to create a new adapter stack
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -310,7 +310,7 @@ async fn list_stacks(tenant: Option<String>, json: bool, output: &OutputWriter) 
             ]);
         }
 
-        output.result(&format!("{table}"));
+        output.result(format!("{table}"));
     }
 
     Ok(())
@@ -376,7 +376,7 @@ async fn create_stack(
     if output.is_json() {
         output.result(&serde_json::to_string_pretty(&stack)?);
     } else {
-        output.success(&format!("Created adapter stack: {}", stack.name));
+        output.success(format!("Created adapter stack: {}", stack.name));
         output.kv("Stack ID", &stack.id);
         output.kv("Adapters", &stack.adapter_ids.len().to_string());
         output.kv("Version", &stack.version.to_string());
@@ -385,7 +385,7 @@ async fn create_stack(
             output.blank();
             output.warning("Warnings:");
             for warning in &stack.warnings {
-                output.warning(&format!("  - {}", warning));
+                output.warning(format!("  - {}", warning));
             }
         }
     }
@@ -432,7 +432,7 @@ async fn show_stack(
     if json {
         output.result(&serde_json::to_string_pretty(&stack)?);
     } else {
-        output.info(&format!("Stack: {}", stack.name));
+        output.info(format!("Stack: {}", stack.name));
         output.blank();
         output.kv("ID", &stack.id);
         output.kv("Tenant", &stack.tenant_id);
@@ -445,14 +445,14 @@ async fn show_stack(
         output.blank();
         output.info("Adapters:");
         for (i, adapter_id) in stack.adapter_ids.iter().enumerate() {
-            output.result(&format!("  {}. {}", i + 1, adapter_id));
+            output.result(format!("  {}. {}", i + 1, adapter_id));
         }
 
         if !stack.warnings.is_empty() {
             output.blank();
             output.warning("Warnings:");
             for warning in &stack.warnings {
-                output.warning(&format!("  - {}", warning));
+                output.warning(format!("  - {}", warning));
             }
         }
     }
@@ -496,7 +496,7 @@ async fn delete_stack(
         )));
     }
 
-    output.success(&format!("Deleted adapter stack: {}", stack_id));
+    output.success(format!("Deleted adapter stack: {}", stack_id));
     Ok(())
 }
 
@@ -537,7 +537,7 @@ async fn activate_stack(
         )));
     }
 
-    output.success(&format!("Activated adapter stack: {}", stack_id));
+    output.success(format!("Activated adapter stack: {}", stack_id));
     Ok(())
 }
 
@@ -618,7 +618,7 @@ async fn set_default_stack(
         )));
     }
 
-    output.success(&format!(
+    output.success(format!(
         "Set default adapter stack for tenant '{}': {}",
         tenant_id, stack_id
     ));

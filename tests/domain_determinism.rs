@@ -32,7 +32,9 @@ fn create_manifest(
     manifest.adapter.output_format = "canonical".to_string();
     manifest.adapter.parameters = params;
 
-    let temp_file = NamedTempFile::new().unwrap();
+    let temp_root = std::path::PathBuf::from("var/tmp");
+    std::fs::create_dir_all(&temp_root).unwrap();
+    let temp_file = NamedTempFile::new_in(&temp_root).unwrap();
     save_manifest(&manifest, temp_file.path()).unwrap();
 
     temp_file

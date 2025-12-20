@@ -120,7 +120,14 @@ mod tests {
         LineageInfo, SingleFileAdapter, SingleFileAdapterPackager, TrainingConfig, TrainingExample,
     };
     use std::collections::{HashMap, HashSet};
+    use std::path::PathBuf;
     use tempfile::TempDir;
+
+    fn new_test_tempdir() -> TempDir {
+        let root = PathBuf::from("var").join("tmp");
+        std::fs::create_dir_all(&root).expect("create var/tmp");
+        TempDir::new_in(&root).expect("create temp dir")
+    }
 
     fn build_test_adapter() -> SingleFileAdapter {
         let weight_group = |group_type: WeightGroupType| WeightGroup {
@@ -171,7 +178,7 @@ mod tests {
 
     #[tokio::test]
     async fn parses_manifest_metadata() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let aos_path = temp_dir.path().join("sample.aos");
 
         let adapter = build_test_adapter();

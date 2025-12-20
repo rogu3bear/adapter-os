@@ -229,7 +229,7 @@ impl EmbeddingModel {
                     }
 
                     let packed_byte = packed_data[packed_idx];
-                    let value = if elem_idx % 2 == 0 {
+                    let value = if elem_idx.is_multiple_of(2) {
                         (packed_byte & 0x0F) as f32
                     } else {
                         ((packed_byte >> 4) & 0x0F) as f32

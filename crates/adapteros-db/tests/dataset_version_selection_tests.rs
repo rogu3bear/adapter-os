@@ -11,7 +11,7 @@ async fn latest_trusted_version_skips_blocked_head() -> Result<()> {
             Some("test dataset"),
             "jsonl",
             "hash-ds",
-            "/tmp/ds-trust",
+            "var/ds-trust",
             Some("tester"),
         )
         .await?;
@@ -22,7 +22,7 @@ async fn latest_trusted_version_skips_blocked_head() -> Result<()> {
             &dataset_id,
             Some("tenant-1"),
             Some("v1"),
-            "/tmp/ds-trust/v1",
+            "var/ds-trust/v1",
             "hash-v1",
             None,
             None,
@@ -38,7 +38,7 @@ async fn latest_trusted_version_skips_blocked_head() -> Result<()> {
             &dataset_id,
             Some("tenant-1"),
             Some("v2"),
-            "/tmp/ds-trust/v2",
+            "var/ds-trust/v2",
             "hash-v2",
             None,
             None,

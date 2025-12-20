@@ -270,7 +270,7 @@ impl Db {
         if let Some(kv_backend) = self.get_stack_kv_repo() {
             // Convert adapteros_core::LifecycleState to adapteros_storage::entities::stack::LifecycleState
             use adapteros_storage::entities::stack::LifecycleState as KvLifecycleState;
-            let kv_state = KvLifecycleState::from_str(new_state.as_str()).ok_or_else(|| {
+            let kv_state = KvLifecycleState::parse_state(new_state.as_str()).ok_or_else(|| {
                 adapteros_core::AosError::Database(format!(
                     "Invalid lifecycle state: {}",
                     new_state.as_str()

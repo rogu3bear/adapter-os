@@ -8,6 +8,16 @@ use adapteros_lora_lifecycle::{LifecycleManager, MemoryPressureLevel};
 use adapteros_manifest::Policies;
 use std::collections::HashMap;
 use std::path::PathBuf;
+use tempfile::TempDir;
+
+fn new_test_adapters_dir() -> TempDir {
+    let base_dir = PathBuf::from("var").join("tmp");
+    let _ = std::fs::create_dir_all(&base_dir);
+    tempfile::Builder::new()
+        .prefix("lifecycle_test_")
+        .tempdir_in(&base_dir)
+        .expect("tempdir")
+}
 
 #[tokio::test]
 async fn test_h3_memory_pressure_eviction() {
@@ -23,11 +33,12 @@ async fn test_h3_memory_pressure_eviction() {
     }
 
     let policies = Policies::default();
+    let temp_dir = new_test_adapters_dir();
     let manager = LifecycleManager::new(
         adapter_names,
         hashes,
         &policies,
-        PathBuf::from("/tmp"),
+        temp_dir.path().to_path_buf(),
         None,
         3,
     );
@@ -60,11 +71,12 @@ async fn test_h3_expired_adapters_evicted_first() {
     hashes.insert("normal-adapter".to_string(), B3Hash::hash(b"normal"));
 
     let policies = Policies::default();
+    let temp_dir = new_test_adapters_dir();
     let manager = LifecycleManager::new(
         adapter_names,
         hashes,
         &policies,
-        PathBuf::from("/tmp"),
+        temp_dir.path().to_path_buf(),
         None,
         3,
     );
@@ -95,11 +107,12 @@ async fn test_h3_15_percent_headroom_threshold() {
     hashes.insert("test-adapter".to_string(), B3Hash::hash(b"test"));
 
     let policies = Policies::default();
+    let temp_dir = new_test_adapters_dir();
     let manager = LifecycleManager::new(
         adapter_names,
         hashes,
         &policies,
-        PathBuf::from("/tmp"),
+        temp_dir.path().to_path_buf(),
         None,
         3,
     );
@@ -143,11 +156,12 @@ async fn test_h3_eviction_priority_order() {
     }
 
     let policies = Policies::default();
+    let temp_dir = new_test_adapters_dir();
     let manager = LifecycleManager::new(
         adapter_names,
         hashes,
         &policies,
-        PathBuf::from("/tmp"),
+        temp_dir.path().to_path_buf(),
         None,
         3,
     );

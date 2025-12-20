@@ -38,7 +38,7 @@ const mockListModels = vi.fn();
 const mockLoadBaseModel = vi.fn();
 const mockStreamInfer = vi.fn();
 
-vi.mock('@/api/client', () => ({
+vi.mock('@/api/services', () => ({
   __esModule: true,
   default: {
     getBaseModelStatus: (...args: unknown[]) => mockGetBaseModelStatus(...args),
@@ -53,15 +53,14 @@ const mockUseModelStatus = vi.fn();
 const mockUseAutoLoadModel = vi.fn();
 const mockUseGetDefaultStack = vi.fn();
 
-vi.mock('@/hooks/useModelStatus', () => ({
-  useModelStatus: (tenantId: string) => mockUseModelStatus(tenantId),
+vi.mock('@/hooks/model-loading', () => ({
+  useModelStatus: (tenantId: string, pollingInterval?: number) =>
+    mockUseModelStatus(tenantId, pollingInterval),
+  useAutoLoadModel: (tenantId: string, enabled: boolean) =>
+    mockUseAutoLoadModel(tenantId, enabled),
 }));
 
-vi.mock('@/hooks/useAutoLoadModel', () => ({
-  useAutoLoadModel: (tenantId: string, enabled: boolean) => mockUseAutoLoadModel(tenantId, enabled),
-}));
-
-vi.mock('@/hooks/useAdmin', () => ({
+vi.mock('@/hooks/admin/useAdmin', () => ({
   useGetDefaultStack: (tenantId: string) => mockUseGetDefaultStack(tenantId),
 }));
 
@@ -138,7 +137,7 @@ describe('OperatorChatLayout', () => {
         memoryUsageMb: null,
         errorMessage: null,
         isReady: false,
-        refresh: vi.fn(),
+        refetch: vi.fn(),
       });
 
       mockUseAutoLoadModel.mockReturnValue({
@@ -182,7 +181,7 @@ describe('OperatorChatLayout', () => {
         memoryUsageMb: null,
         errorMessage: null,
         isReady: false,
-        refresh: vi.fn(),
+        refetch: vi.fn(),
       });
 
       mockUseAutoLoadModel.mockReturnValue({
@@ -232,7 +231,7 @@ describe('OperatorChatLayout', () => {
         memoryUsageMb: null,
         errorMessage: null,
         isReady: false,
-        refresh: vi.fn(),
+        refetch: vi.fn(),
       });
 
       mockUseAutoLoadModel.mockReturnValue({
@@ -279,7 +278,7 @@ describe('OperatorChatLayout', () => {
         memoryUsageMb: null,
         errorMessage: null,
         isReady: false,
-        refresh: vi.fn(),
+        refetch: vi.fn(),
       });
 
       mockUseAutoLoadModel.mockReturnValue({
@@ -328,7 +327,7 @@ describe('OperatorChatLayout', () => {
         memoryUsageMb: null,
         errorMessage: null,
         isReady: false,
-        refresh: vi.fn(),
+        refetch: vi.fn(),
       });
 
       mockUseAutoLoadModel.mockReturnValue({
@@ -374,7 +373,7 @@ describe('OperatorChatLayout', () => {
         memoryUsageMb: null,
         errorMessage: null,
         isReady: false,
-        refresh: vi.fn(),
+        refetch: vi.fn(),
       });
 
       mockUseAutoLoadModel.mockReturnValue({
@@ -419,7 +418,7 @@ describe('OperatorChatLayout', () => {
         memoryUsageMb: null,
         errorMessage: null,
         isReady: false,
-        refresh: vi.fn(),
+        refetch: vi.fn(),
       });
 
       mockUseAutoLoadModel.mockReturnValue({
@@ -466,7 +465,7 @@ describe('OperatorChatLayout', () => {
         memoryUsageMb: null,
         errorMessage: null,
         isReady: false,
-        refresh: vi.fn(),
+        refetch: vi.fn(),
       });
 
       mockUseAutoLoadModel.mockReturnValue({
@@ -522,7 +521,7 @@ describe('OperatorChatLayout', () => {
         memoryUsageMb: null,
         errorMessage: null,
         isReady: false,
-        refresh: vi.fn(),
+        refetch: vi.fn(),
       });
 
       mockUseAutoLoadModel.mockReturnValue({
@@ -570,7 +569,7 @@ describe('OperatorChatLayout', () => {
         memoryUsageMb: null,
         errorMessage: null,
         isReady: false,
-        refresh: vi.fn(),
+        refetch: vi.fn(),
       });
 
       mockUseAutoLoadModel.mockReturnValue({
@@ -620,7 +619,7 @@ describe('OperatorChatLayout', () => {
         memoryUsageMb: null,
         errorMessage: null,
         isReady: false,
-        refresh: vi.fn(),
+        refetch: vi.fn(),
       });
 
       mockUseAutoLoadModel.mockReturnValue({
@@ -661,7 +660,7 @@ describe('OperatorChatLayout', () => {
         memoryUsageMb: null,
         errorMessage: null,
         isReady: false,
-        refresh: vi.fn(),
+        refetch: vi.fn(),
       });
 
       mockUseAutoLoadModel.mockReturnValue({
@@ -704,7 +703,7 @@ describe('OperatorChatLayout', () => {
         memoryUsageMb: 2048,
         errorMessage: null,
         isReady: true,
-        refresh: vi.fn(),
+        refetch: vi.fn(),
       });
 
       mockUseAutoLoadModel.mockReturnValue({
@@ -745,7 +744,7 @@ describe('OperatorChatLayout', () => {
         memoryUsageMb: 2048,
         errorMessage: null,
         isReady: true,
-        refresh: vi.fn(),
+        refetch: vi.fn(),
       });
 
       mockUseAutoLoadModel.mockReturnValue({
@@ -785,7 +784,7 @@ describe('OperatorChatLayout', () => {
         memoryUsageMb: 2048,
         errorMessage: null,
         isReady: true,
-        refresh: vi.fn(),
+        refetch: vi.fn(),
       });
 
       mockUseAutoLoadModel.mockReturnValue({
@@ -826,7 +825,7 @@ describe('OperatorChatLayout', () => {
         memoryUsageMb: 2048,
         errorMessage: null,
         isReady: true,
-        refresh: vi.fn(),
+        refetch: vi.fn(),
       });
 
       mockUseAutoLoadModel.mockReturnValue({
@@ -869,7 +868,7 @@ describe('OperatorChatLayout', () => {
         memoryUsageMb: 2048,
         errorMessage: null,
         isReady: true,
-        refresh: vi.fn(),
+        refetch: vi.fn(),
       });
 
       mockUseAutoLoadModel.mockReturnValue({
@@ -909,7 +908,7 @@ describe('OperatorChatLayout', () => {
         memoryUsageMb: 2048,
         errorMessage: null,
         isReady: true,
-        refresh: vi.fn(),
+        refetch: vi.fn(),
       });
 
       mockUseAutoLoadModel.mockReturnValue({
@@ -962,7 +961,7 @@ describe('OperatorChatLayout', () => {
           memoryUsageMb: null,
           errorMessage: null,
           isReady: false,
-          refresh: vi.fn(),
+          refetch: vi.fn(),
         });
 
         mockUseAutoLoadModel.mockReturnValue({

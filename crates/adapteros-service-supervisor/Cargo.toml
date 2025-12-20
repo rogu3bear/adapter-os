@@ -1,6 +1,6 @@
 [package]
 name = "adapteros-service-supervisor"
-version = "0.1.0"
+version.workspace = true
 edition = "2021"
 description = "Production-ready service supervisor for AdapterOS with proper process management and security"
 authors = ["AdapterOS Team"]
@@ -33,6 +33,7 @@ jsonwebtoken = "9.2"
 ed25519-dalek = { version = "2.1", features = ["rand_core"] }
 adapteros-crypto = { path = "../adapteros-crypto" }
 adapteros-core = { path = "../adapteros-core" }
+adapteros-config = { path = "../adapteros-config" }
 adapteros-api-types = { path = "../adapteros-api-types" }
 adapteros-telemetry = { path = "../adapteros-telemetry" }
 blake3 = { workspace = true }
@@ -52,6 +53,7 @@ uuid = { version = "1.0", features = ["v4"] }
 chrono = { version = "0.4", features = ["serde"] }
 futures = "0.3"
 async-trait = "0.1"
+base64 = "0.22"
 
 # Circuit breaker (temporarily removed)
 # circuit_breaker = "0.1"

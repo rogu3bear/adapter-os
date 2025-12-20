@@ -12,7 +12,7 @@ import { Switch } from './ui/switch';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
 import { RotateCcw, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { logger, toError } from '@/utils/logger';
 import { DensityProvider, useDensity } from '@/contexts/DensityContext';
 import { BreadcrumbNavigation } from './BreadcrumbNavigation';
@@ -27,6 +27,7 @@ import { TrainingWizardProvider, SimpleDatasetMode, ConversionStatus } from './T
 import { useDocuments } from '@/hooks/documents';
 import { useCollections } from '@/hooks/api/useCollectionsApi';
 import { useTrainingDataOrchestrator } from '@/hooks/training';
+import { buildTrainingJobDetailLink, buildDatasetDetailLink, buildTrainingOverviewLink } from '@/utils/navLinks';
 import { CategoryStep } from './TrainingWizard/steps/CategoryStep';
 import { BasicInfoStep } from './TrainingWizard/steps/BasicInfoStep';
 import { SimpleDatasetStep } from './TrainingWizard/steps/SimpleDatasetStep';
@@ -37,6 +38,7 @@ import { TrainingParamsStep } from './TrainingWizard/steps/TrainingParamsStep';
 import { PackagingStep } from './TrainingWizard/steps/PackagingStep';
 import { ReviewStep } from './TrainingWizard/steps/ReviewStep';
 import { WizardState, DatasetSummary } from './TrainingWizard/types';
+import type { TrainingWizardProps } from '@/types/components';
 
 /**
  * Maps backend error codes to user-friendly messages
@@ -55,18 +57,6 @@ function getTrainingErrorMessage(code: string, fallback: string): string {
     'DATABASE_ERROR': 'Database error. Please try again later.',
   };
   return messages[code] || fallback;
-}
-
-interface TrainingWizardProps {
-  onComplete: (trainingJobId: string) => void;
-  onCancel: () => void;
-  initialDatasetId?: string;
-  /** When true, keep data source locked to the provided dataset */
-  lockDatasetId?: boolean;
-  /** When true, adjusts styling for standalone page rendering (not in dialog) */
-  isStandalonePage?: boolean;
-  /** When true, hides the simple/advanced mode toggle (defaults to simple) */
-  hideSimpleModeToggle?: boolean;
 }
 
 // Inner component that uses density context
@@ -162,10 +152,10 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
         const mappedDatasets: DatasetSummary[] = (datasetsData.datasets || []).map((d) => ({
           id: d.id,
           name: d.name,
-          validation_status: d.validation_status || 'draft',
+          validation_status: d.validation_status ?? 'draft',
           file_count: d.file_count || 0,
           total_size_bytes: d.total_size_bytes || 0,
-          validation_errors: Array.isArray(d.validation_errors) ? d.validation_errors.join('; ') : d.validation_errors,
+          validation_errors: Array.isArray(d.validation_errors) ? d.validation_errors.join('; ') : (d.validation_errors ?? undefined),
         }));
         setDatasets(mappedDatasets);
       } catch (error) {
@@ -280,21 +270,21 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
         source_type: 'uploaded_files',
         files: uploadFiles,
       });
-      const newDatasetId = response.dataset.id;
+      const newDatasetId = response.dataset_id;
       setCreatedDatasetId(newDatasetId);
       updateState({
         datasetId: newDatasetId,
         dataSourceType: 'dataset',
-        name: state.name || response.dataset.name || nameToUse,
+        name: state.name || response.name || nameToUse,
       });
       setDatasets(prev => [
         {
           id: newDatasetId,
-          name: response.dataset.name || nameToUse,
-          validation_status: response.dataset.validation_status || 'draft',
-          file_count: response.dataset.file_count || 0,
-          total_size_bytes: response.dataset.total_size_bytes || 0,
-          validation_errors: response.dataset.validation_errors
+          name: response.name || nameToUse,
+          validation_status: response.validation_status,
+          file_count: response.file_count || 0,
+          total_size_bytes: response.total_size_bytes || 0,
+          validation_errors: Array.isArray(response.validation_errors) ? response.validation_errors.join('; ') : (response.validation_errors ?? undefined)
         },
         ...prev.filter(d => d.id !== newDatasetId),
       ]);
@@ -320,7 +310,7 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
 
   const handleOpenDatasetTools = useCallback((datasetId?: string | null) => {
     if (!datasetId) return;
-    navigate(`/training/datasets/${datasetId}`, { state: { focus: 'validation' } });
+    navigate(buildDatasetDetailLink(datasetId), { state: { focus: 'validation' } });
   }, [navigate]);
 
   // Convert document or collection to JSONL dataset
@@ -668,7 +658,7 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
       toast.success(`Training job ${job.id} started successfully!`, {
         action: {
           label: 'View Progress',
-          onClick: () => navigate(`/training/jobs/${job.id}`),
+          onClick: () => navigate(buildTrainingJobDetailLink(job.id)),
         },
       });
       onComplete(job.id);

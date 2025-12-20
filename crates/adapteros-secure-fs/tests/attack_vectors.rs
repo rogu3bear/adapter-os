@@ -20,6 +20,17 @@ use std::sync::{Arc, Barrier, Mutex};
 use std::thread;
 use tempfile::TempDir;
 
+fn test_temp_root() -> Result<PathBuf> {
+    let root = PathBuf::from("var").join("tmp");
+    fs::create_dir_all(&root)?;
+    Ok(root)
+}
+
+fn new_test_tempdir() -> Result<TempDir> {
+    let root = test_temp_root()?;
+    Ok(TempDir::new_in(&root)?)
+}
+
 // ============================================================================
 // Test 1: Symlink Attack Prevention
 // ============================================================================
@@ -30,7 +41,7 @@ use tempfile::TempDir;
 /// outside the sandbox (e.g., /etc/passwd, /etc/shadow).
 #[test]
 fn test_symlink_attack_prevention() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
     let mut config = SecureFsConfig::default();
     config.enable_caps = false;
     config.enable_symlink_protection = true;
@@ -102,7 +113,7 @@ fn test_symlink_attack_prevention() -> Result<()> {
 /// This test verifies that the secure filesystem prevents such races.
 #[test]
 fn test_toctou_race_condition() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
     let mut config = SecureFsConfig::default();
     config.enable_caps = false;
     config.enable_traversal_protection = true;
@@ -181,7 +192,7 @@ fn test_toctou_race_condition() -> Result<()> {
 /// - /absolute/path/to/file
 #[test]
 fn test_directory_traversal() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
     let mut config = SecureFsConfig::default();
     config.enable_caps = false;
     config.enable_traversal_protection = true;
@@ -257,7 +268,7 @@ fn test_directory_traversal() -> Result<()> {
 /// or content through the hardlink to elevate privileges.
 #[test]
 fn test_hardlink_attack_prevention() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
     let mut config = SecureFsConfig::default();
     config.enable_caps = false;
 
@@ -333,7 +344,7 @@ fn test_hardlink_attack_prevention() -> Result<()> {
 /// to run with elevated privileges.
 #[test]
 fn test_privilege_escalation() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
     let mut config = SecureFsConfig::default();
     config.enable_caps = false;
 
@@ -432,7 +443,7 @@ fn test_privilege_escalation() -> Result<()> {
 /// are resolved to their absolute, canonical form.
 #[test]
 fn test_path_canonicalization() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
 
     // Test 6.1: Canonicalize simple relative path
     let rel_path = PathBuf::from("./test/file.txt");
@@ -462,7 +473,10 @@ fn test_path_canonicalization() -> Result<()> {
     assert!(is_within, "Nested file should be within base directory");
 
     // Test 6.5: Verify path outside base is detected
-    let outside = std::env::temp_dir().join("outside.txt");
+    let temp_root = PathBuf::from("var/tmp");
+    fs::create_dir_all(&temp_root)?;
+    let outside_dir = TempDir::new_in(&temp_root)?;
+    let outside = outside_dir.path().join("outside.txt");
     fs::write(&outside, "outside")?;
 
     let is_within = traversal::is_path_within_base(&outside, base)?;
@@ -506,7 +520,7 @@ fn test_path_canonicalization() -> Result<()> {
 /// - Partial writes/reads
 #[test]
 fn test_concurrent_file_access() -> Result<()> {
-    let temp_dir = Arc::new(TempDir::new()?);
+    let temp_dir = Arc::new(new_test_tempdir()?);
     let barrier = Arc::new(Barrier::new(5));
 
     // Test 7.1: Concurrent file creation
@@ -708,7 +722,7 @@ fn test_concurrent_file_access() -> Result<()> {
 /// Test complex attack scenarios combining multiple techniques
 #[test]
 fn test_combined_attack_scenarios() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
     let mut config = SecureFsConfig::default();
     config.enable_caps = false;
     config.enable_symlink_protection = true;
@@ -740,7 +754,7 @@ fn test_combined_attack_scenarios() -> Result<()> {
 /// Test that deep symlink chains are detected
 #[test]
 fn test_symlink_chain_detection() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
 
     #[cfg(unix)]
     {
@@ -768,7 +782,7 @@ fn test_symlink_chain_detection() -> Result<()> {
 /// Test rapid successive file operations for race conditions
 #[test]
 fn test_rapid_file_operations() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
     let mut config = SecureFsConfig::default();
     config.enable_caps = false;
 

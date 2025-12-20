@@ -510,6 +510,12 @@ impl MLXFFITensor {
         }
     }
 
+    /// Clone the tensor (create a new tensor with copied data)
+    pub fn clone_tensor(&self) -> Result<Self> {
+        let data = self.to_float_vec()?;
+        Self::from_data(&data, self.shape.clone())
+    }
+
     /// Get number of dimensions (rank) from Rust-side tracking
     pub fn ndim(&self) -> usize {
         self.shape.len()

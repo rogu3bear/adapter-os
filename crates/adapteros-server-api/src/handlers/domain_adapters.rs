@@ -121,7 +121,7 @@ pub async fn get_domain_adapter(
 
     let adapter = state
         .db
-        .get_adapter(&claims.tenant_id, &adapter_id)
+        .get_adapter_for_tenant(&claims.tenant_id, &adapter_id)
         .await
         .map_err(|e| {
             error!(error = %e, adapter_id = %adapter_id, "Failed to get domain adapter");
@@ -240,14 +240,17 @@ pub async fn create_domain_adapter(
     info!(adapter_id = %id, name = %req.name, "Created domain adapter");
 
     // Audit log: domain adapter created
-    let _ = crate::audit_helper::log_success(
+    if let Err(e) = crate::audit_helper::log_success(
         &state.db,
         &claims,
         crate::audit_helper::actions::DOMAIN_ADAPTER_CREATE,
         crate::audit_helper::resources::DOMAIN_ADAPTER,
         Some(&id),
     )
-    .await;
+    .await
+    {
+        tracing::warn!(error = %e, "Audit log failed");
+    }
 
     let response = DomainAdapterResponse {
         schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
@@ -298,7 +301,7 @@ pub async fn load_domain_adapter(
     // Get adapter from database
     let adapter = state
         .db
-        .get_adapter(&claims.tenant_id, &adapter_id)
+        .get_adapter_for_tenant(&claims.tenant_id, &adapter_id)
         .await
         .map_err(|e| {
             error!(error = %e, adapter_id = %adapter_id, "Failed to get adapter for loading");
@@ -433,7 +436,7 @@ pub async fn load_domain_adapter(
     // Fetch updated adapter
     let updated_adapter = state
         .db
-        .get_adapter(&claims.tenant_id, &adapter_id)
+        .get_adapter_for_tenant(&claims.tenant_id, &adapter_id)
         .await
         .map_err(|e| {
             error!(error = %e, adapter_id = %adapter_id, "Failed to fetch updated adapter");
@@ -459,14 +462,17 @@ pub async fn load_domain_adapter(
     info!(adapter_id = %adapter_id, "Loaded domain adapter");
 
     // Audit log: domain adapter loaded
-    let _ = crate::audit_helper::log_success(
+    if let Err(e) = crate::audit_helper::log_success(
         &state.db,
         &claims,
         crate::audit_helper::actions::DOMAIN_ADAPTER_LOAD,
         crate::audit_helper::resources::DOMAIN_ADAPTER,
         Some(&adapter_id),
     )
-    .await;
+    .await
+    {
+        tracing::warn!(error = %e, "Audit log failed");
+    }
 
     Ok(Json(adapter_to_domain_response(updated_adapter)))
 }
@@ -493,7 +499,7 @@ pub async fn unload_domain_adapter(
     // Get adapter from database
     let adapter = state
         .db
-        .get_adapter(&claims.tenant_id, &adapter_id)
+        .get_adapter_for_tenant(&claims.tenant_id, &adapter_id)
         .await
         .map_err(|e| {
             error!(error = %e, adapter_id = %adapter_id, "Failed to get adapter for unloading");
@@ -561,7 +567,7 @@ pub async fn unload_domain_adapter(
     // Fetch updated adapter
     let updated_adapter = state
         .db
-        .get_adapter(&claims.tenant_id, &adapter_id)
+        .get_adapter_for_tenant(&claims.tenant_id, &adapter_id)
         .await
         .map_err(|e| {
             error!(error = %e, adapter_id = %adapter_id, "Failed to fetch updated adapter");
@@ -587,14 +593,17 @@ pub async fn unload_domain_adapter(
     info!(adapter_id = %adapter_id, "Unloaded domain adapter");
 
     // Audit log: domain adapter unloaded
-    let _ = crate::audit_helper::log_success(
+    if let Err(e) = crate::audit_helper::log_success(
         &state.db,
         &claims,
         crate::audit_helper::actions::DOMAIN_ADAPTER_UNLOAD,
         crate::audit_helper::resources::DOMAIN_ADAPTER,
         Some(&adapter_id),
     )
-    .await;
+    .await
+    {
+        tracing::warn!(error = %e, "Audit log failed");
+    }
 
     Ok(Json(adapter_to_domain_response(updated_adapter)))
 }
@@ -626,7 +635,7 @@ pub async fn test_domain_adapter(
     // Get adapter from database
     let adapter = state
         .db
-        .get_adapter(&claims.tenant_id, &adapter_id)
+        .get_adapter_for_tenant(&claims.tenant_id, &adapter_id)
         .await
         .map_err(|e| {
             error!(error = %e, adapter_id = %adapter_id, "Failed to get adapter for testing");
@@ -816,7 +825,7 @@ pub async fn get_domain_adapter_manifest(
     // Get adapter from database
     let adapter = state
         .db
-        .get_adapter(&claims.tenant_id, &adapter_id)
+        .get_adapter_for_tenant(&claims.tenant_id, &adapter_id)
         .await
         .map_err(|e| {
             error!(error = %e, adapter_id = %adapter_id, "Failed to get adapter manifest");
@@ -917,7 +926,7 @@ pub async fn execute_domain_adapter(
     // Get adapter from database
     let adapter = state
         .db
-        .get_adapter(&claims.tenant_id, &adapter_id)
+        .get_adapter_for_tenant(&claims.tenant_id, &adapter_id)
         .await
         .map_err(|e| {
             error!(error = %e, adapter_id = %adapter_id, "Failed to get adapter for execution");
@@ -1041,14 +1050,17 @@ pub async fn execute_domain_adapter(
     );
 
     // Audit log: domain adapter executed
-    let _ = crate::audit_helper::log_success(
+    if let Err(e) = crate::audit_helper::log_success(
         &state.db,
         &claims,
         crate::audit_helper::actions::DOMAIN_ADAPTER_EXECUTE,
         crate::audit_helper::resources::DOMAIN_ADAPTER,
         Some(&adapter_id),
     )
-    .await;
+    .await
+    {
+        tracing::warn!(error = %e, "Audit log failed");
+    }
 
     let execution = DomainAdapterExecutionResponse {
         schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
@@ -1087,7 +1099,7 @@ pub async fn delete_domain_adapter(
     // Get adapter to verify it exists and is a domain adapter
     let adapter = state
         .db
-        .get_adapter(&claims.tenant_id, &adapter_id)
+        .get_adapter_for_tenant(&claims.tenant_id, &adapter_id)
         .await
         .map_err(|e| {
             error!(error = %e, adapter_id = %adapter_id, "Failed to get adapter for deletion");
@@ -1139,7 +1151,7 @@ pub async fn delete_domain_adapter(
 
     if is_pinned {
         // Audit log: attempted deletion of pinned adapter (security event)
-        let _ = crate::audit_helper::log_failure(
+        if let Err(e) = crate::audit_helper::log_failure(
             &state.db,
             &claims,
             crate::audit_helper::actions::DOMAIN_ADAPTER_DELETE,
@@ -1147,7 +1159,10 @@ pub async fn delete_domain_adapter(
             Some(&adapter_id),
             "Adapter is pinned and cannot be deleted",
         )
-        .await;
+        .await
+        {
+            tracing::warn!(error = %e, "Audit log failed");
+        }
 
         return Err((
             StatusCode::CONFLICT,
@@ -1181,14 +1196,17 @@ pub async fn delete_domain_adapter(
     info!(adapter_id = %adapter_id, "Deleted domain adapter");
 
     // Audit log: domain adapter deleted
-    let _ = crate::audit_helper::log_success(
+    if let Err(e) = crate::audit_helper::log_success(
         &state.db,
         &claims,
         crate::audit_helper::actions::DOMAIN_ADAPTER_DELETE,
         crate::audit_helper::resources::DOMAIN_ADAPTER,
         Some(&adapter_id),
     )
-    .await;
+    .await
+    {
+        tracing::warn!(error = %e, "Audit log failed");
+    }
 
     Ok(StatusCode::NO_CONTENT)
 }

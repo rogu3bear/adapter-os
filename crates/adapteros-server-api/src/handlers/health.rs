@@ -8,26 +8,72 @@ use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
 use serde::{Deserialize, Serialize};
 use sqlx::query;
 use std::collections::HashMap;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::time::timeout;
 use utoipa::ToSchema;
 
 /// Health check endpoint
+///
+/// Returns 503 during boot to allow orchestrators to wait for startup.
+/// Returns 200 once the service is ready or in maintenance/draining states.
 #[utoipa::path(
     tag = "system",
     get,
     path = "/healthz",
     responses(
-        (status = 200, description = "Service is healthy", body = HealthResponse)
+        (status = 200, description = "Service is healthy", body = HealthResponse),
+        (status = 503, description = "Service is booting", body = HealthResponse)
     )
 )]
-pub async fn health() -> impl IntoResponse {
-    Json(HealthResponse {
-        schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
-        status: "healthy".to_string(),
-        version: env!("CARGO_PKG_VERSION").to_string(),
-        models: None,
-    })
+pub async fn health(State(state): State<AppState>) -> impl IntoResponse {
+    // Check boot state - return 503 if still booting or failed
+    let (status_code, status_str) = if let Some(ref boot_state) = state.boot_state {
+        let current = boot_state.current_state();
+        if current.is_failed() {
+            // Failed state - return 503 with failure details
+            if let Some(failure_reason) = boot_state.get_failure_reason() {
+                (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    format!(
+                        "failed: [{}] {}",
+                        failure_reason.code, failure_reason.message
+                    ),
+                )
+            } else {
+                (StatusCode::SERVICE_UNAVAILABLE, "failed".to_string())
+            }
+        } else if current.is_degraded() {
+            // Degraded is operational but with reduced functionality
+            (StatusCode::OK, "degraded".to_string())
+        } else if boot_state.is_ready() {
+            (StatusCode::OK, "healthy".to_string())
+        } else if current.is_maintenance() {
+            // Maintenance is a valid "alive" state
+            (StatusCode::OK, "maintenance".to_string())
+        } else if current.is_draining() || current.is_shutting_down() {
+            // Draining/stopping means the service is still alive but winding down
+            (StatusCode::OK, format!("draining: {}", current))
+        } else {
+            // Still booting - return 503
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                format!("booting: {}", current),
+            )
+        }
+    } else {
+        // No boot state configured - assume healthy (backwards compatibility)
+        (StatusCode::OK, "healthy".to_string())
+    };
+
+    (
+        status_code,
+        Json(HealthResponse {
+            schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
+            status: status_str,
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            models: None,
+        }),
+    )
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -35,6 +81,8 @@ pub struct ReadyzCheck {
     pub ok: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hint: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub latency_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -60,20 +108,24 @@ pub struct ReadyzResponse {
         (status = 503, description = "Service is not ready", body = ReadyzResponse)
     )
 )]
+#[allow(unused_assignments)] // ready is initialized but always overwritten before use
 pub async fn ready(State(state): State<AppState>) -> impl IntoResponse {
     let mut ready = true;
 
     let mut db_check = ReadyzCheck {
         ok: true,
         hint: None,
+        latency_ms: None,
     };
     let mut worker_check = ReadyzCheck {
         ok: true,
         hint: None,
+        latency_ms: None,
     };
     let mut models_seeded_check = ReadyzCheck {
         ok: true,
         hint: None,
+        latency_ms: None,
     };
 
     // Check boot state - only return ready if in Ready state
@@ -101,43 +153,74 @@ pub async fn ready(State(state): State<AppState>) -> impl IntoResponse {
     // During early startup, treat an uninitialized state as booting to avoid
     // reporting "stopped" in readiness responses.
     if matches!(current, BootState::Stopped) {
-        current = BootState::Booting;
+        current = BootState::Starting;
     }
 
-    if current.is_maintenance() {
-        ready = false;
+    if current.is_failed() {
+        // Failed state - system is not ready
+        worker_check.ok = false;
+        if let Some(failure_reason) = boot_state.get_failure_reason() {
+            worker_check.hint = Some(format!(
+                "failed: [{}] {}",
+                failure_reason.code, failure_reason.message
+            ));
+        } else {
+            worker_check.hint = Some("failed".to_string());
+        }
+    } else if current.is_degraded() {
+        // Degraded state - system is operational but with reduced functionality
+        // Still return ready=true but with a hint
+        worker_check.hint = Some("degraded".to_string());
+    } else if current.is_maintenance() {
         worker_check.ok = false;
         worker_check.hint = Some("maintenance".to_string());
     } else if current.is_draining() || current.is_shutting_down() {
-        ready = false;
         worker_check.ok = false;
         worker_check.hint = Some("draining".to_string());
     } else if !boot_state.is_ready() {
-        ready = false;
         worker_check.ok = false;
         worker_check.hint = Some(format!("booting: {}", current));
     }
 
     // Check database connectivity
-    const DB_TIMEOUT: Duration = Duration::from_secs(1);
-    let db_probe = timeout(DB_TIMEOUT, async {
+    // Use configured timeout, fallback to 2 seconds (2000ms) if not configured
+    const DB_TIMEOUT_FALLBACK_MS: u64 = 2000;
+    let timeout_ms = {
+        // STABILITY: Use poison-safe lock access
+        let cfg = state.config.read().unwrap_or_else(|e| {
+            tracing::warn!("Config lock poisoned in health check, recovering");
+            e.into_inner()
+        });
+        cfg.server.health_check_db_timeout_ms
+    };
+    let db_timeout = if timeout_ms > 0 {
+        Duration::from_millis(timeout_ms)
+    } else {
+        Duration::from_millis(DB_TIMEOUT_FALLBACK_MS)
+    };
+
+    let db_start = Instant::now();
+    let db_probe = timeout(db_timeout, async {
         let mut conn = state.db.pool().acquire().await?;
         query("SELECT 1").execute(&mut *conn).await?;
         Ok::<(), sqlx::Error>(())
     })
     .await;
+    let db_latency = db_start.elapsed().as_millis() as u64;
 
     match db_probe {
-        Ok(Ok(())) => {}
+        Ok(Ok(())) => {
+            db_check.latency_ms = Some(db_latency);
+        }
         Ok(Err(_)) => {
-            ready = false;
             db_check.ok = false;
             db_check.hint = Some("db unreachable".to_string());
+            db_check.latency_ms = Some(db_latency);
         }
         Err(_) => {
-            ready = false;
             db_check.ok = false;
             db_check.hint = Some("db timeout".to_string());
+            db_check.latency_ms = Some(db_latency);
         }
     }
 
@@ -151,31 +234,86 @@ pub async fn ready(State(state): State<AppState>) -> impl IntoResponse {
     } else {
         // Report worker presence as informational readiness checks.
         if worker_check.ok {
-            match state.db.count_active_workers().await {
-                Ok(count) if count > 0 => {}
-                Ok(_) => {
+            let worker_timeout_ms = {
+                // STABILITY: Use poison-safe lock access
+                let cfg = state.config.read().unwrap_or_else(|e| {
+                    tracing::warn!("Config lock poisoned in health worker check, recovering");
+                    e.into_inner()
+                });
+                cfg.server.health_check_worker_timeout_ms
+            };
+            let worker_timeout = if worker_timeout_ms > 0 {
+                Duration::from_millis(worker_timeout_ms)
+            } else {
+                Duration::from_millis(2000)
+            };
+
+            let worker_start = Instant::now();
+            let worker_probe = timeout(worker_timeout, state.db.count_active_workers()).await;
+            let worker_latency = worker_start.elapsed().as_millis() as u64;
+
+            match worker_probe {
+                Ok(Ok(count)) if count > 0 => {
+                    worker_check.latency_ms = Some(worker_latency);
+                }
+                Ok(Ok(_)) => {
                     worker_check.ok = false;
                     worker_check.hint = Some("no workers registered".to_string());
+                    worker_check.latency_ms = Some(worker_latency);
+                }
+                Ok(Err(_)) => {
+                    worker_check.ok = false;
+                    worker_check.hint = Some("failed to query workers".to_string());
+                    worker_check.latency_ms = Some(worker_latency);
                 }
                 Err(_) => {
                     worker_check.ok = false;
-                    worker_check.hint = Some("failed to query workers".to_string());
+                    worker_check.hint = Some("worker check timeout".to_string());
+                    worker_check.latency_ms = Some(worker_latency);
                 }
             }
         }
 
-        match sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM models")
-            .fetch_one(state.db.pool())
-            .await
-        {
-            Ok(count) if count > 0 => {}
-            Ok(_) => {
+        let models_timeout_ms = {
+            // STABILITY: Use poison-safe lock access
+            let cfg = state.config.read().unwrap_or_else(|e| {
+                tracing::warn!("Config lock poisoned in health models check, recovering");
+                e.into_inner()
+            });
+            cfg.server.health_check_models_timeout_ms
+        };
+        let models_timeout = if models_timeout_ms > 0 {
+            Duration::from_millis(models_timeout_ms)
+        } else {
+            Duration::from_millis(2000)
+        };
+
+        let models_start = Instant::now();
+        let models_probe = timeout(
+            models_timeout,
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM models").fetch_one(state.db.pool()),
+        )
+        .await;
+        let models_latency = models_start.elapsed().as_millis() as u64;
+
+        match models_probe {
+            Ok(Ok(count)) if count > 0 => {
+                models_seeded_check.latency_ms = Some(models_latency);
+            }
+            Ok(Ok(_)) => {
                 models_seeded_check.ok = false;
                 models_seeded_check.hint = Some("no models seeded".to_string());
+                models_seeded_check.latency_ms = Some(models_latency);
+            }
+            Ok(Err(_)) => {
+                models_seeded_check.ok = false;
+                models_seeded_check.hint = Some("failed to query models".to_string());
+                models_seeded_check.latency_ms = Some(models_latency);
             }
             Err(_) => {
                 models_seeded_check.ok = false;
-                models_seeded_check.hint = Some("failed to query models".to_string());
+                models_seeded_check.hint = Some("models check timeout".to_string());
+                models_seeded_check.latency_ms = Some(models_latency);
             }
         }
     }
@@ -454,21 +592,28 @@ pub async fn get_status(State(state): State<AppState>) -> Json<LifecycleStatusRe
 }
 
 fn map_boot_state(state: &AppState) -> String {
+    use crate::boot_state::BootState;
     if let Some(ref boot_state) = state.boot_state {
         match boot_state.current_state() {
-            crate::boot_state::BootState::Stopped => "stopped",
-            crate::boot_state::BootState::Booting
-            | crate::boot_state::BootState::InitializingDb
-            | crate::boot_state::BootState::LoadingPolicies
-            | crate::boot_state::BootState::StartingBackend
-            | crate::boot_state::BootState::LoadingBaseModels
-            | crate::boot_state::BootState::LoadingAdapters => "booting",
-            crate::boot_state::BootState::Ready | crate::boot_state::BootState::FullyReady => {
-                "ready"
-            }
-            crate::boot_state::BootState::Maintenance => "maintenance",
-            crate::boot_state::BootState::Draining => "draining",
-            crate::boot_state::BootState::Stopping => "stopping",
+            BootState::Stopped => "stopped",
+            // All booting states (new granular states + legacy aliases)
+            BootState::Starting
+            | BootState::DbConnecting
+            | BootState::Migrating
+            | BootState::Seeding
+            | BootState::LoadingPolicies
+            | BootState::StartingBackend
+            | BootState::LoadingBaseModels
+            | BootState::LoadingAdapters
+            | BootState::WorkerDiscovery
+            | BootState::Booting
+            | BootState::InitializingDb => "booting",
+            BootState::Ready | BootState::FullyReady => "ready",
+            BootState::Degraded => "degraded",
+            BootState::Failed => "failed",
+            BootState::Maintenance => "maintenance",
+            BootState::Draining => "draining",
+            BootState::Stopping => "stopping",
         }
         .to_string()
     } else {

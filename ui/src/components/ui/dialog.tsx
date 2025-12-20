@@ -10,7 +10,7 @@ import {
   FROST_BACKGROUND,
   FROST_OVERLAY,
   CLOSE_BUTTON_BASE,
-} from "./utils";
+} from "@/lib/utils";
 
 const containsDialogDescription = (node: React.ReactNode): boolean => {
   if (!node) return false;

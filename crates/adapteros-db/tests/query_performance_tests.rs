@@ -103,6 +103,7 @@ async fn test_user_lookup_performance() {
             used_index: true, // Should use email index
             query_plan: None,
             timestamp: chrono::Utc::now().to_rfc3339(),
+            tenant_id: None,
         });
 
         // User lookup should be very fast (< 1ms) due to UNIQUE index on email
@@ -149,6 +150,7 @@ async fn test_adapter_listing_performance() {
         used_index: true, // Should use composite (tenant_id, name) index
         query_plan: None,
         timestamp: chrono::Utc::now().to_rfc3339(),
+        tenant_id: None,
     });
 
     println!(
@@ -223,6 +225,41 @@ async fn test_query_plan_analysis() {
     }
 
     assert!(!plan_rows.is_empty(), "Expected query plan rows");
+
+    // Test 3b: Verify composite index usage for tenant-scoped adapter listing
+    // This query matches idx_adapters_tenant_active_tier_created
+    let plan_rows = sqlx::query(
+        "EXPLAIN QUERY PLAN SELECT * FROM adapters WHERE tenant_id = ? AND active = 1 ORDER BY tier ASC, created_at DESC",
+    )
+    .bind("test-tenant")
+    .fetch_all(db.pool())
+    .await
+    .expect("Failed to get query plan for composite index");
+
+    println!("\nQuery plan for composite index adapter listing:");
+    let mut uses_composite_index = false;
+    let mut uses_temp_btree = false;
+
+    for row in &plan_rows {
+        let detail: String = row.get(3);
+        println!("  {}", detail);
+
+        if detail.contains("idx_adapters_tenant_active_tier_created") {
+            uses_composite_index = true;
+        }
+        if detail.contains("USE TEMP B-TREE") {
+            uses_temp_btree = true;
+        }
+    }
+
+    assert!(
+        uses_composite_index,
+        "Query should use idx_adapters_tenant_active_tier_created"
+    );
+    assert!(
+        !uses_temp_btree,
+        "Query should NOT use temp B-tree for sorting"
+    );
 }
 
 /// Test 4: Measure index rebuild performance
@@ -265,6 +302,7 @@ async fn test_performance_monitor_overhead() {
             used_index: i % 2 == 0,
             query_plan: None,
             timestamp: chrono::Utc::now().to_rfc3339(),
+            tenant_id: None,
         });
     }
 
@@ -311,6 +349,7 @@ async fn test_optimized_query_pattern_performance() {
         used_index: false, // Leading wildcard prevents index use
         query_plan: None,
         timestamp: chrono::Utc::now().to_rfc3339(),
+        tenant_id: None,
     });
 
     // Optimized pattern: Direct equality
@@ -328,6 +367,7 @@ async fn test_optimized_query_pattern_performance() {
         used_index: true, // Direct equality uses index
         query_plan: None,
         timestamp: chrono::Utc::now().to_rfc3339(),
+        tenant_id: None,
     });
 
     println!("\nQuery optimization comparison:");
@@ -371,6 +411,7 @@ async fn test_performance_report() {
                 used_index: query_num < 2, // Last query doesn't use index
                 query_plan: None,
                 timestamp: chrono::Utc::now().to_rfc3339(),
+                tenant_id: None,
             });
         }
     }
@@ -437,5 +478,36 @@ async fn test_bulk_operation_with_index_rebuild() {
     assert!(
         query_time.as_millis() < 200,
         "Query should be fast after index rebuild"
+    );
+}
+
+/// Test: Verify usage of idx_adapters_tenant_active_tier_created for tenant-scoped adapter listing
+#[tokio::test]
+async fn validate_tenant_scoped_adapter_listing_index() {
+    let db = setup_test_db_with_adapters(10).await;
+
+    // Explain the query used for tenant-scoped listing
+    // Corresponds to list_adapters_for_tenant in adapters.rs
+    let plan_rows = sqlx::query(
+        "EXPLAIN QUERY PLAN SELECT * FROM adapters WHERE tenant_id = ? AND active = 1 ORDER BY tier ASC, created_at DESC",
+    )
+    .bind("test-tenant")
+    .fetch_all(db.pool())
+    .await
+    .expect("Failed to get query plan");
+
+    println!("\nQuery plan for tenant-scoped adapter listing:");
+    let mut uses_composite_index = false;
+    for row in &plan_rows {
+        let detail: String = row.get(3);
+        println!("  {}", detail);
+        if detail.contains("idx_adapters_tenant_active_tier_created") {
+            uses_composite_index = true;
+        }
+    }
+
+    assert!(
+        uses_composite_index,
+        "Tenant-scoped adapter listing must use idx_adapters_tenant_active_tier_created index"
     );
 }

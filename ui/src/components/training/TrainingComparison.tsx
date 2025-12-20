@@ -23,7 +23,7 @@ import {
   FileSpreadsheet,
   FileText
 } from 'lucide-react';
-import { TrainingJob, TrainingConfig } from '@/api/types';
+import { TrainingJob, TrainingConfigFull } from '@/api/types';
 import { toast } from 'sonner';
 
 interface TrainingComparisonProps {
@@ -168,7 +168,7 @@ export function TrainingComparison({ jobs: allJobs, onClose }: TrainingCompariso
   ];
 
   // Define configuration comparison fields
-  const configFields: Array<{ name: string; key: keyof TrainingConfig }> = [
+  const configFields: Array<{ name: string; key: keyof TrainingConfigFull }> = [
     { name: 'Rank', key: 'rank' },
     { name: 'Alpha', key: 'alpha' },
     { name: 'Batch Size', key: 'batch_size' },
@@ -179,8 +179,8 @@ export function TrainingComparison({ jobs: allJobs, onClose }: TrainingCompariso
     { name: 'Gradient Accumulation', key: 'gradient_accumulation_steps' },
     { name: 'Category', key: 'category' },
     { name: 'Scope', key: 'scope' },
-    { name: 'Framework ID', key: 'framework_id' },
-    { name: 'Framework Version', key: 'framework_version' }
+    { name: 'Repo ID', key: 'repo_id' },
+    { name: 'Backend Policy', key: 'backend_policy' }
   ];
 
   // Check if values are different across jobs

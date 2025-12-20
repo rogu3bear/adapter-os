@@ -16,10 +16,14 @@ use crate::handlers::datasets::{
 use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
 use crate::types::{DatasetResponse, ErrorResponse};
+#[cfg(feature = "embeddings")]
+use adapteros_core::reject_forbidden_tmp_path;
 use async_trait::async_trait;
 use axum::body::Bytes;
 use axum::http::StatusCode;
 use axum::Json;
+#[cfg(feature = "embeddings")]
+use std::path::Path as StdPath;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::fs;
@@ -167,7 +171,8 @@ impl DefaultTrainingDatasetService {
         }
 
         let content_hash = hash_file(content_bytes);
-        let dataset_paths = DatasetPaths::new(resolve_dataset_root(&self.state));
+        let dataset_root = resolve_dataset_root(&self.state).map_err(internal_error)?;
+        let dataset_paths = DatasetPaths::new(dataset_root);
         ensure_dirs([
             dataset_paths.files.as_path(),
             dataset_paths.temp.as_path(),
@@ -619,11 +624,29 @@ impl TrainingDatasetService for DefaultTrainingDatasetService {
 
         let document_id = Uuid::now_v7().to_string();
         let storage_root = std::env::var("AOS_DOCUMENTS_DIR").ok().unwrap_or_else(|| {
-            let config = self.state.config.read().expect("Config lock poisoned");
+            let config = self.state.config.read().map_err(|_| {
+                tracing::error!("Config lock poisoned");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("config lock poisoned").with_code("CONFIG_UNAVAILABLE"),
+                    ),
+                )
+            })?;
             config.paths.documents_root.clone()
         });
 
-        let tenant_path = PathBuf::from(&storage_root).join(&claims.tenant_id);
+        let root = PathBuf::from(&storage_root);
+        let root = if root.is_absolute() {
+            root
+        } else {
+            std::env::current_dir()
+                .unwrap_or_else(|_| StdPath::new("/").to_path_buf())
+                .join(root)
+        };
+        reject_forbidden_tmp_path(&root, "documents-root").map_err(internal_error)?;
+
+        let tenant_path = root.join(&claims.tenant_id);
         fs::create_dir_all(&tenant_path).await.map_err(db_error)?;
 
         let mut document_name = params

@@ -35,7 +35,6 @@ struct PendingPromotion {
     version_id: String,
     repo_id: String,
     branch: String,
-    commit_sha: String,
     requested_backend: TrainingBackendKind,
     dataset_version_ids: Vec<DatasetVersionSelection>,
     data_spec_hash: Option<String>,
@@ -789,7 +788,6 @@ impl SelfHostingAgent {
                 version_id,
                 repo_id: adapter_repo.id.clone(),
                 branch,
-                commit_sha: commit_sha.to_string(),
                 requested_backend: backend_decision.requested,
                 dataset_version_ids: dataset_selection.selections,
                 data_spec_hash: Some(dataset_selection.data_spec_hash),
@@ -1289,11 +1287,18 @@ mod tests {
         let ds_id = agent
             .state
             .db
-            .create_training_dataset("ds", None, "jsonl", "hash", "/tmp/path", Some("tester"))
+            .create_training_dataset(
+                "ds",
+                None,
+                "jsonl",
+                "hash",
+                "var/test-data/path",
+                None, // created_by must be valid user ID or None (FK constraint)
+            )
             .await
             .unwrap();
         adapteros_db::sqlx::query(
-            "UPDATE training_datasets SET tenant_id = 'system', dataset_type = 'train', validation_status = 'valid' WHERE id = ?",
+            "UPDATE training_datasets SET tenant_id = 'system', dataset_type = 'training', validation_status = 'valid' WHERE id = ?",
         )
         .bind(&ds_id)
         .execute(agent.state.db.pool())
@@ -1307,11 +1312,11 @@ mod tests {
                 &ds_id,
                 Some("system"),
                 Some("v1"),
-                "/tmp/path/v1",
+                "var/test-data/path/v1",
                 "hash-v1",
                 None,
                 None,
-                Some("tester"),
+                None, // created_by must be valid user ID or None (FK constraint)
             )
             .await
             .unwrap();
@@ -1362,7 +1367,7 @@ mod tests {
                 aos_hash: None,
                 manifest_schema_version: None,
                 parent_version_id: None,
-                code_commit_sha: None,
+                code_commit_sha: Some("abc123"),
                 data_spec_hash: None,
                 training_backend: None,
                 coreml_used: None,
@@ -1392,7 +1397,7 @@ mod tests {
                 aos_hash: None,
                 manifest_schema_version: None,
                 parent_version_id: None,
-                code_commit_sha: None,
+                code_commit_sha: Some("def456"),
                 data_spec_hash: None,
                 training_backend: None,
                 coreml_used: None,

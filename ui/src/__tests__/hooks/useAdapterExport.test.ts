@@ -6,7 +6,7 @@ import type { Adapter, AdapterManifest } from '@/api/adapter-types';
 // Mock the API client
 const mockDownloadAdapterManifest = vi.fn();
 
-vi.mock('@/api/client', () => ({
+vi.mock('@/api/services', () => ({
   apiClient: {
     downloadAdapterManifest: (...args: unknown[]) => mockDownloadAdapterManifest(...args),
   },

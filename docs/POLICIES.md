@@ -56,7 +56,7 @@ graph TD
 
 ## Policy Registry
 
-The policy registry contains exactly 20 policy packs, each with:
+The policy registry contains exactly 25 policy packs, each with:
 
 - **ID**: Unique identifier (`PolicyPackId`)
 - **Name**: Human-readable name
@@ -373,7 +373,7 @@ This is a comprehensive policy pack that serves as a reference implementation, d
 
 The `PolicyPackManager` is the central coordinator for all policy packs. It:
 
-- Maintains registry of all 20 policy pack validators
+- Maintains registry of all 25 policy pack validators
 - Manages policy pack configurations (enabled/disabled, enforcement levels)
 - Validates requests against all active policy packs
 - Implements the `PolicyEnforcer` trait for unified enforcement interface

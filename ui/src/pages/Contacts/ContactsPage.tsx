@@ -1,9 +1,16 @@
 /**
+ * @deprecated ORPHAN PAGE - Not routed in routes.ts
+ * This page was created as part of CONTACTS_AND_STREAMS_IMPLEMENTATION_PLAN.md
+ * but was never integrated into the routing system.
+ *
+ * TODO: Either add a route or delete this file.
+ * Audit date: 2025-12-19
+ *
  * ContactsPage Component
- * 
+ *
  * Displays contacts discovered during inference with real-time updates via SSE.
  * Categories: User | System | Adapter | Repository | External
- * 
+ *
  * Citation: CONTACTS_AND_STREAMS_IMPLEMENTATION_PLAN.md §8.1
  */
 
@@ -13,7 +20,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { logger, toError } from '@/utils/logger';
 import { errorRecoveryTemplates } from '@/components/ui/error-recovery';
 import { Contact } from '@/api/types';

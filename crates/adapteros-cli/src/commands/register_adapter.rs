@@ -280,9 +280,9 @@ pub async fn register_aos_with_db(db: &Db, req: RegisterAosRequest) -> Result<Re
         lower.contains("legacy aos") || lower.contains("invalid aos magic")
     };
 
-    let mut legacy_validation_error =
+    let legacy_validation_error =
         validation.errors.iter().any(|msg| legacy_marker(msg)) || legacy_magic_error;
-    let mut has_non_legacy_errors = validation.errors.iter().any(|msg| !legacy_marker(msg));
+    let has_non_legacy_errors = validation.errors.iter().any(|msg| !legacy_marker(msg));
 
     if legacy_validation_error {
         let seen = legacy_seen_count
@@ -379,7 +379,7 @@ pub async fn register_aos_with_db(db: &Db, req: RegisterAosRequest) -> Result<Re
                     legacy_accepted = accepted,
                     "DEPRECATED: legacy AOS bundle accepted; upgrade required"
                 );
-                legacy_accepted_recorded = true;
+                let _ = legacy_accepted_recorded; // Avoid unused assignment warning
             }
             // Allow continuation for legacy magic when explicitly permitted.
         } else {
@@ -391,7 +391,7 @@ pub async fn register_aos_with_db(db: &Db, req: RegisterAosRequest) -> Result<Re
 
     let weights_hash = blake3::hash(weights_data).to_hex().to_string();
     let aos_file_hash = blake3::hash(&data).to_hex().to_string();
-    let content_hash_b3 = B3Hash::hash_multi(&[&manifest_bytes[..], weights_data])
+    let content_hash_b3 = B3Hash::hash_multi(&[manifest_bytes, weights_data])
         .to_hex()
         .to_string();
 
@@ -428,7 +428,10 @@ pub async fn register_aos_with_db(db: &Db, req: RegisterAosRequest) -> Result<Re
         .map_err(|e| AosError::Validation(format!("Failed to build registration params: {}", e)))?;
 
     // Upsert-like: if the adapter exists with same hash, treat as no-op; otherwise error.
-    if let Some(existing) = db.get_adapter(&req.adapter_id).await? {
+    if let Some(existing) = db
+        .get_adapter_for_tenant(&req.tenant_id, &req.adapter_id)
+        .await?
+    {
         if existing.hash_b3 != weights_hash {
             return Err(AosError::Validation(format!(
                 "Adapter {} already exists with different hash",
@@ -467,13 +470,13 @@ async fn ensure_adapter_schema(db: &Db) -> Result<()> {
     let has_lora_strength: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM pragma_table_info('adapters') WHERE name = 'lora_strength'",
     )
-    .fetch_one(&*db.pool())
+    .fetch_one(db.pool())
     .await
     .unwrap_or(1);
 
     if has_lora_strength == 0 {
         sqlx::query("ALTER TABLE adapters ADD COLUMN lora_strength REAL")
-            .execute(&*db.pool())
+            .execute(db.pool())
             .await
             .map_err(|e| {
                 AosError::Database(format!("Failed to add lora_strength column: {}", e))
@@ -489,6 +492,7 @@ mod tests {
     use adapteros_aos::{AosWriter, BackendTag};
     use adapteros_db::models::ModelRegistrationBuilder;
     use adapteros_db::Db;
+    use adapteros_platform::common::PlatformUtils;
     use serde_json::json;
     use serial_test::serial;
     use std::fs::File;
@@ -502,13 +506,21 @@ mod tests {
         writer
             .add_segment(BackendTag::Canonical, None, weights)
             .expect("add canonical segment");
-        let temp = tempfile::NamedTempFile::new().expect("tempfile");
+        let root = PlatformUtils::temp_dir();
+        std::fs::create_dir_all(&root).expect("create var/tmp");
+        let temp = tempfile::NamedTempFile::new_in(&root).expect("tempfile");
         writer
             .write_archive(temp.path(), manifest)
             .expect("write aos");
         let mut bytes = std::fs::read(temp.path()).expect("read aos");
         bytes[0..4].copy_from_slice(&magic);
         bytes
+    }
+
+    fn new_test_tempdir() -> tempfile::TempDir {
+        let root = PlatformUtils::temp_dir();
+        std::fs::create_dir_all(&root).expect("create var/tmp");
+        tempfile::tempdir_in(&root).expect("tempdir")
     }
 
     #[derive(Clone)]
@@ -583,7 +595,7 @@ mod tests {
             .create_tenant("Test Tenant", false)
             .await
             .expect("insert tenant");
-        let tmp = tempfile::tempdir().expect("tempdir");
+        let tmp = new_test_tempdir();
         let aos_path = tmp.path().join("legacy.aos");
 
         let manifest = json!({
@@ -673,7 +685,7 @@ mod tests {
             .create_tenant("Test Tenant", false)
             .await
             .expect("insert tenant");
-        let tmp = tempfile::tempdir().expect("tempdir");
+        let tmp = new_test_tempdir();
         let aos_path = tmp.path().join("legacy-accepted.aos");
 
         let manifest = json!({

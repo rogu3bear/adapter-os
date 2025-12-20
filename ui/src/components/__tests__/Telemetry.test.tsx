@@ -2,7 +2,7 @@ import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { Telemetry } from '@/components/Telemetry';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 
 // Mock heavy UI children to keep render minimal
 function passthrough(tag: string) {
@@ -160,7 +160,8 @@ vi.mock('@/components/GoldenCompareModal', () => ({
 
 // Mock live data hook
 const mockUseLiveData = vi.fn();
-vi.mock('@/hooks/useLiveData', () => ({
+vi.mock('@/hooks/realtime/useLiveData', () => ({
+  ConnectionStatus: {},
   useLiveData: (options: any) => mockUseLiveData(options),
 }));
 
@@ -331,4 +332,3 @@ describe('Telemetry', () => {
     });
   });
 });
-

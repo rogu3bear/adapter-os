@@ -14,7 +14,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
-use tracing::error;
+use tracing::{debug, error};
 use utoipa::{IntoParams, ToSchema};
 
 /// Request body for creating an activity event
@@ -159,7 +159,8 @@ pub async fn create_activity_event(
             )
         })?;
 
-    log_success(
+    // Best-effort audit logging - failures here don't fail the request since the event was created successfully
+    if let Err(e) = log_success(
         &state.db,
         &claims,
         actions::ACTIVITY_EVENT_CREATE,
@@ -167,7 +168,9 @@ pub async fn create_activity_event(
         Some(&event.id),
     )
     .await
-    .ok();
+    {
+        debug!(error = %e, event_id = %event.id, "Failed to log activity event creation to audit trail");
+    }
 
     Ok(Json(ActivityEventResponse {
         id: event.id,
@@ -208,17 +211,33 @@ pub async fn list_activity_events(
         .get("tenant_id")
         .or(Some(&claims.tenant_id))
         .map(|s| s.as_str());
-    let event_type = params
-        .get("event_type")
-        .and_then(|s| ActivityEventType::from_str(s).ok());
-    let limit = params
-        .get("limit")
-        .and_then(|s| s.parse::<i64>().ok())
-        .or(Some(50));
-    let offset = params
-        .get("offset")
-        .and_then(|s| s.parse::<i64>().ok())
-        .or(Some(0));
+    let event_type =
+        params.get("event_type").and_then(|s| {
+            ActivityEventType::from_str(s).map_err(|e| {
+            debug!(error = %e, raw_value = %s, "Invalid event_type in query, ignoring filter");
+            e
+        }).ok()
+        });
+    let limit =
+        params
+            .get("limit")
+            .and_then(|s| {
+                s.parse::<i64>().map_err(|e| {
+            debug!(error = %e, raw_value = %s, "Invalid limit in query, using default 50");
+            e
+        }).ok()
+            })
+            .or(Some(50));
+    let offset =
+        params
+            .get("offset")
+            .and_then(|s| {
+                s.parse::<i64>().map_err(|e| {
+            debug!(error = %e, raw_value = %s, "Invalid offset in query, using default 0");
+            e
+        }).ok()
+            })
+            .or(Some(0));
 
     let events = state
         .db
@@ -294,10 +313,16 @@ pub async fn list_user_workspace_activity(
 
     let workspace_ids: Vec<&str> = workspaces.iter().map(|w| w.id.as_str()).collect();
 
-    let limit = params
-        .get("limit")
-        .and_then(|s| s.parse::<i64>().ok())
-        .or(Some(50));
+    let limit =
+        params
+            .get("limit")
+            .and_then(|s| {
+                s.parse::<i64>().map_err(|e| {
+            debug!(error = %e, raw_value = %s, "Invalid limit in query, using default 50");
+            e
+        }).ok()
+            })
+            .or(Some(50));
 
     let events = state
         .db

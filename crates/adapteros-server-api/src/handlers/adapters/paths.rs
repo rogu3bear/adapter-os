@@ -9,7 +9,13 @@ pub fn resolve_adapter_roots(state: &crate::state::AppState) -> AdapterPaths {
         .or_else(|| env::var(ENV_ADAPTERS_DIR_COMPAT).ok());
     let cache_root = env::var("AOS_ADAPTER_CACHE_DIR").ok();
     let config_root = {
-        let config = state.config.read().expect("Config lock poisoned");
+        let config = match state.config.read() {
+            Ok(cfg) => cfg,
+            Err(_) => {
+                tracing::error!("Config lock poisoned in resolve_adapter_roots");
+                return resolve_adapter_roots_from_strings(repo_root, cache_root, None);
+            }
+        };
         if config.paths.adapters_root.is_empty() {
             None
         } else {

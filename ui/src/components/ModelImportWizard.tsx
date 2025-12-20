@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Progress } from '@/components/ui/progress';
 import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
 import { Upload, FileCheck, Settings, CheckCircle, RotateCcw } from 'lucide-react';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { ImportModelRequest } from '@/api/types';
 import { useWizardPersistence } from '@/hooks/persistence/useWizardPersistence';
 import { useProgressOperation } from '@/hooks/ui/useProgressOperation';

@@ -74,7 +74,7 @@ const mockListUserTenants = vi.fn();
 const mockGetUserProfile = vi.fn();
 const mockRefreshSession = vi.fn();
 
-vi.mock('@/api/client', () => ({
+vi.mock('@/api/services', () => ({
   __esModule: true,
   default: {
     streamInfer: (...args: unknown[]) => mockStreamInfer(...args),
@@ -119,12 +119,12 @@ vi.mock('@/providers/CoreProviders', () => ({
 const mockUseAdapterStacks = vi.hoisted(() => vi.fn());
 const mockUseGetDefaultStack = vi.hoisted(() => vi.fn());
 
-vi.mock('@/hooks/useAdmin', () => ({
+vi.mock('@/hooks/admin/useAdmin', () => ({
   useAdapterStacks: () => mockUseAdapterStacks(),
   useGetDefaultStack: (tenantId: string) => mockUseGetDefaultStack(tenantId),
 }));
 
-vi.mock('@/hooks/useChatSessionsApi', () => ({
+vi.mock('@/hooks/chat/useChatSessionsApi', () => ({
   useChatSessionsApi: () => ({
     sessions: [],
     isLoading: false,
@@ -141,19 +141,26 @@ vi.mock('@/hooks/useChatSessionsApi', () => ({
     updateSession: vi.fn(),
     addMessage: vi.fn(),
     deleteSession: vi.fn(),
-    getSession: vi.fn(),
+    getSession: vi.fn((sessionId: string) => ({
+      id: sessionId,
+      name: `Session ${sessionId}`,
+      stackId: 'stack-1',
+      messages: [],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })),
     updateSessionCollection: vi.fn(),
   }),
 }));
 
-vi.mock('@/hooks/useCollectionsApi', () => ({
+vi.mock('@/hooks/api/useCollectionsApi', () => ({
   useCollections: () => ({
     data: [],
     isLoading: false,
   }),
 }));
 
-vi.mock('@/hooks/useFeatureFlags', () => ({
+vi.mock('@/hooks/config/useFeatureFlags', () => ({
   useChatAutoLoadModels: () => false,
 }));
 
@@ -161,7 +168,6 @@ vi.mock('@/hooks/model-loading', () => ({
   useModelLoadingState: () => ({
     isLoading: false,
     progress: 0,
-    currentStep: null,
     overallReady: true,
     baseModelReady: true,
     error: null,
@@ -171,12 +177,15 @@ vi.mock('@/hooks/model-loading', () => ({
     adapterStates: new Map(),
   }),
   useModelLoader: () => ({
-    loadModel: vi.fn(),
+    loadModels: vi.fn(),
+    retryFailed: vi.fn(),
+    cancelLoading: vi.fn(),
   }),
   useChatLoadingPersistence: () => ({
-    shouldAutoLoad: false,
-    markAutoLoaded: vi.fn(),
-    clearLoadingState: vi.fn(),
+    persistedState: null,
+    persist: vi.fn(),
+    clear: vi.fn(),
+    isRecoverable: false,
   }),
   useLoadingAnnouncements: () => ({
     announcement: null,
@@ -184,6 +193,16 @@ vi.mock('@/hooks/model-loading', () => ({
 }));
 
 const mockSendMessage = vi.fn();
+const mockFetchDecision = vi.fn().mockResolvedValue(null);
+const mockUseSessionManager = vi.fn(() => ({
+  currentSessionId: 'session-1',
+  messages: [],
+  setMessages: vi.fn(),
+  setCurrentSessionId: vi.fn(),
+  clearSession: vi.fn(),
+  loadSession: vi.fn(),
+  createSession: vi.fn(),
+}));
 
 vi.mock('@/hooks/chat', () => ({
   useChatStreaming: () => ({
@@ -206,14 +225,39 @@ vi.mock('@/hooks/chat', () => ({
     continueWithUnready: vi.fn(),
   }),
   useChatRouterDecisions: () => ({
-    decisions: [],
+    isLoadingDecision: false,
+    fetchDecision: (...args: unknown[]) => mockFetchDecision(...args),
+    decisionHistory: [],
+    lastDecision: null,
+    clearDecisions: vi.fn(),
+  }),
+  useSessionManager: (...args: unknown[]) => mockUseSessionManager(...args),
+  useChatModals: () => ({
+    isHistoryOpen: false,
+    setIsHistoryOpen: vi.fn(),
+    isRouterActivityOpen: false,
+    setIsRouterActivityOpen: vi.fn(),
+    isArchivePanelOpen: false,
+    setIsArchivePanelOpen: vi.fn(),
+    shareDialogSessionId: null,
+    setShareDialogSessionId: vi.fn(),
+    tagsDialogSessionId: null,
+    setTagsDialogSessionId: vi.fn(),
   }),
 }));
 
 vi.mock('@/components/export', () => ({
   useChatExport: () => ({
-    exportChat: vi.fn(),
+    handleExportMarkdown: vi.fn(),
+    handleExportJson: vi.fn(),
+    handleExportPdf: vi.fn(),
+    ExportButton: () => null,
   }),
+}));
+
+// Mock chat sub-components not under test
+vi.mock('@/components/chat/ChatTagsManager', () => ({
+  ChatTagsManager: () => null,
 }));
 
 // Mock toast

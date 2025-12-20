@@ -83,16 +83,11 @@ pub struct SystemConfig {
     pub cache_size_mb: u32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum JwtMode {
+    #[default]
     Hmac,
     EdDsa,
-}
-
-impl Default for JwtMode {
-    fn default() -> Self {
-        JwtMode::Hmac
-    }
 }
 
 impl JwtMode {

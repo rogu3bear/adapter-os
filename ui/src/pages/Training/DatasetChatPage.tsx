@@ -5,9 +5,10 @@
  * Provides a chat experience with RAG context from the dataset's documents.
  */
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Database, AlertCircle, Download } from 'lucide-react';
+import { buildDatasetDetailLink } from '@/utils/navLinks';
 
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -17,15 +18,17 @@ import { ChatInterface } from '@/components/ChatInterface';
 import { ExportDialog } from '@/components/export';
 import { useTraining } from '@/hooks/training';
 import { useTenant } from '@/providers/FeatureProviders';
-import { DatasetChatProvider, useDatasetChat } from '@/contexts/DatasetChatContext';
+import { apiClient } from '@/api/services';
 import { toast } from 'sonner';
 
 function DatasetChatPageInner({ dataset }: { dataset: { id: string; name: string; dataset_version_id?: string } }) {
   const navigate = useNavigate();
   const { selectedTenant } = useTenant();
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
-  const datasetContext = useDatasetChat();
   const datasetId = dataset.id;
+  const [chatSessionId, setChatSessionId] = useState<string | null>(null);
+  const [bootstrapError, setBootstrapError] = useState<string | null>(null);
+  const [bootstrapAttempt, setBootstrapAttempt] = useState(0);
 
   const handleExport = useCallback(async (format: 'markdown' | 'json' | 'pdf' | 'evidence-bundle') => {
     // Note: Full session export is available via ChatInterface's built-in export
@@ -33,6 +36,77 @@ function DatasetChatPageInner({ dataset }: { dataset: { id: string; name: string
     toast.info(`Use the export button in the chat area for full session export (${format})`);
     setExportDialogOpen(false);
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const bootstrap = async () => {
+      setBootstrapError(null);
+      setChatSessionId(null);
+
+      try {
+        const created = await apiClient.createChatSession({
+          name: `Dataset: ${dataset.name}`,
+          source_type: 'dataset',
+          source_ref_id: dataset.id,
+          metadata: {
+            dataset_id: dataset.id,
+            dataset_version_id: dataset.dataset_version_id,
+          },
+        });
+
+        const sessionId = created.session_id;
+
+        // Best-effort: hydrate a system prompt with a deterministic dataset preview (kept small on purpose).
+        try {
+          const preview = await apiClient.request<{
+            dataset_id: string;
+            format: string;
+            total_examples: number;
+            examples: unknown[];
+          }>(`/v1/datasets/${encodeURIComponent(dataset.id)}/preview?limit=12`, { method: 'GET' });
+
+          const systemPrompt = [
+            `You are chatting with a dataset context.`,
+            ``,
+            `Dataset: ${dataset.name}`,
+            `Dataset ID: ${dataset.id}`,
+            dataset.dataset_version_id ? `Dataset Version ID: ${dataset.dataset_version_id}` : undefined,
+            ``,
+            `The following is a preview sample of the dataset (may be incomplete):`,
+            '```json',
+            JSON.stringify(preview.examples ?? [], null, 2),
+            '```',
+            ``,
+            `Answer questions based on the provided sample and any information the user supplies.`,
+            `If you don’t have enough data to answer, say what’s missing and suggest what to inspect next.`,
+          ]
+            .filter((line): line is string => Boolean(line))
+            .join('\n');
+
+          await apiClient.addChatMessage(sessionId, 'system', systemPrompt, {
+            kind: 'dataset_context',
+            dataset_id: dataset.id,
+            dataset_version_id: dataset.dataset_version_id,
+          });
+        } catch {
+          // Dataset preview is optional; proceed without it.
+        }
+
+        if (!cancelled) {
+          setChatSessionId(sessionId);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setBootstrapError(err instanceof Error ? err.message : 'Failed to start dataset chat');
+        }
+      }
+    };
+
+    void bootstrap();
+    return () => {
+      cancelled = true;
+    };
+  }, [bootstrapAttempt, dataset.id, dataset.name, dataset.dataset_version_id]);
 
   return (
     <div className="h-full flex flex-col">
@@ -65,7 +139,7 @@ function DatasetChatPageInner({ dataset }: { dataset: { id: string; name: string
           <Button
             variant="outline"
             size="sm"
-            onClick={() => navigate(`/training/datasets/${datasetId}`)}
+            onClick={() => navigate(buildDatasetDetailLink(datasetId))}
           >
             View Dataset Details
           </Button>
@@ -74,14 +148,28 @@ function DatasetChatPageInner({ dataset }: { dataset: { id: string; name: string
 
       {/* Chat Interface */}
       <main className="flex-1 overflow-hidden">
-        <ChatInterface
-          selectedTenant={selectedTenant}
-          datasetContext={{
-            datasetId: dataset.id,
-            datasetName: dataset.name,
-            datasetVersionId: dataset.dataset_version_id,
-          }}
-        />
+        {bootstrapError ? (
+          <div className="h-full flex items-center justify-center p-4">
+            <ErrorRecovery
+              error={bootstrapError}
+              onRetry={() => setBootstrapAttempt((prev) => prev + 1)}
+            />
+          </div>
+        ) : !chatSessionId ? (
+          <div className="h-full flex items-center justify-center">
+            <LoadingState message="Preparing dataset chat..." />
+          </div>
+        ) : (
+          <ChatInterface
+            selectedTenant={selectedTenant}
+            sessionId={chatSessionId}
+            datasetContext={{
+              datasetId: dataset.id,
+              datasetName: dataset.name,
+              datasetVersionId: dataset.dataset_version_id,
+            }}
+          />
+        )}
       </main>
 
       {/* Export Dialog */}
@@ -154,7 +242,7 @@ export default function DatasetChatPage() {
               This dataset needs to be validated before you can chat with it.
               Current status: <Badge variant="outline">{dataset.validation_status}</Badge>
             </p>
-            <Button onClick={() => navigate(`/training/datasets/${datasetId}`)}>
+            <Button onClick={() => navigate(buildDatasetDetailLink(datasetId!))}>
               Go to Dataset Details
             </Button>
           </div>
@@ -163,15 +251,5 @@ export default function DatasetChatPage() {
     );
   }
 
-  return (
-    <DatasetChatProvider
-      initialDataset={{
-        id: dataset.id,
-        name: dataset.name,
-        versionId: dataset.dataset_version_id,
-      }}
-    >
-      <DatasetChatPageInner dataset={dataset} />
-    </DatasetChatProvider>
-  );
+  return <DatasetChatPageInner dataset={dataset} />;
 }

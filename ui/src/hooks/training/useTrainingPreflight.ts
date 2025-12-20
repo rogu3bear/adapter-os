@@ -8,50 +8,28 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { useMemo } from 'react';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { useModelStatus } from '@/hooks/model-loading';
 import { runClientPreflight, getPreflightSummary } from '@/utils/trainingPreflight';
 import type { Dataset } from '@/api/training-types';
 import type { PolicyCheck } from '@/components/PolicyPreflightDialog';
-
-export interface TrainingPreflightResult {
-  /** Whether all critical checks passed (training can proceed) */
-  canProceed: boolean;
-  /** Whether all checks passed cleanly (no warnings) */
-  isClean: boolean;
-  /** Client-side check results (instant) */
-  clientChecks: PolicyCheck[];
-  /** Server-side check results (async) */
-  serverChecks: PolicyCheck[];
-  /** All checks combined */
-  allChecks: PolicyCheck[];
-  /** Summary message */
-  summary: string;
-  /** Whether server checks are still loading */
-  isLoading: boolean;
-  /** Error from server checks */
-  error: Error | null;
-  /** Refetch server checks */
-  refetch: () => void;
-}
-
-interface UseTrainingPreflightOptions {
-  /** Whether to enable server-side checks */
-  enabled?: boolean;
-  /** Tenant ID for model status check */
-  tenantId?: string;
-}
+import type {
+  TrainingPreflightResult,
+  UseTrainingPreflightOptions,
+} from '@/types/hooks';
 
 /**
  * Hook for running training preflight checks
  *
  * @param dataset - Dataset to validate (required for client checks)
  * @param options - Configuration options
+ * @param selectedVersionId - Optional dataset version ID for version-specific validation
  * @returns Combined preflight results
  */
 export function useTrainingPreflight(
   dataset: Dataset | null | undefined,
-  options: UseTrainingPreflightOptions = {}
+  options: UseTrainingPreflightOptions = {},
+  selectedVersionId?: string
 ): TrainingPreflightResult {
   const { enabled = true, tenantId = 'default' } = options;
 
@@ -83,7 +61,7 @@ export function useTrainingPreflight(
     error: datasetError,
     refetch: refetchDataset,
   } = useQuery({
-    queryKey: ['training-preflight-dataset', dataset?.id],
+    queryKey: ['training-preflight-dataset', dataset?.id, selectedVersionId],
     queryFn: () => apiClient.getDataset(dataset!.id),
     enabled: enabled && !!dataset?.id,
     staleTime: 10_000, // Cache for 10 seconds

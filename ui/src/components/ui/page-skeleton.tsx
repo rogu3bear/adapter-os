@@ -1,6 +1,6 @@
 import React from 'react';
 import { Skeleton } from './skeleton';
-import { cn } from './utils';
+import { cn } from '@/lib/utils';
 
 interface PageSkeletonProps {
   className?: string;

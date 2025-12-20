@@ -27,7 +27,17 @@ impl StorageReconciler {
     }
 
     fn store(&self) -> FsByteStorage {
-        let cfg = self.state.config.read().expect("Config lock poisoned");
+        let cfg = match self.state.config.read() {
+            Ok(cfg) => cfg,
+            Err(_) => {
+                tracing::error!("Config lock poisoned in storage reconciler");
+                // Return a default storage with fallback paths
+                return FsByteStorage::new(
+                    PathBuf::from("var/datasets"),
+                    PathBuf::from("var/adapters"),
+                );
+            }
+        };
         FsByteStorage::new(
             cfg.paths.datasets_root.clone().into(),
             cfg.paths.adapters_root.clone().into(),
@@ -209,13 +219,21 @@ impl StorageReconciler {
         }
 
         // Scan dataset root for orphans
-        let dataset_root = resolve_dataset_root(&self.state).join("files");
+        let dataset_root = resolve_dataset_root(&self.state)?.join("files");
         self.scan_orphans_in_dir(&dataset_root, "dataset", &expected)
             .await?;
 
         // Scan adapter repo root for orphans
         let adapter_root = {
-            let cfg = self.state.config.read().expect("Config lock poisoned");
+            let cfg = match self.state.config.read() {
+                Ok(cfg) => cfg,
+                Err(_) => {
+                    tracing::error!("Config lock poisoned in detect_orphans");
+                    return Err(adapteros_core::AosError::Internal(
+                        "Config lock poisoned".to_string(),
+                    ));
+                }
+            };
             PathBuf::from(&cfg.paths.adapters_root)
         };
         self.scan_orphans_in_dir(&adapter_root, "adapter", &expected)

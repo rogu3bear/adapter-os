@@ -11,10 +11,16 @@ use adapteros_telemetry::verify_bundle_signature;
 use std::fs;
 use tempfile::TempDir;
 
+fn new_test_tempdir() -> Result<TempDir> {
+    let root = std::path::PathBuf::from("var").join("tmp");
+    std::fs::create_dir_all(&root)?;
+    Ok(TempDir::new_in(&root)?)
+}
+
 /// Test that bundle signatures can be verified with the stored public key
 #[test]
 fn test_bundle_signature_roundtrip() -> Result<()> {
-    let _temp_dir = TempDir::new()?;
+    let _temp_dir = new_test_tempdir()?;
 
     // Generate keypair
     let keypair = Keypair::generate();
@@ -96,7 +102,7 @@ fn test_wrong_public_key_fails_verification() -> Result<()> {
 /// Test that signing key persists across restarts
 #[test]
 fn test_signing_key_persistence() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
     let key_path = temp_dir.path().join("telemetry_signing.key");
 
     // Generate and save key
@@ -144,7 +150,7 @@ fn test_signing_key_persistence() -> Result<()> {
 fn test_key_file_permissions() -> Result<()> {
     use std::os::unix::fs::PermissionsExt;
 
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
     let key_path = temp_dir.path().join("telemetry_signing.key");
 
     // Generate and save key

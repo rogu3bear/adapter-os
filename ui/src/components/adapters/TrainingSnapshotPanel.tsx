@@ -6,6 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { PDFViewer } from '@/components/documents/PDFViewer';
 import { toast } from 'sonner';
+import { buildDatasetDetailLink } from '@/utils/navLinks';
 
 interface TrainingDocument {
   doc_id: string;
@@ -68,7 +69,7 @@ export function TrainingSnapshotPanel({ adapterId }: Props) {
 
   const handleCollectionClick = () => {
     if (snapshot?.collection_id) {
-      navigate(`/training/datasets/${snapshot.collection_id}`);
+      navigate(buildDatasetDetailLink(snapshot.collection_id));
     }
   };
 

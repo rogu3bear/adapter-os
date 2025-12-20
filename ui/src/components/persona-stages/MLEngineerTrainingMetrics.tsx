@@ -36,7 +36,7 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { TrainingJob, TrainingMetrics } from '@/api/training-types';
 import { logger } from '@/utils/logger';
 import { METRIC_COLORS } from '@/constants/chart-colors';

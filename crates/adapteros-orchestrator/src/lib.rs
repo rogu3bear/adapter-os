@@ -141,14 +141,15 @@ impl Orchestrator {
                 .get_definition(&result.gate_id)
                 .ok_or_else(|| anyhow::anyhow!("Unknown gate: {}", result.gate_id))?;
 
-            if deps.severity == GateSeverity::Critical && result.degradation_level == 2 {
-                if !self.config.allow_degraded_mode {
-                    anyhow::bail!(
-                        "Critical dependencies missing for gate '{}': {:?}",
-                        result.gate_id,
-                        result.messages
-                    );
-                }
+            if deps.severity == GateSeverity::Critical
+                && result.degradation_level == 2
+                && !self.config.allow_degraded_mode
+            {
+                anyhow::bail!(
+                    "Critical dependencies missing for gate '{}': {:?}",
+                    result.gate_id,
+                    result.messages
+                );
             }
         }
 

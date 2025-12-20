@@ -23,7 +23,7 @@ async fn load_model_returns_404_when_model_path_missing() {
 
     // Insert a model pointing to a missing path.
     let model_id = "model-missing-path";
-    let missing_path = "/tmp/definitely-not-here/model";
+    let missing_path = "var/definitely-not-here/model";
     adapteros_db::sqlx::query(
         r#"
         INSERT INTO models (id, name, hash_b3, config_hash_b3, tokenizer_hash_b3, tokenizer_cfg_hash_b3, backend, model_path, tenant_id)

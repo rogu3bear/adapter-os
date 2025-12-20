@@ -2,7 +2,7 @@ import React from 'react';
 import { LucideIcon } from 'lucide-react';
 import { Card, CardContent } from './card';
 import { Button } from './button';
-import { cn } from './utils';
+import { cn } from '@/lib/utils';
 
 type EmptyStateVariant = 'card' | 'minimal';
 

@@ -1,3 +1,13 @@
+/**
+ * DEPRECATED: This config is superseded by vite.config.ts with VITE_BUILD_MODE=service-panel
+ *
+ * Migration:
+ *   Old: vite --config vite.config.service-panel.ts
+ *   New: VITE_BUILD_MODE=service-panel vite
+ *
+ * This file is kept for backwards compatibility and will be removed in a future release.
+ */
+
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react-swc';
 import path from 'path';
@@ -57,18 +67,18 @@ export default defineConfig({
     },
   },
   server: {
-    port: 3300,
+    port: parseInt(process.env.AOS_PANEL_PORT || '3300', 10),
     strictPort: true,
     host: '0.0.0.0',
     open: false, // Don't auto-open browser for service panel
     proxy: {
       '/api/services': {
-        target: 'http://localhost:3301',
+        target: `http://localhost:${parseInt(process.env.AOS_PANEL_PORT || '3301', 10)}`,
         changeOrigin: true,
         secure: false,
       },
       '/api': {
-        target: 'http://localhost:8080',
+        target: `http://localhost:${process.env.AOS_SERVER_PORT || '8080'}`,
         changeOrigin: true,
         secure: false,
       },

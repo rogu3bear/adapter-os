@@ -8,8 +8,9 @@ import FeatureLayout from '@/layout/FeatureLayout';
 import { DensityProvider } from '@/contexts/DensityContext';
 import { useRBAC } from '@/hooks/security/useRBAC';
 import { logger } from '@/utils/logger';
+import { buildAdapterHealthLink, buildTrainingJobsLink } from '@/utils/navLinks';
 import { toast } from 'sonner';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import {
   Code,
   RefreshCw,
@@ -133,8 +134,7 @@ export function AdaptersPage() {
   }, [evictMutation]);
 
   const handleViewHealth = useCallback((adapterId: string) => {
-    // Navigate to adapter detail page with health tab
-    navigate(`/adapters/${adapterId}?tab=health`);
+    navigate(buildAdapterHealthLink(adapterId));
   }, [navigate]);
 
   const handleDownloadManifest = useCallback(async (adapterId: string) => {
@@ -301,7 +301,7 @@ export function AdaptersPage() {
           domain: adapter.domain,
           purpose: adapter.purpose,
           revision: adapter.revision,
-          languages_json: adapter.languages_json,
+          languages: adapter.languages,
         })),
       };
 
@@ -376,7 +376,7 @@ export function AdaptersPage() {
         primaryAction={{
           label: 'Train New Adapter',
           icon: Brain,
-          onClick: () => navigate('/training'),
+          onClick: () => navigate(buildTrainingJobsLink()),
           disabled: !canRegister,
           size: 'sm',
         }}

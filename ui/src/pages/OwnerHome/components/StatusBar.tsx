@@ -22,7 +22,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { GlossaryTooltip } from '@/components/ui/glossary-tooltip';
-import { cn } from '@/components/ui/utils';
+import { cn } from '@/lib/utils';
 import type { SystemOverview } from '@/api/owner-types';
 import type { BaseModelStatus } from '@/api/api-types';
 import type { Adapter } from '@/api/types';

@@ -15,6 +15,7 @@ export {
   formatDurationSeconds,
   formatBytes,
   formatMB,
+  formatGB,
   formatTimestamp,
   formatRelativeTime,
   formatPercent,
@@ -23,7 +24,9 @@ export {
   formatDate,
   formatDateTime,
   formatString,
-} from './format';
+  formatMetricValue,
+  type FormatMetricOptions,
+} from '@/lib/formatters';
 
 // Adapter utilities
 export * from './adapters';
@@ -86,3 +89,6 @@ export * from './peerSync';
 
 // Type guards
 export * from './typeGuards';
+
+// Sanitization utilities
+export * from './sanitize';

@@ -5,7 +5,7 @@ import DashboardPage from '@/pages/DashboardPage';
 import { renderWithProviders } from './utils/testProviders';
 import { useSystemMetrics, useMetricsSnapshot } from '@/hooks/system/useSystem';
 
-vi.mock('@/hooks/useSystem', () => ({
+vi.mock('@/hooks/system/useSystem', () => ({
   useSystemMetrics: vi.fn(),
   useMetricsSnapshot: vi.fn(),
 }));
@@ -20,14 +20,14 @@ vi.mock('@/providers/FeatureProviders', () => ({
   }),
 }));
 
-vi.mock('@/hooks/useTraining', () => ({
+vi.mock('@/hooks/training', () => ({
   useTraining: {
     useDatasets: () => ({ data: null, isLoading: false, error: null }),
     useTrainingJobs: () => ({ data: null, isLoading: false, error: null }),
   },
 }));
 
-vi.mock('@/hooks/useReposApi', () => ({
+vi.mock('@/hooks/api/useReposApi', () => ({
   useRepos: () => ({ data: null, isLoading: false, error: null }),
 }));
 
@@ -159,4 +159,3 @@ describe('DashboardPage metric cards', () => {
     expect(screen.getByText(/Requests\/min: 42.2/i)).toBeInTheDocument();
   });
 });
-

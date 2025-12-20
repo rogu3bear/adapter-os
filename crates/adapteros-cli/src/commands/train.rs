@@ -198,8 +198,8 @@ impl TrainArgs {
 
         // Save LoRA weights
         let weights_path = self.output.join("lora_weights.json");
-        let weights_json = serde_json::to_string_pretty(&result.weights)
-            .map_err(|e| AosError::Serialization(e))?;
+        let weights_json =
+            serde_json::to_string_pretty(&result.weights).map_err(AosError::Serialization)?;
 
         std::fs::write(&weights_path, weights_json)
             .map_err(|e| AosError::Io(format!("Failed to write weights: {}", e)))?;
@@ -222,11 +222,18 @@ fn stringify_metadata_value(v: serde_json::Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use adapteros_platform::common::PlatformUtils;
     use tempfile::TempDir;
+
+    fn new_test_tempdir() -> TempDir {
+        let root = PlatformUtils::temp_dir();
+        std::fs::create_dir_all(&root).expect("create var/tmp");
+        TempDir::new_in(&root).expect("create temp dir")
+    }
 
     #[test]
     fn test_training_config_loading() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let config_path = temp_dir.path().join("config.json");
 
         let mut config = TrainingConfig::default();
@@ -265,7 +272,7 @@ mod tests {
 
     #[test]
     fn test_training_data_loading() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let data_path = temp_dir.path().join("data.json");
 
         let mut metadata = HashMap::new();

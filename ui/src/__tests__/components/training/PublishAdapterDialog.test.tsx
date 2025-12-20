@@ -21,26 +21,21 @@ import type { TrainingJob } from '@/api/training-types';
 import type { PublishAdapterResponse } from '@/api/adapter-types';
 
 // Mock the usePublishAdapter hook
-const mockMutateAsync = vi.fn();
-const mockUsePublishAdapter = vi.fn(() => ({
-  mutateAsync: mockMutateAsync,
-  isPending: false,
-  isError: false,
-  error: null,
-}));
+const mockMutateAsync = vi.hoisted(() => vi.fn());
+const mockUsePublishAdapter = vi.hoisted(() => vi.fn());
 
-vi.mock('@/hooks/useAdapterPublish', () => ({
+vi.mock('@/hooks/adapters', () => ({
   usePublishAdapter: () => mockUsePublishAdapter(),
 }));
 
 // Mock toast
-const mockToastSuccess = vi.fn();
-const mockToastError = vi.fn();
+const mockToastSuccess = vi.hoisted(() => vi.fn());
+const mockToastError = vi.hoisted(() => vi.fn());
 
 vi.mock('sonner', () => ({
   toast: {
-    success: mockToastSuccess,
-    error: mockToastError,
+    success: (...args: unknown[]) => mockToastSuccess(...args),
+    error: (...args: unknown[]) => mockToastError(...args),
   },
 }));
 

@@ -841,6 +841,99 @@ impl AdapterTable {
         }
     }
 
+    /// Force cleanup of retired adapters with zero refcount
+    ///
+    /// Workstream 7: This method aggressively cleans up retired stacks where all
+    /// adapters have zero refcount. Used during memory pressure to free VRAM.
+    ///
+    /// Returns the number of stacks cleaned up.
+    pub async fn force_cleanup_retired<K: adapteros_lora_kernel_api::FusedKernels + Send + Sync>(
+        &self,
+        kernels_opt: Option<Arc<tokio::sync::Mutex<K>>>,
+    ) -> Result<usize> {
+        let mut cleaned_count = 0;
+        let mut retired_guard = self.retired_stacks.lock().await;
+        let mut i = 0;
+
+        while i < retired_guard.len() {
+            let stack = &retired_guard[i];
+            let stack_generation = stack.generation;
+            let adapter_ids: Vec<String> = stack.active.keys().cloned().collect();
+            drop(retired_guard); // Release lock before acquiring refcounts
+
+            let can_unload = {
+                let refcounts = self.refcounts.lock().await;
+                adapter_ids.iter().all(|id| {
+                    refcounts
+                        .get(id)
+                        .is_some_and(|rc| rc.load(Ordering::Relaxed) == 0)
+                })
+            };
+
+            retired_guard = self.retired_stacks.lock().await; // re-acquire
+            if i >= retired_guard.len() {
+                break;
+            }
+
+            let stack_ref = &retired_guard[i];
+            if stack_ref.generation != stack_generation {
+                i += 1;
+                continue;
+            }
+
+            if can_unload {
+                let gen = stack_ref.generation;
+                let adapter_ids_for_unload: Vec<_> = stack_ref.active.keys().cloned().collect();
+
+                // Release retired_guard before kernel operations
+                drop(retired_guard);
+
+                if let Some(kernels) = kernels_opt.clone() {
+                    let mut k_lock = kernels.lock().await;
+                    let mut unload_failed = false;
+                    for id in &adapter_ids_for_unload {
+                        let id_u16 = adapter_id_to_u16(id);
+                        if let Err(e) = k_lock.detach_adapter(id_u16) {
+                            tracing::warn!("Force cleanup failed to unload adapter {}: {}", id, e);
+                            unload_failed = true;
+                            break;
+                        }
+                    }
+                    drop(k_lock);
+
+                    // Re-acquire retired_guard for removal
+                    retired_guard = self.retired_stacks.lock().await;
+
+                    if !unload_failed {
+                        if let Some(pos) = retired_guard.iter().position(|s| s.generation == gen) {
+                            retired_guard.remove(pos);
+                            let mut retry_guard = self.retry_counts.lock().await;
+                            retry_guard.remove(&gen);
+                            tracing::info!("Force cleanup: unloaded retired stack gen {}", gen);
+                            cleaned_count += 1;
+                        }
+                    } else {
+                        i += 1;
+                    }
+                } else {
+                    // Re-acquire retired_guard for removal (no kernels case)
+                    retired_guard = self.retired_stacks.lock().await;
+                    if let Some(pos) = retired_guard.iter().position(|s| s.generation == gen) {
+                        retired_guard.remove(pos);
+                        let mut retry_guard = self.retry_counts.lock().await;
+                        retry_guard.remove(&gen);
+                        tracing::info!("Force cleanup: unloaded retired stack (no kernels)");
+                        cleaned_count += 1;
+                    }
+                }
+            } else {
+                i += 1;
+            }
+        }
+
+        Ok(cleaned_count)
+    }
+
     /// Process retired stacks for RCU (Reference Count Update)
     ///
     /// This function is designed to be called periodically or when the system
@@ -1036,6 +1129,7 @@ pub struct HotSwapManager<K> {
     kernels: Option<Arc<tokio::sync::Mutex<K>>>,
     repo_root: std::path::PathBuf,
     tenant_id: String,
+    memory_monitor: Option<Arc<crate::memory::UmaPressureMonitor>>,
 }
 
 impl<K> Clone for HotSwapManager<K> {
@@ -1045,6 +1139,7 @@ impl<K> Clone for HotSwapManager<K> {
             kernels: self.kernels.clone(),
             repo_root: self.repo_root.clone(),
             tenant_id: self.tenant_id.clone(),
+            memory_monitor: self.memory_monitor.clone(),
         }
     }
 }
@@ -1069,6 +1164,7 @@ impl HotSwapManagerNoKernel {
             kernels: None,
             repo_root,
             tenant_id: tenant_id.into(),
+            memory_monitor: None,
         }
     }
 }
@@ -1082,7 +1178,8 @@ where
         kernels: Arc<tokio::sync::Mutex<K>>,
         repo_root: std::path::PathBuf,
         tenant_id: String,
-        telemetry: Option<Arc<TelemetryWriter>>, // add param
+        telemetry: Option<Arc<TelemetryWriter>>,
+        memory_monitor: Option<Arc<crate::memory::UmaPressureMonitor>>,
     ) -> Self {
         let (tx, mut rx) = mpsc::channel(100);
         let mut table = AdapterTable::new();
@@ -1092,8 +1189,10 @@ where
         let table_arc = Arc::new(table);
         let table_clone = table_arc.clone();
         let kernels_clone = Some(kernels.clone());
+        let memory_monitor_for_task = memory_monitor.clone();
 
         // Spawn background retirement task with periodic processing and backoff
+        // Workstream 7: Enhanced to include memory-pressure-based cleanup
         tokio::spawn(async move {
             use crate::backoff::{BackoffConfig, CircuitBreaker as BackoffCircuitBreaker};
 
@@ -1102,6 +1201,10 @@ where
             let circuit_breaker = BackoffCircuitBreaker::new(5, Duration::from_secs(120));
             let mut consecutive_failures = 0u32;
 
+            // Periodic cleanup every 30 seconds
+            let mut cleanup_interval = tokio::time::interval(Duration::from_secs(30));
+            cleanup_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
             loop {
                 tokio::select! {
                     _ = rx.recv() => {
@@ -1109,6 +1212,34 @@ where
                     }
                     _ = sleep(Duration::from_secs(5)) => {
                         tracing::debug!("Periodic retirement check");
+                    }
+                    _ = cleanup_interval.tick() => {
+                        // Workstream 7: Check memory pressure and force cleanup if needed
+                        if let Some(ref mem_monitor) = memory_monitor_for_task {
+                            let pressure = mem_monitor.get_current_pressure();
+                            if pressure >= crate::memory::MemoryPressureLevel::High {
+                                tracing::warn!(
+                                    pressure = %pressure,
+                                    "Memory pressure detected, forcing retired adapter cleanup"
+                                );
+                                match table_clone.force_cleanup_retired(kernels_clone.clone()).await {
+                                    Ok(cleaned) => {
+                                        if cleaned > 0 {
+                                            tracing::info!(
+                                                cleaned_stacks = cleaned,
+                                                "Force cleanup completed due to memory pressure"
+                                            );
+                                        }
+                                    }
+                                    Err(e) => {
+                                        tracing::error!(
+                                            error = %e,
+                                            "Force cleanup failed during memory pressure"
+                                        );
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -1170,6 +1301,7 @@ where
             kernels: Some(kernels),
             repo_root,
             tenant_id,
+            memory_monitor,
         }
     }
 
@@ -1180,6 +1312,7 @@ where
             kernels: None,
             repo_root,
             tenant_id,
+            memory_monitor: None,
         }
     }
 
@@ -1235,6 +1368,32 @@ where
 
                     // Extract SafeTensors payload
                     let weights = canonical_segment.payload;
+
+                    // Workstream 6: VRAM validation before preload
+                    // Estimate VRAM requirement from payload size
+                    let estimated_vram_mb = (weights.len() as u64 / BYTES_PER_MB).max(1);
+
+                    // Check available VRAM and memory pressure
+                    if let Some(ref monitor) = self.memory_monitor {
+                        let available_mb = monitor.get_available_mb();
+                        let pressure = monitor.get_current_pressure();
+
+                        // Check if we have enough available memory
+                        if estimated_vram_mb > available_mb {
+                            return Err(AosError::MemoryPressure(format!(
+                                "Insufficient VRAM: adapter requires ~{}MB but only {}MB available",
+                                estimated_vram_mb, available_mb
+                            )));
+                        }
+
+                        // Check memory pressure level - reject if critical
+                        if pressure == crate::memory::MemoryPressureLevel::Critical {
+                            return Err(AosError::MemoryPressure(format!(
+                                "Critical memory pressure detected, cannot preload adapter (requires ~{}MB)",
+                                estimated_vram_mb
+                            )));
+                        }
+                    }
 
                     // Get adapter ID as u16 (deterministic BLAKE3 hash)
                     let adapter_id_u16 = adapter_id_to_u16(&adapter_id);
@@ -1700,6 +1859,7 @@ mod tests {
             kernels.clone(),
             repo.path().to_path_buf(),
             SYSTEM_TENANT.to_string(),
+            None,
             None,
         );
 

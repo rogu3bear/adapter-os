@@ -40,7 +40,7 @@ impl Role {
     }
 
     /// Parse role from string
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse_role(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "admin" => Some(Role::Admin),
             "developer" => Some(Role::Developer),
@@ -191,12 +191,12 @@ mod tests {
 
     #[test]
     fn test_role_conversion() {
-        assert_eq!(Role::from_str("admin"), Some(Role::Admin));
-        assert_eq!(Role::from_str("operator"), Some(Role::Operator));
-        assert_eq!(Role::from_str("sre"), Some(Role::SRE));
-        assert_eq!(Role::from_str("compliance"), Some(Role::Compliance));
-        assert_eq!(Role::from_str("viewer"), Some(Role::Viewer));
-        assert_eq!(Role::from_str("invalid"), None);
+        assert_eq!(Role::parse_role("admin"), Some(Role::Admin));
+        assert_eq!(Role::parse_role("operator"), Some(Role::Operator));
+        assert_eq!(Role::parse_role("sre"), Some(Role::SRE));
+        assert_eq!(Role::parse_role("compliance"), Some(Role::Compliance));
+        assert_eq!(Role::parse_role("viewer"), Some(Role::Viewer));
+        assert_eq!(Role::parse_role("invalid"), None);
     }
 
     #[test]

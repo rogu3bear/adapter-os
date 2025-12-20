@@ -11,19 +11,15 @@ use serde::{Deserialize, Serialize};
 /// Learning rate schedule type
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum LRScheduleType {
     /// Constant learning rate
+    #[default]
     Constant,
     /// Linear decay from initial to final learning rate
     Linear,
     /// Cosine annealing decay
     Cosine,
-}
-
-impl Default for LRScheduleType {
-    fn default() -> Self {
-        Self::Constant
-    }
 }
 
 /// Learning rate scheduler configuration

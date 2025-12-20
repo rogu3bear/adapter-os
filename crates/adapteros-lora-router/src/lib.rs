@@ -26,6 +26,23 @@ use smallvec::SmallVec;
 use std::collections::HashSet;
 
 /// Q15 gate constants for router outputs (deterministic, non-negative gates)
+///
+/// # Why 32767 and not 32768?
+///
+/// Q15 fixed-point format represents values in [-1.0, 1.0) using signed 16-bit integers.
+/// The maximum positive value is 32767 (0x7FFF), not 32768, because:
+///
+/// 1. **i16 range**: -32768 to 32767. Using 32768 would overflow.
+/// 2. **Precision**: 32767.0 gives exact representation of 1.0 when gate=32767.
+///    Using 32768.0 would make max gate = 0.99997, losing the ability to express "full weight".
+/// 3. **Determinism**: Consistent denominator ensures identical f32→Q15→f32 round-trips.
+///
+/// # Usage
+/// - Encode: `gate_q15 = (gate_f32 * 32767.0).round() as i16`
+/// - Decode: `gate_f32 = gate_q15 as f32 / 32767.0`
+///
+/// # Critical Invariant
+/// **DO NOT CHANGE TO 32768** - This would break determinism proofs and replay verification.
 pub const ROUTER_GATE_Q15_DENOM: f32 = 32767.0;
 pub const ROUTER_GATE_Q15_MAX: i16 = 32767;
 
@@ -108,7 +125,7 @@ pub struct RouterWeights {
     /// Weight for prompt verb (0.1 - weak signal)
     pub prompt_verb_weight: f32,
 
-    // MPLoRA additions
+    // DIR (Deterministic Inference Runtime) additions
     // Reference: https://openreview.net/pdf?id=jqz6Msm3AF
     /// Weight for orthogonal constraints (0.05 - weak signal)
     pub orthogonal_weight: f32,
@@ -148,8 +165,8 @@ impl RouterWeights {
         }
     }
 
-    /// Create custom weights with MPLoRA parameters
-    pub fn new_with_mplora(
+    /// Create custom weights with DIR (Deterministic Inference Runtime) parameters
+    pub fn new_with_dir_weights(
         language: f32,
         framework: f32,
         symbols: f32,
@@ -214,7 +231,7 @@ pub struct Router {
     /// Log first N tokens fully (default: 128 per Telemetry Ruleset #9)
     full_log_tokens: usize,
 
-    // MPLoRA enhancements
+    // DIR (Deterministic Inference Runtime) enhancements
     // Reference: https://openreview.net/pdf?id=jqz6Msm3AF
     /// Orthogonal constraints tracker
     orthogonal_constraints: Option<OrthogonalConstraints>,
@@ -532,7 +549,7 @@ impl Router {
         path_routing::compute_path_scores(query, contexts, self.feature_weights.path_tokens_weight)
     }
 
-    /// Enable orthogonal constraints for MPLoRA
+    /// Enable orthogonal constraints for DIR (Deterministic Inference Runtime)
     /// Reference: https://openreview.net/pdf?id=jqz6Msm3AF
     pub fn set_orthogonal_constraints(
         &mut self,
@@ -796,6 +813,7 @@ impl Router {
     ///         tier: "default".to_string(),
     ///         scope_path: None,
     ///         lora_tier: None,
+    ///         base_model: None,
     ///     })
     ///     .collect();
     /// let adapter_ids: Vec<String> = adapter_info.iter().map(|a| a.id.clone()).collect();
@@ -808,7 +826,7 @@ impl Router {
     /// - Per-adapter feature scoring (language affinity, framework specialization)
     /// - Proper orthogonality penalties during selection
     /// - Stack-based filtering
-    /// - MPLoRA diversity controls
+    /// - DIR diversity controls
     ///
     /// See [ROUTER_MIGRATION.md](../../docs/ROUTER_MIGRATION.md) for complete migration steps.
     #[deprecated(
@@ -897,7 +915,7 @@ impl Router {
         if self.orthogonal_enabled {
             if let Some(ref mut constraints) = self.orthogonal_constraints {
                 // Update activation history for diversity tracking
-                // Note: Penalty-based rescoring deferred to post-alpha (MPLoRA full implementation)
+                // Note: Penalty-based rescoring deferred to post-alpha (DIR full implementation)
                 // See: https://openreview.net/pdf?id=jqz6Msm3AF
                 constraints.update_history(&indices, &gates_q15);
             }
@@ -1141,10 +1159,7 @@ impl Router {
             }
         }
 
-        let priors_for_routing: &[f32] = filtered_priors
-            .as_ref()
-            .map(|v| v.as_slice())
-            .unwrap_or(priors);
+        let priors_for_routing: &[f32] = filtered_priors.as_deref().unwrap_or(priors);
 
         if priors_for_routing.len() != adapter_info.len() {
             tracing::error!(
@@ -1196,6 +1211,22 @@ impl Router {
         };
 
         // Sort by score descending, then by deterministic/adaptive tie-break
+        //
+        // # Tie-Breaking Strategy (Critical for Determinism)
+        //
+        // 1. **Primary**: Score descending (highest score first)
+        // 2. **Secondary**: Either adaptive (seeded RNG) or index-based (deterministic)
+        //
+        // When `adaptive_routing` is enabled AND scores are within f32::EPSILON (~1.19e-7),
+        // we use seeded ChaCha20 RNG for tie-breaking. This allows controlled randomization
+        // while maintaining reproducibility via `router_tiebreak_seed`.
+        //
+        // When disabled, we use adapter index ascending (a.0.cmp(&b.0)) for pure determinism.
+        //
+        // # Note on Epsilon
+        // f32::EPSILON is quite tight (~1.19e-7). In practice, scores rarely differ by less
+        // than this unless they're truly identical. If floating-point drift causes issues,
+        // consider using a relative epsilon like `(a.1 - b.1).abs() <= a.1.abs() * 1e-6`.
         scores.sort_by(|a, b| {
             b.1.partial_cmp(&a.1)
                 .unwrap_or(std::cmp::Ordering::Equal)
@@ -1235,7 +1266,7 @@ impl Router {
             .iter()
             .map(|&g| {
                 let q = (g * ROUTER_GATE_Q15_DENOM).round() as i16;
-                q.max(0).min(ROUTER_GATE_Q15_MAX)
+                q.max(0)
             })
             .collect();
 
@@ -1610,6 +1641,7 @@ pub struct AdapterInfo {
     pub tier: String,
     pub scope_path: Option<String>,
     pub lora_tier: Option<String>,
+    pub base_model: Option<String>,
 }
 
 impl AdapterInfo {

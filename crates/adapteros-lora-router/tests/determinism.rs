@@ -41,6 +41,7 @@ fn test_deterministic_top_k_ordering() {
             tier: "warm".to_string(),
             scope_path: None,
             lora_tier: None,
+            base_model: None,
         })
         .collect();
     let mask = allow_all_mask(&adapter_info);
@@ -87,6 +88,7 @@ fn test_q15_quantization_properties() {
             tier: "warm".to_string(),
             scope_path: None,
             lora_tier: None,
+            base_model: None,
         })
         .collect();
     let mask = allow_all_mask(&adapter_info);
@@ -164,6 +166,7 @@ fn test_gate_normalization_and_entropy_floor() {
             tier: "warm".to_string(),
             scope_path: None,
             lora_tier: None,
+            base_model: None,
         })
         .collect();
     let mask = allow_all_mask(&adapter_info);
@@ -214,6 +217,7 @@ fn test_multiple_calls_deterministic() {
             tier: "warm".to_string(),
             scope_path: None,
             lora_tier: None,
+            base_model: None,
         })
         .collect();
     let mask = allow_all_mask(&adapter_info);
@@ -248,6 +252,7 @@ fn test_repeated_routing_returns_identical_indices_and_gates() {
             tier: "warm".to_string(),
             scope_path: None,
             lora_tier: None,
+            base_model: None,
         })
         .collect();
 
@@ -290,6 +295,7 @@ fn test_q15_range_properties() {
             tier: "warm".to_string(),
             scope_path: None,
             lora_tier: None,
+            base_model: None,
         })
         .collect();
     let mask = allow_all_mask(&adapter_info);
@@ -320,6 +326,7 @@ fn test_router_ring_invariants() {
             tier: "warm".to_string(),
             scope_path: None,
             lora_tier: None,
+            base_model: None,
         })
         .collect();
     let mask = allow_all_mask(&adapter_info);
@@ -347,6 +354,7 @@ fn test_router_ring_invariants() {
             tier: "warm".to_string(),
             scope_path: None,
             lora_tier: None,
+            base_model: None,
         })
         .collect();
     let mask_k0 = allow_all_mask(&adapter_info);
@@ -370,6 +378,7 @@ fn test_varying_k_stability() {
             tier: "warm".to_string(),
             scope_path: None,
             lora_tier: None,
+            base_model: None,
         })
         .collect();
 
@@ -406,6 +415,7 @@ proptest! {
                 tier: "warm".to_string(),
                 scope_path: None,
                 lora_tier: None,
+                base_model: None,
             })
             .collect();
         let decision1 =

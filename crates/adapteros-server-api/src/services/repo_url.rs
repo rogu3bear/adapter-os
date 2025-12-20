@@ -94,11 +94,18 @@ pub async fn infer_repo_urls_parallel(
 mod tests {
     use super::*;
     use std::fs;
+    use std::path::PathBuf;
     use tempfile::TempDir;
+
+    fn new_test_tempdir() -> TempDir {
+        let root = PathBuf::from("var").join("tmp");
+        std::fs::create_dir_all(&root).expect("create var/tmp");
+        TempDir::new_in(&root).expect("Failed to create temp directory")
+    }
 
     #[test]
     fn test_infer_repo_url_with_remote() {
-        let temp_dir = TempDir::new().expect("Failed to create temp directory");
+        let temp_dir = new_test_tempdir();
         let repo_path = temp_dir.path();
 
         // Initialize git repo
@@ -115,7 +122,7 @@ mod tests {
 
     #[test]
     fn test_infer_repo_url_no_remote() {
-        let temp_dir = TempDir::new().expect("Failed to create temp directory");
+        let temp_dir = new_test_tempdir();
         let repo_path = temp_dir.path();
 
         // Initialize git repo without remote
@@ -127,7 +134,7 @@ mod tests {
 
     #[test]
     fn test_infer_repo_url_not_git_repo() {
-        let temp_dir = TempDir::new().expect("Failed to create temp directory");
+        let temp_dir = new_test_tempdir();
         let repo_path = temp_dir.path();
 
         // Create directory but don't initialize git

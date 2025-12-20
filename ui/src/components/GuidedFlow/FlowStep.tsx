@@ -2,7 +2,7 @@ import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { CheckCircle, Circle, Loader2 } from 'lucide-react';
-import { cn } from '@/components/ui/utils';
+import { cn } from '@/lib/utils';
 
 export type FlowStepStatus = 'pending' | 'active' | 'completed' | 'error';
 

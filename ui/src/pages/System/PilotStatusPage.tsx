@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import FeatureLayout from '@/layout/FeatureLayout';
-import { apiClient } from '@/api/client';
+import { apiClient } from '@/api/services';
 import type { PilotStatusResponse } from '@/api/pilot-status-types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';

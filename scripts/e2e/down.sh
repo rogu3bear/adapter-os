@@ -6,6 +6,7 @@ RUN_DIR="$ROOT/var/run"
 
 API_PID_FILE="$RUN_DIR/adapteros-api-e2e.pid"
 UI_PID_FILE="$RUN_DIR/adapteros-ui-e2e.pid"
+WORKER_PID_FILE="$RUN_DIR/adapteros-worker-e2e.pid"
 
 stop_proc() {
   local pid_file=$1
@@ -40,7 +41,11 @@ stop_proc() {
   echo "$name stopped."
 }
 
+stop_proc "$WORKER_PID_FILE" "Worker"
 stop_proc "$UI_PID_FILE" "UI"
 stop_proc "$API_PID_FILE" "API"
+
+# Clean up worker socket
+rm -f "$RUN_DIR/worker.sock"
 
 echo "Stack is down."

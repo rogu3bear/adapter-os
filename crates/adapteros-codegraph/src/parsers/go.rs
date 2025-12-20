@@ -679,7 +679,14 @@ impl LanguageParser for GoParser {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
     use tempfile::TempDir;
+
+    fn new_test_tempdir() -> TempDir {
+        let root = PathBuf::from("var").join("tmp");
+        std::fs::create_dir_all(&root).expect("create var/tmp");
+        TempDir::new_in(&root).expect("Test temp directory creation should succeed")
+    }
 
     #[test]
     fn test_go_parser_creation() {
@@ -690,7 +697,7 @@ mod tests {
     #[test]
     fn test_parse_simple_function() {
         let mut parser = GoParser::new().expect("GoParser creation should succeed");
-        let temp_dir = TempDir::new().expect("Test temp directory creation should succeed");
+        let temp_dir = new_test_tempdir();
         let test_file = temp_dir.path().join("test.go");
 
         std::fs::write(
@@ -717,7 +724,7 @@ mod tests {
     #[test]
     fn test_parse_struct() {
         let mut parser = GoParser::new().expect("GoParser creation should succeed");
-        let temp_dir = TempDir::new().expect("Test temp directory creation should succeed");
+        let temp_dir = new_test_tempdir();
         let test_file = temp_dir.path().join("test.go");
 
         std::fs::write(
@@ -743,7 +750,7 @@ mod tests {
     #[test]
     fn test_parse_interface() {
         let mut parser = GoParser::new().expect("GoParser creation should succeed");
-        let temp_dir = TempDir::new().expect("Test temp directory creation should succeed");
+        let temp_dir = new_test_tempdir();
         let test_file = temp_dir.path().join("test.go");
 
         std::fs::write(
@@ -769,7 +776,7 @@ mod tests {
     #[test]
     fn test_parse_method() {
         let mut parser = GoParser::new().expect("GoParser creation should succeed");
-        let temp_dir = TempDir::new().expect("Test temp directory creation should succeed");
+        let temp_dir = new_test_tempdir();
         let test_file = temp_dir.path().join("test.go");
 
         std::fs::write(&test_file, "package main\n\ntype TestStruct struct {}\n\nfunc (t TestStruct) Method() int {\n    return 42\n}")
@@ -792,7 +799,7 @@ mod tests {
     #[test]
     fn test_parse_import() {
         let mut parser = GoParser::new().expect("GoParser creation should succeed");
-        let temp_dir = TempDir::new().expect("Test temp directory creation should succeed");
+        let temp_dir = new_test_tempdir();
         let test_file = temp_dir.path().join("test.go");
 
         std::fs::write(&test_file, "package main\n\nimport \"fmt\"")
@@ -814,7 +821,7 @@ mod tests {
     #[test]
     fn test_parse_private_function() {
         let mut parser = GoParser::new().expect("GoParser creation should succeed");
-        let temp_dir = TempDir::new().expect("Test temp directory creation should succeed");
+        let temp_dir = new_test_tempdir();
         let test_file = temp_dir.path().join("test.go");
 
         std::fs::write(

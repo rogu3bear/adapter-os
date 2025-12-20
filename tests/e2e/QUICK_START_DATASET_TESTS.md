@@ -144,8 +144,8 @@ RUST_LOG=debug cargo test --test dataset_to_inference -- --ignored --nocapture
 
 ### View Telemetry
 ```bash
-ls -la /tmp/adapteros_e2e/telemetry/
-cat /tmp/adapteros_e2e/telemetry/*.ndjson | jq .
+ls -la var/tmp/adapteros_e2e/telemetry/
+cat var/tmp/adapteros_e2e/telemetry/*.ndjson | jq .
 ```
 
 ### Enable Backtraces
@@ -155,7 +155,7 @@ RUST_BACKTRACE=1 cargo test --test dataset_to_inference -- --ignored --nocapture
 
 ### Check Artifacts
 ```bash
-find /tmp/adapteros_e2e -type f
+find var/tmp/adapteros_e2e -type f
 ```
 
 ### Verbose Logging
@@ -235,7 +235,7 @@ test.test_error_scenarios().await?;
 
 1. Run the test suite: `cargo test --test dataset_to_inference -- --ignored --nocapture`
 2. Review test output for all phases
-3. Check telemetry logs in `/tmp/adapteros_e2e/telemetry/`
+3. Check telemetry logs in `var/tmp/adapteros_e2e/telemetry/`
 4. Read detailed docs: `DATASET_TO_INFERENCE_TESTS.md`
 5. Explore implementation: `tests/e2e/dataset_to_inference.rs`
 

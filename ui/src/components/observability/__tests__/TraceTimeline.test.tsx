@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { TraceTimeline } from '@/components/observability/TraceTimeline';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 
 // Mock apiClient
 vi.mock('@/api/client', () => ({

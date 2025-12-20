@@ -417,7 +417,7 @@ These commands provide documentation and tutorials directly in the CLI.
   - Use `--help` on specific commands for additional sections and examples.
 - **External Docs**:
   - [docs/CONCEPTS.md](../../../docs/CONCEPTS.md) - **START HERE** - Unified mental model
-  - [docs/ARCHITECTURE_INDEX.md](../../../docs/ARCHITECTURE_INDEX.md) - Architecture documentation index
+  - [docs/ARCHITECTURE.md](../../../docs/ARCHITECTURE.md) - Architecture documentation
   - [CLAUDE.md](../../../CLAUDE.md) - Developer guide
 
 ---

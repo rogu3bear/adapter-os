@@ -1,5 +1,5 @@
 import React from 'react';
-import { cn } from '@/components/ui/utils';
+import { cn } from '@/lib/utils';
 
 interface ResponsiveStatGridProps {
   children: React.ReactNode;

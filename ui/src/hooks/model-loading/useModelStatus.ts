@@ -6,17 +6,11 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import apiClient from '@/api/client';
-import { BaseModelStatus } from '@/api/api-types';
+import { apiClient } from '@/api/services';
 import { logger } from '@/utils/logger';
+import type { ModelStatusState as ModelStatusStateType } from './types';
 
-export type ModelStatusState = 
-  | 'no-model'      // No model configured/imported
-  | 'loading'       // Model is loading into memory
-  | 'ready'         // Model is loaded and ready
-  | 'unloading'     // Model is being unloaded
-  | 'error'         // Model failed to load
-  | 'checking';     // Initial status check in progress
+export type ModelStatusState = ModelStatusStateType;
 
 export interface UseModelStatusReturn {
   status: ModelStatusState;
@@ -157,4 +151,3 @@ export function useModelStatus(
 }
 
 export default useModelStatus;
-

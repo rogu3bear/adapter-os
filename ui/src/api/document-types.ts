@@ -1,35 +1,114 @@
 /**
  * Document, Collection, and Evidence API types
  *
- * Types matching backend schemas from:
- * - crates/adapteros-server-api/src/handlers/documents.rs
- * - crates/adapteros-server-api/src/handlers/collections.rs
- * - crates/adapteros-server-api/src/handlers/evidence.rs
+ * MIGRATION STATUS: This file is being migrated to use generated types from generated.ts
+ *
+ * REPLACED types (now imported from generated.ts):
+ * - Document → components["schemas"]["DocumentResponse"]
+ * - Collection → components["schemas"]["CollectionResponse"]
+ * - CollectionDetail → components["schemas"]["CollectionDetailResponse"]
+ * - CollectionDocumentInfo → components["schemas"]["CollectionDocumentInfo"]
+ * - Evidence → components["schemas"]["EvidenceResponse"]
+ * - CreateCollectionRequest → components["schemas"]["CreateCollectionRequest"]
+ * - AddDocumentRequest → components["schemas"]["AddDocumentRequest"]
+ * - CreateEvidenceRequest → components["schemas"]["CreateEvidenceRequest"]
+ * - ListEvidenceQuery → components["schemas"]["ListEvidenceQuery"]
+ *
+ * KEPT types (UI-specific or not in generated types):
+ * - DocumentStatus (UI enum)
+ * - ProcessDocumentResponse (processing-specific)
+ * - DocumentChunk (chunk-specific)
+ * - EvidenceType (UI enum)
+ * - ConfidenceLevel (UI enum)
+ * - EvidenceStatus (UI enum)
+ * - SystemSettings and related (UI settings persistence)
  */
 
+import type { components } from './generated';
+
 // ============================================================================
-// Document Types
+// Generated Type Imports (Direct Replacement)
+// ============================================================================
+
+/**
+ * Document metadata response from API
+ * @deprecated Use generated type directly: components["schemas"]["DocumentResponse"]
+ */
+export type Document = components["schemas"]["DocumentResponse"] & {
+  /** Alias for name (UI compatibility) */
+  title?: string;
+};
+
+/**
+ * Collection summary response from list endpoint
+ * @deprecated Use generated type directly: components["schemas"]["CollectionResponse"]
+ */
+export type Collection = components["schemas"]["CollectionResponse"] & {
+  /** Alias for collection_id (UI compatibility) */
+  id?: string;
+};
+
+/**
+ * Collection detail response with documents
+ * @deprecated Use generated type directly: components["schemas"]["CollectionDetailResponse"]
+ */
+export type CollectionDetail = components["schemas"]["CollectionDetailResponse"];
+
+/**
+ * Document info within a collection
+ * @deprecated Use generated type directly: components["schemas"]["CollectionDocumentInfo"]
+ */
+export type CollectionDocumentInfo = components["schemas"]["CollectionDocumentInfo"];
+
+/**
+ * Evidence entry response
+ * @deprecated Use generated type directly: components["schemas"]["EvidenceResponse"]
+ */
+export type Evidence = components["schemas"]["EvidenceResponse"] & {
+  // Extended fields that may be present in some contexts
+  tenant_id?: string | null;
+  trace_id?: string | null;
+  message_id?: string | null;
+  status?: EvidenceStatus | null;
+  error_code?: string | null;
+  bundle_size_bytes?: number | null;
+  download_url?: string | null;
+  file_name?: string | null;
+  content_type?: string | null;
+  // Timestamp aliases
+  updated_at?: string | null;
+};
+
+/**
+ * Request to create a new collection
+ * @deprecated Use generated type directly: components["schemas"]["CreateCollectionRequest"]
+ */
+export type CreateCollectionRequest = components["schemas"]["CreateCollectionRequest"];
+
+/**
+ * Request to add a document to a collection
+ * @deprecated Use generated type directly: components["schemas"]["AddDocumentRequest"]
+ */
+export type AddDocumentRequest = components["schemas"]["AddDocumentRequest"];
+
+/**
+ * Request to create an evidence entry
+ * @deprecated Use generated type directly: components["schemas"]["CreateEvidenceRequest"]
+ */
+export type CreateEvidenceRequest = components["schemas"]["CreateEvidenceRequest"];
+
+/**
+ * Query parameters for listing evidence
+ * @deprecated Use generated type directly: components["schemas"]["ListEvidenceQuery"]
+ */
+export type ListEvidenceQuery = components["schemas"]["ListEvidenceQuery"];
+
+// ============================================================================
+// UI-Specific Types (Not in Generated Schema)
 // ============================================================================
 
 /** Document status indicating indexing state */
 export type DocumentStatus = 'processing' | 'indexed' | 'failed';
-
-/** Document metadata response from API */
-export interface Document {
-  schema_version: string;
-  document_id: string;
-  name: string;
-  title?: string; // Alias for name (UI compatibility)
-  hash_b3: string;
-  size_bytes: number;
-  mime_type: string;
-  storage_path: string;
-  status: DocumentStatus;
-  chunk_count: number | null;
-  tenant_id: string;
-  created_at: string;
-  updated_at: string | null;
-}
 
 /** Response from processing a document */
 export interface ProcessDocumentResponse {
@@ -52,53 +131,6 @@ export interface DocumentChunk {
   created_at: string;
 }
 
-// ============================================================================
-// Collection Types
-// ============================================================================
-
-/** Collection summary response from list endpoint */
-export interface Collection {
-  schema_version: string;
-  collection_id: string;
-  id?: string; // Alias for collection_id (UI compatibility)
-  name: string;
-  description: string | null;
-  document_count: number;
-  tenant_id: string;
-  created_at: string;
-  updated_at: string | null;
-}
-
-/** Document info within a collection */
-export interface CollectionDocumentInfo {
-  document_id: string;
-  name: string;
-  size_bytes: number;
-  status: string;
-  added_at: string;
-}
-
-/** Collection detail response with documents */
-export interface CollectionDetail extends Omit<Collection, 'document_count'> {
-  document_count: number;
-  documents: CollectionDocumentInfo[];
-}
-
-/** Request to create a new collection */
-export interface CreateCollectionRequest {
-  name: string;
-  description?: string;
-}
-
-/** Request to add a document to a collection */
-export interface AddDocumentRequest {
-  document_id: string;
-}
-
-// ============================================================================
-// Evidence Types
-// ============================================================================
-
 /** Valid evidence types */
 export type EvidenceType =
   | 'doc'
@@ -116,59 +148,8 @@ export type ConfidenceLevel = 'high' | 'medium' | 'low';
 /** Status for evidence bundle lifecycle */
 export type EvidenceStatus = 'queued' | 'building' | 'ready' | 'failed';
 
-/** Evidence entry response */
-export interface Evidence {
-  id: string;
-  dataset_id: string | null;
-  adapter_id: string | null;
-  tenant_id?: string | null;
-  evidence_type: EvidenceType;
-  reference: string;
-  description: string | null;
-  confidence: ConfidenceLevel;
-  created_by: string | null;
-  created_at: string;
-  updated_at?: string;
-  metadata_json: string | null;
-  trace_id?: string | null;
-  message_id?: string | null;
-  status?: EvidenceStatus | null;
-  error_code?: string | null;
-  bundle_size_bytes?: number | null;
-  download_url?: string | null;
-  file_name?: string | null;
-  content_type?: string | null;
-}
-
-/** Request to create an evidence entry */
-export interface CreateEvidenceRequest {
-  dataset_id?: string;
-  adapter_id?: string;
-  tenant_id?: string;
-  trace_id?: string;
-  message_id?: string;
-  evidence_type: EvidenceType;
-  reference: string;
-  description?: string;
-  confidence?: ConfidenceLevel;
-  metadata_json?: string;
-}
-
-/** Query parameters for listing evidence */
-export interface ListEvidenceQuery {
-  dataset_id?: string;
-  adapter_id?: string;
-  tenant_id?: string;
-  trace_id?: string;
-  message_id?: string;
-  evidence_type?: EvidenceType;
-  confidence?: ConfidenceLevel;
-  status?: EvidenceStatus;
-  limit?: number;
-}
-
 // ============================================================================
-// Settings Types (for persistence)
+// Settings Types (UI Persistence)
 // ============================================================================
 
 /** General system settings */

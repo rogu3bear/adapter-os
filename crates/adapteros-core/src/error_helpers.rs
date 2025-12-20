@@ -119,7 +119,7 @@ pub trait IoErrorExt<T> {
     /// use std::fs;
     ///
     /// fn create_directory() -> Result<()> {
-    ///     fs::create_dir("/tmp/test")
+    ///     fs::create_dir("var/test")
     ///         .io_err("create directory")?;
     ///     Ok(())
     /// }
@@ -326,14 +326,14 @@ mod tests {
 
     #[test]
     fn test_io_err_path() {
-        let path = Path::new("/tmp/nonexistent.toml");
+        let path = Path::new("var/nonexistent.toml");
         let result: io::Result<()> = Err(io::Error::new(io::ErrorKind::NotFound, "not found"));
         let err = result.io_err_path("read config", path).unwrap_err();
 
         match err {
             AosError::Io(msg) => {
                 assert!(msg.contains("Failed to read config"));
-                assert!(msg.contains("/tmp/nonexistent.toml"));
+                assert!(msg.contains("var/nonexistent.toml"));
                 assert!(msg.contains("not found"));
             }
             _ => panic!("Expected Io error"),
@@ -382,7 +382,7 @@ mod tests {
     #[test]
     fn test_real_world_io_example() {
         // Try to read from a nonexistent path
-        let path = Path::new("/tmp/adapteros_test_nonexistent_12345.txt");
+        let path = Path::new("var/adapteros_test_nonexistent_12345.txt");
         let result = fs::read_to_string(path).io_err_path("read adapter manifest", path);
 
         assert!(result.is_err());

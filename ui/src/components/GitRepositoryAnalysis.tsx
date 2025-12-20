@@ -23,7 +23,7 @@ import {
   Shield,
   Activity
 } from 'lucide-react';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 
 interface GitRepositoryAnalysisProps {
   repositoryId: string;
@@ -93,7 +93,8 @@ export function GitRepositoryAnalysis({ repositoryId, onTrainingStart }: GitRepo
         // Evidence: ui/src/components/CodeIntelligence.tsx:42-58
         // Pattern: Data fetching with error handling
         const data = await apiClient.getRepositoryAnalysis(repositoryId);
-        setAnalysis(data as RepositoryAnalysis);
+        // Map the API response to our local interface
+        setAnalysis(data as unknown as RepositoryAnalysis);
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : 'Failed to fetch repository analysis';
         setError(errorMessage);

@@ -44,7 +44,8 @@ pub const API_SCHEMA_VERSION: &str = "1.0.0";
 /// This represents the latest migration number in /migrations/.
 /// Updated automatically when new migrations are added.
 /// Check against `_sqlx_migrations` table for current database version.
-pub const DATABASE_SCHEMA_VERSION: u32 = 71;
+/// TODO: Consider computing this from migrations directory at build time.
+pub const DATABASE_SCHEMA_VERSION: u32 = 212;
 
 /// RNG module version for determinism tracking
 ///

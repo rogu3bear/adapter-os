@@ -4,6 +4,7 @@
 
 use crate::{ErrorRecoveryConfig, RecoveryResult};
 use adapteros_core::{AosError, Result};
+use adapteros_platform::common::PlatformUtils;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 use tokio::fs;
@@ -135,7 +136,9 @@ impl RecoveryEngine {
 impl BackupManager {
     /// Create a new backup manager
     pub fn new(config: &ErrorRecoveryConfig) -> Result<Self> {
-        let backup_dir = std::env::temp_dir().join("adapteros_backups");
+        let backup_dir = PlatformUtils::aos_var_dir()
+            .join("backups")
+            .join("error-recovery");
 
         // Create backup directory if it doesn't exist
         if !backup_dir.exists() {
@@ -308,14 +311,21 @@ impl BackupManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use adapteros_platform::common::PlatformUtils;
     use tempfile::TempDir;
+
+    fn new_test_tempdir() -> Result<TempDir> {
+        let root = PlatformUtils::temp_dir();
+        std::fs::create_dir_all(&root)?;
+        Ok(TempDir::new_in(&root)?)
+    }
 
     #[tokio::test]
     async fn test_recovery_engine() -> Result<()> {
         let config = ErrorRecoveryConfig::default();
         let engine = RecoveryEngine::new(&config)?;
 
-        let temp_dir = TempDir::new()?;
+        let temp_dir = new_test_tempdir()?;
         let test_file = temp_dir.path().join("test.txt");
 
         // Test file recreation
@@ -335,7 +345,7 @@ mod tests {
         let config = ErrorRecoveryConfig::default();
         let manager = BackupManager::new(&config)?;
 
-        let temp_dir = TempDir::new()?;
+        let temp_dir = new_test_tempdir()?;
         let test_file = temp_dir.path().join("test.txt");
         fs::write(&test_file, "hello world").await?;
 
@@ -355,7 +365,7 @@ mod tests {
         let config = ErrorRecoveryConfig::default();
         let engine = RecoveryEngine::new(&config)?;
 
-        let temp_dir = TempDir::new()?;
+        let temp_dir = new_test_tempdir()?;
         let test_dir = temp_dir.path().join("test_dir");
 
         // Test directory recreation

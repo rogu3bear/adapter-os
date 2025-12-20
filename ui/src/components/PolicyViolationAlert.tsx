@@ -17,7 +17,7 @@ import { Alert, AlertDescription, AlertTitle } from './ui/alert';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { AlertTriangle, XCircle, AlertCircle, Info, ChevronDown, ChevronUp, Shield } from 'lucide-react';
-import { cn } from './ui/utils';
+import { cn } from '@/lib/utils';
 import { formatDistanceToNow, parseISO } from 'date-fns';
 import type {
   PolicySeverity,

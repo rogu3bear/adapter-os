@@ -253,9 +253,9 @@ The test suite logs comprehensive telemetry events for audit and debugging:
 ## Test Configuration
 
 ### Default Configuration (TestConfig::default())
-- **Test Directory**: `/tmp/adapteros_e2e`
-- **Telemetry Directory**: `/tmp/adapteros_e2e/telemetry`
-- **Model Registry**: `/tmp/adapteros_e2e/models`
+- **Test Directory**: `var/tmp/adapteros_e2e`
+- **Telemetry Directory**: `var/tmp/adapteros_e2e/telemetry`
+- **Model Registry**: `var/tmp/adapteros_e2e/models`
 - **Timeout**: 300 seconds (5 minutes)
 - **Verbose Logging**: Enabled
 - **CPID**: `e2e_test_cpid_001`
@@ -299,7 +299,7 @@ The test is registered in `/Users/star/Dev/aos/tests/e2e/mod.rs` and exported as
 ### View Telemetry Events
 Check the telemetry directory for detailed event logs:
 ```bash
-ls -la /tmp/adapteros_e2e/telemetry/
+ls -la var/tmp/adapteros_e2e/telemetry/
 ```
 
 ### Enable Verbose Output
@@ -309,7 +309,7 @@ RUST_LOG=debug cargo test --test dataset_to_inference -- --ignored --nocapture
 
 ### Inspect Test Artifacts
 ```bash
-find /tmp/adapteros_e2e -type f -name "*.txt" -o -name "*.jsonl"
+find var/tmp/adapteros_e2e -type f -name "*.txt" -o -name "*.jsonl"
 ```
 
 ### Check for Panics

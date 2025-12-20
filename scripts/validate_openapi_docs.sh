@@ -6,9 +6,17 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+TMP_ROOT="${AOS_VAR_DIR:-$PROJECT_ROOT/var}/tmp"
+
+if [[ "$TMP_ROOT" == /tmp* || "$TMP_ROOT" == /private/tmp* ]]; then
+    echo "❌ Refusing temporary directory under /tmp: $TMP_ROOT"
+    exit 1
+fi
+
+mkdir -p "$TMP_ROOT"
 
 OPENAPI_DOC="$PROJECT_ROOT/docs/api.md"
-SERVER_URL="${SERVER_URL:-http://localhost:8080}"
+SERVER_URL="${SERVER_URL:-http://localhost:${AOS_SERVER_PORT:-8080}}"
 
 echo "🔍 Validating OpenAPI documentation for AdapterOS Server API..."
 echo "📍 API docs file: $OPENAPI_DOC"
@@ -71,7 +79,7 @@ if [ -z "$JSON_SPEC" ]; then
 fi
 
 # Create temporary file for validation
-TEMP_JSON=$(mktemp)
+TEMP_JSON=$(mktemp "${TMP_ROOT}/openapi-validate.XXXXXX")
 echo "$JSON_SPEC" > "$TEMP_JSON"
 
 echo "📋 Validating OpenAPI specification..."

@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Service Identity -->
+    <key>Label</key>
+    <string>com.adapteros.worker</string>
+
+    <!-- Program Configuration -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/aos-worker</string>
+        <string>--uds-path</string>
+        <string>/var/run/aos/default/worker.sock</string>
+        <string>--manifest</string>
+        <string>/var/lib/aos/manifests/default.yaml</string>
+        <string>--model-path</string>
+        <string>/var/lib/aos/models/default</string>
+        <string>--backend</string>
+        <string>coreml</string>
+    </array>
+
+    <!-- Working Directory -->
+    <key>WorkingDirectory</key>
+    <string>/var/lib/aos</string>
+
+    <!-- Environment Variables -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>RUST_LOG</key>
+        <string>info,adapteros_lora_worker=info</string>
+        <key>AOS_TENANT_ID</key>
+        <string>default</string>
+    </dict>
+
+    <!-- Auto-Restart Configuration -->
+    <!-- KeepAlive: restart on all exits except clean shutdown (exit 0) -->
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+
+    <!-- ThrottleInterval: minimum 5 seconds between restart attempts -->
+    <key>ThrottleInterval</key>
+    <integer>5</integer>
+
+    <!-- Run at load -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- Standard Output/Error -->
+    <key>StandardOutPath</key>
+    <string>/var/log/aos/worker-stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/var/log/aos/worker-stderr.log</string>
+
+    <!-- Resource Limits -->
+    <key>SoftResourceLimits</key>
+    <dict>
+        <key>NumberOfFiles</key>
+        <integer>4096</integer>
+    </dict>
+    <key>HardResourceLimits</key>
+    <dict>
+        <key>NumberOfFiles</key>
+        <integer>8192</integer>
+    </dict>
+
+    <!-- Process Priority -->
+    <key>Nice</key>
+    <integer>-10</integer>
+
+    <!-- Process Type (adaptive for ML workloads) -->
+    <key>ProcessType</key>
+    <string>Adaptive</string>
+</dict>
+</plist>

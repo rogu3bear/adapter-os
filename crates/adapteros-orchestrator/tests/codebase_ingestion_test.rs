@@ -6,9 +6,16 @@
 use adapteros_config::{DEFAULT_BASE_MODEL_ID, DEFAULT_MODEL_CACHE_ROOT};
 use adapteros_lora_worker::training::TrainingConfig;
 use adapteros_orchestrator::codebase_ingestion::{CodebaseIngestion, IngestionConfig};
+use adapteros_platform::common::PlatformUtils;
 use std::io::Write;
 use std::path::PathBuf;
 use tempfile::TempDir;
+
+fn new_test_tempdir() -> TempDir {
+    let root = PlatformUtils::temp_dir();
+    std::fs::create_dir_all(&root).expect("create var/tmp");
+    TempDir::new_in(&root).expect("tempdir")
+}
 
 fn canonical_tokenizer_path() -> PathBuf {
     PathBuf::from(DEFAULT_MODEL_CACHE_ROOT)
@@ -29,7 +36,7 @@ async fn test_codebase_ingestion_end_to_end() {
     }
 
     // Create a temporary repository with documented code
-    let temp_repo = TempDir::new().unwrap();
+    let temp_repo = new_test_tempdir();
     let repo_path = temp_repo.path();
 
     // Create source directory
@@ -74,7 +81,7 @@ It contains basic math utilities.
     .unwrap();
 
     // Create output directory for adapter
-    let output_dir = TempDir::new().unwrap();
+    let output_dir = new_test_tempdir();
 
     // Configure ingestion
     let config = IngestionConfig {
@@ -146,7 +153,7 @@ async fn test_determinism() {
 
     // Create identical repositories
     let create_test_repo = || -> TempDir {
-        let temp_repo = TempDir::new().unwrap();
+        let temp_repo = new_test_tempdir();
         let src_dir = temp_repo.path().join("src");
         std::fs::create_dir_all(&src_dir).unwrap();
 
@@ -168,8 +175,8 @@ pub fn square(n: i32) -> i32 {{
 
     let repo1 = create_test_repo();
     let repo2 = create_test_repo();
-    let output1 = TempDir::new().unwrap();
-    let output2 = TempDir::new().unwrap();
+    let output1 = new_test_tempdir();
+    let output2 = new_test_tempdir();
 
     let config = IngestionConfig {
         training_config: TrainingConfig {
@@ -232,7 +239,7 @@ async fn test_no_documentation() {
         return;
     }
 
-    let temp_repo = TempDir::new().unwrap();
+    let temp_repo = new_test_tempdir();
     let src_dir = temp_repo.path().join("src");
     std::fs::create_dir_all(&src_dir).unwrap();
 
@@ -249,7 +256,7 @@ pub fn undocumented_func(x: i32) -> i32 {{
     )
     .unwrap();
 
-    let output_dir = TempDir::new().unwrap();
+    let output_dir = new_test_tempdir();
 
     let config = IngestionConfig {
         training_config: TrainingConfig {

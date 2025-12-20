@@ -669,7 +669,7 @@ impl Clone for AnomalyDetector {
 mod tests {
     use super::*;
     use adapteros_telemetry::TelemetryWriter;
-    use std::path::Path;
+    use tempfile::TempDir;
 
     #[tokio::test]
     async fn test_anomaly_config_defaults() {
@@ -689,9 +689,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_statistical_calculations() {
+        let temp_dir = TempDir::new_in(".").unwrap();
+        let telemetry_writer =
+            Arc::new(TelemetryWriter::new(temp_dir.path(), 1000, 1024 * 1024).unwrap());
         let detector = AnomalyDetector::new(
             Arc::new(adapteros_db::Db::connect(":memory:").await.unwrap()),
-            Arc::new(TelemetryWriter::new(Path::new("/tmp"), 1000, 1024 * 1024).unwrap()),
+            telemetry_writer,
             AnomalyConfig::default(),
         );
 
@@ -712,9 +715,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_zscore_detection() {
+        let temp_dir = TempDir::new_in(".").unwrap();
+        let telemetry_writer =
+            Arc::new(TelemetryWriter::new(temp_dir.path(), 1000, 1024 * 1024).unwrap());
         let detector = AnomalyDetector::new(
             Arc::new(adapteros_db::Db::connect(":memory:").await.unwrap()),
-            Arc::new(TelemetryWriter::new(Path::new("/tmp"), 1000, 1024 * 1024).unwrap()),
+            telemetry_writer,
             AnomalyConfig::default(),
         );
 
@@ -753,9 +759,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_iqr_detection() {
+        let temp_dir = TempDir::new_in(".").unwrap();
+        let telemetry_writer =
+            Arc::new(TelemetryWriter::new(temp_dir.path(), 1000, 1024 * 1024).unwrap());
         let detector = AnomalyDetector::new(
             Arc::new(adapteros_db::Db::connect(":memory:").await.unwrap()),
-            Arc::new(TelemetryWriter::new(Path::new("/tmp"), 1000, 1024 * 1024).unwrap()),
+            telemetry_writer,
             AnomalyConfig::default(),
         );
 

@@ -51,9 +51,15 @@ fn create_test_adapter(adapter_id: &str) -> SingleFileAdapter {
     .expect("Failed to create test adapter")
 }
 
+fn new_test_tempdir() -> Result<TempDir> {
+    let root = std::path::PathBuf::from("var").join("tmp");
+    std::fs::create_dir_all(&root)?;
+    Ok(TempDir::new_in(&root)?)
+}
+
 #[tokio::test]
 async fn test_signature_roundtrip() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
     let path = temp_dir.path().join("signed.aos");
 
     // Create and sign adapter
@@ -81,7 +87,7 @@ async fn test_signature_roundtrip() -> Result<()> {
 
 #[tokio::test]
 async fn test_tamper_detection_weights() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
     let path = temp_dir.path().join("tampered_weights.aos");
 
     // Create, sign, and save adapter
@@ -110,7 +116,7 @@ async fn test_tamper_detection_weights() -> Result<()> {
 
 #[tokio::test]
 async fn test_tamper_detection_manifest() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
     let path = temp_dir.path().join("tampered_manifest.aos");
 
     // Create, sign, and save adapter
@@ -139,7 +145,7 @@ async fn test_tamper_detection_manifest() -> Result<()> {
 
 #[tokio::test]
 async fn test_unsigned_adapter() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
     let path = temp_dir.path().join("unsigned.aos");
 
     // Create unsigned adapter
@@ -159,7 +165,7 @@ async fn test_unsigned_adapter() -> Result<()> {
 
 #[tokio::test]
 async fn test_compression_with_signature() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
 
     for (level, name) in &[
         (CompressionLevel::Store, "store"),
@@ -189,7 +195,7 @@ async fn test_compression_with_signature() -> Result<()> {
 
 #[tokio::test]
 async fn test_signature_performance() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
     let signed_path = temp_dir.path().join("signed_perf.aos");
     let unsigned_path = temp_dir.path().join("unsigned_perf.aos");
 
@@ -230,7 +236,7 @@ async fn test_signature_performance() -> Result<()> {
 
 #[tokio::test]
 async fn test_skip_signature_verification() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
     let path = temp_dir.path().join("skip_sig.aos");
 
     // Create signed adapter with tampered weights
@@ -262,7 +268,7 @@ async fn test_skip_signature_verification() -> Result<()> {
 
 #[tokio::test]
 async fn test_skip_bypass_disallowed_in_production_mode() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
     let path = temp_dir.path().join("prod_guard.aos");
 
     // Create a signed adapter
@@ -293,7 +299,7 @@ async fn test_skip_bypass_disallowed_in_production_mode() -> Result<()> {
 
 #[tokio::test]
 async fn test_format_version_in_signed_adapter() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
     let path = temp_dir.path().join("version_check.aos");
 
     // Create and sign adapter

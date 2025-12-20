@@ -31,7 +31,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useSSE } from '@/hooks/realtime/useSSE';
 import { useAdapterStacks } from '@/hooks/admin/useAdmin';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { logger, toError } from '@/utils/logger';
 import type { AdapterStreamEvent, AdapterStateTransitionEvent } from '@/api/streaming-types';
 import type { AdapterLifecycleState } from '@/hooks/model-loading/types';
@@ -110,6 +110,13 @@ export interface UseChatAdapterStateReturn {
  */
 function isAdapterReady(state: AdapterLifecycleState): boolean {
   return state === 'warm' || state === 'hot' || state === 'resident';
+}
+
+function toAdapterLifecycleState(value: unknown): AdapterLifecycleState | undefined {
+  if (value === 'unloaded' || value === 'cold' || value === 'warm' || value === 'hot' || value === 'resident') {
+    return value;
+  }
+  return undefined;
 }
 
 /**
@@ -225,7 +232,7 @@ export function useChatAdapterState(
         states.set(adapterId, {
           adapterId,
           name: adapter.name || adapter.adapter_id || 'Unknown',
-          state: (adapter.lifecycle_state as AdapterLifecycleState) || 'unloaded',
+          state: toAdapterLifecycleState(adapter.lifecycle_state) ?? 'unloaded',
           isLoading: false,
         });
       });

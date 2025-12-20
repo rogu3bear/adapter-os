@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import { Send, Bot, User, Terminal, ExternalLink, Loader2, Database, Layers, Users, FileText, Sparkles, FileCode } from 'lucide-react';
-import { apiClient } from '@/api/client';
+import { apiClient } from '@/api/services';
 import type { SystemOverview, Adapter } from '@/api/types';
 import type { BaseModelStatus } from '@/api/api-types';
 import type { AdapterStack } from '@/api/adapter-types';

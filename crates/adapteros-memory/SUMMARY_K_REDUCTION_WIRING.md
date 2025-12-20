@@ -388,7 +388,7 @@ $ cargo check -p adapteros-memory
 
 - **Architecture:** `/Users/star/Dev/aos/CLAUDE.md` - Multi-backend strategy
 - **Lifecycle Management:** `docs/LIFECYCLE.md` - State machine details
-- **Memory Management:** `docs/ARCHITECTURE_PATTERNS.md` - Memory management patterns
+- **Memory Management:** `docs/ARCHITECTURE.md#architecture-components` - Memory management patterns
 - **K Routing:** `docs/MULTI_ADAPTER_ROUTING.md` - K-sparse routing details
 
 ## References

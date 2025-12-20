@@ -6,7 +6,7 @@
  */
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import type {
   PublishAdapterRequest,
   PublishAdapterResponse,
@@ -14,6 +14,8 @@ import type {
 } from '@/api/adapter-types';
 import { toast } from 'sonner';
 import { logger } from '@/utils/logger';
+import { useTenant } from '@/providers/FeatureProviders';
+import { withTenantKey } from '@/utils/tenant';
 
 // Query keys for adapter publish operations
 export const adapterPublishKeys = {
@@ -27,6 +29,7 @@ export const adapterPublishKeys = {
  */
 export function usePublishAdapter() {
   const queryClient = useQueryClient();
+  const { selectedTenant } = useTenant();
 
   return useMutation({
     mutationFn: ({
@@ -40,10 +43,10 @@ export function usePublishAdapter() {
     }) => apiClient.publishAdapterVersion(repoId, versionId, data),
     onSuccess: (response: PublishAdapterResponse) => {
       // Invalidate related queries to refetch fresh data
-      queryClient.invalidateQueries({ queryKey: ['adapters'] });
-      queryClient.invalidateQueries({ queryKey: ['adapter-versions'] });
-      queryClient.invalidateQueries({ queryKey: ['training-jobs'] });
-      queryClient.invalidateQueries({ queryKey: ['repos'] });
+      queryClient.invalidateQueries({ queryKey: withTenantKey(['adapters'], selectedTenant) });
+      queryClient.invalidateQueries({ queryKey: withTenantKey(['adapter-versions'], selectedTenant) });
+      queryClient.invalidateQueries({ queryKey: withTenantKey(['training-jobs'], selectedTenant) });
+      queryClient.invalidateQueries({ queryKey: withTenantKey(['repos'], selectedTenant) });
 
       toast.success('Adapter published successfully');
       logger.info('Adapter published', {
@@ -74,14 +77,15 @@ export function usePublishAdapter() {
  */
 export function useArchiveAdapter() {
   const queryClient = useQueryClient();
+  const { selectedTenant } = useTenant();
 
   return useMutation({
     mutationFn: ({ versionId, reason }: { versionId: string; reason?: string }) =>
       apiClient.archiveAdapterVersion(versionId, reason),
     onSuccess: (response: ArchiveAdapterResponse) => {
-      queryClient.invalidateQueries({ queryKey: ['adapters'] });
-      queryClient.invalidateQueries({ queryKey: ['adapter-versions'] });
-      queryClient.invalidateQueries({ queryKey: ['adapter-stacks'] });
+      queryClient.invalidateQueries({ queryKey: withTenantKey(['adapters'], selectedTenant) });
+      queryClient.invalidateQueries({ queryKey: withTenantKey(['adapter-versions'], selectedTenant) });
+      queryClient.invalidateQueries({ queryKey: withTenantKey(['adapter-stacks'], selectedTenant) });
 
       toast.success('Adapter archived');
       logger.info('Adapter archived', {
@@ -110,13 +114,14 @@ export function useArchiveAdapter() {
  */
 export function useUnarchiveAdapter() {
   const queryClient = useQueryClient();
+  const { selectedTenant } = useTenant();
 
   return useMutation({
     mutationFn: (versionId: string) => apiClient.unarchiveAdapterVersion(versionId),
     onSuccess: (response: ArchiveAdapterResponse) => {
-      queryClient.invalidateQueries({ queryKey: ['adapters'] });
-      queryClient.invalidateQueries({ queryKey: ['adapter-versions'] });
-      queryClient.invalidateQueries({ queryKey: ['adapter-stacks'] });
+      queryClient.invalidateQueries({ queryKey: withTenantKey(['adapters'], selectedTenant) });
+      queryClient.invalidateQueries({ queryKey: withTenantKey(['adapter-versions'], selectedTenant) });
+      queryClient.invalidateQueries({ queryKey: withTenantKey(['adapter-stacks'], selectedTenant) });
 
       toast.success('Adapter restored');
       logger.info('Adapter unarchived', {

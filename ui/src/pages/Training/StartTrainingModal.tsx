@@ -74,6 +74,7 @@ export function StartTrainingModal({ open, onOpenChange, onSuccess }: StartTrain
       batch_size: parseInt(batchSize),
       rank: parseInt(rank),
       alpha: parseInt(alpha),
+      targets: ['q_proj', 'v_proj'], // Default LoRA targets
     };
 
     const request: StartTrainingRequest = {

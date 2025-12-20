@@ -816,33 +816,33 @@ Admin role (with `role = "admin"`) can access **all tenants** for management.
 
 ## Path Security
 
-**Runtime state must live under canonical runtime tree (`var/`)** and must **NOT** persist under `/tmp`.
+**Runtime state must live under canonical runtime tree (`var/`)** and must **NOT** persist under `/tmp` (or macOS `/private/tmp`).
 
 ### Security Rationale
 
-Persistent data storage under `/tmp` violates security boundaries:
-- `/tmp` is world-writable and can be manipulated by other users/processes
+Persistent data storage under `/tmp` (or `/private/tmp`) violates security boundaries:
+- System temp directories are world-writable and can be manipulated by other users/processes
 - Data may persist longer than intended, creating information leakage risks
 - Breaks deterministic behavior expectations for runtime state
 
 ### Implementation Status
 
 #### ✅ IMPLEMENTED
-- **Worker sockets**: Reject `/tmp` and default to `/var/run/aos/{tenant}/worker.sock`
-- **Telemetry paths**: `reject_tmp_persistent_path()` guards telemetry data directories
+- **Worker sockets**: Reject `/tmp` and `/private/tmp`, default to `/var/run/aos/{tenant}/worker.sock`
+- **Telemetry paths**: `resolve_telemetry_dir()` rejects `/tmp` and `/private/tmp`
 - **Manifest cache**: Cache directories reject `/tmp` persistence
 - **Adapter storage**: Adapter file paths reject `/tmp` locations
 - **Database paths**: SQLite database files reject `/tmp` storage
 - **Index root resolver**: Uses `resolve_env_or_default_no_tmp()` with unit test coverage
+- **Model cache root**: `AOS_MODEL_CACHE_DIR` is rejected for persistent base model storage
+- **Menu bar status path**: `AOS_STATUS_PATH` rejects `/tmp` and `/private/tmp`
 
 ### Path Resolution Functions
 
 ```rust
-// Implemented with /tmp rejection
-pub fn resolve_telemetry_root() -> Result<PathBuf> {
-    let path = resolve_env_path("AOS_TELEMETRY_ROOT", "./var/telemetry")?;
-    reject_tmp_persistent_path(&path)?;  // ✅ Guards against /tmp
-    Ok(path)
+// Implemented with /tmp + /private/tmp rejection
+pub fn resolve_telemetry_dir() -> Result<ResolvedPath> {
+    resolve_env_or_default_no_tmp("AOS_TELEMETRY_DIR", DEFAULT_TELEMETRY_DIR, "telemetry-dir")
 }
 
 // ✅ IMPLEMENTED: Index root with /tmp rejection
@@ -858,8 +858,8 @@ Path security is validated through unit tests:
 ```rust
 #[test]
 fn test_telemetry_root_rejects_tmp() {
-    std::env::set_var("AOS_TELEMETRY_ROOT", "/tmp/telemetry");
-    assert!(resolve_telemetry_root().is_err());  // ✅ Rejects /tmp
+    std::env::set_var("AOS_TELEMETRY_DIR", "/tmp/telemetry");
+    assert!(resolve_telemetry_dir().is_err());  // ✅ Rejects /tmp
 }
 
 #[test]

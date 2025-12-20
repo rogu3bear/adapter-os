@@ -1,5 +1,4 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { toast } from 'sonner';
 
 describe('e2e utilities', () => {
   describe('isE2EMode', () => {
@@ -83,25 +82,15 @@ describe('e2e utilities', () => {
   });
 
   describe('patchToastTestIds', () => {
-    let originalToastSuccess: any;
-    let originalToastError: any;
-
     beforeEach(() => {
       // Clear DOM
       document.body.innerHTML = '';
       vi.clearAllMocks();
-      // Save original toast functions
-      originalToastSuccess = toast.success;
-      originalToastError = toast.error;
-    });
-
-    afterEach(() => {
-      // Restore original toast functions
-      toast.success = originalToastSuccess;
-      toast.error = originalToastError;
+      vi.resetModules();
     });
 
     it('patches toast.success to add data-testid', async () => {
+      const { toast } = await import('sonner');
       const { patchToastTestIds } = await import('@/utils/e2e');
       patchToastTestIds();
 
@@ -121,6 +110,7 @@ describe('e2e utilities', () => {
     });
 
     it('patches toast.error to add data-testid', async () => {
+      const { toast } = await import('sonner');
       const { patchToastTestIds } = await import('@/utils/e2e');
       patchToastTestIds();
 
@@ -140,6 +130,7 @@ describe('e2e utilities', () => {
     });
 
     it('marks existing toasts on initial call', async () => {
+      const { patchToastTestIds } = await import('@/utils/e2e');
       // Add existing toast elements
       const successToast = document.createElement('div');
       successToast.setAttribute('data-sonner-toast', '');
@@ -151,7 +142,6 @@ describe('e2e utilities', () => {
       errorToast.setAttribute('data-type', 'error');
       document.body.appendChild(errorToast);
 
-      const { patchToastTestIds } = await import('@/utils/e2e');
       patchToastTestIds();
 
       // Wait for microtask
@@ -178,6 +168,7 @@ describe('e2e utilities', () => {
     });
 
     it('handles multiple success toasts', async () => {
+      const { toast } = await import('sonner');
       const { patchToastTestIds } = await import('@/utils/e2e');
       patchToastTestIds();
 

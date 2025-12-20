@@ -37,6 +37,14 @@ impl Default for StressTestConfig {
     }
 }
 
+fn new_test_dir(prefix: &str) -> Result<PathBuf> {
+    let temp_root = PathBuf::from("var/tmp");
+    std::fs::create_dir_all(&temp_root)?;
+    let temp_dir = temp_root.join(format!("{}_{}", prefix, Uuid::new_v4()));
+    std::fs::create_dir_all(&temp_dir)?;
+    Ok(temp_dir)
+}
+
 /// Test concurrent adapter loads on different adapters
 #[tokio::test]
 async fn test_concurrent_load_different_adapters() -> Result<()> {
@@ -47,8 +55,7 @@ async fn test_concurrent_load_different_adapters() -> Result<()> {
     let num_adapters = config.num_adapters;
 
     // Create temporary directory for adapter files
-    let temp_dir = std::env::temp_dir().join(format!("aos_stress_test_{}", Uuid::new_v4()));
-    std::fs::create_dir_all(&temp_dir)?;
+    let temp_dir = new_test_dir("aos_stress_test")?;
 
     // Register multiple adapters
     let mut adapter_ids = Vec::new();
@@ -179,8 +186,7 @@ async fn test_concurrent_load_unload_same_adapter() -> Result<()> {
     let db = Db::connect(":memory:").await?;
     db.migrate().await?;
 
-    let temp_dir = std::env::temp_dir().join(format!("aos_stress_test_{}", Uuid::new_v4()));
-    std::fs::create_dir_all(&temp_dir)?;
+    let temp_dir = new_test_dir("aos_stress_test")?;
 
     let adapter_id = "concurrent-adapter";
     let adapter_file = temp_dir.join("concurrent-adapter.safetensors");
@@ -303,8 +309,7 @@ async fn test_rapid_load_unload_cycles() -> Result<()> {
     let db = Db::connect(":memory:").await?;
     db.migrate().await?;
 
-    let temp_dir = std::env::temp_dir().join(format!("aos_stress_test_{}", Uuid::new_v4()));
-    std::fs::create_dir_all(&temp_dir)?;
+    let temp_dir = new_test_dir("aos_stress_test")?;
 
     let adapter_id = "rapid-cycle-adapter";
     let adapter_file = temp_dir.join("rapid-cycle-adapter.safetensors");
@@ -383,8 +388,7 @@ async fn test_memory_pressure_concurrent_loads() -> Result<()> {
     let db = Db::connect(":memory:").await?;
     db.migrate().await?;
 
-    let temp_dir = std::env::temp_dir().join(format!("aos_stress_test_{}", Uuid::new_v4()));
-    std::fs::create_dir_all(&temp_dir)?;
+    let temp_dir = new_test_dir("aos_stress_test")?;
 
     // Create multiple adapters with larger files to simulate memory pressure
     let num_adapters = 15;
@@ -493,8 +497,7 @@ async fn test_operation_timeout_handling() -> Result<()> {
     let db = Db::connect(":memory:").await?;
     db.migrate().await?;
 
-    let temp_dir = std::env::temp_dir().join(format!("aos_stress_test_{}", Uuid::new_v4()));
-    std::fs::create_dir_all(&temp_dir)?;
+    let temp_dir = new_test_dir("aos_stress_test")?;
 
     let adapter_id = "timeout-adapter";
     let adapter_file = temp_dir.join("timeout-adapter.safetensors");

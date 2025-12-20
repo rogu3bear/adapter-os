@@ -44,7 +44,7 @@
 
 import { useState, useCallback } from 'react';
 import { toast } from 'sonner';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { validatePrompt, ValidationResult } from '@/components/inference/PromptInput';
 import { BatchPromptSchema } from '@/schemas';
 import { logger, toError } from '@/utils/logger';
@@ -364,8 +364,6 @@ export function useBatchInference(options: UseBatchInferenceOptions): UseBatchIn
 
       // Call batch inference API
       const response = await apiClient.batchInfer({
-        backend: config.backend || 'auto',
-        model: config.model,
         requests: batchItems,
       });
 
@@ -373,9 +371,9 @@ export function useBatchInference(options: UseBatchInferenceOptions): UseBatchIn
       const results: BatchInferenceResult[] = response.responses.map((apiResult, idx) => ({
         id: apiResult.id || `batch-${Date.now()}-${idx}`,
         prompt: batchPrompts[idx],
-        response: apiResult.error ? null : apiResult,
-        error: apiResult.error,
-        duration: apiResult.latency_ms || 0,
+        response: apiResult.error ? null : apiResult.response ?? null,
+        error: apiResult.error ? (typeof apiResult.error === 'string' ? apiResult.error : apiResult.error.error) : undefined,
+        duration: apiResult.response?.latency_ms ?? 0,
       }));
 
       setBatchResults(results);

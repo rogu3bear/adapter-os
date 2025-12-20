@@ -38,21 +38,12 @@ pub struct NvdCve {
 }
 
 /// CVSS metrics from NVD
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct NvdMetrics {
     #[serde(alias = "cvssMetricV31")]
     pub cvss_metric_v31: Option<Vec<NvdCvssV31>>,
     #[serde(alias = "cvssMetricV30")]
     pub cvss_metric_v30: Option<Vec<NvdCvssV30>>,
-}
-
-impl Default for NvdMetrics {
-    fn default() -> Self {
-        Self {
-            cvss_metric_v31: None,
-            cvss_metric_v30: None,
-        }
-    }
 }
 
 /// CVSS v3.1 metric

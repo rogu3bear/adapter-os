@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { logger, toError } from '@/utils/logger';
 import type { ExtendedRouterDecision, SessionRouterViewResponse, RouterCandidateInfo } from '@/api/api-types';
 import type { AdapterStack } from '@/api/adapter-types';

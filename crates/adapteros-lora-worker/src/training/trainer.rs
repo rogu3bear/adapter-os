@@ -2239,20 +2239,18 @@ impl MicroLoRATrainer {
         // Process examples in batches with deterministic ordering
         for batch in dataset.batches.iter() {
             // Check for cancellation every N batches
-            if num_batches > 0 && num_batches % CANCEL_CHECK_INTERVAL == 0 {
-                if self.is_cancelled() {
-                    debug!(
-                        epoch = epoch,
-                        batch = num_batches,
-                        "Cancellation detected mid-epoch, stopping batch loop"
-                    );
-                    // Return partial loss (average of completed batches)
-                    return Ok(if num_batches > 0 {
-                        total_loss / num_batches as f32
-                    } else {
-                        0.0
-                    });
-                }
+            if num_batches > 0 && num_batches % CANCEL_CHECK_INTERVAL == 0 && self.is_cancelled() {
+                debug!(
+                    epoch = epoch,
+                    batch = num_batches,
+                    "Cancellation detected mid-epoch, stopping batch loop"
+                );
+                // Return partial loss (average of completed batches)
+                return Ok(if num_batches > 0 {
+                    total_loss / num_batches as f32
+                } else {
+                    0.0
+                });
             }
 
             let loss =
@@ -2735,9 +2733,17 @@ mod tests {
     use super::*;
     use crate::training::coreml_pipeline;
     use adapteros_core::B3Hash;
+    use adapteros_platform::common::PlatformUtils;
     use blake3;
     use rand::thread_rng;
     use std::collections::HashMap;
+    use tempfile::TempDir;
+
+    fn new_test_tempdir() -> TempDir {
+        let root = PlatformUtils::temp_dir();
+        std::fs::create_dir_all(&root).expect("create var/tmp");
+        TempDir::new_in(&root).expect("create temp dir")
+    }
 
     fn make_prepared(
         example: &TrainingExample,
@@ -3321,7 +3327,7 @@ mod tests {
         let mut trainer = MicroLoRATrainer::new(config).unwrap();
 
         // Create temp dir for checkpoints
-        let temp_dir = tempfile::TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
 
         // Enable checkpointing
         trainer.enable_checkpointing(temp_dir.path(), "test-adapter", 3);
@@ -3344,7 +3350,7 @@ mod tests {
         let mut trainer = MicroLoRATrainer::new(config).unwrap();
 
         // Create temp dir for checkpoints
-        let temp_dir = tempfile::TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         trainer.enable_checkpointing(temp_dir.path(), "test-adapter", 3);
 
         let examples = vec![TrainingExample {
@@ -3398,7 +3404,7 @@ mod tests {
         let mut trainer = MicroLoRATrainer::new(config.clone()).unwrap();
 
         // Create temp dir and save a checkpoint
-        let temp_dir = tempfile::TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         trainer.enable_checkpointing(temp_dir.path(), "test-adapter", 3);
 
         // Manually create a checkpoint

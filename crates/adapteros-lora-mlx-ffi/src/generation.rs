@@ -800,11 +800,8 @@ impl MLXGenerator {
         // Prefill remaining tokens (after prefix)
         if !tokens_to_process.is_empty() {
             let position = start_position;
-            let _logits = model.forward_with_kv_cache(
-                &tokens_to_process.to_vec(),
-                position,
-                self.cache.as_ref(),
-            )?;
+            let _logits =
+                model.forward_with_kv_cache(tokens_to_process, position, self.cache.as_ref())?;
         }
 
         // Generation loop

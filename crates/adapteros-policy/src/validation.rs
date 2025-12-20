@@ -288,7 +288,7 @@ fn memory_schema() -> HashMap<String, PolicyFieldSchema> {
             safety_constraint: Some(SafetyConstraint {
                 description: "Minimum headroom must be at least 5% for system stability"
                     .to_string(),
-                validator: |v| v.as_f64().map_or(false, |n| n >= 5.0),
+                validator: |v| v.as_f64().is_some_and(|n| n >= 5.0),
             }),
         },
     );

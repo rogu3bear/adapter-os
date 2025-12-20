@@ -19,9 +19,9 @@ import {
 } from '@/hooks/admin/useAdmin';
 import { useTenant } from '@/providers/FeatureProviders';
 import { useWorkbench } from '@/contexts/WorkbenchContext';
-import { DetachAllButton } from '../controls/DetachAllButton';
-import { ResetDefaultButton } from '../controls/ResetDefaultButton';
-import { SaveAsDefaultButton } from '../controls/SaveAsDefaultButton';
+import { DetachAllButton } from '@/components/workbench/controls/DetachAllButton';
+import { ResetDefaultButton } from '@/components/workbench/controls/ResetDefaultButton';
+import { SaveAsDefaultButton } from '@/components/workbench/controls/SaveAsDefaultButton';
 
 interface StacksTabProps {
   /** Currently active stack ID */

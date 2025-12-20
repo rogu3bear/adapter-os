@@ -374,6 +374,15 @@ impl UmaPressureMonitor {
         self.calculate_uma_stats()
     }
 
+    /// Get available memory in MB
+    ///
+    /// Returns the current available memory (headroom) in megabytes.
+    /// Used for VRAM validation before adapter preload.
+    pub fn get_available_mb(&self) -> u64 {
+        let stats = self.calculate_uma_stats();
+        stats.available_mb
+    }
+
     /// Get ANE-specific metrics
     fn get_ane_metrics(&self) -> (Option<u64>, Option<u64>, Option<u64>, Option<f32>) {
         #[cfg(target_os = "macos")]
@@ -385,9 +394,9 @@ impl UmaPressureMonitor {
                 .args(["-n", "machdep.cpu.brand_string"])
                 .output()
                 .ok()
-                .and_then(|output| {
+                .map(|output| {
                     let brand = String::from_utf8_lossy(&output.stdout);
-                    Some(brand.contains("Apple"))
+                    brand.contains("Apple")
                 })
                 .unwrap_or(false);
 
@@ -465,8 +474,8 @@ impl UmaPressureMonitor {
     }
 }
 
-// Add enum
-#[derive(Clone, Copy, Debug, PartialEq)]
+// Memory pressure level ordering: Low < Medium < High < Critical
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum MemoryPressureLevel {
     Low,
     Medium,
@@ -675,9 +684,9 @@ fn get_ane_metrics_standalone(
         .args(["-n", "machdep.cpu.brand_string"])
         .output()
         .ok()
-        .and_then(|output| {
+        .map(|output| {
             let brand = String::from_utf8_lossy(&output.stdout);
-            Some(brand.contains("Apple"))
+            brand.contains("Apple")
         })
         .unwrap_or(false);
 

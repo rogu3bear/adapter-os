@@ -6,7 +6,7 @@ import {
   type PageHeaderBadge,
   type PageHeaderBreadcrumb,
 } from '@/components/ui/page-header';
-import { cn } from '@/components/ui/utils';
+import { cn } from '@/lib/utils';
 import { ClusterBreadcrumb } from '@/components/shared/ClusterBreadcrumb';
 
 export interface PageHeaderProps {

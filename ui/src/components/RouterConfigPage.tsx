@@ -8,7 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Separator } from '@/components/ui/separator';
 import { RouterConfigSkeleton } from '@/components/skeletons/RouterConfigSkeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { toast } from 'sonner';
 import { RouterAdapterSummary, RouterConfigView, RoutingPolicy } from '@/api/types';
 import { logger } from '@/utils/logger';

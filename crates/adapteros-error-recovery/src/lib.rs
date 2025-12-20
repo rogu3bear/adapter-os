@@ -378,14 +378,21 @@ impl Default for ErrorRecoveryConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use adapteros_platform::common::PlatformUtils;
     use tempfile::TempDir;
+
+    fn new_test_tempdir() -> Result<TempDir> {
+        let root = PlatformUtils::temp_dir();
+        std::fs::create_dir_all(&root)?;
+        Ok(TempDir::new_in(&root)?)
+    }
 
     #[tokio::test]
     async fn test_error_recovery_manager() -> Result<()> {
         let config = ErrorRecoveryConfig::default();
         let manager = ErrorRecoveryManager::new(config)?;
 
-        let temp_dir = TempDir::new()?;
+        let temp_dir = new_test_tempdir()?;
         let test_file = temp_dir.path().join("test.txt");
 
         // Test error handling

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { apiClient } from '@/api/client';
+import { apiClient } from '@/api/services';
 import type { DashboardWidgetConfig, WidgetConfigUpdate } from '@/api/types';
 import { logger } from '@/utils/logger';
 

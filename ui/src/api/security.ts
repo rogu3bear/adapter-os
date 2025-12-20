@@ -5,8 +5,18 @@
 //! Citation: CLAUDE.md - Security Settings (JWT Ed25519, key rotation)
 
 import { logger } from '@/utils/logger';
+import { apiClient } from '@/api/services';
 
 const API_BASE_URL = (import.meta as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL || '/api';
+
+// Helper to get auth headers for Bearer-only auth
+function getAuthHeaders(): HeadersInit {
+  const token = apiClient.getToken();
+  return {
+    'Content-Type': 'application/json',
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+}
 
 // Security info response
 export interface SecurityInfo {
@@ -51,10 +61,8 @@ export async function getSecurityInfo(): Promise<SecurityInfo> {
   try {
     const response = await fetch(url, {
       method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      credentials: 'include',
+      headers: getAuthHeaders(),
+      credentials: 'omit',
     });
 
     if (response.status === 404) {
@@ -119,10 +127,8 @@ export async function updateJwtConfig(config: JwtConfig): Promise<SecurityInfo> 
   try {
     const response = await fetch(url, {
       method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      credentials: 'include',
+      headers: getAuthHeaders(),
+      credentials: 'omit',
       body: JSON.stringify(config),
     });
 
@@ -172,10 +178,8 @@ export async function rotateKeys(): Promise<KeyRotationResponse> {
   try {
     const response = await fetch(url, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      credentials: 'include',
+      headers: getAuthHeaders(),
+      credentials: 'omit',
     });
 
     if (response.status === 404) {

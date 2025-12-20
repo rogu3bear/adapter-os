@@ -44,6 +44,11 @@ import {
   Network,
   Bug,
   Map,
+  Briefcase,
+  Package,
+  Bell,
+  Download,
+  Filter,
 } from 'lucide-react';
 
 // Lazy-loaded page components for code splitting
@@ -51,6 +56,7 @@ const OwnerHomePage = lazy(() => import('@/pages/OwnerHome'));
 const DashboardPage = lazy(() => import('@/pages/DashboardPage'));
 const TenantsPage = lazy(() => import('@/pages/TenantsPage'));
 const TenantDetailRoutePage = lazy(() => import('@/pages/Admin/TenantDetailPage'));
+const StackDetailRoutePage = lazy(() => import('@/pages/Admin/StackDetailModal'));
 const AdaptersPage = lazy(() => import('@/pages/AdaptersPage'));
 const AdapterDetailPage = lazy(() => import('@/pages/Adapters/AdapterDetailPage'));
 const AdapterRegisterPage = lazy(() => import('@/pages/Adapters/AdapterRegisterPage'));
@@ -89,6 +95,7 @@ const PersonasPage = lazy(() => import('@/pages/PersonasPage'));
 const ManagementPage = lazy(() => import('@/pages/ManagementPage'));
 const SystemOverviewPage = lazy(() => import('@/pages/System/SystemOverviewPage'));
 const SystemNodesPage = lazy(() => import('@/pages/System/NodesTab'));
+const NodeDetailRoutePage = lazy(() => import('@/pages/System/NodeDetailModal'));
 const SystemWorkersPage = lazy(() => import('@/pages/System/WorkersTab'));
 const SystemMemoryPage = lazy(() => import('@/pages/System/MemoryTab'));
 const SystemMetricsPage = lazy(() => import('@/pages/System/MetricsTab'));
@@ -184,6 +191,25 @@ export interface RouteConfig {
    */
   component: RouteComponent;
   requiresAuth?: boolean;
+  /**
+   * Controls which roles can ACCESS this route (enforced access control).
+   *
+   * Blocks both navigation AND direct URL access. Users without the required role
+   * will be redirected to an unauthorized page or fallback route.
+   *
+   * When to use:
+   * - For routes that should be completely inaccessible to certain roles
+   * - When you need to enforce security boundaries (e.g., admin-only settings)
+   *
+   * @example
+   * // Admin-only route - operators cannot access even with direct URL
+   * {
+   *   path: '/admin/settings',
+   *   component: AdminSettingsPage,
+   *   requiredRoles: ['admin'],
+   *   roleVisibility: ['admin'],
+   * }
+   */
   requiredRoles?: UserRole[];
   requiredPermissions?: string[];
   navGroup?: string;
@@ -196,10 +222,67 @@ export interface RouteConfig {
   breadcrumb?: string;
   parentPath?: string;
   cluster: RouteCluster;
+  /**
+   * Controls which roles can SEE this route in navigation (UI visibility).
+   *
+   * Does NOT block direct URL access. Only affects whether the route appears in
+   * sidebars, menus, and breadcrumbs. Users can still access via direct URL.
+   *
+   * When to use:
+   * - To declutter navigation for roles that shouldn't see certain features
+   * - When you want to hide routes from UI but allow URL access (e.g., shared links)
+   * - For progressive disclosure based on user role
+   *
+   * Best practice: For sensitive routes, set BOTH roleVisibility AND requiredRoles
+   * to the same value for consistent visibility and access control.
+   *
+   * @example
+   * // Route hidden from viewers but accessible via URL (e.g., shared links)
+   * {
+   *   path: '/inference',
+   *   component: InferencePage,
+   *   roleVisibility: ['admin', 'operator'],
+   *   // No requiredRoles - viewers can access via direct URL
+   * }
+   *
+   * @example
+   * // Admin-only route - consistent visibility and access
+   * {
+   *   path: '/admin/settings',
+   *   component: AdminSettingsPage,
+   *   requiredRoles: ['admin'],
+   *   roleVisibility: ['admin'], // Both set for consistency
+   * }
+   */
   roleVisibility?: UserRole[];
   modes?: UiMode[];
 }
 
+/**
+ * LEGACY REDIRECTS - Candidates for removal
+ * ==========================================
+ * The following routes are legacy redirects that should be removed after
+ * confirming no external links depend on them:
+ *
+ * | Path              | Redirects To    | Notes                          |
+ * |-------------------|-----------------|--------------------------------|
+ * | /owner            | /admin          | Legacy owner home              |
+ * | /management       | /dashboard      | Legacy management panel        |
+ * | /workflow         | /training       | Legacy onboarding              |
+ * | /personas         | /dashboard      | Legacy personas tour           |
+ * | /flow/lora        | /training       | Legacy guided setup            |
+ * | /trainer          | /training       | Legacy quick trainer           |
+ * | /create-adapter   | /adapters#register | Legacy adapter creation     |
+ * | /promotion        | /adapters       | Legacy promotion flow          |
+ * | /monitoring       | /metrics        | Merged into metrics            |
+ * | /reports          | /metrics        | Merged into metrics            |
+ * | /code-intelligence| /telemetry      | Moved to telemetry viewer      |
+ * | /metrics/advanced | /metrics        | Consolidated into main metrics |
+ * | /help             | /dashboard      | Legacy help center             |
+ *
+ * Audit date: 2025-12-19
+ * TODO: Track usage analytics before removing these routes
+ */
 export const routes: RouteConfig[] = [
   {
     path: '/owner',
@@ -272,6 +355,7 @@ export const routes: RouteConfig[] = [
     path: '/repos',
     component: RepositoriesShellPage,
     requiresAuth: true,
+    requiredRoles: ['admin', 'operator'],
     navGroup: 'Build',
     navTitle: 'Repositories',
     navIcon: GitBranch,
@@ -317,7 +401,7 @@ export const routes: RouteConfig[] = [
     path: '/create-adapter',
     component: redirectTo('/adapters#register', 'Adapters'),
     requiresAuth: true,
-    requiredPermissions: ['adapter.register', 'training.start'],
+    requiredPermissions: ['adapter:register', 'training:start'],
     skeletonVariant: 'form',
     breadcrumb: 'Create Adapter',
     cluster: 'Build',
@@ -327,6 +411,7 @@ export const routes: RouteConfig[] = [
     path: '/training',
     component: TrainingShellPage,
     requiresAuth: true,
+    requiredRoles: ['admin', 'operator'],
     navGroup: 'Build',
     navTitle: 'Training',
     navIcon: Zap,
@@ -341,6 +426,8 @@ export const routes: RouteConfig[] = [
     path: '/training/jobs',
     component: TrainingShellPage,
     requiresAuth: true,
+    navTitle: 'Jobs',
+    navIcon: Briefcase,
     skeletonVariant: 'table',
     breadcrumb: 'Jobs',
     parentPath: '/training',
@@ -371,6 +458,8 @@ export const routes: RouteConfig[] = [
     path: '/training/datasets',
     component: TrainingShellPage,
     requiresAuth: true,
+    navTitle: 'Datasets',
+    navIcon: Database,
     skeletonVariant: 'table',
     breadcrumb: 'Datasets',
     parentPath: '/training',
@@ -401,6 +490,8 @@ export const routes: RouteConfig[] = [
     path: '/training/templates',
     component: TrainingShellPage,
     requiresAuth: true,
+    navTitle: 'Templates',
+    navIcon: FileCode,
     skeletonVariant: 'table',
     breadcrumb: 'Templates',
     parentPath: '/training',
@@ -411,6 +502,8 @@ export const routes: RouteConfig[] = [
     path: '/training/artifacts',
     component: TrainingShellPage,
     requiresAuth: true,
+    navTitle: 'Artifacts',
+    navIcon: Package,
     skeletonVariant: 'default',
     breadcrumb: 'Artifacts',
     parentPath: '/training',
@@ -421,6 +514,8 @@ export const routes: RouteConfig[] = [
     path: '/training/settings',
     component: TrainingShellPage,
     requiresAuth: true,
+    navTitle: 'Settings',
+    navIcon: Settings,
     skeletonVariant: 'form',
     breadcrumb: 'Settings',
     parentPath: '/training',
@@ -470,6 +565,7 @@ export const routes: RouteConfig[] = [
     path: '/adapters',
     component: AdaptersShellPage,
     requiresAuth: true,
+    requiredRoles: ['admin', 'operator'],
     navGroup: 'Build',
     navTitle: 'Adapters',
     navIcon: Box,
@@ -484,7 +580,7 @@ export const routes: RouteConfig[] = [
     path: '/adapters/new',
     component: AdaptersShellPage,
     requiresAuth: true,
-    requiredPermissions: ['adapter.register'],
+    requiredPermissions: ['adapter:register'],
     skeletonVariant: 'form',
     breadcrumb: 'Register New Adapter',
     parentPath: '/adapters',
@@ -619,6 +715,16 @@ export const routes: RouteConfig[] = [
     modes: [UiMode.User],
   },
   {
+    path: '/system/nodes/:nodeId',
+    component: NodeDetailRoutePage,
+    requiresAuth: true,
+    skeletonVariant: 'default',
+    breadcrumb: 'Node Detail',
+    parentPath: '/system/nodes',
+    cluster: 'Observe',
+    roleVisibility: ['admin', 'operator', 'sre'],
+  },
+  {
     path: '/system/workers',
     component: SystemWorkersPage,
     requiresAuth: true,
@@ -682,6 +788,7 @@ export const routes: RouteConfig[] = [
     path: '/inference',
     component: InferencePage,
     requiresAuth: true,
+    requiredPermissions: ['inference:execute'],
     navGroup: 'Run',
     navTitle: 'Inference',
     navIcon: Play,
@@ -689,13 +796,14 @@ export const routes: RouteConfig[] = [
     skeletonVariant: 'form',
     breadcrumb: 'Inference',
     cluster: 'Run',
-    roleVisibility: ['admin', 'operator', 'sre', 'viewer'],
+    roleVisibility: ['admin', 'operator', 'sre'],
     modes: [UiMode.User],
   },
   {
     path: '/chat',
     component: ChatPage,
     requiresAuth: true,
+    requiredRoles: ['admin', 'operator'],
     navGroup: 'Run',
     navTitle: 'Chat',
     navIcon: MessageSquare,
@@ -721,6 +829,7 @@ export const routes: RouteConfig[] = [
     path: '/documents',
     component: DocumentLibraryPage,
     requiresAuth: true,
+    requiredRoles: ['admin', 'operator'],
     navGroup: 'Run',
     navTitle: 'Documents',
     navIcon: FileText,
@@ -759,6 +868,8 @@ export const routes: RouteConfig[] = [
     path: '/telemetry/viewer',
     component: TelemetryPage,
     requiresAuth: true,
+    navTitle: 'Viewer',
+    navIcon: Eye,
     skeletonVariant: 'table',
     breadcrumb: 'Telemetry Viewer',
     parentPath: '/telemetry',
@@ -803,6 +914,8 @@ export const routes: RouteConfig[] = [
     path: '/telemetry/alerts',
     component: TelemetryPage,
     requiresAuth: true,
+    navTitle: 'Alerts',
+    navIcon: Bell,
     skeletonVariant: 'table',
     breadcrumb: 'Alerts',
     parentPath: '/telemetry',
@@ -814,6 +927,8 @@ export const routes: RouteConfig[] = [
     path: '/telemetry/exports',
     component: TelemetryPage,
     requiresAuth: true,
+    navTitle: 'Exports',
+    navIcon: Download,
     skeletonVariant: 'default',
     breadcrumb: 'Exports',
     parentPath: '/telemetry',
@@ -825,6 +940,8 @@ export const routes: RouteConfig[] = [
     path: '/telemetry/filters',
     component: TelemetryPage,
     requiresAuth: true,
+    navTitle: 'Filters',
+    navIcon: Filter,
     skeletonVariant: 'form',
     breadcrumb: 'Filters',
     parentPath: '/telemetry',
@@ -946,6 +1063,20 @@ export const routes: RouteConfig[] = [
     modes: [UiMode.Audit],
   },
   {
+    path: '/security',
+    component: redirectTo('/security/policies', 'Guardrails'),
+    requiresAuth: true,
+    navGroup: 'Verify',
+    navTitle: 'Security',
+    navIcon: Shield,
+    navOrder: 6,
+    skeletonVariant: 'table',
+    breadcrumb: 'Security',
+    cluster: 'Verify',
+    roleVisibility: ['admin', 'compliance', 'auditor'],
+    modes: [UiMode.Audit],
+  },
+  {
     path: '/security/policies',
     component: PoliciesPage,
     requiresAuth: true,
@@ -964,7 +1095,7 @@ export const routes: RouteConfig[] = [
     path: '/security/audit',
     component: AuditPage,
     requiresAuth: true,
-    requiredPermissions: ['audit.view'],
+    requiredPermissions: ['audit:view'],
     navGroup: 'Verify',
     navTitle: 'Audit Logs',
     navIcon: FileText,
@@ -980,7 +1111,7 @@ export const routes: RouteConfig[] = [
     path: '/security/compliance',
     component: CompliancePage,
     requiresAuth: true,
-    requiredPermissions: ['audit.view'],
+    requiredPermissions: ['audit:view'],
     navGroup: 'Verify',
     navTitle: 'Compliance',
     navIcon: CheckCircle,
@@ -1064,6 +1195,17 @@ export const routes: RouteConfig[] = [
     cluster: 'Build',
     roleVisibility: ['admin'],
     modes: [UiMode.Builder],
+  },
+  {
+    path: '/admin/stacks/:stackId',
+    component: StackDetailRoutePage,
+    requiresAuth: true,
+    requiredRoles: ['admin'],
+    skeletonVariant: 'default',
+    breadcrumb: 'Stack Detail',
+    parentPath: '/admin/stacks',
+    cluster: 'Build',
+    roleVisibility: ['admin'],
   },
   {
     path: '/admin/plugins',
@@ -1399,21 +1541,74 @@ export function getBreadcrumbs(
   return breadcrumbs;
 }
 
-// Helper to check if user has access to route
+/**
+ * Checks if a user has access to a route based on role and permissions.
+ *
+ * This function enforces BOTH visibility and access control:
+ * 1. roleVisibility: Controls navigation UI visibility (sidebar, breadcrumbs)
+ * 2. requiredRoles: Controls actual route access (blocks unauthorized access)
+ * 3. requiredPermissions: Additional fine-grained access control
+ *
+ * Access flow:
+ * - Developer role bypasses all restrictions (superuser)
+ * - roleVisibility is checked first (if user can't see it, they can't access it)
+ * - requiredRoles enforces hard access control (redirects unauthorized users)
+ * - requiredPermissions provides additional granular control
+ *
+ * @param route - The route configuration to check
+ * @param userRole - The user's role (e.g., 'admin', 'operator', 'viewer')
+ * @param userPermissions - Optional array of user permissions for fine-grained access
+ * @returns true if user can access the route, false otherwise
+ *
+ * @example
+ * // Admin-only route
+ * const adminRoute = {
+ *   path: '/admin',
+ *   component: AdminPage,
+ *   requiredRoles: ['admin'],
+ *   roleVisibility: ['admin'],
+ * };
+ * canAccessRoute(adminRoute, 'operator'); // false - blocked by both visibility and access
+ * canAccessRoute(adminRoute, 'admin');    // true
+ *
+ * @example
+ * // Visible to operators but accessible via URL by viewers (e.g., shared inference links)
+ * const inferenceRoute = {
+ *   path: '/inference',
+ *   component: InferencePage,
+ *   roleVisibility: ['admin', 'operator'],
+ *   // No requiredRoles - viewers can access via direct URL
+ * };
+ * canAccessRoute(inferenceRoute, 'viewer'); // false - hidden from viewer navigation
+ * // But viewer could still access via direct URL if they know the path
+ */
 export function canAccessRoute(route: RouteConfig, userRole?: UserRole, userPermissions?: string[]): boolean {
   // Developer role bypasses all route restrictions
   if (userRole?.toLowerCase() === 'developer') {
     return true;
   }
 
+  // Check roleVisibility if defined (visibility check comes before access control)
+  // This controls whether the route appears in navigation UI
+  if (route.roleVisibility && route.roleVisibility.length > 0) {
+    const hasVisibility = route.roleVisibility.some(
+      r => r.toLowerCase() === userRole?.toLowerCase()
+    );
+    if (!hasVisibility) {
+      return false; // Route is hidden from this role's navigation
+    }
+  }
+
   // Check role-based access (case-insensitive)
+  // This enforces hard access control - users without required role are redirected
   if (route.requiredRoles && route.requiredRoles.length > 0) {
     if (!userRole || !route.requiredRoles.some(role => role.toLowerCase() === userRole.toLowerCase())) {
-      return false;
+      return false; // Route is inaccessible to this role (even via direct URL)
     }
   }
 
   // Check permission-based access
+  // Additional fine-grained control beyond role-based access
   if (route.requiredPermissions && route.requiredPermissions.length > 0) {
     if (!userPermissions || userPermissions.length === 0) {
       return false;

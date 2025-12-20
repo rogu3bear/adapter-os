@@ -2,15 +2,15 @@
 //!
 //! End-to-end tests combining quota, cleanup, monitoring, and policy enforcement.
 
+use super::new_test_tempdir;
 use crate::{AlertThresholds, CleanupPolicy, StorageConfig, StorageManager, StorageMonitoring};
 use adapteros_core::Result;
 use std::fs;
 use std::time::Duration;
-use tempfile::TempDir;
 
 #[tokio::test]
 async fn test_storage_manager_creation() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
     let config = StorageConfig::default();
 
     let manager = StorageManager::new(
@@ -31,7 +31,7 @@ async fn test_storage_manager_creation() -> Result<()> {
 
 #[tokio::test]
 async fn test_full_storage_workflow() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
     let config = StorageConfig {
         max_disk_space_bytes: 10000,
         max_files: 100,
@@ -94,7 +94,7 @@ async fn test_full_storage_workflow() -> Result<()> {
 
 #[tokio::test]
 async fn test_quota_enforcement_with_cleanup() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
     let config = StorageConfig {
         max_disk_space_bytes: 1000,
         max_files: 100,
@@ -133,7 +133,7 @@ async fn test_quota_enforcement_with_cleanup() -> Result<()> {
 
 #[tokio::test]
 async fn test_monitoring_with_usage_growth() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
     let config = StorageConfig {
         max_disk_space_bytes: 10000,
         max_files: 100,
@@ -179,7 +179,7 @@ async fn test_monitoring_with_usage_growth() -> Result<()> {
 
 #[tokio::test]
 async fn test_cleanup_triggered_by_threshold() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
     let config = StorageConfig {
         max_disk_space_bytes: 1000,
         max_files: 100,
@@ -219,7 +219,7 @@ async fn test_cleanup_triggered_by_threshold() -> Result<()> {
 
 #[tokio::test]
 async fn test_concurrent_operations() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
     let config = StorageConfig {
         max_disk_space_bytes: 100000,
         max_files: 1000,
@@ -265,7 +265,7 @@ async fn test_concurrent_operations() -> Result<()> {
 
 #[tokio::test]
 async fn test_storage_recovery_after_cleanup() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
     let config = StorageConfig {
         max_disk_space_bytes: 1000,
         max_files: 100,
@@ -307,7 +307,7 @@ async fn test_storage_recovery_after_cleanup() -> Result<()> {
 
 #[tokio::test]
 async fn test_monitoring_lifecycle() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
     let config = StorageConfig {
         max_disk_space_bytes: 10000,
         max_files: 100,
@@ -337,7 +337,7 @@ async fn test_monitoring_lifecycle() -> Result<()> {
 
 #[tokio::test]
 async fn test_usage_reporting_accuracy() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
     let config = StorageConfig {
         max_disk_space_bytes: 10000,
         max_files: 100,
@@ -368,7 +368,7 @@ async fn test_usage_reporting_accuracy() -> Result<()> {
 
 #[tokio::test]
 async fn test_reservation_expiration_handling() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
     let config = StorageConfig {
         max_disk_space_bytes: 1000,
         max_files: 100,
@@ -405,7 +405,7 @@ async fn test_reservation_expiration_handling() -> Result<()> {
 
 #[tokio::test]
 async fn test_nested_directory_operations() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
     let config = StorageConfig {
         max_disk_space_bytes: 10000,
         max_files: 100,
@@ -438,7 +438,7 @@ async fn test_nested_directory_operations() -> Result<()> {
 
 #[tokio::test]
 async fn test_cleanup_preserves_non_tmp_files() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
     let config = StorageConfig {
         max_disk_space_bytes: 10000,
         max_files: 100,
@@ -477,7 +477,7 @@ async fn test_cleanup_preserves_non_tmp_files() -> Result<()> {
 
 #[tokio::test]
 async fn test_high_usage_scenario() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
     let config = StorageConfig {
         max_disk_space_bytes: 1000,
         max_files: 100,
@@ -515,7 +515,7 @@ async fn test_high_usage_scenario() -> Result<()> {
 
 #[tokio::test]
 async fn test_empty_directory_operations() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
     let config = StorageConfig::default();
 
     let manager = StorageManager::new(
@@ -540,7 +540,7 @@ async fn test_empty_directory_operations() -> Result<()> {
 
 #[tokio::test]
 async fn test_storage_manager_clone_operations() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
     let config = StorageConfig {
         max_disk_space_bytes: 10000,
         max_files: 100,
@@ -568,7 +568,7 @@ async fn test_storage_manager_clone_operations() -> Result<()> {
 
 #[tokio::test]
 async fn test_rapid_file_creation_and_cleanup() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
     let config = StorageConfig {
         max_disk_space_bytes: 100000,
         max_files: 1000,

@@ -8,7 +8,7 @@ import { TrainingWizard } from '@/components/TrainingWizard';
 const listDatasetsMock = vi.fn();
 const startTrainingMock = vi.fn();
 
-vi.mock('@/api/client', () => ({
+vi.mock('@/api/services', () => ({
   __esModule: true,
   default: {
     listRepositories: vi.fn().mockResolvedValue([]),
@@ -17,6 +17,16 @@ vi.mock('@/api/client', () => ({
     startTraining: (...args: unknown[]) => startTrainingMock(...args),
   },
 }));
+
+vi.mock('@/schemas', async () => {
+  const actual = await vi.importActual<typeof import('@/schemas')>('@/schemas');
+  return {
+    ...actual,
+    TrainingConfigSchema: {
+      parseAsync: vi.fn(async (value: unknown) => value),
+    },
+  };
+});
 
 vi.mock('sonner', () => ({
   toast: {
@@ -29,9 +39,59 @@ vi.mock('@/utils/logger', () => ({
   logger: {
     error: vi.fn(),
     warn: vi.fn(),
+    info: vi.fn(),
+    debug: vi.fn(),
   },
   toError: (error: unknown) => error,
 }));
+
+vi.mock('@/hooks/documents', () => ({
+  useDocuments: () => ({ data: [], isLoading: false, error: null }),
+}));
+
+vi.mock('@/hooks/api/useCollectionsApi', () => ({
+  useCollections: () => ({ data: [], isLoading: false, error: null }),
+}));
+
+vi.mock('@/hooks/training', () => ({
+  useTrainingDataOrchestrator: () => ({
+    orchestrate: vi.fn(),
+  }),
+}));
+
+vi.mock('@/components/BreadcrumbNavigation', () => ({
+  BreadcrumbNavigation: () => null,
+}));
+
+// Simplify Select to avoid Radix pointer-capture issues in JSDOM
+vi.mock('@/components/ui/select', () => {
+  const React = require('react');
+  const Select = ({ value, onValueChange, children, ...props }: any) => (
+    <select
+      value={value ?? ''}
+      onChange={(e) => onValueChange?.((e.target as HTMLSelectElement).value)}
+      {...props}
+    >
+      {children}
+    </select>
+  );
+
+  return {
+    Select,
+    SelectTrigger: ({ children }: any) => <>{children}</>,
+    SelectContent: ({ children }: any) => <>{children}</>,
+    SelectItem: ({ value, children, ...props }: any) => (
+      <option value={value} {...props}>
+        {children}
+      </option>
+    ),
+    SelectValue: ({ placeholder }: any) => (
+      <option value="" hidden>
+        {placeholder}
+      </option>
+    ),
+  };
+});
 
 describe('TrainingWizard dataset validation guard', () => {
   beforeEach(() => {
@@ -57,12 +117,12 @@ describe('TrainingWizard dataset validation guard', () => {
 
     const user = userEvent.setup();
 
-    await screen.findByText(/Draft Dataset/);
+    await screen.findByRole('button', { name: /Next/i });
 
     await user.click(screen.getByRole('button', { name: /Next/i }));
 
     expect(
-      await screen.findByText(/must be validated/i),
+      (await screen.findAllByText(/must be validated/i)).length,
     ).toBeTruthy();
     expect(startTrainingMock).not.toHaveBeenCalled();
   });
@@ -79,14 +139,14 @@ describe('TrainingWizard dataset validation guard', () => {
         <TrainingWizard
           onComplete={onComplete}
           onCancel={() => {}}
-          initialDatasetId="ds-valid"
         />
       </MemoryRouter>,
     );
 
     const user = userEvent.setup();
 
-    await screen.findByText(/Valid Dataset/);
+    await waitFor(() => expect(listDatasetsMock).toHaveBeenCalled());
+    await user.selectOptions(screen.getByRole('combobox'), 'ds-valid');
 
     await user.click(screen.getByRole('button', { name: /Next/i }));
     await user.click(screen.getByRole('button', { name: /Next/i }));

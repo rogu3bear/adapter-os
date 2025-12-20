@@ -28,7 +28,7 @@ import {
   CheckCircle,
   AlertCircle
 } from 'lucide-react';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { Repository, Commit, User, RepositoryReportResponse } from '@/api/types';
 import { GitFolderPicker } from './GitFolderPicker';
 import { CodeIntelligenceTraining } from './CodeIntelligenceTraining';

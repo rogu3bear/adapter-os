@@ -295,7 +295,7 @@ impl PrefixKvCache {
         let entry = self
             .singleflight
             .get_or_load(key, || self.build_and_cache_entry(&key, builder))
-            .map_err(|e| AosError::Lifecycle(e))?;
+            .map_err(AosError::Lifecycle)?;
 
         Ok(entry)
     }

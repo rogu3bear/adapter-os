@@ -8,6 +8,16 @@ use adapteros_lora_lifecycle::LifecycleManager;
 use adapteros_manifest::Policies;
 use std::collections::HashMap;
 use std::path::PathBuf;
+use tempfile::TempDir;
+
+fn new_test_adapters_dir() -> TempDir {
+    let base_dir = PathBuf::from("var").join("tmp");
+    let _ = std::fs::create_dir_all(&base_dir);
+    tempfile::Builder::new()
+        .prefix("lifecycle_test_")
+        .tempdir_in(&base_dir)
+        .expect("tempdir")
+}
 
 #[tokio::test]
 async fn test_h4_heartbeat_updates_timestamp() {
@@ -30,11 +40,12 @@ async fn test_h4_heartbeat_updates_timestamp() {
     hashes.insert("heartbeat-adapter".to_string(), B3Hash::hash(b"hb"));
 
     let policies = Policies::default();
+    let temp_dir = new_test_adapters_dir();
     let manager = LifecycleManager::new_with_db(
         adapter_names,
         hashes,
         &policies,
-        PathBuf::from("/tmp"),
+        temp_dir.path().to_path_buf(),
         None,
         3,
         db.clone(),
@@ -72,11 +83,12 @@ async fn test_h4_5_minute_stale_detection() {
     hashes.insert("stale-adapter".to_string(), B3Hash::hash(b"stale"));
 
     let policies = Policies::default();
+    let temp_dir = new_test_adapters_dir();
     let manager = LifecycleManager::new_with_db(
         adapter_names,
         hashes,
         &policies,
-        PathBuf::from("/tmp"),
+        temp_dir.path().to_path_buf(),
         None,
         3,
         db.clone(),
@@ -123,11 +135,12 @@ async fn test_h4_auto_recovery_to_unloaded() {
     hashes.insert("recover-adapter".to_string(), B3Hash::hash(b"recover"));
 
     let policies = Policies::default();
+    let temp_dir = new_test_adapters_dir();
     let manager = LifecycleManager::new_with_db(
         adapter_names,
         hashes,
         &policies,
-        PathBuf::from("/tmp"),
+        temp_dir.path().to_path_buf(),
         None,
         3,
         db.clone(),
@@ -184,11 +197,12 @@ async fn test_h4_threshold_edge_cases() {
     hashes.insert("edge-adapter".to_string(), B3Hash::hash(b"edge"));
 
     let policies = Policies::default();
+    let temp_dir = new_test_adapters_dir();
     let manager = LifecycleManager::new_with_db(
         adapter_names,
         hashes,
         &policies,
-        PathBuf::from("/tmp"),
+        temp_dir.path().to_path_buf(),
         None,
         3,
         db.clone(),
@@ -243,11 +257,12 @@ async fn test_h4_unloaded_adapters_not_checked() {
     hashes.insert("unloaded-adapter".to_string(), B3Hash::hash(b"unloaded"));
 
     let policies = Policies::default();
+    let temp_dir = new_test_adapters_dir();
     let manager = LifecycleManager::new_with_db(
         adapter_names,
         hashes,
         &policies,
-        PathBuf::from("/tmp"),
+        temp_dir.path().to_path_buf(),
         None,
         3,
         db.clone(),

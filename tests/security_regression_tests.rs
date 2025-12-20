@@ -81,7 +81,7 @@ mod security_regression_tests {
             ("Symlink to /root/.ssh", "/root/.ssh"),
             ("Symlink to sensitive config", "/etc/shadow"),
             ("Chain of symlinks", "/var/log/"),
-            ("Circular symlink", "/tmp/circular"),
+            ("Circular symlink", "/var/run/aos/circular"),
         ];
 
         // Each scenario should be detected through symlink chain resolution

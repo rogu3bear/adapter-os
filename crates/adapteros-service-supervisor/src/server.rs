@@ -4,11 +4,12 @@ use crate::auth::AuthService;
 use crate::error::{Result, SupervisorError};
 use crate::supervisor::ServiceSupervisor;
 use adapteros_telemetry::middleware::api_logger_middleware;
+use axum::http::{header, HeaderValue, Method, Request};
 use axum::{
-    extract::{Path, Query, State},
-    http::{HeaderMap, StatusCode},
-    middleware,
-    response::IntoResponse,
+    extract::{Extension, Path, Query, State},
+    http::StatusCode,
+    middleware::{self, Next},
+    response::{IntoResponse, Response},
     routing::{get, post},
     Router,
 };
@@ -16,7 +17,119 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tower_http::cors::CorsLayer;
-use tracing::info;
+use tracing::{info, warn};
+
+/// CORS configuration layer for the supervisor API
+///
+/// Configures Cross-Origin Resource Sharing based on runtime environment:
+/// - If ALLOWED_ORIGINS is set: use those origins (production deployment)
+/// - If AOS_PRODUCTION_MODE=true and UDS socket: no CORS needed (localhost only)
+/// - Otherwise: allow localhost origins for development
+fn supervisor_cors_layer() -> CorsLayer {
+    use std::collections::HashSet;
+
+    let origins: Vec<HeaderValue> = if let Ok(allowed) = std::env::var("ALLOWED_ORIGINS") {
+        // Explicit origins from environment (highest priority)
+        allowed
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .filter_map(|origin| origin.parse().ok())
+            .collect()
+    } else if std::env::var("AOS_PRODUCTION_MODE")
+        .map(|v| v == "true" || v == "1")
+        .unwrap_or(false)
+    {
+        // Production mode: require explicit ALLOWED_ORIGINS
+        warn!(
+            "Supervisor CORS: AOS_PRODUCTION_MODE=true but ALLOWED_ORIGINS not set - CORS will block all origins"
+        );
+        Vec::new()
+    } else {
+        // Development mode: localhost origins (respects port env vars)
+        let ui_port = std::env::var("AOS_UI_PORT").unwrap_or_else(|_| "3200".to_string());
+        let server_port = std::env::var("AOS_SERVER_PORT").unwrap_or_else(|_| "8080".to_string());
+        let metrics_port = "9090"; // Prometheus metrics port is typically fixed
+        warn!(
+            ui_port = %ui_port,
+            server_port = %server_port,
+            "Supervisor CORS: Using development localhost defaults. Set ALLOWED_ORIGINS or AOS_PRODUCTION_MODE=true for production"
+        );
+        [
+            format!("http://localhost:{}", ui_port),
+            format!("http://localhost:{}", server_port),
+            format!("http://localhost:{}", metrics_port),
+            format!("http://127.0.0.1:{}", ui_port),
+            format!("http://127.0.0.1:{}", server_port),
+            format!("http://127.0.0.1:{}", metrics_port),
+        ]
+        .into_iter()
+        .filter_map(|o| o.parse().ok())
+        .collect()
+    };
+
+    CorsLayer::new()
+        .allow_origin(origins)
+        .allow_methods([
+            Method::GET,
+            Method::POST,
+            Method::PUT,
+            Method::DELETE,
+            Method::OPTIONS,
+        ])
+        .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE, header::ACCEPT])
+        .allow_credentials(true)
+        .max_age(std::time::Duration::from_secs(86400))
+}
+
+/// JWT authentication middleware for supervisor API
+///
+/// Validates Bearer token from Authorization header and injects Claims into request.
+/// Health endpoint is exempted from authentication.
+async fn auth_middleware_supervisor(
+    State(state): State<AppState>,
+    mut req: Request<axum::body::Body>,
+    next: Next,
+) -> std::result::Result<Response, (StatusCode, axum::Json<serde_json::Value>)> {
+    // Skip auth for health endpoint (monitoring tools need unauthenticated access)
+    if req.uri().path() == "/health" {
+        return Ok(next.run(req).await);
+    }
+
+    // Extract Bearer token from Authorization header
+    let token = req
+        .headers()
+        .get(header::AUTHORIZATION)
+        .and_then(|h| h.to_str().ok())
+        .and_then(|h| h.strip_prefix("Bearer "));
+
+    let token = token.ok_or_else(|| {
+        (
+            StatusCode::UNAUTHORIZED,
+            axum::Json(serde_json::json!({
+                "error": "missing or invalid Authorization header",
+                "hint": "Use 'Authorization: Bearer <token>'"
+            })),
+        )
+    })?;
+
+    // Validate token
+    let claims = state.auth_service.validate_token(token).map_err(|e| {
+        tracing::warn!(error = %e, "Token validation failed");
+        (
+            StatusCode::UNAUTHORIZED,
+            axum::Json(serde_json::json!({
+                "error": "invalid or expired token",
+                "details": e.to_string()
+            })),
+        )
+    })?;
+
+    // Inject claims into request extensions
+    req.extensions_mut().insert(claims);
+    Ok(next.run(req).await)
+}
 
 /// Application state for the HTTP server
 #[derive(Clone)]
@@ -61,8 +174,12 @@ impl SupervisorServer {
                 "/v1/services/:service_id/logs",
                 get(get_service_logs_handler),
             )
-            .with_state(state)
-            .layer(CorsLayer::permissive())
+            .with_state(state.clone())
+            .layer(middleware::from_fn_with_state(
+                state.clone(),
+                auth_middleware_supervisor,
+            ))
+            .layer(supervisor_cors_layer())
             .layer(middleware::from_fn(api_logger_middleware));
 
         Self {
@@ -147,10 +264,20 @@ async fn health_handler(State(state): State<AppState>) -> axum::response::Respon
 /// List all services
 async fn list_services_handler(
     State(state): State<AppState>,
-    _headers: HeaderMap,
+    Extension(claims): Extension<crate::auth::Claims>,
 ) -> axum::response::Response {
-    // For now, skip authentication for localhost communication
-    // In production, this should validate JWT tokens
+    // Check permission
+    if !state.auth_service.has_permission(&claims, "services.read") {
+        return (
+            StatusCode::FORBIDDEN,
+            axum::Json(serde_json::json!({
+                "error": "insufficient permissions",
+                "required": "services.read"
+            })),
+        )
+            .into_response();
+    }
+
     let services = state.supervisor.get_services().await;
 
     #[derive(Serialize)]
@@ -164,9 +291,21 @@ async fn list_services_handler(
 /// Get a specific service
 async fn get_service_handler(
     State(state): State<AppState>,
+    Extension(claims): Extension<crate::auth::Claims>,
     Path(service_id): Path<String>,
-    _headers: HeaderMap,
 ) -> axum::response::Response {
+    // Check permission
+    if !state.auth_service.has_permission(&claims, "services.read") {
+        return (
+            StatusCode::FORBIDDEN,
+            axum::Json(serde_json::json!({
+                "error": "insufficient permissions",
+                "required": "services.read"
+            })),
+        )
+            .into_response();
+    }
+
     match state.supervisor.get_service(&service_id).await {
         Ok(service) => axum::Json(service).into_response(),
         Err(e) => (
@@ -188,10 +327,21 @@ struct StartServiceRequest {
 /// Start a service
 async fn start_service_handler(
     State(state): State<AppState>,
-    _headers: HeaderMap,
+    Extension(claims): Extension<crate::auth::Claims>,
     axum::Json(req): axum::Json<StartServiceRequest>,
 ) -> axum::response::Response {
-    // Skip auth for now - in production this should validate JWT
+    // Check permission
+    if !state.auth_service.has_permission(&claims, "services.start") {
+        return (
+            StatusCode::FORBIDDEN,
+            axum::Json(serde_json::json!({
+                "error": "insufficient permissions",
+                "required": "services.start"
+            })),
+        )
+            .into_response();
+    }
+
     match state.supervisor.start_service(&req.service_id).await {
         Ok(message) => {
             #[derive(Serialize)]
@@ -224,9 +374,21 @@ struct StopServiceRequest {
 /// Stop a service
 async fn stop_service_handler(
     State(state): State<AppState>,
-    _headers: HeaderMap,
+    Extension(claims): Extension<crate::auth::Claims>,
     axum::Json(req): axum::Json<StopServiceRequest>,
 ) -> axum::response::Response {
+    // Check permission
+    if !state.auth_service.has_permission(&claims, "services.stop") {
+        return (
+            StatusCode::FORBIDDEN,
+            axum::Json(serde_json::json!({
+                "error": "insufficient permissions",
+                "required": "services.stop"
+            })),
+        )
+            .into_response();
+    }
+
     match state.supervisor.stop_service(&req.service_id).await {
         Ok(message) => {
             #[derive(Serialize)]
@@ -259,9 +421,24 @@ struct RestartServiceRequest {
 /// Restart a service
 async fn restart_service_handler(
     State(state): State<AppState>,
-    _headers: HeaderMap,
+    Extension(claims): Extension<crate::auth::Claims>,
     axum::Json(req): axum::Json<RestartServiceRequest>,
 ) -> axum::response::Response {
+    // Check permission
+    if !state
+        .auth_service
+        .has_permission(&claims, "services.restart")
+    {
+        return (
+            StatusCode::FORBIDDEN,
+            axum::Json(serde_json::json!({
+                "error": "insufficient permissions",
+                "required": "services.restart"
+            })),
+        )
+            .into_response();
+    }
+
     match state.supervisor.restart_service(&req.service_id).await {
         Ok(message) => {
             #[derive(Serialize)]
@@ -288,8 +465,20 @@ async fn restart_service_handler(
 /// Start all essential services
 async fn start_essential_handler(
     State(state): State<AppState>,
-    _headers: HeaderMap,
+    Extension(claims): Extension<crate::auth::Claims>,
 ) -> axum::response::Response {
+    // Check permission - requires both permission AND admin role
+    if !state.auth_service.has_permission(&claims, "services.start") || claims.role != "admin" {
+        return (
+            StatusCode::FORBIDDEN,
+            axum::Json(serde_json::json!({
+                "error": "insufficient permissions",
+                "required": "services.start and admin role"
+            })),
+        )
+            .into_response();
+    }
+
     match state.supervisor.start_essential_services().await {
         Ok(results) => {
             #[derive(Serialize)]
@@ -316,8 +505,20 @@ async fn start_essential_handler(
 /// Stop all essential services
 async fn stop_essential_handler(
     State(state): State<AppState>,
-    _headers: HeaderMap,
+    Extension(claims): Extension<crate::auth::Claims>,
 ) -> axum::response::Response {
+    // Check permission - requires both permission AND admin role
+    if !state.auth_service.has_permission(&claims, "services.stop") || claims.role != "admin" {
+        return (
+            StatusCode::FORBIDDEN,
+            axum::Json(serde_json::json!({
+                "error": "insufficient permissions",
+                "required": "services.stop and admin role"
+            })),
+        )
+            .into_response();
+    }
+
     match state.supervisor.stop_essential_services().await {
         Ok(results) => {
             #[derive(Serialize)]
@@ -355,10 +556,22 @@ fn default_log_lines() -> usize {
 /// Get service logs
 async fn get_service_logs_handler(
     State(state): State<AppState>,
+    Extension(claims): Extension<crate::auth::Claims>,
     Path(service_id): Path<String>,
     Query(params): Query<LogsQuery>,
-    _headers: HeaderMap,
 ) -> axum::response::Response {
+    // Check permission
+    if !state.auth_service.has_permission(&claims, "services.read") {
+        return (
+            StatusCode::FORBIDDEN,
+            axum::Json(serde_json::json!({
+                "error": "insufficient permissions",
+                "required": "services.read"
+            })),
+        )
+            .into_response();
+    }
+
     match state
         .supervisor
         .get_service_logs(&service_id, params.lines)
@@ -382,6 +595,3 @@ async fn get_service_logs_handler(
             .into_response(),
     }
 }
-
-// Authentication functions removed for simplified implementation
-// In production, JWT authentication should be added back

@@ -16,6 +16,16 @@ use adapteros_lora_lifecycle::{AdapterState, LifecycleManager};
 use adapteros_manifest::Policies;
 use fixtures::{fixtures as test_fixtures, utils, TestDbFixture};
 use std::path::PathBuf;
+use tempfile::TempDir;
+
+fn new_test_adapters_dir() -> TempDir {
+    let base_dir = PathBuf::from("var").join("tmp");
+    let _ = std::fs::create_dir_all(&base_dir);
+    tempfile::Builder::new()
+        .prefix("lifecycle_test_")
+        .tempdir_in(&base_dir)
+        .expect("tempdir")
+}
 
 #[tokio::test]
 async fn test_update_adapter_state_persists_to_db() {
@@ -23,8 +33,7 @@ async fn test_update_adapter_state_persists_to_db() {
     let adapter_id = test_fixtures::single_unloaded(fixture.db()).await;
 
     // Create a temporary directory for the adapter loader
-    let temp_dir = std::env::temp_dir().join("lifecycle_test_state_update");
-    std::fs::create_dir_all(&temp_dir).expect("Failed to create temp dir");
+    let temp_dir = new_test_adapters_dir();
 
     // Create lifecycle manager with DB
     let mut adapter_hashes = std::collections::HashMap::new();
@@ -37,7 +46,7 @@ async fn test_update_adapter_state_persists_to_db() {
         vec![adapter_id.clone()],
         adapter_hashes,
         &Policies::default(),
-        PathBuf::from(&temp_dir),
+        temp_dir.path().to_path_buf(),
         None,
         3,
         fixture.db().clone(),
@@ -65,9 +74,6 @@ async fn test_update_adapter_state_persists_to_db() {
     // Final verification
     let is_warm = utils::verify_adapter_state(fixture.db(), &adapter_id, "warm").await;
     assert!(is_warm);
-
-    // Cleanup
-    let _ = std::fs::remove_dir_all(&temp_dir);
 }
 
 #[tokio::test]
@@ -76,8 +82,7 @@ async fn test_record_adapter_activation_updates_db() {
     let adapter_id = test_fixtures::single_unloaded(fixture.db()).await;
 
     // Create a temporary directory for the adapter loader
-    let temp_dir = std::env::temp_dir().join("lifecycle_test_activation");
-    std::fs::create_dir_all(&temp_dir).expect("Failed to create temp dir");
+    let temp_dir = new_test_adapters_dir();
 
     let mut adapter_hashes = std::collections::HashMap::new();
     adapter_hashes.insert(
@@ -89,7 +94,7 @@ async fn test_record_adapter_activation_updates_db() {
         vec![adapter_id.clone()],
         adapter_hashes,
         &Policies::default(),
-        PathBuf::from(&temp_dir),
+        temp_dir.path().to_path_buf(),
         None,
         3,
         fixture.db().clone(),
@@ -126,9 +131,6 @@ async fn test_record_adapter_activation_updates_db() {
     let adapter = adapter.unwrap();
     assert_eq!(adapter.activation_count, 1);
     assert!(adapter.last_activated.is_some());
-
-    // Cleanup
-    let _ = std::fs::remove_dir_all(&temp_dir);
 }
 
 #[tokio::test]
@@ -144,8 +146,7 @@ async fn test_evict_adapter_updates_state_and_memory() {
         .expect("Failed to set initial memory");
 
     // Create a temporary directory for the adapter loader
-    let temp_dir = std::env::temp_dir().join("lifecycle_test_evict");
-    std::fs::create_dir_all(&temp_dir).expect("Failed to create temp dir");
+    let temp_dir = new_test_adapters_dir();
 
     let mut adapter_hashes = std::collections::HashMap::new();
     adapter_hashes.insert(
@@ -157,7 +158,7 @@ async fn test_evict_adapter_updates_state_and_memory() {
         vec![adapter_id.clone()],
         adapter_hashes,
         &Policies::default(),
-        PathBuf::from(&temp_dir),
+        temp_dir.path().to_path_buf(),
         None,
         3,
         fixture.db().clone(),
@@ -200,9 +201,6 @@ async fn test_evict_adapter_updates_state_and_memory() {
     let adapter = adapter.unwrap();
     assert_eq!(adapter.current_state, "unloaded");
     assert_eq!(adapter.memory_bytes, 0);
-
-    // Cleanup
-    let _ = std::fs::remove_dir_all(&temp_dir);
 }
 
 #[tokio::test]
@@ -211,8 +209,7 @@ async fn test_multiple_activations_increment_count() {
     let adapter_id = test_fixtures::single_unloaded(fixture.db()).await;
 
     // Create a temporary directory for the adapter loader
-    let temp_dir = std::env::temp_dir().join("lifecycle_test_multi_activation");
-    std::fs::create_dir_all(&temp_dir).expect("Failed to create temp dir");
+    let temp_dir = new_test_adapters_dir();
 
     let mut adapter_hashes = std::collections::HashMap::new();
     adapter_hashes.insert(
@@ -224,7 +221,7 @@ async fn test_multiple_activations_increment_count() {
         vec![adapter_id.clone()],
         adapter_hashes,
         &Policies::default(),
-        PathBuf::from(&temp_dir),
+        temp_dir.path().to_path_buf(),
         None,
         3,
         fixture.db().clone(),
@@ -261,9 +258,6 @@ async fn test_multiple_activations_increment_count() {
         .expect("Failed to get adapter");
     assert!(adapter.is_some());
     assert_eq!(adapter.unwrap().activation_count, 5);
-
-    // Cleanup
-    let _ = std::fs::remove_dir_all(&temp_dir);
 }
 
 #[tokio::test]

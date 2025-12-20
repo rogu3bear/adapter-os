@@ -21,6 +21,9 @@ pub struct Config {
     pub policies: PoliciesConfig,
     #[serde(default)]
     pub logging: LoggingConfig,
+    /// OpenTelemetry distributed tracing configuration
+    #[serde(default)]
+    pub otel: OtelConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -35,10 +38,38 @@ pub struct ServerConfig {
     /// Timeout in seconds for draining in-flight requests during shutdown (default: 30)
     #[serde(default = "default_drain_timeout")]
     pub drain_timeout_secs: u64,
+    /// Timeout in seconds for the entire boot sequence (default: 300)
+    #[serde(default = "default_boot_timeout")]
+    pub boot_timeout_secs: u64,
+    /// Timeout in milliseconds for health check database probe (default: 2000)
+    #[serde(default = "default_health_check_db_timeout_ms")]
+    pub health_check_db_timeout_ms: u64,
+    /// Timeout in milliseconds for health check worker probe (default: 2000)
+    #[serde(default = "default_health_check_worker_timeout_ms")]
+    pub health_check_worker_timeout_ms: u64,
+    /// Timeout in milliseconds for health check models probe (default: 2000)
+    #[serde(default = "default_health_check_models_timeout_ms")]
+    pub health_check_models_timeout_ms: u64,
 }
 
 fn default_drain_timeout() -> u64 {
     30
+}
+
+fn default_boot_timeout() -> u64 {
+    300
+}
+
+fn default_health_check_db_timeout_ms() -> u64 {
+    2000
+}
+
+fn default_health_check_worker_timeout_ms() -> u64 {
+    2000
+}
+
+fn default_health_check_models_timeout_ms() -> u64 {
+    2000
 }
 
 fn default_bind() -> String {
@@ -289,6 +320,9 @@ pub struct LoggingConfig {
     /// Maximum number of rotated log files to keep (0 = unlimited)
     #[serde(default)]
     pub max_log_files: usize,
+    /// Log retention period in days (0 = keep forever, default: 14)
+    #[serde(default = "default_retention_days")]
+    pub retention_days: u32,
     /// Include request IDs in log output
     #[serde(default = "default_true")]
     pub include_request_id: bool,
@@ -309,6 +343,10 @@ fn default_rotation() -> String {
     "daily".to_string()
 }
 
+fn default_retention_days() -> u32 {
+    14
+}
+
 impl Default for LoggingConfig {
     fn default() -> Self {
         Self {
@@ -318,8 +356,85 @@ impl Default for LoggingConfig {
             json_format: false,
             rotation: default_rotation(),
             max_log_files: 0,
+            retention_days: default_retention_days(),
             include_request_id: true,
             capture_panics: true,
+        }
+    }
+}
+
+/// OpenTelemetry distributed tracing configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OtelConfig {
+    /// Enable OpenTelemetry tracing (default: false)
+    #[serde(default)]
+    pub enabled: bool,
+    /// Service name for traces (default: "adapteros-server" or OTEL_SERVICE_NAME env var)
+    #[serde(default = "default_service_name")]
+    pub service_name: String,
+    /// OTLP endpoint (default: "http://localhost:4317" or OTEL_EXPORTER_OTLP_ENDPOINT env var)
+    #[serde(default = "default_otlp_endpoint")]
+    pub endpoint: String,
+    /// Protocol: "grpc" or "http" (default: "grpc" or OTEL_EXPORTER_OTLP_PROTOCOL env var)
+    #[serde(default = "default_protocol")]
+    pub protocol: String,
+    /// Sampling ratio 0.0-1.0 (default: 1.0 = sample all)
+    #[serde(default = "default_sampling_ratio")]
+    pub sampling_ratio: f64,
+    /// Export timeout in seconds (default: 10)
+    #[serde(default = "default_export_timeout")]
+    pub export_timeout_secs: u64,
+    /// Batch export max queue size (default: 2048)
+    #[serde(default = "default_max_queue_size")]
+    pub max_queue_size: usize,
+    /// Graceful shutdown timeout in seconds (default: 5)
+    #[serde(default = "default_shutdown_timeout")]
+    pub shutdown_timeout_secs: u64,
+}
+
+fn default_service_name() -> String {
+    std::env::var("OTEL_SERVICE_NAME").unwrap_or_else(|_| "adapteros-server".to_string())
+}
+
+fn default_otlp_endpoint() -> String {
+    std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT")
+        .unwrap_or_else(|_| "http://localhost:4317".to_string())
+}
+
+fn default_protocol() -> String {
+    std::env::var("OTEL_EXPORTER_OTLP_PROTOCOL").unwrap_or_else(|_| "grpc".to_string())
+}
+
+fn default_sampling_ratio() -> f64 {
+    std::env::var("OTEL_TRACES_SAMPLER_ARG")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1.0)
+}
+
+fn default_export_timeout() -> u64 {
+    10
+}
+
+fn default_max_queue_size() -> usize {
+    2048
+}
+
+fn default_shutdown_timeout() -> u64 {
+    5
+}
+
+impl Default for OtelConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            service_name: default_service_name(),
+            endpoint: default_otlp_endpoint(),
+            protocol: default_protocol(),
+            sampling_ratio: default_sampling_ratio(),
+            export_timeout_secs: default_export_timeout(),
+            max_queue_size: default_max_queue_size(),
+            shutdown_timeout_secs: default_shutdown_timeout(),
         }
     }
 }

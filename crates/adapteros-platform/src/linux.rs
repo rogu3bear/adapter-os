@@ -299,10 +299,129 @@ impl Default for LinuxSettings {
     }
 }
 
+/// Check if a path is on a tmpfs mount.
+///
+/// tmpfs is a temporary filesystem stored in memory that is cleared on reboot.
+/// Storing persistent state (e.g., JTI cache, keys, database) on tmpfs will
+/// result in data loss on restart.
+///
+/// # Platform Support
+///
+/// - **Linux**: Parses `/proc/mounts` to detect tmpfs mounts
+/// - **macOS**: Always returns false (macOS doesn't use tmpfs in the same way)
+/// - **Other**: Always returns false
+///
+/// # Arguments
+///
+/// * `path` - The path to check
+///
+/// # Returns
+///
+/// `true` if the path is on a tmpfs mount, `false` otherwise.
+///
+/// # Example
+///
+/// ```rust,no_run
+/// use adapteros_platform::linux::is_on_tmpfs;
+/// use std::path::Path;
+///
+/// if is_on_tmpfs(Path::new("/var/run/my_state.json")) {
+///     eprintln!("Warning: Persistent state is on tmpfs and will be lost on reboot");
+/// }
+/// ```
+#[cfg(target_os = "linux")]
+pub fn is_on_tmpfs(path: &Path) -> bool {
+    use std::fs;
+
+    // Canonicalize the path to resolve symlinks
+    let canonical = match fs::canonicalize(path) {
+        Ok(p) => p,
+        Err(_) => {
+            // If the path doesn't exist, check its parent directory
+            if let Some(parent) = path.parent() {
+                match fs::canonicalize(parent) {
+                    Ok(p) => p,
+                    Err(_) => return false, // Can't determine, assume not tmpfs
+                }
+            } else {
+                return false;
+            }
+        }
+    };
+
+    // Read /proc/mounts
+    let mounts = match fs::read_to_string("/proc/mounts") {
+        Ok(m) => m,
+        Err(_) => return false, // Can't read mounts, assume not tmpfs
+    };
+
+    // Find the longest matching mount point that is tmpfs
+    let mut longest_match_len = 0;
+    let mut is_tmpfs = false;
+
+    for line in mounts.lines() {
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() < 3 {
+            continue;
+        }
+
+        let mount_point = parts[1];
+        let fs_type = parts[2];
+
+        // Check if this mount point is a prefix of our path
+        if canonical.starts_with(mount_point) && mount_point.len() > longest_match_len {
+            longest_match_len = mount_point.len();
+            is_tmpfs = fs_type == "tmpfs";
+        }
+    }
+
+    is_tmpfs
+}
+
+/// Stub implementation for non-Linux platforms.
+#[cfg(not(target_os = "linux"))]
+pub fn is_on_tmpfs(_path: &Path) -> bool {
+    false
+}
+
+/// Check if a path is on tmpfs and log a warning if so.
+///
+/// This is a convenience function for boot-time validation of persistent
+/// state paths.
+///
+/// # Arguments
+///
+/// * `path` - The path to check
+/// * `purpose` - Description of what this path is used for (e.g., "JTI cache")
+///
+/// # Returns
+///
+/// `true` if the path is on tmpfs (warning was logged), `false` otherwise.
+pub fn warn_if_on_tmpfs(path: &Path, purpose: &str) -> bool {
+    if is_on_tmpfs(path) {
+        tracing::warn!(
+            path = %path.display(),
+            purpose = purpose,
+            "Persistent state path is on tmpfs. Data will be lost on reboot. \
+             Consider using a non-volatile storage location like /var/lib/aos/."
+        );
+        true
+    } else {
+        false
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::common::PlatformUtils;
     use tempfile::TempDir;
+
+    fn new_test_tempdir() -> Result<TempDir> {
+        let root = PlatformUtils::temp_dir();
+        std::fs::create_dir_all(&root)?;
+        Ok(TempDir::new_in(&root)?)
+    }
 
     #[test]
     fn test_linux_handler() -> Result<()> {
@@ -324,7 +443,7 @@ mod tests {
     #[test]
     fn test_linux_path_normalization() -> Result<()> {
         let handler = LinuxHandler::new(None)?;
-        let temp_dir = TempDir::new()?;
+        let temp_dir = new_test_tempdir()?;
         let test_path = temp_dir.path().join("test.txt");
 
         let normalized = handler.normalize_path(&test_path)?;
@@ -336,7 +455,7 @@ mod tests {
     #[test]
     fn test_linux_file_metadata() -> Result<()> {
         let handler = LinuxHandler::new(None)?;
-        let temp_dir = TempDir::new()?;
+        let temp_dir = new_test_tempdir()?;
         let test_file = temp_dir.path().join("test.txt");
         std::fs::write(&test_file, "hello")?;
 

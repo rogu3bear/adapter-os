@@ -15,7 +15,7 @@ import {
   Languages,
   Shield,
 } from 'lucide-react';
-import { cn } from '@/components/ui/utils';
+import { cn } from '@/lib/utils';
 
 interface ValidationCheck {
   id: string;

@@ -4,7 +4,7 @@ import React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { LoadingState } from '@/components/ui/loading-state';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 
 interface DatasetPreviewProps {
   datasetId: string;

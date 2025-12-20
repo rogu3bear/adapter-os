@@ -4,8 +4,7 @@
 use crate::http_client::send_with_refresh_from_store;
 use crate::output::OutputWriter;
 use adapteros_api_types::adapters::{
-    AdapterDatasetHealth, AdapterHealthDomain, AdapterHealthFlag, AdapterHealthResponse,
-    AdapterHealthSubcode,
+    AdapterHealthDomain, AdapterHealthFlag, AdapterHealthResponse, AdapterHealthSubcode,
 };
 use adapteros_core::{AosError, Result};
 use adapteros_db::storage_reconciliation::StorageReconciliationIssue;
@@ -85,6 +84,9 @@ pub enum HealthSubcommand {
         /// Optional manifest to read metrics from
         #[arg(long)]
         manifest: Option<PathBuf>,
+        /// Tenant identifier
+        #[arg(long, default_value = "default")]
+        tenant: String,
         /// JSON output
         #[arg(long)]
         json: bool,
@@ -172,9 +174,10 @@ pub async fn run(cmd: HealthCommand, output: &OutputWriter) -> Result<()> {
             repo_id,
             adapter_id,
             manifest,
+            tenant,
             json,
         } => {
-            show_drift(repo_id, adapter_id, manifest, json, output).await?;
+            show_drift(repo_id, adapter_id, manifest, &tenant, json, output).await?;
         }
         HealthSubcommand::Adapter {
             repo_id,
@@ -248,7 +251,7 @@ async fn run_drift_harness(
     let examples = load_dataset(&dataset_path)?;
     let subsample = slice_offset.map(|offset| DatasetSubsample {
         offset,
-        length: slice_size.unwrap_or_else(|| examples.len()),
+        length: slice_size.unwrap_or(examples.len()),
     });
     let sliced = deterministic_slice(examples, seed, slice_size, subsample.clone());
 
@@ -341,7 +344,7 @@ async fn run_drift_harness(
     // Optionally persist drift metadata back into manifest (best-effort).
     if let Some(manifest_path) = manifest {
         if let Err(e) = persist_drift_metadata(&manifest_path, &report) {
-            output.warning(&format!(
+            output.warning(format!(
                 "Failed to persist drift metadata into manifest: {e}"
             ));
         }
@@ -354,6 +357,7 @@ async fn show_drift(
     repo_id: Option<String>,
     adapter_id: Option<String>,
     manifest: Option<PathBuf>,
+    tenant_id: &str,
     json: bool,
     output: &OutputWriter,
 ) -> Result<()> {
@@ -396,7 +400,7 @@ async fn show_drift(
     let db = Db::connect_env().await?;
     let resolved_adapter_id = resolve_adapter_id(&db, repo_id, adapter_id).await?;
     let adapter = db
-        .get_adapter(&resolved_adapter_id)
+        .get_adapter_for_tenant(tenant_id, &resolved_adapter_id)
         .await?
         .ok_or_else(|| AosError::Validation("adapter not found".into()))?;
     let summary = DriftShowSummary::from_adapter_record(adapter);
@@ -450,8 +454,8 @@ impl DriftShowSummary {
                         .drift_test_backend
                         .clone()
                         .unwrap_or_else(|| "unknown".into()),
-                    weight_l_inf: w as f32,
-                    loss_l_inf: l as f32,
+                    weight_l_inf: w,
+                    loss_l_inf: l,
                     cosine_similarity: None,
                 };
                 format!("{:?}", evaluate_drift(&metrics, tier))
@@ -998,8 +1002,8 @@ fn persist_drift_metadata(manifest_path: &PathBuf, report: &DriftRunReport) -> R
         adapter.drift_reference_backend = Some(report.reference_backend.clone());
         adapter.drift_baseline_backend = Some(report.reference_backend.clone());
         adapter.drift_test_backend = Some(first_metric.backend.clone());
-        adapter.drift_metric = Some(first_metric.weight_l_inf.into());
-        adapter.drift_loss_metric = Some(first_metric.loss_l_inf.into());
+        adapter.drift_metric = Some(first_metric.weight_l_inf);
+        adapter.drift_loss_metric = Some(first_metric.loss_l_inf);
         adapter.drift_tier = Some(parse_assurance_tier(Some(report.assurance_tier.as_str())));
     }
 

@@ -549,7 +549,7 @@ mod security_headers {
         println!("  X-Content-Type-Options: nosniff");
         println!("  X-Frame-Options: DENY");
         println!("  X-XSS-Protection: 1; mode=block");
-        println!("  Strict-Transport-Security: max-age=31536000");
+        println!("  Strict-Transport-Security: max-age=31536000; includeSubDomains");
         println!("  Content-Security-Policy: ...");
     }
 

@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from 'react';
-import { apiClient } from '@/api/client';
+import { apiClient } from '@/api/services';
 import FeatureLayout from '@/layout/FeatureLayout';
 import { SectionErrorBoundary } from '@/components/ui/section-error-boundary';
 import { DensityProvider, useDensity } from '@/contexts/DensityContext';

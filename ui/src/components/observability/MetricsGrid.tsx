@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { MetricsChart } from '@/components/MetricsChart';
 import { Skeleton } from '@/components/ui/skeleton';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { logger } from '@/utils/logger';
 import { usePolling } from '@/hooks/realtime/usePolling';
 

@@ -10,7 +10,8 @@ import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Badge } from './ui/badge';
 import { Textarea } from './ui/textarea';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
+import { adapterRevisionSchema } from '@/schemas/adapter.schema';
 import {
   Upload,
   FileText,
@@ -66,11 +67,7 @@ const TrainerConfigSchema = z.object({
       /^[a-z0-9_-]+$/,
       'Purpose must contain only lowercase letters, numbers, underscores, and hyphens'
     ),
-  revision: z.string()
-    .regex(
-      /^r\d{3,}$/,
-      'Revision must be in format rXXX (e.g., r001)'
-    ),
+  revision: adapterRevisionSchema,
   // Training parameters
   rank: z.number()
     .int('Rank must be an integer')
@@ -246,7 +243,7 @@ export function SingleFileAdapterTrainer() {
         adapter_name: semanticAdapterName,
         dataset_id: datasetId,
         config: config,
-        post_actions: { create_stack: true, activate_stack: true },
+        post_actions: { create_stack: true },
       });
 
       setTrainingJob(response as TrainingJob);
@@ -359,13 +356,14 @@ export function SingleFileAdapterTrainer() {
         tokens_generated: 0,
         latency_ms: 0,
         adapters_used: [],
+        tokens: [],
         finish_reason: 'error',
         trace: {
+          adapters_used: [],
           router_decisions: [],
-          evidence_spans: [],
           latency_ms: 0
         }
-      });
+      } as InferResponse);
     } finally {
       setIsTesting(false);
     }

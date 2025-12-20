@@ -208,54 +208,82 @@ impl ModelConfig {
             })
             .unwrap_or_else(|| "unknown".to_string());
 
+        // Track fields that used defaults
+        let mut defaulted_fields = Vec::new();
+
         // Extract model parameters with fallbacks to defaults
-        let vocab_size = json
-            .get("vocab_size")
-            .and_then(|v| v.as_u64())
-            .map(|v| v as usize)
-            .unwrap_or(152064);
+        let vocab_size = match json.get("vocab_size").and_then(|v| v.as_u64()) {
+            Some(v) => v as usize,
+            None => {
+                defaulted_fields.push("vocab_size");
+                152064
+            }
+        };
 
-        let hidden_size = json
-            .get("hidden_size")
-            .and_then(|v| v.as_u64())
-            .map(|v| v as usize)
-            .unwrap_or(3584);
+        let hidden_size = match json.get("hidden_size").and_then(|v| v.as_u64()) {
+            Some(v) => v as usize,
+            None => {
+                defaulted_fields.push("hidden_size");
+                3584
+            }
+        };
 
-        let num_layers = json
-            .get("num_hidden_layers")
-            .and_then(|v| v.as_u64())
-            .map(|v| v as usize)
-            .unwrap_or(28);
+        let num_layers = match json.get("num_hidden_layers").and_then(|v| v.as_u64()) {
+            Some(v) => v as usize,
+            None => {
+                defaulted_fields.push("num_layers");
+                28
+            }
+        };
 
-        let num_attention_heads = json
-            .get("num_attention_heads")
-            .and_then(|v| v.as_u64())
-            .map(|v| v as usize)
-            .unwrap_or(28);
+        let num_attention_heads = match json.get("num_attention_heads").and_then(|v| v.as_u64()) {
+            Some(v) => v as usize,
+            None => {
+                defaulted_fields.push("num_attention_heads");
+                28
+            }
+        };
 
-        let num_key_value_heads = json
-            .get("num_key_value_heads")
-            .and_then(|v| v.as_u64())
-            .map(|v| v as usize)
-            .unwrap_or(4);
+        let num_key_value_heads = match json.get("num_key_value_heads").and_then(|v| v.as_u64()) {
+            Some(v) => v as usize,
+            None => {
+                defaulted_fields.push("num_key_value_heads");
+                4
+            }
+        };
 
-        let intermediate_size = json
-            .get("intermediate_size")
-            .and_then(|v| v.as_u64())
-            .map(|v| v as usize)
-            .unwrap_or(18944);
+        let intermediate_size = match json.get("intermediate_size").and_then(|v| v.as_u64()) {
+            Some(v) => v as usize,
+            None => {
+                defaulted_fields.push("intermediate_size");
+                18944
+            }
+        };
 
-        let max_seq_len = json
-            .get("max_position_embeddings")
-            .and_then(|v| v.as_u64())
-            .map(|v| v as usize)
-            .unwrap_or(32768);
+        let max_seq_len = match json.get("max_position_embeddings").and_then(|v| v.as_u64()) {
+            Some(v) => v as usize,
+            None => {
+                defaulted_fields.push("max_seq_len");
+                32768
+            }
+        };
 
-        let rope_theta = json
-            .get("rope_theta")
-            .and_then(|v| v.as_f64())
-            .map(|v| v as f32)
-            .unwrap_or(1_000_000.0);
+        let rope_theta = match json.get("rope_theta").and_then(|v| v.as_f64()) {
+            Some(v) => v as f32,
+            None => {
+                defaulted_fields.push("rope_theta");
+                1_000_000.0
+            }
+        };
+
+        // Log consolidated warning if any fields used defaults
+        if !defaulted_fields.is_empty() {
+            tracing::warn!(
+                config_path = %config_path.display(),
+                fields = %defaulted_fields.join(", "),
+                "Model config.json missing fields, using defaults"
+            );
+        }
 
         Ok(Self {
             path: model_dir,
@@ -507,6 +535,8 @@ pub fn get_tokenizer_path() -> Result<PathBuf> {
     if let Ok(path) = std::env::var("AOS_TOKENIZER_PATH") {
         if !path.is_empty() {
             let path = PathBuf::from(&path);
+            // Security: reject /tmp paths for persistent tokenizer storage
+            crate::path_resolver::reject_tmp_persistent_path(&path, "tokenizer-path")?;
             if path.exists() {
                 tracing::debug!(path = %path.display(), "Using tokenizer from AOS_TOKENIZER_PATH");
                 return Ok(path);
@@ -604,6 +634,12 @@ pub fn is_tokenizer_available() -> bool {
 mod tests {
     use super::*;
     use tempfile::TempDir;
+
+    fn new_test_tempdir() -> TempDir {
+        let root = PathBuf::from("var").join("tmp");
+        std::fs::create_dir_all(&root).expect("create var/tmp");
+        TempDir::new_in(&root).expect("tempdir")
+    }
 
     #[test]
     fn test_default_config() {
@@ -738,7 +774,7 @@ mod tests {
         // Skip workspace .env to avoid leakage into expectations
         std::env::set_var("AOS_SKIP_DOTENV", "1");
 
-        let temp = TempDir::new().unwrap();
+        let temp = new_test_tempdir();
         let model_dir = temp.path().join("test-model");
         std::fs::create_dir_all(&model_dir).unwrap();
 
@@ -794,7 +830,7 @@ mod tests {
 
         /// Helper to create a temporary directory with a tokenizer.json file
         fn create_temp_tokenizer() -> (TempDir, PathBuf) {
-            let temp_dir = TempDir::new().unwrap();
+            let temp_dir = new_test_tempdir();
             let tokenizer_path = temp_dir.path().join("tokenizer.json");
             fs::write(&tokenizer_path, r#"{"version": "1.0"}"#).unwrap();
             (temp_dir, tokenizer_path)
@@ -802,7 +838,7 @@ mod tests {
 
         /// Helper to create a temp model directory with tokenizer.json
         fn create_temp_model_dir() -> (TempDir, PathBuf) {
-            let temp_dir = TempDir::new().unwrap();
+            let temp_dir = new_test_tempdir();
             let model_dir = temp_dir.path().join("model");
             fs::create_dir(&model_dir).unwrap();
             let tokenizer_path = model_dir.join("tokenizer.json");
@@ -897,7 +933,7 @@ mod tests {
         #[test]
         fn test_get_tokenizer_path_error_message_includes_model_path() {
             // Set model path but no tokenizer in it
-            let temp_dir = TempDir::new().unwrap();
+            let temp_dir = new_test_tempdir();
             let empty_model_dir = temp_dir.path().join("empty-model");
             fs::create_dir(&empty_model_dir).unwrap();
 

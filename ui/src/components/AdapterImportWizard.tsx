@@ -16,16 +16,11 @@ import { Progress } from '@/components/ui/progress';
 import { Switch } from '@/components/ui/switch';
 import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
 import { Upload, FileCheck, Settings, CheckCircle } from 'lucide-react';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { Adapter } from '@/api/types';
 import { useProgressOperation } from '@/hooks/ui/useProgressOperation';
 import { useCancellableOperation } from '@/hooks/async/useCancellableOperation';
-
-interface AdapterImportWizardProps {
-  onComplete: (adapter: Adapter) => void;
-  onCancel: () => void;
-  tenantId?: string;
-}
+import type { AdapterImportWizardProps } from '@/types/components';
 
 interface WizardState {
   file: File | null;

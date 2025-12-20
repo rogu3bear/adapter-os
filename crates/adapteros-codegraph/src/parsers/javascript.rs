@@ -673,7 +673,14 @@ impl LanguageParser for JavaScriptParser {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
     use tempfile::TempDir;
+
+    fn new_test_tempdir() -> TempDir {
+        let root = PathBuf::from("var").join("tmp");
+        std::fs::create_dir_all(&root).expect("create var/tmp");
+        TempDir::new_in(&root).expect("Test temp directory creation should succeed")
+    }
 
     #[test]
     fn test_javascript_parser_creation() {
@@ -684,7 +691,7 @@ mod tests {
     #[test]
     fn test_parse_simple_function() {
         let mut parser = JavaScriptParser::new().expect("JavaScriptParser creation should succeed");
-        let temp_dir = TempDir::new().expect("Test temp directory creation should succeed");
+        let temp_dir = new_test_tempdir();
         let test_file = temp_dir.path().join("test.js");
 
         std::fs::write(&test_file, "function testFunction() {\n    return 42;\n}")
@@ -705,7 +712,7 @@ mod tests {
     #[test]
     fn test_parse_arrow_function() {
         let mut parser = JavaScriptParser::new().expect("JavaScriptParser creation should succeed");
-        let temp_dir = TempDir::new().expect("Test temp directory creation should succeed");
+        let temp_dir = new_test_tempdir();
         let test_file = temp_dir.path().join("test.js");
 
         std::fs::write(
@@ -731,7 +738,7 @@ mod tests {
     #[test]
     fn test_parse_class() {
         let mut parser = JavaScriptParser::new().expect("JavaScriptParser creation should succeed");
-        let temp_dir = TempDir::new().expect("Test temp directory creation should succeed");
+        let temp_dir = new_test_tempdir();
         let test_file = temp_dir.path().join("test.js");
 
         std::fs::write(&test_file, "class TestClass {\n    constructor() {}\n}")
@@ -754,7 +761,7 @@ mod tests {
     #[test]
     fn test_parse_import() {
         let mut parser = JavaScriptParser::new().expect("JavaScriptParser creation should succeed");
-        let temp_dir = TempDir::new().expect("Test temp directory creation should succeed");
+        let temp_dir = new_test_tempdir();
         let test_file = temp_dir.path().join("test.js");
 
         std::fs::write(&test_file, "import { Component } from 'react';")
@@ -776,7 +783,7 @@ mod tests {
     #[test]
     fn test_parse_function_expression() {
         let mut parser = JavaScriptParser::new().expect("JavaScriptParser creation should succeed");
-        let temp_dir = TempDir::new().expect("Test temp directory creation should succeed");
+        let temp_dir = new_test_tempdir();
         let test_file = temp_dir.path().join("test.js");
 
         std::fs::write(
@@ -802,7 +809,7 @@ mod tests {
     #[test]
     fn test_parse_object_method() {
         let mut parser = JavaScriptParser::new().expect("JavaScriptParser creation should succeed");
-        let temp_dir = TempDir::new().expect("Test temp directory creation should succeed");
+        let temp_dir = new_test_tempdir();
         let test_file = temp_dir.path().join("test.js");
 
         std::fs::write(&test_file, "const obj = {\n    method() {}\n};")

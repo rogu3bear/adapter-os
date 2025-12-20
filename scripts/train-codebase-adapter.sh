@@ -97,8 +97,15 @@ PY
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+TMP_ROOT="${AOS_VAR_DIR:-$REPO_ROOT/var}/tmp"
 
-BASE_URL="${AOS_BASE_URL:-http://localhost:8080}"
+if [[ "$TMP_ROOT" == /tmp* || "$TMP_ROOT" == /private/tmp* ]]; then
+  die "refusing temporary directory under /tmp: $TMP_ROOT"
+fi
+
+mkdir -p "$TMP_ROOT"
+
+BASE_URL="${AOS_BASE_URL:-http://localhost:${AOS_SERVER_PORT:-8080}}"
 TENANT_ID="${AOS_TENANT_ID:-default}"
 AUTH_TOKEN="${AOS_AUTH_TOKEN:-}"
 
@@ -185,7 +192,7 @@ api_json() {
 
   local url="${BASE_URL}${path}"
   local tmp
-  tmp="$(mktemp)"
+  tmp="$(mktemp "${TMP_ROOT}/adapteros-train-codebase.XXXXXX")"
   local http_code="000"
 
   local -a args
@@ -230,7 +237,7 @@ api_json_soft() {
 
   local url="${BASE_URL}${path}"
   local tmp
-  tmp="$(mktemp)"
+  tmp="$(mktemp "${TMP_ROOT}/adapteros-train-codebase-soft.XXXXXX")"
   local http_code="000"
 
   local -a args
@@ -273,7 +280,7 @@ api_multipart_upload_dataset() {
 
   local url="${BASE_URL}/v1/datasets/upload"
   local tmp
-  tmp="$(mktemp)"
+  tmp="$(mktemp "${TMP_ROOT}/adapteros-train-codebase-upload.XXXXXX")"
   local http_code="000"
 
   local -a args

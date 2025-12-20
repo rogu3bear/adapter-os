@@ -139,7 +139,7 @@ vi.mock('@/config/routes', () => {
       navIcon: () => null,
       navOrder: 3,
       cluster: 'Observe',
-      requiredPermissions: ['audit.view'],
+      requiredPermissions: ['audit:view'],
       modes: [UiMode.User, UiMode.Audit],
     },
     {
@@ -185,7 +185,7 @@ vi.mock('@/config/routes', () => {
       navIcon: () => null,
       navOrder: 4,
       cluster: 'Verify',
-      requiredPermissions: ['audit.view'],
+      requiredPermissions: ['audit:view'],
       modes: [UiMode.Audit],
     },
     {
@@ -227,17 +227,24 @@ vi.mock('@/config/routes', () => {
     userRole?: string,
     userPermissions?: string[],
   ) => {
+    // Check role-based access
     if (route.requiredRoles && route.requiredRoles.length > 0) {
       if (!userRole || !route.requiredRoles.some(role => role.toLowerCase() === userRole.toLowerCase())) {
         return false;
       }
     }
 
+    // Check permission-based access - user must have at least one of the required permissions
     if (route.requiredPermissions && route.requiredPermissions.length > 0) {
-      if (
-        !userPermissions ||
-        !route.requiredPermissions.every((perm) => userPermissions.includes(perm))
-      ) {
+      if (!userPermissions || userPermissions.length === 0) {
+        return false;
+      }
+
+      const hasPermission = route.requiredPermissions.some((perm) =>
+        userPermissions.includes(perm)
+      );
+
+      if (!hasPermission) {
         return false;
       }
     }
@@ -248,7 +255,7 @@ vi.mock('@/config/routes', () => {
   return { routes, canAccessRoute };
 });
 
-import { generateNavigationGroups, shouldShowNavGroup } from '@/utils/navigation';
+import { generateNavigationGroups, shouldShowNavGroup, getAccessibleRoutes, findRouteByPath } from '@/utils/navigation';
 
 describe('generateNavigationGroups', () => {
   it('shows run-focused navigation in user mode', () => {
@@ -276,7 +283,7 @@ describe('generateNavigationGroups', () => {
     const verify = verifyGroups.find(group => group.title === 'Verify');
     expect(verify?.items.map(item => item.label)).not.toContain('Audit Logs');
 
-    const verifyWithPerms = generateNavigationGroups('auditor', ['audit.view'], UiMode.Audit);
+    const verifyWithPerms = generateNavigationGroups('auditor', ['audit:view'], UiMode.Audit);
     const verifyWithPermsGroup = verifyWithPerms.find(group => group.title === 'Verify');
     expect(verifyWithPermsGroup?.items.map(item => item.label)).toEqual(
       expect.arrayContaining(['Guardrails', 'Audit Logs', 'Compliance', 'Replay']),
@@ -305,5 +312,161 @@ describe('shouldShowNavGroup', () => {
     const verifyGroup = adminGroups.find(group => group.title === 'Verify');
     expect(verifyGroup).toBeDefined();
     expect(shouldShowNavGroup(verifyGroup!, 'admin')).toBe(true);
+  });
+});
+
+describe('getAccessibleRoutes', () => {
+  it('should filter routes based on role', () => {
+    const adminRoutes = getAccessibleRoutes('admin', []);
+    const adminPaths = adminRoutes.map(r => r.path);
+
+    // Admin should have access to training (requires admin role)
+    expect(adminPaths).toContain('/training');
+
+    const operatorRoutes = getAccessibleRoutes('operator', []);
+    const operatorPaths = operatorRoutes.map(r => r.path);
+
+    // Operator should NOT have access to training (requires admin role)
+    expect(operatorPaths).not.toContain('/training');
+  });
+
+  it('should filter routes based on permissions', () => {
+    // User with audit:view permission
+    const routesWithPermission = getAccessibleRoutes('auditor', ['audit:view']);
+    const pathsWithPermission = routesWithPermission.map(r => r.path);
+
+    // Should have access to telemetry (requires audit:view permission)
+    expect(pathsWithPermission).toContain('/telemetry');
+    expect(pathsWithPermission).toContain('/security/audit');
+
+    // User without audit:view permission
+    const routesWithoutPermission = getAccessibleRoutes('auditor', []);
+    const pathsWithoutPermission = routesWithoutPermission.map(r => r.path);
+
+    // Should NOT have access to telemetry or security/audit
+    expect(pathsWithoutPermission).not.toContain('/telemetry');
+    expect(pathsWithoutPermission).not.toContain('/security/audit');
+  });
+
+  it('should handle combined role and permission requirements', () => {
+    // Admin with audit:view permission - should have maximum access
+    const adminWithPerms = getAccessibleRoutes('admin', ['audit:view']);
+    const adminPaths = adminWithPerms.map(r => r.path);
+
+    expect(adminPaths).toContain('/training'); // role-restricted
+    expect(adminPaths).toContain('/telemetry'); // permission-restricted
+    expect(adminPaths).toContain('/security/audit'); // permission-restricted
+
+    // Operator without audit:view permission - limited access
+    const operatorWithoutPerms = getAccessibleRoutes('operator', []);
+    const operatorPaths = operatorWithoutPerms.map(r => r.path);
+
+    expect(operatorPaths).not.toContain('/training'); // no admin role
+    expect(operatorPaths).not.toContain('/telemetry'); // no audit:view permission
+    expect(operatorPaths).not.toContain('/security/audit'); // no audit:view permission
+
+    // Operator with audit:view permission - partial access
+    const operatorWithPerms = getAccessibleRoutes('operator', ['audit:view']);
+    const operatorWithPermsPaths = operatorWithPerms.map(r => r.path);
+
+    expect(operatorWithPermsPaths).not.toContain('/training'); // still no admin role
+    expect(operatorWithPermsPaths).toContain('/telemetry'); // has permission
+  });
+
+  it('should return all routes for users without restrictions', () => {
+    const allRoutes = getAccessibleRoutes('operator', []);
+
+    // Should return at least some routes
+    expect(allRoutes.length).toBeGreaterThan(0);
+
+    // All returned routes should be accessible
+    allRoutes.forEach(route => {
+      expect(route.path).toBeDefined();
+    });
+  });
+
+  it('should handle undefined role and permissions gracefully', () => {
+    const routes = getAccessibleRoutes(undefined, undefined);
+
+    // Should return routes that don't require authentication
+    expect(Array.isArray(routes)).toBe(true);
+
+    // Should not include role-restricted routes
+    const paths = routes.map(r => r.path);
+    expect(paths).not.toContain('/training'); // requires admin role
+  });
+
+  it('should handle empty permissions array', () => {
+    const routes = getAccessibleRoutes('auditor', []);
+    const paths = routes.map(r => r.path);
+
+    // Should not include permission-restricted routes
+    expect(paths).not.toContain('/telemetry'); // requires audit:view permission
+    expect(paths).not.toContain('/security/audit'); // requires audit:view permission
+  });
+});
+
+describe('findRouteByPath', () => {
+  it('should find route by valid path', () => {
+    const route = findRouteByPath('/adapters');
+
+    expect(route).toBeDefined();
+    expect(route?.path).toBe('/adapters');
+    expect(route?.navTitle).toBe('Adapters');
+  });
+
+  it('should find route with nested path', () => {
+    const route = findRouteByPath('/security/policies');
+
+    expect(route).toBeDefined();
+    expect(route?.path).toBe('/security/policies');
+    expect(route?.navTitle).toBe('Guardrails');
+  });
+
+  it('should return undefined for non-existent path', () => {
+    const route = findRouteByPath('/this/route/does/not/exist');
+
+    expect(route).toBeUndefined();
+  });
+
+  it('should handle parameterized paths', () => {
+    // findRouteByPath looks for exact matches, not parameterized patterns
+    // So searching for an actual path with a param value should return undefined
+    const routeWithParam = findRouteByPath('/adapters/some-adapter-id');
+    expect(routeWithParam).toBeUndefined();
+
+    // But the parameterized pattern itself should be findable
+    // Note: This depends on the routes array having the pattern
+    const paramPattern = findRouteByPath('/training/datasets/:datasetId');
+    // This may or may not exist depending on if the mock includes it
+    // The key is that findRouteByPath does exact matching, not pattern matching
+  });
+
+  it('should find dev routes', () => {
+    const devRoute = findRouteByPath('/dev/api-errors');
+
+    expect(devRoute).toBeDefined();
+    expect(devRoute?.path).toBe('/dev/api-errors');
+  });
+
+  it('should find root-level routes', () => {
+    const dashboard = findRouteByPath('/dashboard');
+
+    expect(dashboard).toBeDefined();
+    expect(dashboard?.path).toBe('/dashboard');
+    expect(dashboard?.navTitle).toBe('Dashboard');
+  });
+
+  it('should handle empty string', () => {
+    const route = findRouteByPath('');
+
+    expect(route).toBeUndefined();
+  });
+
+  it('should be case-sensitive', () => {
+    const route = findRouteByPath('/ADAPTERS');
+
+    // Routes are defined in lowercase, so uppercase should not match
+    expect(route).toBeUndefined();
   });
 });

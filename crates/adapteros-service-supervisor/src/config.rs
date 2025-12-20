@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 /// Top-level supervisor configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SupervisorConfig {
     pub server: ServerConfig,
     pub services: HashMap<String, ServiceConfig>,
@@ -131,29 +131,27 @@ pub struct ResourceLimits {
     pub nice_level: Option<i32>,
 }
 
-impl Default for SupervisorConfig {
-    fn default() -> Self {
-        Self {
-            server: ServerConfig::default(),
-            services: HashMap::new(),
-            auth: AuthConfig::default(),
-            monitoring: MonitoringConfig::default(),
-        }
-    }
-}
-
 impl Default for ServerConfig {
     fn default() -> Self {
         Self {
             host: "127.0.0.1".to_string(),
-            port: 3301,
+            port: std::env::var("AOS_PANEL_PORT")
+                .ok()
+                .and_then(|p| p.parse().ok())
+                .unwrap_or(3301),
             workers: 4,
             max_connections: 1000,
             timeout_seconds: 30,
-            cors_allowed_origins: vec![
-                "http://localhost:3200".to_string(),
-                "http://localhost:3300".to_string(),
-            ],
+            cors_allowed_origins: {
+                // Respect AOS_UI_PORT for CORS (supports port offset strategy)
+                let ui_port = std::env::var("AOS_UI_PORT").unwrap_or_else(|_| "3200".to_string());
+                let panel_port =
+                    std::env::var("AOS_PANEL_PORT").unwrap_or_else(|_| "3300".to_string());
+                vec![
+                    format!("http://localhost:{}", ui_port),
+                    format!("http://localhost:{}", panel_port),
+                ]
+            },
             uds_socket: None,
             production_mode: false,
         }

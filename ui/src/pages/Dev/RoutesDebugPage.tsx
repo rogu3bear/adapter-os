@@ -27,7 +27,7 @@ import {
   type RouteStatus,
   type Reachability,
 } from '@/config/routes_manifest';
-import { cn } from '@/components/ui/utils';
+import { cn } from '@/lib/utils';
 import {
   AlertTriangle,
   CheckCircle,

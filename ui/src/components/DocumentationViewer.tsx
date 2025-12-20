@@ -10,7 +10,7 @@ import { Badge } from './ui/badge';
 import { Search, BookOpen, ChevronRight, Loader2, AlertCircle } from 'lucide-react';
 import { documentationIndex, type DocumentationEntry, searchDocumentation } from '@/data/documentation-index';
 import { loadDocumentation, extractTableOfContents, type TocItem } from '@/utils/doc-loader';
-import { cn } from './ui/utils';
+import { cn } from '@/lib/utils';
 import 'highlight.js/styles/github-dark.css';
 
 function getDocumentationEntryById(docId?: string | null): DocumentationEntry | null {

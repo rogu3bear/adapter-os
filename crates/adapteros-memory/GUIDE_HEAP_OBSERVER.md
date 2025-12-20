@@ -248,7 +248,7 @@ See: [INTEGRATION_HEAP_OBSERVER.md#platform-support](INTEGRATION_HEAP_OBSERVER.m
 ## Related Documentation
 
 - [OBJECTIVE_CPP_FFI_PATTERNS.md](../../../docs/OBJECTIVE_CPP_FFI_PATTERNS.md) - FFI best practices
-- [ARCHITECTURE_PATTERNS.md](../../../docs/ARCHITECTURE_PATTERNS.md) - System design
+- [ARCHITECTURE.md#architecture-components](../../../docs/ARCHITECTURE.md#architecture-components) - System design
 - [CLAUDE.md](../../../CLAUDE.md) - Project guidelines
 
 ## Troubleshooting

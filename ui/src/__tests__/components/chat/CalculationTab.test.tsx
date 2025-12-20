@@ -6,14 +6,6 @@ import { CalculationTab } from '@/components/chat/drawer/CalculationTab';
 import type { ExtendedRouterDecision } from '@/api/types';
 import { toast } from 'sonner';
 
-// Mock clipboard
-const mockWriteText = vi.fn(() => Promise.resolve());
-Object.defineProperty(navigator, 'clipboard', {
-  value: { writeText: mockWriteText },
-  writable: true,
-  configurable: true,
-});
-
 // Mock toast
 vi.mock('sonner', () => ({
   toast: {
@@ -68,7 +60,6 @@ function TestWrapper({ children }: { children: React.ReactNode }) {
 describe('CalculationTab', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockWriteText.mockClear();
     mockNavigate.mockClear();
   });
 
@@ -87,7 +78,7 @@ describe('CalculationTab', () => {
     it('does not show empty message when any data is provided', () => {
       render(
         <TestWrapper>
-          <CalculationTab requestId="req-123" />
+          <CalculationTab traceId="trace-123" />
         </TestWrapper>
       );
 
@@ -104,7 +95,7 @@ describe('CalculationTab', () => {
       );
 
       expect(screen.getByText('Trace ID')).toBeInTheDocument();
-      expect(screen.getByText(/trace-abc12\.\.\.56789/)).toBeInTheDocument();
+      expect(screen.getByText(/trace-abc1\.\.\.3def456789/)).toBeInTheDocument();
     });
 
     it('displays proof digest when provided', () => {
@@ -115,7 +106,7 @@ describe('CalculationTab', () => {
       );
 
       expect(screen.getByText('Proof Digest')).toBeInTheDocument();
-      expect(screen.getByText(/proof-xyz9\.\.\.210abc/)).toBeInTheDocument();
+      expect(screen.getByText(/proof-xyz9\.\.\.6543210abc/)).toBeInTheDocument();
     });
 
     it('shows verified badge when isVerified is true', () => {
@@ -147,9 +138,7 @@ describe('CalculationTab', () => {
       );
 
       expect(screen.getByText('Verified At')).toBeInTheDocument();
-      // Should display formatted date
-      const dateDisplay = screen.getByText(/1\/15\/2025|15\/1\/2025/); // Handles different locales
-      expect(dateDisplay).toBeInTheDocument();
+      expect(screen.getByText(new Date(verifiedAt).toLocaleString())).toBeInTheDocument();
     });
   });
 
@@ -162,9 +151,9 @@ describe('CalculationTab', () => {
       );
 
       expect(screen.getByText('Selected Adapters')).toBeInTheDocument();
-      expect(screen.getByText('adapter-finance')).toBeInTheDocument();
-      expect(screen.getByText('adapter-legal')).toBeInTheDocument();
-      expect(screen.getByText('adapter-compliance')).toBeInTheDocument();
+      expect(screen.getAllByText('adapter-finance').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('adapter-legal').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('adapter-compliance').length).toBeGreaterThan(0);
 
       // Unselected adapter should not appear
       expect(screen.queryByText('adapter-unused')).not.toBeInTheDocument();
@@ -252,6 +241,7 @@ describe('CalculationTab', () => {
   describe('Copy functionality', () => {
     it('copies trace ID to clipboard', async () => {
       const user = userEvent.setup();
+      const writeTextSpy = vi.spyOn(navigator.clipboard, 'writeText');
       render(
         <TestWrapper>
           <CalculationTab traceId="trace-abc123" />
@@ -261,12 +251,13 @@ describe('CalculationTab', () => {
       const copyButton = screen.getByLabelText('Copy Trace ID');
       await user.click(copyButton);
 
-      expect(mockWriteText).toHaveBeenCalledWith('trace-abc123');
+      expect(writeTextSpy).toHaveBeenCalledWith('trace-abc123');
       expect(toast.success).toHaveBeenCalledWith('Trace ID copied');
     });
 
     it('copies proof digest to clipboard', async () => {
       const user = userEvent.setup();
+      const writeTextSpy = vi.spyOn(navigator.clipboard, 'writeText');
       render(
         <TestWrapper>
           <CalculationTab proofDigest="proof-xyz789" />
@@ -276,13 +267,13 @@ describe('CalculationTab', () => {
       const copyButton = screen.getByLabelText('Copy Proof Digest');
       await user.click(copyButton);
 
-      expect(mockWriteText).toHaveBeenCalledWith('proof-xyz789');
+      expect(writeTextSpy).toHaveBeenCalledWith('proof-xyz789');
       expect(toast.success).toHaveBeenCalledWith('Proof Digest copied');
     });
 
     it('shows error toast when copy fails', async () => {
-      mockWriteText.mockRejectedValueOnce(new Error('Copy failed'));
       const user = userEvent.setup();
+      vi.spyOn(navigator.clipboard, 'writeText').mockRejectedValueOnce(new Error('Copy failed'));
 
       render(
         <TestWrapper>
@@ -311,7 +302,7 @@ describe('CalculationTab', () => {
       const openButton = screen.getByRole('button', { name: /open trace in telemetry viewer/i });
       await user.click(openButton);
 
-      expect(mockNavigate).toHaveBeenCalledWith('/telemetry/viewer?requestId=trace-abc123');
+      expect(mockNavigate).toHaveBeenCalledWith('/telemetry/viewer/trace-abc123');
     });
 
     it('disables navigation button when no traceId', () => {

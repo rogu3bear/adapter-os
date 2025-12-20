@@ -47,10 +47,11 @@ import {
   Building2,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { useTenants } from '@/hooks/admin/useAdmin';
 import { useAuth } from '@/providers/CoreProviders';
 import { logger } from '@/utils/logger';
+import { buildAdminTenantsLink, buildSecurityAuditLink, ROUTE_PATHS } from '@/utils/navLinks';
 import type { Tenant, User, AuditLog, SystemMetrics } from '@/api/types';
 
 interface TenantSummary {
@@ -188,28 +189,28 @@ export default function AdminDashboard() {
       icon: Building2,
       color: 'text-blue-600',
       helpId: 'admin-create-tenant',
-      onClick: () => navigate('/admin/tenants?action=create'),
+      onClick: () => navigate(buildAdminTenantsLink({ action: 'create' })),
     },
     {
       label: 'Manage Tenants',
       icon: Users,
       color: 'text-purple-600',
       helpId: 'admin-manage-tenants',
-      onClick: () => navigate('/admin/tenants'),
+      onClick: () => navigate(buildAdminTenantsLink()),
     },
     {
       label: 'System Settings',
       icon: Settings,
       color: 'text-gray-600',
       helpId: 'admin-system-settings',
-      onClick: () => navigate('/admin/settings'),
+      onClick: () => navigate(ROUTE_PATHS.admin.settings),
     },
     {
       label: 'Security Audit',
       icon: Shield,
       color: 'text-amber-600',
       helpId: 'admin-security-audit',
-      onClick: () => navigate('/security/audit'),
+      onClick: () => navigate(buildSecurityAuditLink()),
     },
   ];
 
@@ -246,7 +247,7 @@ export default function AdminDashboard() {
                 <Building2 className="h-5 w-5" />
                 <span>Organization Summary</span>
               </div>
-              <Button variant="ghost" size="sm" onClick={() => navigate('/admin/tenants')}>
+              <Button variant="ghost" size="sm" onClick={() => navigate(buildAdminTenantsLink())}>
                 View All
               </Button>
             </CardTitle>
@@ -357,7 +358,7 @@ export default function AdminDashboard() {
                   <Button
                     variant="outline"
                     className="w-full"
-                    onClick={() => navigate('/admin/users')}
+                    onClick={() => navigate(ROUTE_PATHS.admin.users)}
                   >
                     <Users className="h-4 w-4 mr-2" />
                     Manage Users
@@ -430,7 +431,7 @@ export default function AdminDashboard() {
                   <Button
                     variant="outline"
                     className="w-full"
-                    onClick={() => navigate('/security/audit')}
+                    onClick={() => navigate(buildSecurityAuditLink())}
                   >
                     <FileText className="h-4 w-4 mr-2" />
                     View Audit Logs

@@ -1161,7 +1161,7 @@ pub async fn share_workspace_resource(
         ResourceType::Adapter => {
             let adapter = state
                 .db
-                .get_adapter(&claims.tenant_id, &req.resource_id)
+                .get_adapter_for_tenant(&claims.tenant_id, &req.resource_id)
                 .await
                 .map_err(|e| {
                     error!("Failed to check adapter existence: {}", e);

@@ -17,7 +17,7 @@ import {
   Database
 } from 'lucide-react';
 import { toast } from 'sonner';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import * as types from '@/api/types';
 
 interface GitFolderPickerProps {

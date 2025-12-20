@@ -314,6 +314,18 @@ fn map_inference_error(id: String, err: crate::types::InferenceError) -> BatchIn
                 ),
             }
         }
+        InferenceError::WorkerDegraded { tenant_id, reason } => BatchInferItemResponse {
+            id,
+            response: None,
+            error: Some(
+                ErrorResponse::new("worker degraded")
+                    .with_code("WORKER_DEGRADED")
+                    .with_string_details(format!(
+                        "Worker degraded for tenant {}: {}",
+                        tenant_id, reason
+                    )),
+            ),
+        },
         InferenceError::AdapterNotFound(msg) => BatchInferItemResponse {
             id,
             response: None,
@@ -321,6 +333,42 @@ fn map_inference_error(id: String, err: crate::types::InferenceError) -> BatchIn
                 ErrorResponse::new("adapter not found")
                     .with_code("NOT_FOUND")
                     .with_string_details(msg),
+            ),
+        },
+        InferenceError::CacheBudgetExceeded {
+            needed_mb,
+            freed_mb,
+            pinned_count,
+            active_count,
+            max_mb,
+            model_key,
+        } => BatchInferItemResponse {
+            id,
+            response: None,
+            error: Some(
+                ErrorResponse::new("model cache budget exceeded")
+                    .with_code("CACHE_BUDGET_EXCEEDED")
+                    .with_details(serde_json::json!({
+                        "needed_mb": needed_mb,
+                        "freed_mb": freed_mb,
+                        "pinned_count": pinned_count,
+                        "active_count": active_count,
+                        "max_mb": max_mb,
+                        "model_key": model_key,
+                        "hint": "Consider increasing AOS_MODEL_CACHE_MAX_MB or reducing pinned models"
+                    })),
+            ),
+        },
+        InferenceError::WorkerIdUnavailable { tenant_id, reason } => BatchInferItemResponse {
+            id,
+            response: None,
+            error: Some(
+                ErrorResponse::new("worker ID unavailable")
+                    .with_code("SERVICE_UNAVAILABLE")
+                    .with_string_details(format!(
+                        "Worker ID unavailable for tenant {}: {}",
+                        tenant_id, reason
+                    )),
             ),
         },
     }
@@ -755,10 +803,19 @@ async fn process_batch_job(
                             crate::types::InferenceError::NoCompatibleWorker { .. } => {
                                 "NO_COMPATIBLE_WORKER"
                             }
+                            crate::types::InferenceError::WorkerDegraded { .. } => {
+                                "WORKER_DEGRADED"
+                            }
                             crate::types::InferenceError::ModelNotReady(_) => "MODEL_NOT_READY",
                             crate::types::InferenceError::RagError(_) => "INTERNAL_ERROR",
                             crate::types::InferenceError::WorkerError(_) => "INTERNAL_ERROR",
                             crate::types::InferenceError::AdapterNotFound(_) => "NOT_FOUND",
+                            crate::types::InferenceError::WorkerIdUnavailable { .. } => {
+                                "SERVICE_UNAVAILABLE"
+                            }
+                            crate::types::InferenceError::CacheBudgetExceeded { .. } => {
+                                "CACHE_BUDGET_EXCEEDED"
+                            }
                         };
 
                         let _ = state

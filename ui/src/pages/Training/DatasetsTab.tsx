@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { buildDatasetDetailLink, buildTrainingJobsLink } from '@/utils/navLinks';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -50,13 +51,13 @@ import {
   AlertCircle,
   Play,
 } from 'lucide-react';
-import type { Dataset, DatasetSourceType, DatasetValidationStatus, TrustState } from '@/api/training-types';
-import { formatTimestamp, formatNumber, formatBytes } from '@/utils/format';
+import type { Dataset, DatasetSourceType, DatasetValidationStatus, ValidationStatus, TrustState } from '@/api/training-types';
+import { formatTimestamp, formatNumber, formatBytes } from '@/lib/formatters';
 import { TrustBadge as TrustPill } from '@/components/shared/TrustHealthBadge';
 import { LoadingState } from '@/components/ui/loading-state';
 import { EmptyState } from '@/components/ui/empty-state';
 
-const STATUS_CONFIG: Record<DatasetValidationStatus, {
+const STATUS_CONFIG: Record<ValidationStatus, {
   icon: React.ElementType;
   className: string;
   label: string;
@@ -81,14 +82,19 @@ const STATUS_CONFIG: Record<DatasetValidationStatus, {
     className: 'text-red-500',
     label: formatValidationStatus('invalid'),
   },
-  failed: {
-    icon: AlertCircle,
-    className: 'text-red-500',
-    label: 'Failed',
+  pending: {
+    icon: Clock,
+    className: 'text-yellow-500',
+    label: formatValidationStatus('pending'),
+  },
+  skipped: {
+    icon: RefreshCw,
+    className: 'text-gray-500',
+    label: formatValidationStatus('skipped'),
   },
 };
 
-function StatusBadge({ status }: { status: DatasetValidationStatus }) {
+function StatusBadge({ status }: { status: ValidationStatus }) {
   const config = STATUS_CONFIG[status] || STATUS_CONFIG.draft;
   const Icon = config.icon;
 
@@ -201,7 +207,7 @@ const DatasetTableRow = ({
             Use in training job
           </Button>
         )}
-        {(dataset.validation_status === 'draft' || dataset.validation_status === 'invalid') && canValidate && (
+        {((dataset.validation_status as string) === 'draft' || dataset.validation_status === 'invalid') && canValidate && (
           <Button
             size="sm"
             variant="outline"
@@ -668,9 +674,9 @@ export function DatasetsTab() {
         canStartTraining={can('training:start')}
         canValidate={can('dataset:validate')}
         canDelete={can('dataset:delete')}
-        onView={(id) => navigate(`/training/datasets/${id}`)}
+        onView={(id) => navigate(buildDatasetDetailLink(id))}
         onStartTraining={(id) => {
-          navigate(`/training/jobs?datasetId=${encodeURIComponent(id)}`);
+          navigate(buildTrainingJobsLink({ datasetId: id }));
         }}
         onValidate={handleValidateDataset}
         onDelete={(id) => setDeleteDatasetId(id)}

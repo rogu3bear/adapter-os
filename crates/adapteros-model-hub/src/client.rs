@@ -160,10 +160,10 @@ impl ModelHubClient {
                 crate::download::DownloadResult::Complete { path, hash } => {
                     // Read the downloaded file
                     let data = std::fs::read(&path).map_err(|e| {
-                        crate::ModelHubError::Io(std::io::Error::new(
-                            std::io::ErrorKind::Other,
-                            format!("Failed to read downloaded file: {}", e),
-                        ))
+                        crate::ModelHubError::Io(std::io::Error::other(format!(
+                            "Failed to read downloaded file: {}",
+                            e
+                        )))
                     })?;
 
                     // Determine file extension
@@ -199,10 +199,10 @@ impl ModelHubClient {
 
                     // Read and store the resumed file
                     let data = std::fs::read(&path).map_err(|e| {
-                        crate::ModelHubError::Io(std::io::Error::new(
-                            std::io::ErrorKind::Other,
-                            format!("Failed to read resumed file: {}", e),
-                        ))
+                        crate::ModelHubError::Io(std::io::Error::other(format!(
+                            "Failed to read resumed file: {}",
+                            e
+                        )))
                     })?;
 
                     let hash = B3Hash::hash(&data);

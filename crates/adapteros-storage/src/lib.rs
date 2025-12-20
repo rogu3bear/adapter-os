@@ -30,12 +30,14 @@ pub use index::{IndexDef, IndexManager as IndexMgr, KeyExtractor};
 pub use kv::{IndexManager as KvIndexManager, KvBackend};
 pub use migration::{MigrationError, MigrationReport, VerificationReport};
 pub use models::{
-    AdapterKv, RagDocumentKv, ReplayExecutionKv, ReplayMetadataKv, ReplaySessionKv,
-    TelemetryBundleKv, TelemetryEventKv, DEFAULT_BUNDLE_CHUNK_SIZE,
+    AdapterKv, DatasetStatisticsKv, DatasetVersionKv, RagDocumentKv, ReplayExecutionKv,
+    ReplayMetadataKv, ReplaySessionKv, TelemetryBundleKv, TelemetryEventKv, TrainingDatasetKv,
+    DEFAULT_BUNDLE_CHUNK_SIZE,
 };
 pub use object_store::{FsObjectStore, ObjectStore, StoredObject};
 pub use repos::{
-    AdapterRepository, PaginatedResult, RagRepository, ReplayRepository, TelemetryRepository,
+    AdapterRepository, DatasetRepository, PaginatedResult, RagRepository, ReplayRepository,
+    TelemetryRepository,
 };
 pub use types::{KeyBuilder, VersionedRecord, CURRENT_SCHEMA_VERSION};
 

@@ -75,25 +75,36 @@ impl DeadlockDetector {
     }
 
     async fn check_for_deadlocks(&self) -> Result<()> {
-        let locks = self.locks.lock().await;
-        let thread_locks = self.thread_locks.lock().await;
+        // Collect lock info in first scope
+        let lock_infos: Vec<_> = {
+            let locks = self.locks.lock().await;
+            locks.values().cloned().collect()
+        };
+        // First lock released
+
+        // Collect thread info in second scope
+        let thread_info: HashMap<_, _> = {
+            let thread_locks = self.thread_locks.lock().await;
+            thread_locks.clone()
+        };
+        // Second lock released
 
         let now = Instant::now();
 
-        // Check for locks held too long
-        for (lock_id, lock_info) in locks.iter() {
+        // Now process without holding any locks
+        for lock_info in lock_infos {
             if now.duration_since(lock_info.acquired_at) > self.config.max_wait_time {
                 warn!(
                     "Lock {} held for {} seconds by thread {}",
-                    lock_id,
+                    lock_info.lock_id,
                     now.duration_since(lock_info.acquired_at).as_secs(),
                     lock_info.thread_id
                 );
 
                 // Check if this might be a deadlock
-                if self.is_potential_deadlock(lock_info, &thread_locks) {
-                    error!("Potential deadlock detected on lock {}", lock_id);
-                    self.trigger_deadlock_recovery(lock_id).await?;
+                if self.is_potential_deadlock(&lock_info, &thread_info) {
+                    error!("Potential deadlock detected on lock {}", lock_info.lock_id);
+                    self.trigger_deadlock_recovery(&lock_info.lock_id).await?;
                 }
             }
         }

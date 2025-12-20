@@ -6,7 +6,7 @@ import { Calendar } from "./calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "./popover";
 import { Button } from "./button";
 import { Label } from "./label";
-import { cn } from "./utils";
+import { cn } from "@/lib/utils";
 
 export interface DateRange {
   from: Date;

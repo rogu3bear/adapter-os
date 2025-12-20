@@ -22,7 +22,7 @@ use serde_json::json;
 use std::path::PathBuf;
 use std::time::Duration;
 use std::{fs, io};
-use tracing::{info, warn};
+use tracing::info;
 
 /// Storage management subcommands
 #[derive(Debug, Subcommand, Clone)]
@@ -363,6 +363,7 @@ struct VerifyReport {
 }
 
 #[derive(Serialize)]
+#[allow(dead_code)] // Reserved for future verification reporting
 struct VerificationReport {
     adapters_checked: usize,
     adapters_matched: usize,
@@ -562,7 +563,7 @@ async fn show_mode(db_path: Option<PathBuf>, output: &OutputWriter) -> Result<()
         StorageMode::KvOnly => "KV backend only (full migration complete)",
     };
     output.info("");
-    output.info(&format!("Description: {}", description));
+    output.info(format!("Description: {}", description));
 
     // Warn if in KV mode without KV backend
     if (mode == StorageMode::DualWrite
@@ -621,24 +622,20 @@ async fn set_mode(
 
     if needs_kv && !db.has_kv_backend() {
         if init_kv {
-            output.info(&format!(
-                "Initializing KV backend at: {}",
-                kv_path.display()
-            ));
+            output.info(format!("Initializing KV backend at: {}", kv_path.display()));
             db.init_kv_backend(&kv_path)
                 .context("Failed to initialize KV backend")?;
             output.success("KV backend initialized");
         } else {
-            output.error(&format!(
+            output.error(format!(
                 "Storage mode '{}' requires KV backend but none is attached",
                 mode
             ));
             output.info("Use --init-kv flag to initialize KV backend, or run:");
-            output.info(&format!("  aosctl storage set-mode {} --init-kv", mode_str));
+            output.info(format!("  aosctl storage set-mode {} --init-kv", mode_str));
             return Err(adapteros_core::AosError::Config(
                 "KV backend required but not attached".to_string(),
-            )
-            .into());
+            ));
         }
     }
 
@@ -646,7 +643,7 @@ async fn set_mode(
     db.set_storage_mode(mode)
         .context("Failed to set storage mode")?;
 
-    output.success(&format!("Storage mode changed: {} -> {}", old_mode, mode));
+    output.success(format!("Storage mode changed: {} -> {}", old_mode, mode));
 
     // Record audit trail for the transition (best-effort)
     let kv_snapshot = global_kv_metrics().snapshot();
@@ -716,10 +713,7 @@ async fn migrate_data(
         if dry_run {
             output.info("[DRY RUN] Would initialize KV backend");
         } else {
-            output.info(&format!(
-                "Initializing KV backend at: {}",
-                kv_path.display()
-            ));
+            output.info(format!("Initializing KV backend at: {}", kv_path.display()));
             db.init_kv_backend(&kv_path)
                 .context("Failed to initialize KV backend")?;
             output.success("KV backend initialized");
@@ -731,7 +725,7 @@ async fn migrate_data(
     }
 
     let domains = parse_domains(domains.as_deref())?;
-    output.info(&format!(
+    output.info(format!(
         "Domains: {}",
         domains
             .iter()
@@ -740,7 +734,7 @@ async fn migrate_data(
             .join(",")
     ));
     if let Some(tid) = &tenant {
-        output.info(&format!("Tenant filter: {}", tid));
+        output.info(format!("Tenant filter: {}", tid));
     }
 
     let mut options = MigrationOptions {
@@ -752,7 +746,7 @@ async fn migrate_data(
 
     if resume {
         if let Some(cp) = load_checkpoint(&checkpoint_path)? {
-            output.info(&format!(
+            output.info(format!(
                 "Loaded checkpoint from {}",
                 checkpoint_path.display()
             ));
@@ -770,10 +764,7 @@ async fn migrate_data(
     // Write checkpoint only when not in dry-run
     if !dry_run {
         save_checkpoint(&checkpoint_path, &checkpoint)?;
-        output.info(&format!(
-            "Checkpoint saved to {}",
-            checkpoint_path.display()
-        ));
+        output.info(format!("Checkpoint saved to {}", checkpoint_path.display()));
     } else {
         output.info("Dry-run: checkpoint not written");
     }
@@ -784,7 +775,7 @@ async fn migrate_data(
         // Release KV handles before verification to avoid redb locking conflicts.
         db.detach_kv_backend();
         // Reuse existing verifier for supported domains
-        let _ = verify_consistency(
+        verify_consistency(
             db_path.clone(),
             kv_path.clone(),
             false,
@@ -825,15 +816,15 @@ async fn migrate_data(
         output.json(&report)?;
     } else {
         if let Some(reason) = degraded {
-            output.warning(&format!("Degraded: {}", reason));
+            output.warning(format!("Degraded: {}", reason));
         }
-        output.info(&format!(
+        output.info(format!(
             "KV fallback ops: {} (drift detections: {}, degraded events: {})",
             kv_snapshot.fallback_operations_total,
             kv_snapshot.drift_detections_total,
             kv_snapshot.degraded_events_total
         ));
-        output.info(&format!(
+        output.info(format!(
             "Dual-write lag ms (avg/p95/max, samples={}): {:.1}/{:.1}/{}",
             kv_snapshot.dual_write_lag_samples,
             kv_snapshot.dual_write_lag_avg_ms,
@@ -841,7 +832,7 @@ async fn migrate_data(
             kv_snapshot.dual_write_lag_max_ms
         ));
         for (domain, stats) in &results {
-            output.info(&format!(
+            output.info(format!(
                 "[{}] migrated={}, skipped={}, failed={}, total={}",
                 domain.label(),
                 stats.migrated,
@@ -850,7 +841,7 @@ async fn migrate_data(
                 stats.total
             ));
             if !stats.errors.is_empty() {
-                output.warning(&format!(
+                output.warning(format!(
                     "[{}] errors: {}",
                     domain.label(),
                     stats.errors.join("; ")
@@ -901,7 +892,7 @@ async fn verify_consistency(
 
     // Ensure KV backend is attached
     if !db.has_kv_backend() {
-        output.info(&format!("Attaching KV backend from: {}", kv_path.display()));
+        output.info(format!("Attaching KV backend from: {}", kv_path.display()));
         db.init_kv_backend(&kv_path)
             .context("Failed to attach KV backend")?;
     }
@@ -919,7 +910,7 @@ async fn verify_consistency(
             .await
             .context("Repair migration failed")?;
         for (domain, stats) in &results {
-            output.info(&format!(
+            output.info(format!(
                 "[repair:{}] migrated={}, failed={}, skipped={}",
                 domain.label(),
                 stats.migrated,
@@ -930,7 +921,7 @@ async fn verify_consistency(
     }
 
     let mode = db.storage_mode();
-    output.info(&format!("Current mode: {}", mode));
+    output.info(format!("Current mode: {}", mode));
     output.info("");
 
     let mut issues = Vec::new();
@@ -991,7 +982,7 @@ async fn verify_consistency(
         };
         output.json(&report)?;
     } else {
-        output.info(&format!(
+        output.info(format!(
             "Dual-write lag ms (avg/p95/max, samples={}): {:.1}/{:.1}/{}",
             kv_snapshot.dual_write_lag_samples,
             kv_snapshot.dual_write_lag_avg_ms,
@@ -1003,7 +994,7 @@ async fn verify_consistency(
         } else {
             output.info("Discrepancies detected:");
             for issue in &issues {
-                output.info(&format!(
+                output.info(format!(
                     "- [{domain}] {id} :: {field} sql={sql} kv={kv}",
                     domain = issue.domain,
                     id = issue.id,
@@ -1044,7 +1035,7 @@ async fn validate_consistency(
         .context("Failed to connect to database")?;
 
     if !db.has_kv_backend() {
-        output.info(&format!(
+        output.info(format!(
             "KV backend not attached; initializing at {}",
             kv_path.display()
         ));
@@ -1123,7 +1114,7 @@ async fn validate_consistency(
         );
         if let Some(reports) = &backfill_reports {
             for r in reports {
-                output.info(&format!(
+                output.info(format!(
                     "[backfill:{}] migrated={}, failed={}, skipped={}, errors={}",
                     r.domain,
                     r.migrated,
@@ -1154,7 +1145,7 @@ async fn kv_status(
         .context("Failed to connect to database")?;
 
     if !db.has_kv_backend() {
-        output.info(&format!(
+        output.info(format!(
             "KV backend not attached; initializing at {}",
             kv_path.display()
         ));
@@ -1199,10 +1190,10 @@ async fn kv_status(
             if safe_to_cutover { "yes" } else { "no" },
         );
         for line in &evidence {
-            output.info(&format!("evidence: {}", line));
+            output.info(format!("evidence: {}", line));
         }
         if let Some(cs) = tenant_checksum {
-            output.info(&format!(
+            output.info(format!(
                 "Tenant checksum ({}): adapters {} vs {}, stacks {} vs {}, plans {} vs {}, consistent={}",
                 cs.tenant_id,
                 cs.adapters_sql,
@@ -1244,8 +1235,7 @@ async fn kv_cutover(
     if !(target_mode == StorageMode::KvPrimary || target_mode == StorageMode::KvOnly) {
         return Err(adapteros_core::AosError::Config(
             "Cutover accepts kv_primary or kv_only".to_string(),
-        )
-        .into());
+        ));
     }
 
     let kv_snapshot = global_kv_metrics().snapshot();
@@ -1253,8 +1243,7 @@ async fn kv_cutover(
     if !safe_to_cutover {
         return Err(adapteros_core::AosError::Config(
             "Cutover checklist failed: drift/fallback/lag budget not satisfied".to_string(),
-        )
-        .into());
+        ));
     }
 
     let from_mode = db.storage_mode();
@@ -1262,7 +1251,7 @@ async fn kv_cutover(
         .context("Failed to set storage mode")?;
     log_cutover_audit(&db, from_mode, target_mode, safe_to_cutover, &evidence).await?;
 
-    output.success(&format!(
+    output.success(format!(
         "Cutover complete: {} -> {}",
         from_mode, target_mode
     ));
@@ -1302,7 +1291,7 @@ async fn kv_rollback(
     )
     .await?;
 
-    output.success(&format!(
+    output.success(format!(
         "Rollback complete: {} -> {}",
         from_mode,
         StorageMode::DualWrite
@@ -1394,8 +1383,7 @@ fn parse_domains(domains: Option<&str>) -> Result<Vec<MigrationDomain>> {
                     return Err(adapteros_core::AosError::Config(format!(
                         "Unknown domain '{}'. Valid: adapters, tenants, stacks, plans, auth_sessions, runtime_sessions, rag_artifacts, policy_audit, training_jobs, chat_sessions",
                         other,
-                    ))
-                    .into())
+                    )))
                 }
             };
             parsed.push(dom);
@@ -1429,9 +1417,10 @@ fn load_checkpoint(path: &PathBuf) -> Result<Option<MigrationCheckpoint>> {
             Ok(Some(cp))
         }
         Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
-        Err(e) => {
-            Err(adapteros_core::AosError::Io(format!("Failed to read checkpoint: {}", e)).into())
-        }
+        Err(e) => Err(adapteros_core::AosError::Io(format!(
+            "Failed to read checkpoint: {}",
+            e
+        ))),
     }
 }
 
@@ -1440,8 +1429,8 @@ fn save_checkpoint(path: &PathBuf, checkpoint: &MigrationCheckpoint) -> Result<(
         fs::create_dir_all(parent)
             .map_err(|e| adapteros_core::AosError::Io(format!("Failed to create dir: {}", e)))?;
     }
-    let bytes = serde_json::to_vec_pretty(checkpoint)
-        .map_err(|e| adapteros_core::AosError::Serialization(e))?;
+    let bytes =
+        serde_json::to_vec_pretty(checkpoint).map_err(adapteros_core::AosError::Serialization)?;
     fs::write(path, bytes)
         .map_err(|e| adapteros_core::AosError::Io(format!("Failed to write checkpoint: {}", e)))?;
     Ok(())
@@ -1515,7 +1504,7 @@ async fn kv_isolation_scan_api(
     }?;
 
     if !resp.status().is_success() {
-        output.error(&format!("KV isolation scan failed: HTTP {}", resp.status()));
+        output.error(format!("KV isolation scan failed: HTTP {}", resp.status()));
         return Ok(());
     }
 
@@ -1543,7 +1532,7 @@ async fn kv_isolation_scan_api(
     } else {
         output.info("Findings:");
         for finding in &report.findings {
-            output.info(&format!(
+            output.info(format!(
                 "- [{tenant}] {domain} {key} :: {issue:?}",
                 tenant = finding.tenant_id,
                 domain = finding.domain,
@@ -1557,7 +1546,7 @@ async fn kv_isolation_scan_api(
         output.info("");
         output.info("Per-tenant summary:");
         for summary in &report.tenant_summaries {
-            output.info(&format!(
+            output.info(format!(
                 "- {tenant}: findings={findings} scanned={scanned}",
                 tenant = summary.tenant_id,
                 findings = summary.findings,
@@ -1607,7 +1596,7 @@ async fn kv_isolation_health_api(
     }?;
 
     if !resp.status().is_success() {
-        output.error(&format!(
+        output.error(format!(
             "KV isolation health failed: HTTP {}",
             resp.status()
         ));
@@ -1634,7 +1623,7 @@ async fn kv_isolation_health_api(
     }
 
     if let Some(err) = payload.last_error.as_deref() {
-        output.error(&format!("Last error: {err}"));
+        output.error(format!("Last error: {err}"));
     }
 
     if let Some(report) = payload.last_report {

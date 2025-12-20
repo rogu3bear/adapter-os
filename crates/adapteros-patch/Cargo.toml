@@ -1,6 +1,6 @@
 [package]
 name = "adapteros-patch"
-version = "0.1.0"
+version.workspace = true
 edition = "2021"
 description = "Deterministic, policy-compliant code patching with cryptographic verification"
 

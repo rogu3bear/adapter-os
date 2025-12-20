@@ -108,7 +108,7 @@ async fn seed_dataset_version(
             Some("desc"),
             "jsonl",
             hash_b3,
-            "/tmp/test-dataset",
+            "var/test-dataset",
             Some("tester"),
         )
         .await
@@ -121,7 +121,7 @@ async fn seed_dataset_version(
             dataset_id,
             Some(tenant_id),
             Some("v1"),
-            "/tmp/test-dataset/version",
+            "var/test-dataset/version",
             hash_b3,
             None,
             None,

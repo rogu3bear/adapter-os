@@ -5,8 +5,8 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { AlertTriangle, CheckCircle2, XCircle, HardDrive, Cpu, Activity } from 'lucide-react';
-import apiClient from '@/api/client';
-import { formatBytes } from '@/utils/format';
+import { apiClient } from '@/api/services';
+import { formatBytes } from '@/lib/formatters';
 
 interface CapacityResponse {
   total_ram_bytes: number;

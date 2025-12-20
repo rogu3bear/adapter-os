@@ -43,6 +43,7 @@ pub mod init_tenant;
 pub mod list_adapters;
 pub mod maintenance;
 pub mod manual;
+pub mod models;
 pub mod stack;
 pub mod status;
 // pub mod metrics;  // Temporarily disabled - depends on adapteros-system-metrics

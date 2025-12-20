@@ -16,7 +16,7 @@ import { Notification } from '@/api/types';
 import { useRelativeTime } from '@/hooks/ui/useTimestamp';
 import { useNavigate } from 'react-router-dom';
 import { logger } from '@/utils/logger';
-import { formatTimestamp } from '@/utils/format';
+import { formatTimestamp } from '@/lib/formatters';
 
 interface NotificationItemProps {
   notification: Notification;

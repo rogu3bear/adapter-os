@@ -39,6 +39,9 @@ pub struct WorkerRegistrationRequest {
     /// Backend capabilities (e.g., ["coreml", "mlx"])
     #[serde(default)]
     pub capabilities: Vec<String>,
+    /// Whether worker is running in strict mode (fail-closed on errors)
+    #[serde(default)]
+    pub strict_mode: bool,
 }
 
 /// Worker registration response
@@ -62,6 +65,10 @@ pub struct WorkerRegistrationResponse {
     /// KV residency policy ID
     #[serde(skip_serializing_if = "Option::is_none")]
     pub kv_residency_policy_id: Option<String>,
+    /// Whether control plane is running in strict mode (fail-closed on errors)
+    /// Workers should use this to detect strict mode mismatch.
+    #[serde(default)]
+    pub cp_strict_mode: bool,
 }
 
 /// Manifest fetch response for workers
@@ -88,6 +95,18 @@ pub struct WorkerStatusNotification {
     pub status: String,
     /// Reason for the status change
     pub reason: String,
+    /// Current cache memory usage in MB
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_used_mb: Option<u32>,
+    /// Maximum cache memory budget in MB
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_max_mb: Option<u32>,
+    /// Number of pinned cache entries (cannot be evicted)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_pinned_entries: Option<u32>,
+    /// Number of active cache entries (in-use, cannot be evicted)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_active_entries: Option<u32>,
 }
 
 /// Spawn worker request
@@ -130,6 +149,18 @@ pub struct WorkerResponse {
     /// Whether the worker is in a state that implies the base model is loaded
     #[serde(default)]
     pub model_loaded: bool,
+    /// Current cache memory usage in MB
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_used_mb: Option<u32>,
+    /// Maximum cache memory budget in MB
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_max_mb: Option<u32>,
+    /// Number of pinned cache entries (cannot be evicted)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_pinned_entries: Option<u32>,
+    /// Number of active cache entries (in-use, cannot be evicted)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_active_entries: Option<u32>,
 }
 
 /// Worker status update
@@ -159,6 +190,18 @@ pub struct WorkerHeartbeatRequest {
     pub adapters_loaded: Option<u32>,
     /// ISO-8601 timestamp provided by worker
     pub timestamp: String,
+    /// Current cache memory usage in MB
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_used_mb: Option<u32>,
+    /// Maximum cache memory budget in MB
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_max_mb: Option<u32>,
+    /// Number of pinned cache entries (cannot be evicted)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_pinned_entries: Option<u32>,
+    /// Number of active cache entries (in-use, cannot be evicted)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_active_entries: Option<u32>,
 }
 
 /// Worker heartbeat response

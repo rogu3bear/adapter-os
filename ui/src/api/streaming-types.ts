@@ -14,7 +14,7 @@
  * - /v1/stream/adapters - Adapter lifecycle state transitions
  */
 
-import { Citation } from './api-types';
+import type { Citation, InferResponse } from './api-types';
 
 // ============================================================================
 // Training Stream Events
@@ -528,6 +528,12 @@ export interface StreamingInferRequest {
   /** Collection ID for RAG-enhanced inference */
   collection_id?: string;
 
+  /** Require evidence in the response payload (when supported by backend) */
+  require_evidence?: boolean;
+
+  /** Chat session ID for multi-turn prompt building */
+  session_id?: string;
+
   /** Random seed for reproducible generation */
   seed?: number;
 }
@@ -842,7 +848,7 @@ export type InferenceEvent =
   | { event: 'Loading'; phase: LoadPhase; progress: number; eta_seconds?: number }
   | { event: 'Ready'; warmup_latency_ms: number }
   | { event: 'Token'; text: string; token_id?: number }
-  | { event: 'Done'; total_tokens: number; latency_ms: number; unavailable_pinned_adapters?: string[]; pinned_routing_fallback?: string; citations?: Citation[] }
+  | { event: 'Done'; total_tokens: number; latency_ms: number; unavailable_pinned_adapters?: string[]; pinned_routing_fallback?: InferResponse['pinned_routing_fallback']; citations?: Citation[] }
   | { event: 'Error'; message: string; recoverable: boolean };
 
 /**

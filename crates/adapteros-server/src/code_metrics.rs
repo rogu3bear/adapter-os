@@ -546,12 +546,19 @@ impl PromotionDecision {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
+    use tempfile::TempDir;
+
+    fn new_test_tempdir() -> TempDir {
+        let root = PathBuf::from("var").join("tmp");
+        std::fs::create_dir_all(&root).expect("create var/tmp");
+        TempDir::new_in(&root).expect("create temp dir")
+    }
 
     #[test]
     fn test_compute_build_success_rate() {
-        use std::env;
-        let temp_dir = env::temp_dir().join("aos_test_cdp_store");
-        let metrics = CodeMetrics::new(temp_dir);
+        let temp_dir = new_test_tempdir();
+        let metrics = CodeMetrics::new(temp_dir.path().to_path_buf());
         let rate = metrics.compute_build_success_rate(&["cp1".to_string()])
             .expect("Test build success rate computation should succeed");
         assert!(rate >= 0.0 && rate <= 1.0);
@@ -559,9 +566,8 @@ mod tests {
 
     #[test]
     fn test_compute_test_pass_rate() {
-        use std::env;
-        let temp_dir = env::temp_dir().join("aos_test_cdp_store");
-        let metrics = CodeMetrics::new(temp_dir);
+        let temp_dir = new_test_tempdir();
+        let metrics = CodeMetrics::new(temp_dir.path().to_path_buf());
         let rate = metrics.compute_test_pass_rate(&["cp1".to_string()])
             .expect("Test pass rate computation should succeed");
         assert!(rate >= 0.0 && rate <= 1.0);
@@ -569,18 +575,16 @@ mod tests {
 
     #[test]
     fn test_compute_lint_error_delta() {
-        use std::env;
-        let temp_dir = env::temp_dir().join("aos_test_cdp_store");
-        let metrics = CodeMetrics::new(temp_dir);
+        let temp_dir = new_test_tempdir();
+        let metrics = CodeMetrics::new(temp_dir.path().to_path_buf());
         // This will fail to load CDPs, so we're just testing it doesn't crash
         let _ = metrics.compute_lint_error_delta("cp1", "cp2");
     }
 
     #[test]
     fn test_metrics_cache() {
-        use std::env;
-        let temp_dir = env::temp_dir().join("aos_test_cdp_store");
-        let mut metrics = CodeMetrics::new(temp_dir);
+        let temp_dir = new_test_tempdir();
+        let mut metrics = CodeMetrics::new(temp_dir.path().to_path_buf());
         metrics.cache_metric("test_metric".to_string(), 0.95);
         
         let cached = metrics.get_cached_metric("test_metric")
@@ -624,9 +628,8 @@ mod tests {
 
     #[test]
     fn test_promotion_gate_approved() {
-        use std::env;
-        let temp_dir = env::temp_dir().join("aos_test_cdp_store");
-        let gate = CodePromotionGate::new(temp_dir);
+        let temp_dir = new_test_tempdir();
+        let gate = CodePromotionGate::new(temp_dir.path().to_path_buf());
         let decision = gate.check("test_cpid")
             .expect("Test promotion gate check should succeed");
         assert!(decision.is_approved());
@@ -634,13 +637,12 @@ mod tests {
 
     #[test]
     fn test_promotion_gate_rejected() {
-        use std::env;
-        let temp_dir = env::temp_dir().join("aos_test_cdp_store");
+        let temp_dir = new_test_tempdir();
         let thresholds = MetricsThresholds {
             min_build_success: 0.99, // Very high threshold
             ..Default::default()
         };
-        let gate = CodePromotionGate::with_thresholds(temp_dir, thresholds);
+        let gate = CodePromotionGate::with_thresholds(temp_dir.path().to_path_buf(), thresholds);
         let decision = gate.check("test_cpid")
             .expect("Test promotion gate check should succeed");
         

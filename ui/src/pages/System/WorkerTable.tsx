@@ -10,7 +10,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { MoreHorizontal, FileText, Bug, StopCircle, AlertTriangle } from 'lucide-react';
+import { MoreHorizontal, FileText, Bug, StopCircle, AlertTriangle, AlertCircle } from 'lucide-react';
+import { getWorkerCacheHealth } from '@/hooks/workers/useWorkerCacheHealth';
 import { useWorkerOperations } from '@/hooks/system/useSystemMetrics';
 import { useToast } from '@/hooks/use-toast';
 
@@ -179,6 +180,43 @@ export default function WorkerTable({
         cell: ({ row }) => {
           const cpu = row.cpu_percent;
           return cpu ? `${cpu.toFixed(1)}%` : '--';
+        },
+      },
+      {
+        id: 'cache',
+        header: 'Cache',
+        cell: ({ row }) => {
+          const health = getWorkerCacheHealth(row);
+          if (!health) {
+            return <span className="text-muted-foreground text-sm">--</span>;
+          }
+
+          const { utilization_pct, status, cache_used_mb, cache_max_mb } = health;
+
+          // Color coding based on status
+          const progressColor =
+            status === 'critical' ? 'bg-destructive' :
+            status === 'warning' ? 'bg-amber-500' :
+            'bg-emerald-500';
+
+          const Icon = status === 'critical' ? AlertTriangle :
+                       status === 'warning' ? AlertCircle :
+                       null;
+
+          return (
+            <div className="flex items-center gap-2 min-w-[120px]">
+              <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
+                <div
+                  className={`h-full transition-all ${progressColor}`}
+                  style={{ width: `${utilization_pct}%` }}
+                />
+              </div>
+              {Icon && <Icon className="h-4 w-4 text-amber-500 flex-shrink-0" />}
+              <span className="text-xs text-muted-foreground whitespace-nowrap">
+                {cache_used_mb}/{cache_max_mb}
+              </span>
+            </div>
+          );
         },
       },
       {

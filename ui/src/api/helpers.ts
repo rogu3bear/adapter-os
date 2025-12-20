@@ -157,14 +157,14 @@ async function throwOnError(
   try {
     const error: ErrorResponse = await response.json();
     errorMessage = error.error || errorMessage;
-    failureCode = error.failure_code;
+    failureCode = error.failure_code ?? undefined;
     errorCode = failureCode ?? error.code;
-    // ErrorResponse.details is a string, convert to object for ApiError
+    // ErrorResponse.details is unknown, convert to object for ApiError
     if (error.details) {
       errorDetails =
         typeof error.details === 'string'
           ? { message: error.details }
-          : error.details;
+          : (error.details as Record<string, unknown>);
     }
   } catch {
     // If JSON parsing fails, use status text

@@ -3,7 +3,9 @@
 // Script to register test nodes for development/testing
 const axios = require('axios');
 
-const API_BASE = 'http://localhost:8080';
+// Port configuration - respects environment variables for multi-developer setups
+const BACKEND_PORT = process.env.AOS_SERVER_PORT || '8080';
+const API_BASE = `http://localhost:${BACKEND_PORT}`;
 
 async function registerNode(hostname, metalFamily, memoryGb, agentEndpoint) {
   try {

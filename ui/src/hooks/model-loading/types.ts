@@ -11,6 +11,9 @@
  * Copyright JKCA | 2025 James KC Auchterlonie
  */
 
+import type { BaseModelStatus } from '@/api/api-types';
+import type { AdapterStateTransitionEvent } from '@/api/streaming-types';
+
 // ============================================================================
 // Core Types
 // ============================================================================
@@ -19,24 +22,13 @@
  * Adapter lifecycle state
  * Matches backend lifecycle states from adapteros-lora-lifecycle
  */
-export type AdapterLifecycleState = 'unloaded' | 'cold' | 'warm' | 'hot' | 'resident';
+export type AdapterLifecycleState = AdapterStateTransitionEvent['current_state'];
 
 /**
  * Base model loading status
  * Matches useModelStatus states
  */
-export type ModelStatusState =
-  | 'no-model'      // No model configured/imported
-  | 'loading'       // Model is loading into memory
-  | 'ready'         // Model is loaded and ready
-  | 'unloading'     // Model is being unloaded
-  | 'error'         // Model failed to load
-  | 'checking';     // Initial status check in progress
-
-/**
- * Loading operation state
- */
-export type LoadingState = 'idle' | 'loading' | 'loaded' | 'error';
+export type ModelStatusState = BaseModelStatus['status'];
 
 // ============================================================================
 // Error Types
@@ -107,39 +99,6 @@ export interface AdapterLoadingItem {
 
   /** Whether this adapter is ready for inference */
   isReady: boolean;
-}
-
-/**
- * Full adapter state information
- * Extends AdapterLoadingItem with additional metadata
- */
-export interface AdapterStateInfo extends AdapterLoadingItem {
-  /** Tenant ID owning this adapter */
-  tenantId?: string;
-
-  /** Tier classification */
-  tier?: 'ephemeral' | 'warm' | 'persistent';
-
-  /** LoRA rank parameter */
-  rank?: number;
-
-  /** LoRA alpha parameter */
-  alpha?: number;
-
-  /** Adapter version */
-  version?: string;
-
-  /** Tags for categorization */
-  tags?: string[];
-
-  /** Whether adapter is pinned in memory */
-  isPinned?: boolean;
-
-  /** Activation percentage in recent inferences */
-  activationPercentage?: number;
-
-  /** Base model ID this adapter is built for */
-  baseModelId?: string;
 }
 
 // ============================================================================
@@ -260,133 +219,6 @@ export interface UseModelLoadingStateResult {
   refreshAll: () => Promise<void>;
 }
 
-/**
- * Return type for useModelLoader hook
- *
- * Provides imperative loading controls with progress tracking
- * and error recovery.
- *
- * @example
- * ```tsx
- * const {
- *   loadAll,
- *   loadAdapters,
- *   loadBaseModel,
- *   isLoading,
- *   progress,
- *   error,
- *   reset,
- * } = useModelLoader({ stackId: 'my-stack' });
- *
- * // Load everything before chat
- * await loadAll();
- * ```
- */
-export interface UseModelLoaderResult {
-  // Loading Actions
-  /** Load both base model and all adapters */
-  loadAll: () => Promise<void>;
-
-  /** Load only adapters (assumes base model ready) */
-  loadAdapters: () => Promise<void>;
-
-  /** Load only base model */
-  loadBaseModel: () => Promise<void>;
-
-  /** Retry failed loads */
-  retry: () => Promise<void>;
-
-  /** Reset error state */
-  reset: () => void;
-
-  // State
-  /** Any loading operation in progress */
-  isLoading: boolean;
-
-  /** Loading operation succeeded */
-  isSuccess: boolean;
-
-  /** Loading operation failed */
-  isError: boolean;
-
-  /** Loading progress (0-100) */
-  progress: number;
-
-  /** Current operation status message */
-  statusMessage: string | null;
-
-  /** Error details if load failed */
-  error: ChatLoadingError | null;
-
-  /** Items currently being loaded */
-  loadingItems: {
-    baseModel: boolean;
-    adapters: string[];
-  };
-
-  /** Items that failed to load */
-  failedItems: {
-    baseModel: boolean;
-    adapters: string[];
-  };
-
-  /** Items successfully loaded */
-  successItems: {
-    baseModel: boolean;
-    adapters: string[];
-  };
-}
-
-/**
- * Return type for useAdapterStates hook
- *
- * Lightweight hook for monitoring adapter states via SSE.
- * Focuses on real-time state tracking without loading controls.
- *
- * @example
- * ```tsx
- * const {
- *   adapterStates,
- *   getAdapterState,
- *   isConnected,
- *   lastUpdate,
- * } = useAdapterStates({ stackId: 'my-stack' });
- *
- * const state = getAdapterState('adapter-123');
- * ```
- */
-export interface UseAdapterStatesResult {
-  /** Map of adapter ID to current state */
-  adapterStates: Map<string, AdapterStateInfo>;
-
-  /** Get state for a specific adapter */
-  getAdapterState: (adapterId: string) => AdapterStateInfo | undefined;
-
-  /** Filter adapters by lifecycle state */
-  filterByState: (state: AdapterLifecycleState) => AdapterStateInfo[];
-
-  /** Filter adapters by readiness */
-  filterByReadiness: (ready: boolean) => AdapterStateInfo[];
-
-  /** SSE connection active */
-  isConnected: boolean;
-
-  /** Timestamp of last state update */
-  lastUpdate: number | null;
-
-  /** Total number of adapters being tracked */
-  totalAdapters: number;
-
-  /** Number of ready adapters */
-  readyAdapters: number;
-
-  /** Number of loading adapters */
-  loadingAdapters: number;
-
-  /** Number of errored adapters */
-  erroredAdapters: number;
-}
-
 // ============================================================================
 // Hook Configuration Options
 // ============================================================================
@@ -415,61 +247,6 @@ export interface UseModelLoadingStateOptions {
 
   /** Callback when overall readiness changes */
   onReadinessChange?: (ready: boolean) => void;
-}
-
-/**
- * Configuration options for useModelLoader
- */
-export interface UseModelLoaderOptions {
-  /** Stack ID for adapter loading (required) */
-  stackId?: string;
-
-  /** Tenant ID for base model (default: 'default') */
-  tenantId?: string;
-
-  /** Auto-load on mount (default: false) */
-  autoLoad?: boolean;
-
-  /** Maximum retry attempts for failed loads (default: 3) */
-  maxRetries?: number;
-
-  /** Retry delay in ms (default: 2000) */
-  retryDelay?: number;
-
-  /** Parallel adapter loading (default: false, loads sequentially) */
-  parallelLoading?: boolean;
-
-  /** Callback when load completes */
-  onLoadComplete?: () => void;
-
-  /** Callback when load fails */
-  onLoadError?: (error: ChatLoadingError) => void;
-
-  /** Callback on progress update */
-  onProgress?: (progress: number, statusMessage: string) => void;
-}
-
-/**
- * Configuration options for useAdapterStates
- */
-export interface UseAdapterStatesOptions {
-  /** Stack ID to monitor (required) */
-  stackId?: string;
-
-  /** Enable SSE subscription (default: true) */
-  enabled?: boolean;
-
-  /** Include detailed metadata in state (default: false) */
-  includeMetadata?: boolean;
-
-  /** Callback when any adapter state changes */
-  onStateChange?: (adapterId: string, state: AdapterStateInfo) => void;
-
-  /** Filter adapters by lifecycle state */
-  filterStates?: AdapterLifecycleState[];
-
-  /** Auto-refresh stale states older than N ms (default: disabled) */
-  refreshStaleAfterMs?: number;
 }
 
 // ============================================================================

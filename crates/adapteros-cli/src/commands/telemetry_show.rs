@@ -157,11 +157,11 @@ pub async fn show_telemetry(args: TelemetryShowArgs, output: &OutputWriter) -> R
         }))?;
     } else {
         output.print_line("Telemetry Events:")?;
-        output.print_line(&format!(
+        output.print_line(format!(
             "{:<36} {:<24} {:<30} {:<8} {}",
             "ID", "Timestamp", "Event Type", "Level", "Message"
         ))?;
-        output.print_line(&"-".repeat(120))?;
+        output.print_line("-".repeat(120))?;
 
         for event in &events {
             let timestamp_short = if event.timestamp.len() > 19 {
@@ -176,7 +176,7 @@ pub async fn show_telemetry(args: TelemetryShowArgs, output: &OutputWriter) -> R
                 event.message.clone()
             };
 
-            output.print_line(&format!(
+            output.print_line(format!(
                 "{:<36} {:<24} {:<30} {:<8} {}",
                 truncate(&event.id, 36),
                 timestamp_short,
@@ -187,10 +187,10 @@ pub async fn show_telemetry(args: TelemetryShowArgs, output: &OutputWriter) -> R
         }
 
         output.print_line("")?;
-        output.print_line(&format!("Total events: {}", events.len()))?;
+        output.print_line(format!("Total events: {}", events.len()))?;
 
         if events.len() >= args.limit as usize {
-            output.print_line(&format!(
+            output.print_line(format!(
                 "Note: Results limited to {} events. Use --limit to increase.",
                 args.limit
             ))?;

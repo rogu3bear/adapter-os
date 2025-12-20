@@ -56,6 +56,26 @@ jobs:
       - name: Run tests
         run: cargo test --workspace --all-targets --exclude adapteros-lora-mlx-ffi
 
+  extended-tenant-isolation-tests:
+    name: Extended Tenant Isolation Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Guard legacy AOS flag in CI
+        run: |
+          case "${AOS_ALLOW_LEGACY_AOS:-0}" in
+            1|true|TRUE|yes|YES)
+              echo "::error::AOS_ALLOW_LEGACY_AOS must remain disabled in CI tests"
+              exit 1
+              ;;
+            *)
+              echo "Legacy AOS flag is not enabled (expected)"
+              ;;
+          esac
+      - name: Run extended tenant isolation tests
+        run: cargo test --test integration --features extended-tests tenant_isolation -- --nocapture
+
   test-macos:
     name: Test Suite (macOS, full workspace)
     runs-on: macos-14
@@ -136,7 +156,7 @@ jobs:
         run: cargo test -p adapteros-db --test kv_only_paths -- --nocapture
       - name: Skip KV-only smoke (coverage incomplete)
         if: steps.coverage.outputs.coverage_ready != 'true'
-        run: echo "KV-only smoke skipped; unsupported domains: ${{ steps.coverage.outputs.unsupported_domains }}"
+        run: 'echo "KV-only smoke skipped; unsupported domains: ${{ steps.coverage.outputs.unsupported_domains }}"'
 
   kv-verify:
     name: KV Drift Verify
@@ -165,6 +185,39 @@ jobs:
         run: cargo test --test determinism_smoke -- --nocapture
       - name: Run determinism check
         run: make determinism-check
+
+  cli-models-seed:
+    name: CLI Models Seed
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build CLI
+        run: cargo build -p adapteros-cli
+      - name: Setup test environment
+        run: |
+          mkdir -p var/test-model
+          # Create a minimal mock model for testing (config.json required)
+          echo '{"model_type":"llama","hidden_size":256}' > var/test-model/config.json
+          echo '{}' > var/test-model/tokenizer.json
+          echo '{}' > var/test-model/tokenizer_config.json
+      - name: Run migrations
+        run: |
+          DATABASE_URL="sqlite://./var/test-cli.sqlite3" \
+            AOS_SKIP_MIGRATION_SIGNATURES=1 \
+            cargo sqlx migrate run
+      - name: Test models seed command
+        run: |
+          DATABASE_URL="sqlite://./var/test-cli.sqlite3" \
+            ./target/debug/aosctl models seed --model-path var/test-model
+      - name: Test models list command
+        run: |
+          DATABASE_URL="sqlite://./var/test-cli.sqlite3" \
+            ./target/debug/aosctl models list
+      - name: Verify model was seeded
+        run: |
+          DATABASE_URL="sqlite://./var/test-cli.sqlite3" \
+            ./target/debug/aosctl models list --json | jq -e '.count >= 1'
 
   security-audit:
     name: Security Audit
@@ -234,6 +287,71 @@ jobs:
         with:
           name: release-provenance
           path: target/release-bundle
+
+  api-types-drift:
+    name: API Types Drift Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 9
+
+      - name: Install dependencies
+        run: cd ui && pnpm install --frozen-lockfile
+
+      - name: Build Rust project
+        run: cargo build -p adapteros-server-api
+
+      - name: Generate OpenAPI spec
+        run: cargo run -p adapteros-server-api --bin export-openapi -- target/codegen/openapi.json
+
+      - name: Validate OpenAPI spec
+        run: |
+          cd ui
+          pnpm exec openapi-typescript ../target/codegen/openapi.json --output src/api/types.check.ts
+          diff -q src/api/generated.ts src/api/types.check.ts || (
+            echo "::error::Generated types are out of date!"
+            echo "Run: cargo run --bin export-openapi && cd ui && pnpm run gen:api-types"
+            exit 1
+          )
+
+      - name: TypeScript type check
+        run: cd ui && pnpm exec tsc --noEmit
+
+      - name: Run transformer tests
+        run: cd ui && pnpm test src/api/__tests__/transformers.test.ts
+
+  type-safety:
+    name: Type Safety Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 9
+      - name: Install dependencies
+        run: cd ui && pnpm install --frozen-lockfile
+      - name: Strict type check
+        run: cd ui && pnpm exec tsc --noEmit --strict
+      - name: Check for any types
+        run: |
+          if grep -r ":\s*any" ui/src/api/*.ts; then
+            echo "::warning::Found 'any' types in API layer"
+          fi
 
   fuzz:
     name: Fuzz Smoke

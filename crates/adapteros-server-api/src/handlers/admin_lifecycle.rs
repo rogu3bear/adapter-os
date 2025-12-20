@@ -58,7 +58,7 @@ pub async fn request_shutdown(
     if let Err(err) = require_any_role(&claims, &[Role::Admin]) {
         return Err(err);
     }
-    enforce_prod_wildcard_gate(&claims, &state.runtime_mode);
+    enforce_prod_wildcard_gate(&claims, &state.runtime_mode)?;
 
     let Some(boot_state) = state.boot_state.clone() else {
         return Err((
@@ -116,7 +116,7 @@ pub async fn request_maintenance(
     if let Err(err) = require_any_role(&claims, &[Role::Admin]) {
         return Err(err);
     }
-    enforce_prod_wildcard_gate(&claims, &state.runtime_mode);
+    enforce_prod_wildcard_gate(&claims, &state.runtime_mode)?;
 
     let Some(boot_state) = state.boot_state.clone() else {
         return Err((
@@ -162,7 +162,7 @@ pub async fn safe_restart(
     if let Err(err) = require_any_role(&claims, &[Role::Admin]) {
         return Err(err);
     }
-    enforce_prod_wildcard_gate(&claims, &state.runtime_mode);
+    enforce_prod_wildcard_gate(&claims, &state.runtime_mode)?;
 
     let Some(boot_state) = state.boot_state.clone() else {
         return Err((
@@ -188,13 +188,21 @@ pub async fn safe_restart(
 fn map_boot_state(state: &BootState) -> String {
     match state {
         BootState::Stopped => "stopped",
-        BootState::Booting
-        | BootState::InitializingDb
+        // All booting states (new granular states + legacy aliases)
+        BootState::Starting
+        | BootState::DbConnecting
+        | BootState::Migrating
+        | BootState::Seeding
         | BootState::LoadingPolicies
         | BootState::StartingBackend
         | BootState::LoadingBaseModels
-        | BootState::LoadingAdapters => "booting",
+        | BootState::LoadingAdapters
+        | BootState::WorkerDiscovery
+        | BootState::Booting
+        | BootState::InitializingDb => "booting",
         BootState::Ready | BootState::FullyReady => "ready",
+        BootState::Degraded => "degraded",
+        BootState::Failed => "failed",
         BootState::Maintenance => "maintenance",
         BootState::Draining => "draining",
         BootState::Stopping => "stopping",
@@ -202,9 +210,12 @@ fn map_boot_state(state: &BootState) -> String {
     .to_string()
 }
 
-fn enforce_prod_wildcard_gate(claims: &Claims, mode: &Option<RuntimeMode>) {
+fn enforce_prod_wildcard_gate(
+    claims: &Claims,
+    mode: &Option<RuntimeMode>,
+) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
     if !matches!(mode, Some(RuntimeMode::Prod)) {
-        return;
+        return Ok(());
     }
     let allow_env = std::env::var("AOS_ALLOW_WILDCARD_ADMIN_PROD")
         .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
@@ -213,8 +224,12 @@ fn enforce_prod_wildcard_gate(claims: &Claims, mode: &Option<RuntimeMode>) {
         error!(
             "Wildcard admin_tenants is not allowed in prod without AOS_ALLOW_WILDCARD_ADMIN_PROD=1"
         );
-        panic!("Wildcard admin_tenants forbidden in prod");
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(json_error("Wildcard admin_tenants forbidden in prod")),
+        ));
     }
+    Ok(())
 }
 
 fn json_error(msg: &str) -> ErrorResponse {

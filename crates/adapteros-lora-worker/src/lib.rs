@@ -76,7 +76,7 @@ use adapteros_policy::{PolicyEngine, RefusalResponse};
 use adapteros_telemetry::TelemetryWriter;
 use adapteros_types::adapters::metadata::RoutingDeterminismMode;
 use adapteros_types::coreml::CoreMLMode;
-use base64;
+use base64::Engine;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -92,6 +92,7 @@ pub mod anomaly_detection;
 pub mod backend_coordinator;
 pub mod backend_factory;
 pub mod backoff;
+pub mod backpressure;
 pub mod base_model_state;
 pub mod contact_discovery;
 pub mod conv_pipeline;
@@ -121,6 +122,7 @@ pub mod metrics;
 pub mod model_handle_cache;
 pub mod model_key;
 pub mod model_loader;
+pub mod panic_utils;
 pub mod patch_generator;
 pub mod patch_telemetry;
 pub mod patch_validator;
@@ -156,6 +158,9 @@ pub use backend_factory::{
     create_backend, create_backend_from_config, create_backend_with_model, BackendChoice,
 };
 pub use backoff::{BackoffConfig, CircuitBreaker as BackoffCircuitBreaker};
+pub use backpressure::{
+    BackpressureGate, BackpressurePermit, BackpressureStats, DEFAULT_MAX_CONCURRENT,
+};
 pub use conv_pipeline::{
     ActivationKind, ConvPipeline, ConvPipelineConfig, ImageBatch, PoolingStrategy,
     VisionArchitecture,
@@ -771,6 +776,41 @@ pub struct CoremlVerificationSnapshot {
     pub mismatch: bool,
 }
 
+/// Structured error details for inference failures
+///
+/// This enum provides typed error information for specific failure modes,
+/// allowing clients to programmatically handle different error cases.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "type")]
+pub enum InferenceErrorDetails {
+    /// Model cache budget exceeded during eviction
+    ///
+    /// This error occurs when the model cache cannot free enough memory
+    /// to accommodate a new model load, typically because entries are
+    /// pinned (base models) or active (in-flight inference).
+    #[serde(rename = "cache_budget_exceeded")]
+    CacheBudgetExceeded {
+        /// Memory needed in megabytes
+        needed_mb: u64,
+        /// Memory freed during eviction attempt in megabytes
+        freed_mb: u64,
+        /// Number of pinned entries that blocked eviction
+        pinned_count: usize,
+        /// Number of active entries that blocked eviction
+        active_count: usize,
+        /// Maximum cache budget in megabytes
+        max_mb: u64,
+        /// Optional model key identifier (for diagnostics)
+        model_key: Option<String>,
+    },
+    /// Generic worker error (fallback for unstructured errors)
+    #[serde(rename = "worker_error")]
+    WorkerError {
+        /// Error message
+        message: String,
+    },
+}
+
 /// Inference response
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InferenceResponse {
@@ -850,6 +890,13 @@ pub struct InferenceResponse {
     /// BLAKE3 digest of the StopPolicySpec used (hex encoded)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stop_policy_digest_b3: Option<String>,
+
+    /// Structured error details when status indicates failure
+    ///
+    /// Contains typed error information for specific failure modes.
+    /// This field is `None` for successful responses or unstructured errors.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_details: Option<InferenceErrorDetails>,
 }
 
 /// Patch proposal response with patches and citations
@@ -1032,13 +1079,6 @@ fn fused_hash_for_interval(
     let canonical_bytes =
         serde_jcs::to_vec(&material).expect("fusion interval hash serialization must succeed");
     B3Hash::hash(&canonical_bytes)
-}
-
-fn fused_hash_for_decisions(
-    base_model_hash: &B3Hash,
-    decisions: &[adapteros_api_types::inference::RouterDecision],
-) -> B3Hash {
-    fused_hash_for_interval(base_model_hash, "fusion", decisions)
 }
 
 fn fusion_intervals_for_mode(
@@ -1370,7 +1410,12 @@ mod adapter_path_tests {
     fn worker_paths_respect_env_override() {
         std::env::set_var("AOS_ADAPTERS_ROOT", "./var/test-adapters-repo");
         let paths = resolve_worker_adapter_paths();
-        assert_eq!(paths.repo_root, PathBuf::from("./var/test-adapters-repo"));
+        // Paths are absolutized by resolve_adapter_roots_from_strings, so check suffix
+        assert!(
+            paths.repo_root.ends_with("var/test-adapters-repo"),
+            "Expected path to end with 'var/test-adapters-repo', got {:?}",
+            paths.repo_root
+        );
         std::env::remove_var("AOS_ADAPTERS_ROOT");
     }
 }
@@ -1391,7 +1436,7 @@ pub struct Worker<K: FusedKernels + StrictnessControl + Send + Sync> {
     tenant_namespace: adapteros_lora_rag::IndexNamespaceId,
     /// Kernels wrapped in Arc<Mutex<>> for shared access with workflows
     kernels: Arc<tokio::sync::Mutex<K>>,
-    memory_monitor: MemoryMonitor,
+    memory_monitor: Arc<MemoryMonitor>,
     tokenizer: Arc<QwenTokenizer>,
     generator: Generator,
     embedding_model: Arc<EmbeddingModel>,
@@ -1462,10 +1507,10 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             router_seed,
         )?;
 
-        let memory_monitor = MemoryMonitor::new(
+        let memory_monitor = Arc::new(MemoryMonitor::new(
             manifest.policies.memory.min_headroom_pct,
             Some(telemetry.clone()),
-        );
+        ));
 
         // Initialize safety mechanisms
         let timeout_config = TimeoutConfig::default();
@@ -1564,7 +1609,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         )));
 
         {
-            let mut lifecycle_guard = lifecycle.lock().await;
+            let lifecycle_guard = lifecycle.lock().await;
             lifecycle_guard
                 .set_expected_base_model(&manifest.base.model_id, manifest.base.model_hash);
         }
@@ -1602,6 +1647,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             adapter_paths.repo_root.clone(),
             tenant_id.to_string(),
             Some(Arc::new(telemetry.clone())),
+            Some(memory_monitor.clone()),
         ));
 
         hotswap.set_cache_identity(AdapterCacheIdentity {
@@ -1631,14 +1677,14 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             match Db::from_config().await {
                 Ok(db) => {
                     if let Err(e) = db.migrate().await {
-                        warn!(error = %e, "Trace DB migration failed; disabling trace sink");
+                        warn!(tenant_id = %tenant_id, worker_id = %worker_id, error = %e, "Trace DB migration failed; disabling trace sink");
                         None
                     } else {
                         Some(Arc::new(db))
                     }
                 }
                 Err(e) => {
-                    warn!(error = %e, "Trace DB unavailable; disabling trace sink");
+                    warn!(tenant_id = %tenant_id, worker_id = %worker_id, error = %e, "Trace DB unavailable; disabling trace sink");
                     None
                 }
             }
@@ -1695,6 +1741,8 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         let kernels = self.kernels.clone();
         let lifecycle = self.lifecycle.clone();
         let telemetry = self.telemetry.clone();
+        let tenant_id = self.tenant_namespace.clone();
+        let worker_id = self.worker_id;
 
         // Background monitoring task - acceptable as tokio::spawn per CLAUDE.md
         // Using tokio::spawn for background monitoring tasks
@@ -1720,6 +1768,8 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 // Check circuit breaker state
                 if circuit_breaker.is_open() {
                     tracing::warn!(
+                        tenant_id = %tenant_id,
+                        worker_id = %worker_id,
                         failure_count = circuit_breaker.failure_count(),
                         "GPU verification circuit breaker is open, pausing"
                     );
@@ -1772,6 +1822,8 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                                     Ok(false) => {
                                         had_errors = true;
                                         tracing::error!(
+                                            tenant_id = %tenant_id,
+                                            worker_id = %worker_id,
                                             adapter_id = %adapter_id,
                                             "GPU buffer fingerprint mismatch detected - taking corrective action"
                                         );
@@ -1794,12 +1846,16 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                                             kernels_lock.detach_adapter(*adapter_id_u16)
                                         {
                                             tracing::error!(
+                                                tenant_id = %tenant_id,
+                                                worker_id = %worker_id,
                                                 adapter_id = %adapter_id,
                                                 error = %unload_err,
                                                 "Failed to unload corrupted adapter"
                                             );
                                         } else {
                                             tracing::info!(
+                                                tenant_id = %tenant_id,
+                                                worker_id = %worker_id,
                                                 adapter_id = %adapter_id,
                                                 "Successfully unloaded corrupted adapter from GPU"
                                             );
@@ -1807,6 +1863,8 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
 
                                         // Mark adapter for manual review in lifecycle
                                         tracing::warn!(
+                                            tenant_id = %tenant_id,
+                                            worker_id = %worker_id,
                                             adapter_id = %adapter_id,
                                             "Adapter marked for manual review - will not be automatically reloaded"
                                         );
@@ -1814,6 +1872,8 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                                     Err(e) => {
                                         had_errors = true;
                                         tracing::error!(
+                                            tenant_id = %tenant_id,
+                                            worker_id = %worker_id,
                                             adapter_id = %adapter_id,
                                             error = %e,
                                             "GPU verification failed"
@@ -2058,10 +2118,8 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
 
         // Compute unavailable pinned adapters (CHAT-PIN-02)
         // These are pinned adapter IDs not present in the worker's loaded adapters
-        let unavailable_pinned_adapters = request
-            .pinned_adapter_ids
-            .as_ref()
-            .map(|pinned_ids| {
+        let unavailable_pinned_adapters =
+            request.pinned_adapter_ids.as_ref().and_then(|pinned_ids| {
                 let loaded_adapter_ids: Vec<&str> = self
                     .manifest
                     .adapters
@@ -2078,8 +2136,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 } else {
                     Some(unavailable)
                 }
-            })
-            .flatten();
+            });
 
         // Compute pinned_routing_fallback based on unavailability (PRD-6A)
         let pinned_routing_fallback =
@@ -2182,6 +2239,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                         stop_reason_code: None,
                         stop_reason_token_index: None,
                         stop_policy_digest_b3: None,
+                        error_details: None,
                     });
                 }
             }
@@ -2451,6 +2509,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 framework: None,    // Manifest adapters don't have framework info
                 languages: vec![0], // Default language
                 tier: format!("{:?}", adapter.tier).to_lowercase(),
+                base_model: None, // Base model info not available in this context
                 ..Default::default()
             })
             .collect();
@@ -2746,9 +2805,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                     backend_id: Some(backend_label.clone()),
                     kernel_version_id: Some(kernel_version_id.clone()),
                 };
-                if let Err(e) = sink.record_token(token_input).await {
-                    return Err(e);
-                }
+                sink.record_token(token_input).await?
             }
 
             // Convert Decision to RouterRing
@@ -2908,8 +2965,14 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                         run_head_hash: receipt.run_head_hash,
                         output_digest: receipt.output_digest,
                         receipt_digest: receipt.receipt_digest,
-                        signature: receipt.signature.as_ref().map(base64::encode),
-                        attestation: receipt.attestation.as_ref().map(base64::encode),
+                        signature: receipt
+                            .signature
+                            .as_ref()
+                            .map(|s| base64::engine::general_purpose::STANDARD.encode(s)),
+                        attestation: receipt
+                            .attestation
+                            .as_ref()
+                            .map(|s| base64::engine::general_purpose::STANDARD.encode(s)),
                         logical_prompt_tokens,
                         prefix_cached_token_count,
                         billed_input_tokens,
@@ -2966,10 +3029,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         enforce_strict_router_chain(
             strict_mode_active,
             base_only_request,
-            router_decision_chain_opt
-                .as_ref()
-                .map(|v| v.as_slice())
-                .unwrap_or(&[]),
+            router_decision_chain_opt.as_deref().unwrap_or(&[]),
         )?;
 
         Ok(InferenceResponse {
@@ -3018,6 +3078,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             stop_reason_code,
             stop_reason_token_index,
             stop_policy_digest_b3: Some(stop_policy_digest.to_hex()),
+            error_details: None,
         })
     }
 
@@ -3119,10 +3180,8 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         );
 
         // Compute unavailable pinned adapters (CHAT-PIN-02)
-        let unavailable_pinned_adapters = request
-            .pinned_adapter_ids
-            .as_ref()
-            .map(|pinned_ids| {
+        let unavailable_pinned_adapters =
+            request.pinned_adapter_ids.as_ref().and_then(|pinned_ids| {
                 let loaded_adapter_ids: Vec<&str> = self
                     .manifest
                     .adapters
@@ -3139,8 +3198,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 } else {
                     Some(unavailable)
                 }
-            })
-            .flatten();
+            });
 
         // Compute pinned_routing_fallback based on unavailability (PRD-6A)
         let pinned_routing_fallback =
@@ -3387,6 +3445,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             stop_reason_code: None,
             stop_reason_token_index: None,
             stop_policy_digest_b3: None,
+            error_details: None,
         })
     }
 

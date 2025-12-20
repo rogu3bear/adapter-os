@@ -21,14 +21,14 @@ What are the key features of the new AdapterOS system?
 
 Based on the documentation, AdapterOS provides several key features for ML inference:
 
-1. **Multi-LoRA Orchestration**: The system uses LORAX (Low Rank Adapter Exchange) for efficient adapter management
+1. **Multi-LoRA Orchestration**: The system provides efficient adapter management for LoRA fine-tuning
 2. **Offline-Capable**: Runs entirely on-device with no network egress during inference
 3. **Multi-Backend Support**: Works with CoreML/ANE, Metal, and MLX backends
 4. **Deterministic Replay**: All inferences can be exactly reproduced for audit purposes
 
 **Sources:**
 - Technical Overview.pdf (p.5) [95.0% relevance]
-  > "AdapterOS is an ML inference platform powered by LORAX (Low Rank Adapter Exchange) — an offline-capable, UMA-optimized orchestration layer for multi-LoRA systems on Apple Silicon."
+  > "AdapterOS is an ML inference platform with an offline-capable, UMA-optimized orchestration layer for multi-LoRA systems on Apple Silicon."
 - Architecture Guide.pdf (p.12) [87.3% relevance]
   > "The system supports CoreML/ANE as the primary backend, with Metal and MLX as alternatives for different use cases."
 
@@ -69,7 +69,7 @@ What about policy enforcement?
 
 ### **Assistant** (12/12/2025, 10:17:05 AM)
 
-AdapterOS includes comprehensive policy enforcement through 24 policy packs:
+AdapterOS includes comprehensive policy enforcement through 25 policy packs:
 
 **Core Policies (Always Enabled):**
 - Egress Control: Prevents network access during inference
@@ -86,7 +86,7 @@ The system uses Merkle chain audit with BLAKE3 hash chaining and Ed25519 signatu
 
 **Sources:**
 - Policy Framework.pdf (p.22) [94.5% relevance]
-  > "The policy system provides 24 policy packs with three critical hook points for enforcement throughout the inference pipeline."
+  > "The policy system provides 25 policy packs with three critical hook points for enforcement throughout the inference pipeline."
 - Security Architecture.pdf (p.18) [89.2% relevance]
   > "Merkle chain audit uses BLAKE3 for hash chaining with Ed25519 signatures to provide cryptographic proof of policy compliance."
 

@@ -112,6 +112,150 @@ ensure_dirs() {
     mkdir -p "$LOG_DIR"
 }
 
+# =============================================================================
+# Preflight Checks
+# =============================================================================
+
+# Check disk space (requires at least 10GB free by default)
+# Usage: check_disk_space [min_gb]
+check_disk_space() {
+    local min_gb="${1:-10}"
+    local target_dir="${PROJECT_ROOT}/var"
+
+    # Create target dir if it doesn't exist
+    mkdir -p "$target_dir"
+
+    # Get available space in GB (macOS compatible)
+    local available_gb
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        # macOS: df outputs in 512-byte blocks by default, use -g for GB
+        available_gb=$(df -g "$target_dir" 2>/dev/null | tail -1 | awk '{print $4}')
+    else
+        # Linux: df -BG outputs in GB
+        available_gb=$(df -BG "$target_dir" 2>/dev/null | tail -1 | awk '{print $4}' | tr -d 'G')
+    fi
+
+    if [ -z "$available_gb" ]; then
+        warning_msg "Could not determine disk space; skipping check"
+        return 0
+    fi
+
+    if [ "$available_gb" -lt "$min_gb" ]; then
+        error_msg "Insufficient disk space: ${available_gb}GB available, ${min_gb}GB required"
+        return 1
+    fi
+
+    status_msg "Disk space check passed: ${available_gb}GB available (>= ${min_gb}GB required)"
+    return 0
+}
+
+# Check available memory (requires at least 8GB by default)
+# Usage: check_memory [min_gb]
+check_memory() {
+    local min_gb="${1:-8}"
+    local available_gb
+
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        # macOS: Use vm_stat to get free memory
+        local page_size=4096
+        local pages_free=$(vm_stat 2>/dev/null | grep "Pages free" | awk '{print $3}' | tr -d '.')
+        local pages_inactive=$(vm_stat 2>/dev/null | grep "Pages inactive" | awk '{print $3}' | tr -d '.')
+
+        if [ -n "$pages_free" ] && [ -n "$pages_inactive" ]; then
+            local total_available=$((pages_free + pages_inactive))
+            available_gb=$((total_available * page_size / 1024 / 1024 / 1024))
+        fi
+    else
+        # Linux: Use /proc/meminfo
+        local available_kb=$(grep MemAvailable /proc/meminfo 2>/dev/null | awk '{print $2}')
+        if [ -n "$available_kb" ]; then
+            available_gb=$((available_kb / 1024 / 1024))
+        fi
+    fi
+
+    if [ -z "$available_gb" ]; then
+        warning_msg "Could not determine available memory; skipping check"
+        return 0
+    fi
+
+    if [ "$available_gb" -lt "$min_gb" ]; then
+        error_msg "Insufficient memory: ${available_gb}GB available, ${min_gb}GB required"
+        return 1
+    fi
+
+    status_msg "Memory check passed: ${available_gb}GB available (>= ${min_gb}GB required)"
+    return 0
+}
+
+# Check database integrity
+# Usage: check_db_integrity
+check_db_integrity() {
+    if [ ! -f "$DATABASE_PATH" ]; then
+        # Database doesn't exist yet; will be created on first run
+        status_msg "Database not found at $DATABASE_PATH; will be created on first run"
+        return 0
+    fi
+
+    # Run SQLite integrity check
+    local result
+    result=$(sqlite3 "$DATABASE_PATH" "PRAGMA integrity_check;" 2>&1)
+
+    if [[ "$result" == "ok" ]]; then
+        status_msg "Database integrity check passed"
+        return 0
+    else
+        error_msg "Database integrity check failed: $result"
+        error_msg "Database may be corrupted. Consider restoring from backup."
+        return 1
+    fi
+}
+
+# Run all preflight checks
+# Usage: run_preflight_checks [--skip-disk] [--skip-memory] [--skip-db]
+run_preflight_checks() {
+    local skip_disk=false
+    local skip_memory=false
+    local skip_db=false
+
+    for arg in "$@"; do
+        case "$arg" in
+            --skip-disk) skip_disk=true ;;
+            --skip-memory) skip_memory=true ;;
+            --skip-db) skip_db=true ;;
+        esac
+    done
+
+    status_msg "Running preflight checks..."
+
+    local failed=false
+
+    if [ "$skip_disk" != "true" ]; then
+        if ! check_disk_space 10; then
+            failed=true
+        fi
+    fi
+
+    if [ "$skip_memory" != "true" ]; then
+        if ! check_memory 8; then
+            failed=true
+        fi
+    fi
+
+    if [ "$skip_db" != "true" ]; then
+        if ! check_db_integrity; then
+            failed=true
+        fi
+    fi
+
+    if [ "$failed" = "true" ]; then
+        error_msg "Preflight checks failed. Set AOS_SKIP_PREFLIGHT=1 to bypass."
+        return 1
+    fi
+
+    success_msg "All preflight checks passed"
+    return 0
+}
+
 # Check if process is running by PID file
 is_running() {
     local pid_file="$1"
@@ -223,6 +367,16 @@ stop_process() {
 start_backend() {
     ensure_dirs
 
+    # Run preflight checks unless bypassed
+    if [ -z "${AOS_SKIP_PREFLIGHT:-}" ]; then
+        if ! run_preflight_checks; then
+            error_msg "Preflight checks failed. Set AOS_SKIP_PREFLIGHT=1 to bypass."
+            return 1
+        fi
+    else
+        warning_msg "Preflight checks bypassed (AOS_SKIP_PREFLIGHT is set)"
+    fi
+
     if is_running "$BACKEND_PID_FILE"; then
         local pid=$(get_pid "$BACKEND_PID_FILE")
         warning_msg "Backend is already running (PID: $pid)"
@@ -316,14 +470,25 @@ start_backend() {
     # Give it a moment to start
     sleep 2
 
-    if kill -0 "$pid" 2>/dev/null; then
-        success_msg "Backend started (PID: $pid, Port: $BACKEND_PORT)"
-        return 0
-    else
+    # First check: verify process survived initial startup
+    if ! kill -0 "$pid" 2>/dev/null; then
         error_msg "Backend failed to start. Check logs: $BACKEND_LOG"
+        [ "${AOS_BOOT_VERBOSE:-0}" = "1" ] && tail -20 "$BACKEND_LOG"
         rm -f "$BACKEND_PID_FILE"
         return 1
     fi
+
+    # Brief additional wait to catch fast-fail scenarios (migrations, config errors)
+    sleep 1
+    if ! kill -0 "$pid" 2>/dev/null; then
+        error_msg "Backend crashed after startup (likely migration failure). Check logs: $BACKEND_LOG"
+        [ "${AOS_BOOT_VERBOSE:-0}" = "1" ] && tail -30 "$BACKEND_LOG"
+        rm -f "$BACKEND_PID_FILE"
+        return 1
+    fi
+
+    success_msg "Backend started (PID: $pid, Port: $BACKEND_PORT)"
+    return 0
 }
 
 restart_backend() {
@@ -907,8 +1072,9 @@ start_worker() {
     elif [ -f "$PROJECT_ROOT/target/release/aos-worker" ]; then
         worker_bin="$PROJECT_ROOT/target/release/aos-worker"
     else
-        warning_msg "Worker binary not found. Worker is optional."
-        return 0
+        error_msg "Worker binary not found at target/debug/aos-worker or target/release/aos-worker"
+        error_msg "Build with: cargo build -p adapteros-lora-worker"
+        return 1
     fi
 
     # Determine manifest and model paths (default to 32B model)
@@ -926,15 +1092,17 @@ start_worker() {
         tokenizer_path="$model_path/tokenizer.json"
     fi
 
-    # Validate paths
+    # Validate paths - fail explicitly on missing files (not silent skip)
     if [ ! -f "$manifest_path" ]; then
-        warning_msg "Manifest not found: $manifest_path. Worker startup skipped."
-        return 0
+        error_msg "Manifest not found: $manifest_path"
+        error_msg "Set AOS_WORKER_MANIFEST or provide valid --manifest-path"
+        return 1
     fi
 
     if [ ! -d "$model_path" ]; then
-        warning_msg "Model directory not found: $model_path. Worker startup skipped."
-        return 0
+        error_msg "Model directory not found: $model_path"
+        error_msg "Run ./scripts/download-model.sh or set AOS_MODEL_PATH"
+        return 1
     fi
 
     # Guard common MLX failure mode: feature not built
@@ -969,18 +1137,28 @@ start_worker() {
 
     echo "$pid" > "$WORKER_PID_FILE"
 
-    # Wait for socket to be created (up to 30 seconds)
+    # Wait for socket to be created (configurable timeout, default 30 seconds)
     local waited=0
-    while [ $waited -lt 30 ]; do
+    local timeout="${AOS_WORKER_TIMEOUT:-30}"
+    while [ $waited -lt "$timeout" ]; do
+        # Early exit: check if process died during startup
+        if ! kill -0 "$pid" 2>/dev/null; then
+            error_msg "Worker process died during startup. Check logs: $WORKER_LOG"
+            [ "${AOS_BOOT_VERBOSE:-0}" = "1" ] && tail -25 "$WORKER_LOG"
+            rm -f "$WORKER_PID_FILE"
+            update_worker_status "crashed" || true
+            return 1
+        fi
+
         if [ -S "$uds_path" ]; then
             success_msg "Worker started (PID: $pid, Socket: $uds_path)"
-            
+
             # Register worker in database
             if register_worker_in_db "$pid" "$uds_path"; then
                 # Update status to serving once socket is ready
                 update_worker_status "serving"
             fi
-            
+
             return 0
         fi
         sleep 1
@@ -989,10 +1167,12 @@ start_worker() {
 
     # Check if process is still running
     if kill -0 "$pid" 2>/dev/null; then
-        warning_msg "Worker started but socket not ready yet (PID: $pid). Check logs: $WORKER_LOG"
-        # Register worker even if socket not ready yet
-        register_worker_in_db "$pid" "$uds_path" || true
-        return 0
+        # Process is running but socket never created - this is a failure
+        error_msg "Worker process running but socket never created after 30s (PID: $pid)"
+        error_msg "This usually indicates a startup error. Check logs: $WORKER_LOG"
+        # Don't register worker in DB since it's not functional
+        update_worker_status "failed" || true
+        return 1
     else
         error_msg "Worker failed to start. Check logs: $WORKER_LOG"
         rm -f "$WORKER_PID_FILE"
@@ -1044,6 +1224,82 @@ stop_worker() {
     # Clean up socket and PID file
     rm -f "$worker_sock"
     rm -f "$WORKER_PID_FILE"
+}
+
+# =============================================================================
+# Worker Auto-Restart with Exponential Backoff
+# =============================================================================
+
+start_worker_with_restart() {
+    local max_restarts=3
+    local restart_count=0
+    local backoff_base=5  # seconds
+
+    while true; do
+        # Start worker
+        if start_worker; then
+            # Worker started successfully, monitor it
+            local pid=$(get_pid "$WORKER_PID_FILE")
+
+            # Wait for worker to exit
+            wait "$pid" 2>/dev/null
+            local exit_code=$?
+
+            # Exit code meanings (from aos_worker.rs):
+            # 0: Graceful shutdown (don't restart)
+            # 1: Config/validation error (don't restart)
+            # 2: Transient error (restart with backoff)
+            # 3: Fatal error (don't restart)
+
+            if [ "$exit_code" -eq 0 ]; then
+                info "Worker exited gracefully (exit code 0), not restarting"
+                break
+            elif [ "$exit_code" -eq 1 ]; then
+                error_msg "Worker exited with config error (exit code 1), not restarting. Fix configuration and restart manually."
+                break
+            elif [ "$exit_code" -eq 3 ]; then
+                error_msg "Worker exited with fatal error (exit code 3), not restarting. Investigation required."
+                break
+            elif [ "$exit_code" -eq 2 ]; then
+                # Transient error - restart with backoff
+                restart_count=$((restart_count + 1))
+
+                if [ "$restart_count" -ge "$max_restarts" ]; then
+                    error_msg "Worker restart limit reached ($max_restarts attempts), giving up"
+                    break
+                fi
+
+                # Exponential backoff: backoff_base * 2^(restart_count-1)
+                local backoff=$((backoff_base * (1 << (restart_count - 1))))
+                warning_msg "Worker crashed with transient error (exit code 2), restarting in ${backoff}s (attempt $restart_count/$max_restarts)"
+                sleep "$backoff"
+            else
+                # Unknown exit code - treat as transient
+                restart_count=$((restart_count + 1))
+
+                if [ "$restart_count" -ge "$max_restarts" ]; then
+                    error_msg "Worker restart limit reached ($max_restarts attempts), giving up"
+                    break
+                fi
+
+                local backoff=$((backoff_base * (1 << (restart_count - 1))))
+                warning_msg "Worker exited with unknown code $exit_code, restarting in ${backoff}s (attempt $restart_count/$max_restarts)"
+                sleep "$backoff"
+            fi
+        else
+            # Worker failed to start
+            restart_count=$((restart_count + 1))
+
+            if [ "$restart_count" -ge "$max_restarts" ]; then
+                error_msg "Worker failed to start after $max_restarts attempts, giving up"
+                return 1
+            fi
+
+            local backoff=$((backoff_base * (1 << (restart_count - 1))))
+            warning_msg "Worker failed to start, retrying in ${backoff}s (attempt $restart_count/$max_restarts)"
+            sleep "$backoff"
+        fi
+    done
 }
 
 # =============================================================================

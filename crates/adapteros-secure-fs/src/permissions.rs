@@ -197,9 +197,15 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
+    fn new_test_tempdir() -> Result<TempDir> {
+        let root = std::path::PathBuf::from("var").join("tmp");
+        std::fs::create_dir_all(&root)?;
+        Ok(TempDir::new_in(&root)?)
+    }
+
     #[test]
     fn test_secure_permissions() -> Result<()> {
-        let temp_dir = TempDir::new()?;
+        let temp_dir = new_test_tempdir()?;
         let test_file = temp_dir.path().join("test.txt");
         std::fs::write(&test_file, "hello")?;
 
@@ -216,7 +222,7 @@ mod tests {
 
     #[test]
     fn test_recursive_permissions() -> Result<()> {
-        let temp_dir = TempDir::new()?;
+        let temp_dir = new_test_tempdir()?;
         let test_dir = temp_dir.path().join("test_dir");
         std::fs::create_dir_all(&test_dir)?;
 

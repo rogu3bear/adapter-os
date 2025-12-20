@@ -1,6 +1,6 @@
 import { vi } from 'vitest';
 import type { StatusOperationRecord, StatusV2, StatusTenantRecord } from '@/api/status';
-import type apiClient from '@/api/client';
+import type { apiClient } from '@/api/services';
 
 /**
  * Build a StatusV2 object for testing with sensible defaults.

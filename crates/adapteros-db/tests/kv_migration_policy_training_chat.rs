@@ -4,6 +4,12 @@ use adapteros_db::{Db, StorageMode};
 use chrono::Utc;
 use tempfile::TempDir;
 
+fn new_test_tempdir() -> TempDir {
+    let root = std::path::PathBuf::from("var").join("tmp");
+    std::fs::create_dir_all(&root).expect("create var/tmp");
+    TempDir::new_in(&root).expect("tempdir")
+}
+
 fn audit_hash(
     id: &str,
     timestamp: &str,
@@ -122,7 +128,7 @@ async fn seed_training_job(db: &Db, tenant_id: &str) -> Result<()> {
     sqlx::query(
         r#"INSERT INTO git_repositories
            (id, repo_id, path, branch, analysis_json, evidence_json, security_scan_json, status, created_by)
-           VALUES ('git-1', 'repo-1', '/tmp/repo', 'main', '{}', '{}', '{}', 'ready', 'admin-user')"#,
+           VALUES ('git-1', 'repo-1', 'var/repo', 'main', '{}', '{}', '{}', 'ready', 'admin-user')"#,
     )
     .execute(db.pool())
     .await?;
@@ -184,7 +190,7 @@ async fn seed_chat(db: &Db, tenant_id: &str) -> Result<()> {
 
 #[tokio::test]
 async fn migrate_policy_training_chat_to_kv_and_diff_clean() -> Result<()> {
-    let tmp = TempDir::new().expect("tempdir");
+    let tmp = new_test_tempdir();
     let db_path = tmp.path().join("aos-cp.sqlite3");
     let kv_path = tmp.path().join("aos-kv.redb");
 

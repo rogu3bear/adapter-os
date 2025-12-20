@@ -20,7 +20,7 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { WorkerResponse, Node, Plan } from '@/api/types';
 import { SpawnWorkerModal } from './SpawnWorkerModal';
 import { ProcessDebugger } from './ProcessDebugger';

@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import type { Adapter, AdapterCategory, AdapterState } from '@/api/adapter-types';
 import type { SystemMetrics } from '@/api/types';
 import { logger } from '@/utils/logger';

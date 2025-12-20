@@ -1,7 +1,7 @@
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { HelpCircle, Sun, Moon, Bug } from 'lucide-react';
-import { cn } from '@/components/ui/utils';
+import { cn } from '@/lib/utils';
 import { useErrorStoreSafe } from '@/stores/errorStore';
 import { useNavigate } from 'react-router-dom';
 

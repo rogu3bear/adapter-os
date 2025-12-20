@@ -56,6 +56,7 @@ fuzz_target!(|data: &[u8]| {
                 None
             },
             lora_tier: None,
+            base_model: None,
         })
         .collect();
 

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Play, Pause, Upload, Download, CheckCircle, XCircle, RefreshCw, Loader2 } from 'lucide-react';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { BaseModelStatus } from '@/api/types';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ModelImportWizard } from '@/components/ModelImportWizard';

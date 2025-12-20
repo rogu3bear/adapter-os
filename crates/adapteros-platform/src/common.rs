@@ -99,9 +99,9 @@ impl PlatformUtils {
         let path = path.as_ref();
         let path_str = path.to_string_lossy();
 
-        if path_str.starts_with("~/") {
+        if let Some(stripped) = path_str.strip_prefix("~/") {
             let home = Self::home_dir()?;
-            Ok(home.join(&path_str[2..]))
+            Ok(home.join(stripped))
         } else if path_str == "~" {
             Self::home_dir()
         } else {
@@ -134,9 +134,20 @@ impl PlatformUtils {
     ///
     /// Respects `AOS_VAR_DIR` env var, defaults to `var/` relative to cwd.
     pub fn aos_var_dir() -> PathBuf {
-        std::env::var("AOS_VAR_DIR")
+        let candidate = std::env::var("AOS_VAR_DIR")
             .map(PathBuf::from)
-            .unwrap_or_else(|_| PathBuf::from("var"))
+            .unwrap_or_else(|_| PathBuf::from("var"));
+
+        if adapteros_core::is_forbidden_tmp_path(&candidate) {
+            tracing::warn!(
+                path = %candidate.display(),
+                env = %"AOS_VAR_DIR",
+                "Refusing to use forbidden temp directory for runtime state; falling back to default"
+            );
+            return PathBuf::from("var");
+        }
+
+        candidate
     }
 
     /// Get the model cache directory
@@ -144,9 +155,20 @@ impl PlatformUtils {
     /// Returns the directory where downloaded models are cached.
     /// Respects `AOS_MODEL_CACHE_DIR` env var, defaults to `var/model-cache`.
     pub fn aos_model_cache_dir() -> PathBuf {
-        std::env::var("AOS_MODEL_CACHE_DIR")
+        let candidate = std::env::var("AOS_MODEL_CACHE_DIR")
             .map(PathBuf::from)
-            .unwrap_or_else(|_| Self::aos_var_dir().join("model-cache"))
+            .unwrap_or_else(|_| Self::aos_var_dir().join("model-cache"));
+
+        if adapteros_core::is_forbidden_tmp_path(&candidate) {
+            tracing::warn!(
+                path = %candidate.display(),
+                env = %"AOS_MODEL_CACHE_DIR",
+                "Refusing to use forbidden temp directory for runtime state; falling back to default"
+            );
+            return Self::aos_var_dir().join("model-cache");
+        }
+
+        candidate
     }
 
     /// Get the adapters directory
@@ -166,9 +188,20 @@ impl PlatformUtils {
     /// Returns the directory where training artifacts are stored.
     /// Respects `AOS_ARTIFACTS_DIR` env var, defaults to `var/artifacts`.
     pub fn aos_artifacts_dir() -> PathBuf {
-        std::env::var("AOS_ARTIFACTS_DIR")
+        let candidate = std::env::var("AOS_ARTIFACTS_DIR")
             .map(PathBuf::from)
-            .unwrap_or_else(|_| Self::aos_var_dir().join("artifacts"))
+            .unwrap_or_else(|_| Self::aos_var_dir().join("artifacts"));
+
+        if adapteros_core::is_forbidden_tmp_path(&candidate) {
+            tracing::warn!(
+                path = %candidate.display(),
+                env = %"AOS_ARTIFACTS_DIR",
+                "Refusing to use forbidden temp directory for runtime state; falling back to default"
+            );
+            return Self::aos_var_dir().join("artifacts");
+        }
+
+        candidate
     }
 
     /// Get the user-specific AdapterOS cache directory (optional)
@@ -206,9 +239,9 @@ impl PlatformUtils {
             .ok_or_else(|| AosError::Platform("Failed to get data directory".to_string()))
     }
 
-    /// Get the temp directory
+    /// Get the AdapterOS temp directory (under runtime var tree)
     pub fn temp_dir() -> PathBuf {
-        std::env::temp_dir()
+        Self::aos_var_dir().join("tmp")
     }
 
     /// Check if a path is absolute
@@ -395,6 +428,12 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
+    fn new_test_tempdir() -> Result<TempDir> {
+        let root = PlatformUtils::temp_dir();
+        std::fs::create_dir_all(&root)?;
+        Ok(TempDir::new_in(&root)?)
+    }
+
     #[test]
     fn test_platform_detection() {
         let platform = PlatformUtils::current_platform();
@@ -408,7 +447,7 @@ mod tests {
 
     #[test]
     fn test_path_operations() -> Result<()> {
-        let temp_dir = TempDir::new()?;
+        let temp_dir = new_test_tempdir()?;
         let test_file = temp_dir.path().join("test.txt");
 
         // Test file operations
@@ -428,7 +467,7 @@ mod tests {
 
     #[test]
     fn test_directory_operations() -> Result<()> {
-        let temp_dir = TempDir::new()?;
+        let temp_dir = new_test_tempdir()?;
         let test_dir = temp_dir.path().join("test_dir");
 
         // Test directory operations
@@ -483,8 +522,8 @@ mod tests {
         assert_eq!(regular, PathBuf::from("var/cache"));
 
         // Test absolute paths pass through
-        let absolute = PlatformUtils::expand_path("/tmp/test")?;
-        assert_eq!(absolute, PathBuf::from("/tmp/test"));
+        let absolute = PlatformUtils::expand_path("/var/run/test")?;
+        assert_eq!(absolute, PathBuf::from("/var/run/test"));
 
         Ok(())
     }

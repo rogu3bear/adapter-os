@@ -15,6 +15,7 @@ use adapteros_server_api::middleware::request_id::RequestId;
 use adapteros_server_api::types::{InferResponse, RouterSummary, WorkerInferResponse, WorkerTrace};
 use axum::{extract::State, http::StatusCode, Extension, Json};
 use chrono::Utc;
+use tempfile::TempDir;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UnixListener;
 
@@ -25,7 +26,12 @@ use common::{setup_state, test_admin_claims};
 async fn ready_model_happy_path_inference_and_routing() {
     let manifest_hash = "test-manifest-hash";
     let backend_name = "mlx";
-    let uds_path = "/tmp/aos-happy-worker.sock";
+    let uds_dir = TempDir::new_in(".").expect("tempdir");
+    let uds_path = uds_dir
+        .path()
+        .join("aos-happy-worker.sock")
+        .to_string_lossy()
+        .to_string();
     let request_id = "session-general-request";
     let model_name = "test-model-id";
     let adapter_id = "adapter-a";
@@ -136,7 +142,7 @@ async fn ready_model_happy_path_inference_and_routing() {
 
     // Fake worker that returns a minimal inference response and records a metric
     let metrics_registry = state.metrics_registry.clone();
-    let uds_path_owned = uds_path.to_string();
+    let uds_path_owned = uds_path.clone();
     let worker_response = WorkerInferResponse {
         text: Some("worker response".to_string()),
         status: "stop".to_string(),

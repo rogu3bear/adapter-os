@@ -199,7 +199,7 @@ use std::path::Path;
 
 #[tokio::test]
 async fn test_file_cleanup() {
-    let temp_dir = Path::new("/tmp/test-dir");
+    let temp_dir = Path::new("var/test-dir");
 
     // ... create test files ...
 
@@ -216,7 +216,7 @@ use std::path::PathBuf;
 #[tokio::test]
 async fn test_with_cleanup_guard() {
     let db = create_test_db().await.unwrap();
-    let temp_paths = vec![PathBuf::from("/tmp/test-adapters")];
+    let temp_paths = vec![PathBuf::from("var/test-adapters")];
 
     let _guard = TestCleanupGuard::new(db.clone(), temp_paths);
 
@@ -295,7 +295,7 @@ async fn test_dual_write_lineage() {
     let db = test_db.db();
 
     // Setup cleanup for test files
-    let temp_paths = vec![PathBuf::from("/tmp/test-adapters")];
+    let temp_paths = vec![PathBuf::from("var/test-adapters")];
     let _guard = TestCleanupGuard::files_only(temp_paths);
 
     // Create parent adapter

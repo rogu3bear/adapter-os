@@ -2,6 +2,7 @@ use crate::auth::Claims;
 use crate::middleware::require_any_role;
 use crate::state::AppState;
 use crate::types::*;
+use adapteros_db::process_monitoring::{AnomalyFilters, AnomalyStatus};
 use adapteros_db::users::Role;
 use adapteros_system_metrics::monitoring_types::{
     AcknowledgeAlertRequest, AlertResponse, CreateMonitoringRuleApiRequest, MonitoringRuleResponse,
@@ -141,16 +142,63 @@ pub async fn acknowledge_process_alert(
     )
 )]
 pub async fn list_process_anomalies(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
-    Query(_params): Query<HashMap<String, String>>,
+    Query(params): Query<HashMap<String, String>>,
 ) -> Result<Json<Vec<ProcessAnomalyResponse>>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
 
-    Err((
-        StatusCode::NOT_IMPLEMENTED,
-        Json(ErrorResponse::new("Endpoint not yet implemented").with_code("NOT_IMPLEMENTED")),
-    ))
+    let filters = AnomalyFilters {
+        tenant_id: params.get("tenant_id").cloned(),
+        worker_id: params.get("worker_id").cloned(),
+        status: params
+            .get("status")
+            .map(|s| AnomalyStatus::from_string(s.to_string())),
+        anomaly_type: params.get("anomaly_type").cloned(),
+        start_time: None,
+        end_time: None,
+        limit: params.get("limit").and_then(|s| s.parse::<i64>().ok()),
+    };
+
+    let anomalies =
+        adapteros_db::process_monitoring::ProcessAnomaly::list(state.db.pool(), filters)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("database error")
+                            .with_code("DATABASE_ERROR")
+                            .with_string_details(e.to_string()),
+                    ),
+                )
+            })?;
+
+    let response: Vec<ProcessAnomalyResponse> = anomalies
+        .into_iter()
+        .map(|a| ProcessAnomalyResponse {
+            id: a.id,
+            worker_id: a.worker_id,
+            tenant_id: a.tenant_id,
+            anomaly_type: a.anomaly_type,
+            metric_name: a.metric_name,
+            detected_value: a.detected_value,
+            expected_range_min: a.expected_range_min,
+            expected_range_max: a.expected_range_max,
+            confidence_score: a.confidence_score,
+            severity: a.severity.to_string(),
+            description: a.description,
+            detection_method: a.detection_method,
+            model_version: a.model_version,
+            status: a.status.to_string(),
+            investigated_by: a.investigated_by,
+            investigation_notes: a.investigation_notes,
+            resolved_at: a.resolved_at.map(|dt| dt.to_rfc3339()),
+            created_at: a.created_at.to_rfc3339(),
+        })
+        .collect();
+
+    Ok(Json(response))
 }
 
 /// Update process anomaly status

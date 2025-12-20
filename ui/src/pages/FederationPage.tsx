@@ -6,7 +6,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { apiClient } from '@/api/client';
+import { apiClient } from '@/api/services';
 import { FederationStatusResponse, FederationAuditResponse, QuarantineStatusResponse, PeerListResponse } from '@/api/federation-types';
 import { useDensity } from '@/contexts/DensityContext';
 import { PeerSyncStatusCard } from '@/components/federation/PeerSyncStatusCard';
@@ -14,6 +14,7 @@ import { derivePeerSyncInfoList } from '@/utils/peerSync';
 import { DensityControls } from '@/components/ui/density-controls';
 import { useRBAC } from '@/hooks/security/useRBAC';
 import { ErrorRecovery, errorRecoveryTemplates } from '@/components/ui/error-recovery';
+import { PermissionDenied } from '@/components/ui/permission-denied';
 import { GlossaryTooltip } from '@/components/ui/glossary-tooltip';
 import { usePolling } from '@/hooks/realtime/usePolling';
 import { RefreshCw, ShieldAlert, CheckCircle, AlertTriangle, Server, Activity } from 'lucide-react';
@@ -451,9 +452,9 @@ function FederationPageInner() {
         maxWidth="xl"
         contentPadding="default"
       >
-        <ErrorRecovery
-          error="You do not have permission to view federation status. This page requires federation:view or audit:view permission."
-          onRetry={() => window.location.reload()}
+        <PermissionDenied
+          requiredPermission="federation:view"
+          requiredRoles={['admin', 'sre', 'compliance', 'developer']}
         />
       </PageWrapper>
     );

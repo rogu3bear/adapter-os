@@ -25,7 +25,7 @@ import { toast } from 'sonner';
 // Mock API client
 const mockUnloadBaseModel = vi.fn();
 
-vi.mock('@/api/client', () => ({
+vi.mock('@/api/services', () => ({
   __esModule: true,
   default: {
     unloadBaseModel: (...args: unknown[]) => mockUnloadBaseModel(...args),

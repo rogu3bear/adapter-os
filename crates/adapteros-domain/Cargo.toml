@@ -1,6 +1,6 @@
 [package]
 name = "adapteros-domain"
-version = "0.1.0"
+version.workspace = true
 edition = "2021"
 authors = ["AdapterOS Team"]
 description = "Domain-specific adapter layer for AdapterOS with deterministic execution"

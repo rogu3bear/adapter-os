@@ -34,7 +34,10 @@ class ProcessRunner: ObservableObject {
                          userInfo: [NSLocalizedDescriptionKey: "Bootstrap script not found at \(scriptPath)"])
         }
         
-        let checkpointFile = "/tmp/adapteros_install.state"
+        let checkpointDir = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/AdapterOS/installer", isDirectory: true)
+        try? FileManager.default.createDirectory(at: checkpointDir, withIntermediateDirectories: true)
+        let checkpointFile = checkpointDir.appendingPathComponent("adapteros_install.state").path
         let modeArg = mode.rawValue
         let airGappedArg = airGapped ? "true" : "false"
         let jsonArg = "true"
@@ -165,4 +168,3 @@ class ProcessRunner: ObservableObject {
         }
     }
 }
-

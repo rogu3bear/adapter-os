@@ -11,6 +11,12 @@ use tokenizers::models::wordlevel::WordLevel;
 use tokenizers::pre_tokenizers::whitespace::Whitespace;
 use tokenizers::Tokenizer;
 
+fn new_temp_file() -> NamedTempFile {
+    let temp_root = std::path::PathBuf::from("var/tmp");
+    std::fs::create_dir_all(&temp_root).unwrap();
+    NamedTempFile::new_in(&temp_root).expect("Failed to create temp file")
+}
+
 fn fixture_tokenizer() -> Arc<Tokenizer> {
     let vocab = [("[UNK]".to_string(), 0u32), ("[PAD]".to_string(), 1u32)]
         .into_iter()
@@ -42,7 +48,7 @@ This section provides additional details and specifications.
 "#;
 
     // Write to temp file
-    let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
+    let mut temp_file = new_temp_file();
     temp_file
         .write_all(markdown_content.as_bytes())
         .expect("Failed to write markdown");
@@ -69,7 +75,7 @@ fn test_training_data_generation() {
     // Create a simple test document
     let markdown_content = "This is a test document. It contains multiple sentences. Each sentence provides some information.";
 
-    let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
+    let mut temp_file = new_temp_file();
     temp_file
         .write_all(markdown_content.as_bytes())
         .expect("Failed to write markdown");
@@ -143,7 +149,7 @@ fn test_embedding_generation() {
 async fn test_rag_preparation() {
     let markdown_content = "# RAG Test\n\nThis document will be indexed for RAG retrieval.";
 
-    let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
+    let mut temp_file = new_temp_file();
     temp_file
         .write_all(markdown_content.as_bytes())
         .expect("Failed to write markdown");

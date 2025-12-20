@@ -24,7 +24,7 @@ const mockGetAdapterEvidence = vi.fn();
 const mockCreateEvidence = vi.fn();
 const mockDeleteEvidence = vi.fn();
 
-vi.mock('@/api/client', () => ({
+vi.mock('@/api/services', () => ({
   apiClient: {
     listEvidence: (...args: unknown[]) => mockListEvidence(...args),
     getEvidence: (...args: unknown[]) => mockGetEvidence(...args),

@@ -8,6 +8,12 @@ mod tests {
     use tempfile::TempDir;
     use std::collections::HashMap;
 
+    fn new_test_tempdir() -> TempDir {
+        let root = std::path::PathBuf::from("var").join("tmp");
+        std::fs::create_dir_all(&root).expect("create var/tmp");
+        TempDir::new_in(&root).expect("tempdir")
+    }
+
     fn create_test_adapter() -> SingleFileAdapter {
         // Create v2 format weights with positive/negative groups
         let weights = AdapterWeights {
@@ -74,7 +80,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_aos_create_and_load() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let aos_path = temp_dir.path().join("test.aos");
         
         // Create test adapter
@@ -97,7 +103,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_aos_validation() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let aos_path = temp_dir.path().join("test.aos");
         
         // Create and save test adapter
@@ -125,7 +131,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_aos_missing_file() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let aos_path = temp_dir.path().join("nonexistent.aos");
         
         let result = SingleFileAdapterValidator::validate(&aos_path).await.unwrap();
@@ -135,7 +141,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_aos_signature_verification() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let aos_path = temp_dir.path().join("signed_test.aos");
         
         // Create and sign adapter
@@ -159,7 +165,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_aos_signature_tamper_detection() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let aos_path = temp_dir.path().join("tampered_test.aos");
         
         // Create and sign adapter
@@ -176,7 +182,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_aos_compression_levels() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         
         let adapter = create_test_adapter();
         
@@ -206,7 +212,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_aos_manifest_only_load() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let aos_path = temp_dir.path().join("manifest_test.aos");
         
         // Create and save adapter
@@ -225,7 +231,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_aos_component_extraction() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let aos_path = temp_dir.path().join("component_test.aos");
         
         // Create and save adapter
@@ -257,7 +263,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_aos_skip_verification() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let aos_path = temp_dir.path().join("skip_verify_test.aos");
         
         // Create and save adapter
@@ -279,7 +285,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_format_detection() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         
         // Test ZIP format detection
         let zip_path = temp_dir.path().join("test.zip.aos");
@@ -300,7 +306,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_aos2_create_and_load() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let aos2_path = temp_dir.path().join("test.aos2");
         
         // Create test adapter
@@ -324,7 +330,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_format_conversion() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let zip_path = temp_dir.path().join("test.zip.aos");
         let aos2_path = temp_dir.path().join("test.aos2");
         

@@ -6,7 +6,14 @@ use adapteros_lora_worker::training::{
     CheckpointManager, EarlyStopping, EarlyStoppingConfig, LRScheduleType, LRScheduler,
     LRSchedulerConfig, LoRAWeights, MicroLoRATrainer, TrainingConfig, TrainingExample,
 };
+use adapteros_platform::common::PlatformUtils;
 use tempfile::TempDir;
+
+fn new_test_tempdir() -> TempDir {
+    let root = PlatformUtils::temp_dir();
+    std::fs::create_dir_all(&root).expect("create var/tmp");
+    TempDir::new_in(&root).expect("create temp dir")
+}
 
 /// Test T8: Learning rate schedules work correctly
 #[test]
@@ -88,7 +95,7 @@ fn test_early_stopping() {
 /// Test T11: Checkpoint saving and loading
 #[tokio::test]
 async fn test_checkpoint_save_load() {
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = new_test_tempdir();
 
     let config = TrainingConfig::default();
     let weights = LoRAWeights {
@@ -126,7 +133,7 @@ async fn test_checkpoint_save_load() {
 /// Test T11: Checkpoint resumption
 #[tokio::test]
 async fn test_checkpoint_resumption() {
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = new_test_tempdir();
     let manager = CheckpointManager::new(temp_dir.path(), 1, 5, "resume-test".to_string());
 
     let config = TrainingConfig::default();
@@ -312,7 +319,7 @@ fn test_early_stopping_min_delta() {
 /// Test checkpoint manager cleanup
 #[tokio::test]
 async fn test_checkpoint_cleanup() {
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = new_test_tempdir();
     let manager = CheckpointManager::new(temp_dir.path(), 1, 3, "cleanup-test".to_string());
 
     let config = TrainingConfig::default();

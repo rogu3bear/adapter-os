@@ -259,7 +259,8 @@ async fn resolve_version_prefers_active_then_ready_and_supports_selectors() -> R
     let active_id =
         create_promotable_version(&db, &tenant_id, &repo_id, "main", "1.0.1", "active").await;
     let tag_id =
-        create_promotable_version(&db, &tenant_id, &repo_id, "dev", "2.0.0-dev", "deprecated").await;
+        create_promotable_version(&db, &tenant_id, &repo_id, "dev", "2.0.0-dev", "deprecated")
+            .await;
 
     let resolved_branch = db
         .resolve_adapter_version(&tenant_id, &repo_id, Some("main"))

@@ -10,7 +10,7 @@ import {
   FROST_BACKGROUND,
   FROST_OVERLAY,
   CLOSE_BUTTON_BASE,
-} from "./utils";
+} from "@/lib/utils";
 
 function Sheet({ ...props }: React.ComponentProps<typeof SheetPrimitive.Root>) {
   return <SheetPrimitive.Root data-slot="sheet" {...props} />;

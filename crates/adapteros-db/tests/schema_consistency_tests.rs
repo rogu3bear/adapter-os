@@ -149,7 +149,7 @@ async fn test_adapter_insert_statement_valid() -> Result<()> {
         .alpha(16.0)
         .category("code")
         .scope("global")
-        .aos_file_path(Some("/tmp/test.aos")) // Set explicit path for validation
+        .aos_file_path(Some("var/test-adapters/test.aos")) // Set explicit path for validation
         .adapter_name(Some("test/code/review/r001")) // Set explicit semantic name
         .build()?;
 
@@ -170,7 +170,7 @@ async fn test_adapter_insert_statement_valid() -> Result<()> {
     let aos_path: Option<String> = row.get("aos_file_path");
     let adapter_name: Option<String> = row.get("adapter_name");
 
-    assert_eq!(aos_path, Some("/tmp/test.aos".to_string()));
+    assert_eq!(aos_path, Some("var/test-adapters/test.aos".to_string()));
     assert_eq!(adapter_name, Some("test/code/review/r001".to_string()));
 
     println!("✓ INSERT statement successfully populates all schema columns");

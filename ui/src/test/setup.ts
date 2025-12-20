@@ -155,23 +155,45 @@ try {
 } catch {}
 
 // Safe default api client mock for providers/components
-const defaultApiMock = {
-  getToken: vi.fn(() => null),
-  setToken: vi.fn(),
-  getCurrentUser: vi.fn().mockResolvedValue({ user_id: 'u-test', email: 'test@example.com', role: 'viewer' }),
-  login: vi.fn(),
-  logout: vi.fn(),
-  listTenants: vi.fn().mockResolvedValue([]),
-  getSystemMetrics: vi.fn().mockResolvedValue(null),
-  subscribeToMetrics: vi.fn(() => () => {}),
-  getTelemetryEvents: vi.fn().mockResolvedValue([]),
-  getRecentActivityEvents: vi.fn().mockResolvedValue([]),
-  listActivityEvents: vi.fn().mockResolvedValue([]),
-  subscribeToActivity: vi.fn(() => () => {}),
-  listAlerts: vi.fn().mockResolvedValue([]),
-  subscribeToAlerts: vi.fn(() => () => {}),
-  getStatus: vi.fn().mockResolvedValue({ status: 'healthy', services: {} }),
+// Uses Proxy to return a mock function for any method access
+const createApiMock = () => {
+  const methodCache: Record<string, ReturnType<typeof vi.fn>> = {};
+
+  // Pre-defined mocks with specific behavior
+  const predefinedMocks: Record<string, ReturnType<typeof vi.fn>> = {
+    getToken: vi.fn(() => null),
+    setToken: vi.fn(),
+    getCurrentUser: vi.fn().mockResolvedValue({ user_id: 'u-test', email: 'test@example.com', role: 'viewer' }),
+    login: vi.fn(),
+    logout: vi.fn(),
+    listTenants: vi.fn().mockResolvedValue([]),
+    getSystemMetrics: vi.fn().mockResolvedValue(null),
+    subscribeToMetrics: vi.fn(() => () => {}),
+    getTelemetryEvents: vi.fn().mockResolvedValue([]),
+    getRecentActivityEvents: vi.fn().mockResolvedValue([]),
+    listActivityEvents: vi.fn().mockResolvedValue([]),
+    subscribeToActivity: vi.fn(() => () => {}),
+    listAlerts: vi.fn().mockResolvedValue([]),
+    subscribeToAlerts: vi.fn(() => () => {}),
+    getStatus: vi.fn().mockResolvedValue({ status: 'healthy', services: {} }),
+  };
+
+  return new Proxy({} as Record<string, unknown>, {
+    get(_target, prop: string) {
+      if (prop in predefinedMocks) {
+        return predefinedMocks[prop];
+      }
+      // Create a mock function on first access and cache it
+      if (!(prop in methodCache)) {
+        methodCache[prop] = vi.fn().mockResolvedValue(undefined);
+      }
+      return methodCache[prop];
+    },
+  });
 };
 
-vi.mock('@/api/client', () => ({ __esModule: true, default: defaultApiMock, apiClient: defaultApiMock }));
+const defaultApiMock = createApiMock();
+
+vi.mock('@/api/client', () => ({ __esModule: true, ApiClient: vi.fn(() => createApiMock()) }));
+vi.mock('@/api/services', () => ({ __esModule: true, default: defaultApiMock, apiClient: defaultApiMock }));
 // Note: allow test files to mock '../api/client' themselves

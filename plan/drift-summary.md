@@ -1,10 +1,10 @@
 # Drift Summary (Documentation Updated)
 
-**Status:** Partial documentation update - only path security documentation corrected. Code gaps remain unaddressed.
+**Status:** Path security rectified (code + docs). Other documented gaps may remain.
 
 ## Implementation Status (Accurate as of 2025-12-13)
 
-- **Path Security (✅ RESOLVED)**: `/tmp` rejection implemented for telemetry/manifest-cache/adapters/db/index-root resolvers with unit tests
+- **Path Security (✅ RESOLVED)**: `/tmp` + `/private/tmp` rejected for persisted runtime state (telemetry/manifest-cache/adapters/db/index-root/model-cache/status + dataset/document roots) with unit tests
 - **Telemetry (✅ MATCH)**: Tenant context validation implemented and documented
 - **Routing/Policy (✅ MATCH)**: Q15 denominator locked (32767), policy hooks validated for live/replay parity
 - **Tenant Isolation (❌ GAP)**: Handler validation implemented; adapter lifecycle DB queries lack tenant scoping (`get_adapter()`, `find_expired_adapters()`, `list_adapters()` allow cross-tenant access)

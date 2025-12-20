@@ -7,6 +7,13 @@
 
 use std::collections::HashMap;
 use serde_json::json;
+use std::path::PathBuf;
+
+fn test_temp_root() -> PathBuf {
+    let root = PathBuf::from("var/tmp");
+    let _ = std::fs::create_dir_all(&root);
+    root
+}
 
 /// Standard test repositories for different tenants
 pub struct TestRepositories;
@@ -14,7 +21,7 @@ pub struct TestRepositories;
 impl TestRepositories {
     /// Get repository configuration for tenant A
     pub fn tenant_a() -> serde_json::Value {
-        let temp_dir = std::env::temp_dir();
+        let temp_dir = test_temp_root();
         json!({
             "repo_id": "tenant-a/test-repo",
             "path": temp_dir.join("tenant-a-repo").to_string_lossy(),
@@ -25,7 +32,7 @@ impl TestRepositories {
 
     /// Get repository configuration for tenant B
     pub fn tenant_b() -> serde_json::Value {
-        let temp_dir = std::env::temp_dir();
+        let temp_dir = test_temp_root();
         json!({
             "repo_id": "tenant-b/test-repo",
             "path": temp_dir.join("tenant-b-repo").to_string_lossy(),
@@ -36,7 +43,7 @@ impl TestRepositories {
 
     /// Get repository configuration for tenant C
     pub fn tenant_c() -> serde_json::Value {
-        let temp_dir = std::env::temp_dir();
+        let temp_dir = test_temp_root();
         json!({
             "repo_id": "tenant-c/test-repo",
             "path": temp_dir.join("tenant-c-repo").to_string_lossy(),

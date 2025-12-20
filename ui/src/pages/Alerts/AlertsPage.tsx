@@ -1,3 +1,11 @@
+/**
+ * @deprecated ORPHAN PAGE - Not routed in routes.ts
+ * This page exists but has no corresponding route.
+ * Alerts are available via /telemetry/alerts instead.
+ *
+ * TODO: Either add a route or delete this file.
+ * Audit date: 2025-12-19
+ */
 // 【ui/src/components/AlertsPage.tsx§131-134】 - Replace manual polling with standardized hook
 import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -26,7 +34,7 @@ import {
   Target,
   Zap
 } from 'lucide-react';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { SystemMetrics } from '@/api/types';
 import { toast } from 'sonner';
 

@@ -81,10 +81,13 @@ impl SupervisorClient {
 
     /// Create a new supervisor client from environment variable
     ///
-    /// Reads `SUPERVISOR_API_URL` environment variable, defaults to `http://localhost:3301`
+    /// Reads `SUPERVISOR_API_URL` environment variable, or constructs URL from `AOS_PANEL_PORT`
     pub fn from_env() -> Self {
-        let base_url = std::env::var("SUPERVISOR_API_URL")
-            .unwrap_or_else(|_| "http://localhost:3301".to_string());
+        let base_url = std::env::var("SUPERVISOR_API_URL").unwrap_or_else(|_| {
+            // Respect AOS_PANEL_PORT for port offset strategy
+            let port = std::env::var("AOS_PANEL_PORT").unwrap_or_else(|_| "3301".to_string());
+            format!("http://localhost:{}", port)
+        });
         Self::new(base_url)
     }
 

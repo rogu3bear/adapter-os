@@ -4,14 +4,13 @@ import userEvent from '@testing-library/user-event';
 import { TraceTokenTable } from '@/components/trace/TraceTokenTable';
 import type { TraceResponseV1 } from '@/api/types';
 
-// Mock clipboard API
 const mockWriteText = vi.fn();
-Object.defineProperty(navigator, 'clipboard', {
-  writable: true,
-  value: {
-    writeText: mockWriteText,
-  },
-});
+
+function setupUser() {
+  const user = userEvent.setup();
+  navigator.clipboard.writeText = mockWriteText as unknown as Clipboard['writeText'];
+  return user;
+}
 
 const mockTokens: TraceResponseV1['tokens'] = [
   {
@@ -92,7 +91,7 @@ describe('TraceTokenTable', () => {
 
   it('displays adapter IDs with gates', () => {
     render(<TraceTokenTable tokens={mockTokens} />);
-    expect(screen.getByText(/adapter-1 · 16384/)).toBeInTheDocument();
+    expect(screen.getAllByText(/adapter-1 · 16384/)).toHaveLength(2);
     expect(screen.getByText(/adapter-2 · 8192/)).toBeInTheDocument();
     expect(screen.getByText(/adapter-2 · 32767/)).toBeInTheDocument();
   });
@@ -130,8 +129,7 @@ describe('TraceTokenTable', () => {
   });
 
   it('copies decision hash to clipboard when copy button is clicked', async () => {
-    const user = userEvent.setup();
-    mockWriteText.mockImplementation(() => {});
+    const user = setupUser();
     render(<TraceTokenTable tokens={mockTokens} />);
 
     const copyButtons = screen.getAllByLabelText('Copy decision hash');
@@ -141,8 +139,7 @@ describe('TraceTokenTable', () => {
   });
 
   it('copies policy mask digest to clipboard when copy button is clicked', async () => {
-    const user = userEvent.setup();
-    mockWriteText.mockImplementation(() => {});
+    const user = setupUser();
     render(<TraceTokenTable tokens={mockTokens} />);
 
     const copyButtons = screen.getAllByLabelText('Copy policy mask digest');

@@ -617,39 +617,55 @@ async fn spawn_worker_process(tenant_id: &str, db_path: &std::path::Path) -> Res
         .ok_or_else(|| AosError::Worker("No parent directory for executable".to_string()))?
         .join("aos-worker");
 
-    // Check if worker binary exists, fall back to current process for testing
-    let (binary, args) = if worker_binary.exists() {
-        (
-            worker_binary,
-            vec![
-                "--tenant".to_string(),
-                tenant_id.to_string(),
-                "--db".to_string(),
-                db_path.display().to_string(),
-            ],
-        )
-    } else {
-        // For testing/development, spawn a placeholder process
-        debug!("Worker binary not found, using placeholder process");
-        (
-            std::path::PathBuf::from("sleep"),
-            vec!["3600".to_string()], // Sleep for 1 hour as placeholder
-        )
-    };
+    if !worker_binary.exists() {
+        // Debug-only bypass for testing
+        let allow_placeholder =
+            cfg!(debug_assertions) && std::env::var("AOS_WORKER_PLACEHOLDER_OK").is_ok();
 
-    let child = Command::new(&binary).args(&args).spawn().map_err(|e| {
-        AosError::Worker(format!(
-            "Failed to spawn worker process {}: {}",
-            binary.display(),
-            e
-        ))
-    })?;
+        if allow_placeholder {
+            warn!(
+                "Worker binary not found at {}, using placeholder (AOS_WORKER_PLACEHOLDER_OK set)",
+                worker_binary.display()
+            );
+            let child = Command::new("sleep")
+                .args(["3600"])
+                .spawn()
+                .map_err(|e| AosError::Worker(format!("Failed to spawn placeholder: {}", e)))?;
+            return Ok(child.id());
+        }
+
+        // Production: hard fail with actionable message
+        error!(
+            binary_path = %worker_binary.display(),
+            "Worker binary not found. Build with: cargo build --release -p adapteros-lora-worker"
+        );
+        return Err(AosError::Worker(format!(
+            "Worker binary not found at {}. Build with: cargo build --release -p adapteros-lora-worker",
+            worker_binary.display()
+        )));
+    }
+
+    let child = Command::new(&worker_binary)
+        .args([
+            "--tenant",
+            tenant_id,
+            "--db",
+            &db_path.display().to_string(),
+        ])
+        .spawn()
+        .map_err(|e| {
+            AosError::Worker(format!(
+                "Failed to spawn worker process {}: {}",
+                worker_binary.display(),
+                e
+            ))
+        })?;
 
     let pid = child.id();
     info!(
         tenant = tenant_id,
         pid = pid,
-        binary = %binary.display(),
+        binary = %worker_binary.display(),
         "Spawned worker process"
     );
 
@@ -659,11 +675,18 @@ async fn spawn_worker_process(tenant_id: &str, db_path: &std::path::Path) -> Res
 #[cfg(test)]
 mod tests {
     use super::*;
+    use adapteros_platform::common::PlatformUtils;
     use tempfile::TempDir;
+
+    fn new_test_tempdir() -> TempDir {
+        let root = PlatformUtils::temp_dir();
+        std::fs::create_dir_all(&root).expect("create var/tmp");
+        TempDir::new_in(&root).expect("tempdir")
+    }
 
     #[tokio::test]
     async fn test_supervisor_creation() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let db_path = temp_dir.path().join("test.db");
 
         let config = SupervisorConfig {
@@ -677,7 +700,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_worker_registration() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let db_path = temp_dir.path().join("test.db");
 
         let config = SupervisorConfig {
@@ -716,7 +739,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_worker_crash_and_restart() {
-        let temp_dir = TempDir::new().unwrap();
+        // Enable placeholder worker for testing
+        std::env::set_var("AOS_WORKER_PLACEHOLDER_OK", "1");
+
+        let temp_dir = new_test_tempdir();
         let db_path = temp_dir.path().join("test.db");
 
         let config = SupervisorConfig {
@@ -734,6 +760,9 @@ mod tests {
             .handle_worker_crash("test-tenant", "simulated crash")
             .await
             .unwrap();
+
+        // Clean up
+        std::env::remove_var("AOS_WORKER_PLACEHOLDER_OK");
 
         // Worker should be restarted and healthy
         let status = supervisor.get_worker_status("test-tenant").await;

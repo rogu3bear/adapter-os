@@ -6,7 +6,7 @@ use tempfile::TempDir;
 
 #[tokio::test]
 async fn test_state_persistence() {
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = TempDir::new_in(".").unwrap();
     let manager = StateManager::new(temp_dir.path().to_path_buf());
 
     let mut state = DownloadState::new(
@@ -19,7 +19,11 @@ async fn test_state_persistence() {
         "model.safetensors".to_string(),
         "https://example.com/model.safetensors".to_string(),
         1000,
-        "/tmp/model.partial".to_string(),
+        temp_dir
+            .path()
+            .join("model.partial")
+            .to_string_lossy()
+            .to_string(),
         "/models/model.safetensors".to_string(),
     ));
 
@@ -37,7 +41,7 @@ async fn test_state_persistence() {
 
 #[tokio::test]
 async fn test_crash_recovery() {
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = TempDir::new_in(".").unwrap();
     let manager = StateManager::new(temp_dir.path().to_path_buf());
 
     // Simulate incomplete download
@@ -50,7 +54,11 @@ async fn test_crash_recovery() {
         "model.bin".to_string(),
         "https://example.com/model.bin".to_string(),
         1000,
-        "/tmp/model.partial".to_string(),
+        temp_dir
+            .path()
+            .join("model.partial")
+            .to_string_lossy()
+            .to_string(),
         "/models/model.bin".to_string(),
     ));
     manager.save_state(&state1).await.unwrap();
@@ -65,7 +73,11 @@ async fn test_crash_recovery() {
         "model.bin".to_string(),
         "https://example.com/model.bin".to_string(),
         1000,
-        "/tmp/model.partial".to_string(),
+        temp_dir
+            .path()
+            .join("model.partial")
+            .to_string_lossy()
+            .to_string(),
         "/models/model.bin".to_string(),
     ));
     state2
@@ -81,7 +93,7 @@ async fn test_crash_recovery() {
 
 #[tokio::test]
 async fn test_stale_cleanup() {
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = TempDir::new_in(".").unwrap();
     let manager = StateManager::new(temp_dir.path().to_path_buf());
 
     // Create old state

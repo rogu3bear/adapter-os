@@ -41,10 +41,8 @@ pub async fn run(tier: Option<&str>, include_meta: bool, output: &OutputWriter) 
         }
 
         // Convert to AdapterMeta
-        let adapter_metas: Vec<AdapterMeta> = adapter_records
-            .into_iter()
-            .map(|record| AdapterMeta::from(record))
-            .collect();
+        let adapter_metas: Vec<AdapterMeta> =
+            adapter_records.into_iter().map(AdapterMeta::from).collect();
 
         // Create response with schema version
         let response = AdapterListResponse {
@@ -66,7 +64,7 @@ pub async fn run(tier: Option<&str>, include_meta: bool, output: &OutputWriter) 
     // Filter adapters if tier is specified
     let filtered: Vec<_> = adapters
         .into_iter()
-        .filter(|adapter| tier.map_or(true, |ft| adapter.tier == ft))
+        .filter(|adapter| tier.is_none_or(|ft| adapter.tier == ft))
         .collect();
 
     if filtered.is_empty() {

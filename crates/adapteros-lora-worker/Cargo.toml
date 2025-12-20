@@ -60,6 +60,9 @@ adapteros-single-file-adapter = { path = "../adapteros-single-file-adapter" }
 adapteros-platform = { path = "../adapteros-platform" }
 adapteros-types = { path = "../adapteros-types" }
 adapteros-api-types = { path = "../adapteros-api-types" }
+adapteros-boot = { path = "../adapteros-boot" }
+lru = "0.12"
+ed25519-dalek = { workspace = true }
 # adapteros-lint = { path = "../adapteros-lint" }  # Temporarily disabled due to dependency issues
 tokio = { workspace = true }
 serde = { workspace = true }

@@ -15,6 +15,7 @@ import {
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
 import { ProofBar } from '@/components/receipts/ProofBar';
+import { buildTelemetryTraceLink } from '@/utils/navLinks';
 
 interface RunReceiptPanelProps {
   response: InferResponse | null;
@@ -70,7 +71,7 @@ export function RunReceiptPanel({
       toast.error('Trace ID is unavailable');
       return;
     }
-    navigate(`/telemetry?tab=viewer&requestId=${encodeURIComponent(receipt.trace_id)}`);
+    navigate(buildTelemetryTraceLink(receipt.trace_id));
   };
 
   const handleExportEvidence = () => {

@@ -1,7 +1,7 @@
 //! Policy-Based Cryptographic Enforcement
 //!
 //! Enforces cryptographic policies for all operations, integrated with
-//! AdapterOS's 23 canonical policy packs.
+//! AdapterOS's 25 canonical policy packs.
 //!
 //! ## Policy Categories
 //! - **Algorithm Policies**: Approved/banned algorithms

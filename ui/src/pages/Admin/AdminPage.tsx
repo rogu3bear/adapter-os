@@ -1,3 +1,11 @@
+/**
+ * @deprecated DUPLICATE PAGE - Naming conflict with pages/AdminPage.tsx
+ * Routes use pages/AdminPage.tsx, not this file.
+ * This appears to be an alternative tabbed admin interface.
+ *
+ * TODO: Rename to AdminTabsPage.tsx or merge with pages/AdminPage.tsx
+ * Audit date: 2025-12-19
+ */
 import { useState } from 'react';
 import { useTenant } from '@/providers/FeatureProviders';
 import FeatureLayout from '@/layout/FeatureLayout';

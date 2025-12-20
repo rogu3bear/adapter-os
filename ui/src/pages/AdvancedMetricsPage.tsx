@@ -13,7 +13,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { DateRangePicker, type DateRange } from '@/components/ui/date-range-picker';
-import { apiClient } from '@/api/client';
+import { apiClient } from '@/api/services';
 import { DensityProvider, useDensity } from '@/contexts/DensityContext';
 import { DensityControls } from '@/components/ui/density-controls';
 import { useRBAC } from '@/hooks/security/useRBAC';

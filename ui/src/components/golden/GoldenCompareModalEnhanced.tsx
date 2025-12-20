@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { GoldenCompareRequest, Strictness, VerificationReport, LayerDivergence } from '@/api/types';
 import { errorRecoveryTemplates } from '@/components/ui/error-recovery';
 import { EpsilonHeatmap } from './EpsilonHeatmap';

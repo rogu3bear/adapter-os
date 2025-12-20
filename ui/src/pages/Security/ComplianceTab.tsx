@@ -29,6 +29,7 @@ import { useComplianceAudit } from '@/hooks/security/useSecurity';
 import { ErrorRecovery } from '@/components/ui/error-recovery';
 import type { ComplianceControl, PolicyViolationRecord } from '@/api/types';
 import { Link } from 'react-router-dom';
+import { buildReplayLink } from '@/utils/navLinks';
 
 export function ComplianceTab() {
   const { complianceAudit, isLoading, error, refetch } = useComplianceAudit();
@@ -155,7 +156,7 @@ export function ComplianceTab() {
       {/* Action Bar */}
       <div className="flex items-center justify-end gap-2">
         <Button variant="outline" size="sm" asChild>
-          <Link to="/replay#runs">Open related replay</Link>
+          <Link to={buildReplayLink('runs')}>Open related replay</Link>
         </Button>
         <Button variant="outline" size="sm" onClick={() => refetch()}>
           <RefreshCw className="h-4 w-4 mr-2" />

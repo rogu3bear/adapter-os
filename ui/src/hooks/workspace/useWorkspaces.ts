@@ -9,7 +9,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { logger, toError } from '@/utils/logger';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { Workspace, WorkspaceMember, WorkspaceResource, CreateWorkspaceRequest, AddWorkspaceMemberRequest } from '@/api/types';
 
 export interface UseWorkspacesOptions {

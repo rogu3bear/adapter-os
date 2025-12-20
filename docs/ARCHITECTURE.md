@@ -20,7 +20,12 @@
 
 ## System Overview
 
-AdapterOS is an ML inference platform powered by **LORAX (Low Rank Adapter Exchange)** — an offline-capable, UMA-optimized orchestration layer for multi-LoRA systems on Apple Silicon.
+AdapterOS is an ML inference platform with an offline-capable, UMA-optimized orchestration layer for multi-LoRA systems on Apple Silicon.
+
+### Core Technologies
+
+- **DIR (Deterministic Inference Runtime)**: The core execution engine that ensures reproducible, auditable inference with token-level determinism
+- **TAS (Token Artifact System)**: Transforms inference outputs into persistent, reusable artifacts that can be referenced and composed
 
 ### Key Characteristics
 
@@ -386,7 +391,7 @@ The control plane (`adapteros-server`) is the orchestration hub for AdapterOS.
 **Responsibilities:**
 - HTTP API server (port 8080)
 - Authentication and authorization (JWT + RBAC)
-- Policy enforcement (24 policy packs)
+- Policy enforcement (25 policy packs)
 - Training orchestration
 - Worker management
 - Telemetry indexing
@@ -728,6 +733,67 @@ User Prompt (text)
     ↓
 [8] Build InferenceResponse with trace
 ```
+
+---
+
+### Token Accounting and Cache Credits
+
+AdapterOS distinguishes **logical tokens** (total processed) from **billed tokens** (charged to user), crediting cache-reused computation.
+
+```mermaid
+flowchart TD
+    subgraph "Token Accounting Flow"
+        subgraph "Input Side"
+            A["User sends prompt"]
+            B["Tokenized: logical_prompt_tokens"]
+            C["Prefix cache lookup"]
+            D{"Cache hit?"}
+            E["prefix_cached_token_count"]
+            F["billed_input = logical - cached"]
+        end
+        
+        subgraph "Output Side"
+            G["Generation loop runs"]
+            H["logical_output_tokens"]
+            I["billed_output_tokens"]
+        end
+        
+        subgraph "Receipt"
+            J["All 5 values committed"]
+            K["BLAKE3 hash binding"]
+            L["Verifiable proof"]
+        end
+    end
+    
+    A --> B --> C --> D
+    D -->|Yes| E --> F
+    D -->|No| F
+    F --> G --> H --> I
+    I --> J --> K --> L
+```
+
+**Token Accounting Fields (per inference):**
+
+| Field | Description | Formula |
+|-------|-------------|---------|
+| `logical_prompt_tokens` | Total input tokens in prompt | Count of tokenized input |
+| `prefix_cached_token_count` | Tokens satisfied from cache | From PrefixKvCache lookup |
+| `billed_input_tokens` | Tokens charged for input | `logical - cached` (floor 0) |
+| `logical_output_tokens` | Tokens generated | Count of output tokens |
+| `billed_output_tokens` | Tokens charged for output | Currently equals logical |
+
+**Example - Multi-Turn Conversation:**
+
+| Turn | Logical In | Cached | Billed In | Output | Total Billed |
+|------|------------|--------|-----------|--------|--------------|
+| 1 | 50 | 0 | 50 | 95 | 145 |
+| 2 | 145 | 50 | 95 | 78 | 173 |
+| 3 | 223 | 145 | 78 | 62 | 140 |
+| **Total** | — | **195** | **223** | **235** | **458** |
+
+Without cache credits, the same conversation would bill 653 tokens (30% more).
+
+**Location:** `crates/adapteros-core/src/evidence_envelope.rs`, `crates/adapteros-db/src/inference_trace.rs`
 
 ---
 
@@ -1249,6 +1315,8 @@ sequenceDiagram
 - **[POLICIES.md](POLICIES.md)** - Policy enforcement details
 - **[DATABASE.md](DATABASE.md)** - Database schema reference
 - **[DETERMINISM.md](DETERMINISM.md)** - Determinism and replay guarantees
+- **[VISUAL_GUIDES.md](VISUAL_GUIDES.md)** - Visual guides: comparisons, token flows, diagrams
+- **[replay_spec.md](replay_spec.md)** - Replay harness and verification
 - **[AOS_FORMAT.md](AOS_FORMAT.md)** - Adapter package format specification
 - **[TELEMETRY_EVENTS.md](TELEMETRY_EVENTS.md)** - Event catalog
 - **[AUTHENTICATION.md](AUTHENTICATION.md)** - Authentication details

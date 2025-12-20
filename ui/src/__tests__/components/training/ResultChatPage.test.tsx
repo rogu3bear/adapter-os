@@ -48,7 +48,7 @@ vi.mock('@tanstack/react-query', async () => {
 const mockGetTrainingJob = vi.fn();
 const mockGetChatBootstrap = vi.fn();
 
-vi.mock('@/api/client', () => ({
+vi.mock('@/api/services', () => ({
   __esModule: true,
   default: {
     getTrainingJob: (...args: any[]) => mockGetTrainingJob(...args),

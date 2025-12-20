@@ -16,8 +16,8 @@ import {
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
 import { ChevronDown, ChevronRight, FileText, Check, X, AlertCircle } from 'lucide-react';
-import { cn } from '@/components/ui/utils';
-import { formatBytes } from '@/utils/format';
+import { cn } from '@/lib/utils';
+import { formatBytes } from '@/lib/formatters';
 
 interface DatasetFile {
   id: string;

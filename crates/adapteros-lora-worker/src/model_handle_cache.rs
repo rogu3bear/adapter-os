@@ -1,11 +1,90 @@
-//! Model handle cache for per-worker deduplication
+//! # Model Handle Cache for Per-Worker Deduplication
 //!
 //! This module provides [`ModelHandleCache`], a thread-safe LRU cache that
 //! deduplicates loaded models within a single worker process. Different
 //! backend types (Metal, CoreML, MLX) have different model handle types,
 //! so we use a type-erased [`ModelHandle`] enum.
 //!
-//! # Design Note: Relationship to `adapteros-memory::ModelCache`
+//! ## Eviction Mechanism (4 Blocking Factors)
+//!
+//! The cache uses LRU eviction with 4 factors that can **block** eviction:
+//!
+//! ```text
+//! ┌─────────────────────────────────────────────────────────────────────────────┐
+//! │                      Eviction Decision Flow                                 │
+//! │                                                                             │
+//! │   New model load request (needs N bytes)                                    │
+//! │                     │                                                       │
+//! │                     ▼                                                       │
+//! │   ┌─────────────────────────────────┐                                       │
+//! │   │ current + needed <= max_memory? │──yes──▶ Allow load (no eviction)      │
+//! │   └─────────────────────────────────┘                                       │
+//! │                     │ no                                                    │
+//! │                     ▼                                                       │
+//! │   ┌─────────────────────────────────┐                                       │
+//! │   │ Build eviction candidate list   │                                       │
+//! │   │ (sorted: oldest → least used)   │                                       │
+//! │   └─────────────────────────────────┘                                       │
+//! │                     │                                                       │
+//! │    For each candidate:                                                      │
+//! │                     ▼                                                       │
+//! │   ┌─────────────────────────────────┐                                       │
+//! │   │ 1. Is entry PINNED?             │──yes──▶ Skip (never evict base models)│
+//! │   └─────────────────────────────────┘                                       │
+//! │                     │ no                                                    │
+//! │                     ▼                                                       │
+//! │   ┌─────────────────────────────────┐                                       │
+//! │   │ 2. Is entry ACTIVE?             │──yes──▶ Skip (in-flight inference)    │
+//! │   │    (ActiveGuard held)           │                                       │
+//! │   └─────────────────────────────────┘                                       │
+//! │                     │ no                                                    │
+//! │                     ▼                                                       │
+//! │   ┌─────────────────────────────────┐                                       │
+//! │   │ 3. Re-validate status           │                                       │
+//! │   │    (may have changed)           │──changed──▶ Skip (race condition)     │
+//! │   └─────────────────────────────────┘                                       │
+//! │                     │ unchanged                                             │
+//! │                     ▼                                                       │
+//! │   ┌─────────────────────────────────┐                                       │
+//! │   │ 4. EVICT entry                  │                                       │
+//! │   │    Update stats, notify         │                                       │
+//! │   └─────────────────────────────────┘                                       │
+//! │                     │                                                       │
+//! │                     ▼                                                       │
+//! │   ┌─────────────────────────────────┐                                       │
+//! │   │ freed >= target?                │──yes──▶ Done (load can proceed)       │
+//! │   └─────────────────────────────────┘                                       │
+//! │                     │ no                                                    │
+//! │                     ▼                                                       │
+//! │         Continue to next candidate                                          │
+//! │         (or allow over-limit if exhausted)                                  │
+//! └─────────────────────────────────────────────────────────────────────────────┘
+//! ```
+//!
+//! ## Critical Considerations
+//!
+//! 1. **Pinned entries**: Base models are pinned via `pin()` to prevent eviction
+//!    during adapter churn. This is intentional but can cause memory pressure
+//!    if many base models are pinned simultaneously.
+//!
+//! 2. **Active guards**: `ActiveGuard` RAII prevents eviction during inference.
+//!    If a request holds a guard and another request triggers eviction, the
+//!    active entry is skipped. Ensure guards are released promptly.
+//!
+//! 3. **Race conditions**: Between snapshot and eviction, an entry may become
+//!    pinned or active. The re-validation step (line 769-776) handles this.
+//!
+//! 4. **Over-limit allowed**: If all entries are pinned/active, the cache
+//!    temporarily exceeds `max_memory_bytes`. Monitor `eviction_skip_*` stats.
+//!
+//! ## Observability
+//!
+//! Track these metrics for cache health:
+//! - `eviction_skip_pinned_count`: High = too many pinned bases
+//! - `eviction_skip_active_count`: High = long-running inferences or guard leaks
+//! - `hit_ratio()`: Low = cache thrashing, increase max_memory_bytes
+//!
+//! ## Design Note: Relationship to `adapteros-memory::ModelCache`
 //!
 //! This cache is **intentionally separate** from `ModelCache` in `adapteros-memory`:
 //!
@@ -280,6 +359,11 @@ impl ModelHandleCache {
         *self.telemetry.write() = Some(telemetry);
     }
 
+    /// Get the configured maximum memory budget in bytes
+    pub fn max_memory_bytes(&self) -> u64 {
+        self.max_memory_bytes
+    }
+
     /// Register a lifecycle listener for a specific key.
     pub fn register_listener(&self, key: ModelKey, listener: Arc<dyn CacheEventListener>) {
         self.listeners.write().insert(key, listener);
@@ -399,7 +483,7 @@ impl ModelHandleCache {
             .get_or_load(key.clone(), || {
                 self.load_and_cache_model(&key_clone, loader)
             })
-            .map_err(|e| AosError::Worker(e))?;
+            .map_err(AosError::Worker)?;
 
         Ok(handle)
     }
@@ -602,6 +686,111 @@ impl ModelHandleCache {
         self.pinned_keys.read().len()
     }
 
+    /// Get all currently pinned keys (for diagnostics and leak detection)
+    ///
+    /// This method is useful for monitoring and debugging to identify which
+    /// models are pinned and potentially leaking if not properly unpinned.
+    pub fn pinned_keys(&self) -> Vec<ModelKey> {
+        self.pinned_keys.read().iter().cloned().collect()
+    }
+
+    /// Get memory usage of pinned entries in bytes
+    ///
+    /// This metric helps identify when pinned entries are consuming too much memory.
+    pub fn pinned_memory_bytes(&self) -> u64 {
+        let cache = self.cache.read();
+        let pinned = self.pinned_keys.read();
+        cache
+            .iter()
+            .filter(|(k, _)| pinned.contains(*k))
+            .map(|(_, e)| e.memory_bytes)
+            .sum()
+    }
+
+    /// Report stale pinned entries that may be leaking
+    ///
+    /// Returns entries that have been pinned for longer than the given duration.
+    /// This helps operators identify potential memory leaks where models were
+    /// pinned but never unpinned.
+    pub fn stale_pinned_entries(
+        &self,
+        threshold: std::time::Duration,
+    ) -> Vec<(ModelKey, std::time::Duration)> {
+        let now = Instant::now();
+        let cache = self.cache.read();
+        let pinned = self.pinned_keys.read();
+
+        cache
+            .iter()
+            .filter(|(k, _)| pinned.contains(*k))
+            .filter_map(|(k, e)| {
+                let age = now.duration_since(e.loaded_at);
+                if age > threshold {
+                    Some((k.clone(), age))
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
+    /// Unpin all entries (emergency memory recovery)
+    ///
+    /// # Warning
+    ///
+    /// This should only be used in emergency situations when memory pressure
+    /// is critical. Unpinning base models may cause inference failures if
+    /// they are evicted while adapters depend on them.
+    pub fn unpin_all(&self) -> usize {
+        let mut pinned = self.pinned_keys.write();
+        let count = pinned.len();
+        if count > 0 {
+            tracing::warn!(
+                count = count,
+                "Emergency unpin_all called - all pinned models may now be evicted"
+            );
+            pinned.clear();
+            if let Some(ref m) = self.metrics {
+                m.set_pinned_entries_count(0);
+            }
+        }
+        count
+    }
+
+    /// Unpin and immediately evict all unpinned entries
+    ///
+    /// This is a more aggressive cleanup that first unpins all entries,
+    /// then evicts any that can be evicted. Useful for graceful shutdown
+    /// or memory pressure situations.
+    pub fn cleanup_all(&self) {
+        // First unpin everything
+        let unpinned = self.unpin_all();
+        if unpinned > 0 {
+            tracing::info!(unpinned = unpinned, "Unpinned all entries for cleanup");
+        }
+
+        // Mark all entries as inactive
+        {
+            let mut active = self.active_counts.write();
+            active.clear();
+        }
+
+        // Evict all entries by setting a zero target
+        let mut cache = self.cache.write();
+        let keys: Vec<_> = cache.keys().cloned().collect();
+        for key in keys {
+            if let Some(entry) = cache.remove(&key) {
+                self.notify_evict(&key);
+                self.listeners.write().remove(&key);
+                let mut stats = self.stats.write();
+                stats.evictions += 1;
+                stats.total_memory_bytes =
+                    stats.total_memory_bytes.saturating_sub(entry.memory_bytes);
+                tracing::info!(key = %key.short_hex(), "Evicted model during cleanup");
+            }
+        }
+    }
+
     /// Evict models to make room for a new entry (called with write lock held)
     ///
     /// Pinned entries are never evicted. If all evictable entries are exhausted
@@ -630,8 +819,14 @@ impl ModelHandleCache {
             .map(|(k, e)| (k.clone(), e.loaded_at, e.access_count, e.memory_bytes))
             .collect();
 
-        // Sort by: oldest first, then least accessed
-        entries.sort_by(|a, b| a.1.cmp(&b.1).then_with(|| a.2.cmp(&b.2)));
+        // PRD-RECT-003: Sort by oldest first, then least accessed, then by ModelKey for determinism.
+        // The final ModelKey comparison ensures deterministic eviction order when
+        // loaded_at and access_count are equal (common in tests and rapid sequential loads).
+        entries.sort_by(|a, b| {
+            a.1.cmp(&b.1) // loaded_at: oldest first
+                .then_with(|| a.2.cmp(&b.2)) // access_count: least accessed first
+                .then_with(|| a.0.cmp(&b.0)) // ModelKey: deterministic tie-breaker
+        });
 
         // Count how many pinned entries we're skipping
         let pinned_in_cache = cache.keys().filter(|k| pinned.contains(*k)).count();
@@ -649,6 +844,17 @@ impl ModelHandleCache {
             if freed >= target {
                 break;
             }
+
+            // Re-validate: check if status changed since we collected entries
+            {
+                let is_active = self.active_counts.read().get(&key).copied().unwrap_or(0) > 0;
+                let is_pinned = self.pinned_keys.read().contains(&key);
+                if is_active || is_pinned {
+                    continue; // Skip - became active or pinned after our snapshot
+                }
+            }
+
+            // Safe to evict
             cache.remove(&key);
             self.active_counts.write().remove(&key);
             self.notify_evict(&key);
@@ -709,14 +915,14 @@ impl ModelHandleCache {
                     active_in_cache,
                 );
             }
-            return Err(AosError::Config(format!(
-                "Model cache budget exceeded: needed {} MB, freed {} MB (pinned={}, active={}), max {} MB",
-                needed_bytes / BYTES_PER_MB,
-                freed / BYTES_PER_MB,
-                pinned_in_cache,
-                active_in_cache,
-                self.max_memory_bytes / BYTES_PER_MB
-            )));
+            return Err(AosError::CacheBudgetExceeded {
+                needed_mb: needed_bytes / BYTES_PER_MB,
+                freed_mb: freed / BYTES_PER_MB,
+                pinned_count: pinned_in_cache,
+                active_count: active_in_cache,
+                max_mb: self.max_memory_bytes / BYTES_PER_MB,
+                model_key: model_key.map(|k| k.manifest_hash.to_hex()[..12].to_string()),
+            });
         }
 
         Ok(())
@@ -884,7 +1090,7 @@ impl BaseModelStateEventHandler {
 impl CacheEventListener for BaseModelStateEventHandler {
     fn on_load(&self, _key: &ModelKey, memory_bytes: u64) {
         let state = self.state.clone();
-        let memory_mb = ((memory_bytes + BYTES_PER_MB - 1) / BYTES_PER_MB) as u32;
+        let memory_mb = memory_bytes.div_ceil(BYTES_PER_MB) as u32;
         self.spawn(async move {
             let mut guard = state.lock().await;
             if let Err(e) = guard.mark_loaded(memory_mb).await {
@@ -1719,5 +1925,125 @@ mod tests {
             cache.stats().evictions >= 1,
             "eviction count should reflect pressure"
         );
+    }
+
+    #[test]
+    fn test_pinned_keys_returns_all_pinned() {
+        let cache = ModelHandleCache::new(1024);
+        let key1 = make_key(BackendType::Metal, b"model1");
+        let key2 = make_key(BackendType::Metal, b"model2");
+        let key3 = make_key(BackendType::Metal, b"model3");
+
+        // Load and pin some models
+        cache
+            .get_or_load_base_model(&key1, || Ok((ModelHandle::Metal(Arc::new(vec![1])), 1)))
+            .unwrap();
+        cache
+            .get_or_load_base_model(&key2, || Ok((ModelHandle::Metal(Arc::new(vec![2])), 1)))
+            .unwrap();
+        cache
+            .get_or_load(&key3, || Ok((ModelHandle::Metal(Arc::new(vec![3])), 1)))
+            .unwrap();
+
+        let pinned = cache.pinned_keys();
+        assert_eq!(pinned.len(), 2, "Should have 2 pinned keys");
+        assert!(pinned.contains(&key1));
+        assert!(pinned.contains(&key2));
+        assert!(
+            !pinned.contains(&key3),
+            "key3 was not pinned via base_model"
+        );
+    }
+
+    #[test]
+    fn test_pinned_memory_bytes() {
+        let cache = ModelHandleCache::new(1024);
+        let key1 = make_key(BackendType::Metal, b"model1");
+        let key2 = make_key(BackendType::Metal, b"model2");
+
+        cache
+            .get_or_load_base_model(&key1, || {
+                Ok((ModelHandle::Metal(Arc::new(vec![0; 100])), 100))
+            })
+            .unwrap();
+        cache
+            .get_or_load_base_model(&key2, || {
+                Ok((ModelHandle::Metal(Arc::new(vec![0; 200])), 200))
+            })
+            .unwrap();
+
+        assert_eq!(cache.pinned_memory_bytes(), 300);
+
+        // Unpin one
+        cache.unpin(&key1);
+        assert_eq!(cache.pinned_memory_bytes(), 200);
+    }
+
+    #[test]
+    fn test_unpin_all() {
+        let cache = ModelHandleCache::new(1024);
+        let key1 = make_key(BackendType::Metal, b"model1");
+        let key2 = make_key(BackendType::Metal, b"model2");
+
+        cache
+            .get_or_load_base_model(&key1, || Ok((ModelHandle::Metal(Arc::new(vec![1])), 1)))
+            .unwrap();
+        cache
+            .get_or_load_base_model(&key2, || Ok((ModelHandle::Metal(Arc::new(vec![2])), 1)))
+            .unwrap();
+
+        assert_eq!(cache.pinned_count(), 2);
+
+        let unpinned = cache.unpin_all();
+        assert_eq!(unpinned, 2);
+        assert_eq!(cache.pinned_count(), 0);
+        assert!(!cache.is_pinned(&key1));
+        assert!(!cache.is_pinned(&key2));
+    }
+
+    #[test]
+    fn test_cleanup_all_evicts_everything() {
+        let cache = ModelHandleCache::new(1024);
+        let key1 = make_key(BackendType::Metal, b"model1");
+        let key2 = make_key(BackendType::Metal, b"model2");
+
+        cache
+            .get_or_load_base_model(&key1, || {
+                Ok((ModelHandle::Metal(Arc::new(vec![0; 100])), 100))
+            })
+            .unwrap();
+        cache
+            .get_or_load(&key2, || {
+                Ok((ModelHandle::Metal(Arc::new(vec![0; 200])), 200))
+            })
+            .unwrap();
+
+        assert_eq!(cache.len(), 2);
+        assert_eq!(cache.pinned_count(), 1);
+
+        cache.cleanup_all();
+
+        assert_eq!(cache.len(), 0, "All entries should be evicted");
+        assert_eq!(cache.pinned_count(), 0, "All pins should be cleared");
+        assert_eq!(cache.memory_usage(), 0, "Memory should be zero");
+    }
+
+    #[test]
+    fn test_stale_pinned_entries_detection() {
+        let cache = ModelHandleCache::new(1024);
+        let key = make_key(BackendType::Metal, b"model");
+
+        cache
+            .get_or_load_base_model(&key, || Ok((ModelHandle::Metal(Arc::new(vec![1])), 1)))
+            .unwrap();
+
+        // With zero threshold, everything is stale
+        let stale = cache.stale_pinned_entries(Duration::from_secs(0));
+        assert_eq!(stale.len(), 1);
+        assert_eq!(stale[0].0, key);
+
+        // With very long threshold, nothing is stale
+        let stale = cache.stale_pinned_entries(Duration::from_secs(3600));
+        assert!(stale.is_empty());
     }
 }

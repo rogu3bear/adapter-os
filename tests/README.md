@@ -539,11 +539,14 @@ fn test_with_deterministic_data() {
 
 **Use RAII guards** for cleanup:
 ```rust
+use std::path::PathBuf;
 use tempfile::TempDir;
 
 #[test]
 fn test_with_temp_dir() {
-    let temp_dir = TempDir::new().unwrap();  // Auto-deleted on drop
+    let tmp_root = PathBuf::from("var").join("tmp");
+    std::fs::create_dir_all(&tmp_root).unwrap();
+    let temp_dir = TempDir::new_in(&tmp_root).unwrap();  // Auto-deleted on drop
     let db_path = temp_dir.path().join("test.db");
     // ...
 }

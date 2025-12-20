@@ -17,22 +17,26 @@ import { BulkActionBar, BulkAction } from './ui/bulk-action-bar';
 import { ConfirmationDialog, ConfirmationOptions } from './ui/confirmation-dialog';
 import { ExportDialog, ExportOptions } from './ui/export-dialog';
 import { useUndoRedoContext } from '@/contexts/UndoRedoContext';
-import { useModalManager } from '@/contexts/ModalContext';
+import { createDialogManager } from '@/hooks/ui/useDialogManager';
 import { TenantImportWizard } from './TenantImportWizard';
 import { useRBAC } from '@/hooks/security/useRBAC';
 import { PageErrorsProvider, PageErrors, usePageErrors } from '@/components/ui/page-error-boundary';
 import { KpiGrid } from './ui/grid';
 
-// Modal ID constants
-const MODAL_IDS = {
-  EDIT: 'edit-tenant',
-  ASSIGN_POLICIES: 'assign-policies',
-  ASSIGN_ADAPTERS: 'assign-adapters',
-  USAGE: 'view-usage',
-  ARCHIVE: 'archive-tenant',
-  EXPORT: 'export-tenants',
-  IMPORT: 'import-tenants',
-} as const;
+// Tenant dialog manager - local state-based dialog management
+const useTenantDialogs = createDialogManager<
+  'edit' | 'assignPolicies' | 'assignAdapters' | 'usage' | 'archive' | 'export' | 'import',
+  {
+    edit: undefined;
+    assignPolicies: undefined;
+    assignAdapters: undefined;
+    usage: undefined;
+    archive: undefined;
+    export: undefined;
+    import: undefined;
+  }
+>(['edit', 'assignPolicies', 'assignAdapters', 'usage', 'archive', 'export', 'import'] as const);
+
 import { usePolling } from '@/hooks/realtime/usePolling';
 import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
 import { GlossaryTooltip } from './ui/glossary-tooltip';
@@ -66,7 +70,7 @@ import {
   Download,
   Upload
 } from 'lucide-react';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import * as types from '@/api/types';
 import { Tenant as ApiTenant, User, Policy, Adapter, TenantUsageResponse } from '@/api/types';
 
@@ -84,7 +88,7 @@ interface TenantsProps {
 function TenantsContent({ user, selectedTenant }: TenantsProps) {
   const { addAction } = useUndoRedoContext();
   const { can, userRole } = useRBAC();
-  const { openModal, closeModal, isOpen } = useModalManager();
+  const dialogs = useTenantDialogs();
   const { errors, addError, clearError } = usePageErrors();
   const [tenants, setTenants] = useState<ApiTenant[]>([]);
   const [loading, setLoading] = useState(true);
@@ -173,7 +177,7 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
       await apiClient.updateTenant(selectedTenantForAction.id, editName);
       showStatus('Organization updated.', 'success');
       clearError('edit-tenant');
-      closeModal();
+      dialogs.closeDialog('edit');
       refetchTenants();
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Failed to update tenant';
@@ -189,7 +193,7 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
       await apiClient.archiveTenant(tenant.id);
       showStatus('Organization archived.', 'success');
       clearError('archive-tenant');
-      closeModal();
+      dialogs.closeDialog('archive');
       setSelectedTenantForAction(null);
       await refetchTenants();
 
@@ -215,7 +219,7 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
       await apiClient.assignTenantPolicies(selectedTenantForAction.id, selectedPolicies);
       showStatus(`Assigned ${selectedPolicies.length} policies.`, 'success');
       clearError('assign-policies');
-      closeModal();
+      dialogs.closeDialog('assignPolicies');
       setSelectedPolicies([]);
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Failed to assign policies';
@@ -229,7 +233,7 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
       await apiClient.assignTenantAdapters(selectedTenantForAction.id, selectedAdapters);
       showStatus(`Assigned ${selectedAdapters.length} adapters.`, 'success');
       clearError('assign-adapters');
-      closeModal();
+      dialogs.closeDialog('assignAdapters');
       setSelectedAdapters([]);
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Failed to assign adapters';
@@ -243,7 +247,7 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
       setUsageData(usage);
       setSelectedTenantForAction(tenant);
       clearError('view-usage');
-      openModal(MODAL_IDS.USAGE);
+      dialogs.openDialog('usage');
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Failed to fetch tenant usage';
       addError('view-usage', errorMsg, () => handleViewUsage(tenant));
@@ -410,7 +414,7 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
 
       if (tenantsToExport.length === 0) {
         showStatus('No organizations to export.', 'warning');
-        closeModal();
+        dialogs.closeDialog('export');
         return;
       }
 
@@ -450,7 +454,7 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
       }
 
       showStatus(`Exported ${tenantsToExport.length} organization(s).`, 'success');
-      closeModal();
+      dialogs.closeDialog('export');
     } catch (err) {
       const error = err instanceof Error ? err : new Error('Failed to export tenants');
       addError('export-tenants', error.message, () => handleExport(options));
@@ -743,7 +747,7 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => openModal(MODAL_IDS.IMPORT)}
+                  onClick={() => dialogs.openDialog('import')}
                   disabled={!can('tenant:manage')}
                 >
                   <Upload className="h-4 w-4 mr-2" />
@@ -754,7 +758,7 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => openModal(MODAL_IDS.EXPORT)}
+                  onClick={() => dialogs.openDialog('export')}
                 >
                   <Download className="h-4 w-4 mr-2" />
                   Export
@@ -904,7 +908,7 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
                                   onClick={() => {
                                     setSelectedTenantForAction(tenantTyped);
                                     setEditName(tenantTyped.name);
-                                    openModal(MODAL_IDS.EDIT);
+                                    dialogs.openDialog('edit');
                                   }}
                                   disabled={!can('tenant:manage')}
                                 >
@@ -914,7 +918,7 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
                                 <DropdownMenuItem
                                   onClick={() => {
                                     setSelectedTenantForAction(tenantTyped);
-                                    openModal(MODAL_IDS.ASSIGN_POLICIES);
+                                    dialogs.openDialog('assignPolicies');
                                   }}
                                   disabled={!can('tenant:manage')}
                                 >
@@ -924,7 +928,7 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
                                 <DropdownMenuItem
                                   onClick={() => {
                                     setSelectedTenantForAction(tenantTyped);
-                                    openModal(MODAL_IDS.ASSIGN_ADAPTERS);
+                                    dialogs.openDialog('assignAdapters');
                                   }}
                                   disabled={!can('tenant:manage')}
                                 >
@@ -938,7 +942,7 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
                                 <DropdownMenuItem
                                   onClick={() => {
                                     setSelectedTenantForAction(tenantTyped);
-                                    openModal(MODAL_IDS.ARCHIVE);
+                                    dialogs.openDialog('archive');
                                   }}
                                   disabled={!can('tenant:manage')}
                                 >
@@ -960,7 +964,7 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
       </Card>
 
       {/* Edit Tenant Modal */}
-      <Dialog open={isOpen(MODAL_IDS.EDIT)} onOpenChange={(open) => !open && closeModal()}>
+      <Dialog open={dialogs.isOpen('edit')} onOpenChange={(open) => !open && dialogs.closeDialog('edit')}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Edit Organization</DialogTitle>
@@ -981,7 +985,7 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={closeModal} aria-label="Cancel tenant edit">
+            <Button variant="outline" onClick={() => dialogs.closeDialog('edit')} aria-label="Cancel tenant edit">
               Cancel
             </Button>
             <GlossaryTooltip termId="save-tenant-changes">
@@ -994,7 +998,7 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
       </Dialog>
 
       {/* Assign Policies Modal */}
-      <Dialog open={isOpen(MODAL_IDS.ASSIGN_POLICIES)} onOpenChange={(open) => !open && closeModal()}>
+      <Dialog open={dialogs.isOpen('assignPolicies')} onOpenChange={(open) => !open && dialogs.closeDialog('assignPolicies')}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>Assign Policies to {selectedTenantForAction?.name}</DialogTitle>
@@ -1027,7 +1031,7 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => {
-              closeModal();
+              dialogs.closeDialog('assignPolicies');
               setSelectedPolicies([]);
             }}>
               Cancel
@@ -1042,7 +1046,7 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
       </Dialog>
 
       {/* Assign Adapters Modal */}
-      <Dialog open={isOpen(MODAL_IDS.ASSIGN_ADAPTERS)} onOpenChange={(open) => !open && closeModal()}>
+      <Dialog open={dialogs.isOpen('assignAdapters')} onOpenChange={(open) => !open && dialogs.closeDialog('assignAdapters')}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>Assign Adapters to {selectedTenantForAction?.name}</DialogTitle>
@@ -1075,7 +1079,7 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => {
-              closeModal();
+              dialogs.closeDialog('assignAdapters');
               setSelectedAdapters([]);
             }}>
               Cancel
@@ -1090,7 +1094,7 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
       </Dialog>
 
       {/* View Usage Modal */}
-      <Dialog open={isOpen(MODAL_IDS.USAGE)} onOpenChange={(open) => !open && closeModal()}>
+      <Dialog open={dialogs.isOpen('usage')} onOpenChange={(open) => !open && dialogs.closeDialog('usage')}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Organization Usage - {selectedTenantForAction?.name}</DialogTitle>
@@ -1150,13 +1154,13 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
                 </Button>
               </GlossaryTooltip>
             )}
-            <Button onClick={closeModal}>Close</Button>
+            <Button onClick={() => dialogs.closeDialog('usage')}>Close</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
       {/* Archive Tenant Modal */}
-      <Dialog open={isOpen(MODAL_IDS.ARCHIVE)} onOpenChange={(open) => !open && closeModal()}>
+      <Dialog open={dialogs.isOpen('archive')} onOpenChange={(open) => !open && dialogs.closeDialog('archive')}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Archive Organization</DialogTitle>
@@ -1170,7 +1174,7 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
           </Alert>
           <DialogFooter>
             <Button variant="outline" onClick={() => {
-              closeModal();
+              dialogs.closeDialog('archive');
               setSelectedTenantForAction(null);
             }}>
               Cancel
@@ -1218,8 +1222,8 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
 
       {/* Export Dialog */}
       <ExportDialog
-        open={isOpen(MODAL_IDS.EXPORT)}
-        onOpenChange={(open) => !open && closeModal()}
+        open={dialogs.isOpen('export')}
+        onOpenChange={(open) => !open && dialogs.closeDialog('export')}
         onExport={handleExport}
         itemName="tenants"
         hasSelected={selectedTenants.length > 0}
@@ -1229,18 +1233,18 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
       />
 
       {/* Import Dialog */}
-      <Dialog open={isOpen(MODAL_IDS.IMPORT)} onOpenChange={(open) => !open && closeModal()}>
+      <Dialog open={dialogs.isOpen('import')} onOpenChange={(open) => !open && dialogs.closeDialog('import')}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Import Organization</DialogTitle>
           </DialogHeader>
           <TenantImportWizard
             onComplete={(tenant) => {
-              closeModal();
+              dialogs.closeDialog('import');
               refetchTenants();
               showStatus(`Organization "${tenant.name}" created successfully.`, 'success');
             }}
-            onCancel={closeModal}
+            onCancel={() => dialogs.closeDialog('import')}
           />
         </DialogContent>
       </Dialog>

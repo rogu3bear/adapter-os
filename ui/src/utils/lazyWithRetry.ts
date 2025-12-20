@@ -7,6 +7,7 @@ interface LazyWithRetryOptions {
   retries?: number;
   delayMs?: number;
   devReload?: boolean;
+  timeoutMs?: number;
 }
 
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -30,11 +31,22 @@ export function lazyWithRetry<T extends ComponentType>(
   factory: Loader<T>,
   options: LazyWithRetryOptions = {},
 ) {
-  const { retries = 2, delayMs = 400, devReload = true } = options;
+  const { retries = 2, delayMs = 400, devReload = true, timeoutMs = 30000 } = options;
   let attempt = 0;
 
+  const loadWithTimeout = (): Promise<{ default: T }> => {
+    return Promise.race([
+      factory(),
+      new Promise<never>((_, reject) => {
+        setTimeout(() => {
+          reject(new Error(`Component load timeout after ${timeoutMs}ms`));
+        }, timeoutMs);
+      }),
+    ]);
+  };
+
   const load = (): Promise<{ default: T }> =>
-    factory().catch(async (err) => {
+    loadWithTimeout().catch(async (err) => {
       attempt += 1;
       if (isRecoverableChunkError(err) && attempt <= retries) {
         const backoff = delayMs * attempt;

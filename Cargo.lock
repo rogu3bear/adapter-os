@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "adapter-os"
-version = "0.1.0"
+version = "0.11.0"
 dependencies = [
  "adapteros-aos",
  "adapteros-api",
@@ -69,7 +69,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-aos"
-version = "0.1.0"
+version = "0.11.0"
 dependencies = [
  "adapteros-config",
  "adapteros-core",
@@ -97,7 +97,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-api"
-version = "0.1.0"
+version = "0.11.0"
 dependencies = [
  "adapteros-api-types",
  "adapteros-core",
@@ -140,7 +140,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-artifacts"
-version = "0.1.0"
+version = "0.11.0"
 dependencies = [
  "adapteros-core",
  "adapteros-crypto",
@@ -163,7 +163,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-autograd"
-version = "0.1.0"
+version = "0.11.0"
 dependencies = [
  "adapteros-core",
  "anyhow",
@@ -181,7 +181,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-base-llm"
-version = "0.1.0"
+version = "0.11.0"
 dependencies = [
  "adapteros-config",
  "adapteros-core",
@@ -199,8 +199,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "adapteros-boot"
+version = "0.11.0"
+dependencies = [
+ "adapteros-config",
+ "adapteros-core",
+ "anyhow",
+ "base64 0.22.1",
+ "blake3",
+ "chrono",
+ "ed25519-dalek",
+ "lru",
+ "rand 0.8.5",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "adapteros-chat"
-version = "0.1.0"
+version = "0.11.0"
 dependencies = [
  "adapteros-core",
  "anyhow",
@@ -211,7 +232,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-cli"
-version = "0.1.0"
+version = "0.11.0"
 dependencies = [
  "adapteros-aos",
  "adapteros-api",
@@ -233,6 +254,7 @@ dependencies = [
  "adapteros-lora-worker",
  "adapteros-manifest",
  "adapteros-orchestrator",
+ "adapteros-platform",
  "adapteros-policy",
  "adapteros-registry",
  "adapteros-replay",
@@ -289,7 +311,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-client"
-version = "0.1.0"
+version = "0.11.0"
 dependencies = [
  "adapteros-api-types",
  "adapteros-telemetry",
@@ -313,7 +335,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-codegraph"
-version = "0.1.0"
+version = "0.11.0"
 dependencies = [
  "adapteros-core",
  "bincode",
@@ -359,7 +381,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-core"
-version = "0.1.0"
+version = "0.11.0"
 dependencies = [
  "adapteros-types",
  "anyhow",
@@ -397,7 +419,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-crypto"
-version = "0.1.0"
+version = "0.11.0"
 dependencies = [
  "adapteros-core",
  "aes-gcm",
@@ -439,7 +461,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-db"
-version = "0.1.0"
+version = "0.11.0"
 dependencies = [
  "adapteros-api-types",
  "adapteros-artifacts",
@@ -471,6 +493,7 @@ dependencies = [
  "tempfile",
  "thiserror 1.0.69",
  "tokio",
+ "toml 0.8.23",
  "tracing",
  "utoipa",
  "uuid",
@@ -479,7 +502,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-deterministic-exec"
-version = "0.1.0"
+version = "0.11.0"
 dependencies = [
  "adapteros-core",
  "adapteros-db",
@@ -510,7 +533,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-domain"
-version = "0.1.0"
+version = "0.11.0"
 dependencies = [
  "adapteros-core",
  "adapteros-deterministic-exec",
@@ -537,9 +560,10 @@ dependencies = [
 
 [[package]]
 name = "adapteros-error-recovery"
-version = "0.1.0"
+version = "0.11.0"
 dependencies = [
  "adapteros-core",
+ "adapteros-platform",
  "serde",
  "serde_json",
  "tempfile",
@@ -551,7 +575,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-federation"
-version = "0.1.0"
+version = "0.11.0"
 dependencies = [
  "adapteros-core",
  "adapteros-crypto",
@@ -576,8 +600,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "adapteros-fuzz"
+version = "0.0.0"
+dependencies = [
+ "adapteros-core",
+ "adapteros-lora-kernel-api",
+ "adapteros-lora-worker",
+ "arbitrary",
+ "libfuzzer-sys",
+]
+
+[[package]]
 name = "adapteros-git"
-version = "0.1.0"
+version = "0.11.0"
 dependencies = [
  "adapteros-core",
  "adapteros-db",
@@ -603,7 +638,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-graph"
-version = "0.1.0"
+version = "0.11.0"
 dependencies = [
  "adapteros-core",
  "anyhow",
@@ -617,7 +652,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-ingest-docs"
-version = "0.1.0"
+version = "0.11.0"
 dependencies = [
  "adapteros-config",
  "adapteros-core",
@@ -639,7 +674,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-lint"
-version = "0.1.0"
+version = "0.11.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -648,11 +683,12 @@ dependencies = [
  "tempfile",
  "tokio",
  "tracing",
+ "walkdir",
 ]
 
 [[package]]
 name = "adapteros-lora-kernel-api"
-version = "0.1.0"
+version = "0.11.0"
 dependencies = [
  "adapteros-core",
  "serde",
@@ -662,13 +698,14 @@ dependencies = [
 
 [[package]]
 name = "adapteros-lora-kernel-coreml"
-version = "0.1.0"
+version = "0.11.0"
 dependencies = [
  "adapteros-aos",
  "adapteros-config",
  "adapteros-core",
  "adapteros-lora-kernel-api",
  "adapteros-memory",
+ "adapteros-platform",
  "adapteros-telemetry",
  "adapteros-testing",
  "adapteros-types",
@@ -693,13 +730,14 @@ dependencies = [
 
 [[package]]
 name = "adapteros-lora-kernel-mtl"
-version = "0.1.0"
+version = "0.11.0"
 dependencies = [
  "adapteros-core",
  "adapteros-crypto",
  "adapteros-lora-kernel-api",
  "adapteros-memory",
  "adapteros-numerics",
+ "adapteros-platform",
  "adapteros-telemetry",
  "adapteros-testing",
  "base64 0.22.1",
@@ -729,7 +767,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-lora-lifecycle"
-version = "0.1.0"
+version = "0.11.0"
 dependencies = [
  "adapteros-aos",
  "adapteros-core",
@@ -763,7 +801,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-lora-mlx-ffi"
-version = "0.1.0"
+version = "0.11.0"
 dependencies = [
  "adapteros-core",
  "adapteros-deterministic-exec",
@@ -793,7 +831,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-lora-plan"
-version = "0.1.0"
+version = "0.11.0"
 dependencies = [
  "adapteros-chat",
  "adapteros-core",
@@ -812,7 +850,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-lora-quant"
-version = "0.1.0"
+version = "0.11.0"
 dependencies = [
  "adapteros-core",
  "safetensors",
@@ -824,7 +862,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-lora-rag"
-version = "0.1.0"
+version = "0.11.0"
 dependencies = [
  "adapteros-codegraph",
  "adapteros-core",
@@ -844,7 +882,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-lora-router"
-version = "0.1.0"
+version = "0.11.0"
 dependencies = [
  "adapteros-core",
  "adapteros-lora-kernel-api",
@@ -867,10 +905,11 @@ dependencies = [
 
 [[package]]
 name = "adapteros-lora-worker"
-version = "0.1.0"
+version = "0.11.0"
 dependencies = [
  "adapteros-aos",
  "adapteros-api-types",
+ "adapteros-boot",
  "adapteros-codegraph",
  "adapteros-config",
  "adapteros-core",
@@ -903,11 +942,13 @@ dependencies = [
  "clap",
  "criterion",
  "crossbeam",
+ "ed25519-dalek",
  "half 2.7.1",
  "hex",
  "hkdf",
  "libc",
  "loom",
+ "lru",
  "mach",
  "memmap2",
  "metal 0.27.0",
@@ -944,7 +985,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-manifest"
-version = "0.1.0"
+version = "0.11.0"
 dependencies = [
  "adapteros-core",
  "adapteros-types",
@@ -989,7 +1030,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-metrics-exporter"
-version = "0.1.0"
+version = "0.11.0"
 dependencies = [
  "adapteros-core",
  "adapteros-db",
@@ -1004,7 +1045,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-model-hub"
-version = "0.1.0"
+version = "0.11.0"
 dependencies = [
  "adapteros-core",
  "anyhow",
@@ -1028,7 +1069,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-node"
-version = "0.1.0"
+version = "0.11.0"
 dependencies = [
  "adapteros-artifacts",
  "adapteros-core",
@@ -1061,7 +1102,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-numerics"
-version = "0.1.0"
+version = "0.11.0"
 dependencies = [
  "criterion",
  "serde",
@@ -1071,7 +1112,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-orchestrator"
-version = "0.1.0"
+version = "0.11.0"
 dependencies = [
  "adapteros-client",
  "adapteros-codegraph",
@@ -1117,7 +1158,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-platform"
-version = "0.1.0"
+version = "0.11.0"
 dependencies = [
  "adapteros-core",
  "dirs",
@@ -1129,7 +1170,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-plugin-advanced-metrics"
-version = "0.1.0"
+version = "0.11.0"
 dependencies = [
  "adapteros-core",
  "async-trait",
@@ -1143,7 +1184,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-policy"
-version = "0.1.0"
+version = "0.11.0"
 dependencies = [
  "adapteros-api-types",
  "adapteros-core",
@@ -1173,7 +1214,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-profiler"
-version = "0.1.0"
+version = "0.11.0"
 dependencies = [
  "adapteros-core",
  "adapteros-telemetry",
@@ -1184,7 +1225,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-registry"
-version = "0.1.0"
+version = "0.11.0"
 dependencies = [
  "adapteros-core",
  "adapteros-manifest",
@@ -1202,7 +1243,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-replay"
-version = "0.1.0"
+version = "0.11.0"
 dependencies = [
  "adapteros-core",
  "adapteros-crypto",
@@ -1225,7 +1266,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-sbom"
-version = "0.1.0"
+version = "0.11.0"
 dependencies = [
  "adapteros-core",
  "serde",
@@ -1235,7 +1276,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-scenarios"
-version = "0.1.0"
+version = "0.11.0"
 dependencies = [
  "adapteros-core",
  "serde",
@@ -1246,7 +1287,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-secd"
-version = "0.1.0"
+version = "0.11.0"
 dependencies = [
  "adapteros-core",
  "adapteros-crypto",
@@ -1274,7 +1315,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-secure-fs"
-version = "0.1.0"
+version = "0.11.0"
 dependencies = [
  "adapteros-core",
  "adapteros-crypto",
@@ -1290,10 +1331,11 @@ dependencies = [
 
 [[package]]
 name = "adapteros-server"
-version = "0.1.0"
+version = "0.11.0"
 dependencies = [
  "adapteros-api-types",
  "adapteros-artifacts",
+ "adapteros-boot",
  "adapteros-config",
  "adapteros-core",
  "adapteros-crypto",
@@ -1320,6 +1362,9 @@ dependencies = [
  "hyper-util",
  "libc",
  "mime_guess",
+ "opentelemetry",
+ "opentelemetry-otlp",
+ "opentelemetry_sdk",
  "rust-embed",
  "serde",
  "serde_json",
@@ -1331,6 +1376,7 @@ dependencies = [
  "tower-http",
  "tracing",
  "tracing-appender",
+ "tracing-opentelemetry",
  "tracing-subscriber",
  "utoipa",
  "uuid",
@@ -1342,6 +1388,7 @@ version = "0.1.0"
 dependencies = [
  "adapteros-aos",
  "adapteros-api-types",
+ "adapteros-boot",
  "adapteros-client",
  "adapteros-codegraph",
  "adapteros-config",
@@ -1399,6 +1446,8 @@ dependencies = [
  "lru",
  "nix 0.29.0",
  "once_cell",
+ "opentelemetry",
+ "opentelemetry_sdk",
  "parking_lot",
  "prometheus",
  "rand 0.8.5",
@@ -1424,6 +1473,7 @@ dependencies = [
  "tower 0.5.2",
  "tower-http",
  "tracing",
+ "tracing-opentelemetry",
  "tracing-subscriber",
  "url 2.5.7",
  "urlencoding",
@@ -1436,15 +1486,17 @@ dependencies = [
 
 [[package]]
 name = "adapteros-service-supervisor"
-version = "0.1.0"
+version = "0.11.0"
 dependencies = [
  "adapteros-api-types",
+ "adapteros-config",
  "adapteros-core",
  "adapteros-crypto",
  "adapteros-telemetry",
  "anyhow",
  "async-trait",
  "axum 0.8.7",
+ "base64 0.22.1",
  "blake3",
  "chrono",
  "config",
@@ -1475,7 +1527,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-single-file-adapter"
-version = "0.1.0"
+version = "0.11.0"
 dependencies = [
  "adapteros-core",
  "adapteros-crypto",
@@ -1499,7 +1551,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-storage"
-version = "0.1.0"
+version = "0.11.0"
 dependencies = [
  "adapteros-core",
  "adapteros-crypto",
@@ -1523,7 +1575,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-system-metrics"
-version = "0.1.0"
+version = "0.11.0"
 dependencies = [
  "adapteros-core",
  "adapteros-db",
@@ -1545,6 +1597,7 @@ dependencies = [
  "sha2",
  "sqlx",
  "sysinfo 0.30.13",
+ "tempfile",
  "thiserror 1.0.69",
  "tokio",
  "tracing",
@@ -1554,7 +1607,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-telemetry"
-version = "0.1.0"
+version = "0.11.0"
 dependencies = [
  "adapteros-core",
  "adapteros-crypto",
@@ -1588,7 +1641,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-telemetry-types"
-version = "0.1.0"
+version = "0.11.0"
 dependencies = [
  "adapteros-core",
  "adapteros-types",
@@ -1599,7 +1652,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-telemetry-verifier"
-version = "0.1.0"
+version = "0.11.0"
 dependencies = [
  "anyhow",
  "regex",
@@ -1610,7 +1663,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-testing"
-version = "0.1.0"
+version = "0.11.0"
 dependencies = [
  "adapteros-core",
  "async-trait",
@@ -1628,7 +1681,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-trace"
-version = "0.1.0"
+version = "0.11.0"
 dependencies = [
  "adapteros-core",
  "adapteros-crypto",
@@ -1678,7 +1731,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-types"
-version = "0.1.0"
+version = "0.11.0"
 dependencies = [
  "blake3",
  "chrono",
@@ -1692,7 +1745,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-verification"
-version = "0.1.0"
+version = "0.11.0"
 dependencies = [
  "adapteros-core",
  "adapteros-telemetry",
@@ -1713,7 +1766,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-verify"
-version = "0.1.0"
+version = "0.11.0"
 dependencies = [
  "adapteros-core",
  "adapteros-crypto",
@@ -4151,7 +4204,7 @@ dependencies = [
  "futures",
  "hyper 0.14.32",
  "hyper-rustls 0.24.2",
- "hyper-timeout",
+ "hyper-timeout 0.4.1",
  "log",
  "pin-project",
  "rand 0.8.5",
@@ -5052,6 +5105,19 @@ dependencies = [
  "pin-project-lite",
  "tokio",
  "tokio-io-timeout",
+]
+
+[[package]]
+name = "hyper-timeout"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2b90d566bffbce6a75bd8b09a05aa8c2cb1fabb6cb348f8840c9e4c90a0d83b0"
+dependencies = [
+ "hyper 1.8.1",
+ "hyper-util",
+ "pin-project-lite",
+ "tokio",
+ "tower-service",
 ]
 
 [[package]]
@@ -6129,28 +6195,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "mplora-fuzz"
-version = "0.1.0"
-dependencies = [
- "adapteros-api-types",
- "adapteros-core",
- "adapteros-db",
- "adapteros-lora-router",
- "adapteros-lora-worker",
- "adapteros-manifest",
- "adapteros-policy",
- "adapteros-sbom",
- "arbitrary",
- "blake3",
- "libfuzzer-sys",
- "rand 0.8.5",
- "rand_chacha 0.3.1",
- "serde_json",
- "serde_yaml",
- "tokio",
-]
-
-[[package]]
 name = "multer"
 version = "3.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6537,6 +6581,84 @@ dependencies = [
  "libc",
  "pkg-config",
  "vcpkg",
+]
+
+[[package]]
+name = "opentelemetry"
+version = "0.27.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ab70038c28ed37b97d8ed414b6429d343a8bbf44c9f79ec854f3a643029ba6d7"
+dependencies = [
+ "futures-core",
+ "futures-sink",
+ "js-sys",
+ "pin-project-lite",
+ "thiserror 1.0.69",
+ "tracing",
+]
+
+[[package]]
+name = "opentelemetry-http"
+version = "0.27.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "10a8a7f5f6ba7c1b286c2fbca0454eaba116f63bbe69ed250b642d36fbb04d80"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "http 1.3.1",
+ "opentelemetry",
+ "reqwest 0.12.24",
+]
+
+[[package]]
+name = "opentelemetry-otlp"
+version = "0.27.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "91cf61a1868dacc576bf2b2a1c3e9ab150af7272909e80085c3173384fe11f76"
+dependencies = [
+ "async-trait",
+ "futures-core",
+ "http 1.3.1",
+ "opentelemetry",
+ "opentelemetry-http",
+ "opentelemetry-proto",
+ "opentelemetry_sdk",
+ "prost",
+ "reqwest 0.12.24",
+ "thiserror 1.0.69",
+ "tokio",
+ "tonic",
+]
+
+[[package]]
+name = "opentelemetry-proto"
+version = "0.27.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a6e05acbfada5ec79023c85368af14abd0b307c015e9064d249b2a950ef459a6"
+dependencies = [
+ "opentelemetry",
+ "opentelemetry_sdk",
+ "prost",
+ "tonic",
+]
+
+[[package]]
+name = "opentelemetry_sdk"
+version = "0.27.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "231e9d6ceef9b0b2546ddf52335785ce41252bc7474ee8ba05bfad277be13ab8"
+dependencies = [
+ "async-trait",
+ "futures-channel",
+ "futures-executor",
+ "futures-util",
+ "glob",
+ "opentelemetry",
+ "percent-encoding 2.3.2",
+ "rand 0.8.5",
+ "thiserror 1.0.69",
+ "tokio",
+ "tokio-stream",
 ]
 
 [[package]]
@@ -6954,6 +7076,29 @@ dependencies = [
  "rusty-fork",
  "tempfile",
  "unarray",
+]
+
+[[package]]
+name = "prost"
+version = "0.13.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2796faa41db3ec313a31f7624d9286acf277b52de526150b7e69f3debf891ee5"
+dependencies = [
+ "bytes",
+ "prost-derive",
+]
+
+[[package]]
+name = "prost-derive"
+version = "0.13.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8a56d757972c98b346a9b766e3f02746cde6dd1cd1d1d563472929fdd74bec4d"
+dependencies = [
+ "anyhow",
+ "itertools 0.13.0",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.111",
 ]
 
 [[package]]
@@ -9419,11 +9564,50 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "df8b2b54733674ad286d16267dcfc7a71ed5c776e4ac7aa3c3e2561f7c637bf2"
 
 [[package]]
+name = "tonic"
+version = "0.12.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "877c5b330756d856ffcc4553ab34a5684481ade925ecc54bcd1bf02b1d0d4d52"
+dependencies = [
+ "async-stream",
+ "async-trait",
+ "axum 0.7.9",
+ "base64 0.22.1",
+ "bytes",
+ "h2 0.4.12",
+ "http 1.3.1",
+ "http-body 1.0.1",
+ "http-body-util",
+ "hyper 1.8.1",
+ "hyper-timeout 0.5.2",
+ "hyper-util",
+ "percent-encoding 2.3.2",
+ "pin-project",
+ "prost",
+ "socket2 0.5.10",
+ "tokio",
+ "tokio-stream",
+ "tower 0.4.13",
+ "tower-layer",
+ "tower-service",
+ "tracing",
+]
+
+[[package]]
 name = "tower"
 version = "0.4.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b8fa9be0de6cf49e536ce1851f987bd21a43b771b09473c3549a6c853db37c1c"
 dependencies = [
+ "futures-core",
+ "futures-util",
+ "indexmap 1.9.3",
+ "pin-project",
+ "pin-project-lite",
+ "rand 0.8.5",
+ "slab",
+ "tokio",
+ "tokio-util",
  "tower-layer",
  "tower-service",
  "tracing",
@@ -9537,6 +9721,24 @@ dependencies = [
  "log",
  "once_cell",
  "tracing-core",
+]
+
+[[package]]
+name = "tracing-opentelemetry"
+version = "0.28.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "97a971f6058498b5c0f1affa23e7ea202057a7301dbff68e968b2d578bcbd053"
+dependencies = [
+ "js-sys",
+ "once_cell",
+ "opentelemetry",
+ "opentelemetry_sdk",
+ "smallvec",
+ "tracing",
+ "tracing-core",
+ "tracing-log",
+ "tracing-subscriber",
+ "web-time",
 ]
 
 [[package]]
@@ -10734,7 +10936,7 @@ checksum = "66fee0b777b0f5ac1c69bb06d361268faafa61cd4682ae064a171c16c433e9e4"
 
 [[package]]
 name = "xtask"
-version = "0.1.0"
+version = "0.11.0"
 dependencies = [
  "adapteros-config",
  "adapteros-core",

@@ -5,17 +5,23 @@
 //!
 //! 【2025-01-20†modularity†tenant_handlers】
 
+use super::utils::aos_error_to_response;
 use crate::auth::Claims;
 use crate::error_helpers::{db_error_msg, db_error_with_details};
 use crate::middleware::require_role;
+use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
 use crate::types::*; // Re-exports adapteros_api_types::*
+use adapteros_core::tenant_snapshot::TenantStateSnapshot;
+use adapteros_core::AosError;
 use adapteros_db::users::Role;
 use axum::{
     extract::Extension, extract::Path, extract::Query, extract::State, http::StatusCode,
     response::Json,
 };
+use serde_json::Value;
+use sqlx::{Sqlite, Transaction};
 
 /// List all tenants with pagination
 pub async fn list_tenants(
@@ -71,7 +77,8 @@ pub async fn create_tenant(
     Extension(claims): Extension<Claims>,
     Json(req): Json<CreateTenantRequest>,
 ) -> Result<Json<TenantResponse>, (StatusCode, Json<ErrorResponse>)> {
-    require_role(&claims, Role::Admin)?;
+    // Require TenantManage permission (Admin role has this)
+    require_permission(&claims, Permission::TenantManage)?;
 
     let id = state
         .db
@@ -93,14 +100,17 @@ pub async fn create_tenant(
     })?;
 
     // Audit log: tenant created
-    let _ = crate::audit_helper::log_success(
+    if let Err(e) = crate::audit_helper::log_success(
         &state.db,
         &claims,
         crate::audit_helper::actions::TENANT_CREATE,
         crate::audit_helper::resources::TENANT,
         Some(&tenant.id),
     )
-    .await;
+    .await
+    {
+        tracing::warn!(error = %e, "Audit log failed");
+    }
 
     Ok(Json(TenantResponse {
         schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
@@ -201,14 +211,17 @@ pub async fn set_default_stack(
         })?;
 
     // Audit log: default stack set
-    let _ = crate::audit_helper::log_success(
+    if let Err(e) = crate::audit_helper::log_success(
         &state.db,
         &claims,
         crate::audit_helper::actions::TENANT_UPDATE,
         crate::audit_helper::resources::TENANT,
         Some(&tenant_id),
     )
-    .await;
+    .await
+    {
+        tracing::warn!(error = %e, "Audit log failed");
+    }
 
     Ok(Json(DefaultStackResponse {
         schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
@@ -246,14 +259,17 @@ pub async fn clear_default_stack(
         .map_err(db_error_with_details)?;
 
     // Audit log: default stack cleared
-    let _ = crate::audit_helper::log_success(
+    if let Err(e) = crate::audit_helper::log_success(
         &state.db,
         &claims,
         crate::audit_helper::actions::TENANT_UPDATE,
         crate::audit_helper::resources::TENANT,
         Some(&tenant_id),
     )
-    .await;
+    .await
+    {
+        tracing::warn!(error = %e, "Audit log failed");
+    }
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -333,14 +349,17 @@ pub async fn update_tenant(
     })?;
 
     // Audit log: tenant updated
-    let _ = crate::audit_helper::log_success(
+    if let Err(e) = crate::audit_helper::log_success(
         &state.db,
         &claims,
         crate::audit_helper::actions::TENANT_UPDATE,
         crate::audit_helper::resources::TENANT,
         Some(&tenant.id),
     )
-    .await;
+    .await
+    {
+        tracing::warn!(error = %e, "Audit log failed");
+    }
 
     Ok(Json(TenantResponse {
         schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
@@ -402,14 +421,17 @@ pub async fn pause_tenant(
     })?;
 
     // Audit log: tenant paused
-    let _ = crate::audit_helper::log_success(
+    if let Err(e) = crate::audit_helper::log_success(
         &state.db,
         &claims,
         crate::audit_helper::actions::TENANT_UPDATE,
         crate::audit_helper::resources::TENANT,
         Some(&tenant.id),
     )
-    .await;
+    .await
+    {
+        tracing::warn!(error = %e, "Audit log failed");
+    }
 
     Ok(Json(TenantResponse {
         schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
@@ -446,7 +468,8 @@ pub async fn archive_tenant(
     Extension(claims): Extension<Claims>,
     Path(tenant_id): Path<String>,
 ) -> Result<Json<TenantResponse>, (StatusCode, Json<ErrorResponse>)> {
-    require_role(&claims, Role::Admin)?;
+    // Require TenantManage permission (Admin role has this)
+    require_permission(&claims, Permission::TenantManage)?;
 
     state
         .db
@@ -471,14 +494,17 @@ pub async fn archive_tenant(
     })?;
 
     // Audit log: tenant archived
-    let _ = crate::audit_helper::log_success(
+    if let Err(e) = crate::audit_helper::log_success(
         &state.db,
         &claims,
         crate::audit_helper::actions::TENANT_UPDATE,
         crate::audit_helper::resources::TENANT,
         Some(&tenant.id),
     )
-    .await;
+    .await
+    {
+        tracing::warn!(error = %e, "Audit log failed");
+    }
 
     Ok(Json(TenantResponse {
         schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
@@ -573,14 +599,17 @@ pub async fn assign_policies_to_tenant(
     }
 
     // Audit log: policies assigned
-    let _ = crate::audit_helper::log_success(
+    if let Err(e) = crate::audit_helper::log_success(
         &state.db,
         &claims,
         crate::audit_helper::actions::TENANT_UPDATE,
         crate::audit_helper::resources::TENANT,
         Some(&tenant_id),
     )
-    .await;
+    .await
+    {
+        tracing::warn!(error = %e, "Audit log failed");
+    }
 
     Ok(StatusCode::OK)
 }
@@ -619,14 +648,17 @@ pub async fn assign_adapters_to_tenant(
     }
 
     // Audit log: adapters assigned
-    let _ = crate::audit_helper::log_success(
+    if let Err(e) = crate::audit_helper::log_success(
         &state.db,
         &claims,
         crate::audit_helper::actions::TENANT_UPDATE,
         crate::audit_helper::resources::TENANT,
         Some(&tenant_id),
     )
-    .await;
+    .await
+    {
+        tracing::warn!(error = %e, "Audit log failed");
+    }
 
     Ok(StatusCode::OK)
 }
@@ -1014,3 +1046,6 @@ async fn apply_event<'a>(
         _ => Ok(()), // Stub for brevity in this step, ideally needs full copy
     }
 }
+
+// Re-export tenant handler path types from parent module for OpenAPI
+pub use super::__path_hydrate_tenant_from_bundle;

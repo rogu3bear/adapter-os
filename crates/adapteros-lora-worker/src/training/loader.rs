@@ -1,4 +1,4 @@
-//! Dataset manifest loader for MPLoRA training
+//! Dataset manifest loader for DIR training
 //!
 //! Supports positive/negative weighted JSONL files, converting them into `TrainingExample`
 //! instances encoded with the Qwen tokenizer.

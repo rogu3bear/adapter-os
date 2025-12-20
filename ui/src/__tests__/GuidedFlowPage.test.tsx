@@ -11,7 +11,7 @@ const useValidateDatasetMock = vi.fn();
 const useChatBootstrapMock = vi.fn();
 const useAdapterStacksMock = vi.fn();
 
-vi.mock('@/hooks/useTraining', () => ({
+vi.mock('@/hooks/training', () => ({
   useTraining: {
     useDataset: (...args: unknown[]) => useDatasetMock(...args),
     useTrainingJob: (...args: unknown[]) => useTrainingJobMock(...args),
@@ -21,7 +21,7 @@ vi.mock('@/hooks/useTraining', () => ({
   },
 }));
 
-vi.mock('@/hooks/useAdmin', () => ({
+vi.mock('@/hooks/admin/useAdmin', () => ({
   useAdapterStacks: (...args: unknown[]) => useAdapterStacksMock(...args),
 }));
 

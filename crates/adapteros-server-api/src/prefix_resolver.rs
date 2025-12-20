@@ -273,9 +273,12 @@ mod tests {
 
         let db = Arc::new(Db::new_in_memory().await.unwrap());
 
+        // Create tenant first (FK constraint)
+        let tenant_id = db.create_tenant("Test Tenant", false).await.unwrap();
+
         // Create a template
         db.create_prefix_template(CreatePrefixTemplateRequest {
-            tenant_id: "tenant-1".to_string(),
+            tenant_id: tenant_id.clone(),
             mode: PrefixMode::User,
             template_text: "You are a helpful assistant.".to_string(),
             priority: Some(10),
@@ -288,7 +291,7 @@ mod tests {
 
         // Mock tokenizer that returns fixed tokens
         let result = resolver
-            .resolve_prefix("tenant-1", &PrefixMode::User, |text| {
+            .resolve_prefix(&tenant_id, &PrefixMode::User, |text| {
                 assert_eq!(text, "You are a helpful assistant.");
                 Ok(vec![100, 200, 300, 400])
             })
@@ -307,12 +310,15 @@ mod tests {
         let db = Arc::new(Db::new_in_memory().await.unwrap());
         let resolver = PrefixResolver::new(Arc::clone(&db));
 
+        // Create tenant first (FK constraint)
+        let tenant_id = db.create_tenant("Test Tenant", false).await.unwrap();
+
         // Initially no templates
-        assert!(!resolver.has_prefix_templates("tenant-1").await.unwrap());
+        assert!(!resolver.has_prefix_templates(&tenant_id).await.unwrap());
 
         // Add a template
         db.create_prefix_template(CreatePrefixTemplateRequest {
-            tenant_id: "tenant-1".to_string(),
+            tenant_id: tenant_id.clone(),
             mode: PrefixMode::System,
             template_text: "System prefix".to_string(),
             priority: None,
@@ -322,9 +328,12 @@ mod tests {
         .unwrap();
 
         // Now has templates
-        assert!(resolver.has_prefix_templates("tenant-1").await.unwrap());
+        assert!(resolver.has_prefix_templates(&tenant_id).await.unwrap());
 
-        // Different tenant still has none
-        assert!(!resolver.has_prefix_templates("tenant-2").await.unwrap());
+        // Different tenant still has none (non-existent tenant)
+        assert!(!resolver
+            .has_prefix_templates("nonexistent-tenant")
+            .await
+            .unwrap());
     }
 }

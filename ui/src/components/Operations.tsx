@@ -43,7 +43,7 @@ import { Telemetry } from './Telemetry';
 import { InferencePlayground } from './InferencePlayground';
 import { AlertsPage } from '@/pages/Alerts/AlertsPage';
 import { FederationStatus } from './FederationStatus';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { User } from '@/api/types';
 import { toast } from 'sonner';
 

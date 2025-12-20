@@ -19,7 +19,7 @@ const mockArchiveChatSession = vi.fn();
 const mockRestoreChatSession = vi.fn();
 const mockHardDeleteChatSession = vi.fn();
 
-vi.mock('@/api/client', () => ({
+vi.mock('@/api/services', () => ({
   default: {
     listArchivedChatSessions: (...args: unknown[]) => mockListArchivedChatSessions(...args),
     listDeletedChatSessions: (...args: unknown[]) => mockListDeletedChatSessions(...args),
@@ -35,6 +35,11 @@ vi.mock('sonner', () => ({
     success: vi.fn(),
     error: vi.fn(),
   },
+}));
+
+// Mock useTenant for tenant-scoped query keys
+vi.mock('@/providers/FeatureProviders', () => ({
+  useTenant: () => ({ selectedTenant: 'test-tenant' }),
 }));
 
 // Test data
@@ -316,10 +321,10 @@ describe('useChatArchive - Mutation Hooks', () => {
 
       await result.current.mutateAsync({ sessionId: 'session-1' });
 
-      // Verify all cache invalidations
-      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['chat', 'sessions', 'archived'] });
-      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['chat', 'sessions', 'trash'] });
-      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['chat-sessions'] });
+      // Verify all cache invalidations (with tenant segment)
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['chat', 'sessions', 'archived', 'test-tenant'] });
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['chat', 'sessions', 'trash', 'test-tenant'] });
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['chat-sessions', 'test-tenant'] });
       expect(invalidateSpy).toHaveBeenCalledTimes(3);
     });
 
@@ -420,10 +425,10 @@ describe('useChatArchive - Mutation Hooks', () => {
 
       await result.current.mutateAsync('session-1');
 
-      // Verify all cache invalidations
-      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['chat', 'sessions', 'archived'] });
-      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['chat', 'sessions', 'trash'] });
-      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['chat-sessions'] });
+      // Verify all cache invalidations (with tenant segment)
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['chat', 'sessions', 'archived', 'test-tenant'] });
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['chat', 'sessions', 'trash', 'test-tenant'] });
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['chat-sessions', 'test-tenant'] });
       expect(invalidateSpy).toHaveBeenCalledTimes(3);
     });
 
@@ -520,10 +525,10 @@ describe('useChatArchive - Mutation Hooks', () => {
 
       await result.current.mutateAsync('session-1');
 
-      // Verify all cache invalidations
-      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['chat', 'sessions', 'archived'] });
-      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['chat', 'sessions', 'trash'] });
-      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['chat-sessions'] });
+      // Verify all cache invalidations (with tenant segment)
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['chat', 'sessions', 'archived', 'test-tenant'] });
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['chat', 'sessions', 'trash', 'test-tenant'] });
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['chat-sessions', 'test-tenant'] });
       expect(invalidateSpy).toHaveBeenCalledTimes(3);
     });
 
@@ -604,19 +609,19 @@ describe('useChatArchive - Cache Invalidation', () => {
     // Each mutation should invalidate 3 keys
     expect(invalidateSpy).toHaveBeenCalledTimes(9); // 3 mutations × 3 keys each
 
-    // Verify each key was invalidated by all mutations
+    // Verify each key was invalidated by all mutations (with tenant segment)
     const archivedSessionsCalls = invalidateSpy.mock.calls.filter(
-      (call) => JSON.stringify(call[0].queryKey) === JSON.stringify(['chat', 'sessions', 'archived'])
+      (call) => JSON.stringify(call[0].queryKey) === JSON.stringify(['chat', 'sessions', 'archived', 'test-tenant'])
     );
     expect(archivedSessionsCalls).toHaveLength(3);
 
     const deletedSessionsCalls = invalidateSpy.mock.calls.filter(
-      (call) => JSON.stringify(call[0].queryKey) === JSON.stringify(['chat', 'sessions', 'trash'])
+      (call) => JSON.stringify(call[0].queryKey) === JSON.stringify(['chat', 'sessions', 'trash', 'test-tenant'])
     );
     expect(deletedSessionsCalls).toHaveLength(3);
 
     const chatSessionsCalls = invalidateSpy.mock.calls.filter(
-      (call) => JSON.stringify(call[0].queryKey) === JSON.stringify(['chat-sessions'])
+      (call) => JSON.stringify(call[0].queryKey) === JSON.stringify(['chat-sessions', 'test-tenant'])
     );
     expect(chatSessionsCalls).toHaveLength(3);
   });

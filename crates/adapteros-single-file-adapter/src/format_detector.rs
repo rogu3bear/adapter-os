@@ -88,11 +88,18 @@ pub fn detect_format<P: AsRef<Path>>(path: P) -> Result<FormatVersion> {
 mod tests {
     use super::*;
     use std::io::Write;
+    use std::path::PathBuf;
     use tempfile::NamedTempFile;
+
+    fn new_test_tempfile() -> NamedTempFile {
+        let root = PathBuf::from("var").join("tmp");
+        std::fs::create_dir_all(&root).expect("create var/tmp");
+        NamedTempFile::new_in(&root).expect("create temp file")
+    }
 
     #[test]
     fn test_detect_zip_format() {
-        let mut file = NamedTempFile::new().unwrap();
+        let mut file = new_test_tempfile();
         // Write only ZIP magic bytes (4 bytes minimum for ZIP detection)
         file.write_all(b"PK\x03\x04").unwrap();
         file.flush().unwrap();
@@ -103,7 +110,7 @@ mod tests {
 
     #[test]
     fn test_detect_aos2_format() {
-        let mut file = NamedTempFile::new().unwrap();
+        let mut file = new_test_tempfile();
         // Write AOS 2.0 magic bytes
         file.write_all(b"AOS2\x00\x00\x00\x00").unwrap();
         file.flush().unwrap();
@@ -114,7 +121,7 @@ mod tests {
 
     #[test]
     fn test_detect_unknown_format() {
-        let mut file = NamedTempFile::new().unwrap();
+        let mut file = new_test_tempfile();
         file.write_all(b"UNKNOWN\x00").unwrap();
         file.flush().unwrap();
 
@@ -124,7 +131,7 @@ mod tests {
 
     #[test]
     fn test_detect_empty_file() {
-        let mut file = NamedTempFile::new().unwrap();
+        let mut file = new_test_tempfile();
         // Write nothing - empty file
         file.flush().unwrap();
 
@@ -139,7 +146,7 @@ mod tests {
 
     #[test]
     fn test_detect_unknown_4_byte_format() {
-        let mut file = NamedTempFile::new().unwrap();
+        let mut file = new_test_tempfile();
         // Write 4 bytes that don't match ZIP magic
         file.write_all(b"ABCD").unwrap();
         file.flush().unwrap();
@@ -155,7 +162,7 @@ mod tests {
 
     #[test]
     fn test_detect_legacy_magic_returns_explicit_error() {
-        let mut file = NamedTempFile::new().unwrap();
+        let mut file = new_test_tempfile();
         file.write_all(b"AOS\x00LEGACY").unwrap();
         file.flush().unwrap();
 

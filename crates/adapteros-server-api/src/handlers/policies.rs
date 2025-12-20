@@ -144,14 +144,17 @@ pub async fn validate_policy(
             // Audit log: policy validation success
             // Use content hash as identifier since ValidatePolicyRequest doesn't have cpid
             let content_hash = adapteros_core::B3Hash::hash(req.content.as_bytes()).to_string();
-            let _ = crate::audit_helper::log_success(
+            if let Err(e) = crate::audit_helper::log_success(
                 &state.db,
                 &claims,
                 crate::audit_helper::actions::POLICY_VALIDATE,
                 crate::audit_helper::resources::POLICY,
                 Some(&content_hash),
             )
-            .await;
+            .await
+            {
+                tracing::warn!(error = %e, "Audit log failed");
+            }
 
             Json(PolicyValidationResponse {
                 valid: true,
@@ -163,7 +166,7 @@ pub async fn validate_policy(
             // Audit log: policy validation failure
             // Use content hash as identifier since ValidatePolicyRequest doesn't have cpid
             let content_hash = adapteros_core::B3Hash::hash(req.content.as_bytes()).to_string();
-            let _ = crate::audit_helper::log_failure(
+            if let Err(audit_err) = crate::audit_helper::log_failure(
                 &state.db,
                 &claims,
                 crate::audit_helper::actions::POLICY_VALIDATE,
@@ -171,7 +174,10 @@ pub async fn validate_policy(
                 Some(&content_hash),
                 &format!("Invalid JSON: {}", e),
             )
-            .await;
+            .await
+            {
+                tracing::warn!(error = %audit_err, "Audit log failed");
+            }
 
             Json(PolicyValidationResponse {
                 valid: false,
@@ -346,14 +352,17 @@ pub async fn apply_policy(
     let created_at = chrono::Utc::now().to_rfc3339();
 
     // Audit log: policy applied
-    let _ = crate::audit_helper::log_success(
+    if let Err(e) = crate::audit_helper::log_success(
         &state.db,
         &claims,
         crate::audit_helper::actions::POLICY_APPLY,
         crate::audit_helper::resources::POLICY,
         Some(&req.cpid),
     )
-    .await;
+    .await
+    {
+        tracing::warn!(error = %e, "Audit log failed");
+    }
 
     Ok(Json(PolicyPackResponse {
         cpid: id,
@@ -387,14 +396,17 @@ pub async fn sign_policy(
     );
 
     // Audit log: policy signed
-    let _ = crate::audit_helper::log_success(
+    if let Err(e) = crate::audit_helper::log_success(
         &state.db,
         &claims,
         crate::audit_helper::actions::POLICY_SIGN,
         crate::audit_helper::resources::POLICY,
         Some(&cpid),
     )
-    .await;
+    .await
+    {
+        tracing::warn!(error = %e, "Audit log failed");
+    }
 
     Ok(Json(SignPolicyResponse {
         cpid: cpid.clone(),
@@ -746,14 +758,17 @@ pub async fn assign_policy(
         })?;
 
     // Audit log: policy assigned
-    let _ = crate::audit_helper::log_success(
+    if let Err(e) = crate::audit_helper::log_success(
         &state.db,
         &claims,
         crate::audit_helper::actions::POLICY_APPLY,
         crate::audit_helper::resources::POLICY,
         Some(&req.policy_pack_id),
     )
-    .await;
+    .await
+    {
+        tracing::warn!(error = %e, "Audit log failed");
+    }
 
     Ok(Json(PolicyAssignmentResponse {
         id: id.clone(),

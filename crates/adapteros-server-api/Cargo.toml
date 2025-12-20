@@ -13,6 +13,7 @@ adapteros-crypto = { path = "../adapteros-crypto" }
 adapteros-db = { path = "../adapteros-db", features = ["utoipa"] }
 adapteros-api-types = { path = "../adapteros-api-types" }
 adapteros-aos = { path = "../adapteros-aos" }
+adapteros-boot = { path = "../adapteros-boot" }
 adapteros-codegraph = { path = "../adapteros-codegraph" }
 adapteros-git = { path = "../adapteros-git" }
 adapteros-manifest = { path = "../adapteros-manifest" }
@@ -77,6 +78,10 @@ walkdir = "2.4"
 blake3 = { workspace = true }
 data-encoding = "2.5"
 prometheus = "0.13"
+# OpenTelemetry distributed tracing
+opentelemetry = { workspace = true }
+opentelemetry_sdk = { workspace = true }
+tracing-opentelemetry = { workspace = true }
 sha2 = "0.10"
 url = "2"
 urlencoding = "2"
@@ -116,7 +121,10 @@ result_large_err = "warn"
 
 [features]
 default = []
+# MLX FFI backend support - enables MLX capability detection and reporting
 mlx-ffi-backend = ["adapteros-lora-mlx-ffi"]
+# Standalone MLX flag for capability gating
+mlx = []
 embeddings = ["adapteros-ingest-docs/multi-backend"]
 redis = []
 metrics = []

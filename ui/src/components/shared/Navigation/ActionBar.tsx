@@ -1,7 +1,7 @@
 import React from 'react';
 import { LucideIcon, MoreHorizontal, ChevronDown } from 'lucide-react';
 
-import { cn } from '@/components/ui/utils';
+import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,

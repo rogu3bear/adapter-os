@@ -43,7 +43,7 @@ async fn create_test_document(db: &Db, tenant_id: &str, doc_id: &str) -> Result<
         tenant_id: tenant_id.to_string(),
         name: format!("test-{}.pdf", doc_id),
         content_hash: format!("hash-{}", doc_id),
-        file_path: format!("/tmp/{}.pdf", doc_id),
+        file_path: format!("var/test-documents/{}.pdf", doc_id),
         file_size: 1000,
         mime_type: "application/pdf".to_string(),
         page_count: Some(10),

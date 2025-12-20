@@ -234,6 +234,12 @@ mod tests {
     use std::collections::HashMap;
     use tempfile::TempDir;
 
+    fn new_test_tempdir() -> TempDir {
+        let root = std::path::PathBuf::from("var").join("tmp");
+        std::fs::create_dir_all(&root).expect("create var/tmp");
+        TempDir::new_in(&root).expect("tempdir")
+    }
+
     fn create_test_archive() -> GoldenRunArchive {
         let metadata = GoldenRunMetadata {
             run_id: "test-001".to_string(),
@@ -298,7 +304,7 @@ mod tests {
 
     #[test]
     fn test_archive_save_load() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let archive_dir = temp_dir.path().join("test-archive");
 
         let archive = create_test_archive();
@@ -318,7 +324,7 @@ mod tests {
 
     #[test]
     fn test_archive_load_missing() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let missing_path = temp_dir.path().join("nonexistent");
 
         let result = GoldenRunArchive::load(&missing_path);
@@ -332,7 +338,7 @@ mod tests {
     #[test]
     fn test_archive_backwards_compatibility() {
         // Test loading archive without routing_decisions.json
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let archive_dir = temp_dir.path().join("test-archive");
 
         let mut archive = create_test_archive();
@@ -354,7 +360,7 @@ mod tests {
     fn test_archive_with_routing_decisions() {
         use crate::routing::create_test_decision;
 
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let archive_dir = temp_dir.path().join("test-archive");
 
         let mut archive = create_test_archive();

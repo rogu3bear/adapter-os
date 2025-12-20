@@ -4,9 +4,10 @@ import { Button } from '@/components/ui/button';
 import { ArrowRight, CheckCircle, Circle, AlertCircle, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { usePolling } from '@/hooks/realtime/usePolling';
-import { apiClient } from '@/api/client';
+import { apiClient } from '@/api/services';
 import type { TrainingJob } from '@/api/types';
 import { DashboardWidgetFrame, type DashboardWidgetState } from './DashboardWidgetFrame';
+import { buildTrainingOverviewLink, buildAdaptersListLink } from '@/utils/navLinks';
 
 interface PipelineStage {
   id: string;
@@ -37,11 +38,11 @@ export function MLPipelineWidget() {
     if (!trainingJobs || trainingJobs.length === 0) {
       // Default state when no training jobs exist
       return [
-        { id: 'train', label: 'Train', status: 'pending', route: '/training' },
+        { id: 'train', label: 'Train', status: 'pending', route: buildTrainingOverviewLink() },
         { id: 'test', label: 'Test', status: 'pending', route: '/testing' },
         { id: 'compare', label: 'Compare', status: 'pending', route: '/golden' },
         { id: 'promote', label: 'Promote', status: 'pending', route: '/promotion' },
-        { id: 'deploy', label: 'Deploy', status: 'pending', route: '/adapters' }
+        { id: 'deploy', label: 'Deploy', status: 'pending', route: buildAdaptersListLink() }
       ];
     }
 
@@ -56,7 +57,7 @@ export function MLPipelineWidget() {
         id: 'train',
         label: 'Train',
         status: hasFailedTraining ? 'error' : hasRunningTraining ? 'in_progress' : hasCompletedTraining ? 'completed' : 'pending',
-        route: '/training'
+        route: buildTrainingOverviewLink()
       },
       {
         id: 'test',
@@ -66,7 +67,7 @@ export function MLPipelineWidget() {
       },
       { id: 'compare', label: 'Compare', status: 'pending', route: '/golden' },
       { id: 'promote', label: 'Promote', status: 'pending', route: '/promotion' },
-      { id: 'deploy', label: 'Deploy', status: 'pending', route: '/adapters' }
+      { id: 'deploy', label: 'Deploy', status: 'pending', route: buildAdaptersListLink() }
     ];
   }, [trainingJobs]);
 
@@ -120,7 +121,7 @@ export function MLPipelineWidget() {
       errorMessage={error ? 'Failed to load training jobs' : undefined}
       emptyMessage="No training jobs yet"
       emptyAction={
-        <Button size="sm" onClick={() => navigate('/training')}>
+        <Button size="sm" onClick={() => navigate(buildTrainingOverviewLink())}>
           Start training
         </Button>
       }

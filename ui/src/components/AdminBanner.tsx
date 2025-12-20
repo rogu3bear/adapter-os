@@ -1,11 +1,13 @@
 import React from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
 import { Alert, AlertDescription, AlertTitle } from './ui/alert';
 import { Button } from './ui/button';
-import { AlertTriangle, CheckCircle2, XCircle, ExternalLink } from 'lucide-react';
-import apiClient from '@/api/client';
+import { AlertTriangle, XCircle, ExternalLink } from 'lucide-react';
+import { apiClient } from '@/api/services';
 import { formatDistanceToNow } from 'date-fns';
 import type { DeterminismStatusResponse, AdapterQuarantineStatusResponse } from '@/api/types';
+import { buildReplayLink, buildAdminStacksLink } from '@/utils/navLinks';
 
 export function AdminBanner() {
   const { data: determinismStatus } = useQuery({
@@ -43,20 +45,13 @@ export function AdminBanner() {
                   ({determinismStatus.divergences} divergence{determinismStatus.divergences !== 1 ? 's' : ''})
                 </span>
               )}
-            </span>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                // Navigate to diagnostics page or run check
-                window.location.href = '/admin?tab=diagnostics';
-              }}
-            >
-              View Details
-            </Button>
-          </AlertDescription>
-        </Alert>
-      )}
+	            </span>
+	            <Button asChild variant="outline" size="sm">
+	              <Link to={buildReplayLink()}>View Details</Link>
+	            </Button>
+	          </AlertDescription>
+	        </Alert>
+	      )}
 
       {hasQuarantineIssue && (
         <Alert variant={quarantineStatus?.in_active_stacks ? 'destructive' : 'default'}>
@@ -75,20 +70,19 @@ export function AdminBanner() {
                 ? '1 adapter is quarantined'
                 : `${quarantineStatus?.quarantined_count} adapters are quarantined`}
             </span>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                window.location.href = '/admin?tab=quarantine';
-              }}
-            >
-              View Details
-              <ExternalLink className="ml-1 h-3 w-3" />
-            </Button>
-          </AlertDescription>
-        </Alert>
-      )}
+	            <Button
+	              variant="outline"
+	              size="sm"
+	              asChild
+	            >
+	              <Link to={buildAdminStacksLink()}>
+	                View Details
+	                <ExternalLink className="ml-1 h-3 w-3" />
+	              </Link>
+	            </Button>
+	          </AlertDescription>
+	        </Alert>
+	      )}
     </div>
   );
 }
-

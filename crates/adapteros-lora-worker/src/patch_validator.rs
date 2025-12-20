@@ -959,10 +959,10 @@ impl PathValidator {
     /// Check if path matches glob pattern (simplified implementation)
     fn matches_pattern(&self, pattern: &str, path: &str) -> bool {
         // Handle common glob patterns
-        if pattern.starts_with("**/") {
+        if let Some(suffix_pattern) = pattern.strip_prefix("**/") {
             // Pattern like "**/.env*" or "**/secrets/**"
-            let suffix_pattern = &pattern[3..]; // Remove "**/"
-                                                // Check if any path segment matches the suffix pattern
+            // Remove "**/"
+            // Check if any path segment matches the suffix pattern
             for segment in path.split('/') {
                 if self.simple_glob_match(suffix_pattern, segment)
                     || self.simple_glob_match(suffix_pattern, path)

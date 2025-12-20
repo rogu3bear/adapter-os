@@ -3,7 +3,7 @@
 import * as React from "react";
 import * as TooltipPrimitive from '@radix-ui/react-tooltip';
 
-import { cn, FROST_TOOLTIP } from "./utils";
+import { cn, FROST_TOOLTIP } from "@/lib/utils";
 
 /** Delay in ms before tooltip closes after hover ends. Default: 150ms */
 const DEFAULT_CLOSE_DELAY_MS = 150;

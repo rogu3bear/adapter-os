@@ -17,6 +17,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from 'sonner';
 import { useTrace } from '@/hooks/observability/useTrace';
 import { useTenant } from '@/providers/FeatureProviders';
+import { buildTelemetryTraceLink } from '@/utils/navLinks';
 
 interface TraceTabProps {
   /** Trace ID to fetch and display */
@@ -104,7 +105,7 @@ export function TraceTab({ traceId, onOpenFullViewer }: TraceTabProps) {
     if (onOpenFullViewer) {
       onOpenFullViewer();
     } else if (traceId) {
-      navigate(`/telemetry?tab=viewer&requestId=${encodeURIComponent(traceId)}`);
+      navigate(buildTelemetryTraceLink(traceId));
     }
   };
 

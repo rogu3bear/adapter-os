@@ -1,11 +1,11 @@
-import React, { useEffect, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import React, { useEffect, useState, useRef } from 'react';
+import { Link, useParams, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import FeatureLayout from '@/layout/FeatureLayout';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useReplayTabRouter } from '@/hooks/navigation/useTabRouter';
 import { ReplayPanel } from '@/components/ReplayPanel';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import type { ReplaySession } from '@/api/types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -13,14 +13,16 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
+import { buildReplayRunsLink, buildTelemetryLink, buildRoutingLink } from '@/utils/navLinks';
 
 export default function ReplayShell() {
-  const [searchParams] = useSearchParams();
+  const { sessionId } = useParams<{ sessionId?: string }>();
+  const navigate = useNavigate();
   const { toast } = useToast();
   const { activeTab, setActiveTab, availableTabs, getTabPath } = useReplayTabRouter();
   const [selectedSession, setSelectedSession] = useState<ReplaySession | null>(null);
   const [compareId, setCompareId] = useState<string>('');
-  const preselectedSessionId = searchParams.get('sessionId') || undefined;
+  const isAutoSelectingRef = useRef(false);
 
   const { data: sessionDetail } = useQuery({
     queryKey: ['replay-session', selectedSession?.id],
@@ -32,6 +34,40 @@ export default function ReplayShell() {
     queryKey: ['replay-sessions'],
     queryFn: () => apiClient.listReplaySessions(),
   });
+
+  // Auto-select session from URL param (works on any tab, not just "runs")
+  useEffect(() => {
+    if (sessionId && allSessions && !selectedSession) {
+      const session = allSessions.find(s => s.id === sessionId);
+      if (session) {
+        isAutoSelectingRef.current = true;
+        setSelectedSession(session);
+        toast({ title: 'Session loaded from URL', description: session.cpid });
+        // Reset flag after a tick to allow future manual selections to toast
+        setTimeout(() => {
+          isAutoSelectingRef.current = false;
+        }, 100);
+      }
+    }
+  }, [sessionId, allSessions, selectedSession, toast]);
+
+  // Update URL when session is selected (keep URL in sync)
+  const handleSessionSelect = (session: ReplaySession | null) => {
+    // Skip if this is triggered by auto-selection (already handled above)
+    if (isAutoSelectingRef.current && session?.id === sessionId) {
+      return;
+    }
+
+    setSelectedSession(session);
+    if (session) {
+      // Navigate to session-specific URL
+      navigate(buildReplayRunsLink(session.id), { replace: true });
+      toast({ title: 'Session selected', description: session.cpid });
+    } else {
+      // Navigate back to base replay URL
+      navigate(buildReplayRunsLink(), { replace: true });
+    }
+  };
 
   return (
     <FeatureLayout
@@ -50,19 +86,26 @@ export default function ReplayShell() {
 
         <TabsContent value="runs" className="mt-6">
           <ReplayPanel
-            initialSessionId={preselectedSessionId}
-            onSessionSelect={(session) => {
-              setSelectedSession(session);
-              if (session) {
-                toast({ title: 'Session selected', description: session.cpid });
-              }
-            }}
+            initialSessionId={sessionId}
+            onSessionSelect={handleSessionSelect}
+          />
+        </TabsContent>
+        <TabsContent value="runs-with-session" className="mt-6">
+          <ReplayPanel
+            initialSessionId={sessionId}
+            onSessionSelect={handleSessionSelect}
           />
         </TabsContent>
         <TabsContent value="decision-trace" className="mt-6">
           <DecisionTraceTab session={sessionDetail ?? selectedSession ?? null} />
         </TabsContent>
+        <TabsContent value="decision-trace-with-session" className="mt-6">
+          <DecisionTraceTab session={sessionDetail ?? selectedSession ?? null} />
+        </TabsContent>
         <TabsContent value="evidence" className="mt-6">
+          <EvidenceTab session={sessionDetail ?? selectedSession ?? null} />
+        </TabsContent>
+        <TabsContent value="evidence-with-session" className="mt-6">
           <EvidenceTab session={sessionDetail ?? selectedSession ?? null} />
         </TabsContent>
         <TabsContent value="compare" className="mt-6">
@@ -73,7 +116,18 @@ export default function ReplayShell() {
             onCompareIdChange={setCompareId}
           />
         </TabsContent>
+        <TabsContent value="compare-with-session" className="mt-6">
+          <CompareTab
+            session={sessionDetail ?? selectedSession ?? null}
+            sessions={allSessions ?? []}
+            compareId={compareId}
+            onCompareIdChange={setCompareId}
+          />
+        </TabsContent>
         <TabsContent value="export" className="mt-6">
+          <ExportTab session={sessionDetail ?? selectedSession ?? null} />
+        </TabsContent>
+        <TabsContent value="export-with-session" className="mt-6">
           <ExportTab session={sessionDetail ?? selectedSession ?? null} />
         </TabsContent>
       </Tabs>
@@ -91,8 +145,8 @@ function DecisionTraceTab({ session }: { session: ReplaySession | null }) {
       <CardHeader>
         <CardTitle>Routing decision trace</CardTitle>
         <div className="text-xs text-muted-foreground flex gap-2">
-          <Link to="/routing" className="underline underline-offset-4">View routing history</Link>
-          <Link to="/telemetry" className="underline underline-offset-4">Open telemetry</Link>
+          <Link to={buildRoutingLink()} className="underline underline-offset-4">View routing history</Link>
+          <Link to={buildTelemetryLink()} className="underline underline-offset-4">Open telemetry</Link>
         </div>
       </CardHeader>
       <CardContent className="space-y-2 text-sm">

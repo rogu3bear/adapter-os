@@ -7,7 +7,7 @@ import {
   cn,
   FROST_BACKGROUND,
   FROST_OVERLAY,
-} from "./utils";
+} from "@/lib/utils";
 
 function Drawer({
   ...props

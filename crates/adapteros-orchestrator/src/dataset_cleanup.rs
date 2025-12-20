@@ -42,7 +42,7 @@ impl Default for CleanupConfig {
 }
 
 /// Result of storage cleanup operation
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct CleanupResult {
     /// Files found and removed
     pub orphaned_files_removed: usize,
@@ -52,17 +52,6 @@ pub struct CleanupResult {
     pub datasets_archived: usize,
     /// Files that couldn't be removed
     pub cleanup_errors: Vec<String>,
-}
-
-impl Default for CleanupResult {
-    fn default() -> Self {
-        Self {
-            orphaned_files_removed: 0,
-            bytes_freed: 0,
-            datasets_archived: 0,
-            cleanup_errors: Vec::new(),
-        }
-    }
 }
 
 /// Storage quota status per tenant

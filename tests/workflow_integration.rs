@@ -134,7 +134,7 @@ async fn test_workflow_execution_upstream_downstream() {
 async fn test_lifecycle_manager_workflow_integration() {
     // Create lifecycle manager
     let policies = Policies::default();
-    let adapters_path = PathBuf::from("/tmp/test_adapters");
+    let adapters_path = PathBuf::from("var/test-adapters");
     let adapter_names = vec!["test_adapter_1".to_string(), "test_adapter_2".to_string()];
 
     let adapter_hashes = build_adapter_hashes(&adapter_names);

@@ -12,7 +12,7 @@ import type {
 // Mock API client
 const mockApiRequest = vi.fn();
 
-vi.mock('@/api/client', () => ({
+vi.mock('@/api/services', () => ({
   apiClient: {
     request: (...args: unknown[]) => mockApiRequest(...args),
   },

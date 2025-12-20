@@ -7,6 +7,7 @@
 
 import type { Dataset, TrustState } from '@/api/training-types';
 import type { PolicyCheck } from '@/components/PolicyPreflightDialog';
+import { formatBytes } from '@/lib/formatters';
 
 /** Size limit warning threshold (1GB) */
 const SIZE_WARNING_BYTES = 1024 * 1024 * 1024;
@@ -18,22 +19,6 @@ const SIZE_ERROR_BYTES = 10 * 1024 * 1024 * 1024;
  * Allowed trust states for training
  */
 const ALLOWED_TRUST_STATES: TrustState[] = ['allowed', 'allowed_with_warning'];
-
-/**
- * Format bytes to human-readable string
- */
-function formatBytes(bytes: number): string {
-  if (bytes >= 1024 * 1024 * 1024) {
-    return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
-  }
-  if (bytes >= 1024 * 1024) {
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  }
-  if (bytes >= 1024) {
-    return `${(bytes / 1024).toFixed(1)} KB`;
-  }
-  return `${bytes} bytes`;
-}
 
 export interface ClientPreflightResult {
   /** Whether all critical checks passed */

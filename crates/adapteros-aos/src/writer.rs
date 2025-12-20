@@ -433,7 +433,7 @@ pub fn parse_segments(bytes: &[u8], header: &AosHeader) -> Result<Vec<SegmentDes
         ));
     }
 
-    if index_size % INDEX_ENTRY_SIZE != 0 {
+    if !index_size.is_multiple_of(INDEX_ENTRY_SIZE) {
         return Err(AosError::Validation(
             "Corrupted / needs retrain: index size not 80-byte aligned".to_string(),
         ));
@@ -538,11 +538,11 @@ pub fn open_aos<'a>(bytes: &'a [u8]) -> Result<AosFileView<'a>> {
 }
 
 /// Deterministically select a segment by scope hash and backend preference.
-pub fn select_segment<'a>(
-    segments: &'a [SegmentDescriptor],
+pub fn select_segment(
+    segments: &[SegmentDescriptor],
     scope_hash: [u8; 16],
     preferred_backend: Option<BackendTag>,
-) -> Option<&'a SegmentDescriptor> {
+) -> Option<&SegmentDescriptor> {
     let scoped: Vec<&SegmentDescriptor> = segments
         .iter()
         .filter(|s| s.scope_hash == scope_hash)
@@ -602,7 +602,11 @@ mod tests {
 
     #[test]
     fn test_write_and_read_archive_with_segments() -> Result<()> {
-        let temp_file = NamedTempFile::new()
+        let temp_root = std::path::PathBuf::from("var/tmp");
+        std::fs::create_dir_all(&temp_root).map_err(|e| {
+            AosError::Io(format!("Failed to create AdapterOS temp directory: {}", e))
+        })?;
+        let temp_file = NamedTempFile::new_in(&temp_root)
             .map_err(|e| AosError::Io(format!("Failed to create temp file: {}", e)))?;
 
         let manifest = TestManifest {
@@ -681,7 +685,9 @@ mod tests {
 
     #[test]
     fn test_magic_validation() {
-        let temp_file = NamedTempFile::new().unwrap();
+        let temp_root = std::path::PathBuf::from("var/tmp");
+        std::fs::create_dir_all(&temp_root).unwrap();
+        let temp_file = NamedTempFile::new_in(&temp_root).unwrap();
 
         // Write invalid magic bytes (file too small for full header)
         std::fs::write(temp_file.path(), b"BAD!").unwrap();

@@ -1,11 +1,11 @@
 //! Unified policy enforcement interface for AdapterOS
 //!
-//! Provides a centralized interface for enforcing all 20 policy packs
+//! Provides a centralized interface for enforcing all 25 policy packs
 //! across the system with consistent validation and reporting.
 //!
 //! # Citations
 //! - Policy Pack #1-20: All policy packs enforced through unified interface
-//! - CLAUDE.md L142: "Policy Engine: Enforces 20 policy packs"
+//! - CLAUDE.md L142: "Policy Engine: Enforces 25 policy packs"
 
 use adapteros_core::Result;
 use serde::{Deserialize, Serialize};

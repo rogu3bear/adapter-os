@@ -20,13 +20,13 @@ import {
   ShieldCheck,
   Zap,
 } from 'lucide-react';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import * as types from '@/api/types';
 
 import { logger, toError } from '@/utils/logger';
 import { usePolling } from '@/hooks/realtime/usePolling';
 import { KpiGrid, ContentGrid } from './ui/grid';
-import { formatPercent, formatDurationMs } from '@/utils/format';
+import { formatPercent, formatDurationMs } from '@/lib/formatters';
 
 
 interface AlertEntry {

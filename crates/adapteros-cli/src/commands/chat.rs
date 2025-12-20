@@ -263,7 +263,7 @@ async fn run_interactive_chat(
                         output.info("Switched to base model (no stack)");
                     } else {
                         current_stack = Some(stack_id.to_string());
-                        output.info(&format!("Switched to stack: {}", stack_id));
+                        output.info(format!("Switched to stack: {}", stack_id));
                     }
                     continue;
                 }
@@ -275,7 +275,7 @@ async fn run_interactive_chat(
                     Ok(_) => output.blank(),
                     Err(e) => {
                         error!(error = %e, "Inference failed");
-                        output.error(&format!("Error: {}", e));
+                        output.error(format!("Error: {}", e));
                     }
                 }
             }
@@ -454,7 +454,7 @@ async fn list_chat_sessions(json: bool, base_url: &str, output: &OutputWriter) -
             return Ok(());
         }
 
-        output.info(&format!("Found {} chat sessions:", sessions.len()));
+        output.info(format!("Found {} chat sessions:", sessions.len()));
         output.blank();
 
         for session in &sessions {
@@ -513,7 +513,7 @@ async fn show_chat_history(
     if json {
         output.result(&serde_json::to_string_pretty(&history)?);
     } else {
-        output.info(&format!("Chat history for session: {}", session_id));
+        output.info(format!("Chat history for session: {}", session_id));
         output.blank();
 
         if history.is_empty() {
@@ -521,7 +521,7 @@ async fn show_chat_history(
             return Ok(());
         }
         for (i, message) in history.iter().enumerate() {
-            output.result(&format!(
+            output.result(format!(
                 "[{}] {} ({}):",
                 i + 1,
                 message.role,
@@ -669,6 +669,7 @@ mod tests {
     use super::*;
     use crate::auth_store::{save_auth, AuthStore};
     use crate::output::{OutputMode, OutputWriter};
+    use adapteros_platform::common::PlatformUtils;
     use axum::{
         extract::Path,
         http::StatusCode,
@@ -793,7 +794,9 @@ mod tests {
         let base_url = format!("http://{}", addr);
 
         // Simulate auth store providing base URL (token unused by chat command)
-        let tmp_auth = NamedTempFile::new().expect("tmp auth");
+        let root = PlatformUtils::temp_dir();
+        std::fs::create_dir_all(&root).expect("create var/tmp");
+        let tmp_auth = NamedTempFile::new_in(&root).expect("tmp auth");
         env::set_var("AOSCTL_AUTH_PATH", tmp_auth.path());
         let auth = AuthStore {
             base_url: base_url.clone(),

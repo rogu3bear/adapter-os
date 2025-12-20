@@ -40,19 +40,23 @@ if [[ -z "${ADAPTER_ID:-}" ]]; then
   exit 1
 fi
 
-BASE_URL="${AOS_BASE_URL:-http://localhost:8080}"
+BASE_URL="${AOS_BASE_URL:-http://localhost:${AOS_SERVER_PORT:-8080}}"
 STACK_NAME="${STACK_NAME:-determinism-test-stack-$(date +%s)}"
 PROMPT="${TEST_PROMPT:-What is 2+2?}"
 SEED="${DETERMINISM_SEED:-12345}"
 USE_DEBUG_OVERRIDE="${USE_DEBUG_OVERRIDE:-1}"
 MAX_TOKENS=50
 
-STACK_FILE="$(mktemp /tmp/determinism_stack_XXXX.json)"
-RELAXED_FILE="$(mktemp /tmp/determinism_relaxed_XXXX.json)"
-STRICT_FILE="$(mktemp /tmp/determinism_strict_XXXX.json)"
-INHERIT_FILE="$(mktemp /tmp/determinism_inherit_XXXX.json)"
-STRICT_RUN1="$(mktemp /tmp/determinism_strict_run1_XXXX.json)"
-STRICT_RUN2="$(mktemp /tmp/determinism_strict_run2_XXXX.json)"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+TMP_ROOT="${REPO_ROOT}/var/tmp"
+mkdir -p "${TMP_ROOT}"
+
+STACK_FILE="$(mktemp "${TMP_ROOT}/determinism_stack_XXXX.json")"
+RELAXED_FILE="$(mktemp "${TMP_ROOT}/determinism_relaxed_XXXX.json")"
+STRICT_FILE="$(mktemp "${TMP_ROOT}/determinism_strict_XXXX.json")"
+INHERIT_FILE="$(mktemp "${TMP_ROOT}/determinism_inherit_XXXX.json")"
+STRICT_RUN1="$(mktemp "${TMP_ROOT}/determinism_strict_run1_XXXX.json")"
+STRICT_RUN2="$(mktemp "${TMP_ROOT}/determinism_strict_run2_XXXX.json")"
 
 cleanup() {
   rm -f "$STACK_FILE" "$RELAXED_FILE" "$STRICT_FILE" "$INHERIT_FILE" "$STRICT_RUN1" "$STRICT_RUN2"

@@ -32,6 +32,7 @@ impl RagDocumentKv {
     }
 
     /// Create a document with current timestamp metadata.
+    #[allow(clippy::too_many_arguments)]
     pub fn new_with_now(
         doc_id: String,
         tenant_id: String,

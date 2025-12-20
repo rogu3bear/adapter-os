@@ -9,6 +9,12 @@ use adapteros_verify::{
 use std::fs;
 use tempfile::TempDir;
 
+fn new_test_tempdir() -> TempDir {
+    let root = std::path::PathBuf::from("var").join("tmp");
+    std::fs::create_dir_all(&root).expect("create var/tmp");
+    TempDir::new_in(&root).expect("tempdir")
+}
+
 /// Create a mock replay bundle with routing decisions
 fn create_mock_replay_bundle(routing_decisions: Vec<RouterDecisionEvent>) -> ReplayBundle {
     let mut events = vec![
@@ -100,7 +106,7 @@ fn create_test_routing_decisions() -> Vec<RouterDecisionEvent> {
 #[tokio::test]
 async fn test_golden_run_routing_save_load() {
     // Simplified test that focuses on save/load of routing decisions
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = new_test_tempdir();
     let golden_dir = temp_dir.path().join("golden-001");
 
     // Create a golden run archive with routing decisions
@@ -174,7 +180,7 @@ async fn test_golden_run_routing_save_load() {
 
 #[tokio::test]
 async fn test_golden_run_backwards_compatibility() {
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = new_test_tempdir();
     let bundle_path = temp_dir.path().join("bundle.ndjson");
     let golden_dir = temp_dir.path().join("golden-old");
 

@@ -321,7 +321,14 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use adapteros_platform::common::PlatformUtils;
     use tempfile::TempDir;
+
+    fn new_test_tempdir() -> Result<TempDir> {
+        let root = PlatformUtils::temp_dir();
+        std::fs::create_dir_all(&root)?;
+        Ok(TempDir::new_in(&root)?)
+    }
 
     #[tokio::test]
     async fn test_retry_manager() -> Result<()> {
@@ -330,7 +337,7 @@ mod tests {
         config.max_retry_delay = Duration::from_millis(20);
         let manager = RetryManager::new(&config)?;
 
-        let temp_dir = TempDir::new()?;
+        let temp_dir = new_test_tempdir()?;
         let test_file = temp_dir.path().join("test.txt");
         let path_str = test_file.to_string_lossy().to_string();
 
@@ -398,7 +405,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_retry_with_timeout() -> Result<()> {
-        let temp_dir = TempDir::new()?;
+        let temp_dir = new_test_tempdir()?;
         let test_file = temp_dir.path().join("test.txt");
 
         // Test retry with timeout
@@ -425,7 +432,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_retry_with_error_handler() -> Result<()> {
-        let temp_dir = TempDir::new()?;
+        let temp_dir = new_test_tempdir()?;
         let test_file = temp_dir.path().join("test.txt");
 
         // Test retry with error handler

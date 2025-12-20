@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -7,7 +8,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { ChatMessageComponent, type ChatMessage, type EvidenceItem } from './chat/ChatMessage';
+import { ChatMessageComponent } from './chat/ChatMessage';
+import type { ChatMessage, EvidenceItem, ChatInterfaceProps } from '@/types/components';
 import { logger, toError } from '@/utils/logger';
 import { toast } from 'sonner';
 import { SectionErrorBoundary } from '@/components/ui/section-error-boundary';
@@ -22,6 +24,7 @@ import { PreChatAdapterPrompt } from './chat/PreChatAdapterPrompt';
 import { ChatSearchBar } from './chat/ChatSearchBar';
 import { ChatSessionActions } from './chat/ChatSessionActions';
 import { ChatTagsManager } from './chat/ChatTagsManager';
+import { ChatCategoriesManager } from './chat/ChatCategoriesManager';
 import { ChatShareDialog } from './chat/ChatShareDialog';
 import { ChatArchivePanel } from './chat/ChatArchivePanel';
 import { InlineModelLoadingBlock } from './chat/InlineModelLoadingBlock';
@@ -45,52 +48,18 @@ import { ChatErrorDisplay } from './chat/ChatErrorDisplay';
 import { MissingPinnedAdaptersBanner } from './chat/MissingPinnedAdaptersBanner';
 import { EvidenceDrawerProvider, useEvidenceDrawerOptional } from '@/contexts/EvidenceDrawerContext';
 import { EvidenceDrawer } from './chat/EvidenceDrawer';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { useChatSessionsApi } from '@/hooks/chat/useChatSessionsApi';
 
 // LocalStorage key for chat auto-load preference
 const CHAT_AUTO_LOAD_KEY = 'aos-chat-auto-load-model';
 
-interface ChatInterfaceProps {
-  selectedTenant: string;
-  initialStackId?: string;
-  /** Controlled stack ID - optional for base-model-only chat */
-  selectedStackId?: string | null;
-  /** Callback when stack selection changes */
-  onStackChange?: (stackId: string | null) => void;
-  sessionId?: string; // Optional: load existing session
-  /** Document context for document-specific chat */
-  documentContext?: {
-    documentId: string;
-    documentName: string;
-    collectionId?: string;
-  };
-  /** Dataset context for dataset-scoped chat */
-  datasetContext?: {
-    datasetId: string;
-    datasetName: string;
-    collectionId?: string;
-    datasetVersionId?: string;
-  };
-  /** Callback when user wants to view a document (for evidence navigation) */
-  onViewDocument?: (documentId: string, pageNumber?: number, highlightText?: string) => void;
-  /** Streaming render mode (tokens or chunks) */
-  streamMode?: 'tokens' | 'chunks';
-  /** Developer toggle to show raw traces */
-  developerMode?: boolean;
-  /** Callback when a message completes (for workbench right rail auto-update) */
-  onMessageComplete?: (messageId: string, traceId?: string) => void;
-  /** Callback when user selects/clicks a message. Receives traceId for trace fetching. */
-  onMessageSelect?: (messageId: string, traceId?: string) => void;
-  /** Currently selected message ID (for highlighting) */
-  selectedMessageId?: string | null;
-}
-
-export function ChatInterface({
+function ChatInterfaceInner({
   selectedTenant,
   initialStackId,
   selectedStackId: rawSelectedStackId,
   onStackChange,
+  onSessionChange,
   sessionId,
   documentContext,
   datasetContext,
@@ -101,8 +70,17 @@ export function ChatInterface({
   onMessageSelect,
   selectedMessageId,
 }: ChatInterfaceProps) {
+  const isStackControlled = rawSelectedStackId !== undefined;
+  const [internalStackId, setInternalStackId] = useState<string>(() => initialStackId ?? '');
+
+  useEffect(() => {
+    if (isStackControlled) return;
+    if (!initialStackId) return;
+    setInternalStackId((current) => (current ? current : initialStackId));
+  }, [initialStackId, isStackControlled]);
+
   // Normalize selectedStackId: null/undefined -> empty string for base-model-only mode
-  const selectedStackId = rawSelectedStackId || '';
+  const selectedStackId = (isStackControlled ? rawSelectedStackId : internalStackId) || '';
 
   // Use tenantId for API hooks that support undefined (default stack)
   const tenantId = selectedTenant || 'default';
@@ -138,6 +116,8 @@ export function ChatInterface({
     setShareDialogSessionId,
     tagsDialogSessionId,
     setTagsDialogSessionId,
+    categoryDialogSessionId,
+    setCategoryDialogSessionId,
   } = useChatModals();
 
   // Local editing state (for session rename)
@@ -146,15 +126,55 @@ export function ChatInterface({
 
   // Remaining local state
   const [input, setInput] = useState('');
-  // Stack state: Parent-controlled via selectedStackId prop
-  const setSelectedStackId = useCallback((stackId: string | null) => {
-    onStackChange?.(stackId);
-  }, [onStackChange]);
+  const setSelectedStackId = useCallback(
+    (stackId: string | null) => {
+      if (!isStackControlled) {
+        setInternalStackId(stackId ?? '');
+      }
+      onStackChange?.(stackId);
+    },
+    [isStackControlled, onStackChange]
+  );
   const [selectedCollectionId, setSelectedCollectionId] = useState<string | null>(documentContext?.collectionId ?? null);
   const [showContext, setShowContext] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [routingMode, setRoutingMode] = useState<'deterministic' | 'adaptive'>('deterministic');
   const [strengthOverrides, setStrengthOverrides] = useState<Record<string, number>>({});
+
+  const attemptedSessionLoadRef = useRef<string | null>(null);
+  const previousTenantIdRef = useRef<string | null>(null);
+  const previousSessionIdPropRef = useRef<string | undefined>(sessionId);
+
+  // If the parent-controlled sessionId changes, clear current state immediately so we don't show stale messages.
+  useEffect(() => {
+    const previousSessionIdProp = previousSessionIdPropRef.current;
+    if (previousSessionIdProp === sessionId) return;
+    previousSessionIdPropRef.current = sessionId;
+
+    if (!sessionId) {
+      if (!previousSessionIdProp) return;
+      attemptedSessionLoadRef.current = null;
+      clearSession();
+      return;
+    }
+
+    if (sessionId === currentSessionId) return;
+    attemptedSessionLoadRef.current = null;
+    clearSession();
+  }, [clearSession, currentSessionId, sessionId]);
+
+  // Notify parent when the active session changes (e.g., user loads/creates session within ChatInterface).
+  const hasNotifiedSessionChangeRef = useRef(false);
+  useEffect(() => {
+    if (!onSessionChange) {
+      return;
+    }
+    if (!hasNotifiedSessionChangeRef.current) {
+      hasNotifiedSessionChangeRef.current = true;
+      return;
+    }
+    onSessionChange(currentSessionId);
+  }, [currentSessionId, onSessionChange]);
 
   // Refs
   const scrollAreaRef = useRef<HTMLDivElement>(null);
@@ -330,30 +350,30 @@ export function ChatInterface({
         isStreaming: true,
       }]);
     },
-    onStreamComplete: async (response) => {
-      // Fetch router decision and evidence
-      let routerDecision = null;
-      if (currentRequestId) {
-        const decision = await fetchDecision(response.id, currentRequestId);
-        routerDecision = decision;
-      }
+	    onStreamComplete: async (response) => {
+	      const completedMessageId = streamingMessageId || response.id;
+	      const traceId = response.traceId || response.requestId || currentRequestId || undefined;
 
-      // Fetch evidence
-      const evidence = await fetchMessageEvidence(response.id);
+	      // Fetch router decision and evidence
+	      let routerDecision = null;
+	      if (traceId) {
+	        const decision = await fetchDecision(completedMessageId, traceId);
+	        routerDecision = decision;
+	      }
 
-      // Use response.id as traceId - streaming now extracts the server's request_id into id
-      const traceId = response.id;
+	      // Fetch evidence
+	      const evidence = await fetchMessageEvidence(completedMessageId);
 
       // Use throughput stats from response (calculated in useChatStreaming with accurate values)
       // This avoids timing issues with React state batching
 
-      const completedMessage = {
-        ...response,
-        id: streamingMessageId || response.id,
-        traceId, // Store traceId on message for later trace fetching
-        routerDecision: routerDecision as ExtendedRouterDecision | null,
-        evidence,
-        isVerified: evidence.length > 0,
+	      const completedMessage = {
+	        ...response,
+	        id: completedMessageId,
+	        traceId, // Store traceId on message for later trace fetching
+	        routerDecision: routerDecision as ExtendedRouterDecision | null,
+	        evidence,
+	        isVerified: evidence.length > 0,
         verifiedAt: evidence.length > 0 ? new Date().toISOString() : undefined,
         isStreaming: false,
         // throughputStats comes from response via useChatStreaming
@@ -549,6 +569,34 @@ export function ChatInterface({
     stackId: selectedStackId,
   });
 
+  // Reset session state when the tenant changes to avoid cross-tenant state bleed.
+  useEffect(() => {
+    const previousTenantId = previousTenantIdRef.current;
+    previousTenantIdRef.current = tenantId;
+
+    if (!previousTenantId) return;
+    if (previousTenantId === tenantId) return;
+
+    attemptedSessionLoadRef.current = null;
+    clearSession();
+    setEditingSessionId(null);
+    setNewSessionName('');
+    setInput('');
+    setSearchQuery('');
+    setStrengthOverrides({});
+    clearDecisions();
+    setIsHistoryOpen(false);
+    setIsRouterActivityOpen(false);
+    setIsArchivePanelOpen(false);
+  }, [
+    clearDecisions,
+    clearSession,
+    setIsArchivePanelOpen,
+    setIsHistoryOpen,
+    setIsRouterActivityOpen,
+    tenantId,
+  ]);
+
   // Export hook for chat session
   const { ExportButton } = useChatExport(
     {
@@ -579,11 +627,63 @@ export function ChatInterface({
       if (session) {
         setCurrentSessionId(sessionId);
         setMessages(session.messages);
-        setSelectedStackId(session.stackId);
-        // Note: collection_id is on the backend session, not local session
-        // We'll fetch it when needed
+        setSelectedStackId(session.stackId?.trim() ? session.stackId : null);
+        return;
       }
-    } else if (!currentSessionId && selectedStackId && !isLoadingSessions) {
+
+      if (isLoadingSessions || isChatHistoryUnsupported) {
+        return;
+      }
+
+      if (attemptedSessionLoadRef.current === sessionId) {
+        return;
+      }
+      attemptedSessionLoadRef.current = sessionId;
+
+      let cancelled = false;
+      (async () => {
+        try {
+          const remoteSession = await apiClient.getChatSession(sessionId);
+          const remoteMessages = await apiClient.getChatMessages(sessionId);
+          if (cancelled) return;
+
+          const messagesLocal: ChatMessage[] = remoteMessages
+            .filter((m) => m.role === 'user' || m.role === 'assistant')
+            .map((m) => {
+              let metadata: Record<string, unknown> | undefined;
+              try {
+                metadata = m.metadata_json ? (JSON.parse(m.metadata_json) as Record<string, unknown>) : undefined;
+              } catch {
+                metadata = undefined;
+              }
+              return {
+                id: m.id,
+                role: m.role as 'user' | 'assistant',
+                content: m.content,
+                timestamp: new Date(m.timestamp),
+                routerDecision: metadata?.routerDecision as ExtendedRouterDecision | null | undefined,
+                unavailablePinnedAdapters: metadata?.unavailablePinnedAdapters as string[] | undefined,
+                pinnedRoutingFallback: metadata?.pinnedRoutingFallback as 'stack_only' | 'partial' | undefined,
+              };
+            });
+
+          setCurrentSessionId(sessionId);
+          setMessages(messagesLocal);
+          const stackId = remoteSession.stack_id?.trim() ? remoteSession.stack_id : null;
+          setSelectedStackId(stackId);
+        } catch (err) {
+          if (cancelled) return;
+          logger.warn('Failed to load chat session by id', { component: 'ChatInterface', sessionId }, toError(err));
+          toast.error('Unable to load this chat session. It may be missing or you may not have access.');
+          setCurrentSessionId(null);
+          setMessages([]);
+        }
+      })();
+
+      return () => {
+        cancelled = true;
+      };
+    } else if (!sessionId && !currentSessionId && selectedStackId && !isLoadingSessions) {
       // Create new session if none exists and stack is selected
       const stack = stacks.find(s => s.id === selectedStackId);
       if (stack) {
@@ -615,6 +715,7 @@ export function ChatInterface({
     selectedStackId,
     stacks,
     isLoadingSessions,
+    isChatHistoryUnsupported,
     getSession,
     createSession,
     effectiveCollectionId,
@@ -622,16 +723,38 @@ export function ChatInterface({
     sessionConfigForRequest,
   ]);
 
-  // Auto-scroll to bottom when new messages arrive
-  useEffect(() => {
+  // Virtualized message list setup
+  // Get scroll element dynamically from Radix ScrollArea
+  const getScrollElement = useCallback(() => {
     if (scrollAreaRef.current) {
-      const scrollContainer = scrollAreaRef.current.querySelector('[data-radix-scroll-area-viewport]');
-      if (scrollContainer) {
-        scrollContainer.scrollTop = scrollContainer.scrollHeight;
+      const viewport = scrollAreaRef.current.querySelector('[data-radix-scroll-area-viewport]');
+      if (viewport) {
+        return viewport as HTMLDivElement;
       }
     }
-  }, [messages]);
+    return null;
+  }, []);
 
+  const virtualizer = useVirtualizer({
+    count: messages.length,
+    getScrollElement,
+    estimateSize: () => 150, // Estimated height per message (will adjust dynamically)
+    overscan: 5, // Render 5 extra items above/below viewport for smooth scrolling
+  });
+
+  // Auto-scroll to bottom when new messages arrive
+  useEffect(() => {
+    if (messages.length > 0 && virtualizer) {
+      // Small delay to allow virtualizer to update sizes
+      const timeoutId = setTimeout(() => {
+        virtualizer.scrollToIndex(messages.length - 1, {
+          align: 'end',
+          behavior: 'smooth',
+        });
+      }, 100);
+      return () => clearTimeout(timeoutId);
+    }
+  }, [messages.length, virtualizer]);
 
   // Fetch evidence data for a message
   const fetchMessageEvidence = useCallback(async (messageId: string): Promise<EvidenceItem[]> => {
@@ -772,17 +895,19 @@ export function ChatInterface({
     if (session) {
       setMessages(session.messages);
       setCurrentSessionId(sessionId);
-      if (session.stackId) {
-        setSelectedStackId(session.stackId);
-      }
+      const nextStackId = session.stackId?.trim() ? session.stackId : null;
       if (session.collectionId !== undefined) {
         setSelectedCollectionId(session.collectionId);
       }
       const config = (session.metadata as Record<string, unknown> | undefined)?.chat_session_config as
         | { stack_id?: string; routing_determinism_mode?: string; adapter_strength_overrides?: Record<string, number> }
         | undefined;
-      if (config?.stack_id && !session.stackId) {
+      if (nextStackId) {
+        setSelectedStackId(nextStackId);
+      } else if (config?.stack_id) {
         setSelectedStackId(config.stack_id);
+      } else {
+        setSelectedStackId(null);
       }
       if (config?.routing_determinism_mode) {
         setRoutingMode(
@@ -1176,10 +1301,7 @@ export function ChatInterface({
                                       setNewSessionName(session.name);
                                     }}
                                     onManageTags={() => setTagsDialogSessionId(session.id)}
-                                    onSetCategory={() => {
-                                      // TODO: Implement category dialog
-                                      toast.info('Category management coming soon');
-                                    }}
+                                    onSetCategory={() => setCategoryDialogSessionId(session.id)}
                                     onShare={() => setShareDialogSessionId(session.id)}
                                   />
                                 </div>
@@ -1509,20 +1631,43 @@ export function ChatInterface({
                 </div>
               </div>
             ) : (
-              messages.map(message => (
-                <ChatMessageComponent
-                  key={message.id}
-                  message={
-                    // Update streaming message with current streamed text
-                    message.id === streamingMessageId
-                      ? { ...message, content: streamingContent }
-                      : message
-                  }
-                  onViewDocument={handleViewDocumentClick}
-                  onSelect={onMessageSelect}
-                  isSelected={selectedMessageId === message.id}
-                />
-              ))
+              <div
+                style={{
+                  height: `${virtualizer.getTotalSize()}px`,
+                  width: '100%',
+                  position: 'relative',
+                }}
+              >
+                {virtualizer.getVirtualItems().map((virtualItem) => {
+                  const message = messages[virtualItem.index];
+                  return (
+                    <div
+                      key={message.id}
+                      data-index={virtualItem.index}
+                      ref={virtualizer.measureElement}
+                      style={{
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        width: '100%',
+                        transform: `translateY(${virtualItem.start}px)`,
+                      }}
+                    >
+                      <ChatMessageComponent
+                        message={
+                          // Update streaming message with current streamed text
+                          message.id === streamingMessageId
+                            ? { ...message, content: streamingContent }
+                            : message
+                        }
+                        onViewDocument={handleViewDocumentClick}
+                        onSelect={onMessageSelect}
+                        isSelected={selectedMessageId === message.id}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
             )}
             {isLoadingDecision && (
               <SectionAsyncBoundary section="chat-streaming">
@@ -1658,6 +1803,20 @@ export function ChatInterface({
         </Dialog>
       )}
 
+      {/* Categories Manager Dialog */}
+      {categoryDialogSessionId && (
+        <Dialog open={!!categoryDialogSessionId} onOpenChange={(open) => {
+          if (!open) setCategoryDialogSessionId(null);
+        }}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Manage Category</DialogTitle>
+            </DialogHeader>
+            <ChatCategoriesManager sessionId={categoryDialogSessionId} />
+          </DialogContent>
+        </Dialog>
+      )}
+
       {/* Archive Panel Dialog */}
       {isArchivePanelOpen && (
         <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center">
@@ -1685,3 +1844,47 @@ export function ChatInterface({
     </EvidenceDrawerProvider>
   );
 }
+
+// Wrap with React.memo to prevent unnecessary re-renders
+export const ChatInterface = React.memo(
+  ChatInterfaceInner,
+  (prevProps, nextProps) => {
+    // Return true if props are equal (skip re-render), false if different (re-render)
+
+    // Check primitive props
+    if (prevProps.selectedTenant !== nextProps.selectedTenant) return false;
+    if (prevProps.initialStackId !== nextProps.initialStackId) return false;
+    if (prevProps.selectedStackId !== nextProps.selectedStackId) return false;
+    if (prevProps.sessionId !== nextProps.sessionId) return false;
+    if (prevProps.streamMode !== nextProps.streamMode) return false;
+    if (prevProps.developerMode !== nextProps.developerMode) return false;
+    if (prevProps.selectedMessageId !== nextProps.selectedMessageId) return false;
+
+    // Check documentContext (deep comparison)
+    if (prevProps.documentContext !== nextProps.documentContext) {
+      if (!prevProps.documentContext || !nextProps.documentContext) return false;
+      if (prevProps.documentContext.documentId !== nextProps.documentContext.documentId) return false;
+      if (prevProps.documentContext.documentName !== nextProps.documentContext.documentName) return false;
+      if (prevProps.documentContext.collectionId !== nextProps.documentContext.collectionId) return false;
+    }
+
+    // Check datasetContext (deep comparison)
+    if (prevProps.datasetContext !== nextProps.datasetContext) {
+      if (!prevProps.datasetContext || !nextProps.datasetContext) return false;
+      if (prevProps.datasetContext.datasetId !== nextProps.datasetContext.datasetId) return false;
+      if (prevProps.datasetContext.datasetName !== nextProps.datasetContext.datasetName) return false;
+      if (prevProps.datasetContext.collectionId !== nextProps.datasetContext.collectionId) return false;
+      if (prevProps.datasetContext.datasetVersionId !== nextProps.datasetContext.datasetVersionId) return false;
+    }
+
+    // Check callbacks - compare by reference
+    if (prevProps.onStackChange !== nextProps.onStackChange) return false;
+    if (prevProps.onSessionChange !== nextProps.onSessionChange) return false;
+    if (prevProps.onViewDocument !== nextProps.onViewDocument) return false;
+    if (prevProps.onMessageComplete !== nextProps.onMessageComplete) return false;
+    if (prevProps.onMessageSelect !== nextProps.onMessageSelect) return false;
+
+    // All props are equal - skip re-render
+    return true;
+  }
+);

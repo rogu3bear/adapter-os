@@ -13,13 +13,19 @@ use tempfile::TempDir;
 use tokio::fs;
 use git2;
 
+fn new_test_tempdir() -> Result<TempDir> {
+    let root = std::path::PathBuf::from("var").join("tmp");
+    std::fs::create_dir_all(&root)?;
+    Ok(TempDir::new_in(&root)?)
+}
+
 /// Test git repository registration and analysis
 ///
 /// Evidence: docs/code-intelligence/code-policies.md:45-78
 /// Policy: Evidence requirements for repository registration
 #[tokio::test]
 async fn test_git_repository_registration() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
     let db_path = temp_dir.path().join("test.db");
     let db = Db::new(&db_path).await?;
 
@@ -101,7 +107,7 @@ fn main() {
 /// Policy: Evidence requirements for analysis
 #[tokio::test]
 async fn test_repository_analysis_evidence_validation() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
     let db_path = temp_dir.path().join("test.db");
     let db = Db::new(&db_path).await?;
 
@@ -182,7 +188,7 @@ async fn test_repository_analysis_evidence_validation() -> Result<()> {
 /// Policy: Security scan and violation tracking
 #[tokio::test]
 async fn test_security_scan_validation() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
     let db_path = temp_dir.path().join("test.db");
     let db = Db::new(&db_path).await?;
 
@@ -252,7 +258,7 @@ async fn test_security_scan_validation() -> Result<()> {
 /// Pattern: Training pipeline with evidence-based adapter creation
 #[tokio::test]
 async fn test_training_pipeline_integration() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
     let db_path = temp_dir.path().join("test.db");
     let db = Db::new(&db_path).await?;
 
@@ -335,7 +341,7 @@ async fn test_path_validation_security() -> Result<()> {
         ("/root/.ssh/id_rsa", false), // Should be denied
         ("/var/log/system.log", false), // Should be denied
         ("../../../etc/passwd", false), // Path traversal attack
-        ("/tmp/../etc/passwd", false), // Path traversal attack
+        ("/var/run/../etc/passwd", false), // Path traversal attack
     ];
 
     for (path, should_be_valid) in test_cases {
@@ -462,7 +468,7 @@ fn validate_evidence_quality(evidence_spans: &[serde_json::Value]) -> bool {
 /// Policy: Git subsystem status reporting
 #[tokio::test]
 async fn test_git_subsystem_status() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
     let db_path = temp_dir.path().join("test.db");
     let db = Db::new(&db_path).await?;
 
@@ -488,7 +494,7 @@ async fn test_git_subsystem_status() -> Result<()> {
 /// Policy: Git session management
 #[tokio::test]
 async fn test_branch_manager_session_lifecycle() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
     let db_path = temp_dir.path().join("test.db");
     let db = Db::new(&db_path).await?;
 

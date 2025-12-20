@@ -136,7 +136,7 @@ cargo run --example patch_proposal_api
 
 - **Usage Guide:** `docs/P3_USAGE_GUIDE.md` - Comprehensive feature usage documentation
 - **Implementation:** `P3_IMPLEMENTATION_COMPLETE.md` - Complete implementation details
-- **Architecture:** `docs/architecture.md` - System architecture overview
+- **Architecture:** `docs/ARCHITECTURE.md` - System architecture overview
 - **Production:** `docs/PRODUCTION_READINESS.md` - Deployment guidelines
 
 ## Contributing Examples

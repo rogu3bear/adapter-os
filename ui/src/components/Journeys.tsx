@@ -7,7 +7,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/
 import { Input } from '@/components/ui/input'; // Add Input
 import { Button } from '@/components/ui/button'; // Add Button for pagination
 import Mermaid from 'react-mermaid'; // Add Mermaid
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { JourneyResponse } from '@/api/types';
 import { logger } from '@/utils/logger';
 

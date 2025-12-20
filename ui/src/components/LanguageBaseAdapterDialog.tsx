@@ -8,7 +8,7 @@ import { Button } from './ui/button';
 import { Alert, AlertDescription } from './ui/alert';
 import { AlertTriangle, Brain } from 'lucide-react';
 import { errorRecoveryTemplates } from './ui/error-recovery';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { StartTrainingRequest, TrainingConfigRequest } from '@/api/types';
 
 interface LanguageBaseAdapterDialogProps {

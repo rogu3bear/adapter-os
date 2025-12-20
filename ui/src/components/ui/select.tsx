@@ -9,7 +9,7 @@ import {
   MENU_ANIMATION_CLASSES,
   FROST_POPOVER,
   MENU_SEPARATOR,
-} from "./utils";
+} from "@/lib/utils";
 
 function Select({
   ...props

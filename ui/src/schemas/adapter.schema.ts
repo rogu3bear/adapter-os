@@ -8,6 +8,7 @@
  */
 
 import { z } from 'zod';
+import { validators } from './common.schema';
 
 /**
  * Supported languages
@@ -83,11 +84,7 @@ const purposeValidator = z.string()
     'Purpose must contain only lowercase letters, numbers, underscores, and hyphens'
   );
 
-const revisionValidator = z.string()
-  .regex(
-    /^r\d{3,}$/,
-    'Revision must be in format rXXX (e.g., r001, r042)'
-  );
+const revisionValidator = validators.revision;
 
 /**
  * Semantic adapter name schema
@@ -206,6 +203,13 @@ export const adapterNameValidationSchema = z.object({
 });
 
 export type AdapterNameValidation = z.infer<typeof adapterNameValidationSchema>;
+
+/**
+ * Exported revision validator for reuse in forms
+ *
+ * Use this instead of creating inline revision validators to ensure consistency.
+ */
+export const adapterRevisionSchema = revisionValidator;
 
 /**
  * Adapter lifecycle states

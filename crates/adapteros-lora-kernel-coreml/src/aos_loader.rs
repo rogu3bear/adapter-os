@@ -260,9 +260,19 @@ pub fn extract_simple_manifest(plan_bytes: &[u8]) -> Result<(serde_json::Value, 
 
 /// Write weights data to a temp file and return the path
 pub fn write_weights_to_temp(weights_data: &[u8]) -> Result<PathBuf> {
+    use adapteros_platform::common::PlatformUtils;
     use std::io::Write;
 
-    let mut temp_file = tempfile::NamedTempFile::new()
+    let temp_root = PlatformUtils::temp_dir().join("aos");
+    std::fs::create_dir_all(&temp_root).map_err(|e| {
+        AosError::Io(format!(
+            "Failed to create AdapterOS temp directory {}: {}",
+            temp_root.display(),
+            e
+        ))
+    })?;
+
+    let mut temp_file = tempfile::NamedTempFile::new_in(&temp_root)
         .map_err(|e| AosError::Io(format!("Failed to create temp file for .aos: {}", e)))?;
 
     temp_file
@@ -270,7 +280,9 @@ pub fn write_weights_to_temp(weights_data: &[u8]) -> Result<PathBuf> {
         .map_err(|e| AosError::Io(format!("Failed to write .aos weights to temp file: {}", e)))?;
 
     let temp_path = temp_file.into_temp_path();
-    Ok(temp_path.to_path_buf())
+    temp_path
+        .keep()
+        .map_err(|e| AosError::Io(format!("Failed to persist .aos temp weights file: {}", e)))
 }
 
 /// Memory-map a file and return the mapped bytes

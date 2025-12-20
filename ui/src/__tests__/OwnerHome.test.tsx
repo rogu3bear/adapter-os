@@ -196,7 +196,7 @@ const createSystemStateMock = () => ({
   refetch: async () => {},
 });
 
-vi.mock('@/api/client', () => ({
+vi.mock('@/api/services', () => ({
   __esModule: true,
   default: {
     getToken: () => null,

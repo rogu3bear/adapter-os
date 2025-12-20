@@ -239,11 +239,10 @@ impl QuotaManager {
 mod tests {
     use super::*;
     use std::fs;
-    use tempfile::TempDir;
 
     #[tokio::test]
     async fn test_quota_manager() -> Result<()> {
-        let temp_dir = TempDir::new()?;
+        let temp_dir = crate::tests::new_test_tempdir()?;
         let config = StorageConfig {
             max_disk_space_bytes: 1000,
             max_files: 100,
@@ -274,7 +273,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_usage_calculation() -> Result<()> {
-        let temp_dir = TempDir::new()?;
+        let temp_dir = crate::tests::new_test_tempdir()?;
         let config = StorageConfig {
             max_disk_space_bytes: 1000,
             max_files: 100,

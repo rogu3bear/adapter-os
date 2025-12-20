@@ -446,10 +446,11 @@ impl EvidenceEnvelopeV1 {
 
 /// Compute key ID from public key bytes
 ///
-/// Key ID is the first 16 hex characters (8 bytes) of blake3(pubkey)
+/// Key ID is the first 32 hex characters (16 bytes / 128 bits) of blake3(pubkey).
+/// This provides sufficient entropy to avoid birthday-bound collisions (~2^64 keys).
 pub fn compute_key_id(pubkey_bytes: &[u8]) -> String {
     let hash = B3Hash::hash(pubkey_bytes);
-    format!("key-{}", &hash.to_hex()[..16])
+    format!("key-{}", &hash.to_hex()[..32])
 }
 
 // --- Canonical encoding helpers (following context_manifest.rs pattern) ---

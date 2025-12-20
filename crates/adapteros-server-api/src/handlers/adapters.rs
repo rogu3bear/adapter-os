@@ -3771,6 +3771,9 @@ pub use super::{
     get_adapter, get_adapter_activations, get_adapter_health, get_adapter_metrics,
     get_adapter_repository, get_adapter_repository_policy, get_adapter_version, get_commit,
     get_commit_diff, get_quality_metrics, get_system_metrics, list_adapter_repositories,
-    list_adapter_versions, list_adapters, list_commits, list_repositories, promote_adapter_state,
+    list_adapter_versions, list_adapters, list_commits, promote_adapter_state,
     verify_gpu_integrity,
 };
+
+// Create an alias for list_adapter_repositories as list_repositories_legacy for backwards compatibility
+pub use list_adapter_repositories as list_repositories_legacy;

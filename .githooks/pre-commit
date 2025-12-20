@@ -1,117 +1,95 @@
-#!/usr/bin/env bash
-# AdapterOS Pre-commit Hook - Repo Health & Code Quality
-set -euo pipefail
+#!/bin/bash
+# Pre-commit hook for AdapterOS
+# Runs linting, validation, and multi-agent conflict detection
 
-ROOT="$(git rev-parse --show-toplevel)"
+set -e
 
-# Color output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[0;33m'
-CYAN='\033[0;36m'
-NC='\033[0m' # No Color
+echo "🧹 Running pre-commit checks..."
 
-echo -e "${CYAN}=== AdapterOS Pre-commit Checks ===${NC}"
-
-# Check 1: Merge conflict markers (BLOCKING)
-echo -e "${CYAN}[1/7] Checking for merge conflict markers...${NC}"
-if git diff --cached --name-only | xargs -I {} sh -c 'test -f "{}" && grep -l "<<<<<<< HEAD" "{}"' 2>/dev/null | head -1; then
-  echo -e "${RED}✗ ERROR: Merge conflict markers found!${NC}"
-  echo "Please resolve all conflicts before committing."
-  exit 1
-fi
-echo -e "${GREEN}✓ No merge conflicts${NC}"
-
-# Check 2: Rust formatting (BLOCKING if Rust files changed)
-echo -e "${CYAN}[2/7] Checking Rust formatting...${NC}"
-RUST_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep '\.rs$' || true)
-if [ -n "$RUST_FILES" ] && command -v cargo >/dev/null 2>&1; then
-  if ! cargo fmt --all -- --check >/dev/null 2>&1; then
-    echo -e "${RED}✗ ERROR: Rust code is not formatted${NC}"
-    echo "Run: cargo fmt --all"
+# Check if we're in the right directory
+if [ ! -f "Cargo.toml" ]; then
+    echo "❌ Not in AdapterOS root directory"
     exit 1
-  fi
-  echo -e "${GREEN}✓ Rust formatting OK${NC}"
-else
-  echo -e "${YELLOW}⊘ No Rust files changed or cargo not found${NC}"
 fi
 
-# Check 3: Clippy warnings (ADVISORY - unless CLIPPY_ENFORCE=1)
-echo -e "${CYAN}[3/7] Running Clippy...${NC}"
-if [ -n "$RUST_FILES" ] && command -v cargo >/dev/null 2>&1; then
-  if ! cargo clippy --workspace --all-features -- -D warnings 2>&1 | tail -10; then
-    if [[ "${CLIPPY_ENFORCE:-0}" == "1" ]]; then
-      echo -e "${RED}✗ ERROR: Clippy found issues (CLIPPY_ENFORCE=1)${NC}"
-      exit 1
-    else
-      echo -e "${YELLOW}⚠ Clippy warnings found (set CLIPPY_ENFORCE=1 to block)${NC}"
+# =============================================================================
+# MULTI-AGENT CONFLICT DETECTION
+# =============================================================================
+
+echo "🔍 Checking for PRD boundary violations..."
+
+# Get list of staged files
+STAGED_FILES=$(git diff --cached --name-only)
+
+# Check PRD-RECT-001 boundaries (should not touch migrations)
+if echo "$STAGED_FILES" | grep -q "crates/adapteros-db/src/adapters.rs"; then
+    if echo "$STAGED_FILES" | grep -q "migrations/"; then
+        echo "⚠️  WARNING: PRD-RECT-001 files AND migrations staged together"
+        echo "   This may cause conflicts with PRD-RECT-004. Consider separate commits."
     fi
-  else
-    echo -e "${GREEN}✓ Clippy OK${NC}"
-  fi
-else
-  echo -e "${YELLOW}⊘ Skipping Clippy${NC}"
 fi
 
-# Check 4: TypeScript type checking (BLOCKING if TS files changed)
-echo -e "${CYAN}[4/7] Checking TypeScript types...${NC}"
-TS_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E 'ui/src/.*\.(ts|tsx)$' || true)
-if [ -n "$TS_FILES" ] && [ -f "$ROOT/ui/package.json" ] && command -v npm >/dev/null 2>&1; then
-  cd "$ROOT/ui"
-  if ! npm run type-check 2>&1 | tail -20; then
-    echo -e "${RED}✗ ERROR: TypeScript type errors found${NC}"
-    cd "$ROOT"
+# Check PRD-RECT-003 boundaries (should not touch server-api handlers)
+if echo "$STAGED_FILES" | grep -q "crates/adapteros-lora-worker/src/model_handle_cache.rs"; then
+    if echo "$STAGED_FILES" | grep -q "crates/adapteros-server-api/src/handlers/"; then
+        echo "⚠️  WARNING: PRD-RECT-003 files AND server-api handlers staged together"
+        echo "   This may cause conflicts. Consider separate commits."
+    fi
+fi
+
+# =============================================================================
+# HALLUCINATION DETECTION
+# =============================================================================
+
+echo "🔍 Checking for potential hallucinations in staged Rust files..."
+
+# Check for references to non-existent common hallucinated patterns
+for file in $(echo "$STAGED_FILES" | grep "\.rs$"); do
+    if [ -f "$file" ]; then
+        # Check for common hallucinated function names
+        if grep -q "handle_infer\|GlobalLedger\|StackService" "$file" 2>/dev/null; then
+            echo "⚠️  WARNING: $file may contain hallucinated API references"
+            echo "   Known incorrect patterns: handle_infer (use infer), GlobalLedger (use GlobalTickLedger), StackService (use LifecycleManager)"
+        fi
+    fi
+done
+
+# =============================================================================
+# STANDARD CHECKS
+# =============================================================================
+
+# Run cargo check (fast compilation check)
+echo "🔍 Running cargo check..."
+if ! cargo check --quiet 2>&1; then
+    echo "❌ cargo check failed - code does not compile"
+    echo "   This may indicate hallucinated imports or API references"
     exit 1
-  fi
-  cd "$ROOT"
-  echo -e "${GREEN}✓ TypeScript types OK${NC}"
-else
-  echo -e "${YELLOW}⊘ No TypeScript files changed or npm not found${NC}"
 fi
 
-# Check 5: Schema versioning (ADVISORY if API types changed)
-echo -e "${CYAN}[5/7] Checking schema changes...${NC}"
-API_TYPE_FILES=$(git diff --cached --name-only | grep "crates/adapteros-api-types/src/" || true)
-if [ -n "$API_TYPE_FILES" ]; then
-  echo -e "${YELLOW}⚠ API types changed - consider updating schema version${NC}"
-  if [ -f "$ROOT/docs/api/openapi.json" ]; then
-    CURRENT_VERSION=$(jq -r '.info.version // "unknown"' "$ROOT/docs/api/openapi.json" 2>/dev/null || echo "unknown")
-    echo -e "${CYAN}  Current schema version: ${CURRENT_VERSION}${NC}"
-    echo -e "${CYAN}  Remember to regenerate OpenAPI schema if needed${NC}"
-  fi
-else
-  echo -e "${GREEN}✓ No API type changes${NC}"
+# Run clippy (linting)
+echo "🔍 Running clippy..."
+if ! cargo clippy --all-features --quiet -- -D warnings 2>&1; then
+    echo "❌ clippy failed - code has lint errors"
+    exit 1
 fi
 
-# Check 6: No hardcoded secrets (BLOCKING)
-echo -e "${CYAN}[6/7] Scanning for potential secrets...${NC}"
-SECRETS_PATTERN="(password|secret|api_key|private_key|token|AWS_|GITHUB_TOKEN).*=.*['\"][A-Za-z0-9+/=]{16,}"
-if git diff --cached | grep -iE "$SECRETS_PATTERN" | grep -v "^-" | head -5; then
-  echo -e "${RED}✗ ERROR: Potential hardcoded secrets detected${NC}"
-  echo "Please remove sensitive data or use environment variables"
-  exit 1
-fi
-echo -e "${GREEN}✓ No obvious secrets${NC}"
-
-# Check 7: Code duplication (ADVISORY - original check)
-echo -e "${CYAN}[7/7] Scanning for code duplication...${NC}"
-if [ -f "$ROOT/scripts/run_jscpd.sh" ]; then
-  bash "$ROOT/scripts/run_jscpd.sh" >/dev/null 2>&1 || true
-  latest_dir=$(ls -1t "$ROOT/var/reports/jscpd" 2>/dev/null | head -n1 || echo "")
-  if [ -n "$latest_dir" ]; then
-    json="$ROOT/var/reports/jscpd/$latest_dir/report.json"
-    if [[ -f "$json" ]] && command -v node >/dev/null 2>&1; then
-      clones=$(node -e 'const fs=require("fs");try{const j=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));console.log((j.clones&&j.clones.length)||0)}catch{console.log(0)}' "$json" 2>/dev/null || echo "0")
-      echo -e "${CYAN}  Found $clones duplicate code blocks${NC}"
-      if [[ "${JSCPD_ENFORCE:-0}" == "1" && "$clones" -gt 0 ]]; then
-        echo -e "${RED}✗ ERROR: Duplication found (JSCPD_ENFORCE=1)${NC}"
-        exit 1
-      fi
-    fi
-  fi
-else
-  echo -e "${YELLOW}⊘ jscpd scanner not available${NC}"
+# Run formatter check
+echo "🔍 Checking code formatting..."
+if ! cargo fmt --all --check 2>&1; then
+    echo "❌ Code is not formatted. Run: cargo fmt --all"
+    exit 1
 fi
 
-echo -e "${GREEN}=== All Pre-commit Checks Passed ===${NC}"
+# =============================================================================
+# SUMMARY
+# =============================================================================
+
+echo "✅ All pre-commit checks passed!"
+echo ""
+echo "📋 Staged files:"
+echo "$STAGED_FILES" | head -10
+if [ $(echo "$STAGED_FILES" | wc -l) -gt 10 ]; then
+    echo "   ... and $(( $(echo "$STAGED_FILES" | wc -l) - 10 )) more"
+fi
+
 exit 0

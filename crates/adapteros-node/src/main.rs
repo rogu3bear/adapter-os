@@ -82,6 +82,12 @@ struct SpawnWorkerRequest {
     plan_id: String,
     uid: u32,
     gid: u32,
+    /// Model cache budget in megabytes (propagated to worker as AOS_MODEL_CACHE_MAX_MB)
+    #[serde(default)]
+    model_cache_max_mb: Option<u64>,
+    /// Path to config TOML file (propagated to worker as AOS_CONFIG_TOML)
+    #[serde(default)]
+    config_toml_path: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -206,7 +212,14 @@ async fn spawn_worker(
 
     match state
         .agent
-        .spawn_worker(&req.tenant_id, &req.plan_id, req.uid, req.gid)
+        .spawn_worker(
+            &req.tenant_id,
+            &req.plan_id,
+            req.uid,
+            req.gid,
+            req.model_cache_max_mb,
+            req.config_toml_path.as_deref(),
+        )
         .await
     {
         Ok(pid) => (StatusCode::OK, Json(SpawnWorkerResponse { pid })).into_response(),

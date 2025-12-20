@@ -13,7 +13,7 @@ import type { ModelStatusState } from '@/hooks/model-loading/types';
 
 // Mock dependencies
 const mockModelStatus = {
-  status: 'loaded' as ModelStatusState,
+  status: 'ready' as ModelStatusState,
   isReady: true,
   modelId: 'test-model-id',
   modelName: 'Test Model',
@@ -54,7 +54,7 @@ const mockSSEResult = {
   connected: false,
 };
 
-vi.mock('@/hooks/useModelStatus', () => ({
+vi.mock('@/hooks/model-loading/useModelStatus', () => ({
   useModelStatus: vi.fn(() => mockModelStatus),
 }));
 
@@ -62,7 +62,7 @@ vi.mock('@/hooks/chat/useChatAdapterState', () => ({
   useChatAdapterState: vi.fn(() => mockAdapterState),
 }));
 
-vi.mock('@/hooks/useSSE', () => ({
+vi.mock('@/hooks/realtime/useSSE', () => ({
   useSSE: vi.fn(() => mockSSEResult),
 }));
 
@@ -70,7 +70,7 @@ describe('useModelLoadingState', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     // Reset mocks to default state
-    mockModelStatus.status = 'loaded';
+    mockModelStatus.status = 'ready';
     mockModelStatus.isReady = true;
     mockModelStatus.errorMessage = null;
     mockAdapterState.allAdaptersReady = true;
@@ -287,7 +287,7 @@ describe('useModelLoadingState', () => {
       const { result } = renderHook(() => useModelLoadingState({ stackId: 'test-stack' }));
 
       expect(result.current.baseModel).toBeDefined();
-      expect(result.current.baseModel.status).toBe('loaded');
+      expect(result.current.baseModel.status).toBe('ready');
       expect(result.current.baseModel.modelName).toBe('Test Model');
       expect(result.current.baseModel.modelId).toBe('test-model-id');
       expect(result.current.baseModel.memoryUsageMb).toBe(4096);
@@ -331,7 +331,7 @@ describe('useModelLoadingState', () => {
     });
 
     it('returns error when adapter has error', () => {
-      mockModelStatus.status = 'loaded';
+      mockModelStatus.status = 'ready';
       mockAdapterState.adapterStates = new Map([
         ['adapter-1', {
           adapterId: 'adapter-1',

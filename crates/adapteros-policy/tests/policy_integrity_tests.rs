@@ -15,9 +15,15 @@ use std::fs;
 use std::path::PathBuf;
 use tempfile::TempDir;
 
+fn new_test_tempdir() -> TempDir {
+    let root = PathBuf::from("var").join("tmp");
+    std::fs::create_dir_all(&root).expect("create var/tmp");
+    TempDir::new_in(&root).expect("tempdir")
+}
+
 #[test]
 fn test_policy_signing_and_verification() {
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = new_test_tempdir();
     let policy_path = temp_dir.path().join("test_policy.json");
 
     // Create test policy content
@@ -51,7 +57,7 @@ fn test_policy_signing_and_verification() {
 
 #[test]
 fn test_policy_modification_detection() {
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = new_test_tempdir();
     let policy_path = temp_dir.path().join("test_policy.json");
 
     // Create and sign original policy
@@ -94,7 +100,7 @@ fn test_policy_modification_detection() {
 
 #[test]
 fn test_signature_tampering_detection() {
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = new_test_tempdir();
     let policy_path = temp_dir.path().join("test_policy.json");
 
     let policy_content = b"{\n  \"version\": \"1.0\",\n  \"rules\": []\n}";
@@ -146,7 +152,7 @@ fn test_hash_collision_resistance() {
 
 #[test]
 fn test_recovery_action_selection() {
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = new_test_tempdir();
     let policy_path = temp_dir.path().join("test_policy.json");
 
     let original_content = b"{\n  \"version\": \"1.0\"\n}";
@@ -192,7 +198,7 @@ fn test_recovery_action_selection() {
 
 #[test]
 fn test_schema_version_compatibility() {
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = new_test_tempdir();
     let policy_path = temp_dir.path().join("test_policy.json");
 
     let policy_content = b"{}";
@@ -231,7 +237,7 @@ fn test_schema_version_compatibility() {
 
 #[test]
 fn test_multiple_trusted_keys() {
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = new_test_tempdir();
     let policy_path = temp_dir.path().join("test_policy.json");
 
     let policy_content = b"{}";
@@ -305,7 +311,7 @@ fn test_file_io_error_handling() {
 
 #[test]
 fn test_malicious_policy_replacement() {
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = new_test_tempdir();
     let policy_path = temp_dir.path().join("test_policy.json");
 
     // Create legitimate policy
@@ -338,7 +344,7 @@ fn test_malicious_policy_replacement() {
 
 #[test]
 fn test_incremental_tampering_detection() {
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = new_test_tempdir();
     let policy_path = temp_dir.path().join("test_policy.json");
 
     let original_content = b"{\n  \"rules\": []\n}";
@@ -377,7 +383,7 @@ fn test_incremental_tampering_detection() {
 
 #[test]
 fn test_concurrent_verification_safety() {
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = new_test_tempdir();
     let policy_path = temp_dir.path().join("test_policy.json");
 
     let policy_content = b"{}";
@@ -411,7 +417,7 @@ fn test_concurrent_verification_safety() {
 
 #[test]
 fn test_policy_audit_trail() {
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = new_test_tempdir();
     let policy_path = temp_dir.path().join("test_policy.json");
 
     let original_content = b"{\n  \"version\": \"1.0\"\n}";
@@ -447,7 +453,7 @@ fn test_policy_audit_trail() {
 
 #[test]
 fn test_invalid_signature_format() {
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = new_test_tempdir();
     let policy_path = temp_dir.path().join("test_policy.json");
 
     let policy_content = b"{}";
@@ -472,7 +478,7 @@ fn test_invalid_signature_format() {
 
 #[test]
 fn test_policy_version_rollback_detection() {
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = new_test_tempdir();
     let policy_path = temp_dir.path().join("test_policy.json");
 
     // Create v2 policy
@@ -507,7 +513,7 @@ fn test_policy_version_rollback_detection() {
 
 #[test]
 fn test_policy_integrity_recovery_suggestions() {
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = new_test_tempdir();
     let policy_path = temp_dir.path().join("test_policy.json");
 
     let policy_content = b"{}";

@@ -6,7 +6,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { apiClient } from '@/api/client';
+import { apiClient } from '@/api/services';
 import { PolicyAuditChainVerification, PolicyAuditDecision, TelemetryEvent } from '@/api/types';
 import { useDensity } from '@/contexts/DensityContext';
 import { DensityControls } from '@/components/ui/density-controls';
@@ -17,11 +17,13 @@ import { PermissionDenied } from '@/components/ui/permission-denied';
 import { GlossaryTooltip } from '@/components/ui/glossary-tooltip';
 import { usePolling } from '@/hooks/realtime/usePolling';
 import { Download, RefreshCw, ChevronLeft, ChevronRight } from 'lucide-react';
-import { formatTimestamp } from '@/utils/format';
+import { formatTimestamp } from '@/lib/formatters';
 import { SectionErrorBoundary } from '@/components/ui/section-error-boundary';
 import { Link } from 'react-router-dom';
 import PageTable from '@/components/ui/PageTable';
 import { toast } from 'sonner';
+import { buildReplayLink } from '@/utils/navLinks';
+import { cn } from '@/lib/utils';
 
 type BadgeVariant = NonNullable<React.ComponentProps<typeof Badge>['variant']>;
 
@@ -41,7 +43,7 @@ function PermissionDeniedView() {
     <PageWrapper pageKey="audit-log" title="Audit Log" description="Security and system audit events">
       <PermissionDenied
         requiredPermission="audit:view"
-        requiredRoles={['admin', 'sre', 'compliance', 'developer']}
+        requiredRoles={['admin', 'sre', 'compliance', 'developer', 'auditor']}
       />
     </PageWrapper>
   );
@@ -311,6 +313,35 @@ function AuditPageInner() {
   const [diverging, setDiverging] = useState(false);
   const isE2EMode = import.meta.env.VITE_E2E_MODE === '1';
   const prevChainValid = useRef<boolean | null>(null);
+  const [highlightedSeq, setHighlightedSeq] = useState<number | null>(null);
+  const highlightTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Scroll to and highlight the first broken entry when user clicks toast action
+  const scrollToFirstBrokenEntry = useCallback(() => {
+    if (!chainStatus?.broken_links?.length) return;
+
+    // Clear any existing timeout
+    if (highlightTimeoutRef.current) {
+      clearTimeout(highlightTimeoutRef.current);
+    }
+
+    const firstBrokenSeq = chainStatus.broken_links[0].sequence;
+
+    // Find the row by data-seq attribute
+    const rowElement = document.querySelector(
+      `[data-cy="policy-audit-row"][data-seq="${firstBrokenSeq}"]`
+    );
+
+    if (rowElement) {
+      rowElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setHighlightedSeq(firstBrokenSeq);
+
+      // Clear highlight after 3 seconds
+      highlightTimeoutRef.current = setTimeout(() => {
+        setHighlightedSeq(null);
+      }, 3000);
+    }
+  }, [chainStatus]);
 
   // Alert when chain transitions from healthy to diverged
   useEffect(() => {
@@ -323,11 +354,24 @@ function AuditPageInner() {
     if (wasValid === true && isValid === false) {
       toast.error('Policy audit chain diverged! Integrity violation detected.', {
         duration: 10000,
+        action: {
+          label: 'Jump to Issue',
+          onClick: scrollToFirstBrokenEntry,
+        },
       });
     }
 
     prevChainValid.current = isValid;
-  }, [chainStatus]);
+  }, [chainStatus, scrollToFirstBrokenEntry]);
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (highlightTimeoutRef.current) {
+        clearTimeout(highlightTimeoutRef.current);
+      }
+    };
+  }, []);
 
   // Filtering state
   const [filterValues, setFilterValues] = useState<FilterValues>({});
@@ -637,7 +681,7 @@ function AuditPageInner() {
       headerActions={
         <div className="flex items-center gap-2">
           <DensityControls density={density} onDensityChange={setDensity} />
-          <Link to="/replay#runs" className="text-xs underline underline-offset-4">
+          <Link to={buildReplayLink('runs')} className="text-xs underline underline-offset-4">
             Open related replay
           </Link>
         </div>
@@ -743,7 +787,10 @@ function AuditPageInner() {
                       policyDecisions.map((entry) => (
                         <TableRow
                           key={entry.id}
-                          className={brokenSequences.has(entry.chain_sequence) ? 'bg-destructive/5' : undefined}
+                          className={cn(
+                            brokenSequences.has(entry.chain_sequence) && 'bg-destructive/5',
+                            highlightedSeq === entry.chain_sequence && 'ring-2 ring-destructive animate-pulse'
+                          )}
                           data-cy="policy-audit-row"
                           data-seq={entry.chain_sequence}
                         >

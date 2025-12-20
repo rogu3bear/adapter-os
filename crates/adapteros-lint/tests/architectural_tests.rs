@@ -2,7 +2,14 @@
 
 use adapteros_lint::architectural::{check_file, ArchitecturalViolation};
 use std::fs;
+use std::path::PathBuf;
 use tempfile::TempDir;
+
+fn new_test_tempdir() -> TempDir {
+    let root = PathBuf::from("var").join("tmp");
+    std::fs::create_dir_all(&root).expect("create var/tmp");
+    TempDir::new_in(&root).expect("create temp dir")
+}
 
 #[test]
 fn test_non_transactional_fallback_detection() {
@@ -18,7 +25,7 @@ pub async fn load_adapter_handler(state: AppState) -> Result<()> {
 }
 "#;
 
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = new_test_tempdir();
     let test_file = temp_dir.path().join("test_handlers.rs");
     fs::write(&test_file, test_code).unwrap();
 
@@ -40,7 +47,7 @@ pub async fn get_status(state: AppState) -> Result<()> {
 }
 "#;
 
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = new_test_tempdir();
     let test_file = temp_dir.path().join("test_handlers.rs");
     fs::write(&test_file, test_code).unwrap();
 
@@ -67,7 +74,7 @@ pub async fn update_in_transaction(state: AppState) -> Result<()> {
 }
 "#;
 
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = new_test_tempdir();
     let test_file = temp_dir.path().join("test_handlers.rs");
     fs::write(&test_file, test_code).unwrap();
 
@@ -89,7 +96,7 @@ pub async fn bad_handler(state: AppState) -> Result<()> {
 }
 "#;
 
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = new_test_tempdir();
     let test_file = temp_dir.path().join("test_handlers.rs");
     fs::write(&test_file, test_code).unwrap();
 
@@ -114,7 +121,7 @@ pub async fn good_handler(state: AppState) -> Result<()> {
 }
 "#;
 
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = new_test_tempdir();
     let test_file = temp_dir.path().join("test_handlers.rs");
     fs::write(&test_file, test_code).unwrap();
 

@@ -17,7 +17,7 @@ else
   PM_CMD=(pnpm --dir "$ROOT/ui")
 fi
 
-UI_PORT="${UI_PORT:-3200}"
+UI_PORT="${UI_PORT:-${AOS_UI_PORT:-3200}}"
 API_PORT="${API_PORT:-8080}"
 DB_PATH="${DB_PATH:-$ROOT/var/aos-cp.sqlite3}"
 BASE_URL_DEFAULT="http://127.0.0.1:${UI_PORT}"
@@ -35,8 +35,10 @@ HEALTH_INTERVAL="${HEALTH_INTERVAL:-5}"
 
 API_PID_FILE="$RUN_DIR/adapteros-api-e2e.pid"
 UI_PID_FILE="$RUN_DIR/adapteros-ui-e2e.pid"
+WORKER_PID_FILE="$RUN_DIR/adapteros-worker-e2e.pid"
 API_LOG="$LOG_DIR/adapteros-api-e2e.log"
 UI_LOG="$LOG_DIR/adapteros-ui-e2e.log"
+WORKER_LOG="$LOG_DIR/adapteros-worker-e2e.log"
 
 fail_if_running() {
   local pid_file=$1
@@ -49,6 +51,7 @@ fail_if_running() {
 
 fail_if_running "$API_PID_FILE" "API"
 fail_if_running "$UI_PID_FILE" "UI"
+fail_if_running "$WORKER_PID_FILE" "Worker"
 
 wait_for_url() {
   local url="$1"
@@ -105,6 +108,79 @@ fi
 echo $! >"$UI_PID_FILE"
 
 wait_for_db
+
+# Wait for API to be alive first (healthz)
+echo "Waiting for API liveness..."
+api_liveness_timeout=60
+api_waited=0
+while (( api_waited < api_liveness_timeout )); do
+  if curl -fsS --max-time 2 "http://127.0.0.1:${API_PORT}/healthz" >/dev/null 2>&1; then
+    echo "✓ API is alive"
+    break
+  fi
+  sleep 2
+  ((api_waited+=2))
+done
+
+# Seed model if AOS_MODEL_PATH is set
+if [[ -n "${AOS_MODEL_PATH:-}" ]]; then
+  echo "Seeding model from AOS_MODEL_PATH..."
+  aosctl_bin=""
+  if [[ -f "$ROOT/target/debug/aosctl" ]]; then
+    aosctl_bin="$ROOT/target/debug/aosctl"
+  elif [[ -f "$ROOT/target/release/aosctl" ]]; then
+    aosctl_bin="$ROOT/target/release/aosctl"
+  fi
+
+  if [[ -n "$aosctl_bin" ]]; then
+    DATABASE_URL="sqlite://${DB_PATH}" "$aosctl_bin" models seed --model-path "$AOS_MODEL_PATH" || echo "Model seeding skipped (already exists or error)"
+  else
+    echo "⚠ aosctl not found, skipping model seed"
+  fi
+fi
+
+# Start worker if binary exists and AOS_MODEL_PATH is set
+if [[ -n "${AOS_MODEL_PATH:-}" ]]; then
+  worker_bin=""
+  if [[ -f "$ROOT/target/debug/aos-worker" ]]; then
+    worker_bin="$ROOT/target/debug/aos-worker"
+  elif [[ -f "$ROOT/target/release/aos-worker" ]]; then
+    worker_bin="$ROOT/target/release/aos-worker"
+  fi
+
+  if [[ -n "$worker_bin" ]]; then
+    echo "Starting Worker..."
+    worker_manifest="${AOS_WORKER_MANIFEST:-$ROOT/manifests/qwen7b-mlx.yaml}"
+    worker_socket="$RUN_DIR/worker.sock"
+    worker_backend="${AOS_MODEL_BACKEND:-mlx}"
+
+    mkdir -p "$(dirname "$worker_socket")"
+
+    AOS_DEV_SKIP_METALLIB_CHECK="${AOS_DEV_SKIP_METALLIB_CHECK:-0}" \
+      "$worker_bin" \
+        --manifest "$worker_manifest" \
+        --model-path "$AOS_MODEL_PATH" \
+        --uds-path "$worker_socket" \
+        --backend "$worker_backend" \
+      >"$WORKER_LOG" 2>&1 &
+    echo $! >"$WORKER_PID_FILE"
+
+    # Wait for socket
+    socket_timeout=30
+    socket_waited=0
+    while (( socket_waited < socket_timeout )); do
+      if [[ -S "$worker_socket" ]]; then
+        echo "✓ Worker socket ready at $worker_socket"
+        break
+      fi
+      sleep 1
+      ((socket_waited++))
+    done
+  else
+    echo "⚠ Worker binary not found, skipping worker start"
+  fi
+fi
+
 wait_for_url "$API_HEALTH" "API"
 wait_for_url "$UI_HEALTH" "UI"
 

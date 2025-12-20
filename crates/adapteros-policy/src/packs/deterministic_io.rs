@@ -593,10 +593,10 @@ mod tests {
         let config = DeterministicIoConfig::default();
         let policy = DeterministicIoPolicy::new(config);
 
-        let base_path = PathBuf::from("/tmp");
+        let base_path = PathBuf::from("var/test-data");
         let filename = "test.json";
         let result = policy.generate_deterministic_path(&base_path, filename);
 
-        assert_eq!(result, PathBuf::from("/tmp/test.json"));
+        assert_eq!(result, PathBuf::from("var/test-data/test.json"));
     }
 }

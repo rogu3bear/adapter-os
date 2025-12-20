@@ -270,9 +270,19 @@ mod tests {
 
         let db = Db::new_in_memory().await.unwrap();
 
+        // Create tenant first (FK constraint on dataset_files requires tenant_id)
+        let tenant_id = db.create_tenant("Test Tenant", false).await.unwrap();
+
         // Dataset with a present file
         let ds1 = db
             .create_training_dataset_with_id("ds1", "present", None, "jsonl", "hash", "", None)
+            .await
+            .unwrap();
+        // Set tenant_id on dataset (required by dataset_files trigger)
+        adapteros_db::sqlx::query("UPDATE training_datasets SET tenant_id = ? WHERE id = ?")
+            .bind(&tenant_id)
+            .bind(&ds1)
+            .execute(db.pool())
             .await
             .unwrap();
         let file1_path = datasets_root.join("files").join(&ds1).join("file.jsonl");
@@ -296,6 +306,13 @@ mod tests {
         // Dataset with missing file
         let ds2 = db
             .create_training_dataset_with_id("ds2", "missing", None, "jsonl", "hash", "", None)
+            .await
+            .unwrap();
+        // Set tenant_id on dataset (required by dataset_files trigger)
+        adapteros_db::sqlx::query("UPDATE training_datasets SET tenant_id = ? WHERE id = ?")
+            .bind(&tenant_id)
+            .bind(&ds2)
+            .execute(db.pool())
             .await
             .unwrap();
         let missing_path = datasets_root.join("files").join(&ds2).join("missing.jsonl");

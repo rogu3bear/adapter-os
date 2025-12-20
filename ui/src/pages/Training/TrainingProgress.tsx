@@ -26,10 +26,11 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import type { TrainingJob, TrainingStatus, TrainingArtifact } from '@/api/training-types';
 import { isTrainingProgressEvent, TrainingProgressEvent } from '@/api/streaming-types';
-import { formatTimestamp } from '@/utils/format';
+import { formatTimestamp } from '@/lib/formatters';
+import { buildTrainingJobDetailLink } from '@/utils/navLinks';
 
 interface TrainingProgressProps {
   jobId: string;
@@ -202,7 +203,7 @@ export function TrainingProgress({ jobId, onClose }: TrainingProgressProps) {
     enabled: activeTab === 'artifacts',
   });
 
-  const statusConfig = effectiveJob ? STATUS_CONFIG[effectiveJob.status] : STATUS_CONFIG.pending;
+  const statusConfig = effectiveJob ? STATUS_CONFIG[effectiveJob.status as TrainingStatus] : STATUS_CONFIG.pending;
   const StatusIcon = statusConfig.icon;
 
   const handleDownloadArtifact = useCallback(async (artifact: TrainingArtifact) => {

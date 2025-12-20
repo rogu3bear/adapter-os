@@ -1,10 +1,10 @@
 import React from 'react';
 import { useQuery } from '@tanstack/react-query';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 
 import { MetaResponse } from '@/api/types';
-import { cn, FROST_BACKGROUND } from '@/components/ui/utils';
-import { formatDurationSeconds } from '@/utils/format';
+import { cn, FROST_BACKGROUND } from '@/lib/utils';
+import { formatDurationSeconds } from '@/lib/formatters';
 
 
 interface MetaData {

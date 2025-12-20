@@ -21,7 +21,7 @@ import {
   Lock,
   Unlock
 } from 'lucide-react';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { useDataLoader } from '@/hooks/ui/useDataLoader';
 import { useAsyncAction } from '@/hooks/async/useAsyncAction';
 

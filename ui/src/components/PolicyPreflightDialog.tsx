@@ -20,7 +20,7 @@ import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Alert, AlertDescription, AlertTitle } from './ui/alert';
 import { AlertTriangle, CheckCircle, XCircle, Shield, Info } from 'lucide-react';
-import { cn } from './ui/utils';
+import { cn } from '@/lib/utils';
 
 export interface PolicyCheck {
   policy_id: string;

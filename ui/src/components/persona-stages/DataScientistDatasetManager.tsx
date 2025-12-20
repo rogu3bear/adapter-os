@@ -7,7 +7,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { Dataset, DatasetValidationStatus, DatasetSourceType } from '@/api/training-types';
 import { usePolling } from '@/hooks/realtime/usePolling';
 import { Upload, Database, RefreshCw, CheckCircle, XCircle, Clock, AlertTriangle, FileText } from 'lucide-react';
@@ -89,7 +89,7 @@ export default function DataScientistDatasetManager() {
     }
   );
 
-  const getValidationStatusBadge = (status: DatasetValidationStatus) => {
+  const getValidationStatusBadge = (status: DatasetValidationStatus | string) => {
     switch (status) {
       case 'valid':
         return (
@@ -119,11 +119,18 @@ export default function DataScientistDatasetManager() {
             Validating
           </Badge>
         );
-      case 'failed':
+      case 'pending':
+        return (
+          <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200">
+            <Clock className="h-3 w-3 mr-1" />
+            Pending
+          </Badge>
+        );
+      case 'skipped':
         return (
           <Badge variant="outline" className="bg-gray-50 text-gray-700 border-gray-200">
-            <AlertTriangle className="h-3 w-3 mr-1" />
-            Failed
+            <XCircle className="h-3 w-3 mr-1" />
+            Skipped
           </Badge>
         );
       default:

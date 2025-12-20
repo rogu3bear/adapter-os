@@ -41,6 +41,7 @@ adapteros-lora-kernel-api = { path = "../adapteros-lora-kernel-api" }
 adapteros-crypto = { path = "../adapteros-crypto" }
 adapteros-telemetry = { path = "../adapteros-telemetry" }
 adapteros-numerics = { path = "../adapteros-numerics" }
+adapteros-platform = { path = "../adapteros-platform" }
 thiserror = { workspace = true }
 bincode = { workspace = true }
 serde = { workspace = true }

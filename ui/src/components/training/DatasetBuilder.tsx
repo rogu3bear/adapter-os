@@ -33,7 +33,7 @@ import { logger, toError } from '@/utils/logger';
 import { ErrorRecovery } from '@/components/ui/error-recovery';
 import { useInformationDensity } from '@/hooks/ui/useInformationDensity';
 import { DatasetConfigSchema, formatValidationError } from '@/schemas';
-import { apiClient } from '@/api/client';
+import { apiClient } from '@/api/services';
 import { CreateDatasetRequest, DatasetValidationResult } from '@/api/training-types';
 import { ZodError } from 'zod';
 
@@ -352,14 +352,14 @@ export function DatasetBuilder({ onDatasetCreated, onCancel, initialConfig }: Da
       };
 
       const response = await apiClient.createDataset(request);
-      const datasetId = response.dataset.id;
+      const datasetId = response.dataset_id;
 
       logger.info('Dataset created', { component: 'DatasetBuilder', datasetId });
 
       // Trigger backend validation
       try {
         const validation = await validateOnBackend(datasetId);
-        if (validation.status === 'invalid' || validation.status === 'failed') {
+        if (validation.status === 'invalid') {
           const errorMsg = validation.errors?.join('\n') || 'Dataset validation failed';
           setUploadError(new Error(errorMsg));
           return;

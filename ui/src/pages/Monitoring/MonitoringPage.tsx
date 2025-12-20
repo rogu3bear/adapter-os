@@ -10,6 +10,7 @@ import { useAuth } from '@/providers/CoreProviders';
 import { useTenant } from '@/providers/FeatureProviders';
 import { useRBAC } from '@/hooks/security/useRBAC';
 import { ErrorRecovery, errorRecoveryTemplates } from '@/components/ui/error-recovery';
+import { PermissionDenied } from '@/components/ui/permission-denied';
 import { GlossaryTooltip } from '@/components/ui/glossary-tooltip';
 
 interface ComponentError {
@@ -113,10 +114,11 @@ export function MonitoringPage() {
             </React.Suspense>
           )}
           {user && !canViewMetrics && (
-            <div className="p-4 text-center text-muted-foreground">
-              <GlossaryTooltip termId="requires-admin">
-                <span>You do not have permission to view real-time metrics.</span>
-              </GlossaryTooltip>
+            <div className="p-4">
+              <PermissionDenied
+                requiredPermission="metrics:view"
+                requiredRoles={['admin', 'operator', 'sre', 'compliance', 'auditor', 'viewer', 'developer']}
+              />
             </div>
           )}
           {!user && errorRecoveryTemplates.genericError(

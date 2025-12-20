@@ -176,9 +176,7 @@ fn hash_decision(
     backend_id: Option<&str>,
     kernel_version_id: Option<&str>,
 ) -> B3Hash {
-    let policy_bytes = policy_mask_digest
-        .map(|d| d.to_vec())
-        .unwrap_or_else(Vec::new);
+    let policy_bytes = policy_mask_digest.map(|d| d.to_vec()).unwrap_or_default();
     let backend_bytes = backend_id.unwrap_or("").as_bytes().to_vec();
     let kernel_bytes = kernel_version_id.unwrap_or("").as_bytes().to_vec();
 
@@ -579,9 +577,16 @@ pub fn verify_bundle_from_path(bundle: &Path) -> Result<ReceiptVerificationRepor
 mod tests {
     use super::*;
     use adapteros_crypto::signature::Keypair;
+    use adapteros_platform::common::PlatformUtils;
     use base64::engine::general_purpose::STANDARD;
     use rand::RngCore;
     use tempfile::TempDir;
+
+    fn new_test_tempdir() -> TempDir {
+        let root = PlatformUtils::temp_dir();
+        std::fs::create_dir_all(&root).expect("create var/tmp");
+        TempDir::new_in(&root).expect("tempdir")
+    }
 
     fn make_keypair() -> Keypair {
         let mut seed = [0u8; 32];
@@ -699,7 +704,7 @@ mod tests {
 
     #[test]
     fn golden_bundle_passes() {
-        let dir = TempDir::new().expect("tempdir");
+        let dir = new_test_tempdir();
         let bundle_path = write_bundle(dir.path(), false);
 
         let report = verify_bundle_from_path(&bundle_path).expect("verification should succeed");
@@ -717,7 +722,7 @@ mod tests {
 
     #[test]
     fn byte_flip_triggers_trace_tamper() {
-        let dir = TempDir::new().expect("tempdir");
+        let dir = new_test_tempdir();
         let bundle_path = write_bundle(dir.path(), true);
 
         let report = verify_bundle_from_path(&bundle_path).expect("verification should run");
