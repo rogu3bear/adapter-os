@@ -352,7 +352,7 @@ impl Db {
                 let kv_users_result = if let Some(tenant) = tenant_filter {
                     repo.list_users_by_tenant_kv(tenant).await
                 } else if let Some(role) = role_filter {
-                    let kv_role = KvRole::from_str(role).ok_or_else(|| {
+                    let kv_role = KvRole::from_str(role).map_err(|_| {
                         AosError::Parse(format!("invalid role filter for KV: {}", role))
                     })?;
                     repo.list_users_by_role_kv(&kv_role).await

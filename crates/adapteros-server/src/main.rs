@@ -1,9 +1,12 @@
 mod assets;
+mod db_index_monitor;
+mod otel;
 
 const DEFAULT_MANIFEST_HASH: &str =
     "756be0c4434c3fe5e1198fcf417c52a662e7a24d0716dbf12aae6246bea84f9e";
 
 use adapteros_api_types::FailureCode;
+use adapteros_boot::{load_or_generate_worker_keypair, BootReport};
 use adapteros_config::{
     init_effective_config, resolve_base_model_location, resolve_manifest_path,
     try_effective_config, ConfigLoader, ConfigSnapshot,
@@ -17,6 +20,7 @@ use adapteros_deterministic_exec::{
 use adapteros_lora_worker::memory::UmaPressureMonitor;
 use adapteros_manifest::ManifestV3;
 use adapteros_model_hub::{ModelHubClient, ModelHubConfig};
+use adapteros_server::boot::BackgroundTaskSpawner;
 use adapteros_server::security::PfGuard;
 use adapteros_server::shutdown::ShutdownCoordinator;
 use adapteros_server::status_writer;
@@ -30,18 +34,14 @@ use adapteros_server_api::{routes, AppState};
 use adapteros_telemetry::AlertingEngine;
 use anyhow::Result;
 use clap::Parser;
-use serde_json::json;
-use std::fs::OpenOptions;
-use std::io::Write;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
-use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::signal;
 use tokio::time::MissedTickBehavior;
-use tracing::{error, info, trace, warn};
+use tracing::{debug, error, info, trace, warn};
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_subscriber::{
     fmt::{self, format::FmtSpan},
@@ -89,7 +89,7 @@ impl PidFileLock {
 
         // Write our PID
         std::fs::write(&path, std::process::id().to_string())?;
-        info!("PID lock acquired: {}", path.display());
+        info!(path = %path.display(), "PID lock acquired");
 
         Ok(Self { path })
     }
@@ -124,39 +124,6 @@ fn normalize_jwt_mode(value: &str) -> String {
     }
 }
 
-fn agent_log(
-    hypothesis_id: &'static str,
-    location: &'static str,
-    message: &'static str,
-    data: serde_json::Value,
-) {
-    let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis())
-        .unwrap_or(0);
-    // #region agent log
-    if let Ok(mut file) = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open("/Users/mln-dev/Dev/adapter-os/.cursor/debug.log")
-    {
-        let _ = writeln!(
-            file,
-            "{}",
-            json!({
-                "sessionId": "debug-session",
-                "runId": "pre-fix",
-                "hypothesisId": hypothesis_id,
-                "location": location,
-                "message": message,
-                "data": data,
-                "timestamp": timestamp,
-            })
-        );
-    }
-    // #endregion
-}
-
 #[derive(Parser)]
 #[command(name = "aos-cp")]
 #[command(about = "AdapterOS Control Plane", long_about = None)]
@@ -181,18 +148,30 @@ struct Cli {
     #[arg(long)]
     pid_file: Option<PathBuf>,
 
-    /// Skip PF/firewall egress checks (for development only)
-    #[arg(long)]
+    /// Skip PF/firewall egress checks (DEBUG BUILDS ONLY)
+    /// This flag is not available in release builds for security
+    #[cfg_attr(debug_assertions, arg(long))]
+    #[cfg_attr(not(debug_assertions), arg(skip))]
     skip_pf_check: bool,
 
-    /// Skip environment drift detection (for development only)
-    #[arg(long)]
+    /// Skip environment drift detection (DEBUG BUILDS ONLY)
+    /// This flag is not available in release builds for security
+    #[cfg_attr(debug_assertions, arg(long))]
+    #[cfg_attr(not(debug_assertions), arg(skip))]
     skip_drift_check: bool,
 
     /// Path to base model manifest for executor seeding
     /// Can also be set via AOS_MANIFEST_PATH environment variable
     #[arg(long, env = "AOS_MANIFEST_PATH")]
     manifest_path: Option<PathBuf>,
+
+    /// Enable strict mode (fail-closed boot)
+    /// When enabled:
+    /// - Worker keypair must exist (var/keys/worker_signing.key)
+    /// - Boot report emission is required
+    /// - Legacy auth paths are disabled
+    #[arg(long, env = "AOS_STRICT")]
+    strict: bool,
 }
 
 #[tokio::main]
@@ -286,8 +265,11 @@ async fn main() -> Result<()> {
         std::process::exit(1);
     }
 
-    // Initialize tracing with config-based settings
-    let _guard: Option<tracing_appender::non_blocking::WorkerGuard> = {
+    // Initialize tracing with config-based settings (including OpenTelemetry if enabled)
+    let (_log_guard, _otel_guard): (
+        Option<tracing_appender::non_blocking::WorkerGuard>,
+        Option<otel::OtelGuard>,
+    ) = {
         let cfg = server_config
             .read()
             .map_err(|e| {
@@ -296,7 +278,7 @@ async fn main() -> Result<()> {
             })
             .unwrap();
 
-        initialize_logging(&cfg.logging)
+        initialize_logging(&cfg.logging, &cfg.otel)
             .map_err(|e| anyhow::anyhow!("Failed to initialize logging: {}", e))?
     };
 
@@ -353,12 +335,18 @@ async fn main() -> Result<()> {
         }
     }
 
-    info!("Configuration loaded from {}", cli.config);
+    info!(config_path = %cli.config, "Configuration loaded");
 
     // Initialize deterministic config system (validates all AOS_* env vars)
     if let Err(e) = adapteros_config::init_runtime_config() {
-        warn!("Config validation: {}", e);
+        warn!(error = %e, "Config validation failed");
         // Non-fatal: continue with defaults for missing vars
+    }
+
+    // Validate CORS configuration early (fail-fast in production mode)
+    if let Err(e) = adapteros_server_api::middleware_security::validate_cors_config() {
+        error!(error = %e, "FATAL: CORS config validation failed");
+        std::process::exit(1);
     }
 
     // Handle OpenAPI generation
@@ -371,7 +359,31 @@ async fn main() -> Result<()> {
 
     // Initialize boot state manager (without DB until connected)
     let boot_state = BootStateManager::new();
-    boot_state.boot().await;
+    boot_state.start().await;
+
+    // Get boot timeout from config (default: 300 seconds)
+    let boot_timeout_secs = {
+        let cfg = server_config
+            .read()
+            .map_err(|e| anyhow::anyhow!("Config lock poisoned: {}", e))?;
+        cfg.server.boot_timeout_secs
+    };
+
+    info!(
+        timeout_secs = boot_timeout_secs,
+        "Starting boot sequence with timeout"
+    );
+
+    // Track boot phase timings
+    let boot_start = std::time::Instant::now();
+
+    info!(target: "boot", phase = 1, name = "config", "═══ BOOT PHASE 1/12: Configuration Complete ═══");
+
+    // Wrap the entire boot sequence in a timeout
+    let boot_timeout = Duration::from_secs(boot_timeout_secs);
+    // Clone boot_state for use in timeout error handler (async block captures the original)
+    let boot_state_for_timeout = boot_state.clone();
+    let boot_result = tokio::time::timeout(boot_timeout, async {
 
     // Acquire PID file lock if single-writer mode enabled
     let _pid_lock = if cli.single_writer {
@@ -380,10 +392,59 @@ async fn main() -> Result<()> {
         None
     };
 
+    // =========================================================================
+    // Worker Authentication Keypair (Ed25519)
+    // =========================================================================
+    // Load or generate the worker signing keypair for CP->Worker authentication.
+    // In strict mode, this is required; otherwise it's optional with a warning.
+    info!(target: "boot", phase = 2, name = "security-init", "═══ BOOT PHASE 2/12: Security Initialization ═══");
+    info!("Loading worker authentication keypair (CSPRNG + filesystem I/O may be slow on some systems)");
+    let keypair_start = std::time::Instant::now();
+    let worker_signing_keypair = {
+        let keys_dir = std::path::Path::new("var/keys");
+        std::fs::create_dir_all(keys_dir).ok();
+
+        let key_path = keys_dir.join("worker_signing.key");
+        match load_or_generate_worker_keypair(&key_path) {
+            Ok(keypair) => {
+                let kid = adapteros_boot::derive_kid_from_verifying_key(&keypair.verifying_key());
+                info!(
+                    kid = %kid,
+                    path = %key_path.display(),
+                    elapsed_ms = %keypair_start.elapsed().as_millis(),
+                    "Worker signing keypair loaded for CP->Worker authentication"
+                );
+                Some(keypair)
+            }
+            Err(e) => {
+                if cli.strict {
+                    error!(
+                        error = %e,
+                        path = %key_path.display(),
+                        elapsed_ms = %keypair_start.elapsed().as_millis(),
+                        "STRICT MODE: Failed to load worker signing keypair"
+                    );
+                    return Err(anyhow::anyhow!(
+                        "Strict mode requires worker signing keypair at {}",
+                        key_path.display()
+                    ));
+                } else {
+                    warn!(
+                        error = %e,
+                        path = %key_path.display(),
+                        elapsed_ms = %keypair_start.elapsed().as_millis(),
+                        "Worker signing keypair not available, CP->Worker auth disabled"
+                    );
+                    None
+                }
+            }
+        }
+    };
+
     // Log effective configuration at startup
     {
         let cfg = server_config.read().map_err(|e| {
-            error!("Config lock poisoned at startup: {}", e);
+            error!(error = %e, "Config lock poisoned at startup");
             anyhow::anyhow!("config lock poisoned at startup")
         })?;
 
@@ -441,6 +502,7 @@ async fn main() -> Result<()> {
             production_mode = cfg.server.production_mode,
             uds_socket = ?cfg.server.uds_socket,
             drain_timeout_secs = cfg.server.drain_timeout_secs,
+            boot_timeout_secs = cfg.server.boot_timeout_secs,
             db_path = %cfg.db.path,
             artifacts_root = %cfg.paths.artifacts_root,
             bundles_root = %cfg.paths.bundles_root,
@@ -466,6 +528,8 @@ async fn main() -> Result<()> {
             "Effective operational configuration"
         );
     }
+
+    info!(target: "boot", phase = 3, name = "executor", "═══ BOOT PHASE 3/12: Deterministic Executor ═══");
 
     // Resolve manifest path with precedence: env > CLI > config > dev fallback (debug-only)
     let config_manifest_path = {
@@ -617,12 +681,28 @@ async fn main() -> Result<()> {
     }
 
     // Security preflight: ensure egress is blocked
+    info!(target: "boot", phase = 4, name = "security-preflight", "═══ BOOT PHASE 4/12: Security Preflight ═══");
     info!("Running security preflight checks");
     {
         let cfg = server_config
             .read()
             .map_err(|e| anyhow::anyhow!("Config lock poisoned: {}", e))?;
         let require_pf_deny = cfg.security.require_pf_deny;
+
+        // Runtime guard: prevent security bypass flags in production mode (debug builds only)
+        #[cfg(debug_assertions)]
+        {
+            let effective_production = cfg.server.production_mode || cfg.security.require_pf_deny;
+
+            if effective_production && (cli.skip_pf_check || cli.skip_drift_check) {
+                drop(cfg); // Release lock before error
+                return Err(anyhow::anyhow!(
+                    "Security bypass flags (--skip-pf-check, --skip-drift-check) \
+                     cannot be used when production_mode=true or require_pf_deny=true. \
+                     These flags are for development only."
+                ));
+            }
+        }
 
         if require_pf_deny {
             // Convert server SecurityConfig to API SecurityConfig
@@ -698,13 +778,13 @@ async fn main() -> Result<()> {
             if drift_report.should_block() {
                 if production_mode {
                     error!("Critical environment drift detected!");
-                    error!("{}", drift_report.summary());
+                    error!(summary = %drift_report.summary(), "Critical drift details");
                     for field_drift in &drift_report.field_drifts {
                         error!(
-                            "  {}: {} -> {}",
-                            field_drift.field_name,
-                            field_drift.baseline_value,
-                            field_drift.current_value
+                            field = %field_drift.field_name,
+                            baseline = %field_drift.baseline_value,
+                            current = %field_drift.current_value,
+                            "Drift field"
                         );
                     }
                     return Err(AosError::PolicyViolation(
@@ -712,26 +792,26 @@ async fn main() -> Result<()> {
                     ).into());
                 } else {
                     warn!(
-                        "Environment drift detected (development mode, not blocking): {}",
-                        drift_report.summary()
+                        summary = %drift_report.summary(),
+                        "Environment drift detected (development mode, not blocking)"
                     );
                     for field_drift in &drift_report.field_drifts {
                         warn!(
-                            "  {}: {} -> {}",
-                            field_drift.field_name,
-                            field_drift.baseline_value,
-                            field_drift.current_value
+                            field = %field_drift.field_name,
+                            baseline = %field_drift.baseline_value,
+                            current = %field_drift.current_value,
+                            "Drift field"
                         );
                     }
                 }
             } else if drift_report.drift_detected {
-                warn!("Environment drift detected: {}", drift_report.summary());
+                warn!(summary = %drift_report.summary(), "Environment drift detected");
                 for field_drift in &drift_report.field_drifts {
                     warn!(
-                        "  {}: {} -> {}",
-                        field_drift.field_name,
-                        field_drift.baseline_value,
-                        field_drift.current_value
+                        field = %field_drift.field_name,
+                        baseline = %field_drift.baseline_value,
+                        current = %field_drift.current_value,
+                        "Drift field"
                     );
                 }
             } else {
@@ -752,14 +832,15 @@ async fn main() -> Result<()> {
             current_fp
                 .save_signed(&baseline_path, &keypair)
                 .map_err(|e| anyhow::anyhow!("Failed to save baseline fingerprint: {}", e))?;
-            info!("Baseline fingerprint created at {:?}", baseline_path);
+            info!(path = ?baseline_path, "Baseline fingerprint created");
         }
     } else {
         warn!("Environment drift check skipped via --skip-drift-check flag (DEVELOPMENT ONLY)");
     }
 
     // Connect to database / KV based on config
-    boot_state.init_db().await;
+    info!(target: "boot", phase = 5, name = "database", "═══ BOOT PHASE 5/12: Database Connection ═══");
+    boot_state.db_connecting().await;
     let db_cfg = server_config
         .read()
         .map_err(|e| anyhow::anyhow!("Config lock poisoned: {}", e))?
@@ -785,56 +866,33 @@ async fn main() -> Result<()> {
         "Connecting to database with storage backend"
     );
 
-    agent_log(
-        "H1",
-        "main.rs:633",
-        "db_connect_start",
-        json!({
-            "db_path": db_cfg.path,
-            "pool_size": db_cfg.pool_size,
-            "storage_mode": cfg_backend.as_str(),
-            "kv_path": kv_path.display().to_string(),
-            "kv_tantivy_path": kv_tantivy_path.as_ref().map(|p| p.display().to_string()),
-        }),
-    );
-
-    let db = match DbFactory::create(
+    let db = DbFactory::create(
         &db_cfg.path,
         db_cfg.pool_size,
         db_backend,
         Some(kv_path.as_path()),
         kv_tantivy_path.as_deref(),
     )
-    .await
-    {
-        Ok(db) => {
-            agent_log(
-                "H1",
-                "main.rs:647",
-                "db_connect_ok",
-                json!({
-                    "storage_mode": cfg_backend.as_str(),
-                    "has_kv_path": kv_path.as_path().exists(),
-                }),
-            );
-            db
-        }
-        Err(e) => {
-            agent_log(
-                "H1",
-                "main.rs:653",
-                "db_connect_err",
-                json!({
-                    "storage_mode": cfg_backend.as_str(),
-                    "error": format!("{}", e),
-                }),
-            );
-            return Err(e.into());
-        }
-    };
+    .await?;
 
     // Note: Storage mode adjustment logging removed due to type mismatch
     // TODO: Re-add proper logging when StorageMode implements Display
+
+    // Check atomic dual-write configuration and warn if strict mode is disabled
+    {
+        use adapteros_db::adapters::AtomicDualWriteConfig;
+        let dual_write_config = AtomicDualWriteConfig::from_env();
+        if !dual_write_config.is_strict() {
+            warn!(
+                "PRODUCTION WARNING: Atomic dual-write strict mode is DISABLED. \
+                 KV write failures will not rollback SQL writes. \
+                 This is not recommended for production. \
+                 Set AOS_ATOMIC_DUAL_WRITE_STRICT=1 to enable strict mode."
+            );
+        } else {
+            info!("Atomic dual-write strict mode enabled (production safe)");
+        }
+    }
 
     // Upgrade boot state manager with database for audit logging (preserve state)
     let boot_state = boot_state.attach_db(Arc::new(db.clone()));
@@ -950,6 +1008,37 @@ async fn main() -> Result<()> {
         }
     };
 
+    // Freeze configuration guards to prevent environment variable access after boot
+    // This is a security measure to ensure deterministic behavior during request handling
+    {
+        use adapteros_config::guards::ConfigGuards;
+
+        // Initialize guard system (idempotent if already initialized)
+        if let Err(e) = ConfigGuards::initialize() {
+            warn!(error = %e, "Failed to initialize config guards (may already be initialized)");
+        }
+
+        // Freeze configuration - any env var access after this point will be logged as a violation
+        if let Err(e) = ConfigGuards::freeze() {
+            // Non-fatal in dev mode, but log it prominently
+            let is_production = server_config
+                .read()
+                .map(|c| c.server.production_mode)
+                .unwrap_or(false);
+
+            if is_production {
+                error!(error = %e, "FATAL: Failed to freeze configuration guards in production mode");
+                anyhow::bail!(
+                    "Configuration guard freeze failed: {}. Production mode requires deterministic configuration.",
+                    e
+                );
+            }
+            warn!(error = %e, "Failed to freeze configuration guards");
+        } else {
+            info!("Configuration guards frozen - environment variable access now prohibited");
+        }
+    }
+
     // Initialize global tick ledger for inference tracking
 
     let tick_ledger = Arc::new(GlobalTickLedger::new(
@@ -979,6 +1068,10 @@ async fn main() -> Result<()> {
                 production_mode,
                 uds_socket: None,
                 drain_timeout_secs: 30,
+                boot_timeout_secs: 300,
+                health_check_db_timeout_ms: 2000,
+                health_check_worker_timeout_ms: 5000,
+                health_check_models_timeout_ms: 15000,
             },
             db: adapteros_server_api::config::DatabaseConfig {
                 path: String::new(), // Unused
@@ -1044,6 +1137,7 @@ async fn main() -> Result<()> {
             git: None,
             policies: Default::default(),
             logging: Default::default(),
+            otel: Default::default(),
         };
 
         RuntimeModeResolver::resolve(&api_cfg, &db)
@@ -1059,88 +1153,114 @@ async fn main() -> Result<()> {
         "Runtime mode resolved"
     );
 
-    // Validate runtime mode configuration
+    // Validate runtime mode configuration (production security requirements)
     {
-        let production_mode = server_config
+        let cfg = server_config
             .read()
-            .map_err(|e| anyhow::anyhow!("Config lock poisoned: {}", e))?
-            .server
-            .production_mode;
+            .map_err(|e| anyhow::anyhow!("Config lock poisoned: {}", e))?;
 
-        // Create a minimal API config for validation
+        let production_mode = cfg.server.production_mode;
+
+        // Production mode validation: JWT secret must be at least 32 characters
+        if production_mode {
+            let jwt_secret_len = cfg.security.jwt_secret.len();
+            if jwt_secret_len < 32 {
+                error!(
+                    jwt_secret_len,
+                    required = 32,
+                    "FATAL: JWT secret is too short for production mode"
+                );
+                anyhow::bail!(
+                    "Production mode requires JWT secret of at least 32 characters (current: {}). \
+                     Generate with: openssl rand -hex 32",
+                    jwt_secret_len
+                );
+            }
+            info!("JWT secret length validated for production mode");
+        }
+
+        // Create API config with actual values for runtime mode validation
         let api_cfg = adapteros_server_api::config::Config {
             server: adapteros_server_api::config::ServerConfig {
-                port: 0,
-                bind: String::new(),
+                port: cfg.server.port,
+                bind: cfg.server.bind.clone(),
                 production_mode,
-                uds_socket: None,
-                drain_timeout_secs: 30,
+                uds_socket: cfg.server.uds_socket.clone(),
+                drain_timeout_secs: cfg.server.drain_timeout_secs,
+                boot_timeout_secs: cfg.server.boot_timeout_secs,
+                health_check_db_timeout_ms: 2000,
+                health_check_worker_timeout_ms: 5000,
+                health_check_models_timeout_ms: 15000,
             },
             db: adapteros_server_api::config::DatabaseConfig {
-                path: String::new(),
-                pool_size: 5,
-                storage_mode: "sql_only".to_string(),
-                kv_path: String::new(),
-                kv_tantivy_path: None,
+                path: cfg.db.path.clone(),
+                pool_size: cfg.db.pool_size,
+                storage_mode: cfg.db.storage_mode.clone(),
+                kv_path: cfg.db.kv_path.clone(),
+                kv_tantivy_path: cfg.db.kv_tantivy_path.clone(),
             },
             security: adapteros_server_api::config::SecurityConfig {
-                require_pf_deny: false,
-                mtls_required: false,
-                jwt_secret: String::new(),
-                jwt_ttl_hours: 8,
-                key_provider_mode: String::new(),
-                key_file_path: None,
-                jwt_issuer: String::new(),
-                jwt_audience: None,
+                require_pf_deny: cfg.security.require_pf_deny,
+                mtls_required: cfg.security.mtls_required,
+                jwt_secret: cfg.security.jwt_secret.clone(),
+                jwt_ttl_hours: cfg.security.jwt_ttl_hours,
+                key_provider_mode: cfg.security.key_provider_mode.clone(),
+                key_file_path: cfg.security.key_file_path.clone(),
+                jwt_issuer: cfg.security.jwt_issuer.clone(),
+                jwt_audience: cfg.security.jwt_audience.clone(),
                 jwt_additional_ed25519_public_keys: None,
                 jwt_additional_hmac_secrets: None,
-                dev_login_enabled: false,
-                require_mfa: None,
-                token_ttl_seconds: None,
+                dev_login_enabled: cfg.security.dev_login_enabled,
+                require_mfa: cfg.security.require_mfa,
+                token_ttl_seconds: cfg.security.token_ttl_seconds,
                 access_token_ttl_seconds: 15 * 60,
                 session_ttl_seconds: 12 * 3600,
-                jwt_mode: None,
+                jwt_mode: cfg.security.jwt_mode.clone(),
                 cookie_same_site: "Lax".to_string(),
                 cookie_domain: None,
                 cookie_secure: None,
             },
             auth: adapteros_server_api::config::AuthConfig {
-                dev_algo: "hs256".to_string(),
-                prod_algo: "eddsa".to_string(),
-                session_lifetime: 12 * 3600,
-                lockout_threshold: 5,
-                lockout_cooldown: 300,
+                dev_algo: cfg.auth.dev_algo.clone(),
+                prod_algo: cfg.auth.prod_algo.clone(),
+                session_lifetime: cfg.auth.session_lifetime,
+                lockout_threshold: cfg.auth.lockout_threshold,
+                lockout_cooldown: cfg.auth.lockout_cooldown,
             },
             paths: adapteros_server_api::config::PathsConfig {
-                artifacts_root: String::new(),
-                bundles_root: String::new(),
-                adapters_root: String::new(),
-                plan_dir: String::new(),
-                datasets_root: String::new(),
-                documents_root: String::new(),
+                artifacts_root: cfg.paths.artifacts_root.clone(),
+                bundles_root: cfg.paths.bundles_root.clone(),
+                adapters_root: cfg.paths.adapters_root.clone(),
+                plan_dir: cfg.paths.plan_dir.clone(),
+                datasets_root: cfg.paths.datasets_root.clone(),
+                documents_root: cfg.paths.documents_root.clone(),
             },
             rate_limits: adapteros_server_api::config::RateLimitsConfig {
-                requests_per_minute: 0,
-                burst_size: 0,
-                inference_per_minute: 0,
+                requests_per_minute: cfg.rate_limits.requests_per_minute,
+                burst_size: cfg.rate_limits.burst_size,
+                inference_per_minute: cfg.rate_limits.inference_per_minute,
             },
             metrics: adapteros_server_api::config::MetricsConfig {
-                enabled: false,
-                bearer_token: String::new(),
-                include_histogram: false,
-                histogram_buckets: vec![],
+                enabled: cfg.metrics.enabled,
+                bearer_token: cfg.metrics.bearer_token.clone(),
+                histogram_buckets: cfg.metrics.histogram_buckets.clone(),
+                include_histogram: cfg.metrics.include_histogram,
             },
             alerting: adapteros_server_api::config::AlertingConfig {
-                enabled: false,
-                alert_dir: String::new(),
-                max_alerts_per_file: 0,
-                rotate_size_mb: 0,
+                enabled: cfg.alerting.enabled,
+                alert_dir: cfg.alerting.alert_dir.clone(),
+                max_alerts_per_file: cfg.alerting.max_alerts_per_file,
+                rotate_size_mb: cfg.alerting.rotate_size_mb,
             },
             self_hosting: Default::default(),
             git: None,
             policies: Default::default(),
             logging: Default::default(),
+            otel: Default::default(),
         };
+
+        // Drop the read lock before async validation
+        drop(cfg);
 
         RuntimeModeResolver::validate(runtime_mode, &api_cfg, &db)
             .await
@@ -1176,13 +1296,15 @@ async fn main() -> Result<()> {
             )
             .await
         {
-            warn!("Failed to log executor bootstrap audit event: {}", e);
+            warn!(error = %e, "Failed to log executor bootstrap audit event");
         } else {
             info!("Executor bootstrap event logged to audit trail");
         }
     }
 
     let sql_enabled = db.storage_mode().write_to_sql() || db.storage_mode().read_from_sql();
+
+    info!(target: "boot", phase = 6, name = "migrations", "═══ BOOT PHASE 6/12: Database Migrations ═══");
 
     if sql_enabled {
         // Run migrations with Ed25519 signature verification
@@ -1207,11 +1329,11 @@ async fn main() -> Result<()> {
 
         // Seed development data
         if let Err(e) = db.seed_dev_data().await {
-            warn!("Failed to seed development data: {}", e);
+            warn!(error = %e, "Failed to seed development data");
         }
 
         if let Err(e) = seed_models_from_cache_if_empty(&db).await {
-            warn!("Failed to seed cached base models: {}", e);
+            warn!(error = %e, "Failed to seed cached base models");
         }
     } else {
         info!("SQL backend disabled; skipping migrations, crash recovery, and SQL seed steps");
@@ -1219,16 +1341,19 @@ async fn main() -> Result<()> {
 
     if cli.migrate_only {
         info!("Migrations complete, exiting");
-        return Ok(());
+        std::process::exit(0);
     }
 
     // Transition to loading policies state
+    info!(target: "boot", phase = 7, name = "policies", "═══ BOOT PHASE 7/12: Policy Loading ═══");
     boot_state.load_policies().await;
 
     // Transition to starting backend state
+    info!(target: "boot", phase = 8, name = "backend", "═══ BOOT PHASE 8/12: Backend Initialization ═══");
     boot_state.start_backend().await;
 
     // Transition to loading base models state
+    info!(target: "boot", phase = 9, name = "models", "═══ BOOT PHASE 9/12: Base Model Loading ═══");
     boot_state.load_base_models().await;
 
     // Download priority models from HuggingFace Hub if enabled
@@ -1253,6 +1378,9 @@ async fn main() -> Result<()> {
                 https_port: None,
                 uds_socket: cfg.server.uds_socket.clone(),
                 production_mode: cfg.server.production_mode,
+                health_check_db_timeout_ms: cfg.server.health_check_db_timeout_ms,
+                health_check_worker_timeout_ms: 5000,
+                health_check_models_timeout_ms: 15000,
             },
             security: adapteros_server_api::state::SecurityConfigApi {
                 jwt_mode: cfg.security.jwt_mode.clone(),
@@ -1336,7 +1464,7 @@ async fn main() -> Result<()> {
                                 cfg.self_hosting = new_config.self_hosting.clone();
                             }
                             Err(e) => {
-                                error!("Config lock poisoned during reload: {}", e);
+                                error!(error = %e, "Config lock poisoned during reload");
                                 continue;
                             }
                         }
@@ -1366,13 +1494,13 @@ async fn main() -> Result<()> {
                                     new_config.paths.documents_root.clone();
                             }
                             Err(e) => {
-                                error!("API config lock poisoned during reload: {}", e);
+                                error!(error = %e, "API config lock poisoned during reload");
                                 continue;
                             }
                         }
                         info!("Config reloaded successfully");
                     }
-                    Err(e) => error!("Failed to reload config: {}", e),
+                    Err(e) => error!(error = %e, "Failed to reload config"),
                 }
             }
         }) {
@@ -1446,7 +1574,7 @@ async fn main() -> Result<()> {
 
         // Load baseline hashes from database
         if let Err(e) = policy_watcher.load_cache().await {
-            warn!("Failed to load policy hash cache: {}", e);
+            warn!(error = %e, "Failed to load policy hash cache");
         }
 
         // Start background watcher (60 second interval)
@@ -1586,7 +1714,7 @@ async fn main() -> Result<()> {
                     let exporter = uds_exporter.clone();
                     tokio::spawn(async move {
                         if let Err(e) = exporter.serve(shutdown_rx).await {
-                            error!("UDS metrics exporter error: {}", e);
+                            error!(error = %e, "UDS metrics exporter error");
                         }
                     })
                 };
@@ -1716,6 +1844,8 @@ async fn main() -> Result<()> {
     let uma_monitor = Arc::new(uma_monitor);
 
     // Initialize worker health monitor for Worker Health, Hung Detection & Log Centralization
+    info!(target: "boot", phase = 10, name = "services", "═══ BOOT PHASE 10/12: Service Initialization ═══");
+
     info!("Initializing worker health monitor");
     let health_monitor = Arc::new(WorkerHealthMonitor::with_defaults(db.clone()));
     {
@@ -1786,14 +1916,41 @@ async fn main() -> Result<()> {
     .with_dataset_progress(dataset_progress_tx)
     .with_boot_state(boot_state.clone())
     .with_runtime_mode(runtime_mode)
+    .with_strict_mode(cli.strict)
     .with_tick_ledger(tick_ledger.clone())
     .with_health_monitor(health_monitor.clone())
     .with_federation(federation_daemon_for_state);
 
-    // Require manifest hash to keep worker routing aligned
-    let manifest_hash = match std::env::var("AOS_MANIFEST_HASH") {
-        Ok(val) => val,
-        Err(_) => {
+    // Wire worker signing keypair for CP->Worker authentication
+    if let Some(ref keypair) = worker_signing_keypair {
+        state = state.with_worker_signing_keypair(keypair.clone());
+    }
+
+    // Require manifest hash to keep worker routing aligned.
+    // Prefer the hash computed from the loaded manifest; fall back to env when provided.
+    let computed_manifest_hash = manifest_hash.as_ref().map(|h| h.to_hex());
+    let env_manifest_hash = std::env::var("AOS_MANIFEST_HASH")
+        .ok()
+        .filter(|s| !s.is_empty());
+
+    let manifest_hash = match (env_manifest_hash, computed_manifest_hash) {
+        (Some(env_hash), Some(computed)) => {
+            if env_hash != computed {
+                warn!(
+                    env_manifest_hash = %env_hash,
+                    computed_manifest_hash = %computed,
+                    "AOS_MANIFEST_HASH differs from computed manifest hash; continuing with env value"
+                );
+            }
+            env_hash
+        }
+        (Some(env_hash), None) => env_hash,
+        (None, Some(computed)) => {
+            // Auto-export so downstream components (and logs) see the canonical hash.
+            std::env::set_var("AOS_MANIFEST_HASH", &computed);
+            computed
+        }
+        (None, None) => {
             let is_production = api_config
                 .read()
                 .map(|c| c.server.production_mode)
@@ -1808,11 +1965,14 @@ async fn main() -> Result<()> {
 
             warn!(
                 default_hash = DEFAULT_MANIFEST_HASH,
-                "AOS_MANIFEST_HASH not set; using default manifest hash (development only)"
+                "AOS_MANIFEST_HASH not set and manifest hash unavailable; using default (development only)"
             );
             DEFAULT_MANIFEST_HASH.to_string()
         }
     };
+
+    // Ensure env reflects the hash we actually use for routing.
+    std::env::set_var("AOS_MANIFEST_HASH", &manifest_hash);
     let backend_name = std::env::var("AOS_MODEL_BACKEND").unwrap_or_else(|_| "mlx".to_string());
     state = state.with_manifest_info(manifest_hash, backend_name);
 
@@ -1879,73 +2039,91 @@ async fn main() -> Result<()> {
         use adapteros_server_api::state::RagStatus;
         use std::path::Path;
 
-        let embedding_model = adapteros_config::resolve_embedding_model_path();
-        let embedding_model_path = embedding_model.path;
-        let tokenizer_path = embedding_model_path.join("tokenizer.json");
-        info!(
-            path = %embedding_model_path.display(),
-            tokenizer_path = %tokenizer_path.display(),
-            source = %embedding_model.source,
-            dev_fallback = embedding_model.used_dev_fallback,
-            "Resolved embedding model paths for RAG"
-        );
+        let embedding_model = match adapteros_config::resolve_embedding_model_path() {
+            Ok(resolved) => Some(resolved),
+            Err(e) => {
+                let reason = format!("Failed to resolve embedding model path: {}", e);
 
-        if tokenizer_path.exists() {
-            match adapteros_ingest_docs::load_tokenizer(&tokenizer_path) {
-                Ok(tokenizer) => {
-                    let embedding_model_path_str = embedding_model_path.to_string_lossy();
-                    let embedding_model =
-                        Arc::new(adapteros_ingest_docs::ProductionEmbeddingModel::load(
-                            Some(&embedding_model_path_str),
-                            tokenizer,
-                        ));
-
-                    let model_hash = embedding_model.model_hash().to_hex()[..16].to_string();
-                    let dimension = embedding_model.dimension();
-
-                    info!(
-                        path = %embedding_model_path.display(),
-                        source = %embedding_model.source,
-                        dimension = dimension,
-                        hash = %model_hash,
-                        "Loaded embedding model for RAG"
-                    );
-
-                    state = state.with_embedding_model(embedding_model).with_rag_status(
-                        RagStatus::Enabled {
-                            model_hash,
-                            dimension,
-                        },
-                    );
+                // Use ERROR level in production, WARN in dev
+                if production_mode {
+                    error!(error = %e, "Embedding model path invalid, RAG disabled");
+                } else {
+                    warn!(error = %e, "Embedding model path invalid, RAG disabled");
                 }
-                Err(e) => {
-                    let reason = format!("Failed to load tokenizer: {}", e);
 
-                    // Use ERROR level in production, WARN in dev
-                    if production_mode {
-                        error!(error = %e, path = %tokenizer_path.display(), "Failed to load tokenizer for embedding model, RAG disabled");
-                    } else {
-                        warn!(error = %e, path = %tokenizer_path.display(), "Failed to load tokenizer for embedding model, RAG disabled");
+                state = state.with_rag_status(RagStatus::Disabled { reason });
+                None
+            }
+        };
+
+        if let Some(embedding_model) = embedding_model {
+            let embedding_model_path = embedding_model.path;
+            let tokenizer_path = embedding_model_path.join("tokenizer.json");
+            info!(
+                path = %embedding_model_path.display(),
+                tokenizer_path = %tokenizer_path.display(),
+                source = %embedding_model.source,
+                dev_fallback = embedding_model.used_dev_fallback,
+                "Resolved embedding model paths for RAG"
+            );
+
+            if tokenizer_path.exists() {
+                match adapteros_ingest_docs::load_tokenizer(&tokenizer_path) {
+                    Ok(tokenizer) => {
+                        let embedding_model_path_str = embedding_model_path.to_string_lossy();
+                        let embedding_model =
+                            Arc::new(adapteros_ingest_docs::ProductionEmbeddingModel::load(
+                                Some(&embedding_model_path_str),
+                                tokenizer,
+                            ));
+
+                        let model_hash = embedding_model.model_hash().to_hex()[..16].to_string();
+                        let dimension = embedding_model.dimension();
+
+                        info!(
+                            path = %embedding_model_path.display(),
+                            source = %embedding_model.source,
+                            dimension = dimension,
+                            hash = %model_hash,
+                            "Loaded embedding model for RAG"
+                        );
+
+                        state = state.with_embedding_model(embedding_model).with_rag_status(
+                            RagStatus::Enabled {
+                                model_hash,
+                                dimension,
+                            },
+                        );
                     }
+                    Err(e) => {
+                        let reason = format!("Failed to load tokenizer: {}", e);
 
-                    state = state.with_rag_status(RagStatus::Disabled { reason });
+                        // Use ERROR level in production, WARN in dev
+                        if production_mode {
+                            error!(error = %e, path = %tokenizer_path.display(), "Failed to load tokenizer for embedding model, RAG disabled");
+                        } else {
+                            warn!(error = %e, path = %tokenizer_path.display(), "Failed to load tokenizer for embedding model, RAG disabled");
+                        }
+
+                        state = state.with_rag_status(RagStatus::Disabled { reason });
+                    }
                 }
-            }
-        } else {
-            let reason = format!("Tokenizer not found at: {}", tokenizer_path.display());
-
-            // Use ERROR level in production, WARN in dev
-            if production_mode {
-                error!(
-                    path = %tokenizer_path.display(),
-                    "Embedding model tokenizer not found, RAG disabled. \
-                     Set AOS_EMBEDDING_MODEL_PATH to point to a sentence-transformer model."
-                );
             } else {
-                warn!(path = %tokenizer_path.display(), "Embedding model tokenizer not found, RAG disabled.                      Set AOS_EMBEDDING_MODEL_PATH to point to a sentence-transformer model.");
-            }
+                let reason = format!("Tokenizer not found at: {}", tokenizer_path.display());
 
-            state = state.with_rag_status(RagStatus::Disabled { reason });
+                // Use ERROR level in production, WARN in dev
+                if production_mode {
+                    error!(
+                        path = %tokenizer_path.display(),
+                        "Embedding model tokenizer not found, RAG disabled. \
+                         Set AOS_EMBEDDING_MODEL_PATH to point to a sentence-transformer model."
+                    );
+                } else {
+                    warn!(path = %tokenizer_path.display(), "Embedding model tokenizer not found, RAG disabled.                      Set AOS_EMBEDDING_MODEL_PATH to point to a sentence-transformer model.");
+                }
+
+                state = state.with_rag_status(RagStatus::Disabled { reason });
+            }
         }
     }
 
@@ -1983,32 +2161,27 @@ async fn main() -> Result<()> {
         info!("Git subsystem disabled in configuration");
     }
 
-    // Spawn status writer background task
+    // Spawn status writer background task (using BackgroundTaskSpawner)
     {
         let state_clone = state.clone();
-        match spawn_deterministic("Status writer".to_string(), async move {
-            let mut interval = tokio::time::interval(Duration::from_secs(5));
-            loop {
-                interval.tick().await;
-                if let Err(e) = status_writer::write_status(&state_clone).await {
-                    warn!("Failed to write status: {}", e);
+        let mut spawner = BackgroundTaskSpawner::new(shutdown_coordinator);
+        let _ = spawner.spawn_with_details(
+            "Status writer",
+            async move {
+                let mut interval = tokio::time::interval(Duration::from_secs(5));
+                loop {
+                    interval.tick().await;
+                    if let Err(e) = status_writer::write_status(&state_clone).await {
+                        warn!(error = %e, "Failed to write status");
+                    }
                 }
-            }
-        }) {
-            Ok(handle) => {
-                shutdown_coordinator.register_task(handle);
-                info!("Status writer started (5s interval)");
-            }
-            Err(e) => {
-                error!(
-                    error = %e,
-                    "Failed to spawn status writer task, status updates will be unavailable"
-                );
-            }
-        }
+            },
+            "5s interval",
+        );
+        shutdown_coordinator = spawner.into_coordinator();
     }
 
-    // Spawn KV isolation scan background task
+    // Spawn KV isolation scan background task (using BackgroundTaskSpawner)
     {
         let state_clone = state.clone();
         let base_config = kv_isolation::kv_isolation_config_from_env();
@@ -2017,37 +2190,29 @@ async fn main() -> Result<()> {
             .and_then(|v| v.parse::<u64>().ok())
             .unwrap_or(900);
 
-        match spawn_deterministic("KV isolation scan".to_string(), async move {
-            let mut interval = tokio::time::interval(Duration::from_secs(interval_secs));
-            interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+        let mut spawner = BackgroundTaskSpawner::new(shutdown_coordinator);
+        let _ = spawner.spawn_with_details(
+            "KV isolation scan",
+            async move {
+                let mut interval = tokio::time::interval(Duration::from_secs(interval_secs));
+                interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
-            loop {
-                interval.tick().await;
-                if let Err(e) = kv_isolation::run_kv_isolation_scan(
-                    &state_clone,
-                    base_config.clone(),
-                    "scheduled",
-                )
-                .await
-                {
-                    warn!(error = %e, "KV isolation scan failed");
+                loop {
+                    interval.tick().await;
+                    if let Err(e) = kv_isolation::run_kv_isolation_scan(
+                        &state_clone,
+                        base_config.clone(),
+                        "scheduled",
+                    )
+                    .await
+                    {
+                        warn!(error = %e, "KV isolation scan failed");
+                    }
                 }
-            }
-        }) {
-            Ok(handle) => {
-                shutdown_coordinator.register_task(handle);
-                info!(
-                    interval_secs,
-                    "KV isolation scan task started (read-only, deterministic ordering)"
-                );
-            }
-            Err(e) => {
-                error!(
-                    error = %e,
-                    "Failed to spawn KV isolation scan task; tenant isolation drift will not be monitored"
-                );
-            }
-        }
+            },
+            &format!("{}s interval, read-only, deterministic ordering", interval_secs),
+        );
+        shutdown_coordinator = spawner.into_coordinator();
     }
 
     // Spawn KV metrics alert monitor (drift/fallback/error/degraded)
@@ -2115,6 +2280,72 @@ async fn main() -> Result<()> {
                     error = %e,
                     "Failed to spawn KV alert monitor; KV alerting will be disabled"
                 );
+            }
+        }
+    }
+
+    // Spawn log cleanup background task
+    {
+        let cfg = server_config.read().map_err(|e| {
+            error!(error = %e, "Config lock poisoned during log cleanup setup");
+            anyhow::anyhow!("config lock poisoned")
+        })?;
+
+        if let Some(ref log_dir) = cfg.logging.log_dir {
+            if cfg.logging.retention_days > 0 {
+                let log_dir = log_dir.clone();
+                let log_dir_for_info = log_dir.clone();
+                let retention_days = cfg.logging.retention_days;
+
+                // Run cleanup on startup
+                if let Err(e) = cleanup_old_logs(&log_dir, retention_days).await {
+                    error!(error = %e, "Failed to cleanup old logs on startup");
+                }
+
+                // Spawn daily cleanup task
+                match spawn_deterministic("Log cleanup".to_string(), async move {
+                    let mut interval = tokio::time::interval(Duration::from_secs(86400)); // 24 hours
+                    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+                    loop {
+                        interval.tick().await;
+
+                        match cleanup_old_logs(&log_dir, retention_days).await {
+                            Ok(count) => {
+                                if count > 0 {
+                                    info!(
+                                        count,
+                                        retention_days,
+                                        log_dir = %log_dir,
+                                        "Cleaned up old log files"
+                                    );
+                                }
+                            }
+                            Err(e) => {
+                                error!(
+                                    error = %e,
+                                    log_dir = %log_dir,
+                                    "Failed to cleanup old logs"
+                                );
+                            }
+                        }
+                    }
+                }) {
+                    Ok(handle) => {
+                        shutdown_coordinator.register_task(handle);
+                        info!(
+                            retention_days,
+                            log_dir = %log_dir_for_info,
+                            "Log cleanup task started (daily interval)"
+                        );
+                    }
+                    Err(e) => {
+                        error!(
+                            error = %e,
+                            "Failed to spawn log cleanup task; old logs will not be automatically deleted"
+                        );
+                    }
+                }
             }
         }
     }
@@ -2221,6 +2452,64 @@ async fn main() -> Result<()> {
         }
     }
 
+    // Spawn WAL checkpoint background task
+    {
+        let db_clone = db.clone();
+        match spawn_deterministic("WAL checkpoint".to_string(), async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(300)); // 5 minutes
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+            loop {
+                interval.tick().await;
+
+                match db_clone.wal_checkpoint().await {
+                    Ok(()) => {
+                        // Success - checkpoint completed
+                        debug!("WAL checkpoint completed successfully");
+                    }
+                    Err(e) => {
+                        // Log but don't fail - checkpoints are best-effort
+                        warn!(
+                            error = %e,
+                            "WAL checkpoint failed (non-fatal, will retry)"
+                        );
+                    }
+                }
+            }
+        }) {
+            Ok(handle) => {
+                shutdown_coordinator.register_task(handle);
+                info!("WAL checkpoint task started (5 minute interval)");
+            }
+            Err(e) => {
+                // Non-fatal: SQLite will still auto-checkpoint, just less frequently
+                warn!(
+                    error = %e,
+                    "Failed to spawn WAL checkpoint task; relying on auto-checkpoint only"
+                );
+            }
+        }
+    }
+
+    // Spawn DB index health monitor + maintenance automation
+    {
+        let state_clone = state.clone();
+        match spawn_deterministic("DB index monitor".to_string(), async move {
+            db_index_monitor::run_db_index_monitor(state_clone).await;
+        }) {
+            Ok(handle) => {
+                shutdown_coordinator.register_task(handle);
+                info!("DB index monitor started");
+            }
+            Err(e) => {
+                warn!(
+                    error = %e,
+                    "Failed to spawn DB index monitor; index health monitoring will be disabled"
+                );
+            }
+        }
+    }
+
     // Spawn heartbeat recovery background task
     {
         let db_clone = db.clone();
@@ -2284,6 +2573,7 @@ async fn main() -> Result<()> {
     }
 
     // Transition to loading adapters state
+    info!(target: "boot", phase = 11, name = "adapters", "═══ BOOT PHASE 11/12: Adapter Loading ═══");
     boot_state.load_adapters().await;
 
     // Clone in_flight_requests counter for shutdown handler before moving state
@@ -2293,13 +2583,10 @@ async fn main() -> Result<()> {
     let api_routes = routes::build(state);
     let ui_routes = assets::routes();
 
-    // Legacy API shims (demo safety): support historical root-level paths used by
-    // older scripts/CLI/docs, while keeping `/api/*` as the canonical base.
-    let legacy_api_routes = api_routes.clone();
-
+    // NOTE: Legacy root-level API shims removed due to fallback handler conflict.
+    // All API endpoints should use the `/api/*` prefix.
     let app = axum::Router::new()
-        .nest("/api", api_routes) // API routes first (higher priority)
-        .merge(legacy_api_routes)
+        .nest("/api", api_routes) // API routes under /api prefix
         .merge(ui_routes); // UI fallback for non-API paths
 
     // Bind and serve
@@ -2328,6 +2615,137 @@ async fn main() -> Result<()> {
         )
     };
 
+    // =========================================================================
+    // Boot Report Generation
+    // =========================================================================
+    // Emit boot report to file and log. In strict mode, this is required.
+    info!(target: "boot", phase = 12, name = "finalization", "═══ BOOT PHASE 12/12: Finalization ═══");
+    {
+        // Serialize config for hashing. Handle errors explicitly instead of silently
+        // producing an empty hash which would mask config issues.
+        let config_bytes = {
+            let config_guard = server_config.read().unwrap_or_else(|e| e.into_inner());
+            match serde_json::to_vec(&*config_guard) {
+                Ok(bytes) => bytes,
+                Err(e) => {
+                    if cli.strict {
+                        error!(error = %e, "STRICT MODE: Failed to serialize config for boot report");
+                        return Err(anyhow::anyhow!("Config serialization failed: {}", e));
+                    }
+                    // In non-strict mode, use error message as input to produce an identifiable hash
+                    // instead of an empty hash that would be indistinguishable from a real empty config
+                    warn!(error = %e, "Failed to serialize config for boot report, using placeholder hash");
+                    format!("CONFIG_SERIALIZE_ERROR:{}", e).into_bytes()
+                }
+            }
+        };
+
+        let mut report_builder = BootReport::builder()
+            .config_hash_from_bytes(&config_bytes)
+            .bind_addr(bind.to_string())
+            .port(port);
+
+        // Add worker key ID if available
+        if let Some(ref keypair) = worker_signing_keypair {
+            let kid = adapteros_boot::derive_kid_from_verifying_key(&keypair.verifying_key());
+            report_builder = report_builder.add_worker_key_kid(kid);
+        }
+
+        let report = report_builder.build();
+
+        // Emit to log
+        report.emit_log();
+
+        // Write to file
+        let report_path = "var/run/boot_report.json";
+        match report.write_to_file(report_path) {
+            Ok(()) => {
+                info!(path = %report_path, "Boot report written");
+            }
+            Err(e) => {
+                if cli.strict {
+                    error!(
+                        error = %e,
+                        path = %report_path,
+                        "STRICT MODE: Failed to write boot report"
+                    );
+                    return Err(anyhow::anyhow!(
+                        "Strict mode requires boot report at {}",
+                        report_path
+                    ));
+                } else {
+                    warn!(error = %e, path = %report_path, "Failed to write boot report");
+                }
+            }
+        }
+    }
+
+    // Return all boot artifacts needed for server startup
+    Ok::<_, anyhow::Error>((
+        boot_state.clone(),
+        in_flight_requests,
+        app,
+        production_mode,
+        uds_socket,
+        bind,
+        port,
+        drain_timeout,
+        shutdown_coordinator,
+    ))
+    }).await;
+
+    // Handle boot timeout
+    let (
+        boot_state,
+        in_flight_requests,
+        app,
+        production_mode,
+        uds_socket,
+        bind,
+        port,
+        drain_timeout,
+        shutdown_coordinator,
+    ) = match boot_result {
+        Ok(Ok(artifacts)) => {
+            let boot_duration = boot_start.elapsed();
+            info!(
+                target: "boot",
+                duration_ms = boot_duration.as_millis() as u64,
+                duration_secs = format!("{:.1}", boot_duration.as_secs_f64()),
+                "╔═══════════════════════════════════════════════════════════════╗"
+            );
+            info!(
+                target: "boot",
+                "║             BOOT COMPLETE - AdapterOS Ready                   ║"
+            );
+            info!(
+                target: "boot",
+                duration_secs = format!("{:.1}s", boot_duration.as_secs_f64()),
+                "╚═══════════════════════════════════════════════════════════════╝"
+            );
+            artifacts
+        }
+        Ok(Err(e)) => {
+            error!(error = %e, "Boot sequence failed with error");
+            return Err(e);
+        }
+        Err(_) => {
+            let current_state = boot_state_for_timeout.current_state();
+            error!(
+                timeout_secs = %boot_timeout.as_secs(),
+                boot_state = ?current_state,
+                "Boot sequence exceeded timeout - server failed to initialize in time"
+            );
+            eprintln!(
+                "FATAL: Boot timeout after {} seconds. Boot was stuck in state: {:?}",
+                boot_timeout.as_secs(),
+                current_state
+            );
+            // Exit with Config error code (10)
+            std::process::exit(10);
+        }
+    };
+
     // Egress policy: production_mode requires UDS-only
     if production_mode {
         let socket_path: String = uds_socket.ok_or_else(|| {
@@ -2336,18 +2754,31 @@ async fn main() -> Result<()> {
             )
         })?;
 
-        info!("Starting control plane on UDS: {}", socket_path);
+        info!(socket_path = %socket_path, "Starting control plane on UDS");
         info!("Production mode enabled - TCP binding disabled per Egress policy");
 
         // Remove existing socket file if present
         let _ = std::fs::remove_file(&socket_path);
 
-        // Transition to ready state - server is now accepting requests
+        // Bind first, fail fast if socket cannot be created
+        let listener = match tokio::net::UnixListener::bind(&socket_path) {
+            Ok(l) => l,
+            Err(e) => {
+                error!(
+                    socket = %socket_path,
+                    error = %e,
+                    "Failed to bind UDS socket: {}. Check permissions or remove stale socket: rm {}",
+                    e,
+                    socket_path
+                );
+                std::process::exit(10);
+            }
+        };
+
+        // Now safe to mark ready - socket is secured
         boot_state.ready().await;
         // Mark fully ready once boot tasks have completed
         boot_state.fully_ready().await;
-
-        let listener = tokio::net::UnixListener::bind(&socket_path)?;
         axum::serve(listener, app)
             .with_graceful_shutdown(shutdown_signal_with_drain(
                 boot_state.clone(),
@@ -2372,11 +2803,11 @@ async fn main() -> Result<()> {
                         std::process::exit(1);
                     }
                     adapteros_server::shutdown::ShutdownError::PartialFailure { failed_count } => {
-                        warn!("Partial shutdown failure - {} components failed but system integrity maintained", failed_count);
+                        warn!(failed_count = failed_count, "Partial shutdown failure - components failed but system integrity maintained");
                         // Don't exit - partial failures are acceptable
                     }
                     _ => {
-                        error!("Shutdown error: {}", e);
+                        error!(error = %e, "Shutdown error");
                         std::process::exit(1);
                     }
                 }
@@ -2401,17 +2832,31 @@ async fn main() -> Result<()> {
         } else {
             bind_ip
         };
-        info!("Starting control plane on {}", addr);
-        info!("UI available at http://{}:{}/", display_host, port);
-        info!("API available at http://{}:{}/api/", display_host, port);
+        info!(addr = %addr, "Starting control plane");
+        info!(url = %format!("http://{}:{}/", display_host, port), "UI available");
+        info!(url = %format!("http://{}:{}/api/", display_host, port), "API available");
         warn!("Development mode: TCP binding enabled. Set production_mode=true for UDS-only");
 
-        // Transition to ready state - server is now accepting requests
+        // Bind first, fail fast if port in use
+        let listener = match tokio::net::TcpListener::bind(addr).await {
+            Ok(l) => l,
+            Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
+                error!(
+                    port = port,
+                    addr = %addr,
+                    "Port {} already in use. Kill existing process: lsof -ti:{} | xargs kill",
+                    port,
+                    port
+                );
+                std::process::exit(10);
+            }
+            Err(e) => return Err(e.into()),
+        };
+
+        // Now safe to mark ready - port is secured
         boot_state.ready().await;
         // Mark fully ready once boot tasks have completed
         boot_state.fully_ready().await;
-
-        let listener = tokio::net::TcpListener::bind(addr).await?;
         axum::serve(listener, app)
             .with_graceful_shutdown(shutdown_signal_with_drain(
                 boot_state.clone(),
@@ -2436,11 +2881,11 @@ async fn main() -> Result<()> {
                         std::process::exit(1);
                     }
                     adapteros_server::shutdown::ShutdownError::PartialFailure { failed_count } => {
-                        warn!("Partial shutdown failure - {} components failed but system integrity maintained", failed_count);
+                        warn!(failed_count = failed_count, "Partial shutdown failure - components failed but system integrity maintained");
                         // Don't exit - partial failures are acceptable
                     }
                     _ => {
-                        error!("Shutdown error: {}", e);
+                        error!(error = %e, "Shutdown error");
                         std::process::exit(1);
                     }
                 }
@@ -2458,6 +2903,93 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
+/// Cleanup old log files based on retention policy
+///
+/// Deletes log files older than the specified retention period.
+/// Returns the number of files deleted.
+async fn cleanup_old_logs(log_dir: &str, retention_days: u32) -> Result<usize> {
+    use std::time::SystemTime;
+
+    let retention_duration = std::time::Duration::from_secs(retention_days as u64 * 86400);
+    let now = SystemTime::now();
+    let mut deleted_count = 0;
+
+    let log_path = std::path::Path::new(log_dir);
+    if !log_path.exists() {
+        return Ok(0);
+    }
+
+    let entries = tokio::fs::read_dir(log_path)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to read log directory: {}", e))?;
+
+    let mut entries = entries;
+    while let Some(entry) = entries
+        .next_entry()
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to read directory entry: {}", e))?
+    {
+        let path = entry.path();
+
+        // Only process files (not directories)
+        let metadata = match tokio::fs::metadata(&path).await {
+            Ok(m) => m,
+            Err(e) => {
+                warn!(
+                    path = %path.display(),
+                    error = %e,
+                    "Failed to read file metadata, skipping"
+                );
+                continue;
+            }
+        };
+
+        if !metadata.is_file() {
+            continue;
+        }
+
+        // Check if file is old enough to delete
+        let modified = match metadata.modified() {
+            Ok(m) => m,
+            Err(e) => {
+                warn!(
+                    path = %path.display(),
+                    error = %e,
+                    "Failed to get file modification time, skipping"
+                );
+                continue;
+            }
+        };
+
+        let age = match now.duration_since(modified) {
+            Ok(d) => d,
+            Err(_) => continue, // File modified in the future? Skip it
+        };
+
+        if age > retention_duration {
+            match tokio::fs::remove_file(&path).await {
+                Ok(()) => {
+                    deleted_count += 1;
+                    info!(
+                        path = %path.display(),
+                        age_days = age.as_secs() / 86400,
+                        "Deleted old log file"
+                    );
+                }
+                Err(e) => {
+                    warn!(
+                        path = %path.display(),
+                        error = %e,
+                        "Failed to delete old log file"
+                    );
+                }
+            }
+        }
+    }
+
+    Ok(deleted_count)
+}
+
 /// Initialize logging with configuration-based settings
 ///
 /// Sets up tracing with:
@@ -2466,11 +2998,15 @@ async fn main() -> Result<()> {
 /// - Configurable log levels
 /// - JSON or human-readable format
 ///
-/// Returns a guard that must be kept alive for the duration of the program
-/// to ensure log files are properly flushed.
+/// Returns guards that must be kept alive for the duration of the program
+/// to ensure log files are properly flushed and OpenTelemetry spans are exported.
 fn initialize_logging(
     config: &adapteros_server_api::config::LoggingConfig,
-) -> Result<Option<tracing_appender::non_blocking::WorkerGuard>> {
+    otel_config: &adapteros_server_api::config::OtelConfig,
+) -> Result<(
+    Option<tracing_appender::non_blocking::WorkerGuard>,
+    Option<otel::OtelGuard>,
+)> {
     use tracing_subscriber::EnvFilter;
 
     // Parse log level from config or environment
@@ -2533,14 +3069,32 @@ fn initialize_logging(
         .with_file(false)
         .with_line_number(false);
 
-    // Build the subscriber
-    let subscriber = tracing_subscriber::registry().with(env_filter);
+    // Try to initialize OpenTelemetry (graceful degradation on failure)
+    let (otel_tracer, otel_guard) = match otel::init_otel(otel_config) {
+        Ok(Some((tracer, guard))) => (Some(tracer), Some(guard)),
+        Ok(None) => (None, None),
+        Err(e) => {
+            eprintln!(
+                "WARNING: OpenTelemetry initialization failed: {}. Continuing without OTLP export.",
+                e
+            );
+            (None, None)
+        }
+    };
 
-    if let Some(file_layer) = file_layer {
-        subscriber.with(console_layer).with(file_layer).init();
-    } else {
-        subscriber.with(console_layer).init();
-    }
+    // Create the OTel layer inline to avoid type composition issues with boxed layers.
+    // The layer is created from the tracer here rather than in otel.rs so that the
+    // type system can properly compose it with the other layers.
+    let otel_layer = otel_tracer.map(|tracer| tracing_opentelemetry::layer().with_tracer(tracer));
+
+    // Build the subscriber with all layers.
+    // Option<L> implements Layer<S> where None is a no-op, allowing conditional composition.
+    tracing_subscriber::registry()
+        .with(env_filter)
+        .with(console_layer)
+        .with(file_layer)
+        .with(otel_layer)
+        .init();
 
     // Log effective logging configuration
     if let Some(ref log_dir) = config.log_dir {
@@ -2553,7 +3107,14 @@ fn initialize_logging(
         eprintln!("Logging initialized: level={}, stdout only", config.level);
     }
 
-    Ok(guard)
+    if otel_config.enabled {
+        eprintln!(
+            "OpenTelemetry enabled: endpoint={}, protocol={}, sampling={}",
+            otel_config.endpoint, otel_config.protocol, otel_config.sampling_ratio
+        );
+    }
+
+    Ok((guard, otel_guard))
 }
 
 /// Download priority models from HuggingFace Hub if enabled
@@ -2854,8 +3415,8 @@ async fn shutdown_signal_with_drain(
                     error = %e,
                     "Failed to install SIGTERM handler, will only respond to Ctrl+C"
                 );
-                // Block forever since we can't handle this signal
-                std::future::pending::<()>().await;
+                // Return immediately so ctrl_c handler can still work
+                // In this case, SIGTERM won't trigger shutdown, but Ctrl+C will
             }
         }
     };

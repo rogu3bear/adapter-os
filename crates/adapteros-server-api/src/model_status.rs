@@ -11,7 +11,7 @@ pub struct AggregatedModelStatus<'a> {
 /// Normalize raw status strings into canonical `ModelLoadStatus`.
 #[inline]
 pub fn normalize_status(raw: &str) -> ModelLoadStatus {
-    ModelLoadStatus::from_str(raw)
+    ModelLoadStatus::parse_status(raw)
 }
 
 /// Aggregate multiple status reports into a cluster-level status.

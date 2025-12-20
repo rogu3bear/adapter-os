@@ -70,9 +70,9 @@ impl From<User> for UserResponse {
             role: user.role,
             tenant_id: user.tenant_id,
             created_at: user.created_at,
-            last_login_at: None, // Not available in User struct
-            mfa_enabled: None,   // Not available in User struct
-            permissions: None,   // Not available in User struct
+            last_login_at: None, // TODO: Add last_login_at column to users table
+            mfa_enabled: Some(user.mfa_enabled),
+            permissions: None, // Requires role-based computation
         }
     }
 }
@@ -126,3 +126,6 @@ pub async fn list_users(
         page_size: params.page_size,
     }))
 }
+
+// Re-export admin handlers from parent module for routes.rs
+pub use super::{__path_query_audit_logs, query_audit_logs};

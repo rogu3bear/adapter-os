@@ -1,12 +1,15 @@
 //! Feature extractors for code intelligence routing
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 /// Code features for router scoring
 #[derive(Debug, Clone)]
 pub struct CodeFeatures {
     pub lang_one_hot: Vec<f32>,
-    pub framework_prior: HashMap<String, f32>,
+    /// Framework priors for scoring.
+    /// Uses BTreeMap for deterministic iteration order (critical for reproducible routing).
+    /// HashMap iteration order is non-deterministic due to SipHash randomization.
+    pub framework_prior: BTreeMap<String, f32>,
     pub symbol_hits: f32,
     pub path_tokens: Vec<String>,
     pub commit_hint: Option<String>,
@@ -32,7 +35,7 @@ impl CodeFeatures {
     pub fn new() -> Self {
         Self {
             lang_one_hot: vec![0.0; 8], // Support for 8 languages
-            framework_prior: HashMap::new(),
+            framework_prior: BTreeMap::new(),
             symbol_hits: 0.0,
             path_tokens: Vec::new(),
             commit_hint: None,
@@ -94,7 +97,7 @@ impl CodeFeatures {
         vec
     }
 
-    /// Convert to extended feature vector (25 dimensions) for MPLoRA
+    /// Convert to extended feature vector (25 dimensions) for DIR (Deterministic Inference Runtime)
     /// Reference: https://openreview.net/pdf?id=jqz6Msm3AF
     ///
     /// Note: The extended features (orthogonal_penalty, adapter_diversity, path_similarity)
@@ -103,7 +106,7 @@ impl CodeFeatures {
     pub fn to_vector_extended(&self) -> Vec<f32> {
         let mut vec = self.to_vector(); // Start with original 22 dimensions
 
-        // MPLoRA extensions (3 additional dimensions)
+        // DIR (Deterministic Inference Runtime) extensions (3 additional dimensions)
         // These are placeholders that should be set by the router
         vec.push(0.0); // [22]: orthogonal penalty (set by router)
         vec.push(0.0); // [23]: adapter diversity (set by router)
@@ -112,9 +115,9 @@ impl CodeFeatures {
         vec
     }
 
-    /// Set MPLoRA extension values in an extended feature vector
+    /// Set DIR extension values in an extended feature vector
     ///
-    /// This method should be called by the router to inject MPLoRA-specific
+    /// This method should be called by the router to inject DIR-specific
     /// features that require routing history.
     ///
     /// # Arguments
@@ -229,9 +232,10 @@ fn extract_lang_one_hot(context: &str) -> Vec<f32> {
     one_hot
 }
 
-/// Extract framework priors from context
-fn extract_framework_prior(context: &str) -> HashMap<String, f32> {
-    let mut priors = HashMap::new();
+/// Extract framework priors from context.
+/// Returns BTreeMap for deterministic iteration order in feature vector construction.
+fn extract_framework_prior(context: &str) -> BTreeMap<String, f32> {
+    let mut priors = BTreeMap::new();
     let context_lower = context.to_lowercase();
 
     let frameworks = [

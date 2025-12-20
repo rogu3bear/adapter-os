@@ -1311,11 +1311,13 @@ pub async fn get_chat_provenance(
             // Load each adapter with extended provenance data
             for adapter_id in &adapter_ids {
                 // Query adapter with training_job_id and base_model_id (direct SQL for fields not in struct)
+                // SECURITY: Include tenant_id filter to prevent cross-tenant data leakage
                 let adapter_row: Option<AdapterProvenanceRow> = sqlx::query_as(
                     "SELECT id, name, hash_b3, tier, training_job_id, base_model_id, created_at
-                     FROM adapters WHERE id = ?",
+                     FROM adapters WHERE id = ? AND tenant_id = ?",
                 )
                 .bind(adapter_id)
+                .bind(&session.tenant_id)
                 .fetch_optional(state.db.pool())
                 .await
                 .ok()
@@ -1327,6 +1329,12 @@ pub async fn get_chat_provenance(
                     // Load training job if linked
                     if let Some(ref job_id) = adapter.training_job_id {
                         if let Ok(Some(job)) = state.db.get_training_job(job_id).await {
+                            // SECURITY: Validate training job belongs to session tenant
+                            // Skip if tenant mismatch to prevent cross-tenant data leakage
+                            if job.tenant_id.as_ref() != Some(&session.tenant_id) {
+                                continue;
+                            }
+
                             let mut dataset_prov = None;
 
                             // Load dataset if linked
@@ -1334,27 +1342,31 @@ pub async fn get_chat_provenance(
                                 if let Ok(Some(dataset)) =
                                     state.db.get_training_dataset(dataset_id).await
                                 {
-                                    dataset_prov = Some(DatasetProvenance {
-                                        id: dataset.id.clone(),
-                                        name: dataset.name.clone(),
-                                        description: dataset.description.clone(),
-                                        format: dataset.format.clone(),
-                                        file_count: dataset.file_count,
-                                        total_size_bytes: dataset.total_size_bytes,
-                                        hash_b3: dataset.hash_b3.clone(),
-                                        validation_status: dataset.validation_status.clone(),
-                                        created_at: dataset.created_at.clone(),
-                                        created_by: dataset.created_by.clone(),
-                                    });
+                                    // SECURITY: Validate dataset belongs to session tenant
+                                    // Skip dataset provenance if tenant mismatch to prevent cross-tenant data leakage
+                                    if dataset.tenant_id.as_ref() == Some(&session.tenant_id) {
+                                        dataset_prov = Some(DatasetProvenance {
+                                            id: dataset.id.clone(),
+                                            name: dataset.name.clone(),
+                                            description: dataset.description.clone(),
+                                            format: dataset.format.clone(),
+                                            file_count: dataset.file_count,
+                                            total_size_bytes: dataset.total_size_bytes,
+                                            hash_b3: dataset.hash_b3.clone(),
+                                            validation_status: dataset.validation_status.clone(),
+                                            created_at: dataset.created_at.clone(),
+                                            created_by: dataset.created_by.clone(),
+                                        });
 
-                                    // Add dataset event
-                                    timeline_events.push(ProvenanceEvent {
-                                        event_type: ProvenanceEventType::DatasetCreated,
-                                        entity_id: dataset.id.clone(),
-                                        entity_name: dataset.name.clone(),
-                                        timestamp: dataset.created_at.clone(),
-                                        description: format!("Dataset '{}' created", dataset.name),
-                                    });
+                                        // Add dataset event
+                                        timeline_events.push(ProvenanceEvent {
+                                            event_type: ProvenanceEventType::DatasetCreated,
+                                            entity_id: dataset.id.clone(),
+                                            entity_name: dataset.name.clone(),
+                                            timestamp: dataset.created_at.clone(),
+                                            description: format!("Dataset '{}' created", dataset.name),
+                                        });
+                                    }
                                 }
                             }
 

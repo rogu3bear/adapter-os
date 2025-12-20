@@ -12,6 +12,7 @@
 //! data: [DONE]
 //! ```
 
+use crate::api_error::ApiError;
 use crate::auth::{AuthMode, Claims, PrincipalType, JWT_ISSUER};
 use crate::backpressure::check_uma_backpressure;
 use crate::chat_context::build_chat_prompt;
@@ -121,6 +122,7 @@ impl From<(&StreamingInferRequest, &Claims)> for InferenceRequestInternal {
             batch_item_id: None,
             rag_enabled: req.collection_id.is_some(), // Enable RAG if collection_id provided
             rag_collection_id: req.collection_id.clone(),
+            dataset_version_id: None,
             adapter_stack: req.adapter_stack.clone(),
             adapters: req.adapters.clone(),
             stack_id: req.stack_id.clone(),
@@ -150,6 +152,7 @@ impl From<(&StreamingInferRequest, &Claims)> for InferenceRequestInternal {
             created_at: std::time::Instant::now(),
             router_seed: None, // Use default router behavior for streaming
             worker_auth_token: None,
+            policy_mask_digest: None, // Streaming requests don't use policy hooks
         }
     }
 }
@@ -344,45 +347,30 @@ pub async fn streaming_infer_with_progress(
 
     // Validate request
     if req.prompt.is_empty() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(ErrorResponse::new("prompt cannot be empty").with_code("VALIDATION_ERROR")),
-        ));
+        return Err(ApiError::bad_request("Prompt cannot be empty").into());
     }
 
     // Extract adapter ID from request (for policy context)
     let adapter_id = if let Some(adapters) = &req.adapters {
         if adapters.is_empty() {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                Json(
-                    ErrorResponse::new("adapters list cannot be empty when provided")
-                        .with_code("VALIDATION_ERROR"),
-                ),
-            ));
+            return Err(
+                ApiError::bad_request("Adapters list cannot be empty when provided").into(),
+            );
         }
         adapters[0].clone()
     } else if let Some(stack) = &req.adapter_stack {
         if stack.is_empty() {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                Json(
-                    ErrorResponse::new("adapter_stack list cannot be empty when provided")
-                        .with_code("VALIDATION_ERROR"),
-                ),
-            ));
+            return Err(
+                ApiError::bad_request("Adapter stack list cannot be empty when provided").into(),
+            );
         }
         stack[0].clone()
     } else if let Some(stack_id) = &req.stack_id {
         stack_id.clone()
     } else {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(
-                ErrorResponse::new("must specify adapters, adapter_stack, or stack_id")
-                    .with_code("VALIDATION_ERROR"),
-            ),
-        ));
+        return Err(
+            ApiError::bad_request("Must specify adapters, adapter_stack, or stack_id").into(),
+        );
     };
 
     check_uma_backpressure(&state)?;
@@ -399,15 +387,13 @@ pub async fn streaming_infer_with_progress(
         None, // No adapter selected yet
     );
     if let Err(violation) = enforce_at_hook(&state, &routing_hook_ctx).await {
-        let code = violation.code.as_deref().unwrap_or("POLICY_HOOK_VIOLATION");
-        return Err((
+        return Err(ApiError::new(
             StatusCode::FORBIDDEN,
-            Json(
-                ErrorResponse::new("policy hook violation (pre-routing)")
-                    .with_code(code)
-                    .with_string_details(violation.message),
-            ),
-        ));
+            "POLICY_HOOK_VIOLATION",
+            "Policy hook violation (pre-routing)",
+        )
+        .with_details(violation.message)
+        .into());
     }
 
     // Enforce policies at OnBeforeInference hook
@@ -419,15 +405,13 @@ pub async fn streaming_infer_with_progress(
         Some(&adapter_id),
     );
     if let Err(violation) = enforce_at_hook(&state, &hook_ctx).await {
-        let code = violation.code.as_deref().unwrap_or("POLICY_HOOK_VIOLATION");
-        return Err((
+        return Err(ApiError::new(
             StatusCode::FORBIDDEN,
-            Json(
-                ErrorResponse::new("policy hook violation")
-                    .with_code(code)
-                    .with_string_details(violation.message),
-            ),
-        ));
+            "POLICY_HOOK_VIOLATION",
+            "Policy hook violation",
+        )
+        .with_details(violation.message)
+        .into());
     }
 
     info!(
@@ -438,14 +422,17 @@ pub async fn streaming_infer_with_progress(
     );
 
     // Audit log: inference execution start
-    let _ = crate::audit_helper::log_success(
+    if let Err(e) = crate::audit_helper::log_success(
         &state.db,
         &claims,
         crate::audit_helper::actions::INFERENCE_EXECUTE,
         crate::audit_helper::resources::ADAPTER,
         Some(&adapter_id),
     )
-    .await;
+    .await
+    {
+        tracing::warn!(error = %e, "Audit log failed");
+    }
 
     // Create the loading progress stream
     let stream = stream_with_loading_progress(
@@ -520,10 +507,7 @@ pub async fn streaming_infer(
 
     // Validate request
     if req.prompt.is_empty() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(ErrorResponse::new("prompt cannot be empty").with_code("VALIDATION_ERROR")),
-        ));
+        return Err(ApiError::bad_request("Prompt cannot be empty").into());
     }
 
     check_uma_backpressure(&state)?;
@@ -544,21 +528,13 @@ pub async fn streaming_infer(
                         session_tenant = %session.tenant_id,
                         "Session access denied - tenant mismatch"
                     );
-                    return Err((
-                        StatusCode::FORBIDDEN,
-                        Json(
-                            ErrorResponse::new("Access denied to session")
-                                .with_code("FORBIDDEN")
-                                .with_string_details("Session does not belong to your tenant"),
-                        ),
-                    ));
+                    return Err(ApiError::forbidden("Access denied to session")
+                        .with_details("Session does not belong to your tenant")
+                        .into());
                 }
             }
             Ok(None) => {
-                return Err((
-                    StatusCode::NOT_FOUND,
-                    Json(ErrorResponse::new("Session not found").with_code("NOT_FOUND")),
-                ));
+                return Err(ApiError::not_found("Session").into());
             }
             Err(e) => {
                 error!(
@@ -567,14 +543,7 @@ pub async fn streaming_infer(
                     error = %e,
                     "Failed to validate session access"
                 );
-                return Err((
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(
-                        ErrorResponse::new("Failed to validate session access")
-                            .with_code("DATABASE_ERROR")
-                            .with_string_details(e.to_string()),
-                    ),
-                ));
+                return Err(ApiError::db_error(e).into());
             }
         }
     }
@@ -588,15 +557,13 @@ pub async fn streaming_infer(
         None, // No adapter selected yet
     );
     if let Err(violation) = enforce_at_hook(&state, &routing_hook_ctx).await {
-        let code = violation.code.as_deref().unwrap_or("POLICY_HOOK_VIOLATION");
-        return Err((
+        return Err(ApiError::new(
             StatusCode::FORBIDDEN,
-            Json(
-                ErrorResponse::new("policy hook violation (pre-routing)")
-                    .with_code(code)
-                    .with_string_details(violation.message),
-            ),
-        ));
+            "POLICY_HOOK_VIOLATION",
+            "Policy hook violation (pre-routing)",
+        )
+        .with_details(violation.message)
+        .into());
     }
 
     // Enforce policies at OnBeforeInference hook
@@ -621,15 +588,13 @@ pub async fn streaming_infer(
         serde_json::json!(adapter_ids_sorted.clone().unwrap_or_default()),
     );
     if let Err(violation) = enforce_at_hook(&state, &hook_ctx).await {
-        let code = violation.code.as_deref().unwrap_or("POLICY_HOOK_VIOLATION");
-        return Err((
+        return Err(ApiError::new(
             StatusCode::FORBIDDEN,
-            Json(
-                ErrorResponse::new("policy hook violation")
-                    .with_code(code)
-                    .with_string_details(violation.message),
-            ),
-        ));
+            "POLICY_HOOK_VIOLATION",
+            "Policy hook violation",
+        )
+        .with_details(violation.message)
+        .into());
     }
 
     info!(
@@ -644,7 +609,11 @@ pub async fn streaming_infer(
     // Build multi-turn prompt if session_id is provided
     // This loads chat history and formats it with role markers for context
     let (base_prompt, chat_context_hash) = if let Some(ref session_id) = req.session_id {
-        let chat_config = state.config.read().unwrap().chat_context.clone();
+        // STABILITY: Use poison-safe lock access
+        let chat_config = state.config.read().unwrap_or_else(|e| {
+            tracing::warn!("Config lock poisoned in streaming_infer, recovering");
+            e.into_inner()
+        }).chat_context.clone();
         match build_chat_prompt(&state.db, session_id, &req.prompt, &chat_config).await {
             Ok(result) => {
                 info!(
@@ -690,21 +659,13 @@ pub async fn streaming_infer(
                         collection_tenant = %collection.tenant_id,
                         "Collection access denied - tenant mismatch"
                     );
-                    return Err((
-                        StatusCode::FORBIDDEN,
-                        Json(
-                            ErrorResponse::new("Access denied to collection")
-                                .with_code("FORBIDDEN")
-                                .with_string_details("Collection does not belong to your tenant"),
-                        ),
-                    ));
+                    return Err(ApiError::forbidden("Access denied to collection")
+                        .with_details("Collection does not belong to your tenant")
+                        .into());
                 }
             }
             Ok(None) => {
-                return Err((
-                    StatusCode::NOT_FOUND,
-                    Json(ErrorResponse::new("Collection not found").with_code("NOT_FOUND")),
-                ));
+                return Err(ApiError::not_found("Collection").into());
             }
             Err(e) => {
                 error!(
@@ -713,14 +674,7 @@ pub async fn streaming_infer(
                     error = %e,
                     "Failed to validate collection access"
                 );
-                return Err((
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(
-                        ErrorResponse::new("Failed to validate collection access")
-                            .with_code("DATABASE_ERROR")
-                            .with_string_details(e.to_string()),
-                    ),
-                ));
+                return Err(ApiError::db_error(e).into());
             }
         }
 
@@ -792,14 +746,17 @@ pub async fn streaming_infer(
         .map(|a| a.join(","))
         .or_else(|| req.adapter_stack.as_ref().map(|s| s.join(",")));
 
-    let _ = crate::audit_helper::log_success(
+    if let Err(e) = crate::audit_helper::log_success(
         &state.db,
         &claims,
         crate::audit_helper::actions::INFERENCE_EXECUTE,
         crate::audit_helper::resources::ADAPTER,
         adapters_requested.as_deref(),
     )
-    .await;
+    .await
+    {
+        tracing::warn!(error = %e, "Audit log failed");
+    }
 
     let core = InferenceCore::new(&state);
     let worker = core
@@ -1545,6 +1502,7 @@ impl StreamState {
             batch_item_id: None,
             rag_enabled: false, // RAG handled earlier in the pipeline
             rag_collection_id: None,
+            dataset_version_id: None,
             adapter_stack: None,
             adapters: self.adapters.clone(),
             stack_id: None,
@@ -1574,6 +1532,7 @@ impl StreamState {
             stop_policy: None, // StreamState doesn't carry stop_policy yet
             created_at: std::time::Instant::now(),
             worker_auth_token: None,
+            policy_mask_digest: None, // Streaming doesn't use policy enforcement hooks
         };
 
         // Execute via InferenceCore - the single entry point for all inference

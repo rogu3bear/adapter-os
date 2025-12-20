@@ -920,17 +920,7 @@ impl Db {
         } else {
             info!("Verifying migration signatures...");
 
-            // Check if recovery is enabled (debug builds only)
-            let recovery_options = crate::migration_verify::MigrationRecoveryOptions::from_env();
-            let verifier = if recovery_options.allow_auto_regen {
-                info!("Migration signature recovery enabled (AOS_ALLOW_SIGNATURE_RECOVERY set)");
-                crate::migration_verify::MigrationVerifier::new_with_recovery(
-                    &migrations_path,
-                    &recovery_options,
-                )?
-            } else {
-                crate::migration_verify::MigrationVerifier::new(&migrations_path)?
-            };
+            let verifier = crate::migration_verify::MigrationVerifier::new(&migrations_path)?;
 
             verifier.verify_all()?;
             info!(
@@ -955,7 +945,6 @@ impl Db {
         // Apply compatibility fixes for schema drift between signed migrations and code expectations.
         self.ensure_adapter_lora_strength_column().await?;
         self.ensure_worker_runtime_metadata_columns().await?;
-        self.ensure_base_model_status_covering_index().await?;
 
         // Verify database version after migration
         self.verify_migration_version(&migrations_path).await?;

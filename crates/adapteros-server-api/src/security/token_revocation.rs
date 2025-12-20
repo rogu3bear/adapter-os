@@ -5,7 +5,7 @@ use adapteros_core::Result;
 use adapteros_db::Db;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
-use tracing::info;
+use tracing::{info, warn};
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct RevokedToken {
@@ -98,6 +98,10 @@ pub async fn revoke_all_user_tokens(
         )
         .await?;
     }
+
+    // TODO: Add token_rotated_at column to users table and implement update_user_token_rotated method
+    // For now, token rotation timestamp tracking is skipped as the column doesn't exist
+    tracing::debug!(user_id = %user_id, "Token rotation timestamp tracking not implemented");
 
     info!(
         user_id = %user_id,

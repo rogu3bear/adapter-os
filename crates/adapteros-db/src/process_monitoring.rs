@@ -245,7 +245,7 @@ pub struct MetricFilters {
     pub limit: Option<i64>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct AlertFilters {
     pub tenant_id: Option<String>,
     pub worker_id: Option<String>,
