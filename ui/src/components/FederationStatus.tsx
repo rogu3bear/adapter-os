@@ -19,10 +19,17 @@ import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { AlertCircle, CheckCircle2, XCircle, ShieldAlert, Unlock } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { apiClient } from '@/api/services';
 import type {
   FederationStatusResponse,
   QuarantineStatusResponse,
 } from '@/api/federation-types';
+
+// Helper to get auth headers for Bearer-only auth
+function getAuthHeaders(): HeadersInit | undefined {
+  const token = apiClient.getToken();
+  return token ? { Authorization: `Bearer ${token}` } : undefined;
+}
 
 /** Federation verification report parsed from latest_verification JSON string */
 interface FederationVerificationReport {
@@ -41,7 +48,8 @@ const API_BASE = '/api/v1';
 
 async function fetchFederationStatus(): Promise<ParsedFederationStatus> {
   const response = await fetch(`${API_BASE}/federation/status`, {
-    credentials: 'include',
+    headers: getAuthHeaders(),
+    credentials: 'omit',
   });
 
   if (!response.ok) {
@@ -68,7 +76,8 @@ async function fetchFederationStatus(): Promise<ParsedFederationStatus> {
 
 async function fetchQuarantineStatus(): Promise<QuarantineStatusResponse> {
   const response = await fetch(`${API_BASE}/federation/quarantine`, {
-    credentials: 'include',
+    headers: getAuthHeaders(),
+    credentials: 'omit',
   });
   
   if (!response.ok) {
@@ -81,7 +90,8 @@ async function fetchQuarantineStatus(): Promise<QuarantineStatusResponse> {
 async function releaseQuarantine(): Promise<void> {
   const response = await fetch(`${API_BASE}/federation/release-quarantine`, {
     method: 'POST',
-    credentials: 'include',
+    headers: getAuthHeaders(),
+    credentials: 'omit',
   });
   
   if (!response.ok) {

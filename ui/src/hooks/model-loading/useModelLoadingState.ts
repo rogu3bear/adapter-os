@@ -34,6 +34,7 @@ import type { BootProgressEvent } from '@/api/streaming-types';
 import type {
   UseModelLoadingStateOptions,
   UseModelLoadingStateResult,
+  AdapterLifecycleState,
   AdapterLoadingItem,
   ChatLoadingError,
 } from './types';
@@ -65,17 +66,16 @@ const SECONDS_FOR_MODEL = 30;
 function toAdapterLoadingItem(
   adapterId: string,
   name: string,
-  state: string,
+  state: AdapterLifecycleState,
   isLoading: boolean,
   error?: string
 ): AdapterLoadingItem {
-  const lifecycleState = state as any; // Type assertion for lifecycle state
-  const isReady = lifecycleState === 'warm' || lifecycleState === 'hot' || lifecycleState === 'resident';
+  const isReady = state === 'warm' || state === 'hot' || state === 'resident';
 
   return {
     adapterId,
     name,
-    state: lifecycleState,
+    state,
     isLoading,
     hasError: !!error,
     errorMessage: error,

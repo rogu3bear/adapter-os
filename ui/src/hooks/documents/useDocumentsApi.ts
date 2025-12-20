@@ -6,7 +6,7 @@
  */
 
 import { useQuery, useMutation, useQueryClient, UseMutationOptions } from '@tanstack/react-query';
-import { apiClient } from '@/api/client';
+import { apiClient } from '@/api/services';
 import { createResourceHooks } from '@/hooks/factories/createApiHooks';
 import type {
   Document,

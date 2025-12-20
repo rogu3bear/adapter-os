@@ -7,7 +7,7 @@
 
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, Database, X, LayoutGrid, List } from 'lucide-react';
+import { Search, Database, X, LayoutGrid, List, Upload } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -19,6 +19,9 @@ import { useTraining } from '@/hooks/training';
 import { DatasetCard } from './DatasetCard';
 import { DatasetDetailDrawer } from './DatasetDetailDrawer';
 import type { Dataset } from '@/api/training-types';
+import { buildDatasetDetailLink, buildTrainingDatasetsLink } from '@/utils/navLinks';
+import { useRBAC } from '@/hooks/security/useRBAC';
+import { PERMISSIONS } from '@/utils/rbac';
 
 // Storage key for view mode persistence
 const VIEW_MODE_STORAGE_KEY = 'datasetLibrary:viewMode';
@@ -54,6 +57,7 @@ export function DatasetsTab({
   onClearDataset,
 }: DatasetsTabProps) {
   const navigate = useNavigate();
+  const { can } = useRBAC();
   const [searchQuery, setSearchQuery] = useState('');
   const [viewMode, setViewModeState] = useState<ViewMode>(getStoredViewMode);
   const [selectedDataset, setSelectedDataset] = useState<Dataset | null>(null);
@@ -151,7 +155,7 @@ export function DatasetsTab({
   const handleTrain = useCallback(
     (datasetId: string) => {
       setIsDrawerOpen(false);
-      navigate(`/training/datasets/${datasetId}`);
+      navigate(buildDatasetDetailLink(datasetId));
     },
     [navigate]
   );
@@ -255,6 +259,23 @@ export function DatasetsTab({
               <TooltipContent>List view</TooltipContent>
             </Tooltip>
           </div>
+          {can(PERMISSIONS.DATASET_UPLOAD) && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-9 w-9"
+                  onClick={() => navigate(buildTrainingDatasetsLink(), { state: { openUpload: true } })}
+                  data-testid="datasets-upload"
+                  aria-label="Upload dataset"
+                >
+                  <Upload className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Upload dataset</TooltipContent>
+            </Tooltip>
+          )}
         </div>
 
         {/* Active dataset indicator */}

@@ -14,7 +14,7 @@ import {
 } from './ui/select';
 import { AdapterStateVisualization } from './AdapterStateVisualization';
 import { AdapterMemoryMonitor } from './AdapterMemoryMonitor';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { Adapter } from '@/api/types';
 import { toast } from 'sonner';
 import { logger } from '@/utils/logger';
@@ -45,6 +45,9 @@ import { LIFECYCLE_STATE_LABELS } from '@/constants/terminology';
 import { useAdapterFilterState } from '@/hooks/adapters/useAdapterFilterState';
 import { ConfirmationModal } from '@/components/shared/Modal';
 import { AdapterLifecycleState } from '@/api/system-state-types';
+import { buildAdaptersRegisterLink, buildAdapterDetailLink, buildTrainingJobsLink, buildRouterConfigLink } from '@/utils/navLinks';
+import { useAuth } from '@/providers/CoreProviders';
+import { isDemoMvpMode } from '@/config/demo';
 
 interface AdaptersData {
   adapters: Adapter[];
@@ -54,6 +57,8 @@ interface AdaptersData {
 function AdaptersPageContent() {
   const { can, userRole, getUser } = useRBAC();
   const user = getUser?.();
+  const { sessionMode } = useAuth();
+  const demoMode = isDemoMvpMode(sessionMode);
   const { errors, addError, clearError } = usePageErrors();
   const navigate = useNavigate();
 
@@ -245,15 +250,17 @@ function AdaptersPageContent() {
             </div>
           )}
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" size="sm" onClick={() => navigate('/adapters/new')} disabled={!canRegister}>
+            <Button variant="outline" size="sm" onClick={() => navigate(buildAdaptersRegisterLink())} disabled={!canRegister}>
               Register adapter
             </Button>
-            <Button size="sm" onClick={() => navigate('/training/jobs')} disabled={!canStartTraining}>
+            <Button size="sm" onClick={() => navigate(buildTrainingJobsLink())} disabled={!canStartTraining}>
               Start training
             </Button>
-            <Button variant="outline" size="sm" onClick={() => navigate('/router-config')}>
-              Configure routing
-            </Button>
+            {!demoMode && (
+              <Button variant="outline" size="sm" onClick={() => navigate(buildRouterConfigLink())}>
+                Configure routing
+              </Button>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -286,7 +293,7 @@ function AdaptersPageContent() {
             variant="outline"
             disabled={!canRegister}
             title={!canRegister ? 'Requires adapter:register permission' : 'Register a new adapter'}
-            onClick={() => navigate('/adapters/new')}
+            onClick={() => navigate(buildAdaptersRegisterLink())}
           >
             <Upload className="h-4 w-4 mr-2" />
             Register
@@ -295,7 +302,7 @@ function AdaptersPageContent() {
           <Button
             disabled={!canStartTraining}
             title={!canStartTraining ? 'Requires training:start permission' : 'Train a new adapter'}
-            onClick={() => navigate('/training/jobs')}
+            onClick={() => navigate(buildTrainingJobsLink())}
           >
             Train New Adapter
             <GlossaryTooltip brief="Start the training wizard to create a new LoRA adapter from documents" />
@@ -479,17 +486,19 @@ function AdaptersPageContent() {
                     <Button
                       size="sm"
                       variant="outline"
-                      onClick={() => navigate(`/adapters/${adapter.id}`)}
+                      onClick={() => navigate(buildAdapterDetailLink(adapter.id))}
                     >
                       View
                     </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => navigate(`/router-config?adapterId=${adapter.id}`)}
-                    >
-                      Configure
-                    </Button>
+                    {!demoMode && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => navigate(`${buildRouterConfigLink()}?adapterId=${adapter.id}`)}
+                      >
+                        Configure
+                      </Button>
+                    )}
                     <Button
                       size="sm"
                       variant="ghost"
@@ -531,7 +540,7 @@ function AdaptersPageContent() {
               title="No adapters deployed"
               description={adapters.length === 0 ? 'Train or import an adapter to get started. Your fleet will appear here once deployed.' : 'No adapters match your current filters.'}
               actionLabel={adapters.length === 0 && canStartTraining ? 'Start Training' : undefined}
-              onAction={adapters.length === 0 && canStartTraining ? () => navigate('/training/jobs') : undefined}
+              onAction={adapters.length === 0 && canStartTraining ? () => navigate(buildTrainingJobsLink()) : undefined}
             />
           ) : (
             <Table>
@@ -697,14 +706,16 @@ function AdaptersPageContent() {
                               <GlossaryTooltip brief="Permanently remove adapter and weights from the system" />
                             </DropdownMenuItem>
                             <DropdownMenuSeparator />
-                            <DropdownMenuItem onClick={() => navigate(`/training/jobs?adapterId=${adapter.id}`)}>
+                            <DropdownMenuItem onClick={() => navigate(buildTrainingJobsLink({ adapterId: adapter.id }))}>
                               <Upload className="mr-2 h-4 w-4" />
                               View training jobs
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => navigate(`/router-config?adapterId=${adapter.id}`)}>
-                              <ArrowUp className="mr-2 h-4 w-4" />
-                              Configure routing
-                            </DropdownMenuItem>
+                            {!demoMode && (
+                              <DropdownMenuItem onClick={() => navigate(`${buildRouterConfigLink()}?adapterId=${adapter.id}`)}>
+                                <ArrowUp className="mr-2 h-4 w-4" />
+                                Configure routing
+                              </DropdownMenuItem>
+                            )}
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </TableCell>

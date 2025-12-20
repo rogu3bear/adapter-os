@@ -40,8 +40,8 @@ import {
   GripVertical,
   Settings,
 } from 'lucide-react';
-import { cn } from '@/components/ui/utils';
-import apiClient from '@/api/client';
+import { cn } from '@/lib/utils';
+import { apiClient } from '@/api/services';
 import { Adapter } from '@/api/types';
 import {
   StackPreview,

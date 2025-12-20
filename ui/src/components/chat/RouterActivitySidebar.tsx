@@ -11,7 +11,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Skeleton } from '@/components/ui/skeleton';
 import { X, Layers, Clock, Zap, AlertCircle, ChevronDown, Trash2 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import type { RoutingDecision } from '@/api/types';
 import type { RouterDecision } from '@/hooks/chat/useChatRouterDecisions';
 import { formatDistanceToNow, parseISO } from 'date-fns';
@@ -82,15 +82,17 @@ export function RouterActivitySidebar({
     }));
     
     const apiDecisions: CombinedDecision[] = filteredHistory.map((decision: RoutingDecision) => {
-      const scoreValues = Object.values(decision.scores || {});
+      const candidates = decision.candidates || [];
+      const scoreValues = candidates.map(c => c.raw_score);
+      const latencyMs = decision.total_inference_latency_us ? decision.total_inference_latency_us / 1000 : undefined;
       return {
-        id: decision.request_id,
+        id: decision.request_id ?? decision.id,
         timestamp: decision.timestamp,
-        adapters: decision.selected_adapters || [],
-        latency: decision.latency_ms,
+        adapters: decision.adapters_used || [],
+        latency: latencyMs,
         entropy: decision.entropy,
-        adapterId: decision.stack_hash,
-        adapterName: decision.candidates?.[0],
+        adapterId: decision.stack_hash ?? undefined,
+        adapterName: candidates[0]?.adapter_name ?? undefined,
         confidence: scoreValues.length ? Math.max(...scoreValues) : undefined,
         isLocal: false,
       };

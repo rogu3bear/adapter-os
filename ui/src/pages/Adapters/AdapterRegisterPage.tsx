@@ -25,8 +25,9 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { useRBAC } from '@/hooks/security/useRBAC';
+import { PermissionDenied } from '@/components/ui/permission-denied';
 import { useTenant } from '@/providers/FeatureProviders';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { toast } from 'sonner';
 import { logger } from '@/utils/logger';
 import { withErrorBoundary } from '@/components/withErrorBoundary';
@@ -43,14 +44,16 @@ import {
   registerAdapterRequestSchema,
   SupportedLanguages,
   AdapterNameUtils,
+  adapterRevisionSchema,
 } from '@/schemas/adapter.schema';
+import { buildAdaptersListLink, buildAdapterDetailLink } from '@/utils/navLinks';
 
 // Form schema for adapter registration
 const formSchema = z.object({
   tenant: z.string().min(1, 'Organization is required').max(50),
   domain: z.string().min(1, 'Domain is required').max(50).regex(/^[a-z0-9_-]+$/, 'Domain must contain only lowercase letters, numbers, underscores, and hyphens'),
   purpose: z.string().min(1, 'Purpose is required').max(50).regex(/^[a-z0-9_-]+$/, 'Purpose must contain only lowercase letters, numbers, underscores, and hyphens'),
-  revision: z.string().regex(/^r\d{3,}$/, 'Revision must be in format rXXX (e.g., r001)'),
+  revision: adapterRevisionSchema,
   hash_b3: z.string().regex(/^b3:[a-f0-9]{64}$/, 'Hash must be in format: b3:{64 hex characters}'),
   rank: z.number().int().min(1, 'Rank must be at least 1').max(256, 'Rank must not exceed 256'),
   tier: z.enum(['persistent', 'warm', 'ephemeral']),
@@ -79,13 +82,10 @@ export function AdapterRegisterPage() {
           title="Register New Adapter"
           description="Register a new LoRA adapter"
         >
-          <Alert variant="destructive">
-            <AlertCircle className="h-4 w-4" />
-            <AlertTitle>Permission Denied</AlertTitle>
-            <AlertDescription>
-              You do not have permission to register adapters.
-            </AlertDescription>
-          </Alert>
+          <PermissionDenied
+            requiredPermission="adapter:register"
+            requiredRoles={['admin', 'operator', 'developer']}
+          />
         </FeatureLayout>
       </DensityProvider>
     );
@@ -161,7 +161,7 @@ export function AdapterRegisterPage() {
         operation: 'registerAdapter',
         adapterId: adapter.id,
       });
-      navigate(`/adapters/${adapter.id}#overview`, {
+      navigate(buildAdapterDetailLink(adapter.id) + '#overview', {
         state: { fromRegister: true, adapterName },
       });
     },
@@ -215,7 +215,7 @@ export function AdapterRegisterPage() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => navigate('/adapters')}
+            onClick={() => navigate(buildAdaptersListLink())}
           >
             <ArrowLeft className="h-4 w-4 mr-2" />
             Back to Adapters
@@ -495,7 +495,7 @@ export function AdapterRegisterPage() {
             <Button
               type="button"
               variant="outline"
-              onClick={() => navigate('/adapters')}
+              onClick={() => navigate(buildAdaptersListLink())}
             >
               Cancel
             </Button>

@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import { PolicyCheck, PolicyStatus, PolicyCategory, PolicySeverity } from '@/components/golden/PolicyCheckDisplay';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { Policy } from '@/api/types';
 import { logger } from '@/utils/logger';
 

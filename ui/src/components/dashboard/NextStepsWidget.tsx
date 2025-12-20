@@ -7,7 +7,7 @@ import { useTrainingJobs } from '@/hooks/training';
 import { useSystemState } from '@/hooks/system/useSystemState';
 import { useNextSteps, getPriorityColor } from '@/hooks/tutorial/useNextSteps';
 import { useQuery } from '@tanstack/react-query';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import type { Adapter } from '@/api/adapter-types';
 import { DashboardWidgetFrame, type DashboardWidgetState } from './DashboardWidgetFrame';
 
@@ -59,10 +59,10 @@ export function NextStepsWidget({
   const trainingJobs = trainingData?.jobs?.map(job => ({
     id: job.id,
     status: job.status,
-    adapter_name: job.adapter_name,
-    started_at: job.started_at,
-    completed_at: job.completed_at,
-    error_message: job.error_message
+    adapter_name: job.adapter_name ?? undefined,
+    started_at: job.started_at ?? undefined,
+    completed_at: job.completed_at ?? undefined,
+    error_message: job.error_message ?? undefined
   })) || [];
 
   // Detect system errors from metrics

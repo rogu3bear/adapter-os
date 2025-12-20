@@ -25,7 +25,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import type { TrainingJob, TrainingStatus } from '@/api/training-types';
-import { formatDurationSeconds, formatTimestamp } from '@/utils/format';
+import { formatDurationSeconds, formatTimestamp } from '@/lib/formatters';
 
 const normalizeBackendPolicy = (policy?: string): string => {
   if (!policy) return 'unknown';
@@ -176,8 +176,8 @@ export function TrainingJobTable({
               const isJobCancelling = isCancelling.has(typedJob.id);
               const isActive = typedJob.status === 'running';
               const isTerminal = typedJob.status === 'completed' || typedJob.status === 'failed' || typedJob.status === 'cancelled';
-              const backendLabel = typedJob.backend || 'n/a';
-              const backendDevice = typedJob.backend_device || '';
+              const backendLabel = typedJob.backend ?? 'n/a';
+              const backendDevice = typedJob.backend_device ?? '';
               const usingGpu = typedJob.backend_device?.toLowerCase().includes('gpu')
                 || typedJob.backend?.toLowerCase().includes('metal')
                 || typedJob.backend?.toLowerCase().includes('coreml')
@@ -185,8 +185,8 @@ export function TrainingJobTable({
               const coremlUsed = Boolean(
                 typedJob.coreml_export_requested ||
                 typedJob.coreml_training_fallback === 'used' ||
-                (typedJob.backend || '').toLowerCase().includes('coreml') ||
-                (typedJob.backend_device || '').toLowerCase().includes('ane')
+                (typedJob.backend ?? '').toLowerCase().includes('coreml') ||
+                (typedJob.backend_device ?? '').toLowerCase().includes('ane')
               );
               const startedAt = typedJob.started_at
                 ? new Date(typedJob.started_at).getTime()
@@ -209,16 +209,16 @@ export function TrainingJobTable({
                     </div>
                   </TableCell>
                   <TableCell className="text-muted-foreground">
-                    {typedJob.repo_id || typedJob.config?.repo_id || '—'}
+                    {typedJob.repo_id ?? typedJob.config?.repo_id ?? '—'}
                   </TableCell>
                   <TableCell className="text-muted-foreground">
-                    {typedJob.target_branch || typedJob.branch || typedJob.branch_classification || typedJob.config?.commit_sha || '—'}
+                    {typedJob.target_branch ?? typedJob.branch ?? (typedJob as any).branch_classification ?? typedJob.config?.commit_sha ?? '—'}
                   </TableCell>
                   <TableCell>
-                    <StatusBadge status={typedJob.status} />
+                    <StatusBadge status={typedJob.status as TrainingStatus} />
                   </TableCell>
                   <TableCell className="text-muted-foreground text-sm">
-                    {normalizeBackendPolicy(typedJob.backend_policy)}
+                    {normalizeBackendPolicy(typedJob.backend_policy ?? undefined)}
                   </TableCell>
                   <TableCell className="text-muted-foreground text-sm">
                     {backendLabel}{' '}
@@ -230,7 +230,7 @@ export function TrainingJobTable({
                     {coremlUsed ? 'Yes' : 'No'}
                   </TableCell>
                   <TableCell className="text-muted-foreground text-sm">
-                    {formatTimestamp(typedJob.started_at || typedJob.created_at || '', 'long')}
+                    {formatTimestamp(typedJob.started_at ?? typedJob.created_at ?? '', 'long')}
                   </TableCell>
                   <TableCell className="text-muted-foreground text-sm">
                     {startedAt && typedJob.completed_at

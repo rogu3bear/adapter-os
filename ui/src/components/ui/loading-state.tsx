@@ -1,7 +1,7 @@
 import React from 'react';
 import { Loader2 } from 'lucide-react';
 import { Skeleton } from './skeleton';
-import { cn } from './utils';
+import { cn } from '@/lib/utils';
 
 type LoadingStateSize = 'sm' | 'md';
 type LoadingStateVariant = 'card' | 'minimal';

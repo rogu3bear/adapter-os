@@ -15,57 +15,11 @@ import { useState, useCallback, useRef, useMemo } from 'react';
 import { useMutation, useQueryClient, UseMutationOptions } from '@tanstack/react-query';
 import { logger, toError } from '@/utils/logger';
 import { toast } from 'sonner';
-
-export interface AsyncActionState<TData> {
-  /** The data returned from the action */
-  data: TData | null;
-  /** Whether the action is currently executing */
-  isLoading: boolean;
-  /** Whether the action is idle (not loading and no error) */
-  isIdle: boolean;
-  /** Whether the action completed successfully */
-  isSuccess: boolean;
-  /** Whether the action failed */
-  isError: boolean;
-  /** The error from the last execution, if any */
-  error: Error | null;
-  /** Number of times the action has been executed */
-  executionCount: number;
-}
-
-export interface UseAsyncActionOptions<TData, TVariables> {
-  /** Callback when action succeeds */
-  onSuccess?: (data: TData, variables: TVariables) => void;
-  /** Callback when action fails */
-  onError?: (error: Error, variables: TVariables) => void;
-  /** Callback when action settles (success or error) */
-  onSettled?: (data: TData | null, error: Error | null, variables: TVariables) => void;
-  /** Component name for logging */
-  componentName?: string;
-  /** Operation name for logging */
-  operationName?: string;
-  /** Query keys to invalidate on success */
-  invalidateKeys?: string[][];
-  /** Show success toast automatically */
-  successToast?: string;
-  /** Show error toast automatically */
-  errorToast?: string | ((error: Error) => string);
-  /** Enable mutation through React Query for cache integration */
-  useReactQuery?: boolean;
-  /** Retry count for React Query mutation */
-  retry?: number;
-}
-
-export interface UseAsyncActionReturn<TData, TVariables> extends AsyncActionState<TData> {
-  /** Execute the async action */
-  execute: (variables: TVariables) => Promise<TData | null>;
-  /** Execute the async action (alias for execute) */
-  mutate: (variables: TVariables) => void;
-  /** Execute the async action and return a promise */
-  mutateAsync: (variables: TVariables) => Promise<TData>;
-  /** Reset the state to initial values */
-  reset: () => void;
-}
+import type {
+  AsyncActionState,
+  UseAsyncActionOptions,
+  UseAsyncActionReturn,
+} from '@/types/hooks';
 
 const initialState = <TData>(): AsyncActionState<TData> => ({
   data: null,
@@ -169,7 +123,7 @@ export function useAsyncAction<TData, TVariables = void>(
   const mutation = useMutation(mutationOptions);
 
   // Manual state management for non-React Query mode
-  const executeManual = useCallback(async (variables: TVariables): Promise<TData | null> => {
+  const executeManual = useCallback(async (variables: TVariables): Promise<TData> => {
     setState(prev => ({
       ...prev,
       isLoading: true,
@@ -248,7 +202,8 @@ export function useAsyncAction<TData, TVariables = void>(
         onSettled(null, error, variables);
       }
 
-      return null;
+      // Re-throw error so mutateAsync can catch it
+      throw error;
     }
   }, [
     queryClient,
@@ -303,19 +258,22 @@ export function useAsyncAction<TData, TVariables = void>(
 
   return {
     ...state,
-    execute: executeManual,
+    execute: async (variables: TVariables) => {
+      try {
+        return await executeManual(variables);
+      } catch (err) {
+        // Error is already captured in state by executeManual
+        // Return null for backward compatibility with existing execute() usage
+        return null;
+      }
+    },
     mutate: (variables: TVariables) => {
       executeManual(variables).catch((err) => {
-        logger.error('Mutation failed', { hook: 'useAsyncAction' }, err);
+        // Error already logged and handled in executeManual
+        // This is fire-and-forget, error is available via state.error
       });
     },
-    mutateAsync: async (variables: TVariables) => {
-      const result = await executeManual(variables);
-      if (result === null && state.error) {
-        throw state.error;
-      }
-      return result as TData;
-    },
+    mutateAsync: executeManual,
     reset,
   };
 }

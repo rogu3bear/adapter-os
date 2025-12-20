@@ -14,7 +14,7 @@ import { Badge } from './badge';
 import { Button } from './button';
 import { ScrollArea } from './scroll-area';
 import { Separator } from './separator';
-import { cn } from './utils';
+import { cn } from '@/lib/utils';
 import type { GlossaryEntry } from '@/data/glossary';
 import { getGlossaryEntry, getRelatedTerms, categoryMeta } from '@/data/glossary';
 

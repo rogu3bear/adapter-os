@@ -26,7 +26,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import { stableSort } from '@/components/ui/utils';
+import { stableSort } from '@/lib/utils';
 
 export function useCanonicalState<T extends { id?: string; hash?: string; timestamp?: string; created_at?: string }>(
   initialData: T[],

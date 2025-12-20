@@ -29,7 +29,7 @@ import {
 import { Tenants } from '@/components/Tenants';
 import { GitIntegrationPage } from '@/pages/Git/GitIntegrationPage';
 import { Nodes } from '@/components/Nodes';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { User } from '@/api/types';
 import { toast } from 'sonner';
 

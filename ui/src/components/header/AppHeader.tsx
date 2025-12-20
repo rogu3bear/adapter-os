@@ -11,11 +11,12 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { NotificationBell } from '@/components/NotificationBell';
-import { cn } from '@/components/ui/utils';
+import { cn } from '@/lib/utils';
 import { useTenant } from '@/providers/FeatureProviders';
 import { useState } from 'react';
 import { UiMode, UI_MODE_OPTIONS } from '@/config/ui-mode';
 import type { SessionMode } from '@/api/auth-types';
+import { isDemoEnvEnabled } from '@/config/demo';
 
 import { AdapterOSLogo } from './AdapterOSLogo';
 import { HeaderBreadcrumbs } from './HeaderBreadcrumbs';
@@ -57,6 +58,7 @@ export function AppHeader({
   onChangeUiMode,
 }: AppHeaderProps) {
   const isDemo = sessionMode === 'dev_bypass';
+  const demoMode = isDemo || isDemoEnvEnabled();
   const devEnv = Boolean(import.meta.env.DEV);
   const envLabel = isDemo ? 'Demo' : devEnv ? 'Dev' : null;
   const importMeta = import.meta as {
@@ -187,35 +189,37 @@ export function AppHeader({
 
         {/* Right: Actions */}
         <div className="flex items-center flex-shrink-0">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                className="inline-flex items-center gap-2 rounded-md border px-2 py-1 text-xs font-medium hover:bg-muted transition-colors mr-2"
-                data-cy="ui-mode-toggle"
-                aria-label="UI mode toggle"
-              >
-                <span className="text-muted-foreground">Mode</span>
-                <Badge variant="secondary" className="text-[11px]">
-                  {modeLabel[uiMode]}
-                </Badge>
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-44">
-              <DropdownMenuLabel>Interface mode</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              {UI_MODE_OPTIONS.map(mode => (
-                <DropdownMenuItem
-                  key={mode}
-                  onSelect={() => onChangeUiMode(mode)}
-                  className="flex items-center justify-between capitalize"
-                  data-cy={`ui-mode-option-${mode}`}
+          {!demoMode && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  className="inline-flex items-center gap-2 rounded-md border px-2 py-1 text-xs font-medium hover:bg-muted transition-colors mr-2"
+                  data-cy="ui-mode-toggle"
+                  aria-label="UI mode toggle"
                 >
-                  <span>{modeLabel[mode]}</span>
-                  {uiMode === mode && <Check className="h-3 w-3 text-primary" />}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
+                  <span className="text-muted-foreground">Mode</span>
+                  <Badge variant="secondary" className="text-[11px]">
+                    {modeLabel[uiMode]}
+                  </Badge>
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-44">
+                <DropdownMenuLabel>Interface mode</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                {UI_MODE_OPTIONS.map(mode => (
+                  <DropdownMenuItem
+                    key={mode}
+                    onSelect={() => onChangeUiMode(mode)}
+                    className="flex items-center justify-between capitalize"
+                    data-cy={`ui-mode-option-${mode}`}
+                  >
+                    <span>{modeLabel[mode]}</span>
+                    {uiMode === mode && <Check className="h-3 w-3 text-primary" />}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
           <SearchTrigger onClick={onOpenPalette} className="hidden sm:flex" />
           <HeaderActions
             onOpenHelp={onOpenHelp}

@@ -3,7 +3,7 @@ import { render } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
 import type { AdapterHealthFlag } from '@/api/adapter-types';
-import { HealthBadge } from '../TrustHealthBadge';
+import { HealthBadge } from '@/components/shared/TrustHealthBadge';
 
 describe('HealthBadge snapshots', () => {
   const states: AdapterHealthFlag[] = ['healthy', 'degraded', 'unsafe', 'corrupt'];

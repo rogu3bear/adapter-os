@@ -25,7 +25,7 @@ import {
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip';
 import { ScrollArea } from './ui/scroll-area';
 import { Switch } from './ui/switch';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { TelemetryBundle, TelemetryEvent, User, VerifyBundleSignatureResponse } from '@/api/types';
 
 import { useTimestamp } from '@/hooks/ui/useTimestamp';

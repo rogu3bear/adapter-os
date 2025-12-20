@@ -1,7 +1,7 @@
 import React from 'react';
 import { Card, CardContent } from './ui/card';
 import { Badge } from './ui/badge';
-import { cn } from './ui/utils';
+import { cn } from '@/lib/utils';
 import { Persona } from '@/data/persona-journeys';
 
 interface PersonaSliderProps {

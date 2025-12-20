@@ -10,7 +10,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { MessageSquare, ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { cn } from '@/components/ui/utils';
+import { cn } from '@/lib/utils';
 
 interface CollapsibleSidebarProps {
   children: React.ReactNode;

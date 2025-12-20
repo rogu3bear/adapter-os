@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 
-export type ChatModalType = 'history' | 'routerActivity' | 'archive' | 'share' | 'tags';
+export type ChatModalType = 'history' | 'routerActivity' | 'archive' | 'share' | 'tags' | 'category';
 
 interface ChatModalState {
   active: ChatModalType | null;
@@ -42,6 +42,7 @@ export function useChatModals() {
   const isArchivePanelOpen = state.active === 'archive';
   const shareDialogSessionId = state.active === 'share' ? state.data?.sessionId ?? null : null;
   const tagsDialogSessionId = state.active === 'tags' ? state.data?.sessionId ?? null : null;
+  const categoryDialogSessionId = state.active === 'category' ? state.data?.sessionId ?? null : null;
 
   return {
     // Core API
@@ -56,6 +57,7 @@ export function useChatModals() {
     isArchivePanelOpen,
     shareDialogSessionId,
     tagsDialogSessionId,
+    categoryDialogSessionId,
 
     // Setters for backward compatibility
     setIsHistoryOpen: (open: boolean) => {
@@ -90,6 +92,13 @@ export function useChatModals() {
       if (sessionId) {
         openModal('tags', { sessionId });
       } else if (state.active === 'tags') {
+        closeModal();
+      }
+    },
+    setCategoryDialogSessionId: (sessionId: string | null) => {
+      if (sessionId) {
+        openModal('category', { sessionId });
+      } else if (state.active === 'category') {
         closeModal();
       }
     },

@@ -12,7 +12,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { cn } from '@/components/ui/utils';
+import { cn } from '@/lib/utils';
 import { useEvidenceDrawer } from '@/contexts/EvidenceDrawerContext';
 import type { EvidenceItem } from './ChatMessage';
 import type { ExtendedRouterDecision } from '@/api/types';

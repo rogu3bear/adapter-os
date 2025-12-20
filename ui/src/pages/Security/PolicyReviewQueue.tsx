@@ -37,6 +37,7 @@ import { useRBAC } from '@/hooks/security/useRBAC';
 import { getPolicyPack } from '@/constants/policySchema';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ErrorRecovery } from '@/components/ui/error-recovery';
+import { PermissionDenied } from '@/components/ui/permission-denied';
 
 export default function PolicyReviewQueue() {
   const { can } = useRBAC();
@@ -55,9 +56,9 @@ export default function PolicyReviewQueue() {
   if (!can('policy:review')) {
     return (
       <div className="container mx-auto p-6">
-        <ErrorRecovery
-          error="You do not have permission to review policy customizations. This requires the policy:review permission."
-          onRetry={() => window.location.reload()}
+        <PermissionDenied
+          requiredPermission="policy:review"
+          requiredRoles={['admin', 'compliance', 'developer']}
         />
       </div>
     );

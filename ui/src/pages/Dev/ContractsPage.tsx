@@ -4,7 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { LoadingState } from '@/components/ui/loading-state';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import type { ContractSamplesResponse } from '@/api/api-types';
 import { Loader2, Download, RefreshCw } from 'lucide-react';
 

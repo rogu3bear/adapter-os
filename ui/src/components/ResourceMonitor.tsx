@@ -23,12 +23,12 @@ import {
   Monitor,
   Server
 } from 'lucide-react';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { logger, toError } from '@/utils/logger';
 import { usePolling } from '@/hooks/realtime/usePolling';
 import { LastUpdated } from './ui/last-updated';
 import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
-import { formatBytes, formatNumber } from '@/utils/format';
+import { formatBytes, formatNumber } from '@/lib/formatters';
 
 interface ResourceMonitorProps {
   jobId?: string;

@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { useChatAutoLoadModels, useFeatureFlag } from '../config/useFeatureFlags';
+import { useChatAutoLoadModels, useFeatureFlag } from '@/hooks/config/useFeatureFlags';
 
 describe('useFeatureFlags', () => {
   describe('useChatAutoLoadModels', () => {

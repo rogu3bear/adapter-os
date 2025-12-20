@@ -11,9 +11,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Alert, AlertDescription } from './ui/alert';
 import { toast } from 'sonner';
 import { logger, toError } from '@/utils/logger';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import {
-  OrchestrationMetrics,
+  LegacyOrchestrationMetrics,
   PromptAnalysisResult
 } from '@/api/types';
 
@@ -202,7 +202,7 @@ export default function PromptOrchestrationPanel() {
     fallbackStrategy: 'adaptive'
   });
 
-  const [metrics, setMetrics] = useState<OrchestrationMetrics | null>(null);
+  const [metrics, setMetrics] = useState<LegacyOrchestrationMetrics | null>(null);
   const [orchestrationUnavailable, setOrchestrationUnavailable] = useState(false);
   const [unavailableReason, setUnavailableReason] = useState<string | null>(null);
 
@@ -404,7 +404,7 @@ export default function PromptOrchestrationPanel() {
     try {
       // Try dedicated orchestration metrics endpoint first
       try {
-        const orchestrationMetrics = await apiClient.request<OrchestrationMetrics>(
+        const orchestrationMetrics = await apiClient.request<LegacyOrchestrationMetrics>(
           '/v1/orchestration/metrics',
           { method: 'GET' },
           true // skipRetry - endpoint may not exist
@@ -430,7 +430,7 @@ export default function PromptOrchestrationPanel() {
 
         // Extract orchestration-related metrics if available
         if (response && typeof response === 'object') {
-          const orchestrationData = response['orchestration'] as OrchestrationMetrics | undefined;
+          const orchestrationData = response['orchestration'] as LegacyOrchestrationMetrics | undefined;
           if (orchestrationData) {
             setMetrics(orchestrationData);
             clearOrchestrationUnavailable();

@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Badge } from './ui/badge';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from './ui/accordion';
 import { Shield, Play, Hash, Trash2 } from 'lucide-react';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { ReplaySession, ReplayVerificationResponse } from '@/api/types';
 import { useTimestamp } from '@/hooks/ui/useTimestamp';
 import { toast } from 'sonner';

@@ -12,7 +12,7 @@ import {
   Info
 } from 'lucide-react';
 import { BaseModelStatus } from '@/api/types';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 
 import { toast } from 'sonner';
 import { logger, toError } from '@/utils/logger';
@@ -20,7 +20,7 @@ import { usePolling } from '@/hooks/realtime/usePolling';
 import { LastUpdated } from './ui/last-updated';
 import { ErrorRecovery } from './ui/error-recovery';
 import { GlossaryTooltip } from './ui/glossary-tooltip';
-import { formatTimestamp as formatTimestampUtil, formatRelativeTime } from '@/utils/format';
+import { formatTimestamp as formatTimestampUtil, formatRelativeTime } from '@/lib/formatters';
 
 interface BaseModelStatusProps {
   selectedTenant: string;
@@ -197,7 +197,7 @@ export function BaseModelStatusComponent({ selectedTenant }: BaseModelStatusProp
             Memory:
             <GlossaryTooltip termId="base-model-memory" />
           </span>
-          <span className="text-sm text-gray-600">{formatMemoryUsage(status.memory_usage_mb)}</span>
+          <span className="text-sm text-gray-600">{formatMemoryUsage(status.memory_usage_mb ?? undefined)}</span>
         </div>
 
         {/* Loaded Time */}

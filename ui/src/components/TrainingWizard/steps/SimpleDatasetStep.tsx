@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { TERMS } from '@/constants/terminology';
-import { formatBytes } from '@/utils/format';
+import { formatBytes } from '@/lib/formatters';
 import { AlertTriangle, FileText, FolderOpen, Check, Loader2 } from 'lucide-react';
 import { FILE_VALIDATION } from '@/components/TrainingWizard/constants';
 import { useTrainingWizardContext } from '@/components/TrainingWizard/context';

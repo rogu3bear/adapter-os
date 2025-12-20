@@ -37,7 +37,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { useRBAC } from '@/hooks/security/useRBAC';
-import apiClient from '@/api/client';
+import { PermissionDenied } from '@/components/ui/permission-denied';
+import { apiClient } from '@/api/services';
 import type { PluginInfo, EnablePluginRequest, DisablePluginRequest, PluginConfigRecord } from '@/api/plugin-types';
 import { toast } from 'sonner';
 import { logger } from '@/utils/logger';
@@ -61,13 +62,10 @@ import {
 const PermissionDeniedView = () => (
   <DensityProvider pageKey="plugins">
     <FeatureLayout title="Plugin Management" description="Manage system plugins">
-      <Alert variant="destructive">
-        <AlertCircle className="h-4 w-4" />
-        <AlertTitle>Permission Denied</AlertTitle>
-        <AlertDescription>
-          You do not have permission to manage plugins. Admin role required.
-        </AlertDescription>
-      </Alert>
+      <PermissionDenied
+        requiredPermission="tenant:manage"
+        requiredRoles={['admin', 'developer']}
+      />
     </FeatureLayout>
   </DensityProvider>
 );

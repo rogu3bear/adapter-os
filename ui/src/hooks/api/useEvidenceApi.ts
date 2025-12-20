@@ -5,13 +5,30 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { apiClient } from '@/api/client';
+import { apiClient } from '@/api/services';
 import { toast } from 'sonner';
 import type {
   Evidence,
   CreateEvidenceRequest,
   ListEvidenceQuery,
 } from '@/api/document-types';
+
+function getErrorCode(error: unknown): string | number | undefined {
+  if (!error || typeof error !== 'object') {
+    return undefined;
+  }
+
+  const record = error as Record<string, unknown>;
+  const code = record.code;
+  if (typeof code === 'string' || typeof code === 'number') {
+    return code;
+  }
+  const status = record.status;
+  if (typeof status === 'string' || typeof status === 'number') {
+    return status;
+  }
+  return undefined;
+}
 
 // Query keys for cache management
 export const evidenceKeys = {
@@ -144,7 +161,7 @@ export function useEvidenceApi(filter?: ListEvidenceQuery, options?: { enabled?:
       }),
     onError: (error: unknown) => {
       const message = error instanceof Error ? error.message : 'Failed to download evidence';
-      const code = (error as any)?.code || (error as any)?.status;
+      const code = getErrorCode(error);
       toast.error(code ? `Download failed (${code})` : 'Download failed', { description: message });
     },
   });

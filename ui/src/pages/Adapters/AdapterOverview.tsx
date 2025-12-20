@@ -29,7 +29,7 @@ import { AdapterDetailResponse, AdapterHealthResponse } from '@/api/adapter-type
 import type { TrustState } from '@/api/training-types';
 import { getLifecycleVariant } from '@/utils/lifecycle';
 import { LIFECYCLE_STATE_LABELS } from '@/constants/terminology';
-import { formatBytes, formatRelativeTime } from '@/utils/format';
+import { formatBytes, formatRelativeTime } from '@/lib/formatters';
 import { describeSubcode, pickPrimarySubcode } from '@/utils/health';
 
 const normalizeTrustState = (state?: string): string => {
@@ -325,7 +325,7 @@ export default function AdapterOverview({ adapter, health, isLoading }: AdapterO
         </Card>
 
         {/* Health Status */}
-        <Card>
+        <Card id="adapter-health">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Activity className="h-5 w-5" />

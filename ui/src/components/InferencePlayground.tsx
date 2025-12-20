@@ -50,7 +50,7 @@ import {
 } from 'lucide-react';
 
 // API and utilities
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { InferRequest, InferResponse, InferenceConfig, BackendName, InferenceSession } from '@/api/types';
 import { InferenceRequestSchema } from '@/schemas';
 import { logger, toError } from '@/utils/logger';
@@ -348,6 +348,12 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
             latency_ms: streaming.streamingState.startTime ? Date.now() - streaming.streamingState.startTime : 0,
             finish_reason: 'stop',
             adapters_used: [],
+            tokens: [],
+            trace: {
+              adapters_used: [],
+              latency_ms: streaming.streamingState.startTime ? Date.now() - streaming.streamingState.startTime : 0,
+              router_decisions: [],
+            },
           } as InferResponse}
           isLoading={false}
           metrics={{
@@ -493,7 +499,7 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
               max_tokens: config.configA.max_tokens || 100,
               temperature: config.configA.temperature || 0.7,
               top_k: config.configA.top_k || 50,
-              top_p: config.configA.top_p,
+              top_p: config.configA.top_p ?? undefined,
             }}
             canExecute={can('inference:execute')}
             onPromptsChange={batch.setBatchPrompts}

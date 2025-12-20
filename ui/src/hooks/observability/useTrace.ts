@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import type { TraceResponseV1 } from '@/api/types';
 
 export function useTrace(traceId?: string, tenantId?: string) {

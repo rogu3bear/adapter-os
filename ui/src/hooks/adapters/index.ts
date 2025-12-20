@@ -65,12 +65,13 @@ export type {
 
 // Bulk actions
 export { useAdapterBulkActions } from './useAdapterBulkActions';
+// Types are exported from @/types/hooks/adapters, not from the hook file
 export type {
   UseAdapterBulkActionsOptions,
   UseAdapterBulkActionsReturn,
   BulkOperationProgress,
   BulkActionConfirmationState,
-} from './useAdapterBulkActions';
+} from '@/types/hooks/adapters';
 
 // Dialogs and UI state
 export { useAdapterDialogs } from './useAdapterDialogs';

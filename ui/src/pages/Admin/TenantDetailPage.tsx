@@ -1,3 +1,4 @@
+import { useNavigate, useParams } from 'react-router-dom';
 import {
   Dialog,
   DialogContent,
@@ -8,9 +9,10 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { LoadingState } from '@/components/ui/loading-state';
 import { ErrorRecovery } from '@/components/ui/error-recovery';
-import { useTenantUsage } from '@/hooks/admin/useAdmin';
+import { useTenantUsage, useTenants } from '@/hooks/admin/useAdmin';
 import type { Tenant } from '@/api/types';
 import {
   Activity,
@@ -23,6 +25,7 @@ import {
   DollarSign,
   Clock,
 } from 'lucide-react';
+import { buildAdminTenantsLink } from '@/utils/navLinks';
 
 interface TenantDetailPageProps {
   tenant: Tenant;
@@ -362,4 +365,70 @@ export function TenantDetailPage({ tenant, open, onClose }: TenantDetailPageProp
       </DialogContent>
     </Dialog>
   );
+}
+
+/**
+ * Route-safe wrapper for TenantDetailPage.
+ * This component reads tenantId from URL params and fetches the tenant data,
+ * rendering the modal TenantDetailPage with proper props.
+ *
+ * NOTE: Modal components with required props should NEVER be used directly as route components.
+ * Always use a *RoutePage wrapper that reads params and fetches data.
+ */
+export default function TenantDetailRoutePage() {
+  const navigate = useNavigate();
+  const { tenantId } = useParams<{ tenantId: string }>();
+  const { data: tenants, isLoading, error, refetch } = useTenants();
+
+  const handleClose = () => {
+    navigate(buildAdminTenantsLink());
+  };
+
+  // Loading state
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <LoadingState message="Loading organization details..." />
+      </div>
+    );
+  }
+
+  // Error state
+  if (error) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <ErrorRecovery
+          error={error instanceof Error ? error.message : String(error)}
+          onRetry={refetch}
+        />
+      </div>
+    );
+  }
+
+  // Find the tenant from the list
+  const tenant = tenants?.find((t) => t.id === tenantId);
+
+  // Not found state
+  if (!tenant) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
+        <Card className="max-w-md">
+          <CardHeader>
+            <CardTitle>Organization Not Found</CardTitle>
+            <CardDescription>
+              The organization with ID <span className="font-mono">{tenantId}</span> could not be found.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button onClick={handleClose} variant="outline">
+              Back to Organizations
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  // Render the modal with tenant data
+  return <TenantDetailPage tenant={tenant} open={true} onClose={handleClose} />;
 }

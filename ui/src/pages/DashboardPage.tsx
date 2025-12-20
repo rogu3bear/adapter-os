@@ -16,6 +16,14 @@ import { logger } from '@/utils/logger';
 import { useTraining } from '@/hooks/training';
 import { useRepos } from '@/hooks/api/useReposApi';
 import { CardFooterLoadingState } from '@/components/ui/loading-patterns';
+import {
+  buildTrainingOverviewLink,
+  buildReplayLink,
+  buildInferenceLink,
+  buildMetricsLink,
+  buildRoutingLink,
+  buildTestingLink,
+} from '@/utils/navLinks';
 
 export default function DashboardPage() {
   const { user } = useAuth();
@@ -47,7 +55,7 @@ export default function DashboardPage() {
     {
       title: 'Inference',
       description: 'Probe adapters with single-turn inference.',
-      to: '/inference',
+      to: buildInferenceLink(),
     },
     {
       title: 'Documents',
@@ -57,12 +65,12 @@ export default function DashboardPage() {
     {
       title: 'Telemetry Viewer',
       description: 'Inspect per-session routing and tokens.',
-      to: '/telemetry?tab=viewer',
+      to: '/telemetry/viewer',
     },
     {
       title: 'System health',
       description: 'Open monitoring for high-level health signals.',
-      to: '/metrics',
+      to: buildMetricsLink(),
     },
   ];
 
@@ -256,11 +264,11 @@ export default function DashboardPage() {
           secondaryActions={[
             {
               label: 'Onboarding checklist',
-              onClick: () => navigate('/training'),
+              onClick: () => navigate(buildTrainingOverviewLink()),
             },
             {
               label: 'Run probe',
-              onClick: () => navigate('/inference'),
+              onClick: () => navigate(buildInferenceLink()),
             },
           ]}
         >
@@ -355,7 +363,7 @@ export default function DashboardPage() {
               <div className="flex w-full items-center justify-between text-sm text-muted-foreground">
                 <span>No recent data</span>
                 <Button asChild size="sm" variant="link">
-                  <Link to="/metrics">Open monitoring</Link>
+                  <Link to={buildMetricsLink()}>Open monitoring</Link>
                 </Button>
               </div>
             ) : (
@@ -398,7 +406,7 @@ export default function DashboardPage() {
               <div className="flex w-full items-center justify-between text-sm text-muted-foreground">
                 <span>No recent data</span>
                 <Button asChild size="sm" variant="link">
-                  <Link to="/metrics">View metrics</Link>
+                  <Link to={buildMetricsLink()}>View metrics</Link>
                 </Button>
               </div>
             ) : (
@@ -437,7 +445,7 @@ export default function DashboardPage() {
               <div className="flex w-full items-center justify-between text-sm text-muted-foreground">
                 <span>No KV signals yet</span>
                 <Button asChild size="sm" variant="link">
-                  <Link to="/metrics">Open monitoring</Link>
+                  <Link to={buildMetricsLink()}>Open monitoring</Link>
                 </Button>
               </div>
             ) : (
@@ -467,13 +475,13 @@ export default function DashboardPage() {
             <CardDescription>Jump to common operator workflows</CardDescription>
           </CardHeader>
           <CardFooter className="flex flex-wrap gap-2">
-            <Button size="sm" variant="secondary" onClick={() => navigate('/routing')}>
+            <Button size="sm" variant="secondary" onClick={() => navigate(buildRoutingLink())}>
               Investigate routing anomalies
             </Button>
-            <Button size="sm" variant="secondary" onClick={() => navigate('/replay')}>
+            <Button size="sm" variant="secondary" onClick={() => navigate(buildReplayLink())}>
               Inspect recent sessions
             </Button>
-            <Button size="sm" variant="secondary" onClick={() => navigate('/testing')}>
+            <Button size="sm" variant="secondary" onClick={() => navigate(buildTestingLink())}>
               Review test coverage
             </Button>
           </CardFooter>

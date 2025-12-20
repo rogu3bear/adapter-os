@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { ScrollArea } from './ui/scroll-area';
-import { cn } from './ui/utils';
+import { cn } from '@/lib/utils';
 
 interface TerminalOutputProps {
   logs: string[];

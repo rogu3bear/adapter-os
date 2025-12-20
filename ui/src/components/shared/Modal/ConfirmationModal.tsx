@@ -9,7 +9,7 @@ import {
   MENU_ANIMATION_CLASSES,
   FROST_BACKGROUND,
   FROST_OVERLAY,
-} from "@/components/ui/utils";
+} from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import type { ConfirmationModalProps } from "./types";
 

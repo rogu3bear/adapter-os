@@ -43,6 +43,7 @@ import {
 } from '@/api/replay-types';
 import { ProofBar } from '@/components/receipts/ProofBar';
 import { useNavigate } from 'react-router-dom';
+import { buildTelemetryTraceLink } from '@/utils/navLinks';
 
 interface ReplayResultDialogProps {
   open: boolean;
@@ -602,7 +603,7 @@ export function ReplayResultDialog({
       toast.error('Trace ID is unavailable');
       return;
     }
-    navigate(`/telemetry?tab=viewer&requestId=${encodeURIComponent(traceId)}`);
+    navigate(buildTelemetryTraceLink(traceId));
   };
 
   return (

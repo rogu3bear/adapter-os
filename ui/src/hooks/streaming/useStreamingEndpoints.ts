@@ -42,12 +42,33 @@ export interface StreamHookResult<T> {
   lastUpdated?: string;
 }
 
+function getLastUpdated(value: unknown): string | undefined {
+  if (!value || typeof value !== 'object') {
+    return undefined;
+  }
+
+  const record = value as Record<string, unknown>;
+  const timestamp =
+    record.timestamp ??
+    record.timestamp_ms ??
+    record.timestamp_ns ??
+    record.timestampMs ??
+    record.timestampNs;
+
+  if (typeof timestamp === 'string') {
+    return timestamp;
+  }
+  if (typeof timestamp === 'number') {
+    return String(timestamp);
+  }
+  return undefined;
+}
+
 /**
  * Factory function to create streaming hooks with consistent behavior
  * Eliminates duplication across all stream endpoint hooks
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function createStreamHook<T = any>(endpoint: string) {
+function createStreamHook<T = unknown>(endpoint: string) {
   return function useStream(options: UseSSEOptions<T> = {}): StreamHookResult<T> {
     const memoizedOptions = useMemo(() => options, [options]);
     const { data, error, connected, reconnect } = useSSE<T>(endpoint, memoizedOptions);
@@ -58,7 +79,7 @@ function createStreamHook<T = any>(endpoint: string) {
         error,
         connected,
         reconnect,
-        lastUpdated: data && typeof data === 'object' && data !== null && 'timestamp' in data ? String((data as any).timestamp) : undefined,
+        lastUpdated: getLastUpdated(data),
       }),
       [data, error, connected, reconnect]
     );

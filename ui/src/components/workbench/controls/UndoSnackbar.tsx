@@ -17,9 +17,11 @@ interface UndoSnackbarProps {
   sessionId: string | null;
   /** Callback to restore adapter overrides */
   onRestoreOverrides?: (overrides: Record<string, number>) => void;
+  /** Callback to restore the stack selection (URL/backend sync, etc.) */
+  onRestoreStack?: (stackId: string | null) => void;
 }
 
-export function UndoSnackbar({ sessionId, onRestoreOverrides }: UndoSnackbarProps) {
+export function UndoSnackbar({ sessionId, onRestoreOverrides, onRestoreStack }: UndoSnackbarProps) {
   const { undoAction, clearUndoAction } = useWorkbench();
   const sessionScope = useSessionScope();
   const activateStack = useActivateAdapterStack();
@@ -69,8 +71,12 @@ export function UndoSnackbar({ sessionId, onRestoreOverrides }: UndoSnackbarProp
       // Restore session stack selection
       if (sessionId && undoAction.previousScope) {
         const { selectedStackId, stackName } = undoAction.previousScope;
-        if (selectedStackId) {
+        if (onRestoreStack) {
+          onRestoreStack(selectedStackId ?? null);
+        } else if (selectedStackId) {
           sessionScope.setStackSelection(sessionId, selectedStackId, stackName || undefined);
+        } else {
+          sessionScope.clearStackSelection(sessionId);
         }
       }
 
@@ -81,7 +87,7 @@ export function UndoSnackbar({ sessionId, onRestoreOverrides }: UndoSnackbarProp
     } finally {
       setIsRestoring(false);
     }
-  }, [undoAction, sessionId, activateStack, onRestoreOverrides, sessionScope, clearUndoAction]);
+  }, [undoAction, sessionId, activateStack, onRestoreOverrides, onRestoreStack, sessionScope, clearUndoAction]);
 
   const handleDismiss = useCallback(() => {
     clearUndoAction();

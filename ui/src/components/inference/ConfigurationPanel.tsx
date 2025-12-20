@@ -410,8 +410,8 @@ export function ConfigurationPanel({
               temperature: config.configA.temperature || 0.7,
               top_k: config.configA.top_k || 50,
               top_p: config.configA.top_p || 0.9,
-              backend: config.configA.backend || 'auto',
-              seed: config.configA.seed,
+              backend: (config.configA.backend === 'cpu' ? 'auto' : config.configA.backend) || 'auto',
+              seed: config.configA.seed ?? undefined,
               require_evidence: config.configA.require_evidence || false,
             }}
             onChange={(values) => config.setConfigA({ ...config.configA, ...values })}

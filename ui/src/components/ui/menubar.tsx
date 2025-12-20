@@ -11,7 +11,7 @@ import {
   MENU_ITEM_BASE,
   MENU_CHECKBOX_RADIO_BASE_XS,
   MENU_SEPARATOR,
-} from "./utils";
+} from "@/lib/utils";
 
 function Menubar({
   className,

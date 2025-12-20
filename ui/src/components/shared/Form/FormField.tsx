@@ -7,7 +7,7 @@ import {
   type FieldValues,
 } from "react-hook-form";
 
-import { cn } from "@/components/ui/utils";
+import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { FormFieldProps, SelectOption } from "./types";

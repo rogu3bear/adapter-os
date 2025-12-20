@@ -724,4 +724,4 @@ Copyright © 2025 JKCA / James KC Auchterlonie. All rights reserved.
 
 For issues or questions, refer to:
 - [CLAUDE.md](/Users/star/Dev/aos/CLAUDE.md) - Developer guide
-- [docs/ARCHITECTURE_INDEX.md](/Users/star/Dev/aos/docs/ARCHITECTURE_INDEX.md) - Architecture docs
+- [docs/ARCHITECTURE.md](../../docs/ARCHITECTURE.md) - Architecture docs

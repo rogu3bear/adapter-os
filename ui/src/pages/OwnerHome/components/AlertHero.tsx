@@ -14,7 +14,7 @@ import { AlertTriangle, XCircle, X, Database, MemoryStick, Activity, ExternalLin
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { cn } from '@/components/ui/utils';
+import { cn } from '@/lib/utils';
 import { useNavigate } from 'react-router-dom';
 import type { SystemOverview } from '@/api/owner-types';
 import type { BaseModelStatus } from '@/api/api-types';

@@ -1,6 +1,6 @@
 import { useLocation, useParams, Link } from 'react-router-dom';
 import { getBreadcrumbs, getClusterForPath } from '@/config/routes';
-import { cn } from '@/components/ui/utils';
+import { cn } from '@/lib/utils';
 
 interface HeaderBreadcrumbsProps {
   className?: string;

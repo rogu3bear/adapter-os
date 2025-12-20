@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { CoremlPackageStatus, Adapter } from '@/api/types';
 import { isCoremlPackageUiEnabled } from '@/config/featureFlags';
 import { logger, toError } from '@/utils/logger';

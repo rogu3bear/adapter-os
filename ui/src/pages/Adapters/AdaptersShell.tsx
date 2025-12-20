@@ -15,7 +15,9 @@ import { useAdapterTabRouter } from '@/hooks/navigation/useTabRouter';
 import type { AdapterCategory, AdapterDetailResponse } from '@/api/adapter-types';
 import { isAdapterCategory } from '@/utils/typeGuards';
 import { CANONICAL_POLICIES } from '@/api/policyTypes';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
+import { useAuth } from '@/providers/CoreProviders';
+import { isDemoMvpMode } from '@/config/demo';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Button } from '@/components/ui/button';
@@ -25,11 +27,14 @@ import { Separator } from '@/components/ui/separator';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Loader2 } from 'lucide-react';
 import { DetailPageLoadingState } from '@/components/ui/loading-patterns';
+import { buildTrainingJobsLink } from '@/utils/navLinks';
 
 export default function AdaptersShell() {
   const { adapterId } = useParams<{ adapterId: string }>();
   const location = useLocation();
   const navigate = useNavigate();
+  const { sessionMode } = useAuth();
+  const demoMode = isDemoMvpMode(sessionMode);
   const [postRegisterBanner, setPostRegisterBanner] = useState<{ adapterName?: string } | null>(null);
 
   const { activeTab, setActiveTab, availableTabs, getTabPath } = useAdapterTabRouter();
@@ -71,15 +76,17 @@ export default function AdaptersShell() {
           <AlertTitle>Adapter registered</AlertTitle>
           <AlertDescription className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <span>
-              Next: train this adapter or configure routing.
+              Next: train this adapter{demoMode ? '.' : ' or configure routing.'}
             </span>
             <div className="flex flex-wrap gap-2">
-              <Button size="sm" onClick={() => navigate(`/training/jobs?adapterId=${adapterId}`)}>
+              <Button size="sm" onClick={() => navigate(buildTrainingJobsLink({ adapterId }))}>
                 Train adapter
               </Button>
-              <Button variant="outline" size="sm" onClick={() => navigate(`/router-config?adapterId=${adapterId}`)}>
-                Configure routing
-              </Button>
+              {!demoMode && (
+                <Button variant="outline" size="sm" onClick={() => navigate(`/router-config?adapterId=${adapterId}`)}>
+                  Configure routing
+                </Button>
+              )}
             </div>
           </AlertDescription>
         </Alert>
@@ -310,4 +317,3 @@ function AdapterPoliciesTab({
     </div>
   );
 }
-

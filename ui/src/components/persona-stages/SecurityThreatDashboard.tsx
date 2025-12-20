@@ -16,7 +16,7 @@ import {
   AlertCircle,
   Ban,
 } from 'lucide-react';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { Alert, AlertFilters, AnomalyDetectionStatus, AccessPattern } from '@/api/types';
 import { toast } from 'sonner';
 import { logger } from '@/utils/logger';
@@ -69,8 +69,12 @@ export default function SecurityThreatDashboard({ tenantId }: SecurityThreatDash
 
       // Load access patterns
       try {
-        const patterns = await apiClient.getAccessPatterns(tenantId);
-        setAccessPatterns(patterns);
+        if (tenantId) {
+          const patterns = await apiClient.getAccessPatterns(tenantId);
+          setAccessPatterns(patterns);
+        } else {
+          setAccessPatterns(generateMockAccessPatterns());
+        }
       } catch {
         // Generate mock access patterns if endpoint not available
         setAccessPatterns(generateMockAccessPatterns());

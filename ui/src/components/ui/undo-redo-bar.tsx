@@ -1,7 +1,7 @@
 import React from 'react';
 import { Button } from './button';
 import { Undo2, Redo2, X } from 'lucide-react';
-import { cn } from './utils';
+import { cn } from '@/lib/utils';
 
 export interface UndoRedoBarProps {
   canUndo: boolean;

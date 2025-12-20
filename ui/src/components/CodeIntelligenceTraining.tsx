@@ -21,7 +21,7 @@ import {
   Layers,
   Zap,
 } from 'lucide-react';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 
 import {
   Repository,
@@ -34,12 +34,22 @@ import { logger, toError } from '@/utils/logger';
 import { toast } from 'sonner';
 import { ACTIVITY_EVENT_TYPES } from '@/api/activityEventTypes';
 
+// UI-specific state that combines training config with metadata fields
+interface TrainingFormState extends Partial<TrainingConfig> {
+  category?: AdapterCategory;
+  scope?: AdapterScope;
+  repo_id?: string;
+  commit_sha?: string;
+  framework_id?: string;
+  framework_version?: string;
+}
+
 interface CodeIntelligenceTrainingProps {
   tenantId: string;
   userId: string;
   onTrainingStarted?: (sessionId: string) => void;
   onCancel?: () => void;
-  initialConfig?: Partial<TrainingConfig>;
+  initialConfig?: Partial<TrainingFormState>;
 }
 
 type CategoryConfig = Partial<TrainingConfig> & {
@@ -91,7 +101,7 @@ export function CodeIntelligenceTraining({
   const [selectedRepo, setSelectedRepo] = useState<string>('');
   const [selectedCommit, setSelectedCommit] = useState<string>('');
   const [loading, setLoading] = useState(true);
-  const [config, setConfig] = useState<Partial<TrainingConfig>>({
+  const [config, setConfig] = useState<TrainingFormState>({
     category: 'codebase',
     scope: 'repo',
     rank: 24,
@@ -233,6 +243,7 @@ export function CodeIntelligenceTraining({
         description: `Adapter trained on ${selectedRepo}${
           selectedCommit ? ` at commit ${selectedCommit.substring(0, 8)}` : ''
         }`,
+        // Training hyperparameters and metadata
         training_config: {
           rank: config.rank ?? categoryConfig?.rank ?? 24,
           alpha: config.alpha ?? categoryConfig?.alpha ?? 48,

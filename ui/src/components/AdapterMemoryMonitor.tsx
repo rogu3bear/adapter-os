@@ -31,7 +31,7 @@ import {
   EvictionPriority,
   MemoryUsageByCategory
 } from '@/api/types';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { logger } from '@/utils/logger';
 import { formatMB, formatString } from '@/utils';
 

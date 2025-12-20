@@ -11,6 +11,7 @@
 
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
+import { buildTrainingJobsLink, buildTrainingJobDetailLink } from '@/utils/navLinks';
 import {
   ArrowLeft,
   Database,
@@ -26,7 +27,7 @@ import { ErrorRecovery } from '@/components/ui/error-recovery';
 import { ChatInterface } from '@/components/ChatInterface';
 import { useTenant } from '@/providers/FeatureProviders';
 import { DatasetChatProvider } from '@/contexts/DatasetChatContext';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 
 /**
  * Header component with adapter and dataset chips
@@ -156,7 +157,7 @@ function ResultChatPageInner({
         datasetName={datasetName}
         datasetVersionId={datasetVersionId}
         onBack={() => navigate(-1)}
-        onViewJob={() => navigate(`/training/jobs/${jobId}`)}
+        onViewJob={() => navigate(buildTrainingJobDetailLink(jobId))}
       />
 
       <main className="flex-1 overflow-hidden">
@@ -190,7 +191,7 @@ export default function ResultChatPage() {
       <div className="h-full flex items-center justify-center p-4">
         <ErrorRecovery
           error="Missing training job ID."
-          onRetry={() => navigate('/training/jobs')}
+          onRetry={() => navigate(buildTrainingJobsLink())}
         />
       </div>
     );
@@ -245,7 +246,7 @@ export default function ResultChatPage() {
     return (
       <NotReadyState
         status={bootstrap?.status || job?.status || 'unknown'}
-        onViewJob={() => navigate(`/training/jobs/${jobId}`)}
+        onViewJob={() => navigate(buildTrainingJobDetailLink(jobId))}
       />
     );
   }
@@ -255,10 +256,10 @@ export default function ResultChatPage() {
     <ResultChatPageInner
       jobId={jobId}
       adapterName={job?.adapter_name}
-      adapterVersionId={bootstrap.adapter_version_id}
-      datasetId={bootstrap.dataset_id}
+      adapterVersionId={bootstrap.adapter_version_id ?? undefined}
+      datasetId={bootstrap.dataset_id ?? undefined}
       datasetName={bootstrap.dataset_name || job?.adapter_name}
-      datasetVersionId={bootstrap.dataset_version_id}
+      datasetVersionId={bootstrap.dataset_version_id ?? undefined}
       stackId={bootstrap.stack_id}
     />
   );
@@ -269,7 +270,7 @@ export default function ResultChatPage() {
         initialDataset={{
           id: bootstrap.dataset_id,
           name: bootstrap.dataset_name || job?.adapter_name || 'Training Dataset',
-          versionId: bootstrap.dataset_version_id,
+          versionId: bootstrap.dataset_version_id ?? undefined,
         }}
       >
         {content}

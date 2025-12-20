@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { LoadingCoordinator } from '../loadingCoordinator';
+import { LoadingCoordinator } from '@/hooks/model-loading/internal/loadingCoordinator';
 
 describe('LoadingCoordinator', () => {
   let coordinator: LoadingCoordinator;

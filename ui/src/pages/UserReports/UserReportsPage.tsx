@@ -1,9 +1,16 @@
+/**
+ * @deprecated ORPHAN PAGE - Not routed in routes.ts
+ * This page exists but has no corresponding route.
+ *
+ * TODO: Either add a route or delete this file.
+ * Audit date: 2025-12-19
+ */
 // 【ui/src/components/UserReportsPage.tsx§38-80】 - Replace manual polling with standardized hook
 import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { logger, toError } from '@/utils/logger';
 import { usePolling } from '@/hooks/realtime/usePolling';
 import { useTenant } from '@/providers/FeatureProviders';

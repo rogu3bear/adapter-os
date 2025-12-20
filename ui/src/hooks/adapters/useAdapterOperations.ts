@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { logger } from '@/utils/logger';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { errorRecoveryTemplates } from '@/components/ui/error-recovery';
 import { useCancellableOperation } from '@/hooks/async/useCancellableOperation';
 import type { AdapterCategory, CategoryPolicy } from '@/api/types';

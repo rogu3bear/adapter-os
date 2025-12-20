@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { TERMS } from '@/constants/terminology';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import useCollectionsApi from '@/hooks/api/useCollectionsApi';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { logger, toError } from '@/utils/logger';
 
 interface Document {

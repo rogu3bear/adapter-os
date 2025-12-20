@@ -41,7 +41,7 @@ import { TerminalOutput } from './TerminalOutput';
 import PromptOrchestrationPanel from './PromptOrchestrationPanel';
 import { AuthenticationSettings } from './AuthenticationSettings';
 import { logger, toError } from '@/utils/logger';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { useServiceStatus } from '@/hooks/system/useServiceStatus';
 
 // Simple service interface
@@ -207,6 +207,38 @@ export default function ServicePanel() {
 
       showNotification('error', `Failed to stop service "${service.name}": ${toError(error).message}`);
       // Service status will revert via the shared polling hook
+    } finally {
+      setServiceOperations(prev => ({ ...prev, [service.id]: null }));
+    }
+  };
+
+  // Restart a service
+  const handleRestartService = async (service: SimpleService) => {
+    logger.info('Restarting service', {
+      component: 'ServicePanel',
+      serviceId: service.id,
+    });
+
+    setServiceOperations(prev => ({ ...prev, [service.id]: 'restarting' }));
+
+    try {
+      const result = await apiClient.restartService(service.id);
+
+      logger.info('Service restarted successfully', {
+        component: 'ServicePanel',
+        serviceId: service.id,
+        message: result.message,
+      });
+
+      showNotification('success', `Service "${service.name}" restarted successfully`);
+    } catch (error) {
+      logger.error('Failed to restart service', {
+        component: 'ServicePanel',
+        serviceId: service.id,
+        error: toError(error),
+      });
+
+      showNotification('error', `Failed to restart service "${service.name}": ${toError(error).message}`);
     } finally {
       setServiceOperations(prev => ({ ...prev, [service.id]: null }));
     }
@@ -444,7 +476,7 @@ export default function ServicePanel() {
                   }}
                   onStart={() => handleStartService(service)}
                   onStop={() => handleStopService(service)}
-                  onRestart={() => {}} // Not implemented yet
+                  onRestart={() => handleRestartService(service)}
                   onSelect={() => setSelectedService(service)}
                   isSelected={selectedService?.id === service.id}
                 />
@@ -470,7 +502,7 @@ export default function ServicePanel() {
                   }}
                   onStart={() => handleStartService(service)}
                   onStop={() => handleStopService(service)}
-                  onRestart={() => {}} // Not implemented yet
+                  onRestart={() => handleRestartService(service)}
                   onSelect={() => setSelectedService(service)}
                   isSelected={selectedService?.id === service.id}
                 />

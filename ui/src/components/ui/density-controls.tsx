@@ -11,7 +11,7 @@ import {
   EyeOff
 } from 'lucide-react';
 import { InformationDensity } from '@/hooks/ui/useInformationDensity';
-import { cn } from './utils';
+import { cn } from '@/lib/utils';
 
 interface DensityControlsProps {
   density: InformationDensity;

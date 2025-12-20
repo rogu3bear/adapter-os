@@ -4,7 +4,7 @@ import * as React from 'react';
 import { HelpCircle } from 'lucide-react';
 import { GlossarySheet } from './glossary-sheet';
 import { HoverCard, HoverCardContent, HoverCardTrigger } from './hover-card';
-import { cn } from './utils';
+import { cn } from '@/lib/utils';
 import { getGlossaryEntry, type GlossaryEntry } from '@/data/glossary';
 
 interface GlossaryTooltipProps {

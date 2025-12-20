@@ -10,11 +10,75 @@
 
 import { Policy } from '@/api/adapter-types';
 import type { Evidence } from '@/api/document-types';
+import type { components } from './generated';
+
+// ============================================================================
+// Re-export Generated Types (Backend snake_case types)
+// ============================================================================
+
+// Infrastructure Types - From Generated
+export type ComponentHealth = components['schemas']['ComponentHealth'];
+export type ComponentStatus = components['schemas']['ComponentStatus'];
+export type ErrorResponse = components['schemas']['ErrorResponse'];
+export type FailureCode = components['schemas']['FailureCode'];
+export type NodeHealth = components['schemas']['NodeHealth'];
+
+// Health Types - From Generated
+export type HealthResponse = components['schemas']['HealthResponse'];
+export type BaseModelStatusResponse = components['schemas']['BaseModelStatusResponse'];
+export type ModelLoadStatus = components['schemas']['ModelLoadStatus'];
+
+// Inference Types - From Generated
+export type InferRequest = components['schemas']['InferRequest'];
+
+// Extended InferResponse with UI-computed fields
+export type InferResponse = components['schemas']['InferResponse'] & {
+  // Token counts (may be computed or from run_receipt)
+  token_count?: number;
+  // Backend alias (also available as backend_used)
+  backend?: string;
+};
+
+export type BatchInferRequest = components['schemas']['BatchInferRequest'];
+export type BatchInferResponse = components['schemas']['BatchInferResponse'];
+export type BackendKind = components['schemas']['BackendKind'];
+export type CoreMLMode = components['schemas']['CoreMLMode'];
+
+// Routing Types - From Generated
+export type RoutingDecision = components['schemas']['RoutingDecision'];
+export type RoutingDecisionResponse = components['schemas']['RoutingDecisionResponse'];
+export type RoutingPolicy = components['schemas']['RoutingPolicy'];
+
+// Worker Types - From Generated
+export type WorkerDetailResponse = components['schemas']['WorkerDetailResponse'];
+export type WorkerResourceUsage = components['schemas']['WorkerResourceUsage'];
+export type WorkerType = components['schemas']['WorkerType'];
+
+// Tenant Types - From Generated
+export type TenantResponse = components['schemas']['TenantResponse'];
+export type TenantState = components['schemas']['TenantState'];
+
+// Node Types - From Generated
+export type NodeDetailResponse = components['schemas']['NodeDetailResponse'];
+export type NodeState = components['schemas']['NodeState'];
+
+// Telemetry Types - Legacy (kept for backward compatibility)
+// Note: Telemetry types are not in generated.ts as they are internal-only
+
+// ============================================================================
+// Legacy Type Aliases (for backward compatibility)
+// ============================================================================
+
+/** @deprecated Use BackendKind instead */
+export type BackendName = BackendKind;
+
+/** @deprecated Use BackendKind instead */
+export type BackendMode = 'real' | 'stub' | 'auto';
 
 // ============================================================================
 // Raw Backend Response Types (snake_case field names)
-// These types match the exact JSON structure returned by the backend API.
-// Use transformers to convert these to clean domain types for frontend use.
+// MIGRATION NOTE: These should eventually be replaced with generated types
+// For now, keeping for backward compatibility
 // ============================================================================
 
 export interface RawAdapterResponse {
@@ -47,7 +111,7 @@ export interface RawInferResponse {
   schema_version: string;
   id: string;
   text: string;
-  tokens_generated: number; // Backend uses tokens_generated
+  tokens_generated: number;
   latency_ms: number;
   adapters_used: string[];
   run_receipt?: unknown;
@@ -55,7 +119,7 @@ export interface RawInferResponse {
   finish_reason?: 'stop' | 'length' | 'error' | 'budget' | 'repetition';
   stop_reason_code?: StopReasonCode;
   tokens?: number[];
-  backend?: BackendName;
+  backend?: BackendKind;
   trace?: {
     latency_ms: number;
     steps?: Array<{ adapter: string; latency_ms: number; tokens: number }>;
@@ -69,11 +133,11 @@ export interface RawInferResponse {
   response?: string;
   unavailable_pinned_adapters?: string[];
   pinned_routing_fallback?: 'stack_only' | 'partial' | null;
-  backend_used?: BackendName | string;
+  backend_used?: BackendKind | string;
   coreml_compute_preference?: string;
   coreml_compute_units?: string;
   coreml_gpu_used?: boolean | null;
-  fallback_backend?: BackendName | string;
+  fallback_backend?: BackendKind | string;
   fallback_triggered?: boolean;
   determinism_mode_applied?: string;
   replay_guarantee?: string | null;
@@ -157,7 +221,10 @@ export interface UpdateMonitoringRuleRequest {
 }
 
 // Prompt Orchestration types
-export interface OrchestrationConfig {
+/**
+ * @deprecated Use OrchestrationConfig (defined around line 1968) instead - this is the legacy camelCase version
+ */
+export interface LegacyOrchestrationConfig {
   enabled: boolean;
   baseModelThreshold: number;
   adapterThreshold: number;
@@ -168,7 +235,10 @@ export interface OrchestrationConfig {
   fallbackStrategy: 'base_only' | 'best_effort' | 'adaptive';
 }
 
-export interface OrchestrationMetrics {
+/**
+ * @deprecated Use OrchestrationMetrics (defined around line 2009) instead - this is the legacy camelCase version
+ */
+export interface LegacyOrchestrationMetrics {
   totalRequests: number;
   baseModelOnly: number;
   adapterUsed: number;
@@ -193,24 +263,9 @@ export interface PromptAnalysisResult {
   timestamp: string;
 }
 
-export type FailureCode =
-  | 'MIGRATION_INVALID'
-  | 'MODEL_LOAD_FAILED'
-  | 'OUT_OF_MEMORY'
-  | 'TRACE_WRITE_FAILED'
-  | 'RECEIPT_MISMATCH'
-  | 'POLICY_DIVERGENCE'
-  | 'BACKEND_FALLBACK'
-  | 'TENANT_ACCESS_DENIED';
-
-export interface ErrorResponse {
-  schema_version: string; // Required by backend API
-  error: string;
-  code?: string;
-  failure_code?: FailureCode;
-  details?: string | Record<string, unknown>;
-  timestamp?: string;
-}
+// ============================================================================
+// System Metrics (UI-specific aggregation, not in generated types)
+// ============================================================================
 
 export interface SystemMetrics {
   cpu_usage?: number;
@@ -255,18 +310,9 @@ export interface SystemMetrics {
   error_rate?: number;
 }
 
-export interface BaseModelStatus {
-  schema_version?: string; // Optional for backward compatibility
-  model_id: string;
-  model_name: string;
-  model_path?: string | null;
-  status: 'no-model' | 'loading' | 'ready' | 'unloading' | 'error' | 'checking';
-  loaded_at?: string | null;
-  unloaded_at?: string | null;
-  error_message?: string | null;
-  memory_usage_mb?: number;
-  is_loaded: boolean; // Required in backend
-  updated_at: string; // Required in backend
+// Alias for backward compatibility - BaseModelStatus now uses generated type
+export interface BaseModelStatus extends BaseModelStatusResponse {
+  schema_version?: string;
 }
 
 export interface ReplaySession {
@@ -458,6 +504,14 @@ export interface WorkerResponse {
   plan_id?: string;
   started_at?: string;
   manifest_hash?: string;  // Manifest hash for worker binding verification
+  /** Current cache memory usage in MB */
+  cache_used_mb?: number;
+  /** Maximum cache memory budget in MB */
+  cache_max_mb?: number;
+  /** Number of pinned cache entries (cannot be evicted) */
+  cache_pinned_entries?: number;
+  /** Number of active cache entries (in-use, cannot be evicted) */
+  cache_active_entries?: number;
 }
 
 export interface WorkerDetailsResponse extends WorkerResponse {
@@ -521,32 +575,9 @@ export interface PlanDifference {
   value_b?: unknown;
 }
 
-// Routing types
-export interface RoutingDecision {
-  request_id: string;
-  selected_adapters: string[];
-  scores: Record<string, number>;
-  timestamp: string;
-  latency_ms: number;
-  overhead_pct?: number;
-  tau?: number;
-  step?: number;
-  stack_hash?: string;
-  input_token_id?: number;
-  entropy_floor?: number;
-  entropy?: number;
-  candidates?: string[];
-}
-
-export interface RoutingPolicy {
-  allowed_stack_ids?: string[];
-  allowed_adapter_ids?: string[];
-  denied_adapter_ids?: string[];
-  max_adapters_per_token?: number;
-  pin_enforcement?: string;
-  require_stack?: boolean;
-  require_pins?: boolean;
-}
+// ============================================================================
+// Router Types (UI-specific extensions, not in generated types)
+// ============================================================================
 
 export interface RouterParameters {
   k_sparse: number;
@@ -733,163 +764,23 @@ export interface CommitDeltaResponse {
   processed_at?: string;
 }
 
-// Inference types
-export type BackendName = 'mlx' | 'coreml' | 'metal' | 'auto';
-export type BackendMode = 'real' | 'stub' | 'auto';
-export type CoreMLMode = 'ane' | 'gpu' | 'cpu' | 'auto';
+// ============================================================================
+// Additional Inference Types (from generated.ts)
+// ============================================================================
 
-export type StopReasonCode = 'LENGTH' | 'BUDGET_MAX' | 'COMPLETION_CONFIDENT' | 'REPETITION_GUARD';
+export type StopReasonCode = components['schemas']['StopReasonCode'];
+export type StopPolicySpec = components['schemas']['StopPolicySpec'];
+export type RunReceipt = components['schemas']['RunReceipt'];
+export type Citation = components['schemas']['Citation'];
+export type CharRange = components['schemas']['CharRange'];
+export type BoundingBox = components['schemas']['BoundingBox'];
 
+// UI-only type (not exposed in API)
 export type FusionInterval = {
   start_token: number;
   end_token: number;
   adapter_weights: Record<string, number>;
 };
-
-export interface StopPolicySpec {
-  max_tokens?: number;
-  stop_sequences?: string[];
-}
-
-export interface InferRequest {
-  prompt: string;
-  model?: string;
-  routing_determinism_mode?: string;
-  backend?: BackendName;
-  max_tokens?: number;
-  temperature?: number;
-  top_p?: number;
-  top_k?: number;
-  stream?: boolean;
-  adapter_stack?: string[];
-  stack_id?: string;
-  domain?: string;
-  seed?: number;
-  require_evidence?: boolean;
-  adapters?: string[];
-  fusion_interval?: FusionInterval;
-  coreml_mode?: CoreMLMode;
-  effective_adapter_ids?: string[];
-  session_id?: string;
-  tenant_id?: string;
-  rag_enabled?: boolean;
-  collection_id?: string;
-  stop_policy?: StopPolicySpec;
-}
-
-export interface RunReceipt {
-  trace_id: string;
-  run_head_hash: string;
-  output_digest: string;
-  receipt_digest: string;
-  signature?: string;
-  attestation?: string;
-  logical_prompt_tokens: number;
-  prefix_cached_token_count: number;
-  billed_input_tokens: number;
-  logical_output_tokens: number;
-  billed_output_tokens: number;
-  // Stop controller fields (PRD: Hard Deterministic Stop Controller)
-  stop_reason_code?: StopReasonCode;
-  stop_reason_token_index?: number;
-  stop_policy_digest_b3?: string;
-  // KV quota/residency fields (PRD: KvResidencyAndQuotas v1)
-  tenant_kv_quota_bytes?: number;
-  tenant_kv_bytes_used?: number;
-  kv_evictions?: number;
-  kv_residency_policy_id?: string;
-  kv_quota_enforced?: boolean;
-  // Prefix KV cache fields (PRD: PrefixKvCache v1)
-  prefix_kv_key_b3?: string;
-  prefix_cache_hit?: boolean;
-  prefix_kv_bytes?: number;
-  // Model Cache Identity v2 (PRD-06: ModelCacheIdentity v2 Canonicalization)
-  model_cache_identity_v2_digest_b3?: string;
-}
-
-export interface InferResponse {
-  schema_version: string; // Required by backend API
-  id: string;
-  text: string;
-  tokens_generated: number;
-  latency_ms: number;
-  adapters_used: string[];
-  run_receipt?: RunReceipt;
-  citations?: Citation[];
-  finish_reason?: 'stop' | 'length' | 'error' | 'budget' | 'repetition';
-  stop_reason_code?: StopReasonCode;
-  tokens?: number[]; // Token IDs
-  backend?: BackendName;
-  trace?: {
-    latency_ms: number;
-    steps?: Array<{ adapter: string; latency_ms: number; tokens: number }>;
-    router_decisions?: Array<{ adapter: string; score: number }>;
-    evidence_spans?: Array<{ text: string; relevance: number }>;
-  };
-  token_count?: number;
-  model?: string;
-  prompt_tokens?: number;
-  error?: string;
-  response?: string;
-  // PRD-6A: Pinned adapter fallback tracking
-  unavailable_pinned_adapters?: string[];
-  pinned_routing_fallback?: 'stack_only' | 'partial' | null;
-  // Determinism/back-end tracking
-  backend_used?: BackendName | string;
-  coreml_compute_preference?: string;
-  coreml_compute_units?: string;
-  coreml_gpu_used?: boolean | null;
-  fallback_backend?: BackendName | string;
-  fallback_triggered?: boolean;
-  determinism_mode_applied?: string;
-  replay_guarantee?: string | null;
-}
-
-export interface CharRange {
-  start: number;
-  end: number;
-}
-
-export interface BoundingBox {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
-export interface Citation {
-  adapter_id: string;
-  file_path: string;
-  chunk_id: string;
-  // Note: offset values >2^53 may lose precision in JavaScript
-  offset_start: number;
-  offset_end: number;
-  preview: string;
-  citation_id?: string;
-  page_number?: number;
-  char_range?: CharRange;
-  bbox?: BoundingBox;
-  relevance_score?: number;
-  rank?: number;
-}
-
-export interface BatchInferRequest {
-  prompts?: string[];
-  model?: string;
-  backend?: BackendName;
-  max_tokens?: number;
-  temperature?: number;
-  adapter_stack?: string[];
-  requests?: InferRequest[];
-}
-
-export interface BatchInferResponse {
-  schema_version: string; // Required by backend API
-  results: InferResponse[];
-  responses: InferResponse[];  // alias for results
-  total_tokens: number;
-  total_latency_ms: number;
-}
 
 // Telemetry types
 export interface TelemetryBundle {
@@ -933,15 +824,9 @@ export interface TelemetryQuery {
   offset?: number;
 }
 
-// Health & System types
-export interface HealthResponse {
-  schema_version?: string; // Optional - may not be in all responses
-  status: 'healthy' | 'degraded' | 'unhealthy';
-  version?: string;
-  uptime_seconds?: number;
-  components?: Record<string, ComponentHealth>;
-  checks?: Record<string, boolean>;
-}
+// ============================================================================
+// Health & System Types (Additional)
+// ============================================================================
 
 export interface ReadyzCheck {
   ok: boolean;
@@ -1010,15 +895,6 @@ export interface BackendCapabilitiesResponse {
     backend: BackendName;
     capabilities: BackendCapability[];
   }>;
-}
-
-export interface ComponentHealth {
-  component?: string;
-  status: 'healthy' | 'degraded' | 'unhealthy';
-  message?: string;
-  details?: Record<string, unknown>;
-  timestamp?: number;
-  last_check?: string;
 }
 
 export interface MetaResponse {
@@ -1091,6 +967,40 @@ export interface Alert {
   metric_value?: number;
   rule_name?: string;
   status?: string;
+}
+
+/** Alert for when model cache budget is exceeded */
+export interface CacheBudgetAlert {
+  worker_id: string;
+  tenant_id: string;
+  severity: 'critical' | 'high' | 'medium';
+  /** Memory needed in MB */
+  needed_mb: number;
+  /** Memory freed during eviction in MB */
+  freed_mb: number;
+  /** Maximum cache budget in MB */
+  max_mb: number;
+  /** Number of pinned entries blocking eviction */
+  pinned_entries: number;
+  /** Number of active entries blocking eviction */
+  active_entries: number;
+  /** ISO-8601 timestamp */
+  timestamp: string;
+  /** Model key that triggered the alert */
+  model_key?: string;
+}
+
+/** Worker cache health status derived from metrics */
+export interface WorkerCacheHealth {
+  worker_id: string;
+  /** Usage as percentage (0-100) */
+  utilization_pct: number;
+  /** Health status based on utilization thresholds */
+  status: 'healthy' | 'warning' | 'critical';
+  cache_used_mb: number;
+  cache_max_mb: number;
+  cache_pinned_entries: number;
+  cache_active_entries: number;
 }
 
 export interface ModelStatusResponse {
@@ -1272,18 +1182,9 @@ export interface QualityMetrics {
   arr?: number;
 }
 
-// Tenant response types
-export interface TenantResponse {
-  schema_version: string; // Required by backend API
-  id: string;
-  name: string;
-  uid: number;
-  gid: number;
-  isolation_metadata?: Record<string, unknown>;
-  created_at: string;
-  adapter_count?: number;
-  user_count?: number;
-}
+// ============================================================================
+// Tenant Usage Response (Additional, not in generated)
+// ============================================================================
 
 export interface TenantUsageResponse {
   schema_version: string; // Required by backend API
@@ -1683,8 +1584,6 @@ export interface AdapterQuarantineStatusResponse {
   }>;
   in_active_stacks: boolean;
 }
-
-export type NodeHealth = 'ok' | 'warning' | 'critical';
 
 export interface CapacityLimits {
   models_per_worker?: number;
@@ -2144,6 +2043,63 @@ export interface SystemHealthResponse {
   uptime_seconds: number;
   timestamp: string;
   components: Record<string, ComponentHealth>;
+}
+
+/**
+ * Per-dependency health status with structured failure tracking
+ */
+export interface DependencyHealth {
+  /** Dependency name (matches component names: db, router, workers, etc.) */
+  name: string;
+  /** Current status */
+  status: 'healthy' | 'degraded' | 'unhealthy';
+  /** Failure code if this dependency has failed */
+  failure_code?: FailureCode;
+  /** Human-readable message */
+  message?: string;
+  /** Whether this dependency is being retried */
+  retrying?: boolean;
+  /** Number of retry attempts */
+  retry_count?: number;
+  /** Timestamp of last check (milliseconds since epoch) */
+  last_checked?: number;
+}
+
+/**
+ * System-wide readiness response from /system/ready endpoint
+ * Provides detailed boot status and structured failure codes
+ */
+export interface SystemReadyResponse {
+  /** Whether the system is ready to accept requests */
+  ready: boolean;
+  /** Overall system status */
+  overall_status: 'healthy' | 'degraded' | 'unhealthy';
+  /** Individual component health status */
+  components: ComponentHealth[];
+  /** Milliseconds since boot started */
+  boot_elapsed_ms?: number;
+  /** List of critical components that are degraded */
+  critical_degraded?: string[];
+  /** List of non-critical components that are degraded */
+  non_critical_degraded?: string[];
+  /** Whether the system is in maintenance mode */
+  maintenance?: boolean;
+  /** Human-readable reason for current state */
+  reason?: string;
+
+  // Boot error taxonomy fields (added Dec 2024)
+  /** Current boot state (e.g., "Starting", "LoadingModels", "Ready") */
+  state?: string;
+  /** Structured failure code if boot failed */
+  reason_code?: FailureCode;
+  /** Timestamp when current state started (milliseconds since epoch) */
+  since?: number;
+  /** Detailed error message for last failure */
+  last_error?: string;
+  /** Whether automatic retry is in progress */
+  retrying?: boolean;
+  /** Per-dependency health status with failure codes */
+  dependency_status?: DependencyHealth[];
 }
 
 // Anomaly Response

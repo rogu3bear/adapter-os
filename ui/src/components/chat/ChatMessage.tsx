@@ -1,6 +1,6 @@
 import React, { memo, useState, useCallback } from 'react';
 import { Download, FileText, FileJson, Package } from 'lucide-react';
-import { cn } from '@/components/ui/utils';
+import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -33,63 +33,10 @@ import {
 } from '@/utils/export';
 import type { ExtendedRouterDecision } from '@/api/types';
 import type { ReplayResponse } from '@/api/replay-types';
+import type { EvidenceItem, ThroughputStats, ChatMessage, ChatMessageProps } from '@/types/components';
 
-export interface EvidenceItem {
-  document_id: string;
-  document_name: string;
-  chunk_id: string;
-  page_number: number | null;
-  text_preview: string;
-  relevance_score: number;
-  rank: number;
-  /** Character range within the document for highlighting */
-  char_range?: { start: number; end: number };
-  /** Bounding box coordinates for PDF highlighting */
-  bbox?: { x: number; y: number; width: number; height: number };
-  /** Citation identifier for cross-referencing */
-  citation_id?: string;
-}
-
-/** Token throughput statistics for a message */
-export interface ThroughputStats {
-  /** Total tokens generated */
-  tokensGenerated: number;
-  /** Total latency in milliseconds */
-  latencyMs: number;
-  /** Tokens per second throughput */
-  tokensPerSecond: number;
-}
-
-export interface ChatMessage {
-  id: string;
-  role: 'user' | 'assistant';
-  content: string;
-  timestamp: Date;
-  requestId?: string;
-  /** Trace ID for telemetry lookup */
-  traceId?: string;
-  /** Cryptographic proof digest */
-  proofDigest?: string;
-  routerDecision?: ExtendedRouterDecision | null;
-  isStreaming?: boolean;
-  evidence?: EvidenceItem[];
-  isVerified?: boolean | null;
-  verifiedAt?: string;
-  unavailablePinnedAdapters?: string[];
-  pinnedRoutingFallback?: 'stack_only' | 'partial';
-  /** Token throughput statistics */
-  throughputStats?: ThroughputStats;
-}
-
-interface ChatMessageProps {
-  message: ChatMessage;
-  className?: string;
-  onViewDocument?: (documentId: string, pageNumber?: number) => void;
-  /** Called when user clicks this message (for workbench selection). Passes traceId for trace fetching. */
-  onSelect?: (messageId: string, traceId?: string) => void;
-  /** Whether this message is currently selected */
-  isSelected?: boolean;
-}
+// Re-export types for backward compatibility
+export type { EvidenceItem, ThroughputStats, ChatMessage };
 
 // Custom comparison function for memo to prevent unnecessary re-renders
 function areMessagesEqual(prevProps: ChatMessageProps, nextProps: ChatMessageProps): boolean {

@@ -26,12 +26,7 @@ export function EvidencePanel({ traceId, tenantId, receiptDigest }: EvidencePane
     isDownloading,
     invalidateEvidence,
   } = useEvidenceApi(
-    traceId
-      ? {
-          trace_id: traceId,
-          tenant_id: tenantId,
-        }
-      : undefined,
+    undefined,
     { enabled: Boolean(traceId) }
   );
 
@@ -40,11 +35,8 @@ export function EvidencePanel({ traceId, tenantId, receiptDigest }: EvidencePane
   const handleCreateEvidence = async () => {
     try {
       await createEvidence({
-        trace_id: traceId,
-        tenant_id: tenantId,
         evidence_type: 'audit',
         reference: receiptDigest || traceId,
-        confidence: 'high',
         description: 'Inference evidence bundle',
         metadata_json: JSON.stringify({
           trace_id: traceId,

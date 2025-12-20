@@ -32,8 +32,8 @@ import {
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
-import { formatBytes } from '@/utils/format';
-import apiClient from '@/api/client';
+import { formatBytes } from '@/lib/formatters';
+import { apiClient } from '@/api/services';
 import type {
   AdapterRepositorySummary,
   CoreMLMode,

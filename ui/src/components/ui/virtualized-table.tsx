@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { cn } from "./utils";
+import { cn } from "@/lib/utils";
 
 interface VirtualizedTableRowsProps {
   items: unknown[];

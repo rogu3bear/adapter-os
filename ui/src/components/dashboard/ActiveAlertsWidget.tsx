@@ -8,10 +8,12 @@ import { usePolling } from '@/hooks/realtime/usePolling';
 import { useServiceStatus } from '@/hooks/system/useServiceStatus';
 import { useRelativeTime } from '@/hooks/ui/useTimestamp';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import type { Alert as ApiAlert } from '@/api/types';
 import { logger, toError } from '@/utils/logger';
 import { DashboardWidgetFrame, type DashboardWidgetState } from './DashboardWidgetFrame';
+import { buildMetricsLink } from '@/utils/navLinks';
+import { withSectionErrorBoundary } from '@/components/ui/section-error-boundary';
 
 interface Alert {
   id: string;
@@ -57,7 +59,7 @@ function mapApiAlertToWidgetAlert(apiAlert: ApiAlert): Alert {
   };
 }
 
-export function ActiveAlertsWidget() {
+function ActiveAlertsWidgetBase() {
   const navigate = useNavigate();
   const { selectedTenant } = useTenant();
   const [typeFilter, setTypeFilter] = React.useState<EventType>('all');
@@ -274,10 +276,12 @@ export function ActiveAlertsWidget() {
         variant="outline"
         size="sm"
         className="w-full"
-        onClick={() => navigate('/metrics')}
+        onClick={() => navigate(buildMetricsLink())}
       >
         View All Alerts
       </Button>
     </DashboardWidgetFrame>
   );
 }
+
+export const ActiveAlertsWidget = withSectionErrorBoundary(ActiveAlertsWidgetBase, 'Active Alerts Widget');

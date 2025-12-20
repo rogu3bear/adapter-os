@@ -23,7 +23,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { GlossaryTooltip } from '@/components/ui/glossary-tooltip';
 import { EmptyState } from '@/components/ui/empty-state';
 import { AdapterActivation } from '@/api/adapter-types';
-import { formatPercent as formatPercentUtil } from '@/utils/format';
+import { formatPercent as formatPercentUtil } from '@/lib/formatters';
 
 interface AdapterActivationsProps {
   adapterId: string;

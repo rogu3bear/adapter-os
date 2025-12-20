@@ -7,7 +7,7 @@
 
 import { FileText } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { cn } from '@/components/ui/utils';
+import { cn } from '@/lib/utils';
 import type { EvidenceItem } from './ChatMessage';
 
 interface InlineEvidencePreviewProps {

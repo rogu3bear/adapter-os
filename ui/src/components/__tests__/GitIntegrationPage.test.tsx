@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import { vi } from 'vitest';
 import { GitIntegrationPage } from '@/pages/Git/GitIntegrationPage';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 
 // Mock dependencies
 vi.mock('@/api/client');

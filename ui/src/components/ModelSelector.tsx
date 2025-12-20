@@ -7,7 +7,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 import { Progress } from './ui/progress';
 import { CheckCircle, XCircle, AlertTriangle, Download, Loader2, Copy, Terminal, Play, Square } from 'lucide-react';
 import { toast } from 'sonner';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import type { ModelValidationResponse, ModelWithStatsResponse } from '@/api/types';
 import { logger } from '@/utils/logger';
 

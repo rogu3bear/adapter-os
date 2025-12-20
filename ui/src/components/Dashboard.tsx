@@ -15,7 +15,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { toast } from 'sonner';
 import { logger } from '@/utils/logger';
 import { useActivityFeed } from '@/hooks/realtime/useActivityFeed';
-import { formatRelativeTime } from '@/utils/format';
+import { formatRelativeTime } from '@/lib/formatters';
 import {
   Activity,
   Server,
@@ -43,28 +43,42 @@ import { useInformationDensity } from '@/hooks/ui/useInformationDensity';
 import { DensityControls } from './ui/density-controls';
 import { PluginStatusWidget } from './dashboard/PluginStatusWidget';
 import { DashboardSettings } from './dashboard/DashboardSettings';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { usePolling } from '@/hooks/realtime/usePolling';
 import { useSSE } from '@/hooks/realtime/useSSE';
 import { useDashboardConfig } from '@/hooks/config/useDashboardConfig';
 import type { User, TrainingJob, DatasetValidationStatus, AdapterStack, Adapter } from '@/api/types';
+import type { DashboardProps } from '@/types/components';
 import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
 import { GlossaryTooltip } from './ui/glossary-tooltip';
 import { useRBAC } from '@/hooks/security/useRBAC';
 import { PageHeader } from './ui/page-header';
 import { ActionGrid } from './ui/action-grid';
 import { KpiGrid, ContentGrid, FormGrid } from './ui/grid';
-import { useModalManager } from '@/contexts/ModalContext';
+import { createDialogManager } from '@/hooks/ui/useDialogManager';
 import { SectionErrorBoundary } from '@/components/ui/section-error-boundary';
 import { useTraining } from '@/hooks/training';
 import { useAdapterStacks, useGetDefaultStack } from '@/hooks/admin/useAdmin';
 import { QUERY_FAST } from '@/api/queryOptions';
+import {
+  buildTrainingDatasetsLink,
+  buildTrainingJobsLink,
+  buildTrainingOverviewLink,
+  buildAdaptersListLink,
+  buildSecurityPoliciesLink,
+  buildAdminStacksLink,
+  buildChatLink,
+} from '@/utils/navLinks';
 
-const MODAL_IDS = {
-  HEALTH: 'dashboard-health',
-  CREATE_TENANT: 'dashboard-create-tenant',
-  DEPLOY_ADAPTER: 'dashboard-deploy-adapter',
-} as const;
+// Dashboard dialog manager - local state-based dialog management
+const useDashboardDialogs = createDialogManager<
+  'health' | 'createTenant' | 'deployAdapter',
+  {
+    health: undefined;
+    createTenant: undefined;
+    deployAdapter: undefined;
+  }
+>(['health', 'createTenant', 'deployAdapter'] as const);
 
 // Static dashboard tabs - moved outside component to prevent recreation
 const DASHBOARD_TABS = [
@@ -72,12 +86,6 @@ const DASHBOARD_TABS = [
   { id: 'nodes', label: 'Nodes', icon: Server, description: 'Compute infrastructure monitoring' },
   { id: 'alerts', label: 'Alerts', icon: Bell, description: 'System alerts and monitoring' }
 ] as const;
-
-interface DashboardProps {
-  user?: User;
-  selectedTenant?: string;
-  onNavigate?: (tab: string) => void;
-}
 
 interface DashboardWidget {
   id: string;
@@ -99,7 +107,7 @@ interface DashboardLayout {
 export const Dashboard = memo(function Dashboard({ user, selectedTenant, onNavigate }: DashboardProps) {
   const navigate = useNavigate();
   const { can, userRole } = useRBAC();
-  const { openModal, closeModal, isOpen } = useModalManager();
+  const dialogs = useDashboardDialogs();
 
   // SSE connection for real-time metrics updates
   const {
@@ -256,12 +264,13 @@ export const Dashboard = memo(function Dashboard({ user, selectedTenant, onNavig
 
   const datasets = useMemo(() => datasetsData?.datasets ?? [], [datasetsData]);
   const datasetStats = useMemo(() => {
-    const counts: Record<DatasetValidationStatus, number> & { total: number } = {
-      draft: 0,
+    const counts: Record<DatasetValidationStatus, number> & { total: number; draft?: number } = {
+      pending: 0,
       validating: 0,
       valid: 0,
       invalid: 0,
-      failed: 0,
+      skipped: 0,
+      draft: 0,
       total: datasets.length,
     };
 
@@ -274,7 +283,7 @@ export const Dashboard = memo(function Dashboard({ user, selectedTenant, onNavig
 
   const trainingJobs = useMemo(() => trainingJobsData?.jobs ?? [], [trainingJobsData]);
 
-  const parseTimestamp = useCallback((value?: string) => {
+  const parseTimestamp = useCallback((value?: string | null) => {
     if (!value) {
       return 0;
     }
@@ -345,7 +354,7 @@ export const Dashboard = memo(function Dashboard({ user, selectedTenant, onNavig
       : defaultStack
         ? `Tenant ${effectiveTenant} • Default stack ${defaultStack.name} • System status: Operational`
         : `Tenant ${effectiveTenant} • No default stack configured • System status: Operational`;
-  const deployModalOpen = isOpen(MODAL_IDS.DEPLOY_ADAPTER);
+  const deployModalOpen = dialogs.isOpen('deployAdapter');
 
   // Fetch dashboard data
   const fetchData = useCallback(async () => {
@@ -393,7 +402,7 @@ export const Dashboard = memo(function Dashboard({ user, selectedTenant, onNavig
         isolation_level: newTenantIsolation,
       });
       toast.success(`Tenant "${newTenantName}" created successfully`);
-      closeModal();
+      dialogs.closeDialog('createTenant');
       setNewTenantName('');
       setNewTenantIsolation('standard');
       setCreateTenantError(null);
@@ -415,7 +424,7 @@ export const Dashboard = memo(function Dashboard({ user, selectedTenant, onNavig
       // For now, we'll just show a success message
       // In a full implementation, this would call an adapter deployment endpoint
       toast.success(`Adapter deployed to tenant "${deployTargetTenant}"`);
-      closeModal();
+      dialogs.closeDialog('deployAdapter');
       setSelectedAdapter('');
       setDeployAdapterError(null);
     } catch (err) {
@@ -499,7 +508,7 @@ export const Dashboard = memo(function Dashboard({ user, selectedTenant, onNavig
       icon: Activity,
       color: 'text-emerald-600',
       helpId: 'quick-action-health',
-      onClick: () => openModal(MODAL_IDS.HEALTH)
+      onClick: () => dialogs.openDialog('health')
     },
     {
       label: 'Create Tenant',
@@ -508,7 +517,7 @@ export const Dashboard = memo(function Dashboard({ user, selectedTenant, onNavig
       helpId: 'quick-action-create-tenant',
       disabled: !can('tenant:manage'),
       disabledTitle: 'Requires tenant:manage permission',
-      onClick: () => openModal(MODAL_IDS.CREATE_TENANT)
+      onClick: () => dialogs.openDialog('createTenant')
     },
     {
       label: 'Deploy Adapter',
@@ -517,16 +526,16 @@ export const Dashboard = memo(function Dashboard({ user, selectedTenant, onNavig
       helpId: 'quick-action-deploy-adapter',
       disabled: !can('adapter:register'),
       disabledTitle: 'Requires adapter:register permission',
-      onClick: () => openModal(MODAL_IDS.DEPLOY_ADAPTER)
+      onClick: () => dialogs.openDialog('deployAdapter')
     },
     {
       label: 'Review Policies',
       icon: Shield,
       color: 'text-amber-600',
       helpId: 'quick-action-policies',
-      onClick: () => (onNavigate ? onNavigate('policies') : navigate('/security/policies'))
+      onClick: () => (onNavigate ? onNavigate('policies') : navigate(buildSecurityPoliciesLink()))
     }
-  ], [can, openModal, onNavigate, navigate]);
+  ], [can, dialogs, onNavigate, navigate]);
 
   // Merge SSE and polling data - SSE takes priority for real-time updates
   const effectiveMetrics = sseMetrics || systemMetrics;
@@ -629,236 +638,246 @@ export const Dashboard = memo(function Dashboard({ user, selectedTenant, onNavig
 
             <ContentGrid className="gap-4">
               {/* Datasets */}
-              <Card>
-                <CardHeader>
-                  <CardTitle>Get started with your data</CardTitle>
-                  <p className="text-sm text-muted-foreground">Upload and validate datasets before training.</p>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {datasetsLoading ? (
-                    <Skeleton className="h-20 w-full" />
-                  ) : datasetsError ? (
-                    errorRecoveryTemplates.genericError(datasetsError, refetchDatasets)
-                  ) : (
-                    <>
-                      <div className="flex items-center justify-between gap-4">
-                        <div>
-                          <p className="text-2xl font-bold">{datasetStats.total}</p>
-                          <p className="text-xs text-muted-foreground">Total datasets</p>
-                        </div>
-                      <div className="flex flex-wrap gap-2 text-xs">
-                        <Badge variant="outline">Valid {datasetStats.valid}</Badge>
-                        <Badge variant="outline">Draft {datasetStats.draft}</Badge>
-                        <Badge variant="outline">Invalid {datasetStats.invalid}</Badge>
-                      </div>
-                    </div>
-                    <p className="text-sm text-muted-foreground">
-                      {datasetStats.total === 0
-                        ? 'No datasets yet. Upload one to begin training.'
-                        : 'Validation overview for your datasets.'}
-                    </p>
-                    <div className="flex flex-wrap gap-2">
-                        <Button asChild>
-                          <Link to="/training/datasets" state={{ openUpload: true }}>
-                            Upload dataset
-                          </Link>
-                        </Button>
-                        <Button variant="outline" asChild>
-                          <Link to="/training/datasets">View datasets</Link>
-                        </Button>
-                      </div>
-                    </>
-                  )}
-                </CardContent>
-              </Card>
-
-              {/* Training */}
-              <Card>
-                <CardHeader>
-                  <CardTitle>Training jobs</CardTitle>
-                  <p className="text-sm text-muted-foreground">Track running jobs or start a new training.</p>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {trainingJobsLoading ? (
-                    <Skeleton className="h-20 w-full" />
-                  ) : trainingJobsError ? (
-                    errorRecoveryTemplates.genericError(trainingJobsError, refetchTrainingJobs)
-                  ) : (
-                    <>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <p className="text-2xl font-bold">{runningJobs}</p>
-                          <p className="text-xs text-muted-foreground">Running jobs</p>
-                        </div>
-                        <div>
-                          <p className="text-2xl font-bold">{completedLast7Days}</p>
-                          <p className="text-xs text-muted-foreground">Completed last 7 days</p>
-                        </div>
-                      </div>
-                      {recentTrainingJob ? (
-                        <div className="rounded-lg border bg-muted/40 p-3 space-y-1">
-                          <div className="flex items-center justify-between gap-2">
-                            <p className="text-sm font-medium truncate">
-                              {recentTrainingJob.adapter_name || recentTrainingJob.id}
-                            </p>
-                            <Badge variant="outline">{recentTrainingJob.status}</Badge>
+              <SectionErrorBoundary sectionName="Datasets">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Get started with your data</CardTitle>
+                    <p className="text-sm text-muted-foreground">Upload and validate datasets before training.</p>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {datasetsLoading ? (
+                      <Skeleton className="h-20 w-full" />
+                    ) : datasetsError ? (
+                      errorRecoveryTemplates.genericError(datasetsError, refetchDatasets)
+                    ) : (
+                      <>
+                        <div className="flex items-center justify-between gap-4">
+                          <div>
+                            <p className="text-2xl font-bold">{datasetStats.total}</p>
+                            <p className="text-xs text-muted-foreground">Total datasets</p>
                           </div>
-                          <p className="text-xs text-muted-foreground">
-                            Dataset: {recentTrainingJob.dataset_id || '—'}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            Stack: {recentTrainingJob.stack_id ? (stackNameLookup.get(recentTrainingJob.stack_id) || recentTrainingJob.stack_id) : 'Not set'}
-                          </p>
-                        </div>
-                      ) : (
-                        <p className="text-sm text-muted-foreground">
-                          No training jobs yet. Start training after you have a validated dataset.
-                        </p>
-                      )}
-                      <div className="flex flex-wrap gap-2">
-                        <Button variant="outline" asChild>
-                          <Link to="/training/jobs">View training jobs</Link>
-                        </Button>
-                        <Button asChild>
-                          <Link to="/training" state={{ openTrainingWizard: true }}>
-                            Start new training
-                          </Link>
-                        </Button>
-                      </div>
-                    </>
-                  )}
-                </CardContent>
-              </Card>
-
-              {/* Training Wizard Quick Start */}
-              <Card className="border-primary/40">
-                <CardHeader>
-                  <CardTitle>Training Wizard</CardTitle>
-                  <p className="text-sm text-muted-foreground">
-                    Guided: upload or pick a dataset, auto-validate, then start training.
-                  </p>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <p className="text-xs text-muted-foreground">
-                    Best for the common path. For complex datasets, jump to advanced tools.
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    <Button asChild>
-                      <Link to="/training" state={{ openTrainingWizard: true }}>
-                        Start Training Wizard
-                      </Link>
-                    </Button>
-                    <Button variant="outline" asChild>
-                      <Link to="/training/datasets" state={{ openUpload: true }}>
-                        Advanced dataset tools
-                      </Link>
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Adapters & stacks */}
-              <Card>
-                <CardHeader>
-                  <CardTitle>Adapters & stacks</CardTitle>
-                  <p className="text-sm text-muted-foreground">See what is ready to serve.</p>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {(adaptersLoading || stacksLoading || defaultStackLoading) ? (
-                    <Skeleton className="h-20 w-full" />
-                  ) : adapterStackError ? (
-                    errorRecoveryTemplates.genericError(
-                      adapterStackError,
-                      () => {
-                        refetchAdapters();
-                        refetchStacks();
-                        refetchDefaultStack();
-                      }
-                    )
-                  ) : (
-                    <>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <p className="text-2xl font-bold">{adapterTotal}</p>
-                          <p className="text-xs text-muted-foreground">Adapters</p>
-                        </div>
-                        <div>
-                          <p className="text-2xl font-bold">{stackTotal}</p>
-                          <p className="text-xs text-muted-foreground">Stacks</p>
+                        <div className="flex flex-wrap gap-2 text-xs">
+                          <Badge variant="outline">Valid {datasetStats.valid}</Badge>
+                          <Badge variant="outline">Draft {datasetStats.draft}</Badge>
+                          <Badge variant="outline">Invalid {datasetStats.invalid}</Badge>
                         </div>
                       </div>
                       <p className="text-sm text-muted-foreground">
-                        {stackTotal === 0
-                          ? 'No adapters or stacks yet. Complete a training job to register an adapter and auto-create a stack.'
-                          : defaultStack
-                            ? `Default stack for this tenant: ${defaultStack.name}`
-                            : 'No default stack configured. Training will auto-create one; you can also set it under Stacks.'}
+                        {datasetStats.total === 0
+                          ? 'No datasets yet. Upload one to begin training.'
+                          : 'Validation overview for your datasets.'}
                       </p>
                       <div className="flex flex-wrap gap-2">
-                        <Button variant="outline" asChild>
-                          <Link to="/adapters">Manage adapters</Link>
-                        </Button>
-                        <Button asChild variant="secondary">
-                          <Link to="/admin/stacks">Manage stacks</Link>
-                        </Button>
-                      </div>
-                    </>
-                  )}
-                </CardContent>
-              </Card>
-
-              {/* Chat */}
-              <Card>
-                <CardHeader>
-                  <CardTitle>Chat with your model</CardTitle>
-                  <p className="text-sm text-muted-foreground">Use the active stack or jump to the latest trained stack.</p>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {defaultStackLoading ? (
-                    <Skeleton className="h-16 w-full" />
-                  ) : defaultStackError ? (
-                    errorRecoveryTemplates.genericError(defaultStackError as Error, () => refetchDefaultStack())
-                  ) : (
-                    <>
-                      <div className="space-y-1">
-                        <p className="text-sm font-medium">
-                          Active stack: {defaultStack ? defaultStack.name : 'Not set'}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {defaultStack
-                            ? 'Chat requests will default to this stack.'
-                            : 'No default stack configured. Set one under Stacks or use a specific stack below.'}
-                        </p>
-                      </div>
-                      {recentCompletedJobWithStack ? (
-                        <div className="rounded-lg border bg-muted/40 p-3 space-y-1">
-                          <p className="text-xs text-muted-foreground">Most recent completed training</p>
-                          <p className="text-sm font-medium">
-                            Stack: {stackNameLookup.get(recentCompletedJobWithStack.stack_id || '') || recentCompletedJobWithStack.stack_id}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            Adapter: {recentCompletedJobWithStack.adapter_name || recentCompletedJobWithStack.adapter_id || '—'}
-                          </p>
-                        </div>
-                      ) : null}
-                      <div className="flex flex-wrap gap-2">
-                        <Button asChild>
-                          <Link to={defaultStack?.id ? `/chat?stack=${encodeURIComponent(defaultStack.id)}` : '/chat'}>
-                            Open chat
-                          </Link>
-                        </Button>
-                        {recentCompletedJobWithStack?.stack_id && (
-                          <Button variant="outline" asChild>
-                            <Link to={`/chat?stack=${encodeURIComponent(recentCompletedJobWithStack.stack_id)}`}>
-                              Chat with latest trained stack
+                          <Button asChild>
+                            <Link to={buildTrainingDatasetsLink()} state={{ openUpload: true }}>
+                              Upload dataset
                             </Link>
                           </Button>
+                          <Button variant="outline" asChild>
+                            <Link to={buildTrainingDatasetsLink()}>View datasets</Link>
+                          </Button>
+                        </div>
+                      </>
+                    )}
+                  </CardContent>
+                </Card>
+              </SectionErrorBoundary>
+
+              {/* Training */}
+              <SectionErrorBoundary sectionName="Training Jobs">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Training jobs</CardTitle>
+                    <p className="text-sm text-muted-foreground">Track running jobs or start a new training.</p>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {trainingJobsLoading ? (
+                      <Skeleton className="h-20 w-full" />
+                    ) : trainingJobsError ? (
+                      errorRecoveryTemplates.genericError(trainingJobsError, refetchTrainingJobs)
+                    ) : (
+                      <>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <p className="text-2xl font-bold">{runningJobs}</p>
+                            <p className="text-xs text-muted-foreground">Running jobs</p>
+                          </div>
+                          <div>
+                            <p className="text-2xl font-bold">{completedLast7Days}</p>
+                            <p className="text-xs text-muted-foreground">Completed last 7 days</p>
+                          </div>
+                        </div>
+                        {recentTrainingJob ? (
+                          <div className="rounded-lg border bg-muted/40 p-3 space-y-1">
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="text-sm font-medium truncate">
+                                {recentTrainingJob.adapter_name || recentTrainingJob.id}
+                              </p>
+                              <Badge variant="outline">{recentTrainingJob.status}</Badge>
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                              Dataset: {recentTrainingJob.dataset_id || '—'}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              Stack: {recentTrainingJob.stack_id ? (stackNameLookup.get(recentTrainingJob.stack_id) || recentTrainingJob.stack_id) : 'Not set'}
+                            </p>
+                          </div>
+                        ) : (
+                          <p className="text-sm text-muted-foreground">
+                            No training jobs yet. Start training after you have a validated dataset.
+                          </p>
                         )}
-                      </div>
-                    </>
-                  )}
-                </CardContent>
-              </Card>
+                        <div className="flex flex-wrap gap-2">
+                          <Button variant="outline" asChild>
+                            <Link to={buildTrainingJobsLink()}>View training jobs</Link>
+                          </Button>
+                          <Button asChild>
+                            <Link to={buildTrainingOverviewLink()} state={{ openTrainingWizard: true }}>
+                              Start new training
+                            </Link>
+                          </Button>
+                        </div>
+                      </>
+                    )}
+                  </CardContent>
+                </Card>
+              </SectionErrorBoundary>
+
+              {/* Training Wizard Quick Start */}
+              <SectionErrorBoundary sectionName="Training Wizard">
+                <Card className="border-primary/40">
+                  <CardHeader>
+                    <CardTitle>Training Wizard</CardTitle>
+                    <p className="text-sm text-muted-foreground">
+                      Guided: upload or pick a dataset, auto-validate, then start training.
+                    </p>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <p className="text-xs text-muted-foreground">
+                      Best for the common path. For complex datasets, jump to advanced tools.
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      <Button asChild>
+                        <Link to={buildTrainingOverviewLink()} state={{ openTrainingWizard: true }}>
+                          Start Training Wizard
+                        </Link>
+                      </Button>
+                      <Button variant="outline" asChild>
+                        <Link to={buildTrainingDatasetsLink()} state={{ openUpload: true }}>
+                          Advanced dataset tools
+                        </Link>
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              </SectionErrorBoundary>
+
+              {/* Adapters & stacks */}
+              <SectionErrorBoundary sectionName="Adapters & Stacks">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Adapters & stacks</CardTitle>
+                    <p className="text-sm text-muted-foreground">See what is ready to serve.</p>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {(adaptersLoading || stacksLoading || defaultStackLoading) ? (
+                      <Skeleton className="h-20 w-full" />
+                    ) : adapterStackError ? (
+                      errorRecoveryTemplates.genericError(
+                        adapterStackError,
+                        () => {
+                          refetchAdapters();
+                          refetchStacks();
+                          refetchDefaultStack();
+                        }
+                      )
+                    ) : (
+                      <>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <p className="text-2xl font-bold">{adapterTotal}</p>
+                            <p className="text-xs text-muted-foreground">Adapters</p>
+                          </div>
+                          <div>
+                            <p className="text-2xl font-bold">{stackTotal}</p>
+                            <p className="text-xs text-muted-foreground">Stacks</p>
+                          </div>
+                        </div>
+                        <p className="text-sm text-muted-foreground">
+                          {stackTotal === 0
+                            ? 'No adapters or stacks yet. Complete a training job to register an adapter and auto-create a stack.'
+                            : defaultStack
+                              ? `Default stack for this tenant: ${defaultStack.name}`
+                              : 'No default stack configured. Training will auto-create one; you can also set it under Stacks.'}
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                          <Button variant="outline" asChild>
+                            <Link to={buildAdaptersListLink()}>Manage adapters</Link>
+                          </Button>
+                          <Button asChild variant="secondary">
+                            <Link to={buildAdminStacksLink()}>Manage stacks</Link>
+                          </Button>
+                        </div>
+                      </>
+                    )}
+                  </CardContent>
+                </Card>
+              </SectionErrorBoundary>
+
+              {/* Chat */}
+              <SectionErrorBoundary sectionName="Chat">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Chat with your model</CardTitle>
+                    <p className="text-sm text-muted-foreground">Use the active stack or jump to the latest trained stack.</p>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {defaultStackLoading ? (
+                      <Skeleton className="h-16 w-full" />
+                    ) : defaultStackError ? (
+                      errorRecoveryTemplates.genericError(defaultStackError as Error, () => refetchDefaultStack())
+                    ) : (
+                      <>
+                        <div className="space-y-1">
+                          <p className="text-sm font-medium">
+                            Active stack: {defaultStack ? defaultStack.name : 'Not set'}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {defaultStack
+                              ? 'Chat requests will default to this stack.'
+                              : 'No default stack configured. Set one under Stacks or use a specific stack below.'}
+                          </p>
+                        </div>
+                        {recentCompletedJobWithStack ? (
+                          <div className="rounded-lg border bg-muted/40 p-3 space-y-1">
+                            <p className="text-xs text-muted-foreground">Most recent completed training</p>
+                            <p className="text-sm font-medium">
+                              Stack: {stackNameLookup.get(recentCompletedJobWithStack.stack_id || '') || recentCompletedJobWithStack.stack_id}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              Adapter: {recentCompletedJobWithStack.adapter_name || recentCompletedJobWithStack.adapter_id || '—'}
+                            </p>
+                          </div>
+                        ) : null}
+                        <div className="flex flex-wrap gap-2">
+                          <Button asChild>
+                            <Link to={buildChatLink({ stackId: defaultStack?.id })}>
+                              Open chat
+                            </Link>
+                          </Button>
+                          {recentCompletedJobWithStack?.stack_id && (
+                            <Button variant="outline" asChild>
+                              <Link to={buildChatLink({ stackId: recentCompletedJobWithStack.stack_id })}>
+                                Chat with latest trained stack
+                              </Link>
+                            </Button>
+                          )}
+                        </div>
+                      </>
+                    )}
+                  </CardContent>
+                </Card>
+              </SectionErrorBoundary>
             </ContentGrid>
           </div>
 
@@ -936,81 +955,83 @@ export const Dashboard = memo(function Dashboard({ user, selectedTenant, onNavig
           {/* Content Grid */}
           <ContentGrid>
             {/* System Resources */}
-            <Card className="card-standard">
-              <CardHeader>
-                <CardTitle>System Resources</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <div className="space-y-2">
-                  <div className="flex justify-between items-center mb-2">
-                    <div className="flex items-center gap-2">
-                      <Cpu className="h-5 w-5 text-muted-foreground" />
-                      <GlossaryTooltip termId="cpu-usage">
-                        <span className="text-sm font-medium cursor-help">CPU Usage</span>
-                      </GlossaryTooltip>
-                      {connected && (
-                        <Badge variant="outline" className="text-xs px-2 py-0 h-5">
-                          <span className="relative flex h-2 w-2 mr-1">
-                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                            <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
-                          </span>
-                          Live
-                        </Badge>
-                      )}
+            <SectionErrorBoundary sectionName="System Resources">
+              <Card className="card-standard">
+                <CardHeader>
+                  <CardTitle>System Resources</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-center mb-2">
+                      <div className="flex items-center gap-2">
+                        <Cpu className="h-5 w-5 text-muted-foreground" />
+                        <GlossaryTooltip termId="cpu-usage">
+                          <span className="text-sm font-medium cursor-help">CPU Usage</span>
+                        </GlossaryTooltip>
+                        {connected && (
+                          <Badge variant="outline" className="text-xs px-2 py-0 h-5">
+                            <span className="relative flex h-2 w-2 mr-1">
+                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                              <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                            </span>
+                            Live
+                          </Badge>
+                        )}
+                      </div>
+                      <span className="text-sm font-semibold">
+                        {systemMetrics ? `${cpuUsage.toFixed(1)}%` : '--'}
+                      </span>
                     </div>
-                    <span className="text-sm font-semibold">
-                      {systemMetrics ? `${cpuUsage.toFixed(1)}%` : '--'}
-                    </span>
+                    <Progress value={cpuUsage} className="h-3 transition-all duration-500" />
                   </div>
-                  <Progress value={cpuUsage} className="h-3 transition-all duration-500" />
-                </div>
 
-                <div className="space-y-2">
-                  <div className="flex justify-between items-center mb-2">
-                    <div className="flex items-center gap-2">
-                      <HardDrive className="h-5 w-5 text-muted-foreground" />
-                      <GlossaryTooltip termId="memory-usage">
-                        <span className="text-sm font-medium cursor-help">Memory Usage</span>
-                      </GlossaryTooltip>
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-center mb-2">
+                      <div className="flex items-center gap-2">
+                        <HardDrive className="h-5 w-5 text-muted-foreground" />
+                        <GlossaryTooltip termId="memory-usage">
+                          <span className="text-sm font-medium cursor-help">Memory Usage</span>
+                        </GlossaryTooltip>
+                      </div>
+                      <span className="text-sm font-semibold">
+                        {systemMetrics ? `${memoryUsage.toFixed(1)}%` : '--'}
+                      </span>
                     </div>
-                    <span className="text-sm font-semibold">
-                      {systemMetrics ? `${memoryUsage.toFixed(1)}%` : '--'}
-                    </span>
+                    <Progress value={memoryUsage} className="h-3 transition-all duration-500" />
                   </div>
-                  <Progress value={memoryUsage} className="h-3 transition-all duration-500" />
-                </div>
 
-                <div className="space-y-2">
-                  <div className="flex justify-between items-center mb-2">
-                    <div className="flex items-center gap-2">
-                      <HardDrive className="h-5 w-5 text-muted-foreground" />
-                      <GlossaryTooltip termId="disk-usage">
-                        <span className="text-sm font-medium cursor-help">Disk Usage</span>
-                      </GlossaryTooltip>
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-center mb-2">
+                      <div className="flex items-center gap-2">
+                        <HardDrive className="h-5 w-5 text-muted-foreground" />
+                        <GlossaryTooltip termId="disk-usage">
+                          <span className="text-sm font-medium cursor-help">Disk Usage</span>
+                        </GlossaryTooltip>
+                      </div>
+                      <span className="text-sm font-semibold">
+                        {systemMetrics ? `${diskUsage.toFixed(1)}%` : '--'}
+                      </span>
                     </div>
-                    <span className="text-sm font-semibold">
-                      {systemMetrics ? `${diskUsage.toFixed(1)}%` : '--'}
-                    </span>
+                    <Progress value={diskUsage} className="h-3 transition-all duration-500" />
                   </div>
-                  <Progress value={diskUsage} className="h-3 transition-all duration-500" />
-                </div>
 
-                <div className="space-y-2">
-                  <div className="flex justify-between items-center mb-2">
-                    <div className="flex items-center gap-2">
-                      <Network className="h-5 w-5 text-muted-foreground" />
-                      <GlossaryTooltip termId="network-bandwidth">
-                        <span className="text-sm font-medium cursor-help">Network Bandwidth</span>
-                      </GlossaryTooltip>
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-center mb-2">
+                      <div className="flex items-center gap-2">
+                        <Network className="h-5 w-5 text-muted-foreground" />
+                        <GlossaryTooltip termId="network-bandwidth">
+                          <span className="text-sm font-medium cursor-help">Network Bandwidth</span>
+                        </GlossaryTooltip>
+                      </div>
+                      <span className="text-sm font-semibold">
+                        {systemMetrics ? `${networkBandwidth} MB/s` : '--'}
+                      </span>
                     </div>
-                    <span className="text-sm font-semibold">
-                      {systemMetrics ? `${networkBandwidth} MB/s` : '--'}
-                    </span>
+                    <Progress value={Math.min(parseFloat(networkBandwidth), 100)} className="h-3 transition-all duration-500" />
                   </div>
-                  <Progress value={Math.min(parseFloat(networkBandwidth), 100)} className="h-3 transition-all duration-500" />
-                </div>
-              </CardContent>
-            </Card>
+                </CardContent>
+              </Card>
+            </SectionErrorBoundary>
 
             {/* Recent Activity */}
             <SectionErrorBoundary sectionName="Recent Activity">
@@ -1082,7 +1103,7 @@ export const Dashboard = memo(function Dashboard({ user, selectedTenant, onNavig
           />
 
           {/* System Health Modal */}
-          <Dialog open={isOpen(MODAL_IDS.HEALTH)} onOpenChange={(open) => !open && closeModal()}>
+          <Dialog open={dialogs.isOpen('health')} onOpenChange={(open) => !open && dialogs.closeDialog('health')}>
             <DialogContent className="max-w-2xl">
               <DialogHeader>
                 <DialogTitle>System Health Details</DialogTitle>
@@ -1128,15 +1149,15 @@ export const Dashboard = memo(function Dashboard({ user, selectedTenant, onNavig
                 </div>
               </div>
               <DialogFooter>
-                <Button variant="outline" onClick={() => closeModal()}>Close</Button>
+                <Button variant="outline" onClick={() => dialogs.closeDialog('health')}>Close</Button>
               </DialogFooter>
             </DialogContent>
           </Dialog>
 
           {/* Create Tenant Modal */}
-          <Dialog open={isOpen(MODAL_IDS.CREATE_TENANT)} onOpenChange={(open) => {
+          <Dialog open={dialogs.isOpen('createTenant')} onOpenChange={(open) => {
             if (!open) {
-              closeModal();
+              dialogs.closeDialog('createTenant');
               setCreateTenantError(null);
             }
           }}>
@@ -1177,7 +1198,7 @@ export const Dashboard = memo(function Dashboard({ user, selectedTenant, onNavig
               </div>
               <DialogFooter>
                 <Button variant="outline" onClick={() => {
-                  closeModal();
+                  dialogs.closeDialog('createTenant');
                   setCreateTenantError(null);
                 }}>Cancel</Button>
                 <Button onClick={handleCreateTenant}>Create Tenant</Button>
@@ -1188,7 +1209,7 @@ export const Dashboard = memo(function Dashboard({ user, selectedTenant, onNavig
           {/* Deploy Adapter Modal */}
           <Dialog open={deployModalOpen} onOpenChange={(open) => {
             if (!open) {
-              closeModal();
+              dialogs.closeDialog('deployAdapter');
               setDeployAdapterError(null);
             }
           }}>
@@ -1230,7 +1251,7 @@ export const Dashboard = memo(function Dashboard({ user, selectedTenant, onNavig
               </div>
               <DialogFooter>
                 <Button variant="outline" onClick={() => {
-                  closeModal();
+                  dialogs.closeDialog('deployAdapter');
                   setDeployAdapterError(null);
                 }}>Cancel</Button>
                 <Button onClick={handleDeployAdapter}>Deploy</Button>

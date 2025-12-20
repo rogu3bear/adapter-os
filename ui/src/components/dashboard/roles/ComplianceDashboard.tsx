@@ -34,12 +34,13 @@ import {
   Search,
   Eye,
 } from 'lucide-react';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { PageHeader } from '@/components/ui/page-header';
 import { KpiGrid, ContentGrid } from '@/components/ui/grid';
 import { ActionGrid } from '@/components/ui/action-grid';
 import { GlossaryTooltip } from '@/components/ui/glossary-tooltip';
 import { logger } from '@/utils/logger';
+import { buildSecurityAuditLink } from '@/utils/navLinks';
 import type { AuditLog, ComplianceAuditResponse } from '@/api/api-types';
 import { CANONICAL_POLICIES, PolicyCategory, POLICY_CATEGORIES } from '@/api/policyTypes';
 
@@ -207,7 +208,7 @@ export default function ComplianceDashboard({ selectedTenant = 'default' }: Comp
         icon: FileText,
         color: 'text-blue-600',
         helpId: 'compliance-audit-logs',
-        onClick: () => window.open('/security/audit', '_blank'),
+        onClick: () => window.open(buildSecurityAuditLink(), '_blank'),
       },
       {
         label: 'Policy Report',
@@ -251,7 +252,7 @@ export default function ComplianceDashboard({ selectedTenant = 'default' }: Comp
         icon: Eye,
         color: 'text-amber-600',
         helpId: 'compliance-view-audit-trail',
-        onClick: () => window.open('/security/audit', '_blank'),
+        onClick: () => window.open(buildSecurityAuditLink(), '_blank'),
       },
     ],
     [complianceData, auditLogs, refetchCompliance]
@@ -508,7 +509,7 @@ export default function ComplianceDashboard({ selectedTenant = 'default' }: Comp
             <div className="flex items-center justify-between">
               <CardTitle>Recent Violations</CardTitle>
               <Button variant="outline" size="sm" asChild>
-                <Link to="/security/audit">View All</Link>
+                <Link to={buildSecurityAuditLink()}>View All</Link>
               </Button>
             </div>
           </CardHeader>
@@ -545,7 +546,7 @@ export default function ComplianceDashboard({ selectedTenant = 'default' }: Comp
                       </p>
                     </div>
                     <Button variant="ghost" size="sm" asChild>
-                      <Link to={`/security/audit?id=${violation.id}`}>
+                      <Link to={`${buildSecurityAuditLink()}?id=${violation.id}`}>
                         <Search className="h-4 w-4" />
                       </Link>
                     </Button>

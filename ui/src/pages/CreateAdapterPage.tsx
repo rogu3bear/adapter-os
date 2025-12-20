@@ -1,9 +1,8 @@
 import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import FeatureLayout from '@/layout/FeatureLayout';
+import PageWrapper from '@/layout/PageWrapper';
 import { TrainingWizard } from '@/components/TrainingWizard';
-import { DensityProvider } from '@/contexts/DensityContext';
-import { PageErrorsProvider } from '@/components/ui/page-error-boundary';
+import { buildTrainingJobDetailLink } from '@/utils/navLinks';
 
 /**
  * Create Adapter Page
@@ -22,7 +21,7 @@ export default function CreateAdapterPage() {
 
   const handleComplete = (jobId: string) => {
     // Navigate to training job detail page to monitor progress
-    navigate(`/training/jobs/${jobId}`);
+    navigate(buildTrainingJobDetailLink(jobId));
   };
 
   const handleCancel = () => {
@@ -31,23 +30,20 @@ export default function CreateAdapterPage() {
   };
 
   return (
-    <DensityProvider pageKey="create-adapter">
-      <FeatureLayout 
-        title="Create Adapter" 
-        description="Train a custom LoRA adapter in 3 simple steps"
-      >
-        <PageErrorsProvider>
-          <TrainingWizard
-            onComplete={handleComplete}
-            onCancel={handleCancel}
-            initialDatasetId={preselectedDatasetId}
-            lockDatasetId={!!preselectedDatasetId}
-            isStandalonePage
-            hideSimpleModeToggle
-          />
-        </PageErrorsProvider>
-      </FeatureLayout>
-    </DensityProvider>
+    <PageWrapper
+      pageKey="create-adapter"
+      title="Create Adapter"
+      description="Train a custom LoRA adapter in 3 simple steps"
+    >
+      <TrainingWizard
+        onComplete={handleComplete}
+        onCancel={handleCancel}
+        initialDatasetId={preselectedDatasetId}
+        lockDatasetId={!!preselectedDatasetId}
+        isStandalonePage
+        hideSimpleModeToggle
+      />
+    </PageWrapper>
   );
 }
 

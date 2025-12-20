@@ -7,8 +7,9 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Progress } from '@/components/ui/progress';
-import { CheckCircle, XCircle, RefreshCw, AlertCircle } from 'lucide-react';
-import type { Dataset } from '@/api/training-types';
+import { CheckCircle, XCircle, RefreshCw, AlertCircle, Clock } from 'lucide-react';
+import type { Dataset, ValidationStatus } from '@/api/training-types';
+import { apiClient } from '@/api/services';
 
 interface DatasetProgressEvent {
   dataset_id: string;
@@ -27,7 +28,7 @@ interface DatasetValidationProps {
   isValidating: boolean;
 }
 
-const STATUS_CONFIG: Record<string, { icon: React.ElementType; className: string; label: string }> = {
+const STATUS_CONFIG: Record<ValidationStatus, { icon: React.ElementType; className: string; label: string }> = {
   draft: {
     icon: RefreshCw,
     className: 'text-yellow-500',
@@ -48,10 +49,15 @@ const STATUS_CONFIG: Record<string, { icon: React.ElementType; className: string
     className: 'text-red-500',
     label: 'Invalid',
   },
-  failed: {
-    icon: AlertCircle,
-    className: 'text-red-500',
-    label: 'Failed',
+  pending: {
+    icon: Clock,
+    className: 'text-yellow-500',
+    label: 'Pending',
+  },
+  skipped: {
+    icon: RefreshCw,
+    className: 'text-gray-500',
+    label: 'Skipped',
   },
 };
 
@@ -72,9 +78,7 @@ export default function DatasetValidation({ dataset, onValidate, isValidating }:
     fetchFn: async () => {
       // Polling fallback: fetch dataset status when SSE unavailable
       try {
-        const response = await fetch(`/v1/datasets/${dataset.id}`);
-        if (!response.ok) return null;
-        const data = await response.json();
+        const data = await apiClient.getDataset(dataset.id);
 
         // Check validation status and provide appropriate progress
         if (data.validation_status === 'validating') {
@@ -87,7 +91,7 @@ export default function DatasetValidation({ dataset, onValidate, isValidating }:
             dataset_id: dataset.id,
             event_type: 'validation',
             percentage_complete: estimatedProgress,
-            message: `Validating dataset (${data.example_count || 0} examples)...`,
+            message: `Validating dataset (${data.sample_count || 0} examples)...`,
           } as DatasetProgressEvent;
         } else if (data.validation_status === 'valid') {
           // Reset poll counter and return completed
@@ -211,7 +215,7 @@ export default function DatasetValidation({ dataset, onValidate, isValidating }:
                 <StatusIcon className={`h-3 w-3 ${statusConfig.className}`} />
                 <span>{statusConfig.label}</span>
               </Badge>
-              {(dataset.validation_status === 'draft' || dataset.validation_status === 'invalid') && (
+              {((dataset.validation_status as string) === 'draft' || dataset.validation_status === 'invalid') && (
                 <Button onClick={onValidate} disabled={isValidating}>
                   <RefreshCw className={`h-4 w-4 mr-2 ${isValidating ? 'animate-spin' : ''}`} />
                   {isValidating ? 'Validating...' : 'Validate Dataset'}
@@ -296,4 +300,3 @@ export default function DatasetValidation({ dataset, onValidate, isValidating }:
     </div>
   );
 }
-

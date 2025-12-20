@@ -13,6 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Shield, FileText, ClipboardCheck, Wrench, CheckSquare } from 'lucide-react';
 import { useRBAC } from '@/hooks/security/useRBAC';
 import { ErrorRecovery } from '@/components/ui/error-recovery';
+import { PermissionDenied } from '@/components/ui/permission-denied';
 import { PageHeader } from '@/components/ui/page-header';
 import { SectionErrorBoundary } from '@/components/ui/section-error-boundary';
 import { PoliciesTab } from './PoliciesTab';
@@ -40,9 +41,9 @@ export default function SecurityPage() {
           title="Security"
           description="Manage security policies, audit logs, and compliance"
         />
-        <ErrorRecovery
-          error="You do not have permission to access security features. This page requires admin, SRE, or compliance role."
-          onRetry={() => window.location.reload()}
+        <PermissionDenied
+          requiredPermission="policy:view"
+          requiredRoles={['admin', 'sre', 'compliance', 'developer']}
         />
       </div>
     );

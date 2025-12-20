@@ -2,7 +2,7 @@ import React from 'react';
 import { Alert, AlertDescription, AlertTitle } from './alert';
 import { Button } from './button';
 import { X, Lightbulb } from 'lucide-react';
-import { cn } from './utils';
+import { cn } from '@/lib/utils';
 
 export interface ProgressiveHintProps {
   title: string;

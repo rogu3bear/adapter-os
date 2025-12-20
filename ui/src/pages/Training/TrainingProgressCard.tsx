@@ -34,16 +34,16 @@ const formatDuration = formatDurationUtil;
 
 export function TrainingProgressCard({ jobId, initialJob }: TrainingProgressCardProps) {
   const [progress, setProgress] = useState<TrainingMetrics>({
-    progress_pct: initialJob?.progress_pct || 0,
-    loss: initialJob?.current_loss || initialJob?.loss,
+    progress_pct: initialJob?.progress_pct ?? 0,
+    loss: initialJob?.current_loss ?? initialJob?.loss,
     current_epoch: initialJob?.current_epoch,
     total_epochs: initialJob?.total_epochs,
     tokens_per_second: initialJob?.tokens_per_second,
     eta_seconds: initialJob?.eta_seconds,
     learning_rate: initialJob?.learning_rate,
   });
-  const [status, setStatus] = useState<string>(initialJob?.status || 'running');
-  const [errorMessage, setErrorMessage] = useState<string | undefined>(initialJob?.error_message);
+  const [status, setStatus] = useState<string>(initialJob?.status ?? 'running');
+  const [errorMessage, setErrorMessage] = useState<string | undefined>(initialJob?.error_message ?? undefined);
 
   const { error: sseError, connectionStatus } = useLiveData({
     sseEndpoint: '/v1/streams/training',
@@ -78,7 +78,7 @@ export function TrainingProgressCard({ jobId, initialJob }: TrainingProgressCard
     },
   });
 
-  const connected = connectionStatus === 'sse';
+  const connected = connectionStatus === 'sse' || connectionStatus === 'polling';
 
   const getStatusIcon = () => {
     switch (status) {
@@ -156,9 +156,9 @@ export function TrainingProgressCard({ jobId, initialJob }: TrainingProgressCard
         <div className="space-y-2">
           <div className="flex items-center justify-between text-sm">
             <span className="font-medium">Overall Progress</span>
-            <span className="text-muted-foreground">{progress.progress_pct || 0}%</span>
+            <span className="text-muted-foreground">{progress.progress_pct ?? 0}%</span>
           </div>
-          <Progress value={progress.progress_pct || 0} className="h-2" />
+          <Progress value={progress.progress_pct ?? 0} className="h-2" />
         </div>
 
         {/* Epoch Progress */}

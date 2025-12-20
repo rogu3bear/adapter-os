@@ -7,7 +7,7 @@
  */
 
 import { useMutation, useQueryClient, UseMutationOptions, type QueryClient } from '@tanstack/react-query';
-import { apiClient } from '@/api/client';
+import { apiClient } from '@/api/services';
 import { createResourceHooks } from '@/hooks/factories/createApiHooks';
 import type {
   Adapter,

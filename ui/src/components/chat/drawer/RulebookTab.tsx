@@ -3,7 +3,7 @@ import { FileText, Download } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { cn } from '@/components/ui/utils';
+import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import type { EvidenceItem } from '@/components/chat/ChatMessage';
 

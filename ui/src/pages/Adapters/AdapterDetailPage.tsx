@@ -35,10 +35,13 @@ import { PageAsyncBoundary, SectionAsyncBoundary } from '@/components/shared/Fee
 
 import { useAdapterDetail, useAdapterOperations, useAdapterActions } from '@/hooks/adapters';
 import { useRBAC } from '@/hooks/security/useRBAC';
+import { PERMISSIONS } from '@/utils/rbac';
 import { useAdaptersStream } from '@/hooks/streaming/useStreamingEndpoints';
 import { getLifecycleVariant } from '@/utils/lifecycle';
 import { logger } from '@/utils/logger';
 import { isAdapterStateTransitionEvent, AdapterStreamEvent } from '@/api/streaming-types';
+import { useAuth } from '@/providers/CoreProviders';
+import { isDemoMvpMode } from '@/config/demo';
 
 import AdapterOverview from './AdapterOverview';
 import AdapterActivations from './AdapterActivations';
@@ -54,6 +57,7 @@ import { ConfirmationModal } from '@/components/shared/Modal';
 import { buildAdapterRecentActivity } from './adapterRecentActivity';
 import { useLineage } from '@/hooks/observability/useLineage';
 import { LineageViewer } from '@/components/lineage/LineageViewer';
+import { buildAdaptersListLink, buildTrainingJobsLink, buildTrainingJobDetailLink, buildAdapterDetailLink, buildDatasetDetailLink } from '@/utils/navLinks';
 
 type TabValue = 'overview' | 'evidence' | 'events' | 'activations' | 'lineage' | 'manifest' | 'lifecycle' | 'provenance';
 
@@ -69,6 +73,8 @@ function AdapterDetailContent() {
   const { adapterId } = useParams<{ adapterId: string }>();
   const navigate = useNavigate();
   const { can } = useRBAC();
+  const { sessionMode } = useAuth();
+  const demoMode = isDemoMvpMode(sessionMode);
   const [activeTab, setActiveTab] = useState<TabValue>('overview');
   const [showAddToStackModal, setShowAddToStackModal] = useState(false);
   const [lineageDirection, setLineageDirection] = useState<'both' | 'upstream' | 'downstream'>('both');
@@ -256,7 +262,7 @@ function AdapterDetailContent() {
     confirmationCopy,
   } = useAdapterActions({
     onRefetch: refetch,
-    onDeleteSuccess: () => navigate('/adapters'),
+    onDeleteSuccess: () => navigate(buildAdaptersListLink()),
     onShowPreflight: handleShowPreflight,
   });
 
@@ -270,7 +276,7 @@ function AdapterDetailContent() {
 
   // Handle back navigation
   const handleBack = () => {
-    navigate('/adapters');
+    navigate(buildAdaptersListLink());
   };
 
   // Handle refresh
@@ -492,14 +498,14 @@ function AdapterDetailContent() {
       }
       switch (node.type) {
         case 'adapter_version':
-          navigate(`/adapters/${node.id}`);
+          navigate(buildAdapterDetailLink(node.id));
           return;
         case 'training_job':
-          navigate(`/training/jobs/${node.id}`);
+          navigate(buildTrainingJobDetailLink(node.id));
           return;
         case 'dataset_version':
         case 'dataset':
-          navigate(`/training/datasets/${node.id}`);
+          navigate(buildDatasetDetailLink(node.id));
           return;
         case 'document':
           navigate(`/documents/${node.id}`);
@@ -678,25 +684,27 @@ function AdapterDetailContent() {
           <CardHeader className="pb-3">
             <CardTitle>Next steps</CardTitle>
           </CardHeader>
-          <CardContent className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div className="text-sm text-muted-foreground">
-              Train jobs for this adapter or configure routing to activate it in the stack.
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {adapter?.lineage?.training_job_id && (
-                <Button variant="outline" size="sm" onClick={() => navigate(`/training/jobs/${adapter.lineage?.training_job_id}`)}>
-                  Origin job
+            <CardContent className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div className="text-sm text-muted-foreground">
+              Train jobs for this adapter{demoMode ? '.' : ' or configure routing to activate it in the stack.'}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {adapter?.lineage?.training_job_id && (
+                  <Button variant="outline" size="sm" onClick={() => navigate(buildTrainingJobDetailLink(adapter.lineage!.training_job_id!))}>
+                    Origin job
+                  </Button>
+                )}
+                <Button size="sm" onClick={() => navigate(buildTrainingJobsLink({ adapterId }))}>
+                  View training jobs
+                </Button>
+              {!demoMode && (
+                <Button variant="outline" size="sm" onClick={() => navigate(`/router-config?adapterId=${adapterId}`)}>
+                  Configure routing
                 </Button>
               )}
-              <Button size="sm" onClick={() => navigate(`/training/jobs?adapterId=${adapterId}`)}>
-                View training jobs
-              </Button>
-              <Button variant="outline" size="sm" onClick={() => navigate(`/router-config?adapterId=${adapterId}`)}>
-                Configure routing
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+              </div>
+            </CardContent>
+          </Card>
 
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as TabValue)}>
@@ -937,7 +945,7 @@ function AdapterDetailContent() {
           canProceed={preflightResult.canProceed}
           onProceed={handlePreflightProceed}
           onCancel={handlePreflightCancel}
-          isAdmin={can('policy:override')}
+          isAdmin={can(PERMISSIONS.POLICY_OVERRIDE)}
           isLoading={isActionRunning}
         />
       )}

@@ -38,6 +38,7 @@
 
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { logger, toError } from '@/utils/logger';
+import { apiClient } from '@/api/services';
 import type { InferRequest } from '@/api/types';
 
 // ============================================================================
@@ -250,15 +251,17 @@ export function useStreamingInference(): UseStreamingInferenceResult {
       };
 
       // Make POST request with SSE response
+      const token = apiClient.getToken();
       const response = await fetch(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'text/event-stream',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify(requestBody),
         signal,
-        credentials: 'include',
+        credentials: 'omit',
       });
 
       if (!response.ok) {

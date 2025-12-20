@@ -4,8 +4,7 @@ import { MonitoringPage } from '@/pages/Monitoring/MonitoringPage';
 import { DensityProvider } from '@/contexts/DensityContext';
 import { useRBAC } from '@/hooks/security/useRBAC';
 import { PERMISSIONS } from '@/utils/rbac';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { ShieldAlert } from 'lucide-react';
+import { PermissionDenied } from '@/components/ui/permission-denied';
 import { SectionErrorBoundary } from '@/components/ui/section-error-boundary';
 import { Button } from '@/components/ui/button';
 import { Link } from 'react-router-dom';
@@ -54,12 +53,10 @@ export default function MetricsPage() {
     <DensityProvider pageKey="metrics">
       <FeatureLayout title="Metrics" description="System performance and health metrics">
         {!canViewMetrics ? (
-          <Alert variant="destructive">
-            <ShieldAlert className="h-4 w-4" />
-            <AlertDescription>
-              You do not have permission to view metrics. Required permission: metrics:view
-            </AlertDescription>
-          </Alert>
+          <PermissionDenied
+            requiredPermission={PERMISSIONS.METRICS_VIEW}
+            requiredRoles={['admin', 'operator', 'sre', 'compliance', 'auditor', 'viewer', 'developer']}
+          />
         ) : isLoading && !metrics ? (
           <LoadingState variant="minimal" message="Loading metrics..." />
         ) : (

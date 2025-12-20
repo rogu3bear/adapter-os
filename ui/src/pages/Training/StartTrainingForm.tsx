@@ -26,8 +26,9 @@ import {
   Cpu,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { logger } from '@/utils/logger';
+import { DatasetVersionPicker } from '@/components/training/DatasetVersionPicker';
 import type {
   TrainingTemplate,
   StartTrainingRequest,
@@ -65,13 +66,9 @@ const DEFAULT_CONFIG: TrainingConfigRequest = {
   rank: 16,
   alpha: 32,
   warmup_steps: 100,
-  weight_decay: 0.01,
-  gradient_clip: 1.0,
   max_seq_length: 512,
   gradient_accumulation_steps: 4,
-  save_steps: 500,
-  eval_steps: 500,
-  logging_steps: 100,
+  targets: ['q_proj', 'v_proj'], // Required field
 };
 
 const TRUST_BLOCK_MESSAGES: Record<string, string> = {
@@ -112,6 +109,7 @@ export function StartTrainingForm({
   // Form state
   const [adapterName, setAdapterName] = useState(preselectedAdapterId ?? '');
   const [datasetId, setDatasetId] = useState(preselectedDatasetId ?? '');
+  const [selectedVersionId, setSelectedVersionId] = useState<string | undefined>(undefined);
   const [templateId, setTemplateId] = useState('');
   const [config, setConfig] = useState<TrainingConfigRequest>(DEFAULT_CONFIG);
   const [loraTier, setLoraTier] = useState<'micro' | 'standard' | 'max'>('micro');
@@ -138,7 +136,9 @@ export function StartTrainingForm({
   const trustBlocked = Boolean(trustStateBlockCode(trustState));
   const trustWarn = trustState === 'allowed_with_warning';
   const trustBlockMessageText = trustStateBlockMessage(trustState);
-  const datasetVersionMissing = Boolean(datasetId) && Boolean(selectedDataset) && !selectedDatasetVersionId;
+  // Version is missing only if neither explicitly selected nor default exists
+  const hasVersion = Boolean(selectedVersionId) || Boolean(selectedDatasetVersionId);
+  const datasetVersionMissing = Boolean(datasetId) && Boolean(selectedDataset) && !hasVersion;
   const isDatasetTrainable = isDatasetValid && !trustBlocked && !datasetVersionMissing;
 
   useEffect(() => {
@@ -209,14 +209,21 @@ export function StartTrainingForm({
     loadData();
   }, [initialTemplate, preselectedDatasetId]);
 
-  // Keep dataset_version_ids selection in sync with the chosen dataset
+  // Keep dataset_version_ids selection in sync with the chosen version
   useEffect(() => {
-    if (selectedDatasetVersionId) {
-      setDatasetVersionSelections([{ dataset_version_id: selectedDatasetVersionId, weight: 1.0 }]);
+    // Use explicitly selected version if available, otherwise fall back to dataset's default
+    const versionToUse = selectedVersionId || selectedDatasetVersionId;
+    if (versionToUse) {
+      setDatasetVersionSelections([{ dataset_version_id: versionToUse, weight: 1.0 }]);
     } else {
       setDatasetVersionSelections([]);
     }
-  }, [selectedDatasetVersionId]);
+  }, [selectedVersionId, selectedDatasetVersionId]);
+
+  // Reset selected version when dataset changes
+  useEffect(() => {
+    setSelectedVersionId(undefined);
+  }, [datasetId]);
 
   // Handle loading a model
   const handleLoadModel = async () => {
@@ -654,12 +661,16 @@ export function StartTrainingForm({
                 ))}
               </SelectContent>
             </Select>
-            {selectedDataset?.dataset_version_id && (
-              <p className="text-xs text-muted-foreground">
-                Using latest trusted version of this dataset for training.
-              </p>
+            {/* Dataset Version Picker */}
+            {datasetId && (
+              <DatasetVersionPicker
+                datasetId={datasetId}
+                selectedVersionId={selectedVersionId}
+                onVersionSelect={setSelectedVersionId}
+                disabled={isSubmitting}
+              />
             )}
-            {datasetVersionMissing && (
+            {datasetVersionMissing && !selectedVersionId && (
               <Alert variant="destructive">
                 <AlertTriangle className="h-4 w-4" />
                 <AlertDescription>
@@ -711,7 +722,7 @@ export function StartTrainingForm({
               min={128}
               max={8192}
               step={128}
-              value={config.max_seq_length || 512}
+              value={config.max_seq_length ?? 512}
               onChange={(e) => updateConfig('max_seq_length', parseInt(e.target.value) || 512)}
             />
             <p className="text-xs text-muted-foreground">
@@ -796,89 +807,28 @@ export function StartTrainingForm({
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="warmup-steps">Warmup Steps</Label>
-              <Input
-                id="warmup-steps"
-                type="number"
-                min={0}
-                max={1000}
-                value={config.warmup_steps || 100}
-                onChange={(e) => updateConfig('warmup_steps', parseInt(e.target.value) || 0)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="weight-decay">Weight Decay</Label>
-              <Input
-                id="weight-decay"
-                type="number"
-                step="0.001"
-                min={0}
-                max={0.5}
-                value={config.weight_decay || 0.01}
-                onChange={(e) => updateConfig('weight_decay', parseFloat(e.target.value) || 0)}
-              />
-            </div>
+          <div className="space-y-2">
+            <Label htmlFor="warmup-steps">Warmup Steps</Label>
+            <Input
+              id="warmup-steps"
+              type="number"
+              min={0}
+              max={1000}
+              value={config.warmup_steps ?? 100}
+              onChange={(e) => updateConfig('warmup_steps', parseInt(e.target.value) || 0)}
+            />
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="gradient-clip">Gradient Clip</Label>
-              <Input
-                id="gradient-clip"
-                type="number"
-                step="0.1"
-                min={0.1}
-                max={10}
-                value={config.gradient_clip || 1.0}
-                onChange={(e) => updateConfig('gradient_clip', parseFloat(e.target.value) || 1.0)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="gradient-accumulation">Gradient Accumulation Steps</Label>
-              <Input
-                id="gradient-accumulation"
-                type="number"
-                min={1}
-                max={64}
-                value={config.gradient_accumulation_steps || 4}
-                onChange={(e) => updateConfig('gradient_accumulation_steps', parseInt(e.target.value) || 1)}
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-3 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="save-steps">Save Steps</Label>
-              <Input
-                id="save-steps"
-                type="number"
-                min={100}
-                value={config.save_steps || 500}
-                onChange={(e) => updateConfig('save_steps', parseInt(e.target.value) || 500)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="eval-steps">Eval Steps</Label>
-              <Input
-                id="eval-steps"
-                type="number"
-                min={100}
-                value={config.eval_steps || 500}
-                onChange={(e) => updateConfig('eval_steps', parseInt(e.target.value) || 500)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="logging-steps">Logging Steps</Label>
-              <Input
-                id="logging-steps"
-                type="number"
-                min={10}
-                value={config.logging_steps || 100}
-                onChange={(e) => updateConfig('logging_steps', parseInt(e.target.value) || 100)}
-              />
-            </div>
+          <div className="space-y-2">
+            <Label htmlFor="gradient-accumulation">Gradient Accumulation Steps</Label>
+            <Input
+              id="gradient-accumulation"
+              type="number"
+              min={1}
+              max={64}
+              value={config.gradient_accumulation_steps ?? 4}
+              onChange={(e) => updateConfig('gradient_accumulation_steps', parseInt(e.target.value) || 1)}
+            />
           </div>
         </TabsContent>
       </Tabs>

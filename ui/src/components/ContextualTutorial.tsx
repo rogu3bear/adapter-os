@@ -4,7 +4,7 @@ import { Button } from './ui/button';
 import { Progress } from './ui/progress';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { X, ChevronRight, ChevronLeft, Play, Pause, SkipForward } from 'lucide-react';
-import { cn } from './ui/utils';
+import { cn } from '@/lib/utils';
 
 export interface TutorialStep {
   id: string;

@@ -2,11 +2,59 @@
 // Extracted from types.ts to improve maintainability
 //
 // 【2025-01-20†refactor†adapter_types】
+// 【2025-12-19†refactor†use_generated_types】
 
-import React from 'react';
+import type * as React from 'react';
+import type { components } from './generated';
 import type { DatasetVersionTrustSnapshot } from './training-types';
 
-// Behavior training types
+// ============================================================================
+// Type Utilities
+// ============================================================================
+
+/**
+ * Recursively converts snake_case keys to camelCase
+ */
+type SnakeToCamelCase<S extends string> = S extends `${infer T}_${infer U}`
+  ? `${T}${Capitalize<SnakeToCamelCase<U>>}`
+  : S;
+
+type CamelCaseKeys<T> = T extends (infer U)[]
+  ? CamelCaseKeys<U>[]
+  : T extends object
+    ? {
+        [K in keyof T as SnakeToCamelCase<K & string>]: CamelCaseKeys<T[K]>;
+      }
+    : T;
+
+// ============================================================================
+// Generated Base Types
+// ============================================================================
+
+/**
+ * Base adapter type from OpenAPI schema (snake_case from backend)
+ */
+type AdapterGenerated = components['schemas']['AdapterResponse'];
+
+/**
+ * Adapter stack type from OpenAPI schema
+ */
+type StackGenerated = components['schemas']['StackResponse'];
+
+/**
+ * Adapter stats from OpenAPI schema
+ */
+type AdapterStatsGenerated = components['schemas']['AdapterStats'];
+
+/**
+ * Adapter lifecycle state enum from OpenAPI schema
+ */
+export type AdapterLifecycleState = components['schemas']['AdapterLifecycleState'];
+
+// ============================================================================
+// Behavior Training Types (UI-only)
+// ============================================================================
+
 export interface BehaviorEvent {
   id: string;
   event_type: 'promoted' | 'demoted' | 'evicted' | 'pinned' | 'recovered' | 'ttl_expired';
@@ -56,83 +104,46 @@ export interface StageContent {
   data?: Record<string, unknown>;
 }
 
-export interface Adapter {
-  id: string;
-  adapter_id: string;
-  name: string;
-  tenant_id?: string;
-  hash_b3: string;
-  rank: number;
-  // Storage tier: 'persistent', 'warm', or 'ephemeral'
-  tier: string;
-  // Assurance tier for drift/determinism gates
-  assurance_tier?: 'low' | 'standard' | 'high';
-  // Supported programming languages
-  languages?: string[];
-  // Languages in JSON string format (for backward compatibility)
-  languages_json?: string;
-  framework?: string;
+// ============================================================================
+// Core Adapter Types (Generated + UI Extensions)
+// ============================================================================
 
-  // Semantic naming fields
-  adapter_name?: string;           // Full semantic name: tenant/domain/purpose/r001
-  tenant_namespace?: string;       // e.g., "shop-floor"
-  domain?: string;                 // e.g., "hydraulics"
-  purpose?: string;                // e.g., "troubleshooting"
-  revision?: string;               // e.g., "r042"
-  version?: string;                // e.g., "1.0.0"
-  parent_id?: string;              // Parent adapter for lineage tracking
+/**
+ * UI-only extension fields not present in backend schema
+ */
+interface AdapterUIExtensions {
+  // Legacy UI compatibility fields
+  status?: 'active' | 'inactive' | 'loading' | 'error';
+  description?: string;
+  error_count?: number;
+  last_inference?: string;
+
+  // Semantic naming fields (may be in DB but not in generated schema yet)
+  adapter_name?: string;
+  tenant_namespace?: string;
+  domain?: string;
+  purpose?: string;
+  revision?: string;
+  parent_id?: string;
   fork_type?: 'independent' | 'extension';
   fork_reason?: string;
 
-  // Code intelligence fields
-  category?: 'code' | 'framework' | 'codebase' | 'ephemeral';
-  scope?: AdapterScope;
-  lora_tier?: 'micro' | 'standard' | 'max';
-  lora_strength?: number;
-  lora_scope?: string;
-  framework_id?: string;
-  framework_version?: string;
-  repo_id?: string;
-  commit_sha?: string;
-  intent?: string;
+  // Additional fields
   base_model_id?: string;
   adapter_trust_state?: 'allowed' | 'warn' | 'blocked' | 'unknown' | 'blocked_regressed';
   dataset_version_ids?: string[];
   dataset_version_trust?: DatasetVersionTrustSnapshot[];
-
-  // Lifecycle state management
   current_state?: 'unloaded' | 'cold' | 'warm' | 'hot' | 'resident';
-  lifecycle_state?: LifecycleState | AdapterState | string; // Release lifecycle state or legacy runtime aliases
-  runtime_state?: string;          // Memory/runtime status
-  kv_consistent?: boolean;         // SQL+KV alignment
-  kv_message?: string;             // Reason when inconsistent
-  pinned?: boolean;
-  memory_bytes?: number;
-  last_activated?: string;
+  kv_consistent?: boolean;
+  kv_message?: string;
   activation_count?: number;
-  // Drift/determinism metadata recorded by harness
-  drift_reference_backend?: string;
-  drift_baseline_backend?: string;
-  drift_test_backend?: string;
-  drift_tier?: 'low' | 'standard' | 'high';
-  drift_metric?: number;
-  drift_loss_metric?: number;
-  drift_slice_size?: number;
-  drift_slice_offset?: number;
+  last_activated?: string;
   manifest_schema_version?: string;
   content_hash_b3?: string;
   signature_valid?: boolean;
-
-  created_at: string;
-  updated_at?: string;
   active?: boolean;
   state?: AdapterState;
-  last_inference?: string;
-  error_count?: number;
 
-  // UI compatibility fields
-  status?: 'active' | 'inactive' | 'loading' | 'error';  // Alias for current_state in UI
-  description?: string;  // Adapter description
   // CoreML export + verification (PRD-3/PRD-5 placeholders)
   coreml_export_available?: boolean;
   coreml_export_status?: string;
@@ -140,6 +151,59 @@ export interface Adapter {
   coreml_verification_status?: string;
   coreml_export_last_verified_at?: string;
   coreml_export_last_exported_at?: string;
+
+  // Tenant ID (may be optional in some contexts)
+  tenant_id?: string;
+
+  // Updated timestamp (may be optional)
+  updated_at?: string;
+}
+
+/**
+ * Full Adapter type = Generated (camelCase) + UI Extensions
+ *
+ * This preserves all 66 fields from the original interface while using
+ * the generated backend types as the source of truth.
+ */
+export interface Adapter extends AdapterUIExtensions {
+  // Required fields from generated schema
+  id: string;
+  adapter_id: string;
+  name: string;
+  hash_b3: string;
+  rank: number;
+  tier: string;
+  languages: string[];
+  lifecycle_state: string;
+  created_at: string;
+  version: string;
+
+  // Optional fields from generated schema
+  assurance_tier?: 'low' | 'standard' | 'high';
+  category?: AdapterCategory;
+  commit_sha?: string;
+  deduplicated?: boolean;
+  drift_baseline_backend?: string;
+  drift_loss_metric?: number;
+  drift_metric?: number;
+  drift_reference_backend?: string;
+  drift_slice_offset?: number;
+  drift_slice_size?: number;
+  drift_test_backend?: string;
+  drift_tier?: 'low' | 'standard' | 'high';
+  framework?: string;
+  framework_id?: string;
+  framework_version?: string;
+  intent?: string;
+  lora_scope?: string;
+  lora_strength?: number;
+  lora_tier?: 'micro' | 'standard' | 'max';
+  memory_bytes?: number;
+  pinned?: boolean;
+  repo_id?: string;
+  runtime_state?: string;
+  scope?: AdapterScope;
+  stats?: CamelCaseKeys<AdapterStatsGenerated>;
 }
 
 // CoreML package/export state (minimal surface for UI)
@@ -169,6 +233,10 @@ export interface CoremlPackageActionResponse {
   message?: string;
 }
 
+// ============================================================================
+// Adapter Enums and Constants
+// ============================================================================
+
 export type AdapterCategory = 'code' | 'framework' | 'codebase' | 'ephemeral';
 export type AdapterScope = 'global' | 'tenant' | 'repo' | 'commit' | 'project';
 export type AdapterState =
@@ -189,6 +257,10 @@ export type LifecycleState =
   | 'failed';
 export type EvictionPriority = 'never' | 'low' | 'normal' | 'high' | 'critical';
 
+// ============================================================================
+// Model Info
+// ============================================================================
+
 export interface ModelInfo {
   id: string;
   name?: string;
@@ -201,28 +273,26 @@ export interface ModelInfo {
   owned_by?: string;
 }
 
+// ============================================================================
+// Adapter Request/Response Types
+// ============================================================================
+
 export interface RegisterAdapterRequest {
   adapter_id: string;
   name: string;
   hash_b3: string;
   rank: number;
-  // Storage tier: 'persistent', 'warm', or 'ephemeral'
   tier: string;
-  // Supported programming languages
   languages: string[];
   framework?: string;
-  // Adapter category: 'code', 'framework', 'codebase', or 'ephemeral'
   category: AdapterCategory;
-  // Adapter scope: 'global', 'tenant', 'repo', or 'commit'
   scope?: AdapterScope;
-  // Expiration timestamp (ISO 8601 format)
   expires_at?: string;
   metadata_json?: string;
 }
 
 export interface UpdateAdapterRequest {
   name?: string;
-  // Storage tier: 'persistent', 'warm', or 'ephemeral'
   tier?: string;
   expires_at?: string;
   metadata_json?: string;
@@ -269,29 +339,45 @@ export interface AdapterFingerprintResponse {
   last_verified: string;
 }
 
+// ============================================================================
+// Adapter Stack Types (Generated + UI Extensions)
+// ============================================================================
+
 export interface ActiveAdapter {
   adapter_id: string;
-  gate: number;  // Q15 quantized gate value
+  gate: number; // Q15 quantized gate value
   priority?: EvictionPriority;
   // Optional fields for enriched adapter info (may be included by some endpoints)
-  id?: string;  // Alias for adapter_id in some API responses
+  id?: string; // Alias for adapter_id in some API responses
   name?: string;
   lifecycle_state?: string;
 }
 
+/**
+ * Adapter Stack = Generated + UI Extensions
+ */
 export interface AdapterStack {
+  // Required fields from generated schema
   id: string;
   name: string;
-  adapters?: ActiveAdapter[]; // Frontend representation (with gates)
-  adapter_ids?: string[]; // Backend representation (just IDs)
-  description?: string;
+  adapter_ids: string[];
   created_at: string;
   updated_at: string;
-  is_default?: boolean;
-  version?: number;
-  workflow_type?: 'Parallel' | 'UpstreamDownstream' | 'Sequential';
-  lifecycle_state?: string; // active, deprecated, retired, draft
+  lifecycle_state: string;
+  tenant_id: string;
+  version: number;
+  is_active: boolean;
+
+  // Optional fields from generated schema
+  description?: string;
   determinism_mode?: string;
+  is_default?: boolean;
+  routing_determinism_mode?: string;
+  warnings?: string[];
+  workflow_type?: 'Parallel' | 'UpstreamDownstream' | 'Sequential';
+
+  // UI extension: frontend representation with gates
+  adapters?: ActiveAdapter[];
 }
 
 export interface LifecycleHistoryEvent {
@@ -370,7 +456,10 @@ export interface ValidateAdapterNameResponse {
   suggestions?: string[];
 }
 
-// Adapter detail types
+// ============================================================================
+// Adapter Detail Types
+// ============================================================================
+
 export interface AdapterDetailResponse {
   schema_version: string;
   adapter: Adapter;
@@ -466,7 +555,10 @@ export interface AdapterHistoryEntry {
   details?: Record<string, unknown>;
 }
 
-// Policy types for adapters
+// ============================================================================
+// Policy Types
+// ============================================================================
+
 export interface CategoryPolicy {
   category?: string;
   allowed_adapters?: string[];
@@ -515,7 +607,10 @@ export interface ApplyPolicyRequest {
   content: string;
 }
 
-// Adapter stats and state types
+// ============================================================================
+// Adapter Stats and State Types
+// ============================================================================
+
 export interface AdapterStats {
   adapter_id: string;
   total_inferences: number;
@@ -550,13 +645,13 @@ export interface AdapterStateResponse {
   new_state?: AdapterState;
 }
 
+// ============================================================================
+// Adapter Health Types
+// ============================================================================
+
 export type AdapterHealthFlag = 'healthy' | 'degraded' | 'unsafe' | 'corrupt';
 
-export type AdapterHealthDomain =
-  | 'drift'
-  | 'trust'
-  | 'storage'
-  | 'other';
+export type AdapterHealthDomain = 'drift' | 'trust' | 'storage' | 'other';
 
 export interface AdapterHealthSubcode {
   domain: AdapterHealthDomain;
@@ -620,7 +715,10 @@ export interface UpdateAdapterPolicyResponse {
   updated_at: string;
 }
 
-// Lifecycle types
+// ============================================================================
+// Lifecycle Types
+// ============================================================================
+
 export interface LifecycleTransitionResponse {
   schema_version: string;
   adapter_id: string;
@@ -631,7 +729,10 @@ export interface LifecycleTransitionResponse {
   reason?: string;
 }
 
-// Domain adapter types
+// ============================================================================
+// Domain Adapter Types
+// ============================================================================
+
 export interface DomainAdapter {
   id: string;
   domain: string;
@@ -707,7 +808,10 @@ export interface DomainAdapterExecutionResponse {
   tokens_used: number;
 }
 
-// Monitoring types
+// ============================================================================
+// Monitoring Types
+// ============================================================================
+
 export interface MonitoringRule {
   id: string;
   name: string;
@@ -755,6 +859,10 @@ export interface AdapterOSStatus {
     last_error?: string;
   }>;
 }
+
+// ============================================================================
+// Event Types
+// ============================================================================
 
 export interface AdapterStateRecord {
   adapter_id: string;
@@ -805,10 +913,17 @@ export interface AdapterEvictionEvent {
   memory_freed_bytes?: number;
 }
 
-// Memory usage tracking by adapter category
+// ============================================================================
+// Memory Usage Tracking
+// ============================================================================
+
 export type MemoryUsageByCategory = Record<AdapterCategory, number>;
 
-// Policy preflight check types (【2025-11-25†ui†stack-preflight-checks】)
+// ============================================================================
+// Policy Preflight Check Types
+// 【2025-11-25†ui†stack-preflight-checks】
+// ============================================================================
+
 export interface PolicyCheck {
   policy_id: string;
   policy_name: string;
@@ -826,7 +941,10 @@ export interface PolicyPreflightResponse {
   adapter_ids?: string[];
 }
 
-// Training provenance export types
+// ============================================================================
+// Training Provenance Export Types
+// ============================================================================
+
 export interface TrainingExportAdapter {
   id: string;
   name: string;

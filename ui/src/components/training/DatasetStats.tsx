@@ -3,7 +3,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { FileText, Hash, Languages, TrendingUp, Database } from 'lucide-react';
-import { formatBytes, formatNumber } from '@/utils/format';
+import { formatBytes, formatNumber } from '@/lib/formatters';
 
 interface DatasetStatistics {
   num_examples: number;

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { cn } from '@/components/ui/utils';
+import { cn } from '@/lib/utils';
 
 interface LayoutDebugOverlayProps {
   enabled: boolean;

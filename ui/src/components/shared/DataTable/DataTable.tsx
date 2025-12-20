@@ -11,7 +11,7 @@ import {
 } from "react";
 import { ArrowUpDown, ArrowUp, ArrowDown, Inbox } from "lucide-react";
 
-import { cn } from "@/components/ui/utils";
+import { cn } from "@/lib/utils";
 import {
   Table,
   TableBody,

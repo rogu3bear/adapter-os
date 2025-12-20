@@ -23,9 +23,9 @@ import {
 } from '@/components/ui/alert-dialog';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Badge } from '@/components/ui/badge';
-import { cn } from '@/components/ui/utils';
+import { cn } from '@/lib/utils';
 import type { ChatSessionWithStatus } from '@/api/chat-types';
-import { formatTimestamp } from '@/utils/format';
+import { formatTimestamp } from '@/lib/formatters';
 
 interface ChatArchivePanelProps {
   className?: string;

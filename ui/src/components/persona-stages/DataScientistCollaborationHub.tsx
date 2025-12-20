@@ -23,7 +23,7 @@ import {
 } from 'lucide-react';
 import { logger } from '@/utils/logger';
 import { useWorkspaces } from '@/hooks/workspace/useWorkspaces';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import type { WorkspaceResource, Message } from '@/api/types';
 
 // Shared experiment interface

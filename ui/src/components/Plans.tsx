@@ -28,7 +28,7 @@ import {
   CheckCircle,
   AlertTriangle
 } from 'lucide-react';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { Plan, User, PlanComparisonResponse } from '@/api/types';
 import { logger, toError } from '@/utils/logger';
 import { errorRecoveryTemplates } from './ui/error-recovery';

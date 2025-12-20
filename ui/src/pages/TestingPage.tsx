@@ -1,9 +1,9 @@
-import FeatureLayout from '@/layout/FeatureLayout';
+import PageWrapper from '@/layout/PageWrapper';
 import { TestingPage as TestingPageComponent } from '@/pages/Testing/TestingPage';
-import { DensityProvider } from '@/contexts/DensityContext';
 import { Card, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Link } from 'react-router-dom';
+import { buildReplayLink } from '@/utils/navLinks';
 
 export default function TestingPage() {
   const verifyActions = [
@@ -25,31 +25,29 @@ export default function TestingPage() {
   ];
 
   return (
-    <DensityProvider pageKey="testing">
-      <FeatureLayout title="Testing" description="Compare against golden baselines">
-        <div className="flex justify-end mb-4">
-          <Button asChild variant="outline" size="sm">
-            <Link to="/replay#runs">View replays from recent tests</Link>
-          </Button>
-        </div>
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 mb-6">
-          {verifyActions.map(action => (
-            <Card key={action.title} className="h-full">
-              <CardHeader>
-                <CardTitle>{action.title}</CardTitle>
-                <CardDescription>{action.description}</CardDescription>
-              </CardHeader>
-              <CardFooter>
-                <Button asChild variant="secondary" size="sm">
-                  <Link to={action.to}>Open</Link>
-                </Button>
-              </CardFooter>
-            </Card>
-          ))}
-        </div>
-        <TestingPageComponent />
-      </FeatureLayout>
-    </DensityProvider>
+    <PageWrapper pageKey="testing" title="Testing" description="Compare against golden baselines">
+      <div className="flex justify-end mb-4">
+        <Button asChild variant="outline" size="sm">
+          <Link to={buildReplayLink('runs')}>View replays from recent tests</Link>
+        </Button>
+      </div>
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 mb-6">
+        {verifyActions.map(action => (
+          <Card key={action.title} className="h-full">
+            <CardHeader>
+              <CardTitle>{action.title}</CardTitle>
+              <CardDescription>{action.description}</CardDescription>
+            </CardHeader>
+            <CardFooter>
+              <Button asChild variant="secondary" size="sm">
+                <Link to={action.to}>Open</Link>
+              </Button>
+            </CardFooter>
+          </Card>
+        ))}
+      </div>
+      <TestingPageComponent />
+    </PageWrapper>
   );
 }
 

@@ -3,7 +3,7 @@
 // Provides hooks for fetching and exporting adapter behavior training data.
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { apiClient } from '@/api/client';
+import { apiClient } from '@/api/services';
 import type {
   BehaviorEvent,
   BehaviorEventFilters,

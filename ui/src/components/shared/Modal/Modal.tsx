@@ -10,7 +10,7 @@ import {
   FROST_BACKGROUND,
   FROST_OVERLAY,
   CLOSE_BUTTON_BASE,
-} from "@/components/ui/utils";
+} from "@/lib/utils";
 import type { ModalProps, ModalSize } from "./types";
 import { MODAL_SIZE_CLASSES } from "./types";
 import ModalErrorBoundary from "@/components/ui/modal-error-boundary";

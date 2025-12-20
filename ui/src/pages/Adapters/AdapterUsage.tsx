@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { ErrorRecovery, errorRecoveryTemplates } from '@/components/ui/error-recovery';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { formatDate } from 'date-fns';
 
 export default function AdapterUsage() {

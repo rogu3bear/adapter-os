@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildDatasetVersionSelections } from '../StartTrainingForm';
+import { buildDatasetVersionSelections } from '@/pages/Training/StartTrainingForm';
 
 describe('buildDatasetVersionSelections', () => {
   it('returns latest version with default weight', () => {

@@ -39,7 +39,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { Adapter, InferRequest, InferResponse, BatchInferRequest, BatchInferResponse } from '@/api/types';
 import { logger } from '@/utils/logger';
 
@@ -186,7 +186,7 @@ export default function MLEngineerInferenceTest() {
       }));
 
       const batchRequest: BatchInferRequest = {
-        requests,
+        requests: requests as any, // Type mismatch between InferRequest and BatchInferRequest.requests - API types need alignment
       };
 
       // If verifying determinism, run multiple times and compare
@@ -195,7 +195,8 @@ export default function MLEngineerInferenceTest() {
 
         for (let run = 0; run < determinismRuns; run++) {
           const response = await apiClient.batchInfer(batchRequest);
-          allRuns.push(response.results || response.responses || []);
+          const responses = (response.responses || []) as InferResponse[];
+          allRuns.push(responses);
         }
 
         // Compare all runs for determinism
@@ -218,11 +219,7 @@ export default function MLEngineerInferenceTest() {
 
         setResults(batchResults);
         setBatchResponse({
-          schema_version: "v1",
-          results: allRuns[0],
-          responses: allRuns[0],
-          total_tokens: allRuns[0].reduce((sum, r) => sum + (r?.tokens_generated || 0), 0),
-          total_latency_ms: allRuns[0].reduce((sum, r) => sum + (r?.latency_ms || 0), 0),
+          responses: allRuns[0] as any, // Type mismatch - API type definition issue
         });
 
         const passedCount = batchResults.filter(r => r.determinismMatch).length;
@@ -234,7 +231,7 @@ export default function MLEngineerInferenceTest() {
       } else {
         // Single run without determinism verification
         const response = await apiClient.batchInfer(batchRequest);
-        const responseResults = response.results || response.responses || [];
+        const responseResults = (response.responses || []) as InferResponse[];
 
         const batchResults: BatchResult[] = validPrompts.map((prompt, idx) => ({
           prompt,
@@ -247,7 +244,8 @@ export default function MLEngineerInferenceTest() {
       }
 
       // Calculate metrics
-      const responses = results.map(r => r.response).filter((r): r is InferResponse => r !== null);
+      const responsesForMetrics = results.map(r => r.response).filter((r): r is InferResponse => r !== null);
+      const responses = responsesForMetrics;
       if (responses.length > 0) {
         setLatencyHistogram(calculateLatencyHistogram(responses));
         setTokenDistribution(calculateTokenDistribution(responses));

@@ -1,25 +1,10 @@
 import { useState, useCallback } from 'react';
 import { logger, toError } from '@/utils/logger';
-
-export interface AsyncOperationState<T> {
-  data: T | null;
-  isLoading: boolean;
-  error: Error | null;
-  isSuccess: boolean;
-}
-
-export interface UseAsyncOperationOptions {
-  onSuccess?: (data: unknown) => void;
-  onError?: (error: Error) => void;
-  componentName?: string;
-  operationName?: string;
-}
-
-export interface UseAsyncOperationReturn<T> extends AsyncOperationState<T> {
-  execute: (...args: unknown[]) => Promise<T | null>;
-  reset: () => void;
-  retry: () => Promise<T | null>;
-}
+import type {
+  AsyncOperationState,
+  UseAsyncOperationOptions,
+  UseAsyncOperationReturn,
+} from '@/types/hooks';
 
 export function useAsyncOperation<T>(
   asyncFn: (...args: unknown[]) => Promise<T>,

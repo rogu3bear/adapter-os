@@ -21,9 +21,10 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { apiClient } from '@/api/client';
-import { cn } from '@/components/ui/utils';
-import { formatBytes } from '@/utils/format';
+import { apiClient } from '@/api/services';
+import { cn } from '@/lib/utils';
+import { formatBytes } from '@/lib/formatters';
+import { buildBaseModelsLink } from '@/utils/navLinks';
 
 interface BaseModel {
   id: string;
@@ -155,7 +156,7 @@ export function ActiveModelCard({
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => navigate('/base-models')}
+                onClick={() => navigate(buildBaseModelsLink())}
               >
                 <ExternalLink className="h-4 w-4 mr-1.5" />
                 Manage Models
@@ -177,7 +178,7 @@ export function ActiveModelCard({
             <Button
               variant="default"
               size="sm"
-              onClick={() => navigate('/base-models')}
+              onClick={() => navigate(buildBaseModelsLink())}
             >
               <Power className="h-4 w-4 mr-1.5" />
               Import Model

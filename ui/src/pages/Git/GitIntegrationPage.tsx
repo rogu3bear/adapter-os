@@ -1,3 +1,11 @@
+/**
+ * @deprecated ORPHAN PAGE - Not routed in routes.ts
+ * This page exists but has no corresponding route.
+ * Git functionality is accessible via /repos instead.
+ *
+ * TODO: Either add a route or delete this file.
+ * Audit date: 2025-12-19
+ */
 import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -20,7 +28,7 @@ import {
   Code,
   AlertCircle
 } from 'lucide-react';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { Repository, Commit, CommitDiff } from '@/api/types';
 
 import { logger } from '@/utils/logger';
@@ -161,7 +169,7 @@ export function GitIntegrationPage({ selectedTenant }: GitIntegrationPageProps) 
   const loadCommitDiff = async (sha: string) => {
     setIsLoading(true);
     try {
-      const diff = await apiClient.getCommitDiff(sha);
+      const diff = await apiClient.getCommitDiff(selectedRepo?.id || '', sha);
       setCommitDiff(diff);
 
       setStatusMessage(null);

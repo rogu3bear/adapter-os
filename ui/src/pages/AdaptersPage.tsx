@@ -4,6 +4,7 @@ import { Code } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useRBAC } from '@/hooks/security/useRBAC';
 import { PageHeader as IaPageHeader } from '@/components/shared/PageHeader';
+import { buildTrainingOverviewLink } from '@/utils/navLinks';
 
 export default function AdaptersPage() {
   const navigate = useNavigate();
@@ -25,7 +26,7 @@ export default function AdaptersPage() {
           primaryAction={{
             label: 'Train New Adapter',
             icon: Code,
-            onClick: () => navigate('/training'),
+            onClick: () => navigate(buildTrainingOverviewLink()),
             disabled: !can('TrainingStart'),
             size: 'sm',
           }}

@@ -30,10 +30,15 @@ import {
   Clock,
   TrendingUp
 } from 'lucide-react';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { useChatSessionsApi } from '@/hooks/chat/useChatSessionsApi';
 import { logger } from '@/utils/logger';
 import DashboardLayout from '@/components/dashboard/DashboardLayout';
+import {
+  buildChatLink,
+  buildAdaptersListLink,
+  buildTelemetryViewerLink,
+} from '@/utils/navLinks';
 
 export default function ViewerDashboard() {
   const navigate = useNavigate();
@@ -63,13 +68,13 @@ export default function ViewerDashboard() {
     {
       label: 'Start Chat',
       icon: MessageSquare,
-      onClick: () => navigate('/chat'),
+      onClick: () => navigate(buildChatLink()),
       description: 'Begin a conversation with the model',
     },
     {
       label: 'Browse Adapters',
       icon: Layers,
-      onClick: () => navigate('/adapters'),
+      onClick: () => navigate(buildAdaptersListLink()),
       description: 'View available adapters',
     },
     {
@@ -81,7 +86,7 @@ export default function ViewerDashboard() {
     {
       label: 'Telemetry Viewer',
       icon: Eye,
-      onClick: () => navigate('/telemetry?tab=viewer'),
+      onClick: () => navigate(buildTelemetryViewerLink()),
       description: 'Inspect per-session routing and tokens',
     },
   ];
@@ -245,7 +250,7 @@ export default function ViewerDashboard() {
                       variant="link"
                       size="sm"
                       className="px-0 mt-1"
-                      onClick={() => navigate('/adapters')}
+                      onClick={() => navigate(buildAdaptersListLink())}
                     >
                       View Adapters →
                     </Button>
@@ -265,7 +270,7 @@ export default function ViewerDashboard() {
                       variant="link"
                       size="sm"
                       className="px-0 mt-1"
-                      onClick={() => navigate('/chat')}
+                      onClick={() => navigate(buildChatLink())}
                     >
                       Open Chat →
                     </Button>
@@ -285,7 +290,7 @@ export default function ViewerDashboard() {
                       variant="link"
                       size="sm"
                       className="px-0 mt-1"
-                      onClick={() => navigate('/telemetry?tab=viewer')}
+                      onClick={() => navigate(buildTelemetryViewerLink())}
                     >
                       Open Telemetry Viewer →
                     </Button>
@@ -322,7 +327,7 @@ export default function ViewerDashboard() {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => navigate('/chat')}
+                    onClick={() => navigate(buildChatLink())}
                   >
                     Start Your First Chat
                   </Button>
@@ -333,7 +338,7 @@ export default function ViewerDashboard() {
                     <div
                       key={session.id}
                       className="flex items-center justify-between p-3 bg-muted/50 rounded-lg hover:bg-muted transition-colors cursor-pointer"
-                      onClick={() => navigate(`/chat?session=${session.id}`)}
+                      onClick={() => navigate(buildChatLink({ sessionId: session.id }))}
                     >
                       <div className="flex-1 min-w-0">
                         <h4 className="font-medium text-sm truncate">{session.name}</h4>
@@ -354,7 +359,7 @@ export default function ViewerDashboard() {
                         size="sm"
                         onClick={(e) => {
                           e.stopPropagation();
-                          navigate(`/chat?session=${session.id}`);
+                          navigate(buildChatLink({ sessionId: session.id }));
                         }}
                       >
                         <Eye className="h-4 w-4" />
@@ -366,7 +371,7 @@ export default function ViewerDashboard() {
                       variant="link"
                       size="sm"
                       className="w-full mt-2"
-                      onClick={() => navigate('/chat')}
+                      onClick={() => navigate(buildChatLink())}
                     >
                       View All Sessions →
                     </Button>
@@ -432,7 +437,7 @@ export default function ViewerDashboard() {
                       variant="link"
                       size="sm"
                       className="w-full mt-2"
-                      onClick={() => navigate('/adapters')}
+                      onClick={() => navigate(buildAdaptersListLink())}
                     >
                       View All Adapters →
                     </Button>

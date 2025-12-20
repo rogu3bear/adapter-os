@@ -33,7 +33,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { AdapterDetailResponse, LifecycleTransitionResponse, AdapterState } from '@/api/adapter-types';
 import { getLifecycleVariant } from '@/utils/lifecycle';
 import { toast } from 'sonner';
-import { formatBytes, formatRelativeTime } from '@/utils/format';
+import { formatBytes, formatRelativeTime } from '@/lib/formatters';
 
 interface AdapterLifecycleProps {
   adapterId: string;

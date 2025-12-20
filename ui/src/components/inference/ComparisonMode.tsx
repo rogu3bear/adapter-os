@@ -176,7 +176,7 @@ export function ComparisonMode({
                 </GlossaryTooltip>
               </div>
               <div className="text-xs text-muted-foreground">
-                {response.trace?.evidence_spans?.length || 0} found
+                {response.citations?.length || 0} found
               </div>
             </div>
           </div>

@@ -1,7 +1,7 @@
 import React from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { cn } from '@/components/ui/utils';
+import { cn } from '@/lib/utils';
 import { Copy, ExternalLink, FileDown } from 'lucide-react';
 import { toast } from 'sonner';
 

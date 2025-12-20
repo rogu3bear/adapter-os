@@ -25,7 +25,8 @@ import {
   PlusCircle,
   Sparkles,
 } from 'lucide-react';
-import { cn } from '@/components/ui/utils';
+import { cn } from '@/lib/utils';
+import { ROUTE_PATHS, buildAdaptersRegisterLink, buildInferenceLink } from '@/utils/navLinks';
 
 const ONBOARDING_STORAGE_KEY = 'aos-onboarding-dismissed';
 
@@ -45,7 +46,7 @@ const onboardingSteps: OnboardingStep[] = [
     description: 'Get started by importing a foundation model like Qwen 2.5 or Llama',
     icon: Upload,
     action: 'Import Model',
-    path: '/base-models',
+    path: ROUTE_PATHS.baseModels,
   },
   {
     id: 'train-adapter',
@@ -53,7 +54,7 @@ const onboardingSteps: OnboardingStep[] = [
     description: 'Create a custom LoRA adapter to enhance your model with specialized knowledge',
     icon: Box,
     action: 'Create Adapter',
-    path: '/create-adapter',
+    path: buildAdaptersRegisterLink(),
   },
   {
     id: 'run-inference',
@@ -61,7 +62,7 @@ const onboardingSteps: OnboardingStep[] = [
     description: 'Test your setup with a sample prompt and see the results',
     icon: Play,
     action: 'Try Inference',
-    path: '/inference',
+    path: buildInferenceLink(),
   },
 ];
 
@@ -179,7 +180,7 @@ export const OnboardingStrip: React.FC<OnboardingStripProps> = ({
             </div>
             <div className="flex items-center gap-2 w-full sm:w-auto">
               <Button
-                onClick={() => navigate('/create-adapter')}
+                onClick={() => navigate(buildAdaptersRegisterLink())}
                 className="flex-1 sm:flex-none bg-primary hover:bg-primary/90"
               >
                 <PlusCircle className="h-4 w-4 mr-1.5" />

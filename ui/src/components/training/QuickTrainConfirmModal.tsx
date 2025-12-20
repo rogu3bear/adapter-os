@@ -43,10 +43,11 @@ import {
   Loader2,
   Shield,
 } from 'lucide-react';
-import { cn } from '@/components/ui/utils';
+import { cn } from '@/lib/utils';
 import { useTrainingPreflight } from '@/hooks/training';
 import type { Dataset } from '@/api/training-types';
 import type { PolicyCheck } from '@/components/PolicyPreflightDialog';
+import { formatBytes } from '@/lib/formatters';
 
 export interface QuickTrainConfig {
   adapterName: string;
@@ -75,6 +76,8 @@ export interface QuickTrainConfirmModalProps {
   isLoading?: boolean;
   /** Current tenant ID */
   tenantId?: string;
+  /** Selected dataset version ID for preflight validation */
+  selectedVersionId?: string;
 }
 
 /** Default training configuration */
@@ -87,20 +90,6 @@ const DEFAULT_CONFIG: QuickTrainConfig = {
   batchSize: 4,
   targets: ['q_proj', 'v_proj'],
 };
-
-/** Format bytes to human-readable string */
-function formatBytes(bytes: number): string {
-  if (bytes >= 1024 * 1024 * 1024) {
-    return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
-  }
-  if (bytes >= 1024 * 1024) {
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  }
-  if (bytes >= 1024) {
-    return `${(bytes / 1024).toFixed(1)} KB`;
-  }
-  return `${bytes} bytes`;
-}
 
 /** Get icon for check severity */
 function getCheckIcon(check: PolicyCheck) {
@@ -136,6 +125,7 @@ export function QuickTrainConfirmModal({
   onAdvanced,
   isLoading = false,
   tenantId = 'default',
+  selectedVersionId,
 }: QuickTrainConfirmModalProps) {
   const descriptionId = useId();
 
@@ -147,7 +137,7 @@ export function QuickTrainConfirmModal({
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   // Preflight checks
-  const preflight = useTrainingPreflight(dataset, { enabled: open, tenantId });
+  const preflight = useTrainingPreflight(dataset, { enabled: open, tenantId }, selectedVersionId);
 
   // Validation
   const isNameValid = config.adapterName.length >= 3 && /^[a-z0-9][a-z0-9-]*[a-z0-9]$/.test(config.adapterName);

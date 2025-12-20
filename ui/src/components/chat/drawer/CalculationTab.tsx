@@ -7,6 +7,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Copy, ExternalLink, CheckCircle2, Clock, Zap } from 'lucide-react';
 import { toast } from 'sonner';
 import type { ExtendedRouterDecision } from '@/api/types';
+import { buildTelemetryTraceLink } from '@/utils/navLinks';
 
 interface CalculationTabProps {
   requestId?: string | null;
@@ -75,7 +76,7 @@ export function CalculationTab({
 
   const handleOpenTrace = () => {
     if (traceId) {
-      navigate(`/telemetry?tab=viewer&requestId=${encodeURIComponent(traceId)}`);
+      navigate(buildTelemetryTraceLink(traceId));
     }
   };
 

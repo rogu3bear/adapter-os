@@ -354,7 +354,7 @@ export const operatorConfig: RoleDashboardConfig = {
       label: 'Open Telemetry Viewer',
       icon: 'Eye',
       variant: 'secondary',
-      action: 'navigate:/telemetry?tab=viewer',
+      action: 'navigate:/telemetry/viewer',
       permissions: ['MetricsView'],
       description: 'Inspect per-session routing and tokens',
     },

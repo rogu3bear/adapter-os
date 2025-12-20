@@ -1,6 +1,8 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { SystemStateResponse } from '@/api/system-state-types';
+import { buildSystemMemoryLink } from '@/utils/navLinks';
+import { formatGB, formatPercent, formatRelativeTime } from '@/lib/formatters';
 
 interface Props {
   data: SystemStateResponse | null;
@@ -11,26 +13,9 @@ interface Props {
   onRefresh?: () => void;
 }
 
-function formatGB(mb: number): string {
-  return `${(mb / 1024).toFixed(1)} GB`;
-}
-
+// Local wrapper for formatMB that handles the specific signature needed here
 function formatMB(mb: number): string {
   return `${mb.toFixed(1)} MB`;
-}
-
-function formatPercent(value: number): string {
-  return `${value.toFixed(1)}%`;
-}
-
-function formatRelativeTime(lastUpdated: Date | null): string {
-  if (!lastUpdated) return 'Unknown';
-  const diffMs = Date.now() - lastUpdated.getTime();
-  const diffSeconds = Math.max(0, Math.round(diffMs / 1000));
-  if (diffSeconds < 10) return 'Just now';
-  if (diffSeconds < 60) return `${diffSeconds}s ago`;
-  const diffMinutes = Math.round(diffSeconds / 60);
-  return `${diffMinutes}m ago`;
 }
 
 export function SystemStateCard({ data, isLoading, error, isLive, lastUpdated, onRefresh }: Props) {
@@ -82,7 +67,7 @@ export function SystemStateCard({ data, isLoading, error, isLive, lastUpdated, o
         {isLive ? (
           <span>Live</span>
         ) : (
-          <span>{formatRelativeTime(lastUpdated)}</span>
+          <span>{lastUpdated ? formatRelativeTime(lastUpdated) : 'Unknown'}</span>
         )}
       </div>
 
@@ -114,7 +99,7 @@ export function SystemStateCard({ data, isLoading, error, isLive, lastUpdated, o
       </section>
 
       <section>
-        <button onClick={() => navigate('/system/memory')}>View memory details</button>
+        <button onClick={() => navigate(buildSystemMemoryLink())}>View memory details</button>
       </section>
     </div>
   );

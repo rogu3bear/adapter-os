@@ -11,7 +11,7 @@ import { ErrorRecovery, errorRecoveryTemplates } from './ui/error-recovery';
 import { GlossaryTooltip } from './ui/glossary-tooltip';
 import { ExportMenu } from './ui/export-menu';
 import { TransformedRoutingDecision, RouterCandidateInfo, RoutingDecisionFilters } from '@/api/types';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { useTenant } from '@/providers/FeatureProviders';
 import { useRBAC } from '@/hooks/security/useRBAC';
 import { Calendar } from './ui/calendar';
@@ -20,7 +20,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { CalendarIcon } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { format as formatDate } from 'date-fns';
-import { formatTimestamp as formatTimestampUtil } from '@/utils/format';
+import { formatTimestamp as formatTimestampUtil } from '@/lib/formatters';
 import { buildReplayRunsLink } from '@/utils/navLinks';
 
 interface RoutingInspectorProps {

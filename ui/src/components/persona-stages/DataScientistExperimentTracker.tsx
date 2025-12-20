@@ -4,7 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { TrainingJob, TrainingStatus } from '@/api/training-types';
 import { usePolling } from '@/hooks/realtime/usePolling';
 import {
@@ -198,12 +198,12 @@ export default function DataScientistExperimentTracker() {
                             {exp.adapter_name || exp.id.slice(0, 8)}
                           </span>
                         </TableCell>
-                        <TableCell>{getStatusBadge(exp.status)}</TableCell>
+                        <TableCell>{getStatusBadge(exp.status as TrainingStatus)}</TableCell>
                         <TableCell className="font-mono text-sm">
                           {exp.loss?.toFixed(4) || exp.current_loss?.toFixed(4) || '-'}
                         </TableCell>
                         <TableCell className="text-muted-foreground text-sm">
-                          {formatDuration(exp.started_at, exp.completed_at)}
+                          {formatDuration(exp.started_at ?? undefined, exp.completed_at ?? undefined)}
                         </TableCell>
                       </TableRow>
                     ))}

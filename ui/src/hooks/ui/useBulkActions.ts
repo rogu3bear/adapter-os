@@ -26,98 +26,15 @@
 
 import { useState, useCallback, useRef } from 'react';
 import { logger, toError } from '@/utils/logger';
-
-export type BulkActionStatus = 'idle' | 'pending' | 'executing' | 'completed' | 'failed' | 'cancelled';
-
-export interface BulkActionError<K extends string | number = string> {
-  /** ID of the item that failed */
-  itemId: K;
-  /** Error that occurred */
-  error: Error;
-  /** Index in the batch */
-  index: number;
-}
-
-export interface BulkActionProgress {
-  /** Total number of items to process */
-  total: number;
-  /** Number of completed items (success + failed) */
-  completed: number;
-  /** Number of successful operations */
-  successful: number;
-  /** Number of failed operations */
-  failed: number;
-  /** Current progress percentage (0-100) */
-  percentage: number;
-  /** ID of the item currently being processed */
-  currentItemId: string | number | null;
-}
-
-export interface BulkActionResult<K extends string | number = string> {
-  /** Items that were successfully processed */
-  successfulIds: K[];
-  /** Items that failed with their errors */
-  failedItems: BulkActionError<K>[];
-  /** Whether the operation was cancelled */
-  wasCancelled: boolean;
-  /** Total execution time in milliseconds */
-  executionTimeMs: number;
-}
-
-export interface BulkActionOptions {
-  /** Stop execution on first error */
-  stopOnError?: boolean;
-  /** Maximum concurrent operations (default: 1 for sequential) */
-  concurrency?: number;
-  /** Delay between operations in ms (default: 0) */
-  delayBetweenOps?: number;
-  /** Confirmation required before execution */
-  confirmationRequired?: boolean;
-  /** Custom confirmation message */
-  confirmationMessage?: string;
-  /** Operation name for logging */
-  operationName?: string;
-}
-
-export interface UseBulkActionsOptions<K extends string | number = string> {
-  /** Callback on successful completion */
-  onSuccess?: (result: BulkActionResult<K>) => void;
-  /** Callback on error (called for each error and on completion if any errors) */
-  onError?: (errors: BulkActionError<K>[]) => void;
-  /** Callback on progress update */
-  onProgress?: (progress: BulkActionProgress) => void;
-  /** Callback when execution starts */
-  onStart?: (itemCount: number) => void;
-  /** Callback on cancellation */
-  onCancel?: () => void;
-  /** Component name for logging */
-  componentName?: string;
-}
-
-export interface UseBulkActionsReturn<K extends string | number = string> {
-  /** Current status of bulk operation */
-  status: BulkActionStatus;
-  /** Current progress */
-  progress: BulkActionProgress;
-  /** Whether operation is currently executing */
-  isExecuting: boolean;
-  /** Most recent result */
-  result: BulkActionResult<K> | null;
-  /** Execute bulk operation */
-  execute: <T = void>(
-    itemIds: K[],
-    operation: (id: K, index: number) => Promise<T>,
-    options?: BulkActionOptions
-  ) => Promise<BulkActionResult<K>>;
-  /** Cancel ongoing operation */
-  cancel: () => void;
-  /** Reset state to idle */
-  reset: () => void;
-  /** Check if operation can be cancelled */
-  canCancel: boolean;
-  /** Errors from the most recent operation */
-  errors: BulkActionError<K>[];
-}
+import type {
+  BulkActionStatus,
+  BulkActionError,
+  BulkActionProgress,
+  BulkActionResult,
+  BulkActionOptions,
+  UseBulkActionsOptions,
+  UseBulkActionsReturn,
+} from '@/types/hooks';
 
 const initialProgress: BulkActionProgress = {
   total: 0,

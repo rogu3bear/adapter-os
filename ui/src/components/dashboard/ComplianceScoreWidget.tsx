@@ -8,6 +8,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { ErrorRecovery } from '@/components/ui/error-recovery';
 import { usePolicies, useComplianceAudit } from '@/hooks/security/useSecurity';
 import { DashboardWidgetFrame, type DashboardWidgetState } from './DashboardWidgetFrame';
+import { buildSecurityPoliciesLink } from '@/utils/navLinks';
 
 interface PolicyPackStatus {
   name: string;
@@ -111,7 +112,7 @@ export function ComplianceScoreWidget() {
       errorMessage={error ? (error instanceof Error ? error.message : String(error)) : undefined}
       emptyMessage="No policies configured"
       emptyAction={
-        <Button variant="outline" size="sm" onClick={() => navigate('/security/policies')}>
+        <Button variant="outline" size="sm" onClick={() => navigate(buildSecurityPoliciesLink())}>
           Add policies
         </Button>
       }
@@ -182,7 +183,7 @@ export function ComplianceScoreWidget() {
           variant="outline"
           size="sm"
           className="w-full"
-          onClick={() => navigate('/security/policies')}
+          onClick={() => navigate(buildSecurityPoliciesLink())}
         >
           <AlertTriangle className="h-4 w-4 mr-2" />
           Review Violations

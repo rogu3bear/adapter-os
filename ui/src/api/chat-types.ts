@@ -1,51 +1,91 @@
-// Chat API types matching backend schema
+// Chat API types - migrated to use generated types where available
 // Backend: crates/adapteros-db/src/chat_sessions.rs
 // Migration: migrations/0085_chat_sessions.sql
 // 【2025-11-25†prd-ux-01†chat_api_types】
+// 【2025-12-19†migration-to-generated-types】
+
+import type { components } from './generated';
+
+// =============================================================================
+// Core Chat Types (from generated API schema)
+// =============================================================================
 
 /**
  * Chat session record from database
  * Maps to: ChatSession struct in adapteros-db
+ * @see components["schemas"]["ChatSession"]
  */
-export interface ChatSession {
-  id: string;
-  tenant_id: string;
-  user_id?: string;
-  created_by?: string;
-  stack_id?: string;
-  collection_id?: string;
-  document_id?: string;
-  name: string;
-  title?: string;
-  source_type?: string;
-  source_ref_id?: string;
-  created_at: string; // ISO8601 datetime
-  updated_at?: string;
-  last_activity_at: string; // ISO8601 datetime
-  metadata_json?: string; // JSON string for additional metadata
-  tags_json?: string;
-  pinned_adapter_ids?: string;
-}
+export type ChatSession = components['schemas']['ChatSession'];
 
 /**
  * Chat message record from database
  * Maps to: ChatMessage struct in adapteros-db
+ * @see components["schemas"]["ChatMessage"]
  */
-export interface ChatMessage {
-  id: string;
-  session_id: string;
-  tenant_id: string;
-  role: 'user' | 'assistant' | 'system' | 'tool' | 'owner_system';
-  content: string;
-  timestamp: string; // ISO8601 datetime (fallback)
-  created_at: string;
-  sequence: number;
-  metadata_json?: string; // JSON string for router decisions, evidence, etc.
-}
+export type ChatMessage = components['schemas']['ChatMessage'];
+
+/**
+ * API response wrapper for ChatMessage with guaranteed timestamp
+ * @see components["schemas"]["ChatMessageResponse"]
+ */
+export type ChatMessageResponse = components['schemas']['ChatMessageResponse'];
+
+/**
+ * Request to create a new chat session
+ * POST /v1/chat/sessions
+ * @see components["schemas"]["CreateChatSessionRequest"]
+ */
+export type CreateChatSessionRequest = components['schemas']['CreateChatSessionRequest'] & {
+  /** Optional document name for document chat sessions (UI extension) */
+  document_name?: string;
+  /** Optional metadata object (will be JSON.stringify'd to metadata_json) */
+  metadata?: Record<string, unknown>;
+};
+
+/**
+ * Response for chat session creation
+ * @see components["schemas"]["CreateChatSessionResponse"]
+ */
+export type CreateChatSessionResponse = components['schemas']['CreateChatSessionResponse'];
+
+/**
+ * Request to add a message to a session
+ * POST /v1/chat/sessions/:session_id/messages
+ * @see components["schemas"]["AddChatMessageRequest"]
+ */
+export type AddChatMessageRequest = components['schemas']['AddChatMessageRequest'] & {
+  /** Optional metadata object (will be JSON.stringify'd to metadata_json) */
+  metadata?: Record<string, unknown>;
+};
+
+/**
+ * Session summary with counts
+ * GET /v1/chat/sessions/:session_id/summary
+ * @see components["schemas"]["SessionSummary"]
+ */
+export type SessionSummary = components['schemas']['SessionSummary'] & {
+  /** Trace count is not in generated schema, extended here */
+  trace_count?: number;
+};
+
+// =============================================================================
+// Backward Compatibility Aliases (Deprecated)
+// =============================================================================
+
+/**
+ * @deprecated Use ChatSessionResponse from generated types instead
+ * Kept for backward compatibility during migration
+ */
+export type ChatSessionResponse = ChatSession;
+
+// =============================================================================
+// UI-Only Types (Not in Backend Schema)
+// =============================================================================
 
 /**
  * Chat session trace record (for router decisions, adapters, etc.)
  * Maps to: ChatSessionTrace struct in adapteros-db
+ * NOTE: Not yet in generated schema
  */
 export interface ChatSessionTrace {
   id: number;
@@ -57,6 +97,7 @@ export interface ChatSessionTrace {
 
 /**
  * Evidence item associated with a chat message
+ * NOTE: Not yet in generated schema
  */
 export interface ChatEvidenceItem {
   document_id: string;
@@ -69,56 +110,8 @@ export interface ChatEvidenceItem {
 }
 
 /**
- * Request to create a new chat session
- * POST /v1/chat/sessions
- */
-export interface CreateChatSessionRequest {
-  name: string;
-  tenant_id?: string;
-  stack_id?: string;
-  collection_id?: string;
-  /** Optional document context for document chat sessions */
-  document_id?: string;
-  document_name?: string;
-  source_type?: string;
-  title?: string;
-  source_ref_id?: string;
-  tags_json?: string;
-  metadata?: Record<string, unknown>; // Will be JSON.stringify'd to metadata_json
-}
-
-/**
- * Response for chat session creation
- */
-export interface CreateChatSessionResponse {
-  session_id: string;
-  tenant_id: string;
-  name: string;
-  created_at: string;
-}
-
-/**
- * Request to add a message to a session
- * POST /v1/chat/sessions/:session_id/messages
- */
-export interface AddChatMessageRequest {
-  role: 'user' | 'assistant' | 'system';
-  content: string;
-  metadata?: Record<string, unknown>; // Will be JSON.stringify'd to metadata_json
-}
-
-/**
- * Session summary with counts
- * GET /v1/chat/sessions/:session_id/summary
- */
-export interface SessionSummary {
-  session: ChatSession;
-  message_count: number;
-  trace_count: number;
-}
-
-/**
  * Query parameters for listing sessions
+ * NOTE: Not yet in generated schema
  */
 export interface ListSessionsQuery {
   user_id?: string;
@@ -130,6 +123,7 @@ export interface ListSessionsQuery {
 /**
  * Request to update session collection binding
  * PUT /v1/chat/sessions/:session_id/collection
+ * NOTE: Not yet in generated schema
  */
 export interface UpdateSessionCollectionRequest {
   collection_id: string | null;
@@ -138,6 +132,7 @@ export interface UpdateSessionCollectionRequest {
 /**
  * Request to update a chat session (title, bindings, metadata)
  * PUT /v1/chat/sessions/:session_id
+ * NOTE: Not yet in generated schema
  */
 export interface UpdateChatSessionRequest {
   name?: string;
@@ -152,11 +147,13 @@ export interface UpdateChatSessionRequest {
 
 // =============================================================================
 // Tags API Types (Migration 0112)
+// NOTE: Not yet in generated schema - will be migrated when backend adds OpenAPI docs
 // =============================================================================
 
 /**
  * Chat session tag (tenant-scoped)
  * Maps to: ChatTag struct in adapteros-db
+ * TODO: Migrate to generated type when available
  */
 export interface ChatTag {
   id: string;
@@ -171,6 +168,7 @@ export interface ChatTag {
 /**
  * Request to create a new tag
  * POST /v1/chat/tags
+ * TODO: Migrate to generated type when available
  */
 export interface CreateTagRequest {
   name: string;
@@ -181,6 +179,7 @@ export interface CreateTagRequest {
 /**
  * Request to update a tag
  * PUT /v1/chat/tags/:tag_id
+ * TODO: Migrate to generated type when available
  */
 export interface UpdateTagRequest {
   name?: string;
@@ -191,6 +190,7 @@ export interface UpdateTagRequest {
 /**
  * Request to assign tags to a session
  * POST /v1/chat/sessions/:session_id/tags
+ * TODO: Migrate to generated type when available
  */
 export interface AssignTagsRequest {
   tag_ids: string[];
@@ -198,11 +198,13 @@ export interface AssignTagsRequest {
 
 // =============================================================================
 // Categories API Types (Migration 0112)
+// NOTE: Not yet in generated schema - will be migrated when backend adds OpenAPI docs
 // =============================================================================
 
 /**
  * Chat session category (hierarchical with materialized path)
  * Maps to: ChatCategory struct in adapteros-db
+ * TODO: Migrate to generated type when available
  */
 export interface ChatCategory {
   id: string;
@@ -220,6 +222,7 @@ export interface ChatCategory {
 /**
  * Request to create a new category
  * POST /v1/chat/categories
+ * TODO: Migrate to generated type when available
  */
 export interface CreateCategoryRequest {
   name: string;
@@ -231,6 +234,7 @@ export interface CreateCategoryRequest {
 /**
  * Request to update a category
  * PUT /v1/chat/categories/:category_id
+ * TODO: Migrate to generated type when available
  */
 export interface UpdateCategoryRequest {
   name?: string;
@@ -241,6 +245,7 @@ export interface UpdateCategoryRequest {
 /**
  * Request to set session category
  * PUT /v1/chat/sessions/:session_id/category
+ * TODO: Migrate to generated type when available
  */
 export interface SetCategoryRequest {
   category_id: string | null;
@@ -248,16 +253,18 @@ export interface SetCategoryRequest {
 
 // =============================================================================
 // Soft Delete / Archive Types (Migration 0113)
+// NOTE: Not yet in generated schema
 // =============================================================================
 
 /**
- * Session status enum
+ * Session status enum (UI-only)
  */
 export type SessionStatus = 'active' | 'archived' | 'deleted';
 
 /**
  * Extended chat session with status fields
  * Maps to: ChatSessionWithStatus struct in adapteros-db
+ * TODO: Migrate to generated type when available
  */
 export interface ChatSessionWithStatus extends ChatSession {
   category_id?: string;
@@ -274,6 +281,7 @@ export interface ChatSessionWithStatus extends ChatSession {
 /**
  * Request to archive a session
  * POST /v1/chat/sessions/:session_id/archive
+ * TODO: Migrate to generated type when available
  */
 export interface ArchiveSessionRequest {
   reason?: string;
@@ -281,6 +289,7 @@ export interface ArchiveSessionRequest {
 
 /**
  * Query parameters for listing archived/deleted sessions
+ * TODO: Migrate to generated type when available
  */
 export interface ListArchivedQuery {
   limit?: number;
@@ -288,11 +297,13 @@ export interface ListArchivedQuery {
 
 // =============================================================================
 // Search Types (Migration 0114)
+// NOTE: Not yet in generated schema
 // =============================================================================
 
 /**
  * Search result for chat sessions/messages
  * Maps to: ChatSearchResult struct in adapteros-db
+ * TODO: Migrate to generated type when available
  */
 export interface ChatSearchResult {
   session_id: string;
@@ -308,6 +319,7 @@ export interface ChatSearchResult {
 /**
  * Query parameters for session search
  * GET /v1/chat/sessions/search
+ * TODO: Migrate to generated type when available
  */
 export interface SearchSessionsQuery {
   q: string;
@@ -320,16 +332,18 @@ export interface SearchSessionsQuery {
 
 // =============================================================================
 // Sharing Types (Migration 0115)
+// NOTE: Not yet in generated schema
 // =============================================================================
 
 /**
- * Share permission level
+ * Share permission level (UI-only enum)
  */
 export type SharePermission = 'view' | 'comment' | 'collaborate';
 
 /**
  * Session share record
  * Maps to: SessionShare struct in adapteros-db
+ * TODO: Migrate to generated type when available
  */
 export interface SessionShare {
   id: string;
@@ -347,6 +361,7 @@ export interface SessionShare {
 /**
  * Request to share a session
  * POST /v1/chat/sessions/:session_id/shares
+ * TODO: Migrate to generated type when available
  */
 export interface ShareSessionRequest {
   user_ids?: string[];
@@ -357,6 +372,7 @@ export interface ShareSessionRequest {
 
 /**
  * Response from share creation
+ * TODO: Migrate to generated type when available
  */
 export interface ShareSessionResponse {
   shares: Array<{
@@ -368,11 +384,13 @@ export interface ShareSessionResponse {
 
 // =============================================================================
 // Extended List Query Types
+// NOTE: Not yet in generated schema
 // =============================================================================
 
 /**
  * Enhanced query parameters for listing sessions
  * GET /v1/chat/sessions
+ * TODO: Migrate to generated type when available
  */
 export interface EnhancedListSessionsQuery extends ListSessionsQuery {
   category_id?: string;

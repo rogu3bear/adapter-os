@@ -9,7 +9,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getStorageKey, type ChatSession as LocalChatSession } from '@/types/chat';
 import type { ChatMessage as LocalChatMessage } from '@/components/chat/ChatMessage';
 import { logger } from '@/utils/logger';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import type { ApiError } from '@/api/client';
 import type {
   ChatSession,
@@ -72,7 +72,7 @@ function toLocalMessage(backendMessage: ChatMessage): LocalChatMessage {
     id: backendMessage.id,
     role: backendMessage.role as 'user' | 'assistant',
     content: backendMessage.content,
-    timestamp: new Date(backendMessage.timestamp),
+    timestamp: new Date(backendMessage.timestamp ?? new Date().toISOString()),
     routerDecision: metadata?.routerDecision,
     unavailablePinnedAdapters: metadata?.unavailablePinnedAdapters,
     pinnedRoutingFallback: metadata?.pinnedRoutingFallback,
@@ -438,6 +438,8 @@ export function useChatSessionsApi(tenantId: string, options: UseChatSessionsOpt
       if (matchesOptions(session)) {
         setSessions((prev) => [session, ...prev.filter((s) => s.id !== session.id)]);
       }
+      // Ensure other hook instances refetch the list (keeps cross-page/session state consistent).
+      queryClient.invalidateQueries({ queryKey: [SESSION_QUERY_KEY, tenantId] });
     },
   });
 

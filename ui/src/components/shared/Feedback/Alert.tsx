@@ -3,7 +3,7 @@
 import * as React from "react";
 import { cva, type VariantProps } from "class-variance-authority";
 import { X, CheckCircle, AlertCircle, AlertTriangle, Info } from "lucide-react";
-import { cn } from "@/components/ui/utils";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
 const alertBannerVariants = cva(

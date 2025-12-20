@@ -351,7 +351,7 @@ export function ChatShareDialog({ sessionId, open, onOpenChange }: Props) {
             <div className="flex gap-2">
               <Input
                 readOnly
-                value={`${window.location.origin}/chat/sessions/${sessionId}`}
+                value={`${window.location.origin}/chat?session=${encodeURIComponent(sessionId)}`}
                 className="bg-slate-50"
               />
               <Button
@@ -359,7 +359,7 @@ export function ChatShareDialog({ sessionId, open, onOpenChange }: Props) {
                 size="icon"
                 onClick={() => {
                   navigator.clipboard.writeText(
-                    `${window.location.origin}/chat/sessions/${sessionId}`
+                    `${window.location.origin}/chat?session=${encodeURIComponent(sessionId)}`
                   );
                   toast.success('Link copied to clipboard');
                 }}

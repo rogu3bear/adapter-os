@@ -4,7 +4,7 @@ import { FileText, Download, Trash2, RefreshCw, Eye, MessageSquare } from 'lucid
 import { useDocumentsApi } from '@/hooks/documents';
 import type { Document } from '@/api/document-types';
 import { logger, toError } from '@/utils/logger';
-import { formatBytes, formatTimestamp } from '@/utils/format';
+import { formatBytes, formatTimestamp } from '@/lib/formatters';
 import {
   Table,
   TableBody,
@@ -48,9 +48,9 @@ export function DocumentTable({ documents, loading, onDelete, onRefresh, isDelet
       indexed: { variant: 'default' as const, label: 'Indexed' },
       failed: { variant: 'destructive' as const, label: 'Failed' },
       archived: { variant: 'outline' as const, label: 'Archived' },
-    };
+    } as const;
 
-    const config = variants[status] || variants.indexed;
+    const config = variants[status as keyof typeof variants] || variants.indexed;
     return <Badge variant={config.variant}>{config.label}</Badge>;
   };
 

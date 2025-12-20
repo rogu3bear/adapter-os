@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
 import { Play, Pause, Upload, CheckCircle, XCircle, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { ModelStatusResponse } from '@/api/types';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 import { ModelImportWizard } from './ModelImportWizard';

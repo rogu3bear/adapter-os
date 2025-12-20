@@ -28,7 +28,7 @@
  */
 
 import { useState, useCallback, useRef } from 'react';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { logger, toError } from '@/utils/logger';
 import { retryWithBackoff, DEFAULT_RETRY_CONFIG } from '@/utils/retry';
 import { toast } from 'sonner';

@@ -26,6 +26,15 @@ import { useTenant } from '@/providers/FeatureProviders';
 import { useRelativeTime } from '@/hooks/ui/useTimestamp';
 import { useNavigate } from 'react-router-dom';
 import { DashboardWidgetFrame, type DashboardWidgetState } from './DashboardWidgetFrame';
+import { withSectionErrorBoundary } from '@/components/ui/section-error-boundary';
+import {
+  buildAdaptersListLink,
+  buildChatLink,
+  buildTelemetryLink,
+  buildSecurityPoliciesLink,
+  buildTrainingOverviewLink,
+  buildMetricsLink,
+} from '@/utils/navLinks';
 
 type EventType = 'all' | 'recovery' | 'policy' | 'build' | 'adapter' | 'telemetry' | 'security' | 'error' | 'collaboration';
 type Severity = 'all' | 'info' | 'warning' | 'error' | 'critical';
@@ -67,7 +76,7 @@ function severityBadge(severity: Exclude<Severity, 'all'>) {
   }
 }
 
-export function ActivityFeedWidget() {
+function ActivityFeedWidgetBase() {
   const { selectedTenant } = useTenant();
   const navigate = useNavigate();
   const [typeFilter, setTypeFilter] = React.useState<EventType>('all');
@@ -176,30 +185,30 @@ export function ActivityFeedWidget() {
               onClick={() => {
                 switch (event.type) {
                   case 'policy':
-                    navigate('/security/policies');
+                    navigate(buildSecurityPoliciesLink());
                     break;
                   case 'build':
-                    navigate('/workflow');
+                    navigate(buildTrainingOverviewLink());
                     break;
                   case 'adapter':
-                    navigate('/adapters');
+                    navigate(buildAdaptersListLink());
                     break;
                   case 'security':
                   case 'error':
-                    navigate('/monitoring');
+                    navigate(buildMetricsLink());
                     break;
                   case 'collaboration':
                     // Navigate to chat or dashboard based on event metadata
                     if (event.workspaceId) {
                       navigate(`/dashboard?workspace=${event.workspaceId}`);
                     } else {
-                      navigate('/chat');
+                      navigate(buildChatLink());
                     }
                     break;
                   case 'telemetry':
                   case 'recovery':
                   default:
-                    navigate('/telemetry');
+                    navigate(buildTelemetryLink());
                 }
               }}
               role="button"
@@ -225,4 +234,5 @@ export function ActivityFeedWidget() {
   );
 }
 
+export const ActivityFeedWidget = withSectionErrorBoundary(ActivityFeedWidgetBase, 'Activity Feed Widget');
 export default ActivityFeedWidget;

@@ -5,8 +5,8 @@ import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { LoadingState } from '@/components/ui/loading-state';
-import apiClient from '@/api/client';
-import { formatBytes, formatTimestamp } from '@/utils/format';
+import { apiClient } from '@/api/services';
+import { formatBytes, formatTimestamp } from '@/lib/formatters';
 
 interface DatasetFilesProps {
   datasetId: string;

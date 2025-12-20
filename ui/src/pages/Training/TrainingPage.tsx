@@ -16,6 +16,7 @@ import { PageHeader as IaPageHeader } from '@/components/shared/PageHeader';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { parsePreselectParams } from '@/utils/urlParams';
+import { buildTrainingJobsLink, buildTrainingDatasetsLink, buildTrainingJobDetailLink } from '@/utils/navLinks';
 
 function TrainingPageContent({ preselectedAdapterId, preselectedDatasetId }: { preselectedAdapterId?: string; preselectedDatasetId?: string }) {
   const [activeTab, setActiveTab] = useState('jobs');
@@ -49,10 +50,10 @@ function TrainingPageContent({ preselectedAdapterId, preselectedDatasetId }: { p
             <Button size="sm" onClick={() => setIsWizardOpen(true)}>
               Train new adapter from template
             </Button>
-            <Button variant="outline" size="sm" onClick={() => navigate('/training/jobs')}>
+            <Button variant="outline" size="sm" onClick={() => navigate(buildTrainingJobsLink())}>
               Browse existing jobs
             </Button>
-            <Button variant="outline" size="sm" onClick={() => navigate('/training/datasets')}>
+            <Button variant="outline" size="sm" onClick={() => navigate(buildTrainingDatasetsLink())}>
               Manage datasets
             </Button>
           </div>
@@ -112,7 +113,7 @@ function TrainingPageContent({ preselectedAdapterId, preselectedDatasetId }: { p
           <TrainingWizard
             onComplete={(jobId) => {
               setIsWizardOpen(false);
-              navigate(`/training/jobs/${jobId}`);
+              navigate(buildTrainingJobDetailLink(jobId));
             }}
             onCancel={() => setIsWizardOpen(false)}
           />

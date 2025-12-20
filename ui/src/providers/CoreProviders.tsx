@@ -1,29 +1,33 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
-import { apiClient } from '@/api/client';
+import { apiClient } from '@/api/services';
 import type { User } from '@/api/types';
 import type { LoginRequest, LoginResponse, SessionMode } from '@/api/auth-types';
 import { logger, toError } from '@/utils/logger';
 import { ThemeProvider as AosThemeProvider } from '@/theme/ThemeProvider';
 import { isDevBypassEnabled, tryDevBypassLogin } from '@/auth/authBootstrap';
-import { clearSessionExpiredFlag, markSessionExpired, SESSION_EXPIRED_FLAG_KEY } from '@/auth/session';
+import { clearSessionExpiredFlag, markSessionExpired } from '@/auth/session';
 import { logAuthEvent } from '@/lib/logUIError';
+import { AUTH_STORAGE_KEYS } from '@/auth/constants';
 
-const SELECTED_TENANT_KEY = 'selectedTenant';
-const TENANT_BOOTSTRAP_KEY = 'aos-tenant-bootstrap';
-const AUTH_SESSION_KEY = 'aos-auth-active';
-export { SESSION_EXPIRED_FLAG_KEY };
-export const TENANT_SELECTION_REQUIRED_KEY = 'aos-tenant-selection-required';
-const DEVICE_ID_KEY = 'aos-device-id';
+// Re-export for backward compatibility
+export const SESSION_EXPIRED_FLAG_KEY = AUTH_STORAGE_KEYS.SESSION_EXPIRED;
+export const TENANT_SELECTION_REQUIRED_KEY = AUTH_STORAGE_KEYS.TENANT_SELECTION_REQUIRED;
+
+// Session-scoped tenant selection with user validation
+interface TenantSelection {
+  tenantId: string;
+  userId: string;
+}
 
 function ensureDeviceId(): string {
   try {
-    const existing = localStorage.getItem(DEVICE_ID_KEY);
+    const existing = localStorage.getItem(AUTH_STORAGE_KEYS.DEVICE_ID);
     if (existing) return existing;
     const generated =
       typeof crypto !== 'undefined' && crypto.randomUUID
         ? crypto.randomUUID()
         : `device-${Date.now()}`;
-    localStorage.setItem(DEVICE_ID_KEY, generated);
+    localStorage.setItem(AUTH_STORAGE_KEYS.DEVICE_ID, generated);
     return generated;
   } catch {
     return 'device-unknown';
@@ -35,6 +39,7 @@ interface AuthContextValue {
   user: User | null;
   isLoading: boolean;
   authError: Error | null;
+  authTimeout: boolean;
   accessToken: string | null;
   sessionMode: SessionMode;
   login: (credentials: LoginRequest) => Promise<LoginResponse>;
@@ -98,6 +103,7 @@ function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [authError, setAuthError] = useState<Error | null>(null);
+  const [authTimeout, setAuthTimeout] = useState(false);
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [sessionMode, setSessionMode] = useState<SessionMode>('normal');
   const isRefreshingRef = useRef(false);
@@ -122,14 +128,14 @@ function AuthProvider({ children }: { children: ReactNode }) {
         role: userInfo.role as User['role'],
         tenant_id: userInfo.tenant_id || '',
         permissions: userInfo.permissions || [],
-        last_login_at: userInfo.last_login_at,
-        mfa_enabled: userInfo.mfa_enabled,
-        token_last_rotated_at: userInfo.token_last_rotated_at,
+        last_login_at: userInfo.last_login_at ?? undefined,
+        mfa_enabled: userInfo.mfa_enabled ?? undefined,
+        token_last_rotated_at: userInfo.token_last_rotated_at ?? undefined,
         admin_tenants: userInfo.admin_tenants,
       });
       setAuthError(null);
       try {
-        sessionStorage.setItem(AUTH_SESSION_KEY, 'true');
+        sessionStorage.setItem(AUTH_STORAGE_KEYS.AUTH_SESSION, 'true');
         clearSessionExpiredFlag();
       } catch {
         // best-effort session bookkeeping
@@ -141,10 +147,10 @@ function AuthProvider({ children }: { children: ReactNode }) {
       setAuthError(err);
       logger.error('Failed to fetch user', { component: 'AuthProvider' }, err);
       try {
-        const hadSession = sessionStorage.getItem(AUTH_SESSION_KEY) === 'true';
+        const hadSession = sessionStorage.getItem(AUTH_STORAGE_KEYS.AUTH_SESSION) === 'true';
         if (hadSession) {
           markSessionExpired();
-          sessionStorage.removeItem(AUTH_SESSION_KEY);
+          sessionStorage.removeItem(AUTH_STORAGE_KEYS.AUTH_SESSION);
         }
       } catch {
         // ignore storage errors
@@ -156,7 +162,7 @@ function AuthProvider({ children }: { children: ReactNode }) {
 
   const applyLoginResponse = useCallback(
     async (response: LoginResponse, options: { emailHint?: string; sessionMode: SessionMode }): Promise<LoginResponse> => {
-      const mode = options.sessionMode ?? response.session_mode ?? 'normal';
+      const mode = options.sessionMode ?? 'normal';
       setSessionMode(mode);
 
       apiClient.setToken(response.token);
@@ -166,18 +172,27 @@ function AuthProvider({ children }: { children: ReactNode }) {
       let resolvedTenantId = response.tenant_id || '';
       let resolvedTenants = response.tenants;
       try {
-        const cachedTenant = localStorage.getItem(SELECTED_TENANT_KEY);
-        if (
-          cachedTenant &&
-          response.tenants?.some((t) => t.id === cachedTenant) &&
-          cachedTenant !== resolvedTenantId
-        ) {
-          const switched = await apiClient.switchTenant(cachedTenant);
-          resolvedTenantId = switched.tenant_id || cachedTenant;
-          resolvedTenants = switched.tenants ?? resolvedTenants;
+        const cachedSelectionJson = sessionStorage.getItem(AUTH_STORAGE_KEYS.SELECTED_TENANT);
+        if (cachedSelectionJson) {
+          const cachedSelection: TenantSelection = JSON.parse(cachedSelectionJson);
+          // Validate cached tenant belongs to current user
+          if (
+            cachedSelection.userId === response.user_id &&
+            cachedSelection.tenantId &&
+            response.tenants?.some((t) => t.id === cachedSelection.tenantId) &&
+            cachedSelection.tenantId !== resolvedTenantId
+          ) {
+            const switched = await apiClient.switchTenant(cachedSelection.tenantId);
+            resolvedTenantId = switched.tenant_id || cachedSelection.tenantId;
+            resolvedTenants = switched.tenants ?? resolvedTenants;
+          } else if (cachedSelection.userId !== response.user_id) {
+            // Clear stale cache from previous user
+            sessionStorage.removeItem(AUTH_STORAGE_KEYS.SELECTED_TENANT);
+          }
         }
       } catch {
-        // ignore storage errors
+        // ignore storage errors or JSON parse errors
+        sessionStorage.removeItem(AUTH_STORAGE_KEYS.SELECTED_TENANT);
       }
 
       const latestToken = apiClient.getToken ? apiClient.getToken() : response.token;
@@ -188,25 +203,29 @@ function AuthProvider({ children }: { children: ReactNode }) {
 
       // Cache tenant context immediately to avoid blank state during initial load
       try {
-        localStorage.setItem(SELECTED_TENANT_KEY, resolvedTenantId);
+        const tenantSelection: TenantSelection = {
+          tenantId: resolvedTenantId,
+          userId: response.user_id,
+        };
+        sessionStorage.setItem(AUTH_STORAGE_KEYS.SELECTED_TENANT, JSON.stringify(tenantSelection));
       } catch {
         // ignore storage errors
       }
       if (resolvedTenants) {
         try {
-          sessionStorage.setItem(TENANT_BOOTSTRAP_KEY, JSON.stringify(resolvedTenants));
+          sessionStorage.setItem(AUTH_STORAGE_KEYS.TENANT_BOOTSTRAP, JSON.stringify(resolvedTenants));
         } catch {
           // ignore storage errors
         }
       }
 
       try {
-        sessionStorage.setItem(AUTH_SESSION_KEY, 'true');
+        sessionStorage.setItem(AUTH_STORAGE_KEYS.AUTH_SESSION, 'true');
         clearSessionExpiredFlag();
         if (resolvedTenants && resolvedTenants.length > 1) {
-          sessionStorage.setItem(TENANT_SELECTION_REQUIRED_KEY, '1');
+          sessionStorage.setItem(AUTH_STORAGE_KEYS.TENANT_SELECTION_REQUIRED, '1');
         } else {
-          sessionStorage.removeItem(TENANT_SELECTION_REQUIRED_KEY);
+          sessionStorage.removeItem(AUTH_STORAGE_KEYS.TENANT_SELECTION_REQUIRED);
         }
       } catch {
         // ignore storage errors
@@ -220,7 +239,7 @@ function AuthProvider({ children }: { children: ReactNode }) {
         role: response.role as User['role'],
         tenant_id: resolvedTenantId,
         permissions: [], // refreshed below
-        admin_tenants: response.admin_tenants,
+        admin_tenants: undefined, // refreshed from /auth/me below
       });
 
       // Best-effort hydration from /auth/me
@@ -228,7 +247,7 @@ function AuthProvider({ children }: { children: ReactNode }) {
         logger.warn('Post-login user refresh failed; using optimistic user state', { component: 'AuthProvider' }, toError(err));
       });
 
-      return { ...response, tenant_id: resolvedTenantId, tenants: resolvedTenants, session_mode: mode };
+      return { ...response, tenant_id: resolvedTenantId, tenants: resolvedTenants };
     },
     [refreshUser],
   );
@@ -251,7 +270,7 @@ function AuthProvider({ children }: { children: ReactNode }) {
         user_id: response.user_id,
         tenant_id: response.tenant_id,
       });
-      const normalizedMode = response.session_mode ?? 'normal';
+      const normalizedMode: SessionMode = (response.session_mode as SessionMode) ?? 'normal';
       return applyLoginResponse(response, {
         emailHint: credentials.email ?? response.user_id,
         sessionMode: normalizedMode,
@@ -272,7 +291,7 @@ function AuthProvider({ children }: { children: ReactNode }) {
         operation: 'devBypassLogin',
       });
       const response = await apiClient.devBypass();
-      const normalizedMode: SessionMode = response.session_mode ?? 'dev_bypass';
+      const normalizedMode: SessionMode = (response.session_mode as SessionMode) ?? 'dev_bypass';
       const result = await applyLoginResponse(response, {
         emailHint: response.user_id,
         sessionMode: normalizedMode,
@@ -299,16 +318,19 @@ function AuthProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       logger.error('Logout error', { component: 'AuthProvider' }, toError(error));
     } finally {
+      // Clear auth state atomically
       setUser(null);
       setAccessToken(null);
       setSessionMode('normal');
-      setAuthError(null); // Clear auth error on logout
+      setAuthError(null);
+
+      // Atomic session state clear - all or nothing
       try {
-        localStorage.removeItem(SELECTED_TENANT_KEY);
-        sessionStorage.removeItem(TENANT_BOOTSTRAP_KEY);
-        sessionStorage.removeItem(AUTH_SESSION_KEY);
-        sessionStorage.removeItem(SESSION_EXPIRED_FLAG_KEY);
-        sessionStorage.removeItem(TENANT_SELECTION_REQUIRED_KEY);
+        sessionStorage.removeItem(AUTH_STORAGE_KEYS.SELECTED_TENANT);
+        sessionStorage.removeItem(AUTH_STORAGE_KEYS.TENANT_BOOTSTRAP);
+        sessionStorage.removeItem(AUTH_STORAGE_KEYS.AUTH_SESSION);
+        sessionStorage.removeItem(AUTH_STORAGE_KEYS.SESSION_EXPIRED);
+        sessionStorage.removeItem(AUTH_STORAGE_KEYS.TENANT_SELECTION_REQUIRED);
       } catch {
         // Ignore storage errors during logout
       }
@@ -321,7 +343,7 @@ function AuthProvider({ children }: { children: ReactNode }) {
       await refreshUser();
       setAccessToken(apiClient.getToken ? apiClient.getToken() ?? null : null);
       try {
-        sessionStorage.setItem(AUTH_SESSION_KEY, 'true');
+        sessionStorage.setItem(AUTH_STORAGE_KEYS.AUTH_SESSION, 'true');
         clearSessionExpiredFlag();
       } catch {
         // ignore storage errors
@@ -333,7 +355,7 @@ function AuthProvider({ children }: { children: ReactNode }) {
       setUser(null);
       setSessionMode('normal');
       try {
-        sessionStorage.removeItem(AUTH_SESSION_KEY);
+        sessionStorage.removeItem(AUTH_STORAGE_KEYS.AUTH_SESSION);
         markSessionExpired();
       } catch {
         // ignore storage errors
@@ -344,19 +366,22 @@ function AuthProvider({ children }: { children: ReactNode }) {
   const logoutAllSessions = useCallback(async () => {
     try {
       await apiClient.logoutAllSessions();
-      setUser(null);
-      setAuthError(null); // Clear auth error on logout
-      setAccessToken(null);
-      setSessionMode('normal');
     } catch (error) {
       logger.error('Logout all sessions error', { component: 'AuthProvider' }, toError(error));
     } finally {
+      // Clear auth state atomically
+      setUser(null);
+      setAccessToken(null);
+      setSessionMode('normal');
+      setAuthError(null);
+
+      // Atomic session state clear - all or nothing
       try {
-        localStorage.removeItem(SELECTED_TENANT_KEY);
-        sessionStorage.removeItem(TENANT_BOOTSTRAP_KEY);
-        sessionStorage.removeItem(AUTH_SESSION_KEY);
-        sessionStorage.removeItem(SESSION_EXPIRED_FLAG_KEY);
-        sessionStorage.removeItem(TENANT_SELECTION_REQUIRED_KEY);
+        sessionStorage.removeItem(AUTH_STORAGE_KEYS.SELECTED_TENANT);
+        sessionStorage.removeItem(AUTH_STORAGE_KEYS.TENANT_BOOTSTRAP);
+        sessionStorage.removeItem(AUTH_STORAGE_KEYS.AUTH_SESSION);
+        sessionStorage.removeItem(AUTH_STORAGE_KEYS.SESSION_EXPIRED);
+        sessionStorage.removeItem(AUTH_STORAGE_KEYS.TENANT_SELECTION_REQUIRED);
       } catch {
         // Ignore storage errors during logout
       }
@@ -379,6 +404,13 @@ function AuthProvider({ children }: { children: ReactNode }) {
     // 1) If server is in dev bypass, /auth/me returns admin + wildcard tenants.
     // 2) Otherwise, fall back to normal refreshUser flow (may 401).
     const checkAuth = async () => {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => {
+        controller.abort();
+        setAuthTimeout(true);
+        setIsLoading(false);
+      }, 30000); // 30 second timeout
+
       try {
         const devBypassEnvEnabled = isDevBypassEnabled(); // Dev bypass environment policy documented in docs/AUTHENTICATION.md
         if (devBypassEnvEnabled) {
@@ -401,18 +433,19 @@ function AuthProvider({ children }: { children: ReactNode }) {
               role: resolvedRole,
               tenant_id: devClaims.tenant_id || '',
               permissions: devClaims.permissions || [],
-              last_login_at: devClaims.last_login_at,
-              mfa_enabled: devClaims.mfa_enabled,
-              token_last_rotated_at: devClaims.token_last_rotated_at,
+              last_login_at: devClaims.last_login_at ?? undefined,
+              mfa_enabled: devClaims.mfa_enabled ?? undefined,
+              token_last_rotated_at: devClaims.token_last_rotated_at ?? undefined,
               admin_tenants: devClaims.admin_tenants,
             });
             setAuthError(null);
             try {
-              sessionStorage.setItem(AUTH_SESSION_KEY, 'true');
-              sessionStorage.removeItem(SESSION_EXPIRED_FLAG_KEY);
+              sessionStorage.setItem(AUTH_STORAGE_KEYS.AUTH_SESSION, 'true');
+              sessionStorage.removeItem(AUTH_STORAGE_KEYS.SESSION_EXPIRED);
             } catch {
               // ignore storage errors
             }
+            clearTimeout(timeoutId);
             return;
           }
         } else {
@@ -421,7 +454,13 @@ function AuthProvider({ children }: { children: ReactNode }) {
 
         // Attempt to get current user - if 401, we're not authenticated
         await refreshUser();
-      } catch {
+        clearTimeout(timeoutId);
+      } catch (error) {
+        clearTimeout(timeoutId);
+        if (controller.signal.aborted) {
+          // Timeout already handled above
+          return;
+        }
         // Not authenticated - this is expected on initial load
         setUser(null);
       } finally {
@@ -435,6 +474,7 @@ function AuthProvider({ children }: { children: ReactNode }) {
     user,
     isLoading,
     authError,
+    authTimeout,
     accessToken,
     sessionMode,
     login,

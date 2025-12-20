@@ -31,7 +31,7 @@ import {
   XCircle,
   AlertCircle,
 } from 'lucide-react';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { AuditLog, AuditLogFilters } from '@/api/types';
 import { toast } from 'sonner';
 import { logger } from '@/utils/logger';

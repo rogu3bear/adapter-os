@@ -35,10 +35,10 @@ import {
   Info,
   X,
 } from 'lucide-react';
-import { cn } from '@/components/ui/utils';
-import apiClient from '@/api/client';
+import { cn } from '@/lib/utils';
+import { apiClient } from '@/api/services';
 import { Adapter } from '@/api/types';
-import { formatBytes } from '@/utils/format';
+import { formatBytes } from '@/lib/formatters';
 
 interface StackAdapter {
   adapter: Adapter;

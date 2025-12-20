@@ -18,7 +18,7 @@ import {
 } from '@/components/ui/tooltip';
 import { useModelStatus, type ModelStatusState } from '@/hooks/model-loading';
 import { useAutoLoadModel } from '@/hooks/model-loading';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { toast } from 'sonner';
 import { logger } from '@/utils/logger';
 import {

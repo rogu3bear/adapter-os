@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { logger, toError } from '@/utils/logger';
 
 type OrchestratorStatus =

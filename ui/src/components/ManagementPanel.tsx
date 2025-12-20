@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { logger, toError } from '@/utils/logger';
 import { usePolling } from '@/hooks/realtime/usePolling';
 import { LoadingState } from './ui/loading-state';
@@ -51,6 +51,20 @@ import type {
   Adapter,
 } from '@/api/types';
 import { useNavigate } from 'react-router-dom';
+import {
+  buildTrainingOverviewLink,
+  buildAdaptersListLink,
+  buildTelemetryLink,
+  buildReplayLink,
+  buildMetricsLink,
+  buildAdminTenantsLink,
+  buildBaseModelsLink,
+  buildSecurityPoliciesLink,
+  buildInferenceLink,
+  buildRoutingLink,
+  buildSecurityAuditLink,
+  buildAdminLink,
+} from '@/utils/navLinks';
 
 interface ManagementPanelProps {
   tenantId?: string;
@@ -134,9 +148,12 @@ export function ManagementPanel({ tenantId, onToolbarChange }: ManagementPanelPr
   const activeAdapters = adapters.filter((a) => a.state === 'hot' || a.state === 'warm').length;
 
   // Mock service status (in real implementation, fetch from supervisor API)
+  // Ports respect environment variables for multi-developer setups
+  const backendPort = parseInt(import.meta.env.VITE_SERVER_PORT || import.meta.env.AOS_SERVER_PORT || '8080', 10);
+  const uiPort = parseInt(import.meta.env.VITE_UI_PORT || import.meta.env.AOS_UI_PORT || '3200', 10);
   const services: ServiceStatus[] = [
-    { id: 'backend', name: 'Backend Server', status: 'running', category: 'core', port: 8080 },
-    { id: 'ui', name: 'UI Frontend', status: 'running', category: 'core', port: 3200 },
+    { id: 'backend', name: 'Backend Server', status: 'running', category: 'core', port: backendPort },
+    { id: 'ui', name: 'UI Frontend', status: 'running', category: 'core', port: uiPort },
     { id: 'supervisor', name: 'Service Supervisor', status: 'running', category: 'core' },
     { id: 'telemetry', name: 'Telemetry Collector', status: 'running', category: 'monitoring' },
     { id: 'metrics', name: 'Metrics Exporter', status: 'running', category: 'monitoring' },
@@ -212,7 +229,7 @@ export function ManagementPanel({ tenantId, onToolbarChange }: ManagementPanelPr
               </div>
               <Button
                 variant="destructive"
-                onClick={() => navigate('/metrics')}
+                onClick={() => navigate(buildMetricsLink())}
                 className="ml-auto"
               >
                 View Alerts
@@ -401,7 +418,7 @@ export function ManagementPanel({ tenantId, onToolbarChange }: ManagementPanelPr
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => navigate('/metrics')}
+                    onClick={() => navigate(buildMetricsLink())}
                   >
                     View All
                     <ArrowRight className="ml-2 h-4 w-4" />
@@ -562,7 +579,7 @@ export function ManagementPanel({ tenantId, onToolbarChange }: ManagementPanelPr
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => navigate('/admin/tenants')}
+                          onClick={() => navigate(buildAdminTenantsLink())}
                         >
                           View
                         </Button>
@@ -590,7 +607,7 @@ export function ManagementPanel({ tenantId, onToolbarChange }: ManagementPanelPr
                     <Users className="h-5 w-5" />
                     Tenants
                   </span>
-                  <Button variant="ghost" size="sm" onClick={() => navigate('/admin/tenants')}>
+                  <Button variant="ghost" size="sm" onClick={() => navigate(buildAdminTenantsLink())}>
                     Manage
                     <ArrowRight className="ml-2 h-4 w-4" />
                   </Button>
@@ -631,7 +648,7 @@ export function ManagementPanel({ tenantId, onToolbarChange }: ManagementPanelPr
                     <Box className="h-5 w-5" />
                     Adapters
                   </span>
-                  <Button variant="ghost" size="sm" onClick={() => navigate('/adapters')}>
+                  <Button variant="ghost" size="sm" onClick={() => navigate(buildAdaptersListLink())}>
                     Manage
                     <ArrowRight className="ml-2 h-4 w-4" />
                   </Button>
@@ -680,7 +697,7 @@ export function ManagementPanel({ tenantId, onToolbarChange }: ManagementPanelPr
                     <Database className="h-5 w-5" />
                     Base Models
                   </span>
-                  <Button variant="ghost" size="sm" onClick={() => navigate('/base-models')}>
+                  <Button variant="ghost" size="sm" onClick={() => navigate(buildBaseModelsLink())}>
                     Manage
                     <ArrowRight className="ml-2 h-4 w-4" />
                   </Button>
@@ -721,7 +738,7 @@ export function ManagementPanel({ tenantId, onToolbarChange }: ManagementPanelPr
                     <Shield className="h-5 w-5" />
                     Policies
                   </span>
-                  <Button variant="ghost" size="sm" onClick={() => navigate('/security/policies')}>
+                  <Button variant="ghost" size="sm" onClick={() => navigate(buildSecurityPoliciesLink())}>
                     Configure
                     <ArrowRight className="ml-2 h-4 w-4" />
                   </Button>
@@ -741,7 +758,7 @@ export function ManagementPanel({ tenantId, onToolbarChange }: ManagementPanelPr
         <TabsContent value="actions" className="space-y-6">
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             {/* ML Pipeline Actions */}
-            <Card className="cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => navigate('/trainer')}>
+            <Card className="cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => navigate(buildTrainingOverviewLink())}>
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2">
                   <Zap className="h-5 w-5" />
@@ -751,7 +768,7 @@ export function ManagementPanel({ tenantId, onToolbarChange }: ManagementPanelPr
               </CardHeader>
             </Card>
 
-            <Card className="cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => navigate('/training')}>
+            <Card className="cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => navigate(buildTrainingOverviewLink())}>
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2">
                   <Activity className="h-5 w-5" />
@@ -761,7 +778,7 @@ export function ManagementPanel({ tenantId, onToolbarChange }: ManagementPanelPr
               </CardHeader>
             </Card>
 
-            <Card className="cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => navigate('/adapters')}>
+            <Card className="cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => navigate(buildAdaptersListLink())}>
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2">
                   <Box className="h-5 w-5" />
@@ -772,7 +789,7 @@ export function ManagementPanel({ tenantId, onToolbarChange }: ManagementPanelPr
             </Card>
 
             {/* Operations Actions */}
-            <Card className="cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => navigate('/inference')}>
+            <Card className="cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => navigate(buildInferenceLink())}>
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2">
                   <Play className="h-5 w-5" />
@@ -782,7 +799,7 @@ export function ManagementPanel({ tenantId, onToolbarChange }: ManagementPanelPr
               </CardHeader>
             </Card>
 
-            <Card className="cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => navigate('/telemetry')}>
+            <Card className="cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => navigate(buildTelemetryLink())}>
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2">
                   <Eye className="h-5 w-5" />
@@ -792,7 +809,7 @@ export function ManagementPanel({ tenantId, onToolbarChange }: ManagementPanelPr
               </CardHeader>
             </Card>
 
-            <Card className="cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => navigate('/replay')}>
+            <Card className="cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => navigate(buildReplayLink())}>
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2">
                   <RotateCcw className="h-5 w-5" />
@@ -803,7 +820,7 @@ export function ManagementPanel({ tenantId, onToolbarChange }: ManagementPanelPr
             </Card>
 
             {/* Monitoring Actions */}
-            <Card className="cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => navigate('/metrics')}>
+            <Card className="cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => navigate(buildMetricsLink())}>
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2">
                   <BarChart3 className="h-5 w-5" />
@@ -813,7 +830,7 @@ export function ManagementPanel({ tenantId, onToolbarChange }: ManagementPanelPr
               </CardHeader>
             </Card>
 
-            <Card className="cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => navigate('/metrics')}>
+            <Card className="cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => navigate(buildMetricsLink())}>
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2">
                   <Activity className="h-5 w-5" />
@@ -823,7 +840,7 @@ export function ManagementPanel({ tenantId, onToolbarChange }: ManagementPanelPr
               </CardHeader>
             </Card>
 
-            <Card className="cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => navigate('/routing')}>
+            <Card className="cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => navigate(buildRoutingLink())}>
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2">
                   <TrendingUp className="h-5 w-5" />
@@ -834,7 +851,7 @@ export function ManagementPanel({ tenantId, onToolbarChange }: ManagementPanelPr
             </Card>
 
             {/* Compliance Actions */}
-            <Card className="cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => navigate('/security/policies')}>
+            <Card className="cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => navigate(buildSecurityPoliciesLink())}>
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2">
                   <Shield className="h-5 w-5" />
@@ -844,7 +861,7 @@ export function ManagementPanel({ tenantId, onToolbarChange }: ManagementPanelPr
               </CardHeader>
             </Card>
 
-            <Card className="cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => navigate('/security/audit')}>
+            <Card className="cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => navigate(buildSecurityAuditLink())}>
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2">
                   <FileText className="h-5 w-5" />
@@ -855,7 +872,7 @@ export function ManagementPanel({ tenantId, onToolbarChange }: ManagementPanelPr
             </Card>
 
             {/* Administration Actions */}
-            <Card className="cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => navigate('/admin')}>
+            <Card className="cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => navigate(buildAdminLink())}>
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2">
                   <Settings className="h-5 w-5" />

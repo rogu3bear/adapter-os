@@ -5,8 +5,8 @@ import { Progress } from '@/components/ui/progress';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { usePolling } from '@/hooks/realtime/usePolling';
-import { apiClient } from '@/api/client';
-import { formatBytes as formatBytesUtil, formatRelativeTime } from '@/utils/format';
+import { apiClient } from '@/api/services';
+import { formatBytes as formatBytesUtil, formatRelativeTime } from '@/lib/formatters';
 
 interface ServiceStatus {
   name: string;
@@ -59,9 +59,9 @@ interface MonitoringData {
 const fetchMonitoringData = async (): Promise<MonitoringData> => {
   try {
     const [health, metrics, alerts] = await Promise.all([
-      apiClient.get<{ services: ServiceStatus[] }>('/health/services').catch(() => null),
-      apiClient.get<ResourceUtilization>('/metrics/system').catch(() => null),
-      apiClient.get<Alert[]>('/alerts').catch(() => null)
+      apiClient.request<{ services: ServiceStatus[] }>('/health/services').catch(() => null),
+      apiClient.request<ResourceUtilization>('/metrics/system').catch(() => null),
+      apiClient.request<Alert[]>('/alerts').catch(() => null)
     ]);
 
     return {

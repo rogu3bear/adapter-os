@@ -2,7 +2,7 @@
 // Citation: AGENTS.md - Policy Studio feature UI implementation
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { toast } from 'sonner';
 
 // Types

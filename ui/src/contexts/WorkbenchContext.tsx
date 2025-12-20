@@ -148,9 +148,15 @@ export function WorkbenchProvider({ children }: WorkbenchProviderProps) {
     null
   );
 
-  // Use ref to avoid selectMessage changing on every pinnedMessageId change
+  // Use refs to avoid callbacks changing on every state change
   const pinnedMessageIdRef = useRef<string | null>(null);
   pinnedMessageIdRef.current = pinnedMessageId;
+
+  const leftRailScrollPositionsRef = useRef<Record<string, number>>({});
+  leftRailScrollPositionsRef.current = leftRailScrollPositions;
+
+  const rightRailCollapsedRef = useRef<boolean>(false);
+  rightRailCollapsedRef.current = rightRailCollapsed;
 
   // Adapter strength overrides state
   const [strengthOverrides, setStrengthOverridesInternal] = useState<
@@ -194,12 +200,9 @@ export function WorkbenchProvider({ children }: WorkbenchProviderProps) {
     });
   }, []);
 
-  const getScrollPosition = useCallback(
-    (tab: string) => {
-      return leftRailScrollPositions[tab] ?? 0;
-    },
-    [leftRailScrollPositions]
-  );
+  const getScrollPosition = useCallback((tab: string) => {
+    return leftRailScrollPositionsRef.current[tab] ?? 0;
+  }, []);
 
   // -------------------------------------------------------------------------
   // Right rail actions
@@ -272,7 +275,7 @@ export function WorkbenchProvider({ children }: WorkbenchProviderProps) {
 
   const handleGlobalEscape = useCallback((): boolean => {
     // 1. If right rail is open, collapse it
-    if (!rightRailCollapsed) {
+    if (!rightRailCollapsedRef.current) {
       setRightRailCollapsed(true);
       return true;
     }
@@ -287,7 +290,7 @@ export function WorkbenchProvider({ children }: WorkbenchProviderProps) {
     }
 
     return false;
-  }, [rightRailCollapsed, setRightRailCollapsed]);
+  }, [setRightRailCollapsed]);
 
   // -------------------------------------------------------------------------
   // Context value

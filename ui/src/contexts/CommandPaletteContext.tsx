@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import type { Adapter, Tenant, Policy, Node, WorkerResponse } from '@/api/types';
 import { logger, toError } from '@/utils/logger';
 import { LucideIcon } from 'lucide-react';

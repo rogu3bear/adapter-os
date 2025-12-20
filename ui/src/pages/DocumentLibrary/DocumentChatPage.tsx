@@ -25,6 +25,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import DocumentChatLayout from '@/components/documents/DocumentChatLayout';
 import { useDocument } from '@/hooks/documents';
 import { Link } from 'react-router-dom';
+import { buildTelemetryViewerLink, buildDocumentsLink } from '@/utils/navLinks';
 
 interface DocumentChatParams {
   documentId: string;
@@ -35,9 +36,10 @@ export default function DocumentChatPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { data: document, isLoading, error } = useDocument(documentId);
-  const mainContentRef = useRef<HTMLDivElement>(null);
+  const mainContentRef = useRef<HTMLElement>(null);
   const headerRef = useRef<HTMLElement>(null);
   const collectionIdFromParam = searchParams.get('collectionId') || undefined;
+  const mainContentId = 'document-chat-main-content';
 
   // Set page title dynamically
   useEffect(() => {
@@ -61,7 +63,7 @@ export default function DocumentChatPage() {
 
   // Handle navigation back to document library
   const handleBack = () => {
-    navigate('/documents');
+    navigate(buildDocumentsLink());
   };
 
   // Skip link handler
@@ -75,7 +77,7 @@ export default function DocumentChatPage() {
       <div className="h-full flex flex-col">
         {/* Skip link for keyboard users */}
         <a
-          href="#main-content"
+          href={`#${mainContentId}`}
           className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-50 focus:px-4 focus:py-2 focus:bg-blue-600 focus:text-white focus:rounded"
           onClick={handleSkipToMain}
         >
@@ -87,10 +89,20 @@ export default function DocumentChatPage() {
           <Skeleton className="h-8 w-8" />
           <Skeleton className="h-6 w-32 sm:w-48" />
         </div>
-        <div className="flex-1 p-4" role="status" aria-live="polite">
-          <Skeleton className="h-full w-full" />
-          <span className="sr-only">Loading document...</span>
-        </div>
+        <main
+          id={mainContentId}
+          ref={mainContentRef}
+          className="flex-1 p-4"
+          role="main"
+          aria-label="Document chat interface"
+          aria-busy="true"
+          tabIndex={-1}
+        >
+          <div className="h-full" role="status" aria-live="polite">
+            <Skeleton className="h-full w-full" />
+            <span className="sr-only">Loading document...</span>
+          </div>
+        </main>
       </div>
     );
   }
@@ -100,25 +112,32 @@ export default function DocumentChatPage() {
       <div className="h-full flex flex-col p-4 sm:p-6">
         {/* Skip link */}
         <a
-          href="#main-content"
+          href={`#${mainContentId}`}
           className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-50 focus:px-4 focus:py-2 focus:bg-blue-600 focus:text-white focus:rounded"
           onClick={handleSkipToMain}
         >
           Skip to main content
         </a>
 
-        <Button variant="ghost" onClick={handleBack} className="mb-4 w-fit">
-          <ArrowLeft className="mr-2 h-4 w-4" />
-          <span className="hidden sm:inline">Back to Documents</span>
-          <span className="sm:hidden">Back</span>
-        </Button>
-        <Alert variant="destructive" role="alert">
-          <AlertCircle className="h-4 w-4" />
-          <AlertTitle>Error</AlertTitle>
-          <AlertDescription>
-            {error?.message || 'Document not found'}
-          </AlertDescription>
-        </Alert>
+        <main
+          id={mainContentId}
+          ref={mainContentRef}
+          tabIndex={-1}
+          className="flex-1"
+          role="main"
+          aria-label="Document chat interface"
+        >
+          <Button variant="ghost" onClick={handleBack} className="mb-4 w-fit">
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            <span className="hidden sm:inline">Back to Documents</span>
+            <span className="sm:hidden">Back</span>
+          </Button>
+          <Alert variant="destructive" role="alert">
+            <AlertCircle className="h-4 w-4" />
+            <AlertTitle>Error</AlertTitle>
+            <AlertDescription>{error?.message || 'Document not found'}</AlertDescription>
+          </Alert>
+        </main>
       </div>
     );
   }
@@ -129,25 +148,34 @@ export default function DocumentChatPage() {
       <div className="h-full flex flex-col p-4 sm:p-6">
         {/* Skip link */}
         <a
-          href="#main-content"
+          href={`#${mainContentId}`}
           className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-50 focus:px-4 focus:py-2 focus:bg-blue-600 focus:text-white focus:rounded"
           onClick={handleSkipToMain}
         >
           Skip to main content
         </a>
 
-        <Button variant="ghost" onClick={handleBack} className="mb-4 w-fit">
-          <ArrowLeft className="mr-2 h-4 w-4" />
-          <span className="hidden sm:inline">Back to Documents</span>
-          <span className="sm:hidden">Back</span>
-        </Button>
-        <Alert role="status" aria-live="polite">
-          <FileText className="h-4 w-4" />
-          <AlertTitle>Document Not Ready</AlertTitle>
-          <AlertDescription>
-            This document is currently {document.status}. Chat will be available once indexing is complete.
-          </AlertDescription>
-        </Alert>
+        <main
+          id={mainContentId}
+          ref={mainContentRef}
+          tabIndex={-1}
+          className="flex-1"
+          role="main"
+          aria-label="Document chat interface"
+        >
+          <Button variant="ghost" onClick={handleBack} className="mb-4 w-fit">
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            <span className="hidden sm:inline">Back to Documents</span>
+            <span className="sm:hidden">Back</span>
+          </Button>
+          <Alert role="status" aria-live="polite">
+            <FileText className="h-4 w-4" />
+            <AlertTitle>Document Not Ready</AlertTitle>
+            <AlertDescription>
+              This document is currently {document.status}. Chat will be available once indexing is complete.
+            </AlertDescription>
+          </Alert>
+        </main>
       </div>
     );
   }
@@ -159,7 +187,7 @@ export default function DocumentChatPage() {
     <div className="h-full flex flex-col">
       {/* Skip link for keyboard users */}
       <a
-        href="#main-content"
+        href={`#${mainContentId}`}
         className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-50 focus:px-4 focus:py-2 focus:bg-blue-600 focus:text-white focus:rounded"
         onClick={handleSkipToMain}
       >
@@ -203,7 +231,7 @@ export default function DocumentChatPage() {
 
       {/* Main content - responsive split-view */}
       <main
-        id="main-content"
+        id={mainContentId}
         ref={mainContentRef}
         className="flex-1 overflow-hidden"
         tabIndex={-1}
@@ -218,7 +246,7 @@ export default function DocumentChatPage() {
       </main>
 
       <div className="p-4 border-t text-sm text-muted-foreground">
-        <Link to="/telemetry?tab=viewer" className="underline underline-offset-4">
+        <Link to={buildTelemetryViewerLink()} className="underline underline-offset-4">
           View telemetry for this session
         </Link>
       </div>

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useLocation, useSearchParams, Link } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/providers/CoreProviders';
 import { useTenant } from '@/providers/FeatureProviders';
 import FeatureLayout from '@/layout/FeatureLayout';
@@ -18,6 +18,17 @@ import { TraceSummaryPanel } from '@/components/trace/TraceSummaryPanel';
 import { TraceTokenTable } from '@/components/trace/TraceTokenTable';
 import { useTrace } from '@/hooks/observability/useTrace';
 import { useTelemetryTabRouter } from '@/hooks/navigation/useTabRouter';
+import TelemetryAlertsTab from '@/pages/Telemetry/TelemetryAlertsTab';
+import TelemetryExportsTab from '@/pages/Telemetry/TelemetryExportsTab';
+import TelemetryFiltersTab from '@/pages/Telemetry/TelemetryFiltersTab';
+import {
+  buildTelemetryAlertsLink,
+  buildTelemetryEventStreamLink,
+  buildTelemetryExportsLink,
+  buildTelemetryFiltersLink,
+  buildTelemetryTraceLink,
+  buildTelemetryViewerLink,
+} from '@/utils/navLinks';
 import type { TraceResponseV1 } from '@/api/types';
 
 export default function TelemetryPage() {
@@ -26,39 +37,86 @@ export default function TelemetryPage() {
   const tenantId = selectedTenant || user?.tenant_id;
 
   const location = useLocation();
-  const [searchParams, setSearchParams] = useSearchParams();
-  const { activeTab, setActiveTab, availableTabs, getTabPath } = useTelemetryTabRouter();
+  const navigate = useNavigate();
+  const params = useParams<{ traceId?: string }>();
+  const [searchParams] = useSearchParams();
+  const { activeTab, availableTabs, getTabPath } = useTelemetryTabRouter();
 
-  useEffect(() => {
-    const legacyTraceId = searchParams.get('traceId');
-    if (legacyTraceId && !searchParams.get('trace_id')) {
-      const next = new URLSearchParams(searchParams);
-      next.set('trace_id', legacyTraceId);
-      next.delete('traceId');
-      setSearchParams(next, { replace: true });
-    }
-  }, [searchParams, setSearchParams]);
-
-  const traceId = useMemo(
-    () => (searchParams.get('trace_id') ?? searchParams.get('traceId') ?? '').trim(),
-    [searchParams]
-  );
+  const traceId = (params.traceId ?? '').trim();
 
   const sourceType = useMemo(() => {
-    const hash = location.hash?.replace('#', '');
-    return searchParams.get('source_type') || (hash?.startsWith('source_type=') ? hash.split('=')[1] : undefined);
+    const fromQuery = (searchParams.get('source_type') ?? searchParams.get('sourceType') ?? '').trim();
+    if (fromQuery) return fromQuery;
+
+    const hashRaw = (location.hash ?? '').replace(/^#/, '').trim();
+    if (!hashRaw || !hashRaw.includes('=')) return undefined;
+
+    const hashParams = new URLSearchParams(hashRaw);
+    const fromHash = (hashParams.get('source_type') ?? hashParams.get('sourceType') ?? '').trim();
+    return fromHash || undefined;
   }, [location.hash, searchParams]);
+
+  const telemetrySearch = useMemo(() => {
+    if (!sourceType) return '';
+    return `?source_type=${encodeURIComponent(sourceType)}`;
+  }, [sourceType]);
+
+  useEffect(() => {
+    const tab = (searchParams.get('tab') ?? '').trim().toLowerCase();
+    const legacyTraceId = (searchParams.get('trace_id') ?? searchParams.get('traceId') ?? searchParams.get('requestId') ?? '').trim();
+
+    const allowedSearchKeys = new Set(['source_type']);
+    const hasDisallowedSearchKeys = Array.from(searchParams.keys()).some((key) => !allowedSearchKeys.has(key));
+
+    const hashRaw = (location.hash ?? '').replace(/^#/, '').trim();
+    const hashParams = hashRaw.includes('=') ? new URLSearchParams(hashRaw) : null;
+    const hasLegacyHash = Boolean(hashParams?.has('source_type') || hashParams?.has('sourceType'));
+
+    const hasLegacyParams = tab.length > 0 || legacyTraceId.length > 0 || hasDisallowedSearchKeys || hasLegacyHash;
+    if (!hasLegacyParams) return;
+
+    const targetPath = (() => {
+      switch (tab) {
+        case 'events':
+        case 'event-stream':
+        case 'event_stream':
+        case 'eventstream':
+          return buildTelemetryEventStreamLink();
+        case 'traces':
+        case 'viewer':
+        case 'trace':
+        case 'viewer-trace':
+        case 'viewer_trace':
+          return legacyTraceId ? buildTelemetryTraceLink(legacyTraceId) : buildTelemetryViewerLink();
+        case 'alerts':
+          return buildTelemetryAlertsLink();
+        case 'exports':
+          return buildTelemetryExportsLink();
+        case 'filters':
+          return buildTelemetryFiltersLink();
+        default:
+          if (!tab && traceId) return location.pathname;
+          return legacyTraceId ? buildTelemetryTraceLink(legacyTraceId) : location.pathname;
+      }
+    })();
+
+    const targetHash = hasLegacyHash ? '' : location.hash;
+    const targetUrl = `${targetPath}${telemetrySearch}${targetHash}`;
+    const currentUrl = `${location.pathname}${location.search}${location.hash}`;
+
+    if (targetUrl !== currentUrl) {
+      navigate(targetUrl, { replace: true });
+    }
+  }, [location.hash, location.pathname, location.search, navigate, searchParams, telemetrySearch, traceId]);
 
   const { data: trace, isLoading, isFetching, isError, error } = useTrace(traceId || undefined, tenantId);
 
   const handleTraceIdChange = (nextTraceId: string) => {
-    const nextParams = new URLSearchParams(searchParams);
-    if (nextTraceId) {
-      nextParams.set('trace_id', nextTraceId);
-    } else {
-      nextParams.delete('trace_id');
-    }
-    setSearchParams(nextParams, { replace: true });
+    const trimmedTraceId = nextTraceId.trim();
+    const targetUrl = trimmedTraceId
+      ? buildTelemetryTraceLink(trimmedTraceId, { sourceType })
+      : buildTelemetryViewerLink({ sourceType });
+    navigate(targetUrl, { replace: true });
   };
 
   return (
@@ -77,11 +135,11 @@ export default function TelemetryPage() {
         }
       >
         <SectionErrorBoundary sectionName="Telemetry">
-          <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as typeof activeTab)}>
+          <Tabs value={activeTab}>
             <TabsList className="grid grid-cols-3 gap-2 md:w-[480px]">
               {availableTabs.map((tab) => (
                 <TabsTrigger key={tab.id} value={tab.id} asChild>
-                  <Link to={getTabPath(tab.id)}>{tab.label}</Link>
+                  <Link to={`${getTabPath(tab.id)}${telemetrySearch}`}>{tab.label}</Link>
                 </TabsTrigger>
               ))}
             </TabsList>
@@ -106,15 +164,15 @@ export default function TelemetryPage() {
             </TabsContent>
 
             <TabsContent value="alerts" className="mt-6">
-              <div className="text-sm text-muted-foreground">Alerts view (coming soon)</div>
+              <TelemetryAlertsTab />
             </TabsContent>
 
             <TabsContent value="exports" className="mt-6">
-              <div className="text-sm text-muted-foreground">Exports view (coming soon)</div>
+              <TelemetryExportsTab />
             </TabsContent>
 
             <TabsContent value="filters" className="mt-6">
-              <div className="text-sm text-muted-foreground">Filters view (coming soon)</div>
+              <TelemetryFiltersTab />
             </TabsContent>
           </Tabs>
         </SectionErrorBoundary>

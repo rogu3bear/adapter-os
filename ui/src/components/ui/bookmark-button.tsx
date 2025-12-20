@@ -2,7 +2,7 @@ import React from 'react';
 import { Button } from './button';
 import { Star } from 'lucide-react';
 import { useBookmarks } from '@/contexts/BookmarkContext';
-import { cn } from './utils';
+import { cn } from '@/lib/utils';
 
 interface BookmarkButtonProps {
   type: 'page' | 'adapter' | 'tenant' | 'policy' | 'node' | 'worker' | 'bundle' | 'event';

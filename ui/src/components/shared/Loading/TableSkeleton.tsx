@@ -1,5 +1,5 @@
 import * as React from "react";
-import { cn } from "@/components/ui/utils";
+import { cn } from "@/lib/utils";
 import { Skeleton } from "./Skeleton";
 
 export interface TableSkeletonProps extends React.HTMLAttributes<HTMLDivElement> {

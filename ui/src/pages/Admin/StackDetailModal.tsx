@@ -1,15 +1,15 @@
 import { useState, useEffect } from 'react';
 import { Modal } from '@/components/shared/Modal';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Progress } from '@/components/ui/progress';
 import type { AdapterStack, LifecycleHistoryEvent, PolicyPreflightResponse } from '@/api/types';
 import { Layers, Calendar, History, ArrowRight, MessageSquare, Power, PowerOff, AlertTriangle, HardDrive, Shield, CheckCircle2, XCircle, AlertCircle, Trash2 } from 'lucide-react';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { formatDistanceToNow, parseISO } from 'date-fns';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { calculateTotalMemory } from '@/utils/memoryEstimation';
@@ -28,6 +28,9 @@ import {
   type StackPoliciesResponse,
   type PolicySeverity,
 } from '@/api/policyTypes';
+import { buildChatLink } from '@/utils/navLinks';
+import { useRBAC } from '@/hooks/security/useRBAC';
+import { PERMISSIONS } from '@/utils/rbac';
 
 interface StackDetailModalProps {
   stack: AdapterStack;
@@ -472,7 +475,7 @@ const SessionRow = ({
     className="flex cursor-pointer items-center justify-between rounded-lg border p-2 hover:bg-muted/50"
     onClick={() => {
       onClose();
-      navigateToChat(`/chat?stack=${stackId}&session=${session.id}`);
+      navigateToChat(buildChatLink({ stackId, sessionId: session.id }));
     }}
   >
     <div className="min-w-0 flex-1">
@@ -580,7 +583,7 @@ const UsedInCard = ({
             className="w-full"
             onClick={() => {
               onClose();
-              navigateToChat(`/chat?stack=${stackId}`);
+              navigateToChat(buildChatLink({ stackId }));
             }}
           >
             <MessageSquare className="mr-2 h-4 w-4" />
@@ -629,6 +632,7 @@ const HistoryCard = ({
 export function StackDetailModal({ stack, open, onClose }: StackDetailModalProps) {
   const navigate = useNavigate();
   const { selectedTenant } = useTenant();
+  const { can } = useRBAC();
   const [history, setHistory] = useState<LifecycleHistoryEvent[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [isActivating, setIsActivating] = useState(false);
@@ -647,7 +651,7 @@ export function StackDetailModal({ stack, open, onClose }: StackDetailModalProps
   // Note: Inference endpoint tracking would require backend API support
   // Currently, we only track chat sessions. Inference endpoints using stacks
   // would need to be tracked via audit logs or a dedicated endpoint.
-  // This is a known limitation - see docs/ARCHITECTURE_PATTERNS.md for details.
+  // This is a known limitation - see docs/ARCHITECTURE.md#architecture-components for details.
 
   // Fetch adapters for memory calculation
   const { data: availableAdapters } = useQuery({
@@ -829,7 +833,7 @@ export function StackDetailModal({ stack, open, onClose }: StackDetailModalProps
             onActivate={handleActivate}
             onUseInChat={() => {
               onClose();
-              navigate(`/chat?stack=${stack.id}`);
+              navigate(buildChatLink({ stackId: stack.id }));
             }}
             onClearAdapters={handleClearAdapters}
             isClearingAdapters={clearStackAdaptersMutation.isPending}
@@ -875,10 +879,96 @@ export function StackDetailModal({ stack, open, onClose }: StackDetailModalProps
           setShowPreflightDialog(false);
           setIsActivating(false);
         }}
-        isAdmin={false} // TODO: Get from user context
+        isAdmin={can(PERMISSIONS.POLICY_OVERRIDE)}
         isLoading={isActivating}
       />
     )}
     </>
   );
+}
+
+/**
+ * Route-safe wrapper for StackDetailModal.
+ * This component reads stackId from URL params and fetches the stack data,
+ * rendering the modal StackDetailModal with proper props.
+ *
+ * NOTE: Modal components with required props should NEVER be used directly as route components.
+ * Always use a *RoutePage wrapper that reads params and fetches data.
+ */
+export default function StackDetailRoutePage() {
+  const navigate = useNavigate();
+  const { stackId } = useParams<{ stackId: string }>();
+
+  const { data: stacks, isLoading, error, refetch } = useQuery({
+    queryKey: ['stacks'],
+    queryFn: () => apiClient.listAdapterStacks(),
+  });
+
+  const handleClose = () => {
+    navigate('/admin/stacks');
+  };
+
+  // Loading state
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-center">
+          <p className="text-sm text-muted-foreground">Loading stack details...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Error state
+  if (error) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Card className="max-w-md">
+          <CardHeader>
+            <CardTitle>Error Loading Stack</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              {error instanceof Error ? error.message : String(error)}
+            </p>
+            <div className="flex gap-2">
+              <Button onClick={() => refetch()} variant="outline">
+                Try Again
+              </Button>
+              <Button onClick={handleClose} variant="outline">
+                Back to Stacks
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  // Find the stack from the list
+  const stack = stacks?.find((s) => s.id === stackId);
+
+  // Not found state
+  if (!stack) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
+        <Card className="max-w-md">
+          <CardHeader>
+            <CardTitle>Stack Not Found</CardTitle>
+            <CardDescription>
+              The stack with ID <span className="font-mono">{stackId}</span> could not be found.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button onClick={handleClose} variant="outline">
+              Back to Stacks
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  // Render the modal with stack data
+  return <StackDetailModal stack={stack} open={true} onClose={handleClose} />;
 }

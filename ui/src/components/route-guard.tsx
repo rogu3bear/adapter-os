@@ -1,4 +1,4 @@
-import React, { Suspense } from 'react';
+import React, { Suspense, useEffect } from 'react';
 import { Navigate } from 'react-router-dom';
 import { ErrorBoundary } from 'react-error-boundary';
 import { AlertTriangle } from 'lucide-react';
@@ -11,6 +11,12 @@ import { Button } from '@/components/ui/button';
 import ServerErrorPage from '@/pages/ServerErrorPage';
 import { logUIError } from '@/lib/logUIError';
 import { TenantRequiredGate } from '@/components/TenantRequiredGate';
+import { AuthTimeoutError } from '@/components/ui/auth-timeout';
+import {
+  validateRouteableAtRuntime,
+  isBlockedRouteComponent,
+  BLOCKED_ROUTE_COMPONENTS,
+} from '@/config/route-types';
 
 interface ErrorFallbackProps {
   error: Error;
@@ -31,11 +37,39 @@ interface RouteGuardProps {
  * Unified route wrapper that enforces auth/role requirements
  */
 export function RouteGuard({ route, children, fallbackPath = '/dashboard' }: RouteGuardProps) {
-  const { user, isLoading } = useAuth();
+  const { user, isLoading, authTimeout } = useAuth();
   const requiresAuth =
     route.requiresAuth !== false ||
     (route.requiredRoles?.length ?? 0) > 0 ||
     (route.requiredPermissions?.length ?? 0) > 0;
+
+  // Development-only runtime validation for routeable components
+  useEffect(() => {
+    if (process.env.NODE_ENV === 'development' && route.component) {
+      // Get the actual component (unwrap lazy if needed)
+      const component = route.component as React.ComponentType<Record<string, unknown>>;
+
+      // Check against blocked list
+      if (isBlockedRouteComponent(component)) {
+        const name = component.displayName || component.name || 'Unknown';
+        console.error(
+          `[RouteGuard] BLOCKED: Component "${name}" is in BLOCKED_ROUTE_COMPONENTS ` +
+          `and should not be routed directly. It has required props that RouteGuard ` +
+          `cannot provide. Use a *RoutePage wrapper instead.\n` +
+          `Blocked components: ${BLOCKED_ROUTE_COMPONENTS.join(', ')}\n` +
+          `Route path: ${route.path}`
+        );
+      }
+
+      // Heuristic check for suspicious patterns
+      validateRouteableAtRuntime(component, route.path);
+    }
+  }, [route.component, route.path]);
+
+  // Show timeout error if auth check took too long
+  if (authTimeout) {
+    return <AuthTimeoutError />;
+  }
 
   // Show loading state while auth is being verified
   if (requiresAuth && isLoading) {

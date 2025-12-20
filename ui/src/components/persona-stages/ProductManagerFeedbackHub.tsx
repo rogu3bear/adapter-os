@@ -37,7 +37,7 @@ import {
   Calendar,
   Tag,
 } from 'lucide-react';
-import { formatTimestamp } from '@/utils/format';
+import { formatTimestamp } from '@/lib/formatters';
 
 interface Feedback {
   id: string;

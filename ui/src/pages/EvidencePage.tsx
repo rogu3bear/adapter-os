@@ -43,9 +43,7 @@ export default function EvidencePage() {
   const [description, setDescription] = useState('');
   const [statusFilter, setStatusFilter] = useState<EvidenceStatus | 'all'>('all');
 
-  const [filters, setFilters] = useState<ListEvidenceQuery>(() =>
-    selectedTenant ? { tenant_id: selectedTenant } : {}
-  );
+  const [filters, setFilters] = useState<Omit<ListEvidenceQuery, 'tenant_id'>>({});
 
   const mergedFilters = useMemo(
     () => ({
@@ -58,7 +56,6 @@ export default function EvidencePage() {
   useEffect(() => {
     setFilters((prev) => ({
       ...prev,
-      tenant_id: selectedTenant,
     }));
   }, [selectedTenant]);
 
@@ -84,9 +81,6 @@ export default function EvidencePage() {
     }
 
     const request: CreateEvidenceRequest = {
-      tenant_id: selectedTenant,
-      trace_id: targetType === 'trace' ? targetId.trim() : undefined,
-      message_id: targetType === 'message' ? targetId.trim() : undefined,
       evidence_type: evidenceType,
       reference: reference.trim() || targetId.trim(),
       description: description.trim() || undefined,
@@ -94,6 +88,8 @@ export default function EvidencePage() {
       metadata_json: JSON.stringify({
         source: 'evidence_center',
         target_type: targetType,
+        trace_id: targetType === 'trace' ? targetId.trim() : undefined,
+        message_id: targetType === 'message' ? targetId.trim() : undefined,
       }),
     };
 

@@ -10,7 +10,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { useLiveData } from '@/hooks/realtime/useLiveData';
 import { logger, toError } from '@/utils/logger';
 

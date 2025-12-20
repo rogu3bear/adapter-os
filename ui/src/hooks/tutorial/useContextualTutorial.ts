@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { TutorialConfig } from '@/components/ContextualTutorial';
 import { Tutorial } from '@/api/types';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { logger, toError } from '@/utils/logger';
 
 const STORAGE_KEY = 'aos_tutorials';

@@ -1,3 +1,11 @@
+/**
+ * @deprecated DUPLICATE PAGE - Naming conflict with pages/TestingPage.tsx
+ * Routes use pages/TestingPage.tsx for /testing route.
+ * This file appears to be an alternative testing implementation.
+ *
+ * TODO: Rename to TestingDetailPage.tsx or merge with pages/TestingPage.tsx
+ * Audit date: 2025-12-19
+ */
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -11,11 +19,12 @@ import { LoadingState } from '@/components/ui/loading-state';
 import { EmptyState } from '@/components/ui/empty-state';
 import GoldenRuns from '@/components/GoldenRuns';
 import GoldenCompareModal from '@/components/GoldenCompareModal';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { Adapter, VerificationReport } from '@/api/types';
 import { logger, toError } from '@/utils/logger';
 import { Link } from 'react-router-dom';
 import { FlaskConical, CheckCircle, XCircle, AlertTriangle, Settings, Play, GitCompare } from 'lucide-react';
+import { buildReplayLink } from '@/utils/navLinks';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { errorRecoveryTemplates } from '@/components/ui/error-recovery';
 import { GlossaryTooltip } from '@/components/ui/glossary-tooltip';
@@ -281,7 +290,7 @@ export function TestingPage() {
               <p>Pass Rate: {testResults.epsilon_comparison.pass_rate}%</p>
               <p>Divergent Layers: {testResults.epsilon_comparison.divergent_layers.length}</p>
               {isPassed && (
-                <Link to="/replay">
+                <Link to={buildReplayLink()}>
                   <Button>View run history</Button>
                 </Link>
               )}

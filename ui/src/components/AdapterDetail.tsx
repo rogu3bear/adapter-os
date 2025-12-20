@@ -8,7 +8,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { apiClient } from '@/api/client';
+import { apiClient } from '@/api/services';
 import type { AdapterDetailResponse, AdapterLineageResponse, AdapterLineageNode } from '@/api/types';
 import {
   Card,
@@ -29,6 +29,7 @@ import { AddToStackModal } from './AddToStackModal';
 import { useAdapterStacks } from '@/hooks/admin/useAdmin';
 import { LIFECYCLE_STATE_LABELS } from '@/constants/terminology';
 import { formatMB, formatCount } from '@/utils';
+import { buildAdaptersListLink, buildAdapterDetailLink } from '@/utils/navLinks';
 
 export const AdapterDetail: React.FC = () => {
   const { adapterId } = useParams<{ adapterId: string }>();
@@ -187,7 +188,7 @@ export const AdapterDetail: React.FC = () => {
           </CardHeader>
           <CardContent>
             <p>{error || 'Adapter not found'}</p>
-            <Button onClick={() => navigate('/adapters')} className="mt-4">
+            <Button onClick={() => navigate(buildAdaptersListLink())} className="mt-4">
               Back to Adapters
             </Button>
           </CardContent>
@@ -422,7 +423,7 @@ export const AdapterDetail: React.FC = () => {
                     <div
                       key={ancestor.adapter_id}
                       className="flex items-center justify-between p-2 bg-gray-50 rounded cursor-pointer hover:bg-gray-100"
-                      onClick={() => navigate(`/adapters/${ancestor.adapter_id}`)}
+                      onClick={() => navigate(buildAdapterDetailLink(ancestor.adapter_id))}
                     >
                       <div>
                         <p className="font-medium">{ancestor.adapter_name || ancestor.adapter_id}</p>
@@ -454,7 +455,7 @@ export const AdapterDetail: React.FC = () => {
                     <div
                       key={descendant.adapter_id}
                       className="flex items-center justify-between p-2 bg-gray-50 rounded cursor-pointer hover:bg-gray-100"
-                      onClick={() => navigate(`/adapters/${descendant.adapter_id}`)}
+                      onClick={() => navigate(buildAdapterDetailLink(descendant.adapter_id))}
                     >
                       <div>
                         <p className="font-medium">{descendant.adapter_name || descendant.adapter_id}</p>

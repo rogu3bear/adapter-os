@@ -1,11 +1,10 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { apiClient } from '@/api/client';
+import { apiClient } from '@/api/services';
 import type { TenantSummary } from '@/api/auth-types';
 import { logger, toError } from '@/utils/logger';
 import { toast } from 'sonner';
 import { BookmarkProvider } from '@/contexts/BookmarkContext';
-import { ModalProvider } from '@/contexts/ModalContext';
 import { HistoryProvider } from '@/contexts/HistoryContext';
 import { BreadcrumbProvider } from '@/contexts/BreadcrumbContext';
 import { UndoRedoProvider } from '@/contexts/UndoRedoContext';
@@ -14,6 +13,13 @@ import { streamingService } from '@/services/StreamingService';
 import { TENANT_SWITCH_EVENT } from '@/utils/tenant';
 
 const TENANT_BOOTSTRAP_KEY = 'aos-tenant-bootstrap';
+const SELECTED_TENANT_KEY = 'selectedTenant';
+
+// Session-scoped tenant selection with user validation
+interface TenantSelection {
+  tenantId: string;
+  userId: string;
+}
 
 // Tenant Context
 interface TenantContextValue {
@@ -40,8 +46,19 @@ function TenantProvider({ children }: { children: ReactNode }) {
   const { user, refreshUser } = useAuth();
   const queryClient = useQueryClient();
   const [selectedTenant, setSelectedTenantState] = useState<string>(() => {
-    return localStorage.getItem('selectedTenant') || '';
+    try {
+      const cachedJson = sessionStorage.getItem(SELECTED_TENANT_KEY);
+      if (cachedJson) {
+        const cached: TenantSelection = JSON.parse(cachedJson);
+        return cached.tenantId || '';
+      }
+    } catch {
+      // Ignore parse errors
+    }
+    return '';
   });
+  const selectedTenantRef = useRef(selectedTenant);
+  const userRef = useRef(user);
   const [tenants, setTenants] = useState<TenantSummary[]>(() => {
     try {
       const cached = sessionStorage.getItem(TENANT_BOOTSTRAP_KEY);
@@ -54,6 +71,14 @@ function TenantProvider({ children }: { children: ReactNode }) {
     return [];
   });
   const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    selectedTenantRef.current = selectedTenant;
+  }, [selectedTenant]);
+
+  useEffect(() => {
+    userRef.current = user;
+  }, [user]);
 
   const clearTenantSelectionRequirement = useCallback(() => {
     try {
@@ -69,10 +94,87 @@ function TenantProvider({ children }: { children: ReactNode }) {
     } catch {
       // ignore cancellation errors
     }
-    queryClient.clear();
+
+    // Selectively clear tenant-specific queries instead of wiping everything.
+    // This prevents flash of empty states for global data (auth, system health, meta).
+    const GLOBAL_QUERY_PREFIXES = [
+      'auth',
+      'user',
+      'system-health',
+      'system-overview',
+      'meta',
+      'feature-flags',
+      'tenants', // Tenant list itself is global
+      'user-tenants',
+    ];
+
+    queryClient.removeQueries({
+      predicate: (query) => {
+        const key = query.queryKey;
+        // Keep queries that start with global prefixes
+        if (Array.isArray(key) && key.length > 0) {
+          const firstKey = String(key[0]).toLowerCase();
+          return !GLOBAL_QUERY_PREFIXES.some(prefix => firstKey.startsWith(prefix));
+        }
+        // Remove unknown query key formats
+        return true;
+      },
+    });
+
+    // Invalidate remaining queries to trigger refetch with new tenant context
+    queryClient.invalidateQueries();
     streamingService.unsubscribeAll();
     window.dispatchEvent(new CustomEvent(TENANT_SWITCH_EVENT, { detail: { tenantId } }));
   }, [queryClient]);
+
+  // Cross-tab tenant sync: when another tab switches tenants, keep this tab's in-memory
+  // state (and React Query caches) aligned with the backend's active tenant.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const handleStorage = (event: StorageEvent) => {
+      if (event.storageArea !== window.sessionStorage) return;
+      if (event.key !== SELECTED_TENANT_KEY) return;
+
+      try {
+        const nextValue = event.newValue;
+        if (!nextValue) return;
+
+        const nextSelection: TenantSelection = JSON.parse(nextValue);
+        const nextTenantId = nextSelection.tenantId;
+
+        // Validate user matches current user
+        if (!userRef.current || nextSelection.userId !== userRef.current.id) {
+          return;
+        }
+
+        if (nextTenantId === selectedTenantRef.current) return;
+
+        setSelectedTenantState(nextTenantId);
+        clearTenantSelectionRequirement();
+
+        void resetTenantCaches(nextTenantId).then(() => {
+          if (!userRef.current) return;
+          (async () => {
+            try {
+              await refreshUser();
+            } catch (err) {
+              logger.warn(
+                'Failed to refresh user after cross-tab tenant change',
+                { component: 'TenantProvider' },
+                toError(err)
+              );
+            }
+          })();
+        });
+      } catch {
+        // Ignore parse errors
+      }
+    };
+
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
+  }, [clearTenantSelectionRequirement, refreshUser, resetTenantCaches]);
 
   const refreshTenants = useCallback(async () => {
     try {
@@ -100,12 +202,15 @@ function TenantProvider({ children }: { children: ReactNode }) {
       setSelectedTenantState((current) => {
         if (!tenantList || tenantList.length === 0) {
           try {
-            localStorage.removeItem('selectedTenant');
+            sessionStorage.removeItem(SELECTED_TENANT_KEY);
           } catch (error) {
-            // Ignore localStorage errors
+            // Ignore storage errors
           }
           return '';
         }
+
+        const userId = user?.id;
+        if (!userId) return current || '';
 
         const userTenantId = user?.tenant_id;
         const hasUserTenant = Boolean(userTenantId && tenantList.some((t) => t.id === userTenantId));
@@ -113,9 +218,10 @@ function TenantProvider({ children }: { children: ReactNode }) {
 
         if (hasUserTenant && current !== userTenantId) {
           try {
-            localStorage.setItem('selectedTenant', userTenantId!);
+            const selection: TenantSelection = { tenantId: userTenantId!, userId };
+            sessionStorage.setItem(SELECTED_TENANT_KEY, JSON.stringify(selection));
           } catch (error) {
-            logger.warn('Failed to save selected tenant to localStorage', { component: 'TenantProvider' });
+            logger.warn('Failed to save selected tenant to sessionStorage', { component: 'TenantProvider' });
           }
           return userTenantId!;
         }
@@ -126,9 +232,10 @@ function TenantProvider({ children }: { children: ReactNode }) {
 
         const firstTenantId = tenantList[0].id;
         try {
-          localStorage.setItem('selectedTenant', firstTenantId);
+          const selection: TenantSelection = { tenantId: firstTenantId, userId };
+          sessionStorage.setItem(SELECTED_TENANT_KEY, JSON.stringify(selection));
         } catch (error) {
-          logger.warn('Failed to save selected tenant to localStorage', { component: 'TenantProvider' });
+          logger.warn('Failed to save selected tenant to sessionStorage', { component: 'TenantProvider' });
         }
         return firstTenantId;
       });
@@ -150,15 +257,22 @@ function TenantProvider({ children }: { children: ReactNode }) {
       return false;
     }
 
+    const userId = user?.id;
+    if (!userId) {
+      logger.warn('Cannot select tenant without authenticated user', { component: 'TenantProvider' });
+      return false;
+    }
+
     const alreadyActive =
       tenantId === selectedTenant ||
       (!!user?.tenant_id && tenantId === user.tenant_id);
     if (alreadyActive) {
       setSelectedTenantState(tenantId);
       try {
-        localStorage.setItem('selectedTenant', tenantId);
+        const selection: TenantSelection = { tenantId, userId };
+        sessionStorage.setItem(SELECTED_TENANT_KEY, JSON.stringify(selection));
       } catch (error) {
-        logger.warn('Failed to save selected tenant to localStorage', { component: 'TenantProvider' });
+        logger.warn('Failed to save selected tenant to sessionStorage', { component: 'TenantProvider' });
       }
       clearTenantSelectionRequirement();
       return true;
@@ -168,9 +282,10 @@ function TenantProvider({ children }: { children: ReactNode }) {
       const resp = await apiClient.switchTenant(tenantId);
       setSelectedTenantState(tenantId);
       try {
-        localStorage.setItem('selectedTenant', tenantId);
+        const selection: TenantSelection = { tenantId, userId };
+        sessionStorage.setItem(SELECTED_TENANT_KEY, JSON.stringify(selection));
       } catch (error) {
-        logger.warn('Failed to save selected tenant to localStorage', { component: 'TenantProvider' });
+        logger.warn('Failed to save selected tenant to sessionStorage', { component: 'TenantProvider' });
       }
       if (resp?.tenants) {
         setTenants(resp.tenants);
@@ -182,9 +297,11 @@ function TenantProvider({ children }: { children: ReactNode }) {
       }
       clearTenantSelectionRequirement();
       await resetTenantCaches(tenantId);
-      await refreshUser().catch(err => {
+      try {
+        await refreshUser();
+      } catch (err) {
         logger.warn('Failed to refresh user after tenant switch', { component: 'TenantProvider' }, toError(err));
-      });
+      }
       return true;
     } catch (error) {
       const err = toError(error) as Error & { status?: number; code?: string; failure_code?: string };
@@ -222,7 +339,7 @@ function TenantProvider({ children }: { children: ReactNode }) {
       await resetTenantCaches(tenantId);
       return true;
     }
-  }, [tenants, isLoading, selectedTenant, user?.tenant_id, clearTenantSelectionRequirement, refreshUser]);
+  }, [tenants, isLoading, selectedTenant, user?.tenant_id, clearTenantSelectionRequirement, refreshUser, resetTenantCaches]);
 
   // Only fetch tenants when user is authenticated
   useEffect(() => {
@@ -242,15 +359,16 @@ function TenantProvider({ children }: { children: ReactNode }) {
 
   // Align initial tenant selection with claims when available
   useEffect(() => {
-    if (user?.tenant_id && !selectedTenant) {
+    if (user?.tenant_id && user?.id && !selectedTenant) {
       setSelectedTenantState(user.tenant_id);
       try {
-        localStorage.setItem('selectedTenant', user.tenant_id);
+        const selection: TenantSelection = { tenantId: user.tenant_id, userId: user.id };
+        sessionStorage.setItem(SELECTED_TENANT_KEY, JSON.stringify(selection));
       } catch {
         // Ignore storage errors
       }
     }
-  }, [user?.tenant_id, selectedTenant]);
+  }, [user?.tenant_id, user?.id, selectedTenant]);
 
   useEffect(() => {
     if (!selectedTenant) return;
@@ -274,17 +392,15 @@ function TenantProvider({ children }: { children: ReactNode }) {
 export function FeatureProviders({ children }: { children: ReactNode }) {
   return (
     <BookmarkProvider>
-      <ModalProvider>
-        <HistoryProvider>
-          <BreadcrumbProvider>
-            <TenantProvider>
-              <UndoRedoProvider>
-                {children}
-              </UndoRedoProvider>
-            </TenantProvider>
-          </BreadcrumbProvider>
-        </HistoryProvider>
-      </ModalProvider>
+      <HistoryProvider>
+        <BreadcrumbProvider>
+          <TenantProvider>
+            <UndoRedoProvider>
+              {children}
+            </UndoRedoProvider>
+          </TenantProvider>
+        </BreadcrumbProvider>
+      </HistoryProvider>
     </BookmarkProvider>
   );
 }

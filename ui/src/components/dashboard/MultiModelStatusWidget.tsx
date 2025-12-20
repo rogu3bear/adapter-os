@@ -1,5 +1,5 @@
 import React from 'react';
-import { apiClient } from '@/api/client';
+import { apiClient } from '@/api/services';
 import type { BaseModelStatus, AllModelsStatusResponse } from '@/api/types';
 import { CheckCircle, XCircle, Loader2, AlertCircle } from 'lucide-react';
 import { logger } from '@/utils/logger';
@@ -141,7 +141,7 @@ export const MultiModelStatusWidget: React.FC = () => {
                 )}
               </div>
               <div className="flex items-center gap-4">
-                {model.memory_usage_mb !== undefined && (
+                {model.memory_usage_mb !== undefined && model.memory_usage_mb !== null && (
                   <span className="text-xs text-muted-foreground">
                     {(model.memory_usage_mb / 1024).toFixed(1)} GB
                   </span>

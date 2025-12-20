@@ -1,76 +1,10 @@
 import { useState, useRef, useCallback } from 'react';
 import { toast } from 'sonner';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { logger, toError } from '@/utils/logger';
 import type { ChatMessage, ThroughputStats } from '@/components/chat/ChatMessage';
 import type { StreamingInferRequest } from '@/api/streaming-types';
-
-/**
- * Options for configuring the chat streaming hook.
- */
-export interface UseChatStreamingOptions {
-  /** Current chat session ID (required for message persistence) */
-  sessionId: string | null;
-
-  /** Stack ID to use for inference (adapter IDs will be resolved from stack) */
-  stackId?: string;
-
-  /** Routing determinism mode (deterministic | adaptive) */
-  routingDeterminismMode?: 'deterministic' | 'adaptive';
-
-  /** Per-adapter strength overrides (multiplier) */
-  adapterStrengthOverrides?: Record<string, number>;
-
-  /** Collection ID for RAG-enhanced inference */
-  collectionId?: string;
-
-  /** Document ID for document-specific chat (not yet supported by API, but stored for future use) */
-  documentId?: string;
-
-  /** Callback invoked when a user message is successfully sent */
-  onMessageSent?: (message: ChatMessage) => void;
-
-  /** Callback invoked when streaming completes and assistant message is finalized */
-  onStreamComplete?: (response: ChatMessage) => void;
-
-  /** Callback invoked when an error occurs during streaming */
-  onError?: (error: Error) => void;
-}
-
-/**
- * Return value from the chat streaming hook.
- */
-export interface UseChatStreamingReturn {
-  // State
-  /** Whether a streaming request is currently in progress */
-  isStreaming: boolean;
-
-  /** The accumulated text from the current stream */
-  streamedText: string;
-
-  /** Unique ID for the current request (for correlation with router decisions) */
-  currentRequestId: string | null;
-
-  /** Ordered chunks received during the current stream */
-  chunks: Array<{ content: string; timestamp: number; index: number }>;
-
-  // Actions
-  /** Send a message and begin streaming the response */
-  sendMessage: (content: string, adapterIds: string[]) => Promise<void>;
-
-  /** Cancel the current streaming request */
-  cancelStream: () => void;
-
-  /** Reset streaming state (clears accumulated text and request ID) */
-  resetStream: () => void;
-
-  // Metrics
-  /** Number of tokens received in the current stream */
-  tokensReceived: number;
-
-  /** Duration of the current/last stream in milliseconds */
-  streamDuration: number | null;
-}
+import type { UseChatStreamingOptions, UseChatStreamingReturn } from '@/types/hooks';
 
 /**
  * Hook for managing chat message streaming with SSE.
@@ -226,8 +160,7 @@ export function useChatStreaming(options: UseChatStreamingOptions): UseChatStrea
 
     // Create abort controller for cancellation
     abortControllerRef.current = new AbortController();
-    const requestId = `chat-${Date.now()}`;
-    setCurrentRequestId(requestId);
+    let traceId: string | undefined = undefined;
 
     // Prepare request
     // Note: documentId is accepted in options but not yet supported by StreamingInferRequest API
@@ -239,6 +172,7 @@ export function useChatStreaming(options: UseChatStreamingOptions): UseChatStrea
       adapter_stack: adapterIds ?? [],
       ...(collectionId && { collection_id: collectionId }),
       ...(documentId && { document_id: documentId }),
+      ...(sessionId && { session_id: sessionId }),
       ...(options.routingDeterminismMode && { routing_determinism_mode: options.routingDeterminismMode }),
       ...(options.adapterStrengthOverrides && { adapter_strength_overrides: options.adapterStrengthOverrides }),
     };
@@ -250,7 +184,11 @@ export function useChatStreaming(options: UseChatStreamingOptions): UseChatStrea
       await apiClient.streamInfer(
         request,
         {
-          onToken: (token: string) => {
+          onToken: (token: string, chunk) => {
+            if (!traceId && typeof chunk.id === 'string') {
+              traceId = chunk.id;
+              setCurrentRequestId(chunk.id);
+            }
             tokenCount++;
             fullText += token;
             setStreamedText(fullText);
@@ -265,12 +203,17 @@ export function useChatStreaming(options: UseChatStreamingOptions): UseChatStrea
             ]);
           },
 
-          onComplete: async (completedText: string, finishReason: string | null, metadata?: { unavailable_pinned_adapters?: string[], pinned_routing_fallback?: string }) => {
+          onComplete: (completedText, finishReason, metadata) => {
             // Calculate final duration
             const duration = streamStartTimeRef.current
               ? Date.now() - streamStartTimeRef.current
               : null;
             setStreamDuration(duration);
+
+            const resolvedTraceId = metadata?.request_id || traceId;
+            if (resolvedTraceId) {
+              setCurrentRequestId(resolvedTraceId);
+            }
 
             // Calculate throughput stats from local variables (guaranteed accurate)
             const throughputStats: ThroughputStats | undefined =
@@ -288,16 +231,20 @@ export function useChatStreaming(options: UseChatStreamingOptions): UseChatStrea
               role: 'assistant',
               content: completedText,
               timestamp: new Date(),
-              requestId,
+              requestId: resolvedTraceId,
+              traceId: resolvedTraceId,
               isStreaming: false,
               throughputStats,
               unavailablePinnedAdapters: metadata?.unavailable_pinned_adapters,
-              pinnedRoutingFallback: metadata?.pinned_routing_fallback as 'stack_only' | 'partial' | undefined,
+              pinnedRoutingFallback:
+                metadata?.pinned_routing_fallback === 'stack_only' || metadata?.pinned_routing_fallback === 'partial'
+                  ? metadata.pinned_routing_fallback
+                  : undefined,
             };
 
             logger.info('Stream completed', {
               component: 'useChatStreaming',
-              requestId,
+              traceId: resolvedTraceId,
               tokensReceived: tokenCount,
               duration,
               finishReason,
@@ -307,7 +254,6 @@ export function useChatStreaming(options: UseChatStreamingOptions): UseChatStrea
             });
 
             setIsStreaming(false);
-            setCurrentRequestId(null);
 
             // Notify completion
             onStreamComplete?.(assistantMessage);
@@ -316,7 +262,6 @@ export function useChatStreaming(options: UseChatStreamingOptions): UseChatStrea
           onError: (error: Error) => {
             logger.error('Stream error', {
               component: 'useChatStreaming',
-              requestId,
               sessionId: sessionId ?? undefined,
             }, error);
 
@@ -344,7 +289,7 @@ export function useChatStreaming(options: UseChatStreamingOptions): UseChatStrea
         toast.error(`Inference failed: ${error.message}`);
         logger.error('Stream request failed', {
           component: 'useChatStreaming',
-          requestId,
+          traceId,
           sessionId: sessionId ?? undefined,
         }, toError(err));
 

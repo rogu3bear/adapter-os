@@ -8,7 +8,7 @@ import { AlertTriangle, CheckCircle } from 'lucide-react';
 // 【ui/src/components/SpawnWorkerModal.tsx§1-35】 - Replace toast notifications with ErrorRecovery patterns
 import { errorRecoveryTemplates } from './ui/error-recovery';
 import { toast } from 'sonner';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { Node, Plan, SpawnWorkerRequest } from '@/api/types';
 import { logger, toError } from '@/utils/logger';
 import { useAsyncAction } from '@/hooks/async/useAsyncAction';

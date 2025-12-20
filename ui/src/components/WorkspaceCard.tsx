@@ -17,7 +17,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Workspace } from '@/api/types';
 import { useWorkspaces } from '@/hooks/workspace/useWorkspaces';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import {
   Building,
   Users,
@@ -29,7 +29,7 @@ import {
   Calendar
 } from 'lucide-react';
 import { logger } from '@/utils/logger';
-import { formatTimestamp } from '@/utils/format';
+import { formatTimestamp } from '@/lib/formatters';
 
 interface WorkspaceCardProps {
   workspace: Workspace;

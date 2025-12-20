@@ -32,6 +32,17 @@ import {
   Database,
   LucideIcon
 } from 'lucide-react';
+import {
+  buildAdaptersListLink,
+  buildTrainingJobsLink,
+  buildSystemLink,
+  buildSystemMemoryLink,
+  buildSecurityPoliciesLink,
+  buildMetricsLink,
+  buildDocumentsLink,
+  buildAdminSettingsLink,
+  ROUTE_PATHS,
+} from '@/utils/navLinks';
 
 export type ActionPriority = 'critical' | 'high' | 'medium' | 'low';
 
@@ -133,8 +144,8 @@ export function useNextSteps(input: UseNextStepsInput = {}): UseNextStepsReturn 
         description: `${criticalErrors.length} critical error${criticalErrors.length > 1 ? 's' : ''} detected: ${criticalErrors[0].message}`,
         priority: 'critical',
         icon: AlertTriangle,
-        action: () => navigate('/system'),
-        route: '/system',
+        action: () => navigate(buildSystemLink()),
+        route: buildSystemLink(),
         metadata: { errorCount: criticalErrors.length }
       });
     }
@@ -148,8 +159,8 @@ export function useNextSteps(input: UseNextStepsInput = {}): UseNextStepsReturn 
         description: `${failedPolicies.length} policy violation${failedPolicies.length > 1 ? 's' : ''}: ${failedPolicies[0].name}`,
         priority: 'critical',
         icon: Shield,
-        action: () => navigate('/security/policies'),
-        route: '/security/policies',
+        action: () => navigate(buildSecurityPoliciesLink()),
+        route: buildSecurityPoliciesLink(),
         metadata: { violationCount: failedPolicies.length }
       });
     }
@@ -162,8 +173,8 @@ export function useNextSteps(input: UseNextStepsInput = {}): UseNextStepsReturn 
         description: `Memory headroom at ${systemState.memory.headroom_percent.toFixed(1)}% (policy requires ≥15%)`,
         priority: 'critical',
         icon: AlertTriangle,
-        action: () => navigate('/system/memory'),
-        route: '/system/memory',
+        action: () => navigate(buildSystemMemoryLink()),
+        route: buildSystemMemoryLink(),
         metadata: {
           headroomPercent: systemState.memory.headroom_percent,
           pressureLevel: systemState.memory.pressure_level
@@ -182,8 +193,8 @@ export function useNextSteps(input: UseNextStepsInput = {}): UseNextStepsReturn 
         description: `${unhealthyServices.length} service${unhealthyServices.length > 1 ? 's' : ''} degraded: ${unhealthyServices[0].name}`,
         priority: 'critical',
         icon: AlertTriangle,
-        action: () => navigate('/system'),
-        route: '/system',
+        action: () => navigate(buildSystemLink()),
+        route: buildSystemLink(),
         metadata: { serviceCount: unhealthyServices.length }
       });
     }
@@ -198,8 +209,8 @@ export function useNextSteps(input: UseNextStepsInput = {}): UseNextStepsReturn 
         description: 'Get started by registering an adapter for code intelligence',
         priority: 'high',
         icon: Upload,
-        action: () => navigate('/adapters?action=register'),
-        route: '/adapters',
+        action: () => navigate(buildAdaptersListLink({ action: 'register' })),
+        route: ROUTE_PATHS.adapters.list,
         metadata: { isFirstAdapter: true }
       });
     }
@@ -215,8 +226,8 @@ export function useNextSteps(input: UseNextStepsInput = {}): UseNextStepsReturn 
         description: `You have ${adapters.length} registered adapter${adapters.length > 1 ? 's' : ''} but none loaded`,
         priority: 'high',
         icon: PlayCircle,
-        action: () => navigate('/adapters'),
-        route: '/adapters',
+        action: () => navigate(buildAdaptersListLink()),
+        route: ROUTE_PATHS.adapters.list,
         metadata: { adapterCount: adapters.length }
       });
     }
@@ -229,8 +240,8 @@ export function useNextSteps(input: UseNextStepsInput = {}): UseNextStepsReturn 
         description: `Memory headroom at ${systemState.memory.headroom_percent.toFixed(1)}% - consider unloading adapters`,
         priority: 'high',
         icon: TrendingUp,
-        action: () => navigate('/system/memory'),
-        route: '/system/memory',
+        action: () => navigate(buildSystemMemoryLink()),
+        route: buildSystemMemoryLink(),
         metadata: {
           headroomPercent: systemState.memory.headroom_percent,
           pressureLevel: systemState.memory.pressure_level
@@ -247,8 +258,8 @@ export function useNextSteps(input: UseNextStepsInput = {}): UseNextStepsReturn 
         description: `${failedJobs.length} training job${failedJobs.length > 1 ? 's' : ''} failed - check logs for details`,
         priority: 'high',
         icon: AlertTriangle,
-        action: () => navigate('/training'),
-        route: '/training',
+        action: () => navigate(buildTrainingJobsLink()),
+        route: ROUTE_PATHS.training.jobs,
         metadata: { failedJobCount: failedJobs.length }
       });
     }
@@ -266,8 +277,8 @@ export function useNextSteps(input: UseNextStepsInput = {}): UseNextStepsReturn 
         description: `${runningJobs.length} training job${runningJobs.length > 1 ? 's' : ''} in progress`,
         priority: 'medium',
         icon: Activity,
-        action: () => navigate('/training'),
-        route: '/training',
+        action: () => navigate(buildTrainingJobsLink()),
+        route: ROUTE_PATHS.training.jobs,
         metadata: { runningJobCount: runningJobs.length }
       });
     }
@@ -281,8 +292,8 @@ export function useNextSteps(input: UseNextStepsInput = {}): UseNextStepsReturn 
         description: `${completedJobs.length} training job${completedJobs.length > 1 ? 's' : ''} completed - review results`,
         priority: 'medium',
         icon: CheckCircle,
-        action: () => navigate('/training'),
-        route: '/training',
+        action: () => navigate(buildTrainingJobsLink()),
+        route: ROUTE_PATHS.training.jobs,
         metadata: { completedJobCount: completedJobs.length }
       });
     }
@@ -295,8 +306,8 @@ export function useNextSteps(input: UseNextStepsInput = {}): UseNextStepsReturn 
         description: `Memory headroom at ${systemState.memory.headroom_percent.toFixed(1)}% - within safe range`,
         priority: 'medium',
         icon: Activity,
-        action: () => navigate('/system/memory'),
-        route: '/system/memory',
+        action: () => navigate(buildSystemMemoryLink()),
+        route: buildSystemMemoryLink(),
         metadata: {
           headroomPercent: systemState.memory.headroom_percent,
           pressureLevel: systemState.memory.pressure_level
@@ -313,8 +324,8 @@ export function useNextSteps(input: UseNextStepsInput = {}): UseNextStepsReturn 
         description: `${policyWarnings.length} policy warning${policyWarnings.length > 1 ? 's' : ''} detected`,
         priority: 'medium',
         icon: Shield,
-        action: () => navigate('/security/policies'),
-        route: '/security/policies',
+        action: () => navigate(buildSecurityPoliciesLink()),
+        route: buildSecurityPoliciesLink(),
         metadata: { warningCount: policyWarnings.length }
       });
     }
@@ -329,8 +340,8 @@ export function useNextSteps(input: UseNextStepsInput = {}): UseNextStepsReturn 
         description: 'Train adapters on your codebase for improved accuracy',
         priority: 'low',
         icon: Zap,
-        action: () => navigate('/training?action=start'),
-        route: '/training',
+        action: () => navigate(buildTrainingJobsLink()),
+        route: ROUTE_PATHS.training.jobs,
         metadata: { suggestedAction: 'training' }
       });
     }
@@ -343,8 +354,8 @@ export function useNextSteps(input: UseNextStepsInput = {}): UseNextStepsReturn 
         description: 'Check inference latency and adapter activation rates',
         priority: 'low',
         icon: Activity,
-        action: () => navigate('/monitoring'),
-        route: '/monitoring',
+        action: () => navigate(buildMetricsLink()),
+        route: buildMetricsLink(),
         metadata: { loadedAdapterCount: loadedAdapters.length }
       });
     }
@@ -373,8 +384,8 @@ export function useNextSteps(input: UseNextStepsInput = {}): UseNextStepsReturn 
         description: 'Optimize memory policies, retention, and performance parameters',
         priority: 'low',
         icon: Settings,
-        action: () => navigate('/settings'),
-        route: '/settings',
+        action: () => navigate(buildAdminSettingsLink()),
+        route: buildAdminSettingsLink(),
         metadata: { suggestedAction: 'settings' }
       });
     }
@@ -387,8 +398,8 @@ export function useNextSteps(input: UseNextStepsInput = {}): UseNextStepsReturn 
         description: 'Add documents and code samples to improve adapter performance',
         priority: 'low',
         icon: Database,
-        action: () => navigate('/documents'),
-        route: '/documents',
+        action: () => navigate(buildDocumentsLink()),
+        route: buildDocumentsLink(),
         metadata: { suggestedAction: 'upload-data' }
       });
     }

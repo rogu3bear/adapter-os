@@ -4,7 +4,8 @@ import { Badge } from '@/components/ui/badge';
 import { FileText, TrendingUp, Activity, AlertCircle } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import apiClient from '@/api/client';
+import { buildTelemetryLink, buildMetricsLink } from '@/utils/navLinks';
+import { apiClient } from '@/api/services';
 import { logger } from '@/utils/logger';
 import { usePolling } from '@/hooks/realtime/usePolling';
 import { DashboardWidgetFrame, type DashboardWidgetState } from './DashboardWidgetFrame';
@@ -129,13 +130,13 @@ export function ReportingSummaryWidget({ selectedTenant }: ReportingSummaryWidge
       </div>
 
       <div className="flex flex-col gap-2 pt-2 border-t">
-        <Link to="/monitoring">
+        <Link to={buildMetricsLink()}>
           <Button variant="outline" className="w-full justify-start">
             <FileText className="h-4 w-4 mr-2" />
             View Detailed Reports
           </Button>
         </Link>
-        <Link to="/telemetry">
+        <Link to={buildTelemetryLink()}>
           <Button variant="outline" className="w-full justify-start">
             <Activity className="h-4 w-4 mr-2" />
             System Telemetry

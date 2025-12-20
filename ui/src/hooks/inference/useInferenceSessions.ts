@@ -178,7 +178,7 @@ export function useInferenceSessions(
       request: config,
       response: response,
       status: 'completed',
-      stack_id: config.stack_id,
+      stack_id: config.stack_id ?? undefined,
       stack_name: undefined // Will be populated by caller if needed
     };
 

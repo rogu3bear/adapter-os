@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { useQuery, UseQueryOptions } from '@tanstack/react-query';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import type { LineageEntityKind, LineageGraphResponse, LineageQueryParams } from '@/api/types';
 
 const lineageKeys = {

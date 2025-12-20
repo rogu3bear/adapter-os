@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { LucideIcon, FileX, Search, Inbox, FolderOpen, Database, Users } from "lucide-react";
-import { cn } from "@/components/ui/utils";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 

@@ -18,7 +18,7 @@ import {
 } from '@/components/ui/dialog';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
-import { cn } from '@/components/ui/utils';
+import { cn } from '@/lib/utils';
 import type { ExportFormat } from '@/utils/export/types';
 
 interface ExportDialogProps {

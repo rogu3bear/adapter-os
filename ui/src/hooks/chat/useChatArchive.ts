@@ -1,15 +1,17 @@
 import { useQuery, useMutation, useQueryClient, UseQueryOptions, UseMutationOptions } from '@tanstack/react-query';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import type {
   ChatSessionWithStatus,
   ListArchivedQuery,
 } from '@/api/chat-types';
 import { toast } from 'sonner';
+import { useTenant } from '@/providers/FeatureProviders';
+import { withTenantKey } from '@/utils/tenant';
 
-const QUERY_KEYS = {
-  archivedSessions: ['chat', 'sessions', 'archived'] as const,
-  deletedSessions: ['chat', 'sessions', 'trash'] as const,
-};
+const createQueryKeys = (tenantId?: string | null) => ({
+  archivedSessions: withTenantKey(['chat', 'sessions', 'archived'], tenantId),
+  deletedSessions: withTenantKey(['chat', 'sessions', 'trash'], tenantId),
+});
 
 // Archive Hooks
 
@@ -26,6 +28,9 @@ export function useArchivedSessions(
   params?: ListArchivedQuery,
   options?: Omit<UseQueryOptions<ChatSessionWithStatus[], Error>, 'queryKey' | 'queryFn'>
 ) {
+  const { selectedTenant } = useTenant();
+  const QUERY_KEYS = createQueryKeys(selectedTenant);
+
   return useQuery({
     queryKey: [...QUERY_KEYS.archivedSessions, params],
     queryFn: (): Promise<ChatSessionWithStatus[]> => apiClient.listArchivedChatSessions(params?.limit),
@@ -46,6 +51,9 @@ export function useDeletedSessions(
   params?: ListArchivedQuery,
   options?: Omit<UseQueryOptions<ChatSessionWithStatus[], Error>, 'queryKey' | 'queryFn'>
 ) {
+  const { selectedTenant } = useTenant();
+  const QUERY_KEYS = createQueryKeys(selectedTenant);
+
   return useQuery({
     queryKey: [...QUERY_KEYS.deletedSessions, params],
     queryFn: (): Promise<ChatSessionWithStatus[]> => apiClient.listDeletedChatSessions(params?.limit),
@@ -65,6 +73,8 @@ export function useArchiveSession(
   options?: UseMutationOptions<void, Error, { sessionId: string; reason?: string }>
 ) {
   const queryClient = useQueryClient();
+  const { selectedTenant } = useTenant();
+  const QUERY_KEYS = createQueryKeys(selectedTenant);
 
   return useMutation<void, Error, { sessionId: string; reason?: string }>({
     ...options,
@@ -73,8 +83,8 @@ export function useArchiveSession(
       // Invalidate archived and trash lists
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.archivedSessions });
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.deletedSessions });
-      // Invalidate main sessions list - use partial match to catch all tenant variations
-      queryClient.invalidateQueries({ queryKey: ['chat-sessions'] });
+      // Invalidate main sessions list with tenant scoping
+      queryClient.invalidateQueries({ queryKey: withTenantKey(['chat-sessions'], selectedTenant) });
       toast.success('Session archived successfully');
 
       // Call user-provided onSuccess if exists
@@ -97,6 +107,8 @@ export function useRestoreSession(
   options?: UseMutationOptions<void, Error, string>
 ) {
   const queryClient = useQueryClient();
+  const { selectedTenant } = useTenant();
+  const QUERY_KEYS = createQueryKeys(selectedTenant);
 
   return useMutation<void, Error, string>({
     ...options,
@@ -105,8 +117,8 @@ export function useRestoreSession(
       // Invalidate archived and trash lists
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.archivedSessions });
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.deletedSessions });
-      // Invalidate main sessions list - use partial match to catch all tenant variations
-      queryClient.invalidateQueries({ queryKey: ['chat-sessions'] });
+      // Invalidate main sessions list with tenant scoping
+      queryClient.invalidateQueries({ queryKey: withTenantKey(['chat-sessions'], selectedTenant) });
       toast.success('Session restored successfully');
 
       // Call user-provided onSuccess if exists
@@ -129,6 +141,8 @@ export function useHardDeleteSession(
   options?: UseMutationOptions<void, Error, string>
 ) {
   const queryClient = useQueryClient();
+  const { selectedTenant } = useTenant();
+  const QUERY_KEYS = createQueryKeys(selectedTenant);
 
   return useMutation<void, Error, string>({
     ...options,
@@ -137,8 +151,8 @@ export function useHardDeleteSession(
       // Invalidate archived and trash lists
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.archivedSessions });
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.deletedSessions });
-      // Invalidate main sessions list - use partial match to catch all tenant variations
-      queryClient.invalidateQueries({ queryKey: ['chat-sessions'] });
+      // Invalidate main sessions list with tenant scoping
+      queryClient.invalidateQueries({ queryKey: withTenantKey(['chat-sessions'], selectedTenant) });
       toast.success('Session permanently deleted');
 
       // Call user-provided onSuccess if exists

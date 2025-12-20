@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import FeatureLayout from '@/layout/FeatureLayout';
+import PageWrapper from '@/layout/PageWrapper';
 import { FlowStep, type FlowStepStatus } from '@/components/GuidedFlow/FlowStep';
 import { FlowProgress } from '@/components/GuidedFlow/FlowProgress';
 import { Button } from '@/components/ui/button';
@@ -14,6 +14,7 @@ import { useTenant } from '@/providers/FeatureProviders';
 import { ArrowRight, ArrowLeft, CheckCircle, Play, UploadCloud } from 'lucide-react';
 import { toast } from 'sonner';
 import type { Dataset, DatasetValidationStatus, TrainingJob } from '@/api/training-types';
+import { buildTrainingDatasetsLink, buildDatasetDetailLink, buildTrainingJobDetailLink, buildChatLink, buildAdaptersRegisterLink, buildDashboardLink } from '@/utils/navLinks';
 
 const TOTAL_STEPS = 3;
 
@@ -65,10 +66,9 @@ export default function GuidedFlowPage() {
     onSuccess: (resp) => {
       const newId =
         ('dataset_id' in resp ? resp.dataset_id : undefined) ||
-        ('id' in resp ? resp.id : undefined) ||
-        resp.dataset?.id;
+        ('id' in resp ? resp.id : undefined);
       setDatasetId(newId as string);
-      setDatasetName((resp.dataset?.name || newId) as string);
+      setDatasetName(newId as string);
       toast.success('Dataset uploaded');
       setCurrentStep(1);
     },
@@ -150,7 +150,7 @@ export default function GuidedFlowPage() {
     : undefined;
 
   return (
-    <FeatureLayout title="Doc → Chat Quickstart" description="Bring a file, train a LoRA, and chat with it in one screen.">
+    <PageWrapper pageKey="guided-flow" title="Doc → Chat Quickstart" description="Bring a file, train a LoRA, and chat with it in one screen.">
       <div className="space-y-6">
         <FlowProgress currentStep={currentStep} totalSteps={TOTAL_STEPS} />
 
@@ -211,7 +211,7 @@ export default function GuidedFlowPage() {
               </Button>
               <Button
                 variant="ghost"
-                onClick={() => navigate('/training/datasets')}
+                onClick={() => navigate(buildTrainingDatasetsLink())}
               >
                 Open full dataset view
               </Button>
@@ -225,7 +225,7 @@ export default function GuidedFlowPage() {
             {dataset?.validation_status === 'invalid' && (
               <div className="text-sm text-destructive space-y-2">
                 <div>Dataset is invalid. Fix issues on the dataset detail page before training.</div>
-                <Button variant="link" className="px-0" onClick={() => navigate(`/training/datasets/${dataset.id}`)}>
+                <Button variant="link" className="px-0" onClick={() => navigate(buildDatasetDetailLink(dataset.id))}>
                   Open dataset detail
                 </Button>
               </div>
@@ -249,7 +249,7 @@ export default function GuidedFlowPage() {
               <p className="text-sm text-muted-foreground">
                 Use the full-featured training wizard to configure and start your training job.
               </p>
-              <Button onClick={() => navigate('/create-adapter', { state: { preselectedDatasetId: datasetId } })}>
+              <Button onClick={() => navigate(buildAdaptersRegisterLink(), { state: { preselectedDatasetId: datasetId } })}>
                 <Play className="h-4 w-4 mr-2" />
                 Open Training Wizard
               </Button>
@@ -290,7 +290,7 @@ export default function GuidedFlowPage() {
               <p className="text-sm text-muted-foreground">
                 Training is {job.status}. You can monitor the job while we finish.
               </p>
-              <Button onClick={() => navigate(`/training/jobs/${jobId}`)} variant="outline">
+              <Button onClick={() => navigate(buildTrainingJobDetailLink(jobId!))} variant="outline">
                 View training job
               </Button>
             </div>
@@ -313,7 +313,7 @@ export default function GuidedFlowPage() {
               <div className="border rounded-lg h-[calc(var(--base-unit)*125)]">
                 <ChatInterface selectedTenant={selectedTenant} initialStackId={stackId} />
               </div>
-              <Button variant="ghost" onClick={() => navigate('/chat')}>
+              <Button variant="ghost" onClick={() => navigate(buildChatLink())}>
                 Open full chat view
               </Button>
             </div>
@@ -326,11 +326,11 @@ export default function GuidedFlowPage() {
             <ArrowLeft className="h-4 w-4 mr-2" />
             Back
           </Button>
-          <Button variant="outline" onClick={() => navigate('/dashboard')}>
+          <Button variant="outline" onClick={() => navigate(buildDashboardLink())}>
             Exit Flow
           </Button>
         </div>
       </div>
-    </FeatureLayout>
+    </PageWrapper>
   );
 }

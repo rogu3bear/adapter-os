@@ -15,7 +15,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { logger, toError } from '@/utils/logger';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { Notification, NotificationSummary } from '@/api/types';
 import { useSSEWithPollingFallback } from '@/hooks/realtime';
 

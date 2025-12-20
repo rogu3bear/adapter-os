@@ -3,8 +3,15 @@
 
 import React, { useState, useCallback, useMemo } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import { ArrowLeft, RefreshCw, Trash2, CheckCircle, AlertCircle, Play, ExternalLink, Clock, MessageSquare } from 'lucide-react';
+import { ArrowLeft, RefreshCw, Trash2, CheckCircle, AlertCircle, Play, ExternalLink, Clock, MessageSquare, Shield } from 'lucide-react';
 import { toast } from 'sonner';
+import {
+  buildTrainingDatasetsLink,
+  buildTrainingJobDetailLink,
+  buildTrainingJobsLink,
+  buildDatasetChatLink,
+  buildDatasetDetailLink,
+} from '@/utils/navLinks';
 
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -19,23 +26,24 @@ import { PageAsyncBoundary, SectionAsyncBoundary } from '@/components/shared/Fee
 import { useTraining } from '@/hooks/training';
 import { useRBAC } from '@/hooks/security/useRBAC';
 import { logger } from '@/utils/logger';
-import type { Dataset, DatasetValidationStatus, DatasetVersionSummary, TrustState, StartTrainingRequest } from '@/api/training-types';
+import type { Dataset, DatasetValidationStatus, ValidationStatus, DatasetVersionSummary, TrustState, StartTrainingRequest } from '@/api/training-types';
 import { TrainingWizard } from '@/components/TrainingWizard';
 import { QuickTrainConfirmModal, type QuickTrainConfig } from '@/components/training/QuickTrainConfirmModal';
 import { canUseQuickTrain } from '@/utils/trainingPreflight';
 import { useLineage } from '@/hooks/observability/useLineage';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { LineageViewer } from '@/components/lineage/LineageViewer';
 
 import DatasetOverview from './DatasetOverview';
 import DatasetFiles from './DatasetFiles';
 import DatasetPreview from './DatasetPreview';
 import DatasetValidation from './DatasetValidation';
+import { TrustOverrideDialog } from '@/components/training/TrustOverrideDialog';
 
 type TabValue = 'overview' | 'files' | 'preview' | 'validation' | 'lineage';
 type TrainingJobSummary = { id: string; status: string; progress_pct?: number };
 
-const STATUS_CONFIG: Record<DatasetValidationStatus, {
+const STATUS_CONFIG: Record<ValidationStatus, {
   icon: React.ElementType;
   className: string;
   label: string;
@@ -60,14 +68,19 @@ const STATUS_CONFIG: Record<DatasetValidationStatus, {
     className: 'text-red-500',
     label: 'Invalid',
   },
-  failed: {
-    icon: AlertCircle,
-    className: 'text-red-500',
-    label: 'Failed',
+  pending: {
+    icon: Clock,
+    className: 'text-yellow-500',
+    label: 'Pending',
+  },
+  skipped: {
+    icon: RefreshCw,
+    className: 'text-gray-500',
+    label: 'Skipped',
   },
 };
 
-function StatusBadge({ status }: { status: DatasetValidationStatus }) {
+function StatusBadge({ status }: { status: ValidationStatus }) {
   const config = STATUS_CONFIG[status] || STATUS_CONFIG.draft;
   const Icon = config.icon;
 
@@ -128,25 +141,29 @@ function HeaderSection({
   canStartTraining,
   canValidate,
   canDelete,
+  canOverrideTrust,
   onStartTraining,
   onValidate,
   onDelete,
   onTalkToDataset,
+  onOverrideTrust,
   isValidating,
   isDeleting,
   onNavigateBack,
   trustState,
 }: {
   datasetId: string;
-  status: DatasetValidationStatus;
+  status: ValidationStatus;
   trustState?: TrustState;
   canStartTraining: boolean;
   canValidate: boolean;
   canDelete: boolean;
+  canOverrideTrust: boolean;
   onStartTraining: () => void;
   onValidate: () => void;
   onDelete: () => void;
   onTalkToDataset: () => void;
+  onOverrideTrust: () => void;
   isValidating: boolean;
   isDeleting: boolean;
   onNavigateBack: () => void;
@@ -155,7 +172,7 @@ function HeaderSection({
     !trustState || trustState === 'unknown' || trustState === 'blocked' || trustState === 'needs_approval';
   const trustBlockedReason = trustBlocked ? 'Training disabled until dataset trust is allowed' : undefined;
   const trustWarn = trustState === 'allowed_with_warning';
-  const showValidate = (status === 'draft' || status === 'invalid') && canValidate;
+  const showValidate = ((status as string) === 'draft' || status === 'invalid') && canValidate;
   return (
     <div className="flex items-center justify-between">
       <div className="flex items-center gap-4">
@@ -163,6 +180,18 @@ function HeaderSection({
         <p className="text-sm text-muted-foreground">{datasetId}</p>
         <StatusBadge status={status} />
         <TrustBadge state={trustState} />
+        {canOverrideTrust && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onOverrideTrust}
+            title="Override trust state"
+            className="h-6 px-2 text-xs"
+          >
+            <Shield className="h-3 w-3 mr-1" />
+            Override
+          </Button>
+        )}
       </div>
       <div className="flex items-center gap-2">
         {trustWarn && (
@@ -350,6 +379,7 @@ function DatasetDetailContent() {
   const [isTrainingWizardOpen, setIsTrainingWizardOpen] = useState(false);
   const [isQuickTrainOpen, setIsQuickTrainOpen] = useState(false);
   const [isStartingTraining, setIsStartingTraining] = useState(false);
+  const [isTrustOverrideOpen, setIsTrustOverrideOpen] = useState(false);
   const [lineageDirection, setLineageDirection] = useState<'both' | 'upstream' | 'downstream'>('both');
   const [includeEvidence, setIncludeEvidence] = useState(true);
   const [lineageCursors, setLineageCursors] = useState<Record<string, string>>({});
@@ -405,7 +435,7 @@ function DatasetDetailContent() {
   const { mutateAsync: deleteDataset, isPending: isDeleting } = useTraining.useDeleteDataset({
     onSuccess: () => {
       toast.success('Dataset deleted');
-      navigate('/training/datasets');
+      navigate(buildTrainingDatasetsLink());
     },
     onError: (err) => {
       toast.error(`Failed to delete dataset: ${err.message}`);
@@ -427,7 +457,7 @@ function DatasetDetailContent() {
 
   const handleTalkToDataset = useCallback(() => {
     if (!datasetId) return;
-    navigate(`/training/datasets/${datasetId}/chat`);
+    navigate(buildDatasetChatLink(datasetId));
   }, [datasetId, navigate]);
 
   // Handle "Start Training" - use quick modal for valid datasets, wizard for others
@@ -464,10 +494,10 @@ function DatasetDetailContent() {
           description: `Job created for adapter "${config.adapterName}"`,
           action: {
             label: 'View Progress',
-            onClick: () => navigate(`/training/jobs/${job.id}`),
+            onClick: () => navigate(buildTrainingJobDetailLink(job.id)),
           },
         });
-        navigate(`/training/jobs/${job.id}`);
+        navigate(buildTrainingJobDetailLink(job.id));
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to start training';
         toast.error(message);
@@ -488,10 +518,10 @@ function DatasetDetailContent() {
       switch (node.type) {
         case 'dataset':
         case 'dataset_version':
-          navigate(`/training/datasets/${node.id}`);
+          navigate(buildDatasetDetailLink(node.id));
           return;
         case 'training_job':
-          navigate(`/training/jobs/${node.id}`);
+          navigate(buildTrainingJobDetailLink(node.id));
           return;
         case 'adapter_version':
           navigate(`/adapters/${node.id}`);
@@ -535,13 +565,15 @@ function DatasetDetailContent() {
           canStartTraining={can('training:start')}
           canValidate={can('dataset:validate')}
           canDelete={can('dataset:delete')}
+          canOverrideTrust={can('admin')}
           onStartTraining={handleStartTraining}
           onValidate={handleValidate}
           onDelete={handleDelete}
           onTalkToDataset={handleTalkToDataset}
+          onOverrideTrust={() => setIsTrustOverrideOpen(true)}
           isValidating={isValidating}
           isDeleting={isDeleting}
-          onNavigateBack={() => navigate('/training/datasets')}
+          onNavigateBack={() => navigate(buildTrainingDatasetsLink())}
         />
 
         <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as TabValue)}>
@@ -561,8 +593,8 @@ function DatasetDetailContent() {
                 versions={datasetVersions}
                 isLoadingVersions={isLoadingVersions}
                 relatedJobs={relatedJobs}
-                onNavigateJob={(jobId) => navigate(`/training/jobs/${jobId}`)}
-                onViewAllJobs={() => navigate(`/training/jobs?dataset_id=${datasetId}`)}
+                onNavigateJob={(jobId) => navigate(buildTrainingJobDetailLink(jobId))}
+                onViewAllJobs={() => navigate(buildTrainingJobsLink({ datasetId }))}
               />
             </SectionAsyncBoundary>
           </TabsContent>
@@ -612,7 +644,7 @@ function DatasetDetailContent() {
           datasetId={datasetId}
           onComplete={(jobId) => {
             setIsTrainingWizardOpen(false);
-            navigate(`/training/jobs/${jobId}`);
+            navigate(buildTrainingJobDetailLink(jobId));
           }}
           onCancel={() => setIsTrainingWizardOpen(false)}
         />
@@ -630,6 +662,20 @@ function DatasetDetailContent() {
               setIsTrainingWizardOpen(true);
             }}
             isLoading={isStartingTraining}
+          />
+        )}
+
+        {/* Trust override dialog for admin users */}
+        {dataset && (
+          <TrustOverrideDialog
+            open={isTrustOverrideOpen}
+            onOpenChange={setIsTrustOverrideOpen}
+            datasetId={dataset.id}
+            datasetVersionId={dataset.dataset_version_id}
+            currentTrustState={dataset.trust_state}
+            onSuccess={() => {
+              refetch();
+            }}
           />
         )}
       </div>

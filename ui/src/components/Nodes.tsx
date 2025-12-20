@@ -36,7 +36,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { Node, User, NodeDetailsResponse, NodePingResponse } from '@/api/types';
 import { hasProperty, isObject } from '@/types/utilities';
 

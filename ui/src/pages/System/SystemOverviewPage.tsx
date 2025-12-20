@@ -20,6 +20,12 @@ import { useMetricsStream } from '@/hooks/streaming/useStreamingEndpoints';
 import type { MetricsSnapshotEvent } from '@/api/streaming-types';
 import { Activity, Wifi, WifiOff } from 'lucide-react';
 import { HealthBadge, MetricCard } from './shared/MetricComponents';
+import {
+  buildSystemNodesLink,
+  buildSystemWorkersLink,
+  buildSystemMemoryLink,
+  buildSystemMetricsLink,
+} from '@/utils/navLinks';
 
 function QuickLinkCard({
   title,
@@ -245,7 +251,7 @@ export default function SystemOverviewPage() {
                 <div className="flex items-center justify-between">
                   <CardTitle>Nodes</CardTitle>
                   <Button variant="outline" size="sm" asChild>
-                    <Link to="/system/nodes">View All</Link>
+                    <Link to={buildSystemNodesLink()}>View All</Link>
                   </Button>
                 </div>
               </CardHeader>
@@ -279,7 +285,7 @@ export default function SystemOverviewPage() {
                 <div className="flex items-center justify-between">
                   <CardTitle>Workers</CardTitle>
                   <Button variant="outline" size="sm" asChild>
-                    <Link to="/system/workers">View All</Link>
+                    <Link to={buildSystemWorkersLink()}>View All</Link>
                   </Button>
                 </div>
               </CardHeader>
@@ -317,26 +323,26 @@ export default function SystemOverviewPage() {
             <QuickLinkCard
               title="Nodes"
               description="Manage cluster nodes"
-              href="/system/nodes"
+              href={buildSystemNodesLink()}
               count={nodeStats.total}
               isLoading={nodesLoading}
             />
             <QuickLinkCard
               title="Workers"
               description="View worker processes"
-              href="/system/workers"
+              href={buildSystemWorkersLink()}
               count={workerStats.total}
               isLoading={workersLoading}
             />
             <QuickLinkCard
               title="Memory"
               description="Monitor memory usage"
-              href="/system/memory"
+              href={buildSystemMemoryLink()}
             />
             <QuickLinkCard
               title="Metrics"
               description="Detailed system metrics"
-              href="/system/metrics"
+              href={buildSystemMetricsLink()}
             />
           </div>
         </section>

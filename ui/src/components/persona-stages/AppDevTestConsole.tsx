@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { apiClient } from '@/api/client';
+import { apiClient } from '@/api/services';
 import type { Adapter } from '@/api/adapter-types';
 import type { InferResponse } from '@/api/api-types';
 import { Play, Loader2, Clock, Zap } from 'lucide-react';

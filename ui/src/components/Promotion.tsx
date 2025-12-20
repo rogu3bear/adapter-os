@@ -6,7 +6,7 @@ import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Alert, AlertDescription } from './ui/alert';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 import { User, PromotionGate, DryRunPromotionResponse, PromotionHistoryEntry } from '@/api/types';
 import { logger, toError } from '@/utils/logger';
 import { ArrowUp, History, Undo2, Play, CheckCircle } from 'lucide-react';

@@ -8,7 +8,7 @@ import { Button } from './button';
 import { Badge } from './badge';
 import { X, Filter, ChevronDown, ChevronUp } from 'lucide-react';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './collapsible';
-import { cn } from './utils';
+import { cn } from '@/lib/utils';
 
 export type FilterType = 'text' | 'select' | 'multiSelect' | 'dateRange' | 'toggle' | 'number';
 
