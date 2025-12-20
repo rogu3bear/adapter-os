@@ -3,11 +3,18 @@
 //! Test telemetry bundle rotation and signing
 
 use adapteros_telemetry::BundleWriter;
+use std::path::PathBuf;
 use tempfile::TempDir;
+
+fn new_test_tempdir() -> TempDir {
+    let root = PathBuf::from("var").join("tmp");
+    std::fs::create_dir_all(&root).expect("create var/tmp");
+    TempDir::new_in(&root).unwrap()
+}
 
 #[test]
 fn test_bundle_creation() {
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = new_test_tempdir();
     let writer = BundleWriter::new(temp_dir.path(), 100, 1024 * 1024).unwrap();
 
     assert!(writer.public_key().len() > 0);
@@ -15,7 +22,7 @@ fn test_bundle_creation() {
 
 #[test]
 fn test_event_writing() {
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = new_test_tempdir();
     let mut writer = BundleWriter::new(temp_dir.path(), 100, 1024 * 1024).unwrap();
 
     // Write some test events
@@ -45,7 +52,7 @@ fn test_event_writing() {
 
 #[test]
 fn test_bundle_rotation_at_threshold() {
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = new_test_tempdir();
     let mut writer = BundleWriter::new(temp_dir.path(), 10, 1024 * 1024).unwrap();
 
     // Write exactly 10 events (threshold)
@@ -85,7 +92,7 @@ fn test_bundle_rotation_at_threshold() {
 
 #[test]
 fn test_signature_format() {
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = new_test_tempdir();
     let mut writer = BundleWriter::new(temp_dir.path(), 5, 1024 * 1024).unwrap();
 
     // Write events and force rotation
@@ -126,8 +133,8 @@ fn test_signature_format() {
 
 #[test]
 fn test_merkle_root_determinism() {
-    let temp_dir1 = TempDir::new().unwrap();
-    let temp_dir2 = TempDir::new().unwrap();
+    let temp_dir1 = new_test_tempdir();
+    let temp_dir2 = new_test_tempdir();
 
     let mut writer1 = BundleWriter::new(temp_dir1.path(), 100, 1024 * 1024).unwrap();
     let mut writer2 = BundleWriter::new(temp_dir2.path(), 100, 1024 * 1024).unwrap();

@@ -103,6 +103,61 @@ pub struct RepoTrainingJobLinkResponse {
     pub created_at: String,
 }
 
+/// Adapter version response
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct AdapterVersionResponse {
+    pub id: String,
+    pub repo_id: String,
+    pub tenant_id: String,
+    pub version: String,
+    pub branch: String,
+    pub branch_classification: String,
+    pub aos_path: Option<String>,
+    pub aos_hash: Option<String>,
+    pub manifest_schema_version: Option<String>,
+    pub parent_version_id: Option<String>,
+    pub code_commit_sha: Option<String>,
+    pub data_spec_hash: Option<String>,
+    pub training_backend: Option<String>,
+    pub coreml_used: bool,
+    pub coreml_device_type: Option<String>,
+    pub adapter_trust_state: String,
+    pub release_state: String,
+    pub metrics_snapshot_id: Option<String>,
+    pub evaluation_summary: Option<String>,
+    pub created_at: String,
+    pub attach_mode: String,
+    pub required_scope_dataset_version_id: Option<String>,
+    pub is_archived: bool,
+    pub published_at: Option<String>,
+    pub short_description: Option<String>,
+}
+
+/// Promote version request
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct PromoteVersionRequest {
+    pub actor: Option<String>,
+    pub reason: Option<String>,
+}
+
+/// Rollback version request
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct RollbackVersionRequest {
+    pub target_version_id: String,
+    pub actor: Option<String>,
+    pub reason: Option<String>,
+}
+
+/// Tag version request
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct TagVersionRequest {
+    pub tag_name: String,
+}
+
 /// List all repositories for the authenticated tenant
 #[utoipa::path(
     tag = "repositories",
@@ -403,100 +458,661 @@ pub async fn update_repo(
     }))
 }
 
-// Stub handlers for other endpoints required by routes
+// Version management handlers
 
+/// List all versions for a repository
+#[utoipa::path(
+    tag = "repositories",
+    get,
+    path = "/v1/repos/{repo_id}/versions",
+    params(
+        ("repo_id" = String, Path, description = "Repository ID")
+    ),
+    responses(
+        (status = 200, description = "List of adapter versions", body = Vec<AdapterVersionResponse>),
+        (status = 404, description = "Repository not found")
+    )
+)]
 pub async fn list_versions(
-    State(_state): State<AppState>,
-    Extension(_claims): Extension<Claims>,
-    Path(_repo_id): Path<String>,
-) -> Result<Json<Vec<String>>, ApiError> {
-    Err(ApiError::new(
-        StatusCode::NOT_IMPLEMENTED,
-        "NOT_IMPLEMENTED",
-        "list_versions not yet implemented",
-    ))
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(repo_id): Path<String>,
+) -> Result<Json<Vec<AdapterVersionResponse>>, ApiError> {
+    require_permission(&claims, Permission::AdapterList)?;
+
+    // Verify repository exists and belongs to tenant
+    let _repo = state
+        .db
+        .get_adapter_repository(&claims.tenant_id, &repo_id)
+        .await
+        .map_err(|e| {
+            ApiError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "DATABASE_ERROR",
+                format!("failed to fetch repository: {}", e),
+            )
+        })?
+        .ok_or_else(|| ApiError::repo_not_found(&repo_id))?;
+
+    // List all versions for this repository
+    let versions = state
+        .db
+        .list_adapter_versions_for_repo(&claims.tenant_id, &repo_id, None, None)
+        .await
+        .map_err(|e| {
+            ApiError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "DATABASE_ERROR",
+                format!("failed to list versions: {}", e),
+            )
+        })?;
+
+    info!(
+        repo_id = %repo_id,
+        tenant_id = %claims.tenant_id,
+        count = versions.len(),
+        "Listed adapter versions"
+    );
+
+    let response: Vec<AdapterVersionResponse> = versions
+        .into_iter()
+        .map(|v| AdapterVersionResponse {
+            id: v.id,
+            repo_id: v.repo_id,
+            tenant_id: v.tenant_id,
+            version: v.version,
+            branch: v.branch,
+            branch_classification: v.branch_classification,
+            aos_path: v.aos_path,
+            aos_hash: v.aos_hash,
+            manifest_schema_version: v.manifest_schema_version,
+            parent_version_id: v.parent_version_id,
+            code_commit_sha: v.code_commit_sha,
+            data_spec_hash: v.data_spec_hash,
+            training_backend: v.training_backend,
+            coreml_used: v.coreml_used,
+            coreml_device_type: v.coreml_device_type,
+            adapter_trust_state: v.adapter_trust_state,
+            release_state: v.release_state,
+            metrics_snapshot_id: v.metrics_snapshot_id,
+            evaluation_summary: v.evaluation_summary,
+            created_at: v.created_at,
+            attach_mode: v.attach_mode,
+            required_scope_dataset_version_id: v.required_scope_dataset_version_id,
+            is_archived: v.is_archived,
+            published_at: v.published_at,
+            short_description: v.short_description,
+        })
+        .collect();
+
+    Ok(Json(response))
 }
 
+/// Get a specific adapter version
+#[utoipa::path(
+    tag = "repositories",
+    get,
+    path = "/v1/repos/{repo_id}/versions/{version_id}",
+    params(
+        ("repo_id" = String, Path, description = "Repository ID"),
+        ("version_id" = String, Path, description = "Version ID")
+    ),
+    responses(
+        (status = 200, description = "Adapter version details", body = AdapterVersionResponse),
+        (status = 404, description = "Version not found")
+    )
+)]
 pub async fn get_version(
-    State(_state): State<AppState>,
-    Extension(_claims): Extension<Claims>,
-    Path((_repo_id, _version_id)): Path<(String, String)>,
-) -> Result<Json<String>, ApiError> {
-    Err(ApiError::new(
-        StatusCode::NOT_IMPLEMENTED,
-        "NOT_IMPLEMENTED",
-        "get_version not yet implemented",
-    ))
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path((repo_id, version_id)): Path<(String, String)>,
+) -> Result<Json<AdapterVersionResponse>, ApiError> {
+    require_permission(&claims, Permission::AdapterList)?;
+
+    // Verify repository exists and belongs to tenant
+    let _repo = state
+        .db
+        .get_adapter_repository(&claims.tenant_id, &repo_id)
+        .await
+        .map_err(|e| {
+            ApiError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "DATABASE_ERROR",
+                format!("failed to fetch repository: {}", e),
+            )
+        })?
+        .ok_or_else(|| ApiError::repo_not_found(&repo_id))?;
+
+    // Get the specific version
+    let version = state
+        .db
+        .get_adapter_version(&claims.tenant_id, &version_id)
+        .await
+        .map_err(|e| {
+            ApiError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "DATABASE_ERROR",
+                format!("failed to fetch version: {}", e),
+            )
+        })?
+        .ok_or_else(|| {
+            ApiError::new(
+                StatusCode::NOT_FOUND,
+                "VERSION_NOT_FOUND",
+                format!("Version {} not found", version_id),
+            )
+        })?;
+
+    // Verify version belongs to the requested repository
+    if version.repo_id != repo_id {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "VERSION_REPO_MISMATCH",
+            format!(
+                "Version {} does not belong to repository {}",
+                version_id, repo_id
+            ),
+        ));
+    }
+
+    info!(
+        version_id = %version_id,
+        repo_id = %repo_id,
+        tenant_id = %claims.tenant_id,
+        "Retrieved adapter version"
+    );
+
+    Ok(Json(AdapterVersionResponse {
+        id: version.id,
+        repo_id: version.repo_id,
+        tenant_id: version.tenant_id,
+        version: version.version,
+        branch: version.branch,
+        branch_classification: version.branch_classification,
+        aos_path: version.aos_path,
+        aos_hash: version.aos_hash,
+        manifest_schema_version: version.manifest_schema_version,
+        parent_version_id: version.parent_version_id,
+        code_commit_sha: version.code_commit_sha,
+        data_spec_hash: version.data_spec_hash,
+        training_backend: version.training_backend,
+        coreml_used: version.coreml_used,
+        coreml_device_type: version.coreml_device_type,
+        adapter_trust_state: version.adapter_trust_state,
+        release_state: version.release_state,
+        metrics_snapshot_id: version.metrics_snapshot_id,
+        evaluation_summary: version.evaluation_summary,
+        created_at: version.created_at,
+        attach_mode: version.attach_mode,
+        required_scope_dataset_version_id: version.required_scope_dataset_version_id,
+        is_archived: version.is_archived,
+        published_at: version.published_at,
+        short_description: version.short_description,
+    }))
 }
 
+/// Promote an adapter version to active
+#[utoipa::path(
+    tag = "repositories",
+    post,
+    path = "/v1/repos/{repo_id}/versions/{version_id}/promote",
+    params(
+        ("repo_id" = String, Path, description = "Repository ID"),
+        ("version_id" = String, Path, description = "Version ID to promote")
+    ),
+    request_body = PromoteVersionRequest,
+    responses(
+        (status = 200, description = "Version promoted successfully"),
+        (status = 404, description = "Version not found"),
+        (status = 400, description = "Version cannot be promoted")
+    )
+)]
 pub async fn promote_version(
-    State(_state): State<AppState>,
-    Extension(_claims): Extension<Claims>,
-    Path((_repo_id, _version_id)): Path<(String, String)>,
-) -> Result<Json<String>, ApiError> {
-    Err(ApiError::new(
-        StatusCode::NOT_IMPLEMENTED,
-        "NOT_IMPLEMENTED",
-        "promote_version not yet implemented",
-    ))
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path((repo_id, version_id)): Path<(String, String)>,
+    Json(req): Json<PromoteVersionRequest>,
+) -> Result<StatusCode, ApiError> {
+    require_permission(&claims, Permission::AdapterRegister)?;
+
+    // Verify repository exists and belongs to tenant
+    let repo = state
+        .db
+        .get_adapter_repository(&claims.tenant_id, &repo_id)
+        .await
+        .map_err(|e| {
+            ApiError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "DATABASE_ERROR",
+                format!("failed to fetch repository: {}", e),
+            )
+        })?
+        .ok_or_else(|| ApiError::repo_not_found(&repo_id))?;
+
+    // Check if repository is archived
+    if repo.archived != 0 {
+        return Err(ApiError::repo_archived(&repo_id));
+    }
+
+    // Promote the version
+    state
+        .db
+        .promote_adapter_version(
+            &claims.tenant_id,
+            &repo_id,
+            &version_id,
+            req.actor.as_deref().or(Some(&claims.sub)),
+            req.reason.as_deref(),
+        )
+        .await
+        .map_err(|e| {
+            let error_str = e.to_string();
+
+            // Map specific errors to appropriate HTTP errors
+            if error_str.contains("not found") || error_str.contains("NotFound") {
+                return ApiError::new(
+                    StatusCode::NOT_FOUND,
+                    "VERSION_NOT_FOUND",
+                    format!("Version {} not found", version_id),
+                );
+            }
+
+            if error_str.contains("Validation") || error_str.contains("requires") {
+                return ApiError::new(StatusCode::BAD_REQUEST, "PROMOTION_FAILED", error_str);
+            }
+
+            ApiError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "DATABASE_ERROR",
+                format!("failed to promote version: {}", error_str),
+            )
+        })?;
+
+    info!(
+        version_id = %version_id,
+        repo_id = %repo_id,
+        tenant_id = %claims.tenant_id,
+        actor = req.actor.as_deref().unwrap_or(&claims.sub),
+        "Promoted adapter version"
+    );
+
+    Ok(StatusCode::OK)
 }
 
+/// Rollback a branch to a previous version
+#[utoipa::path(
+    tag = "repositories",
+    post,
+    path = "/v1/repos/{repo_id}/branches/{branch}/rollback",
+    params(
+        ("repo_id" = String, Path, description = "Repository ID"),
+        ("branch" = String, Path, description = "Branch name")
+    ),
+    request_body = RollbackVersionRequest,
+    responses(
+        (status = 200, description = "Branch rolled back successfully"),
+        (status = 404, description = "Repository or version not found"),
+        (status = 400, description = "Rollback failed")
+    )
+)]
 pub async fn rollback_version(
-    State(_state): State<AppState>,
-    Extension(_claims): Extension<Claims>,
-    Path((_repo_id, _branch)): Path<(String, String)>,
-) -> Result<Json<String>, ApiError> {
-    Err(ApiError::new(
-        StatusCode::NOT_IMPLEMENTED,
-        "NOT_IMPLEMENTED",
-        "rollback_version not yet implemented",
-    ))
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path((repo_id, branch)): Path<(String, String)>,
+    Json(req): Json<RollbackVersionRequest>,
+) -> Result<StatusCode, ApiError> {
+    require_permission(&claims, Permission::AdapterRegister)?;
+
+    // Verify repository exists and belongs to tenant
+    let repo = state
+        .db
+        .get_adapter_repository(&claims.tenant_id, &repo_id)
+        .await
+        .map_err(|e| {
+            ApiError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "DATABASE_ERROR",
+                format!("failed to fetch repository: {}", e),
+            )
+        })?
+        .ok_or_else(|| ApiError::repo_not_found(&repo_id))?;
+
+    // Check if repository is archived
+    if repo.archived != 0 {
+        return Err(ApiError::repo_archived(&repo_id));
+    }
+
+    // Rollback the branch
+    state
+        .db
+        .rollback_adapter_branch(
+            &claims.tenant_id,
+            &repo_id,
+            &branch,
+            &req.target_version_id,
+            req.actor.as_deref().or(Some(&claims.sub)),
+            req.reason.as_deref(),
+        )
+        .await
+        .map_err(|e| {
+            let error_str = e.to_string();
+
+            // Map specific errors to appropriate HTTP errors
+            if error_str.contains("not found") || error_str.contains("NotFound") {
+                return ApiError::new(
+                    StatusCode::NOT_FOUND,
+                    "VERSION_NOT_FOUND",
+                    format!("Target version {} not found", req.target_version_id),
+                );
+            }
+
+            if error_str.contains("Validation") || error_str.contains("must") {
+                return ApiError::new(StatusCode::BAD_REQUEST, "ROLLBACK_FAILED", error_str);
+            }
+
+            ApiError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "DATABASE_ERROR",
+                format!("failed to rollback branch: {}", error_str),
+            )
+        })?;
+
+    info!(
+        target_version_id = %req.target_version_id,
+        branch = %branch,
+        repo_id = %repo_id,
+        tenant_id = %claims.tenant_id,
+        actor = req.actor.as_deref().unwrap_or(&claims.sub),
+        "Rolled back adapter branch"
+    );
+
+    Ok(StatusCode::OK)
 }
 
+/// Get version history timeline for a repository
+#[utoipa::path(
+    tag = "repositories",
+    get,
+    path = "/v1/repos/{repo_id}/timeline",
+    params(
+        ("repo_id" = String, Path, description = "Repository ID")
+    ),
+    responses(
+        (status = 200, description = "Version history timeline", body = Vec<RepoTimelineEventResponse>),
+        (status = 404, description = "Repository not found")
+    )
+)]
 pub async fn get_timeline(
-    State(_state): State<AppState>,
-    Extension(_claims): Extension<Claims>,
-    Path(_repo_id): Path<String>,
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(repo_id): Path<String>,
 ) -> Result<Json<Vec<RepoTimelineEventResponse>>, ApiError> {
-    Err(ApiError::new(
-        StatusCode::NOT_IMPLEMENTED,
-        "NOT_IMPLEMENTED",
-        "get_timeline not yet implemented",
-    ))
+    require_permission(&claims, Permission::AdapterList)?;
+
+    // Verify repository exists and belongs to tenant
+    let _repo = state
+        .db
+        .get_adapter_repository(&claims.tenant_id, &repo_id)
+        .await
+        .map_err(|e| {
+            ApiError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "DATABASE_ERROR",
+                format!("failed to fetch repository: {}", e),
+            )
+        })?
+        .ok_or_else(|| ApiError::repo_not_found(&repo_id))?;
+
+    // TODO: Implement list_version_history_for_repo in adapter_repositories.rs
+    // For now, return empty timeline
+    // The DB function should query adapter_version_history table for this repo_id
+
+    info!(
+        repo_id = %repo_id,
+        tenant_id = %claims.tenant_id,
+        "Retrieved repository timeline (stub)"
+    );
+
+    Ok(Json(vec![]))
 }
 
+/// List training jobs associated with a repository
+#[utoipa::path(
+    tag = "repositories",
+    get,
+    path = "/v1/repos/{repo_id}/training-jobs",
+    params(
+        ("repo_id" = String, Path, description = "Repository ID")
+    ),
+    responses(
+        (status = 200, description = "List of training jobs", body = Vec<RepoTrainingJobLinkResponse>),
+        (status = 404, description = "Repository not found")
+    )
+)]
 pub async fn list_training_jobs(
-    State(_state): State<AppState>,
-    Extension(_claims): Extension<Claims>,
-    Path(_repo_id): Path<String>,
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(repo_id): Path<String>,
 ) -> Result<Json<Vec<RepoTrainingJobLinkResponse>>, ApiError> {
-    Err(ApiError::new(
-        StatusCode::NOT_IMPLEMENTED,
-        "NOT_IMPLEMENTED",
-        "list_training_jobs not yet implemented",
-    ))
+    require_permission(&claims, Permission::AdapterList)?;
+
+    // Verify repository exists and belongs to tenant
+    let _repo = state
+        .db
+        .get_adapter_repository(&claims.tenant_id, &repo_id)
+        .await
+        .map_err(|e| {
+            ApiError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "DATABASE_ERROR",
+                format!("failed to fetch repository: {}", e),
+            )
+        })?
+        .ok_or_else(|| ApiError::repo_not_found(&repo_id))?;
+
+    // List training jobs for this repository
+    let jobs = state.db.list_training_jobs(&repo_id).await.map_err(|e| {
+        ApiError::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "DATABASE_ERROR",
+            format!("failed to list training jobs: {}", e),
+        )
+    })?;
+
+    info!(
+        repo_id = %repo_id,
+        tenant_id = %claims.tenant_id,
+        count = jobs.len(),
+        "Listed training jobs for repository"
+    );
+
+    let response: Vec<RepoTrainingJobLinkResponse> = jobs
+        .into_iter()
+        .map(|job| RepoTrainingJobLinkResponse {
+            job_id: job.id,
+            status: job.status,
+            created_at: job.started_at,
+        })
+        .collect();
+
+    Ok(Json(response))
 }
 
+/// Tag an adapter version
+#[utoipa::path(
+    tag = "repositories",
+    post,
+    path = "/v1/repos/{repo_id}/versions/{version_id}/tag",
+    params(
+        ("repo_id" = String, Path, description = "Repository ID"),
+        ("version_id" = String, Path, description = "Version ID to tag")
+    ),
+    request_body = TagVersionRequest,
+    responses(
+        (status = 200, description = "Version tagged successfully"),
+        (status = 404, description = "Version not found"),
+        (status = 400, description = "Invalid tag name")
+    )
+)]
 pub async fn tag_version(
-    State(_state): State<AppState>,
-    Extension(_claims): Extension<Claims>,
-    Path((_repo_id, _version_id)): Path<(String, String)>,
-) -> Result<Json<String>, ApiError> {
-    Err(ApiError::new(
-        StatusCode::NOT_IMPLEMENTED,
-        "NOT_IMPLEMENTED",
-        "tag_version not yet implemented",
-    ))
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path((repo_id, version_id)): Path<(String, String)>,
+    Json(req): Json<TagVersionRequest>,
+) -> Result<StatusCode, ApiError> {
+    require_permission(&claims, Permission::AdapterRegister)?;
+
+    // Verify repository exists and belongs to tenant
+    let _repo = state
+        .db
+        .get_adapter_repository(&claims.tenant_id, &repo_id)
+        .await
+        .map_err(|e| {
+            ApiError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "DATABASE_ERROR",
+                format!("failed to fetch repository: {}", e),
+            )
+        })?
+        .ok_or_else(|| ApiError::repo_not_found(&repo_id))?;
+
+    // Validate tag name
+    if req.tag_name.trim().is_empty() {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "VALIDATION_ERROR",
+            "tag_name cannot be empty",
+        ));
+    }
+
+    // Tag the version
+    state
+        .db
+        .upsert_adapter_version_tag(&claims.tenant_id, &version_id, &req.tag_name)
+        .await
+        .map_err(|e| {
+            let error_str = e.to_string();
+
+            // Map specific errors to appropriate HTTP errors
+            if error_str.contains("not found") || error_str.contains("NotFound") {
+                return ApiError::new(
+                    StatusCode::NOT_FOUND,
+                    "VERSION_NOT_FOUND",
+                    format!("Version {} not found", version_id),
+                );
+            }
+
+            ApiError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "DATABASE_ERROR",
+                format!("failed to tag version: {}", error_str),
+            )
+        })?;
+
+    info!(
+        version_id = %version_id,
+        repo_id = %repo_id,
+        tenant_id = %claims.tenant_id,
+        tag_name = %req.tag_name,
+        "Tagged adapter version"
+    );
+
+    Ok(StatusCode::OK)
 }
 
+/// Start training from a specific adapter version
+#[utoipa::path(
+    tag = "repositories",
+    post,
+    path = "/v1/repos/{repo_id}/versions/{version_id}/train",
+    params(
+        ("repo_id" = String, Path, description = "Repository ID"),
+        ("version_id" = String, Path, description = "Version ID to use as base")
+    ),
+    responses(
+        (status = 200, description = "Training job started successfully"),
+        (status = 404, description = "Repository or version not found"),
+        (status = 400, description = "Invalid request")
+    )
+)]
 pub async fn start_training(
-    State(_state): State<AppState>,
-    Extension(_claims): Extension<Claims>,
-    Path((_repo_id, _version_id)): Path<(String, String)>,
-) -> Result<Json<String>, ApiError> {
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path((repo_id, version_id)): Path<(String, String)>,
+) -> Result<StatusCode, ApiError> {
+    require_permission(&claims, Permission::TrainingStart)?;
+
+    // Verify repository exists and belongs to tenant
+    let repo = state
+        .db
+        .get_adapter_repository(&claims.tenant_id, &repo_id)
+        .await
+        .map_err(|e| {
+            ApiError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "DATABASE_ERROR",
+                format!("failed to fetch repository: {}", e),
+            )
+        })?
+        .ok_or_else(|| ApiError::repo_not_found(&repo_id))?;
+
+    // Check if repository is archived
+    if repo.archived != 0 {
+        return Err(ApiError::repo_archived(&repo_id));
+    }
+
+    // Verify version exists and belongs to this repository
+    let version = state
+        .db
+        .get_adapter_version(&claims.tenant_id, &version_id)
+        .await
+        .map_err(|e| {
+            ApiError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "DATABASE_ERROR",
+                format!("failed to fetch version: {}", e),
+            )
+        })?
+        .ok_or_else(|| {
+            ApiError::new(
+                StatusCode::NOT_FOUND,
+                "VERSION_NOT_FOUND",
+                format!("Version {} not found", version_id),
+            )
+        })?;
+
+    // Verify version belongs to this repository
+    if version.repo_id != repo_id {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "VERSION_REPO_MISMATCH",
+            format!(
+                "Version {} does not belong to repository {}",
+                version_id, repo_id
+            ),
+        ));
+    }
+
+    // TODO: Implement training workflow for version-based training
+    // This should:
+    // 1. Create a draft version based on the specified version
+    // 2. Submit a training job using the version's configuration
+    // 3. Return the training job ID
+    //
+    // For now, return a message indicating this is a placeholder.
+    // The proper implementation should integrate with the existing
+    // training service workflow (see handlers/training.rs::start_training)
+
+    info!(
+        version_id = %version_id,
+        repo_id = %repo_id,
+        tenant_id = %claims.tenant_id,
+        "Training from version (placeholder - not yet implemented)"
+    );
+
     Err(ApiError::new(
         StatusCode::NOT_IMPLEMENTED,
         "NOT_IMPLEMENTED",
-        "start_training not yet implemented",
+        "Version-based training workflow not yet implemented. Use POST /v1/training/jobs instead.",
     ))
 }

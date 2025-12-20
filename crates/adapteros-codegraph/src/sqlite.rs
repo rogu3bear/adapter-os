@@ -549,11 +549,18 @@ pub struct DbStats {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
     use tempfile::TempDir;
+
+    fn new_test_tempdir() -> TempDir {
+        let root = PathBuf::from("var").join("tmp");
+        std::fs::create_dir_all(&root).expect("create var/tmp");
+        TempDir::new_in(&root).expect("Test temp directory creation should succeed")
+    }
 
     #[tokio::test]
     async fn test_database_creation() {
-        let temp_dir = TempDir::new().expect("Test temp directory creation should succeed");
+        let temp_dir = new_test_tempdir();
         let db_path = temp_dir.path().join("test.db");
 
         let _db = CodeGraphDb::new(&db_path)
@@ -564,7 +571,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_database_stats() {
-        let temp_dir = TempDir::new().expect("Test temp directory creation should succeed");
+        let temp_dir = new_test_tempdir();
         let db_path = temp_dir.path().join("test.db");
 
         let db = CodeGraphDb::new(&db_path)

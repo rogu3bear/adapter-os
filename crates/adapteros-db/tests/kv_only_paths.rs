@@ -18,7 +18,9 @@ async fn kv_only_supported_domains_smoke_when_coverage_ready() -> adapteros_core
         return Ok(());
     }
 
-    let tmp = tempfile::tempdir()?;
+    let tmp_root = std::path::PathBuf::from("var").join("tmp");
+    std::fs::create_dir_all(&tmp_root)?;
+    let tmp = tempfile::tempdir_in(&tmp_root)?;
     let kv_path = tmp.path().join("kv.redb");
     let kv = KvDb::init_redb(kv_path.as_path())?;
     let metrics = global_kv_metrics();

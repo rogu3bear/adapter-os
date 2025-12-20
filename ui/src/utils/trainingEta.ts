@@ -50,6 +50,6 @@ export function calculateTrainingETA(
 }
 
 // Re-export formatDurationSeconds as formatDuration for backward compatibility
-// Use formatDurationSeconds directly from @/utils/format for new code
-export { formatDurationSeconds as formatDuration } from './format';
+// Use formatDurationSeconds directly from @/lib/formatters for new code
+export { formatDurationSeconds as formatDuration } from '@/lib/formatters';
 

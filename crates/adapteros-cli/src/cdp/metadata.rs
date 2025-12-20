@@ -273,12 +273,13 @@ mod tests {
 
     #[test]
     fn test_metadata_creation() {
+        let temp_dir = TempDir::new_in(".").unwrap();
         let metadata = CdpMetadata::new(
             "test@example.com".to_string(),
             "Test commit message".to_string(),
             Utc::now(),
             "main".to_string(),
-            PathBuf::from("/tmp/test"),
+            temp_dir.path().to_path_buf(),
         );
 
         assert_eq!(metadata.author, "test@example.com");
@@ -289,12 +290,13 @@ mod tests {
 
     #[test]
     fn test_metadata_with_author_name() {
+        let temp_dir = TempDir::new_in(".").unwrap();
         let metadata = CdpMetadata::new(
             "test@example.com".to_string(),
             "Test commit message".to_string(),
             Utc::now(),
             "main".to_string(),
-            PathBuf::from("/tmp/test"),
+            temp_dir.path().to_path_buf(),
         )
         .with_author_name("Test Author".to_string());
 
@@ -303,12 +305,13 @@ mod tests {
 
     #[test]
     fn test_metadata_with_committer() {
+        let temp_dir = TempDir::new_in(".").unwrap();
         let metadata = CdpMetadata::new(
             "author@example.com".to_string(),
             "Test commit message".to_string(),
             Utc::now(),
             "main".to_string(),
-            PathBuf::from("/tmp/test"),
+            temp_dir.path().to_path_buf(),
         )
         .with_committer("committer@example.com".to_string(), Some("Test Committer".to_string()));
 
@@ -318,12 +321,13 @@ mod tests {
 
     #[test]
     fn test_short_description() {
+        let temp_dir = TempDir::new_in(".").unwrap();
         let metadata = CdpMetadata::new(
             "test@example.com".to_string(),
             "This is a very long commit message that should be truncated when displayed in short format".to_string(),
             Utc::now(),
             "main".to_string(),
-            PathBuf::from("/tmp/test"),
+            temp_dir.path().to_path_buf(),
         );
 
         let short = metadata.short_description();
@@ -333,12 +337,13 @@ mod tests {
 
     #[test]
     fn test_repo_name_extraction() {
+        let temp_dir = TempDir::new_in(".").unwrap();
         let metadata = CdpMetadata::new(
             "test@example.com".to_string(),
             "Test commit".to_string(),
             Utc::now(),
             "main".to_string(),
-            PathBuf::from("/tmp/test"),
+            temp_dir.path().to_path_buf(),
         )
         .with_remote_url("https://github.com/user/repo-name.git".to_string());
 

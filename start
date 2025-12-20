@@ -29,6 +29,7 @@ source scripts/lib/freeze-guard.sh
 : "${AOS_UI_PORT:=3200}"
 : "${AOS_VAR_DIR:=var}"
 : "${SKIP_WORKER:=0}"
+: "${AOS_QUICK_BOOT:=0}"
 
 # Animation characters
 SPINNER_CHARS="⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
@@ -440,10 +441,11 @@ start_backend_animated() {
     # Delegate to service-manager
     if [ -x scripts/service-manager.sh ]; then
         if scripts/service-manager.sh start-backend >/dev/null 2>&1; then
-            # Wait for health check
+            # Wait for health check (configurable timeout)
             local waited=0
-            while [ $waited -lt 15 ]; do
-                if curl -sf "http://localhost:$AOS_SERVER_PORT/healthz" >/dev/null 2>&1; then
+            local health_timeout="${AOS_HEALTH_TIMEOUT:-15}"
+            while [ $waited -lt "$health_timeout" ]; do
+                if curl -sf --max-time 2 "http://localhost:$AOS_SERVER_PORT/healthz" >/dev/null 2>&1; then
                     local pid
                     pid=$(cat "$AOS_VAR_DIR/backend.pid" 2>/dev/null)
                     update_step "success" "Backend API     ${FG_GREEN}READY${FG_RESET}  (PID $pid, port $AOS_SERVER_PORT)"
@@ -474,10 +476,16 @@ PY
                 sleep 1
                 ((waited++))
             done
-            # Started but health not responding yet
+            # Health check timeout - this is a failure, not success
             local pid
             pid=$(cat "$AOS_VAR_DIR/backend.pid" 2>/dev/null)
-            update_step "success" "Backend API     ${FG_YELLOW}STARTED${FG_RESET} (PID $pid, port $AOS_SERVER_PORT)"
+            local health_timeout="${AOS_HEALTH_TIMEOUT:-15}"
+            if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+                update_step "error" "Backend API     ${FG_RED}UNHEALTHY${FG_RESET} (PID $pid, healthz timeout after ${health_timeout}s)"
+            else
+                update_step "error" "Backend API     ${FG_RED}CRASHED${FG_RESET} (process not running)"
+            fi
+            [ "${AOS_BOOT_VERBOSE:-0}" = "1" ] && tail -20 "$AOS_VAR_DIR/logs/backend.log" 2>/dev/null
             #region agent log
             BACKEND_PID="$pid" python - <<'PY'
 import json, os, time
@@ -487,8 +495,8 @@ payload = {
     "sessionId": "debug-session",
     "runId": os.environ.get("AOS_DEBUG_RUN_ID", "pre-fix"),
     "hypothesisId": "H1",
-    "location": "start_backend_animated:started",
-    "message": "backend started without healthz",
+    "location": "start_backend_animated:health_timeout",
+    "message": "backend healthz timeout - treated as failure",
     "data": {
         "pid": os.environ.get("BACKEND_PID"),
         "manifest": os.environ.get("AOS_MANIFEST_PATH"),
@@ -500,7 +508,7 @@ with open(log_path, "a") as f:
     f.write(json.dumps(payload) + "\n")
 PY
             #endregion agent log
-            return 0
+            return 1
         else
             update_step "error" "Backend API - failed to start"
             #region agent log
@@ -702,16 +710,12 @@ PY
     local preflight_failed=0
 
     # Port checks
-    if ! freeze_check_port "$AOS_SERVER_PORT" "Backend API" 2>&1 | grep -q "^$"; then
-        if lsof -nP -i :"$AOS_SERVER_PORT" -sTCP:LISTEN >/dev/null 2>&1; then
-            preflight_failed=1
-        fi
+    if ! freeze_check_port "$AOS_SERVER_PORT" "Backend API"; then
+        preflight_failed=1
     fi
 
-    if ! freeze_check_port "$AOS_UI_PORT" "UI Server" 2>&1 | grep -q "^$"; then
-        if lsof -nP -i :"$AOS_UI_PORT" -sTCP:LISTEN >/dev/null 2>&1; then
-            preflight_failed=1
-        fi
+    if ! freeze_check_port "$AOS_UI_PORT" "UI Server"; then
+        preflight_failed=1
     fi
 
     #region agent log
@@ -754,11 +758,34 @@ PY
 
     start_backend_animated && backend_ok=1
     start_ui_animated && ui_ok=1
-    
-    # Start worker (optional, won't fail if missing)
+
+    # Seed model into database if AOS_MODEL_PATH is set
+    if [ $backend_ok -eq 1 ] && [ -n "${AOS_MODEL_PATH:-}" ]; then
+        print_step "running" "Seeding model into database..."
+        local aosctl_bin=""
+        if [ -f "./aosctl" ]; then
+            aosctl_bin="./aosctl"
+        elif [ -f "target/debug/aosctl" ]; then
+            aosctl_bin="target/debug/aosctl"
+        elif [ -f "target/release/aosctl" ]; then
+            aosctl_bin="target/release/aosctl"
+        fi
+
+        if [ -n "$aosctl_bin" ]; then
+            if "$aosctl_bin" models seed --model-path "$AOS_MODEL_PATH" >/dev/null 2>&1; then
+                update_step "success" "Model seeded"
+            else
+                update_step "pending" "Model seeding  ${FG_YELLOW}SKIPPED${FG_RESET}  (already exists or error)"
+            fi
+        else
+            update_step "pending" "Model seeding  ${FG_YELLOW}SKIPPED${FG_RESET}  (aosctl not found)"
+        fi
+    fi
+
+    # Start worker (required by default, use --skip-worker to opt out)
     print_step "running" "Starting Inference Worker..."
     if [ "${SKIP_WORKER:-0}" = "1" ]; then
-        update_step "pending" "Worker          ${FG_YELLOW}SKIPPED${FG_RESET}  (requested via flag)"
+        update_step "pending" "Worker          ${FG_YELLOW}SKIPPED${FG_RESET}  (requested via --skip-worker)"
     elif scripts/service-manager.sh start worker >/dev/null 2>&1; then
         # Wait for socket
         local waited=0
@@ -775,7 +802,16 @@ PY
             update_step "pending" "Worker          ${FG_YELLOW}STARTING${FG_RESET} (socket pending)"
         fi
     else
-        update_step "pending" "Worker          ${FG_YELLOW}SKIPPED${FG_RESET}  (optional, binary/manifest not found)"
+        update_step "error" "Worker          ${FG_RED}FAILED${FG_RESET}  - inference not available"
+        echo ""
+        echo -e "  ${FG_RED}Worker startup failed.${FG_RESET} Possible causes:"
+        echo "    - Worker binary not built: cargo build -p adapteros-lora-worker"
+        echo "    - Manifest not found: set AOS_WORKER_MANIFEST"
+        echo "    - Model not found: set AOS_MODEL_PATH"
+        echo ""
+        echo -e "  To run without worker (UI-only mode): ${FG_CYAN}./start --skip-worker${FG_RESET}"
+        echo ""
+        return 1
     fi
 
     #region agent log
@@ -803,9 +839,47 @@ with open(log_path, "a") as f:
 PY
     #endregion agent log
 
+    # Final readiness check (unless --quick was used)
+    local inference_ready=0
+    if [ $backend_ok -eq 1 ] && [ $worker_ok -eq 1 ] && [ "${AOS_QUICK_BOOT:-0}" != "1" ]; then
+        print_step "running" "Checking inference readiness..."
+        local readyz_timeout="${AOS_READYZ_TIMEOUT:-30}"
+        local readyz_waited=0
+        while [ $readyz_waited -lt "$readyz_timeout" ]; do
+            if curl -sf --max-time 2 "http://localhost:$AOS_SERVER_PORT/readyz" >/dev/null 2>&1; then
+                update_step "success" "Inference       ${FG_GREEN}READY${FG_RESET}  (/readyz check passed)"
+                inference_ready=1
+                break
+            fi
+            sleep 1
+            ((readyz_waited++))
+        done
+        if [ $inference_ready -eq 0 ]; then
+            update_step "error" "Inference       ${FG_RED}NOT READY${FG_RESET} (/readyz timeout after ${readyz_timeout}s)"
+            echo ""
+            echo -e "  ${FG_RED}Inference readiness check failed.${FG_RESET} Common fixes:"
+            echo "    - Seed models: aosctl models seed --model-path \$AOS_MODEL_PATH"
+            echo "    - Check status: curl http://localhost:$AOS_SERVER_PORT/readyz | jq"
+            echo ""
+            return 1
+        fi
+    fi
+
     echo ""
 
-    if [ $backend_ok -eq 1 ] && [ $ui_ok -eq 1 ]; then
+    # Only show full success if inference is ready (or readiness check was skipped)
+    local show_full_success=0
+    if [ $inference_ready -eq 1 ]; then
+        show_full_success=1
+    elif [ "${AOS_QUICK_BOOT:-0}" = "1" ]; then
+        # Quick boot skips /readyz check, allow success message
+        show_full_success=1
+    elif [ $worker_ok -eq 0 ]; then
+        # Worker was skipped (--skip-worker), readiness check not applicable
+        show_full_success=1
+    fi
+
+    if [ $backend_ok -eq 1 ] && [ $ui_ok -eq 1 ] && [ $show_full_success -eq 1 ]; then
         echo -e "${FG_GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${FG_RESET}"
         echo ""
         echo -e "  ${FG_GREEN}${CHECK_MARK} AdapterOS is ready!${FG_RESET}"
@@ -961,6 +1035,9 @@ main() {
                 ;;
             --skip-worker|--no-worker)
                 SKIP_WORKER=1
+                ;;
+            --quick)
+                AOS_QUICK_BOOT=1
                 ;;
             --)
                 shift

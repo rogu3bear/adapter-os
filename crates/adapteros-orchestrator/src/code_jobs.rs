@@ -224,7 +224,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_artifact_store_roundtrip() {
-        let temp_dir = tempfile::tempdir().unwrap();
+        let tmp_root = std::path::PathBuf::from("var").join("tmp");
+        std::fs::create_dir_all(&tmp_root).expect("create var/tmp");
+        let temp_dir = tempfile::tempdir_in(&tmp_root).expect("tempdir");
         let store = ArtifactStore::new(temp_dir.path().to_path_buf());
 
         // Create a new CodeGraph

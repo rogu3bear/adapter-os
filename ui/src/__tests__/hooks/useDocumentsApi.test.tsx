@@ -23,7 +23,7 @@ const mockUploadDocument = vi.fn();
 const mockDeleteDocument = vi.fn();
 const mockDownloadDocument = vi.fn();
 
-vi.mock('@/api/client', () => ({
+vi.mock('@/api/services', () => ({
   apiClient: {
     listDocuments: (...args: unknown[]) => mockListDocuments(...args),
     getDocument: (...args: unknown[]) => mockGetDocument(...args),

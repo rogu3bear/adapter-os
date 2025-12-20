@@ -559,10 +559,7 @@ impl IndexManager {
     /// Vector of index definitions for the entity type
     pub async fn list_indexes(&self, entity_type: &str) -> Vec<IndexDef> {
         let indexes = self.indexes.read().await;
-        indexes
-            .get(entity_type)
-            .map(|v| v.clone())
-            .unwrap_or_default()
+        indexes.get(entity_type).cloned().unwrap_or_default()
     }
 
     /// Get all registered entity types

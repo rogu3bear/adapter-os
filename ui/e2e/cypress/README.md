@@ -274,6 +274,30 @@ pnpm cypress:run --spec "e2e/cypress/e2e/api/**/*.cy.ts"
 - Dev mode enabled (for dev-bypass tests)
 - OpenAI API key (no longer used)
 
+### Using Custom Ports
+
+If you need to run the E2E tests with custom port configurations (e.g., port offsets for multiple developers), you can set environment variables:
+
+```bash
+# Set custom ports
+export AOS_SERVER_PORT=9080    # Backend port (default: 8080)
+export AOS_UI_PORT=4200        # Frontend port (default: 3200)
+
+# Run E2E tests with custom ports
+cd ui
+pnpm test:e2e
+```
+
+The E2E test scripts (`test:e2e`, `test:e2e:coreml`, `test:e2e:coverage`, `test:a11y`) automatically read these environment variables and construct the correct health check URLs.
+
+**Available Environment Variables:**
+- `AOS_SERVER_HOST` - Backend host (default: 127.0.0.1)
+- `AOS_SERVER_PORT` - Backend port (default: 8080)
+- `AOS_UI_PORT` - Frontend port (default: 3200)
+- `WAIT_ON_TIMEOUT` - Health check timeout in ms (default: 180000)
+- `WAIT_ON_INTERVAL` - Health check interval in ms (default: 1000)
+- `AOS_PID_FILE` - PID file path (default: var/aos-cp-e2e.pid)
+
 ---
 
 ## Quick Start
@@ -304,7 +328,7 @@ pnpm cypress:open
 ## Live no-stub UI e2e prerequisites
 
 - Backend: running on `http://localhost:8080` with `AOS_DEV_NO_AUTH=1` (dev only).
-- Worker: running with a tiny model (`config.json` + `model.safetensors`) pointed to `AOS_E2E_MODEL_PATH` and bound to a UDS (e.g., `AOS_E2E_UDS=/tmp/aos-e2e.sock`). Pre-clean stale sockets before runs.
+- Worker: running with a tiny model (`config.json` + `model.safetensors`) pointed to `AOS_E2E_MODEL_PATH` and bound to a UDS (e.g., `AOS_E2E_UDS=./var/run/aos-e2e.sock`). Pre-clean stale sockets before runs.
 - Run spec headless: `pnpm cypress:run --spec e2e/cypress/e2e/ui/adapter-chat.cy.ts` (consider a 5-minute watchdog in CI).
 - The `db:seed-fixtures` Cypress task seeds deterministic IDs; no stubs are used, so live API responses must be available.
 

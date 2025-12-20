@@ -101,7 +101,7 @@ impl BackendCoordinator {
 
         // Select primary backend
         let primary_choice = strategy.select_backend(&capabilities, model_size_bytes)?;
-        let primary = Arc::new(RwLock::new(create_backend(primary_choice.clone())?));
+        let primary = Arc::new(RwLock::new(create_backend(primary_choice)?));
 
         info!(
             primary_backend = ?primary_choice,
@@ -111,7 +111,7 @@ impl BackendCoordinator {
         // Create fallback backend if enabled
         let (fallback, fallback_health) = if enable_fallback {
             match BackendCoordinator::select_fallback_backend(&primary_choice, &capabilities) {
-                Ok(fallback_choice) => match create_backend(fallback_choice.clone()) {
+                Ok(fallback_choice) => match create_backend(fallback_choice) {
                     Ok(fallback_backend) => {
                         info!(
                             fallback_backend = ?fallback_choice,

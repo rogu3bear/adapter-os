@@ -46,9 +46,9 @@ async fn atomic_dual_write_config_strict() {
 
 #[tokio::test]
 async fn atomic_dual_write_config_from_env() {
-    // Default (no env var)
+    // Default (no env var) - CHANGED: now defaults to strict mode
     std::env::remove_var("AOS_ATOMIC_DUAL_WRITE_STRICT");
-    assert!(!AtomicDualWriteConfig::from_env().is_strict());
+    assert!(AtomicDualWriteConfig::from_env().is_strict());
 
     std::env::set_var("AOS_ATOMIC_DUAL_WRITE_STRICT", "true");
     assert!(AtomicDualWriteConfig::from_env().is_strict());
@@ -56,8 +56,13 @@ async fn atomic_dual_write_config_from_env() {
     std::env::set_var("AOS_ATOMIC_DUAL_WRITE_STRICT", "1");
     assert!(AtomicDualWriteConfig::from_env().is_strict());
 
+    // Explicit disable
     std::env::set_var("AOS_ATOMIC_DUAL_WRITE_STRICT", "false");
     assert!(!AtomicDualWriteConfig::from_env().is_strict());
+
+    std::env::set_var("AOS_ATOMIC_DUAL_WRITE_STRICT", "0");
+    assert!(!AtomicDualWriteConfig::from_env().is_strict());
+
     std::env::remove_var("AOS_ATOMIC_DUAL_WRITE_STRICT");
 }
 

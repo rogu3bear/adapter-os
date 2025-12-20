@@ -7,7 +7,7 @@
 //! - E3xxx: kernels/build/manifest issues
 //! - E4xxx: telemetry/chain problems
 //! - E5xxx: artifacts/CAS errors
-//! - E6xxx: adapters/MPLoRA issues
+//! - E6xxx: adapters/DIR issues
 //! - E7xxx: node/cluster problems
 //! - E8xxx: CLI/config errors
 //! - E9xxx: OS/environment issues
@@ -92,7 +92,7 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
              2. Check that the bundle hasn't been modified\n\
              3. Re-sign the bundle: aosctl sign-bundle <bundle>\n\
              4. Verify signature: aosctl verify <bundle>",
-            docs = ["docs/architecture.md", "crates/adapteros-crypto/"]
+            docs = ["docs/ARCHITECTURE.md", "crates/adapteros-crypto/"]
         ),
         error_code!(
             "E1002",
@@ -136,7 +136,7 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
              3. Review retrieval tie-breaker ordering\n\
              4. Run: aosctl replay --verbose <bundle>\n\
              5. Compare: diff old_trace new_trace",
-            docs = ["docs/architecture.md", "tests/determinism.rs"]
+            docs = ["docs/ARCHITECTURE.md", "tests/determinism.rs"]
         ),
         error_code!(
             "E2002",
@@ -147,7 +147,7 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
              2. Check specific violation in trace\n\
              3. Adjust policy or fix operation\n\
              4. Re-audit: aosctl audit <cpid>",
-            docs = ["docs/architecture.md", "crates/mplora-policy/"]
+            docs = ["docs/ARCHITECTURE.md", "crates/adapteros-policy/"]
         ),
         error_code!(
             "E2003",
@@ -158,7 +158,7 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
              2. Check for DNS/network calls in adapters\n\
              3. Review egress policy configuration\n\
              4. Validate offline operation mode",
-            docs = ["docs/architecture.md"]
+            docs = ["docs/ARCHITECTURE.md"]
         ),
         error_code!(
             "E2004",
@@ -169,7 +169,7 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
              2. Verify RAG retrieval returned sufficient spans\n\
              3. Review evidence quality\n\
              4. Consider retraining or updating index",
-            docs = ["docs/architecture.md", "crates/mplora-rag/"]
+            docs = ["docs/ARCHITECTURE.md", "crates/adapteros-lora-rag/"]
         ),
         // E3xxx: Kernels/Build/Manifest Issues
         error_code!(
@@ -201,9 +201,9 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
             "Manifest JSON is malformed or missing required fields.",
             "1. Validate JSON: jq . < manifest.json\n\
              2. Check required fields: model_id, adapters, policy\n\
-             3. Review manifest schema: docs/code-intelligence/code-manifest-v4.md\n\
+             3. Review manifest examples: manifests/\n\
              4. Use example: manifests/qwen7b.yaml",
-            docs = ["docs/code-intelligence/code-manifest-v4.md", "manifests/"]
+            docs = ["manifests/"]
         ),
         error_code!(
             "E3004",
@@ -214,7 +214,7 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
              2. Check Metal support: system_profiler SPDisplaysDataType\n\
              3. Update macOS if needed\n\
              4. For dev: use --mock-metal flag",
-            docs = ["docs/architecture.md"]
+            docs = ["docs/ARCHITECTURE.md"]
         ),
         // E4xxx: Telemetry/Chain Problems
         error_code!(
@@ -298,10 +298,10 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
              4. Re-import from trusted source",
             docs = ["crates/adapteros-core/src/hash.rs"]
         ),
-        // E6xxx: Adapters/MPLoRA Issues
+        // E6xxx: Adapters/DIR Issues
         error_code!(
             "E6001",
-            "Adapters/MPLoRA",
+            "Adapters/DIR",
             "Adapter Not Found in Registry",
             "Specified adapter ID not registered or not allowed by ACL.",
             "1. List adapters: aosctl list-adapters\n\
@@ -312,18 +312,18 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
         ),
         error_code!(
             "E6002",
-            "Adapters/MPLoRA",
+            "Adapters/DIR",
             "Adapter Eviction Occurred",
             "Adapter evicted due to memory pressure or low activation.",
             "1. Check memory headroom: aosctl diag --system\n\
              2. Review eviction policy in manifest\n\
              3. Pin critical adapters: aosctl pin-adapter\n\
              4. Reduce K or adapter count",
-            docs = ["docs/architecture.md"]
+            docs = ["docs/ARCHITECTURE.md"]
         ),
         error_code!(
             "E6003",
-            "Adapters/MPLoRA",
+            "Adapters/DIR",
             "Router Skew Detected",
             "Router gate distribution exceeds entropy floor.",
             "1. Check router calibration\n\
@@ -334,18 +334,18 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
         ),
         error_code!(
             "E6004",
-            "Adapters/MPLoRA",
+            "Adapters/DIR",
             "Adapter Quality Below Threshold",
             "Adapter quality delta below minimum threshold for retention.",
             "1. Review min_quality_delta in policy\n\
              2. Check adapter performance metrics\n\
              3. Retrain adapter with better data\n\
              4. Adjust quality threshold if appropriate",
-            docs = ["docs/architecture.md"]
+            docs = ["docs/ARCHITECTURE.md"]
         ),
         error_code!(
             "E6005",
-            "Adapters/MPLoRA",
+            "Adapters/DIR",
             "Adapter Socket Connection Failed",
             "Cannot connect to worker socket for adapter operations.",
             "1. Check if worker is running: aosctl serve status\n\
@@ -356,7 +356,7 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
         ),
         error_code!(
             "E6006",
-            "Adapters/MPLoRA",
+            "Adapters/DIR",
             "Invalid Adapter ID Format",
             "Adapter ID contains invalid characters or exceeds length limit.",
             "1. Use only alphanumeric characters, hyphens, and underscores\n\
@@ -367,7 +367,7 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
         ),
         error_code!(
             "E6007",
-            "Adapters/MPLoRA",
+            "Adapters/DIR",
             "Adapter Command Failed",
             "Adapter lifecycle command (promote/demote/pin/unpin) failed.",
             "1. Check adapter exists: aosctl adapter list\n\
@@ -375,6 +375,31 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
              3. Check worker logs for detailed error\n\
              4. Ensure adapter is not locked or in use",
             docs = ["crates/adapteros-lora-worker/src/adapter_hotswap.rs"]
+        ),
+        error_code!(
+            "E6008",
+            "Adapters/DIR",
+            "Kernel Version Mismatch",
+            "Adapter kernel version does not match runtime kernel version.",
+            "1. Check adapter kernel version: aosctl adapter info <id>\n\
+             2. Verify runtime kernel version: aosctl diag --system\n\
+             3. Retrain adapter with current kernel version\n\
+             4. Update adapter metadata to match kernel version",
+            docs = [
+                "crates/adapteros-lora-kernel-mtl/",
+                "crates/adapteros-lora-kernel-coreml/"
+            ]
+        ),
+        error_code!(
+            "E6009",
+            "Adapters/DIR",
+            "Base Model Mismatch",
+            "Adapters in stack target different base models.",
+            "1. List adapters in stack: aosctl stack info <id>\n\
+             2. Check base model for each adapter: aosctl adapter info <id>\n\
+             3. Remove incompatible adapters from stack\n\
+             4. Ensure all adapters target the same base model",
+            docs = ["crates/adapteros-lora-lifecycle/", "docs/ARCHITECTURE.md"]
         ),
         // E7xxx: Node/Cluster Problems
         error_code!(
@@ -442,7 +467,7 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
              2. Close other applications\n\
              3. Reduce adapter count or K value\n\
              4. Consider larger model tier or machine",
-            docs = ["docs/architecture.md"]
+            docs = ["docs/ARCHITECTURE.md"]
         ),
         error_code!(
             "E9002",
@@ -453,7 +478,7 @@ pub fn all_error_codes() -> Vec<ErrorCode> {
              2. Verify tenant UID/GID mapping\n\
              3. Run with appropriate privileges if needed\n\
              4. Check isolation policy",
-            docs = ["docs/architecture.md"]
+            docs = ["docs/ARCHITECTURE.md"]
         ),
         error_code!(
             "E9003",
@@ -530,6 +555,12 @@ pub fn map_aos_error(name: &str) -> &'static str {
         _ => "E9000", // OS/env
     }
 }
+
+/// Adapter kernel version does not match runtime kernel version
+pub const KERNEL_VERSION_MISMATCH: &str = "E_KERNEL_VERSION_MISMATCH";
+
+/// Adapters in stack target different base models
+pub const BASE_MODEL_MISMATCH: &str = "E_BASE_MODEL_MISMATCH";
 
 /// Numeric exit codes for CLI commands
 ///
@@ -843,7 +874,7 @@ mod tests {
                 "E3" => assert_eq!(code.category, "Kernels/Build/Manifest"),
                 "E4" => assert_eq!(code.category, "Telemetry/Chain"),
                 "E5" => assert_eq!(code.category, "Artifacts/CAS"),
-                "E6" => assert_eq!(code.category, "Adapters/MPLoRA"),
+                "E6" => assert_eq!(code.category, "Adapters/DIR"),
                 "E7" => assert_eq!(code.category, "Node/Cluster"),
                 "E8" => assert_eq!(code.category, "CLI/Config"),
                 "E9" => assert_eq!(code.category, "OS/Environment"),

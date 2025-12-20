@@ -9,8 +9,8 @@ import {
   ActionStats,
 } from '@/types/history';
 
-// Import and re-export formatting utilities from shared format module
-import { formatTimestamp as _formatTimestamp, formatDurationMs as _formatDurationMs } from './format';
+// Import and re-export formatting utilities from shared formatters module
+import { formatTimestamp as _formatTimestamp, formatDurationMs as _formatDurationMs } from '@/lib/formatters';
 
 // Re-export with original names for backward compatibility
 export const formatTimestamp = _formatTimestamp;

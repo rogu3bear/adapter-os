@@ -90,6 +90,8 @@ pub struct ServerSection {
     pub uds_socket: Option<PathBuf>,
     /// Drain timeout in seconds during shutdown (default: 30)
     pub drain_timeout_secs: u64,
+    /// Boot timeout in seconds for the entire boot sequence (default: 300)
+    pub boot_timeout_secs: u64,
     /// Number of worker threads (default: 4)
     pub workers: u16,
 }
@@ -139,6 +141,23 @@ pub struct PathsSection {
     pub bundles_root: PathBuf,
     /// Model cache directory
     pub model_cache_dir: PathBuf,
+}
+
+impl PathsSection {
+    /// Validate all paths in this section against /tmp.
+    /// This prevents accidental loss of critical runtime state on system restart.
+    pub fn validate(&self) -> adapteros_core::Result<()> {
+        use crate::path_resolver::reject_tmp_persistent_path;
+
+        reject_tmp_persistent_path(&self.var_dir, "var-dir")?;
+        reject_tmp_persistent_path(&self.adapters_root, "adapters-root")?;
+        reject_tmp_persistent_path(&self.artifacts_root, "artifacts-root")?;
+        reject_tmp_persistent_path(&self.datasets_root, "datasets-root")?;
+        reject_tmp_persistent_path(&self.documents_root, "documents-root")?;
+        reject_tmp_persistent_path(&self.bundles_root, "bundles-root")?;
+        reject_tmp_persistent_path(&self.model_cache_dir, "model-cache-dir")?;
+        Ok(())
+    }
 }
 
 /// Logging section configuration
@@ -568,11 +587,8 @@ impl EffectiveConfig {
     /// - "sqlite:///var/lib/adapteros/aos-cp.sqlite3" -> Some("/var/lib/adapteros/aos-cp.sqlite3")
     /// - "postgres://..." -> None (not a file path)
     fn extract_db_path(&self, url: &str) -> Option<String> {
-        if let Some(stripped) = url.strip_prefix("sqlite://") {
-            Some(stripped.to_string())
-        } else {
-            None
-        }
+        url.strip_prefix("sqlite://")
+            .map(|stripped| stripped.to_string())
     }
 
     // Builder methods for each section
@@ -603,6 +619,10 @@ impl EffectiveConfig {
                 .get("server.drain.timeout.secs")
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(30),
+            boot_timeout_secs: config
+                .get("server.boot.timeout.secs")
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(300),
             workers: config
                 .get("server.workers")
                 .and_then(|v| v.parse().ok())
@@ -832,7 +852,7 @@ impl EffectiveConfig {
         let seed_mode = config
             .get("inference.seed.mode")
             .and_then(|v| SeedMode::from_str(v).ok())
-            .unwrap_or_else(|| {
+            .unwrap_or({
                 if is_production {
                     SeedMode::Strict
                 } else {

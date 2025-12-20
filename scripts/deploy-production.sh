@@ -91,7 +91,8 @@ fi
 
 # Step 5: Build release binary
 echo "🔨 Building release binary..."
-if ! cargo build --release --locked 2>&1 | tee /tmp/aos-build.log; then
+mkdir -p var/log
+if ! cargo build --release --locked 2>&1 | tee var/log/aos-build.log; then
     echo -e "${RED}❌ Build failed${NC}"
     exit 1
 fi
@@ -164,4 +165,3 @@ echo "  3. Start service: sudo systemctl start $SERVICE_NAME"
 echo "  4. Check status: sudo systemctl status $SERVICE_NAME"
 echo "  5. View logs: sudo journalctl -u $SERVICE_NAME -f"
 echo ""
-

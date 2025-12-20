@@ -147,99 +147,115 @@ impl LockManager {
 
     /// Internal method to acquire read lock
     async fn acquire_read_lock_internal(&self, path: &PathBuf, holder: &str) -> Result<FileLock> {
-        let mut locks = self.locks.write().await;
+        let mut retries = 0;
+        const MAX_RETRIES: u32 = 100;
 
-        // Check if file is already locked for writing
-        if let Some(lock_info) = locks.get(path) {
-            let write_locked = *lock_info.write_locked.lock().await;
-            if write_locked {
-                // Wait for write lock to be released
-                drop(locks);
-                sleep(Duration::from_millis(10)).await;
-                return Box::pin(
-                    async move { self.acquire_read_lock_internal(path, holder).await },
-                )
-                .await;
+        loop {
+            let mut locks = self.locks.write().await;
+
+            // Check if file is already locked for writing
+            if let Some(lock_info) = locks.get(path) {
+                let write_locked = *lock_info.write_locked.lock().await;
+                if write_locked {
+                    if retries >= MAX_RETRIES {
+                        return Err(AosError::Concurrency(format!(
+                            "Timeout waiting for read lock on {:?}",
+                            path
+                        )));
+                    }
+                    retries += 1;
+                    drop(locks);
+                    sleep(Duration::from_millis(10)).await;
+                    continue;
+                }
             }
-        }
 
-        // Get or create lock info
-        let lock_info = locks.entry(path.clone()).or_insert_with(|| {
-            Arc::new(FileLockInfo {
-                path: path.clone(),
+            // Get or create lock info
+            let lock_info = locks.entry(path.clone()).or_insert_with(|| {
+                Arc::new(FileLockInfo {
+                    path: path.clone(),
+                    lock_type: LockType::Read,
+                    holder: holder.to_string(),
+                    timestamp: SystemTime::now(),
+                    read_count: Mutex::new(0),
+                    write_locked: Mutex::new(false),
+                })
+            });
+
+            // Increment read count
+            let mut read_count = lock_info.read_count.lock().await;
+            *read_count += 1;
+
+            debug!(
+                "Acquired read lock on {} (count: {}, type: {:?})",
+                path.display(),
+                *read_count,
+                LockType::Read
+            );
+
+            return Ok(FileLock {
+                info: lock_info.clone(),
+                manager: Arc::new(self.clone()),
                 lock_type: LockType::Read,
-                holder: holder.to_string(),
-                timestamp: SystemTime::now(),
-                read_count: Mutex::new(0),
-                write_locked: Mutex::new(false),
-            })
-        });
-
-        // Increment read count
-        let mut read_count = lock_info.read_count.lock().await;
-        *read_count += 1;
-
-        debug!(
-            "Acquired read lock on {} (count: {}, type: {:?})",
-            path.display(),
-            *read_count,
-            LockType::Read
-        );
-
-        Ok(FileLock {
-            info: lock_info.clone(),
-            manager: Arc::new(self.clone()),
-            lock_type: LockType::Read,
-        })
+            });
+        }
     }
 
     /// Internal method to acquire write lock
     async fn acquire_write_lock_internal(&self, path: &PathBuf, holder: &str) -> Result<FileLock> {
-        let mut locks = self.locks.write().await;
+        let mut retries = 0;
+        const MAX_RETRIES: u32 = 100;
 
-        // Check if file is already locked
-        if let Some(lock_info) = locks.get(path) {
-            let read_count = *lock_info.read_count.lock().await;
-            let write_locked = *lock_info.write_locked.lock().await;
+        loop {
+            let mut locks = self.locks.write().await;
 
-            if read_count > 0 || write_locked {
-                // Wait for locks to be released
-                drop(locks);
-                sleep(Duration::from_millis(10)).await;
-                return Box::pin(
-                    async move { self.acquire_write_lock_internal(path, holder).await },
-                )
-                .await;
+            // Check if file is already locked
+            if let Some(lock_info) = locks.get(path) {
+                let read_count = *lock_info.read_count.lock().await;
+                let write_locked = *lock_info.write_locked.lock().await;
+
+                if read_count > 0 || write_locked {
+                    if retries >= MAX_RETRIES {
+                        return Err(AosError::Concurrency(format!(
+                            "Timeout waiting for write lock on {:?}",
+                            path
+                        )));
+                    }
+                    retries += 1;
+                    drop(locks);
+                    sleep(Duration::from_millis(10)).await;
+                    continue;
+                }
             }
-        }
 
-        // Get or create lock info
-        let lock_info = locks.entry(path.clone()).or_insert_with(|| {
-            Arc::new(FileLockInfo {
-                path: path.clone(),
+            // Get or create lock info
+            let lock_info = locks.entry(path.clone()).or_insert_with(|| {
+                Arc::new(FileLockInfo {
+                    path: path.clone(),
+                    lock_type: LockType::Write,
+                    holder: holder.to_string(),
+                    timestamp: SystemTime::now(),
+                    read_count: Mutex::new(0),
+                    write_locked: Mutex::new(false),
+                })
+            });
+
+            // Set write lock flag
+            let mut write_locked = lock_info.write_locked.lock().await;
+            *write_locked = true;
+
+            debug!(
+                "Acquired write lock on {} (type: {:?})",
+                path.display(),
+                LockType::Write
+            );
+
+            return Ok(FileLock {
+                info: lock_info.clone(),
+                manager: Arc::new(self.clone()),
                 lock_type: LockType::Write,
-                holder: holder.to_string(),
-                timestamp: SystemTime::now(),
-                read_count: Mutex::new(0),
-                write_locked: Mutex::new(false),
-            })
-        });
-
-        // Set write lock flag
-        let mut write_locked = lock_info.write_locked.lock().await;
-        *write_locked = true;
-
-        debug!(
-            "Acquired write lock on {} (type: {:?})",
-            path.display(),
-            LockType::Write
-        );
-
-        Ok(FileLock {
-            info: lock_info.clone(),
-            manager: Arc::new(self.clone()),
-            lock_type: LockType::Write,
-        })
+            });
+        }
     }
 
     /// Release a file lock
@@ -369,12 +385,18 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
+    fn new_test_tempdir() -> Result<TempDir> {
+        let root = PathBuf::from("var").join("tmp");
+        std::fs::create_dir_all(&root)?;
+        Ok(TempDir::new_in(&root)?)
+    }
+
     #[tokio::test]
     async fn test_file_locking() -> Result<()> {
         let config = crate::ConcurrentFsConfig::default();
         let manager = LockManager::new(&config)?;
 
-        let temp_dir = TempDir::new()?;
+        let temp_dir = new_test_tempdir()?;
         let test_file = temp_dir.path().join("test.txt");
 
         // Test read lock
@@ -411,7 +433,7 @@ mod tests {
         let config = crate::ConcurrentFsConfig::default();
         let manager = LockManager::new(&config)?;
 
-        let temp_dir = TempDir::new()?;
+        let temp_dir = new_test_tempdir()?;
         let test_file = temp_dir.path().join("test.txt");
 
         // Test write lock

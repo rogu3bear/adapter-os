@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ProofBar } from '@/components/receipts/ProofBar';
 import { toast } from 'sonner';
@@ -12,14 +12,13 @@ vi.mock('sonner', () => ({
   },
 }));
 
-// Mock clipboard API
 const mockWriteText = vi.fn();
-Object.defineProperty(navigator, 'clipboard', {
-  writable: true,
-  value: {
-    writeText: mockWriteText,
-  },
-});
+
+function setupUser() {
+  const user = userEvent.setup();
+  navigator.clipboard.writeText = mockWriteText as unknown as Clipboard['writeText'];
+  return user;
+}
 
 describe('ProofBar', () => {
   beforeEach(() => {
@@ -75,7 +74,9 @@ describe('ProofBar', () => {
 
   it('displays "Not available" when backend is null', () => {
     render(<ProofBar backendUsed={null} />);
-    expect(screen.getByText('Not available')).toBeInTheDocument();
+    const backendRow = screen.getByText('Backend:').closest('div');
+    expect(backendRow).not.toBeNull();
+    expect(within(backendRow as HTMLElement).getByText('Not available')).toBeInTheDocument();
   });
 
   it('displays determinism mode badge', () => {
@@ -101,7 +102,7 @@ describe('ProofBar', () => {
   });
 
   it('copies receipt digest to clipboard when copy button is clicked', async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     render(<ProofBar receiptDigest="abc123" />);
 
     const copyButtons = screen.getAllByLabelText(/Copy/i);
@@ -115,7 +116,7 @@ describe('ProofBar', () => {
   });
 
   it('copies trace ID to clipboard when copy button is clicked', async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     render(<ProofBar traceId="trace-xyz" />);
 
     const copyButtons = screen.getAllByLabelText(/Copy/i);
@@ -129,7 +130,7 @@ describe('ProofBar', () => {
   });
 
   it('shows error toast when copying null value', async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     render(<ProofBar receiptDigest={null} />);
 
     const copyButtons = screen.getAllByLabelText(/Copy/i);
@@ -143,7 +144,7 @@ describe('ProofBar', () => {
   });
 
   it('shows error toast when clipboard API fails', async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     mockWriteText.mockRejectedValue(new Error('Clipboard error'));
     render(<ProofBar receiptDigest="abc123" />);
 
@@ -157,7 +158,7 @@ describe('ProofBar', () => {
   });
 
   it('calls onOpenTrace when Open Trace button is clicked', async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const mockOnOpenTrace = vi.fn();
     const { container } = render(<ProofBar traceId="trace-xyz" onOpenTrace={mockOnOpenTrace} />);
 
@@ -203,7 +204,7 @@ describe('ProofBar', () => {
   });
 
   it('calls onExportEvidence when Export Evidence button is clicked', async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const mockOnExportEvidence = vi.fn();
     const { container } = render(<ProofBar evidenceAvailable={true} onExportEvidence={mockOnExportEvidence} />);
 

@@ -43,6 +43,8 @@ impl NodeAgent {
         plan_id: &str,
         uid: u32,
         gid: u32,
+        model_cache_max_mb: Option<u64>,
+        config_toml_path: Option<&str>,
     ) -> Result<u32> {
         info!(
             "Spawning worker for tenant {} with plan {}",
@@ -78,10 +80,28 @@ impl NodeAgent {
                 .arg("--uds-path")
                 .arg(&uds_path);
 
-            // Set environment variables
+            // Set environment variables for worker configuration
             cmd.env("TENANT_ID", tenant_id);
             cmd.env("PLAN_ID", plan_id);
             cmd.env("UDS_PATH", &uds_path);
+
+            // Propagate model cache budget to worker (required for model loading)
+            if let Some(cache_mb) = model_cache_max_mb {
+                cmd.env("AOS_MODEL_CACHE_MAX_MB", cache_mb.to_string());
+                info!(
+                    model_cache_max_mb = cache_mb,
+                    "Propagating model cache budget to worker"
+                );
+            }
+
+            // Propagate config TOML path if specified
+            if let Some(config_path) = config_toml_path {
+                cmd.env("AOS_CONFIG_TOML", config_path);
+                info!(
+                    config_toml_path = config_path,
+                    "Propagating config TOML path to worker"
+                );
+            }
 
             // Set uid/gid for multi-tenant process isolation
             // This requires the parent process to have CAP_SETUID/CAP_SETGID or run as root

@@ -241,7 +241,7 @@ fn fallback_message(status: StatusCode) -> String {
     status.canonical_reason().unwrap_or("error").to_string()
 }
 
-fn derive_hint(code: &str, message: &str, detail: Option<&str>, status: StatusCode) -> String {
+fn derive_hint(code: &str, message: &str, detail: Option<&str>, _status: StatusCode) -> String {
     let code_upper = code.to_ascii_uppercase();
     let msg_lower = message.to_ascii_lowercase();
     let detail_lower = detail.unwrap_or("").to_ascii_lowercase();

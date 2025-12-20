@@ -7,7 +7,6 @@ use sqlx::Row;
 use std::path::{Path, PathBuf};
 use sysinfo::System;
 use tracing::{error, info, warn};
-use zip::ZipWriter;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DiagProfile {
@@ -607,30 +606,27 @@ impl DiagnosticRunner {
             return;
         }
 
-        match std::fs::metadata(heartbeat_path) {
-            Ok(meta) => {
-                if let Ok(modified) = meta.modified() {
-                    if let Ok(elapsed) = modified.elapsed() {
-                        let secs = elapsed.as_secs();
-                        let status = if secs < 30 {
-                            CheckStatus::Pass
-                        } else if secs < 120 {
-                            CheckStatus::Warning
-                        } else {
-                            CheckStatus::Fail
-                        };
+        if let Ok(meta) = std::fs::metadata(heartbeat_path) {
+            if let Ok(modified) = meta.modified() {
+                if let Ok(elapsed) = modified.elapsed() {
+                    let secs = elapsed.as_secs();
+                    let status = if secs < 30 {
+                        CheckStatus::Pass
+                    } else if secs < 120 {
+                        CheckStatus::Warning
+                    } else {
+                        CheckStatus::Fail
+                    };
 
-                        self.check(
-                            "Service Heartbeat",
-                            status,
-                            format!("Last heartbeat: {} seconds ago", secs),
-                            None,
-                        );
-                        return;
-                    }
+                    self.check(
+                        "Service Heartbeat",
+                        status,
+                        format!("Last heartbeat: {} seconds ago", secs),
+                        None,
+                    );
+                    return;
                 }
             }
-            Err(_) => {}
         }
 
         self.check(
@@ -759,7 +755,7 @@ pub async fn run(
 async fn add_log_files(zip: &mut zip::ZipWriter<std::fs::File>, logs_dir: &str) -> Result<()> {
     use std::fs;
     use std::io::{Read, Write};
-    use zip::write::{FileOptions, SimpleFileOptions};
+    use zip::write::SimpleFileOptions;
 
     let logs_path = Path::new(logs_dir);
 
@@ -878,7 +874,7 @@ fn add_truncated_log_file(
 ) -> Result<()> {
     use std::fs::File;
     use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
-    use zip::write::{FileOptions, SimpleFileOptions};
+    use zip::write::SimpleFileOptions;
 
     let file = File::open(log_file)?;
     let mut reader = BufReader::new(file);
@@ -940,7 +936,7 @@ fn add_truncated_log_file(
 async fn create_diag_bundle(bundle_path: &Path, results: &[DiagResult]) -> Result<()> {
     use std::fs::File;
     use std::io::Write;
-    use zip::write::{FileOptions, SimpleFileOptions};
+    use zip::write::SimpleFileOptions;
     use zip::ZipWriter;
 
     let file = File::create(bundle_path).context("Failed to create bundle file")?;
@@ -984,13 +980,13 @@ async fn create_diag_bundle(bundle_path: &Path, results: &[DiagResult]) -> Resul
 }
 
 fn truncate_snippet(s: &str, max_len: usize) -> String {
-    let mut cleaned = s.replace('\n', " ").replace('\r', " ");
+    let mut cleaned = s.replace(['\n', '\r'], " ");
     if cleaned.len() <= max_len {
         return cleaned;
     }
 
     cleaned.truncate(max_len);
-    cleaned.push_str("…");
+    cleaned.push('…');
     cleaned
 }
 
@@ -1013,7 +1009,7 @@ pub async fn run_determinism_check(
     info!("  Seed: {:?}", seed);
 
     // Fixed test prompts (as specified in PRD G2)
-    let test_prompts = vec![
+    let test_prompts = [
         "Hello world".to_string(),
         "Explain async in Rust".to_string(),
         "Write a function".to_string(),
@@ -1159,7 +1155,7 @@ pub async fn run_determinism_check(
 
             results
                 .entry(format!("prompt_{}", prompt_idx))
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push(output_text);
         }
     }
@@ -1223,7 +1219,7 @@ pub async fn run_determinism_check(
                 "INSERT INTO determinism_checks (last_run, result, runs, divergences, stack_id, seed)
                  VALUES (datetime('now'), ?, ?, ?, ?, ?)"
             )
-            .bind(&result_str)
+            .bind(result_str)
             .bind(runs as i64)
             .bind(divergence_count as i64)
             .bind(&actual_stack_id)

@@ -115,7 +115,7 @@ struct CompletionView: View {
                         NextStepCard(
                             number: 4,
                             title: "Learn More",
-                            command: "See docs/architecture.md for detailed documentation"
+                            command: "See docs/ARCHITECTURE.md for detailed documentation"
                         )
                     }
                 }

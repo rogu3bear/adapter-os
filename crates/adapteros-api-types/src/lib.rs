@@ -97,7 +97,7 @@ impl ErrorResponse {
     pub fn with_code(mut self, code: impl Into<String>) -> Self {
         let code_string = code.into();
         if self.failure_code.is_none() {
-            self.failure_code = FailureCode::from_str(&code_string);
+            self.failure_code = FailureCode::parse_code(&code_string);
         }
         self.code = code_string;
         self
@@ -226,8 +226,10 @@ impl axum::response::IntoResponse for ErrorResponse {
             | "REPLAY_ERROR"
             | "VERIFICATION_ERROR"
             | "CACHE_CORRUPTION"
-            | "INVALID_SEALED_DATA"
-            | _ => StatusCode::INTERNAL_SERVER_ERROR,
+            | "INVALID_SEALED_DATA" => StatusCode::INTERNAL_SERVER_ERROR,
+
+            // Catch-all for unknown codes
+            _ => StatusCode::INTERNAL_SERVER_ERROR,
         };
 
         (status, axum::Json(self)).into_response()

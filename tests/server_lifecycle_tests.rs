@@ -26,6 +26,12 @@ use std::time::{Duration, Instant};
 use tempfile::TempDir;
 use tokio::time::{sleep, timeout};
 
+fn new_test_tempdir() -> Result<TempDir> {
+    let tmp_root = PathBuf::from("var").join("tmp");
+    fs::create_dir_all(&tmp_root)?;
+    Ok(TempDir::new_in(&tmp_root)?)
+}
+
 /// Test configuration for lifecycle tests
 struct TestServerConfig {
     temp_dir: TempDir,
@@ -38,7 +44,7 @@ struct TestServerConfig {
 impl TestServerConfig {
     /// Create a new test configuration with valid settings
     fn new() -> Result<Self> {
-        let temp_dir = tempfile::tempdir()?;
+        let temp_dir = new_test_tempdir()?;
         let config_path = temp_dir.path().join("test-cp.toml");
         let db_path = temp_dir.path().join("test-aos-cp.sqlite3");
         let pid_file_path = temp_dir.path().join("aos-cp.pid");
@@ -422,8 +428,9 @@ async fn test_server_port_conflict() -> Result<()> {
     }
 
     // Try to start second server instance (should fail due to PID lock)
+    let temp_dir2 = new_test_tempdir()?;
     let config2 = TestServerConfig {
-        temp_dir: tempfile::tempdir()?,
+        temp_dir: temp_dir2,
         config_path: config.config_path.clone(),
         db_path: config.db_path.clone(),
         pid_file_path: config.pid_file_path.clone(),

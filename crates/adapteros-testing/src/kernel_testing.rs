@@ -216,6 +216,7 @@ pub fn cpu_matmul(a: &[f32], b: &[f32], m: usize, k: usize, n: usize) -> Vec<f32
 
 /// CPU LoRA forward pass
 /// output = base_weight @ input + (B @ (A @ input)) * (alpha / rank)
+#[allow(clippy::too_many_arguments)]
 pub fn cpu_lora_forward(
     input: &[f32],
     base_weight: &[f32],
@@ -528,8 +529,8 @@ pub fn test_input_sequence(seq_len: usize, hidden_size: usize, seed: u64) -> Vec
 /// Generate attention mask (1.0 for valid, 0.0 for padding)
 pub fn test_attention_mask(seq_len: usize, valid_len: usize) -> Vec<f32> {
     let mut mask = vec![0.0f32; seq_len];
-    for i in 0..valid_len.min(seq_len) {
-        mask[i] = 1.0;
+    for item in mask.iter_mut().take(valid_len.min(seq_len)) {
+        *item = 1.0;
     }
     mask
 }

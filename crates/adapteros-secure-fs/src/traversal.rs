@@ -246,6 +246,9 @@ fn check_dangerous_absolute_paths(path_str: &str) -> Result<()> {
         "/var/log/",
         "/var/spool/",
         "/var/tmp/",
+        // System temp directories (must never be used for persisted state)
+        "/tmp/",
+        "/private/tmp/",
         // Windows system paths (normalized to forward slashes)
         "C:/Windows/System32/",
         "C:/Windows/System/",
@@ -267,13 +270,6 @@ fn check_dangerous_absolute_paths(path_str: &str) -> Result<()> {
                 path_str
             )));
         }
-    }
-
-    // INTENTIONAL: Allow system /tmp/ for OS-level temporary files (e.g., during tests).
-    // Production code should use ./var/ paths instead - see CLAUDE.md "Storage Paths".
-    // This security policy exception is for system compatibility, NOT a default path pattern.
-    if path_str.starts_with("/tmp/") && path_str.len() > 5 {
-        return Ok(());
     }
 
     Ok(())
@@ -715,6 +711,12 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
+    fn test_temp_root() -> Result<PathBuf> {
+        let root = PathBuf::from("var/tmp");
+        std::fs::create_dir_all(&root)?;
+        Ok(root)
+    }
+
     #[test]
     fn test_path_traversal_protection() -> Result<()> {
         // Test normal path
@@ -763,7 +765,8 @@ mod tests {
 
     #[test]
     fn test_path_within_base() -> Result<()> {
-        let temp_dir = TempDir::new()?;
+        let root = test_temp_root()?;
+        let temp_dir = TempDir::new_in(&root)?;
         let base = temp_dir.path();
 
         // Create a test file within the base directory
@@ -773,7 +776,8 @@ mod tests {
         assert!(is_path_within_base(&test_file, base)?);
 
         // Test file outside base
-        let outside_file = std::env::temp_dir().join("outside.txt");
+        let outside_dir = TempDir::new_in(&root)?;
+        let outside_file = outside_dir.path().join("outside.txt");
         std::fs::write(&outside_file, "test")?;
         assert!(!is_path_within_base(&outside_file, base)?);
 
@@ -800,7 +804,8 @@ mod tests {
 
     #[test]
     fn test_validate_path_within_bases() -> Result<()> {
-        let temp_dir = TempDir::new()?;
+        let root = test_temp_root()?;
+        let temp_dir = TempDir::new_in(&root)?;
         let base_dir = temp_dir.path();
         let allowed_file = base_dir.join("allowed.txt");
         std::fs::write(&allowed_file, "test")?;
@@ -809,7 +814,8 @@ mod tests {
         validate_path_within_bases(&allowed_file, &[base_dir])?;
 
         // Test file outside allowed base
-        let outside_file = std::env::temp_dir().join("outside.txt");
+        let outside_dir = TempDir::new_in(&root)?;
+        let outside_file = outside_dir.path().join("outside.txt");
         std::fs::write(&outside_file, "test")?;
         let result = validate_path_within_bases(&outside_file, &[base_dir]);
         assert!(result.is_err());
@@ -819,7 +825,8 @@ mod tests {
 
     #[test]
     fn test_safe_file_operations() -> Result<()> {
-        let temp_dir = TempDir::new()?;
+        let root = test_temp_root()?;
+        let temp_dir = TempDir::new_in(&root)?;
         let base_dir = temp_dir.path();
         let test_file = base_dir.join("test.txt");
         std::fs::write(&test_file, "test content")?;
@@ -832,7 +839,8 @@ mod tests {
         assert_eq!(metadata.len(), 12); // "test content" is 12 bytes
 
         // Test with unauthorized path
-        let outside_file = std::env::temp_dir().join("outside.txt");
+        let outside_dir = TempDir::new_in(&root)?;
+        let outside_file = outside_dir.path().join("outside.txt");
         let result = safe_file_exists(&outside_file, &[base_dir]);
         assert!(result.is_err());
 
@@ -941,6 +949,9 @@ mod tests {
             "/proc/self/environ",
             "/dev/mem",
             "/var/log/auth.log",
+            // System temp directories must be rejected
+            "/tmp/evil.txt",
+            "/private/tmp/evil.txt",
         ];
 
         for attack_vector in attack_vectors {
@@ -957,9 +968,8 @@ mod tests {
             "models/llama2/config.json",
             "adapters/my_adapter/weights.safetensors",
             "relative/path/to/file.txt",
-            "/tmp/safe_temp_file_123.txt", // /tmp/ is allowed for temp files
             "/var/folders/safe/path/config.json", // Non-sensitive /var/ paths
-            "/Users/test/models/config.json", // Non-sensitive user paths
+            "/Users/test/models/config.json",     // Non-sensitive user paths
         ];
 
         for safe_path in safe_paths {
@@ -976,7 +986,8 @@ mod tests {
 
     #[test]
     fn test_enhanced_is_path_within_base() -> Result<()> {
-        let temp_dir = TempDir::new()?;
+        let root = test_temp_root()?;
+        let temp_dir = TempDir::new_in(&root)?;
         let base_dir = temp_dir.path();
 
         // Create a subdirectory structure
@@ -989,7 +1000,8 @@ mod tests {
         assert!(is_path_within_base(&nested_file, base_dir)?);
 
         // Test that file outside base is not within
-        let outside_file = std::env::temp_dir().join("outside.txt");
+        let outside_dir = TempDir::new_in(&root)?;
+        let outside_file = outside_dir.path().join("outside.txt");
         std::fs::write(&outside_file, "test")?;
         assert!(!is_path_within_base(&outside_file, base_dir)?);
 
@@ -998,7 +1010,8 @@ mod tests {
 
     #[test]
     fn test_file_size_validation() -> Result<()> {
-        let temp_dir = TempDir::new()?;
+        let root = test_temp_root()?;
+        let temp_dir = TempDir::new_in(&root)?;
         let test_file = temp_dir.path().join("test.txt");
 
         // Test with small file
@@ -1026,7 +1039,8 @@ mod tests {
 
     #[test]
     fn test_streaming_validation() -> Result<()> {
-        let temp_dir = TempDir::new()?;
+        let root = test_temp_root()?;
+        let temp_dir = TempDir::new_in(&root)?;
         let test_file = temp_dir.path().join("test.bin");
 
         // Create a file with reasonable header
@@ -1057,7 +1071,8 @@ mod tests {
 
     #[test]
     fn test_per_tenant_limits() -> Result<()> {
-        let temp_dir = TempDir::new()?;
+        let root = test_temp_root()?;
+        let temp_dir = TempDir::new_in(&root)?;
         let test_file = temp_dir.path().join("test.txt");
         std::fs::write(&test_file, "x".repeat(200))?; // 200 bytes
 

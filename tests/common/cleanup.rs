@@ -186,14 +186,18 @@ pub fn restore_env_vars(
 pub fn create_test_db_path(prefix: &str) -> PathBuf {
     use uuid::Uuid;
     let uuid = Uuid::new_v4().simple();
-    PathBuf::from(format!("/tmp/{}_{}.db", prefix, uuid))
+    let base_dir = PathBuf::from("var").join("tmp");
+    let _ = fs::create_dir_all(&base_dir);
+    base_dir.join(format!("{}_{}.db", prefix, uuid))
 }
 
 /// Create a test temporary directory with unique identifier
 pub fn create_test_temp_dir(prefix: &str) -> Result<PathBuf, Box<dyn std::error::Error>> {
     use uuid::Uuid;
     let uuid = Uuid::new_v4().simple();
-    let path = PathBuf::from(format!("/tmp/{}_{}", prefix, uuid));
+    let path = PathBuf::from("var")
+        .join("tmp")
+        .join(format!("{}_{}", prefix, uuid));
     fs::create_dir_all(&path)?;
     Ok(path)
 }

@@ -3,14 +3,14 @@
 //! This test is skipped unless the following environment variables are set:
 //! - `AOS_E2E_MODEL_PATH`: path to a tiny model directory containing `model.safetensors`
 //!   (or shard) and `config.json`.
-//! - `AOS_E2E_UDS`: UDS socket path to bind (e.g., `/tmp/aos-e2e.sock`).
+//! - `AOS_E2E_UDS`: UDS socket path to bind (e.g., `var/run/aos-e2e.sock`).
 //! Optional:
 //! - `AOS_E2E_BACKEND`: backend choice (`auto`, `coreml`, `metal`, `mlx`). Defaults to `auto`.
 //!
 //! Usage:
 //! ```bash
 //! AOS_E2E_MODEL_PATH=/path/to/model \
-//! AOS_E2E_UDS=/tmp/aos-e2e.sock \
+//! AOS_E2E_UDS=var/run/aos-e2e.sock \
 //! cargo test -p adapteros-lora-worker --test startup_lifecycle -- --nocapture
 //! ```
 
@@ -32,12 +32,17 @@ fn startup_and_shutdown_with_model() -> anyhow::Result<()> {
             return Ok(());
         }
     };
-    let uds_path = std::env::var("AOS_E2E_UDS").unwrap_or_else(|_| "/tmp/aos-e2e.sock".to_string());
+    let uds_path =
+        std::env::var("AOS_E2E_UDS").unwrap_or_else(|_| "var/run/aos-e2e.sock".to_string());
     // Prefer explicit e2e backend, fall back to model backend env, otherwise auto
     let backend = std::env::var("AOS_E2E_BACKEND")
         .ok()
         .or_else(|| std::env::var("AOS_MODEL_BACKEND").ok())
         .unwrap_or_else(|| "auto".to_string());
+
+    if let Some(parent) = Path::new(&uds_path).parent() {
+        fs::create_dir_all(parent)?;
+    }
 
     // Pre-clean socket if present
     let _ = fs::remove_file(&uds_path);

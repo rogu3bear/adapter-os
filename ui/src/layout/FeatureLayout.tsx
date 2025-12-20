@@ -2,7 +2,7 @@ import React from 'react';
 import { useLocation } from 'react-router-dom';
 
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
-import { cn } from '@/components/ui/utils';
+import { cn } from '@/lib/utils';
 import { useResize } from '@/providers/CoreProviders';
 import { PageHeader, PageHeaderAction, PageHeaderBadge } from '@/components/ui/page-header';
 import { logger } from '@/utils/logger';
@@ -119,6 +119,7 @@ export default function FeatureLayout({
   // The breadcrumbs prop is kept for backward compatibility but no longer rendered here
 
   const hasSplitPanels = Boolean(left) || Boolean(right);
+  const isFullHeight = contentPadding === 'none' || hasSplitPanels;
   const panelDefinitions = React.useMemo(() => {
     const panels: Array<{ id: string; node: React.ReactNode }> = [];
     if (left) panels.push({ id: 'left', node: left });
@@ -205,7 +206,10 @@ export default function FeatureLayout({
     return (
       <ResizablePanelGroup
         direction="horizontal"
-        className="rounded-lg border border-border bg-card shadow-sm"
+        className={cn(
+          'rounded-lg border border-border bg-card shadow-sm',
+          isFullHeight && 'flex min-h-0 flex-1 overflow-hidden',
+        )}
         onLayout={resizable ? handleLayoutChange : undefined}
       >
         {panels.map((panel, index) => (
@@ -223,9 +227,21 @@ export default function FeatureLayout({
   return (
     <>
       {/* Scroll strategy: outer layout stays non-scrolling; panel bodies manage their own overflow when needed. */}
-      <div className={cn('min-h-0 min-w-0', paddingClassMap[contentPadding])}>
-        <div className={cn('mx-auto', maxWidthClassMap[maxWidth])}>
-          <header className="mb-[var(--section-gap)]">
+      <div
+        className={cn(
+          'min-h-0 min-w-0',
+          isFullHeight && 'flex h-full flex-col',
+          paddingClassMap[contentPadding],
+        )}
+      >
+        <div
+          className={cn(
+            'mx-auto',
+            isFullHeight && 'flex min-h-0 flex-1 flex-col',
+            maxWidthClassMap[maxWidth],
+          )}
+        >
+          <header className={cn('mb-[var(--section-gap)]', isFullHeight && 'flex-none')}>
             {customHeader ?? (
               <PageHeader
                 title={prefixedTitle}
@@ -243,8 +259,8 @@ export default function FeatureLayout({
 
           <main
             className={cn(
-              'grid gap-[var(--space-4)] border-t border-[var(--gray-300)] pt-[var(--space-6)]',
-              hasSplitPanels ? 'min-h-[calc(var(--base-unit)*120)]' : undefined,
+              'gap-[var(--space-4)] border-t border-[var(--gray-300)] pt-[var(--space-6)]',
+              isFullHeight ? 'flex min-h-0 flex-1 flex-col' : 'grid',
             )}
           >
             {renderPanels()}

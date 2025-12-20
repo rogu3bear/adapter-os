@@ -1,6 +1,6 @@
 # AdapterOS Documentation
 
-> **LORAX (Low Rank Adapter Exchange)** — Offline-capable, UMA-optimized multi-LoRA orchestration on Apple Silicon
+> **AdapterOS** — Offline-capable, UMA-optimized multi-LoRA orchestration on Apple Silicon
 
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen)](https://github.com/mlnavigator/adapter-os)
 [![License](https://img.shields.io/badge/license-Apache%202.0%20%7C%20MIT-blue)](../LICENSE-APACHE)
@@ -24,6 +24,11 @@
 ## Overview
 
 AdapterOS is a **single-node, multi-tenant ML inference platform** optimized for Apple Silicon. It enables hot-swappable LoRA adapters with deterministic execution, zero network egress during serving, and enterprise-grade security.
+
+### Core Technologies
+
+- **DIR (Deterministic Inference Runtime)**: The core execution engine ensuring reproducible, auditable inference with token-level determinism
+- **TAS (Token Artifact System)**: Transforms inference outputs into persistent, reusable artifacts for composition and audit trails
 
 ### Architecture Diagram
 
@@ -95,7 +100,7 @@ graph TB
 - **Deterministic Replay**: HKDF-SHA256 seed derivation, reproducible outputs
 - **Zero Network Egress**: All serving happens locally via Unix Domain Sockets
 - **Hot-Swap Adapters**: Load/unload adapters without restarting workers
-- **Policy Enforcement**: 24 policy packs with audit trails and Merkle chains
+- **Policy Enforcement**: 25 policy packs with audit trails and Merkle chains
 - **Multi-Tenant**: Full tenant isolation with JWT authentication
 
 ---
@@ -147,7 +152,7 @@ open http://localhost:3200
 | [**CONCEPTS.md**](CONCEPTS.md) | Core concepts: Adapters, Router, Plans, Control Points |
 | [**INFERENCE_FLOW.md**](INFERENCE_FLOW.md) | End-to-end inference pipeline walkthrough |
 | [**LIFECYCLE.md**](LIFECYCLE.md) | Adapter lifecycle management and hot-swap |
-| [**control-plane.md**](control-plane.md) | Control plane architecture and APIs |
+| [**Control Plane**](ARCHITECTURE.md#architecture-components) | Control plane architecture and APIs |
 
 ### API & CLI
 
@@ -274,7 +279,7 @@ open http://localhost:3200
 
 | Document | Description |
 |----------|-------------|
-| [**POLICIES.md**](POLICIES.md) | Policy system overview (24 policy packs) |
+| [**POLICIES.md**](POLICIES.md) | Policy system overview (25 policy packs) |
 | [**POLICY_ENFORCEMENT.md**](POLICY_ENFORCEMENT.md) | Policy enforcement architecture |
 | [**POLICY_ENFORCEMENT_MIDDLEWARE.md**](POLICY_ENFORCEMENT_MIDDLEWARE.md) | Policy middleware implementation |
 | [**POLICY_ENFORCEMENT_MIDDLEWARE_IMPLEMENTATION_GUIDE.md**](POLICY_ENFORCEMENT_MIDDLEWARE_IMPLEMENTATION_GUIDE.md) | Middleware implementation guide |
@@ -319,6 +324,8 @@ open http://localhost:3200
 | Document | Description |
 |----------|-------------|
 | [**DETERMINISM.md**](DETERMINISM.md) | Comprehensive determinism and replay guide |
+| [**replay_spec.md**](replay_spec.md) | Replay harness and verification |
+| [**VISUAL_GUIDES.md**](VISUAL_GUIDES.md) | Visual guides: system comparisons, token flows, KV cache diagrams |
 
 ### Configuration
 
@@ -468,6 +475,6 @@ AdapterOS is dual-licensed under Apache 2.0 or MIT at your option.
 ---
 
 **Last Updated**: December 11, 2025
-**AdapterOS Version**: alpha-v0.04-unstable
+**AdapterOS Version**: alpha-v0.11-unstable-pre-release
 **Maintained by**: [@rogu3bear](https://github.com/rogu3bear)
 **MLNavigator Inc**

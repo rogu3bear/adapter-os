@@ -69,8 +69,8 @@ pub async fn index_document_with_provenance(
         let chunk_id = format!("{}__chunk_{}", document_id, chunk.chunk_index);
 
         // Store embedding as JSON
-        let embedding_json = serde_json::to_string(&embedding)
-            .map_err(|e| adapteros_core::AosError::Serialization(e))?;
+        let embedding_json =
+            serde_json::to_string(&embedding).map_err(adapteros_core::AosError::Serialization)?;
 
         // Insert into document_chunks table
         sqlx::query(
@@ -90,7 +90,7 @@ pub async fn index_document_with_provenance(
         .bind(&chunk_hash_str)
         .bind(&text_preview)
         .bind(&embedding_json)
-        .execute(&*db.pool())
+        .execute(db.pool())
         .await
         .map_err(|e| {
             adapteros_core::AosError::Database(format!("Failed to insert document chunk: {}", e))
@@ -256,7 +256,7 @@ mod tests {
         let document = IngestedDocument {
             source: DocumentSource::Pdf,
             source_name: "test-document.pdf".to_string(),
-            source_path: Some(PathBuf::from("/tmp/test.pdf")),
+            source_path: Some(PathBuf::from("var/test.pdf")),
             doc_hash: B3Hash::hash(b"test"),
             byte_len: 1000,
             page_count: Some(1),

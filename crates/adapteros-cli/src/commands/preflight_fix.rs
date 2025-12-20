@@ -5,7 +5,6 @@
 //!
 //! Copyright: © 2025 JKCA / James KC Auchterlonie. All rights reserved.
 
-use super::preflight::{CheckResult, CheckStatus};
 use crate::output::OutputWriter;
 use adapteros_core::{AosError, Result};
 use std::path::{Path, PathBuf};
@@ -79,29 +78,28 @@ impl AutoFixer {
         match (self.mode, issue.safety) {
             // Always skip unsafe operations
             (_, FixSafety::Unsafe) => {
-                self.output.warning(&format!(
+                self.output.warning(format!(
                     "⚠️  {} requires manual intervention",
                     issue.check_name
                 ));
-                self.output.info(&format!("   {}", issue.fix_description));
+                self.output.info(format!("   {}", issue.fix_description));
                 Ok(false)
             }
 
             // Safe operations: execute in all modes
             (_, FixSafety::Safe) => {
-                self.output
-                    .info(&format!("🔧 Fixing: {}", issue.check_name));
-                self.output.info(&format!("   {}", issue.fix_description));
+                self.output.info(format!("🔧 Fixing: {}", issue.check_name));
+                self.output.info(format!("   {}", issue.fix_description));
 
                 match (issue.fix_fn)(&self.output) {
                     Ok(()) => {
                         self.output
-                            .success(&format!("✅ Fixed: {}", issue.check_name));
+                            .success(format!("✅ Fixed: {}", issue.check_name));
                         Ok(true)
                     }
                     Err(e) => {
                         self.output
-                            .error(&format!("❌ Failed to fix {}: {}", issue.check_name, e));
+                            .error(format!("❌ Failed to fix {}: {}", issue.check_name, e));
                         Ok(false)
                     }
                 }
@@ -109,21 +107,21 @@ impl AutoFixer {
 
             // Confirmation required: depends on mode
             (FixMode::Force, FixSafety::RequiresConfirm) => {
-                self.output.warning(&format!(
+                self.output.warning(format!(
                     "🔧 Force-fixing: {} (no confirmation)",
                     issue.check_name
                 ));
-                self.output.info(&format!("   {}", issue.fix_description));
+                self.output.info(format!("   {}", issue.fix_description));
 
                 match (issue.fix_fn)(&self.output) {
                     Ok(()) => {
                         self.output
-                            .success(&format!("✅ Fixed: {}", issue.check_name));
+                            .success(format!("✅ Fixed: {}", issue.check_name));
                         Ok(true)
                     }
                     Err(e) => {
                         self.output
-                            .error(&format!("❌ Failed to fix {}: {}", issue.check_name, e));
+                            .error(format!("❌ Failed to fix {}: {}", issue.check_name, e));
                         Ok(false)
                     }
                 }
@@ -131,8 +129,8 @@ impl AutoFixer {
 
             (FixMode::Interactive, FixSafety::RequiresConfirm) => {
                 self.output
-                    .warning(&format!("⚠️  {} requires confirmation", issue.check_name));
-                self.output.info(&format!("   {}", issue.fix_description));
+                    .warning(format!("⚠️  {} requires confirmation", issue.check_name));
+                self.output.info(format!("   {}", issue.fix_description));
 
                 // Ask for confirmation
                 use dialoguer::Confirm;
@@ -150,23 +148,23 @@ impl AutoFixer {
                 match (issue.fix_fn)(&self.output) {
                     Ok(()) => {
                         self.output
-                            .success(&format!("✅ Fixed: {}", issue.check_name));
+                            .success(format!("✅ Fixed: {}", issue.check_name));
                         Ok(true)
                     }
                     Err(e) => {
                         self.output
-                            .error(&format!("❌ Failed to fix {}: {}", issue.check_name, e));
+                            .error(format!("❌ Failed to fix {}: {}", issue.check_name, e));
                         Ok(false)
                     }
                 }
             }
 
             (FixMode::SafeOnly, FixSafety::RequiresConfirm) => {
-                self.output.warning(&format!(
+                self.output.warning(format!(
                     "⚠️  {} requires confirmation (use --fix without --safe-only)",
                     issue.check_name
                 ));
-                self.output.info(&format!("   {}", issue.fix_description));
+                self.output.info(format!("   {}", issue.fix_description));
                 Ok(false)
             }
         }
@@ -192,7 +190,7 @@ pub fn create_directories(dirs: &[&str]) -> FixableIssue {
                 if !path.exists() {
                     std::fs::create_dir_all(path)
                         .map_err(|e| AosError::Io(format!("Failed to create {}: {}", dir, e)))?;
-                    output.info(&format!("   Created: {}", dir));
+                    output.info(format!("   Created: {}", dir));
                 }
             }
             Ok(())
@@ -248,7 +246,7 @@ pub fn run_database_migrations(db_path: String) -> FixableIssue {
 
             // Run migrations using the CLI command
             let status = Command::new("cargo")
-                .args(&["run", "-p", "adapteros-cli", "--", "db", "migrate"])
+                .args(["run", "-p", "adapteros-cli", "--", "db", "migrate"])
                 .status()
                 .map_err(|e| AosError::Other(format!("Failed to run migrations: {}", e)))?;
 
@@ -305,7 +303,7 @@ pub fn create_default_tenant() -> FixableIssue {
             output.info("   Creating default tenant...");
 
             let status = Command::new("cargo")
-                .args(&[
+                .args([
                     "run",
                     "-p",
                     "adapteros-cli",

@@ -84,7 +84,7 @@ pub async fn diff_bundles(bundle_a: &Path, bundle_b: &Path) -> Result<()> {
     }
 
     let exact_matches = sampled_a.len().min(sampled_b.len()) - divergences.len();
-    let match_pct = if sampled_a.len() > 0 {
+    let match_pct = if !sampled_a.is_empty() {
         (exact_matches as f64 / sampled_a.len() as f64) * 100.0
     } else {
         0.0
@@ -93,7 +93,7 @@ pub async fn diff_bundles(bundle_a: &Path, bundle_b: &Path) -> Result<()> {
     println!("Exact matches: {} ({:.1}%)", exact_matches, match_pct);
     println!("Bit differences: {} bits total", total_bits);
 
-    if sampled_a.len() > 0 {
+    if !sampled_a.is_empty() {
         let avg_hamming = total_bits as f64 / sampled_a.len() as f64;
         println!("Hamming distance (avg): {:.2} bits/token", avg_hamming);
     }

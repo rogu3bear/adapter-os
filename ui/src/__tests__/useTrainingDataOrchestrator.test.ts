@@ -1,15 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { act, renderHook } from '@testing-library/react';
 import { useTrainingDataOrchestrator } from '@/hooks/training';
-import apiClient from '@/api/client';
+import { apiClient } from '@/api/services';
 
-vi.mock('@/api/client', () => ({
+const mockMethods = vi.hoisted(() => ({
+  uploadDocument: vi.fn(),
+  processDocument: vi.fn(),
+  createDatasetFromDocuments: vi.fn(),
+}));
+
+vi.mock('@/api/services', () => ({
   __esModule: true,
-  default: {
-    uploadDocument: vi.fn(),
-    processDocument: vi.fn(),
-    createDatasetFromDocuments: vi.fn(),
-  },
+  default: mockMethods,
+  apiClient: mockMethods,
 }));
 
 const mockedApi = apiClient as unknown as {

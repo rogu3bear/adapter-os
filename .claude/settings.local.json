@@ -1,32 +1,14 @@
 {
   "permissions": {
     "allow": [
-      "Bash",
+      "Bash(pnpm exec tsc:*)",
+      "Bash(find:*)",
+      "Bash(ls:*)",
+      "Bash(cargo build:*)",
+      "Bash(grep:*)",
       "WebSearch",
-      "WebFetch(domain:github.com)",
-      "Bash(./test_cli_integration.sh:*)",
-      "Bash(/Users/star/Dev/:*)",
-      "mcp__ide__getDiagnostics",
-      "WebFetch(domain:tanstack.com)",
-      "mcp__adapteros-ui__ui_screenshot",
-      "mcp__adapteros-ui__ui_navigate",
-      "mcp__adapteros-ui__ui_list_elements",
-      "mcp__adapteros-ui__ui_close",
-      "mcp__adapteros-ui__ui_launch",
-      "mcp__adapteros-ui__ui_click",
-      "mcp__adapteros-ui__ui_wait",
-      "mcp__adapteros-ui__ui_login",
-      "mcp__adapteros-ui__ui_get_page_content",
-      "mcp__adapteros-ui__ui_eval",
-      "mcp__adapteros-ui__ui_fill",
-      "mcp__adapteros-ui__ui_get_text",
-      "WebFetch(domain:www.npmjs.com)"
-    ],
-    "deny": [],
-    "ask": []
+      "WebFetch(domain:docs.rs)"
+    ]
   },
-  "enableAllProjectMcpServers": true,
-  "enabledMcpjsonServers": [
-    "adapteros-ui"
-  ]
+  "outputStyle": "default"
 }

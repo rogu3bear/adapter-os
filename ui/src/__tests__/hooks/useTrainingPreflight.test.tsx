@@ -8,7 +8,7 @@ import type { Dataset } from '@/api/training-types';
 // Mock API client
 const mockGetDataset = vi.fn();
 
-vi.mock('@/api/client', () => ({
+vi.mock('@/api/services', () => ({
   default: {
     getDataset: (...args: unknown[]) => mockGetDataset(...args),
   },

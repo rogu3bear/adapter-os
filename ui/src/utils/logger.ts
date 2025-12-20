@@ -3,6 +3,16 @@
 
 import { toast } from 'sonner';
 
+// Lazy import to avoid circular dependency
+let getAuthToken: (() => string | undefined) | null = null;
+async function ensureAuthTokenGetter(): Promise<() => string | undefined> {
+  if (!getAuthToken) {
+    const { apiClient } = await import('@/api/services');
+    getAuthToken = () => apiClient.getToken();
+  }
+  return getAuthToken;
+}
+
 export enum LogLevel {
   DEBUG = 'debug',
   INFO = 'info',
@@ -294,11 +304,16 @@ class Logger {
         metadata: logEntry.context,
       };
 
+      const tokenGetter = await ensureAuthTokenGetter();
+      const token = tokenGetter();
       await fetch('/api/v1/telemetry/logs', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify([telemetryEvent]), // Backend expects array
-        credentials: 'include', // Include cookies for authentication
+        credentials: 'omit', // Bearer-only auth
       });
     } catch (err) {
       // Fallback to console in case of telemetry failure

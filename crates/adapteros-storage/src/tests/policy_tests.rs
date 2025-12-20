@@ -2,6 +2,7 @@
 //!
 //! Tests for policy enforcement, constraints validation, and rule evaluation.
 
+use super::new_test_tempdir;
 use crate::policy::{
     FileOperation, StorageAction, StorageActionType, StorageCondition, StorageConditionType,
     StorageConstraints, StorageOperator, StoragePolicy, StoragePolicyEngine, StorageRule,
@@ -12,7 +13,6 @@ use adapteros_core::Result;
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
-use tempfile::TempDir;
 
 fn create_default_policy() -> StoragePolicy {
     StoragePolicy {
@@ -29,7 +29,7 @@ fn test_policy_engine_creation() -> Result<()> {
     let policy = create_default_policy();
     let engine = StoragePolicyEngine::new(policy);
 
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
     let test_file = temp_dir.path().join("test.txt");
     fs::write(&test_file, "hello")?;
 
@@ -40,7 +40,7 @@ fn test_policy_engine_creation() -> Result<()> {
 
 #[test]
 fn test_allowed_file_extensions() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
     let policy = create_default_policy();
     let engine = StoragePolicyEngine::new(policy);
 
@@ -62,7 +62,7 @@ fn test_allowed_file_extensions() -> Result<()> {
 
 #[test]
 fn test_blocked_file_extensions() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
     let policy = create_default_policy();
     let engine = StoragePolicyEngine::new(policy);
 
@@ -80,7 +80,7 @@ fn test_blocked_file_extensions() -> Result<()> {
 
 #[test]
 fn test_file_size_constraint() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
     let mut constraints = StorageConstraints::default();
     constraints.max_file_size_bytes = 100;
 
@@ -106,7 +106,7 @@ fn test_file_size_constraint() -> Result<()> {
 
 #[test]
 fn test_directory_depth_constraint() -> Result<()> {
-    let _temp_dir = TempDir::new()?;
+    let _temp_dir = new_test_tempdir()?;
     let mut constraints = StorageConstraints::default();
     constraints.max_directory_depth = 3;
 
@@ -130,7 +130,7 @@ fn test_directory_depth_constraint() -> Result<()> {
 
 #[test]
 fn test_blocked_patterns() -> Result<()> {
-    let _temp_dir = TempDir::new()?;
+    let _temp_dir = new_test_tempdir()?;
     let mut constraints = StorageConstraints::default();
     constraints.blocked_patterns = vec!["*/secret/*".to_string()];
 
@@ -156,7 +156,7 @@ fn test_blocked_patterns() -> Result<()> {
 
 #[test]
 fn test_allowed_patterns() -> Result<()> {
-    let _temp_dir = TempDir::new()?;
+    let _temp_dir = new_test_tempdir()?;
     let mut constraints = StorageConstraints::default();
     constraints.allowed_patterns = vec!["*/public/*".to_string()];
     constraints.allowed_extensions = vec![]; // Clear default allowed extensions
@@ -190,7 +190,7 @@ fn test_allowed_patterns() -> Result<()> {
 
 #[test]
 fn test_rule_with_deny_action() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
     let deny_action = StorageAction {
         action_type: StorageActionType::Deny,
         parameters: HashMap::new(),
@@ -223,7 +223,7 @@ fn test_rule_with_deny_action() -> Result<()> {
 
 #[test]
 fn test_rule_with_file_size_condition() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
 
     let condition = StorageCondition {
         condition_type: StorageConditionType::FileSize,
@@ -269,7 +269,7 @@ fn test_rule_with_file_size_condition() -> Result<()> {
 
 #[test]
 fn test_rule_with_extension_condition() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
 
     let condition = StorageCondition {
         condition_type: StorageConditionType::FileExtension,
@@ -335,7 +335,7 @@ fn test_file_operation_types() {
 
 #[test]
 fn test_multiple_conditions_all_must_match() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
 
     let condition1 = StorageCondition {
         condition_type: StorageConditionType::FileExtension,
@@ -385,7 +385,7 @@ fn test_multiple_conditions_all_must_match() -> Result<()> {
 
 #[test]
 fn test_alert_action() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
 
     let mut alert_params = HashMap::new();
     alert_params.insert("message".to_string(), "Test alert".to_string());
@@ -420,7 +420,7 @@ fn test_alert_action() -> Result<()> {
 
 #[test]
 fn test_log_action() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
 
     let mut log_params = HashMap::new();
     log_params.insert("message".to_string(), "Test log".to_string());
@@ -455,7 +455,7 @@ fn test_log_action() -> Result<()> {
 
 #[test]
 fn test_pattern_matching_wildcard() -> Result<()> {
-    let _temp_dir = TempDir::new()?;
+    let _temp_dir = new_test_tempdir()?;
     let mut constraints = StorageConstraints::default();
     constraints.blocked_patterns = vec!["*.tmp".to_string()];
 
@@ -507,7 +507,7 @@ fn test_condition_operators() {
 
 #[test]
 fn test_directory_depth_condition() -> Result<()> {
-    let _temp_dir = TempDir::new()?;
+    let _temp_dir = new_test_tempdir()?;
 
     let condition = StorageCondition {
         condition_type: StorageConditionType::DirectoryDepth,
@@ -549,7 +549,7 @@ fn test_directory_depth_condition() -> Result<()> {
 
 #[test]
 fn test_file_without_extension() -> Result<()> {
-    let _temp_dir = TempDir::new()?;
+    let _temp_dir = new_test_tempdir()?;
     let mut constraints = StorageConstraints::default();
     constraints.allowed_extensions = vec!["txt".to_string()];
 
@@ -575,7 +575,7 @@ fn test_file_without_extension() -> Result<()> {
 
 #[test]
 fn test_empty_allowed_extensions() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
     let mut constraints = StorageConstraints::default();
     constraints.allowed_extensions = vec![]; // Empty means all allowed
     constraints.blocked_extensions = vec![];
@@ -612,7 +612,7 @@ fn test_action_types() {
 
 #[test]
 fn test_nonexistent_file_validation() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
     let policy = create_default_policy();
     let engine = StoragePolicyEngine::new(policy);
 

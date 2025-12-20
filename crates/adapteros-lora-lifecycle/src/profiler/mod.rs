@@ -1,4 +1,4 @@
-//! Adapter profiler for MPLoRA lifecycle management
+//! Adapter profiler for DIR lifecycle management
 //!
 //! This module was merged from adapteros-profiler crate.
 //!

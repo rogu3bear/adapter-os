@@ -102,6 +102,19 @@ pub struct CriticalComponentMetrics {
     pub singleflight_leader_count: CounterVec,
     pub singleflight_waiter_count: GaugeVec,
     pub singleflight_error_count: CounterVec,
+    // Tenant isolation metrics
+    pub tenant_isolation_violation_total: CounterVec,
+    pub tenant_isolation_access_attempts_total: CounterVec,
+    // Database performance metrics
+    pub db_query_duration_seconds: HistogramVec,
+    pub db_index_scan_total: CounterVec,
+    pub db_composite_index_hit_ratio: GaugeVec,
+    // Tenant performance metrics
+    pub db_tenant_query_duration_seconds: HistogramVec,
+    pub db_tenant_query_errors_total: CounterVec,
+    // Evidence validation metrics
+    pub evidence_validation_success_total: CounterVec,
+    pub evidence_validation_failure_total: CounterVec,
 }
 
 impl CriticalComponentMetrics {
@@ -297,6 +310,120 @@ impl CriticalComponentMetrics {
                 "Total cross-layer hash verification failures",
             ),
             &["adapter_ids"],
+        )
+        .map_err(|e| {
+            adapteros_core::AosError::Telemetry(format!("Counter creation failed: {}", e))
+        })?;
+
+        // Tenant isolation violation counter
+        let tenant_isolation_violation_total = CounterVec::new(
+            Opts::new(
+                "tenant_isolation_violation_total",
+                "Total tenant isolation violations detected",
+            ),
+            &["violation_type", "resource_type"],
+        )
+        .map_err(|e| {
+            adapteros_core::AosError::Telemetry(format!("Counter creation failed: {}", e))
+        })?;
+
+        // Tenant isolation access attempts counter
+        let tenant_isolation_access_attempts_total = CounterVec::new(
+            Opts::new(
+                "tenant_isolation_access_attempts_total",
+                "Total tenant isolation access attempts",
+            ),
+            &["access_type", "granted"],
+        )
+        .map_err(|e| {
+            adapteros_core::AosError::Telemetry(format!("Counter creation failed: {}", e))
+        })?;
+
+        // Database query duration histogram
+        let db_query_duration_seconds = HistogramVec::new(
+            HistogramOpts::new(
+                "db_query_duration_seconds",
+                "Database query execution time in seconds",
+            )
+            .buckets(vec![
+                0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0,
+            ]),
+            &["tenant_id", "query_type", "table_name"],
+        )
+        .map_err(|e| {
+            adapteros_core::AosError::Telemetry(format!("Histogram creation failed: {}", e))
+        })?;
+
+        // Database index scan counter
+        let db_index_scan_total = CounterVec::new(
+            Opts::new(
+                "db_index_scan_total",
+                "Total database index scans performed",
+            ),
+            &["tenant_id", "table_name", "index_name", "scan_type"],
+        )
+        .map_err(|e| {
+            adapteros_core::AosError::Telemetry(format!("Counter creation failed: {}", e))
+        })?;
+
+        // Database composite index hit ratio gauge
+        let db_composite_index_hit_ratio = GaugeVec::new(
+            Opts::new(
+                "db_composite_index_hit_ratio",
+                "Database composite index hit ratio (0.0 to 1.0)",
+            ),
+            &["tenant_id", "table_name", "index_name"],
+        )
+        .map_err(|e| {
+            adapteros_core::AosError::Telemetry(format!("Gauge creation failed: {}", e))
+        })?;
+
+        // Tenant-specific database query duration histogram
+        let db_tenant_query_duration_seconds = HistogramVec::new(
+            HistogramOpts::new(
+                "db_tenant_query_duration_seconds",
+                "Tenant-specific database query execution time in seconds",
+            )
+            .buckets(vec![
+                0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0,
+            ]),
+            &["tenant_id", "query_type"],
+        )
+        .map_err(|e| {
+            adapteros_core::AosError::Telemetry(format!("Histogram creation failed: {}", e))
+        })?;
+
+        // Tenant-specific database query errors counter
+        let db_tenant_query_errors_total = CounterVec::new(
+            Opts::new(
+                "db_tenant_query_errors_total",
+                "Total tenant-specific database query errors",
+            ),
+            &["tenant_id", "query_type", "error_type"],
+        )
+        .map_err(|e| {
+            adapteros_core::AosError::Telemetry(format!("Counter creation failed: {}", e))
+        })?;
+
+        // Evidence validation success counter
+        let evidence_validation_success_total = CounterVec::new(
+            Opts::new(
+                "evidence_validation_success_total",
+                "Total successful evidence validations",
+            ),
+            &["evidence_type", "validation_type"],
+        )
+        .map_err(|e| {
+            adapteros_core::AosError::Telemetry(format!("Counter creation failed: {}", e))
+        })?;
+
+        // Evidence validation failure counter
+        let evidence_validation_failure_total = CounterVec::new(
+            Opts::new(
+                "evidence_validation_failure_total",
+                "Total failed evidence validations",
+            ),
+            &["evidence_type", "failure_reason"],
         )
         .map_err(|e| {
             adapteros_core::AosError::Telemetry(format!("Counter creation failed: {}", e))
@@ -920,6 +1047,63 @@ impl CriticalComponentMetrics {
                 adapteros_core::AosError::Telemetry(format!("Registration failed: {}", e))
             })?;
 
+        // Register tenant isolation metrics
+        registry_arc
+            .register(Box::new(tenant_isolation_violation_total.clone()))
+            .map_err(|e| {
+                adapteros_core::AosError::Telemetry(format!("Registration failed: {}", e))
+            })?;
+
+        registry_arc
+            .register(Box::new(tenant_isolation_access_attempts_total.clone()))
+            .map_err(|e| {
+                adapteros_core::AosError::Telemetry(format!("Registration failed: {}", e))
+            })?;
+
+        // Register database performance metrics
+        registry_arc
+            .register(Box::new(db_query_duration_seconds.clone()))
+            .map_err(|e| {
+                adapteros_core::AosError::Telemetry(format!("Registration failed: {}", e))
+            })?;
+
+        registry_arc
+            .register(Box::new(db_index_scan_total.clone()))
+            .map_err(|e| {
+                adapteros_core::AosError::Telemetry(format!("Registration failed: {}", e))
+            })?;
+
+        registry_arc
+            .register(Box::new(db_composite_index_hit_ratio.clone()))
+            .map_err(|e| {
+                adapteros_core::AosError::Telemetry(format!("Registration failed: {}", e))
+            })?;
+
+        registry_arc
+            .register(Box::new(db_tenant_query_duration_seconds.clone()))
+            .map_err(|e| {
+                adapteros_core::AosError::Telemetry(format!("Registration failed: {}", e))
+            })?;
+
+        registry_arc
+            .register(Box::new(db_tenant_query_errors_total.clone()))
+            .map_err(|e| {
+                adapteros_core::AosError::Telemetry(format!("Registration failed: {}", e))
+            })?;
+
+        // Register evidence validation metrics
+        registry_arc
+            .register(Box::new(evidence_validation_success_total.clone()))
+            .map_err(|e| {
+                adapteros_core::AosError::Telemetry(format!("Registration failed: {}", e))
+            })?;
+
+        registry_arc
+            .register(Box::new(evidence_validation_failure_total.clone()))
+            .map_err(|e| {
+                adapteros_core::AosError::Telemetry(format!("Registration failed: {}", e))
+            })?;
+
         info!("Critical component metrics initialized");
 
         Ok(Self {
@@ -987,6 +1171,19 @@ impl CriticalComponentMetrics {
             singleflight_leader_count,
             singleflight_waiter_count,
             singleflight_error_count,
+            // Tenant isolation metrics
+            tenant_isolation_violation_total,
+            tenant_isolation_access_attempts_total,
+            // Database performance metrics
+            db_query_duration_seconds,
+            db_index_scan_total,
+            db_composite_index_hit_ratio,
+            // Tenant performance metrics
+            db_tenant_query_duration_seconds,
+            db_tenant_query_errors_total,
+            // Evidence validation metrics
+            evidence_validation_success_total,
+            evidence_validation_failure_total,
         })
     }
 
@@ -1517,6 +1714,11 @@ impl CriticalComponentMetrics {
         self.kv_purgeable_failures_total.get() as u64
     }
 
+    /// Tenant label used for non-tenant or system-wide database operations.
+    pub fn tenant_label_system() -> &'static str {
+        "system"
+    }
+
     /// Residency type label for HOT KV cache entries
     pub fn kv_residency_hot() -> &'static str {
         "hot"
@@ -1572,6 +1774,68 @@ impl CriticalComponentMetrics {
     /// Operation label for prefix KV build deduplication
     pub fn singleflight_op_prefix_kv() -> &'static str {
         "prefix_kv_build"
+    }
+
+    // ========================================
+    // Tenant performance metrics helper functions
+    // ========================================
+
+    /// Record database query duration, keeping the tenant label first to support high-cardinality slicing.
+    pub fn record_db_query_duration(
+        &self,
+        query_type: &str,
+        table_name: &str,
+        tenant_id: &str,
+        duration_seconds: f64,
+    ) {
+        self.db_query_duration_seconds
+            .with_label_values(&[tenant_id, query_type, table_name])
+            .observe(duration_seconds);
+    }
+
+    /// Record database index scan
+    pub fn record_db_index_scan(
+        &self,
+        table_name: &str,
+        index_name: &str,
+        scan_type: &str,
+        tenant_id: &str,
+    ) {
+        self.db_index_scan_total
+            .with_label_values(&[tenant_id, table_name, index_name, scan_type])
+            .inc();
+    }
+
+    /// Set database composite index hit ratio
+    pub fn set_db_composite_index_hit_ratio(
+        &self,
+        table_name: &str,
+        index_name: &str,
+        tenant_id: &str,
+        ratio: f64,
+    ) {
+        self.db_composite_index_hit_ratio
+            .with_label_values(&[tenant_id, table_name, index_name])
+            .set(ratio);
+    }
+
+    /// Record tenant-specific query duration
+    pub fn record_tenant_query_duration(
+        &self,
+        tenant_id: &str,
+        query_type: &str,
+        duration_seconds: f64,
+    ) {
+        self.db_tenant_query_duration_seconds
+            .with_label_values(&[tenant_id, query_type])
+            .observe(duration_seconds);
+    }
+
+    /// Record tenant-specific query error
+    pub fn record_tenant_query_error(&self, tenant_id: &str, query_type: &str, error_type: &str) {
+        self.db_tenant_query_errors_total
+            .with_label_values(&[tenant_id, query_type, error_type])
+            .inc();
     }
 }
 

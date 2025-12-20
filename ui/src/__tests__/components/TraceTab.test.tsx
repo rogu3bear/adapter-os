@@ -8,7 +8,7 @@ import type { TraceResponseV1 } from '@/api/types';
 
 // Mock useTrace hook
 const mockUseTrace = vi.fn();
-vi.mock('@/hooks/useTrace', () => ({
+vi.mock('@/hooks/observability/useTrace', () => ({
   useTrace: (...args: unknown[]) => mockUseTrace(...args),
 }));
 
@@ -268,7 +268,7 @@ describe('TraceTab', () => {
       const openButton = screen.getByRole('button', { name: /open full trace viewer/i });
       await user.click(openButton);
 
-      expect(mockNavigate).toHaveBeenCalledWith('/telemetry/viewer?requestId=trace-123');
+      expect(mockNavigate).toHaveBeenCalledWith('/telemetry/viewer/trace-123');
     });
 
     it('calls onOpenFullViewer callback if provided', async () => {

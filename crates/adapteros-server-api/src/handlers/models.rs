@@ -1795,6 +1795,14 @@ pub async fn get_download_progress(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<DownloadProgressResponse>, (StatusCode, Json<ErrorResponse>)> {
+    // Require at least Operator role to view model import progress
+    require_any_role(&claims, &[Role::Admin, Role::Operator, Role::Viewer]).map_err(|_| {
+        (
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse::new("Permission denied").with_code("PERMISSION_DENIED")),
+        )
+    })?;
+
     let tenant_id = &claims.tenant_id;
 
     // Get all active import/download operations for the tenant

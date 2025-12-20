@@ -9,7 +9,7 @@
 //! Citations:
 //! - ApiTestHarness: [source: tests/common/test_harness.rs]
 //! - Streaming API: [source: docs/CLAUDE.md L535-L560]
-//! - Hot-swap: [source: docs/ARCHITECTURE_PATTERNS.md]
+//! - Hot-swap: [source: docs/ARCHITECTURE.md#adapter-lifecycle]
 
 mod common;
 

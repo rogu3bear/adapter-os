@@ -207,7 +207,7 @@ async fn test_batch_evidence_storage() -> Result<()> {
     let doc_id = "doc-test-batch";
     sqlx::query(
         "INSERT INTO documents (id, tenant_id, name, content_hash, file_path, file_size, mime_type, status)
-         VALUES (?, ?, 'test.pdf', 'hash123', '/tmp/test.pdf', 1024, 'application/pdf', 'processed')",
+         VALUES (?, ?, 'test.pdf', 'hash123', 'var/test.pdf', 1024, 'application/pdf', 'processed')",
     )
     .bind(doc_id)
     .bind(&tenant_id)
@@ -370,7 +370,7 @@ async fn test_unified_document_id_flow() -> Result<()> {
     let document_uuid = "019350a2-7c8b-7f00-8a1b-123456789abc"; // V7 UUID format
     sqlx::query(
         "INSERT INTO documents (id, tenant_id, name, content_hash, file_path, file_size, mime_type, status)
-         VALUES (?, ?, 'test.pdf', 'hash123', '/tmp/test.pdf', 1024, 'application/pdf', 'indexed')",
+         VALUES (?, ?, 'test.pdf', 'hash123', 'var/test.pdf', 1024, 'application/pdf', 'indexed')",
     )
     .bind(document_uuid)
     .bind(&tenant_id)
@@ -534,7 +534,7 @@ async fn test_unified_flow_collection_filtering() -> Result<()> {
     for doc_id in [doc_in_collection, doc_not_in_collection] {
         sqlx::query(
             "INSERT INTO documents (id, tenant_id, name, content_hash, file_path, file_size, mime_type, status)
-             VALUES (?, ?, 'test.pdf', 'hash', '/tmp/test.pdf', 1024, 'application/pdf', 'indexed')",
+             VALUES (?, ?, 'test.pdf', 'hash', 'var/test.pdf', 1024, 'application/pdf', 'indexed')",
         )
         .bind(doc_id)
         .bind(&tenant_id)
@@ -618,7 +618,7 @@ async fn test_rag_evidence_with_trace_fields() -> Result<()> {
     let doc_id = "doc-trace-test";
     sqlx::query(
         "INSERT INTO documents (id, tenant_id, name, content_hash, file_path, file_size, mime_type, status)
-         VALUES (?, ?, 'test.pdf', 'hash123', '/tmp/test.pdf', 1024, 'application/pdf', 'processed')",
+         VALUES (?, ?, 'test.pdf', 'hash123', 'var/test.pdf', 1024, 'application/pdf', 'processed')",
     )
     .bind(doc_id)
     .bind(&tenant_id)
@@ -832,7 +832,7 @@ async fn test_get_documents_by_ids_preserves_order() -> Result<()> {
     for doc_id in &doc_ids {
         sqlx::query(
             "INSERT INTO documents (id, tenant_id, name, content_hash, file_path, file_size, mime_type, status)
-             VALUES (?, ?, 'test.pdf', 'hash', '/tmp/test.pdf', 1024, 'application/pdf', 'processed')",
+             VALUES (?, ?, 'test.pdf', 'hash', 'var/test.pdf', 1024, 'application/pdf', 'processed')",
         )
         .bind(doc_id)
         .bind(&tenant_id)
@@ -872,7 +872,7 @@ async fn test_get_documents_handles_missing() -> Result<()> {
     // Create only one document
     sqlx::query(
         "INSERT INTO documents (id, tenant_id, name, content_hash, file_path, file_size, mime_type, status)
-         VALUES ('existing-doc', ?, 'test.pdf', 'hash', '/tmp/test.pdf', 1024, 'application/pdf', 'processed')",
+         VALUES ('existing-doc', ?, 'test.pdf', 'hash', 'var/test.pdf', 1024, 'application/pdf', 'processed')",
     )
     .bind(&tenant_id)
     .execute(db.pool())

@@ -243,14 +243,17 @@ pub async fn toggle_tenant_policy(
         crate::audit_helper::actions::POLICY_BINDING_DISABLE
     };
 
-    let _ = crate::audit_helper::log_success(
+    if let Err(e) = crate::audit_helper::log_success(
         &state.db,
         &claims,
         action,
         crate::audit_helper::resources::POLICY_BINDING,
         Some(&format!("{}/{}", tenant_id, policy_pack_id)),
     )
-    .await;
+    .await
+    {
+        tracing::warn!(error = %e, "Audit log failed");
+    }
 
     // Fetch and return updated binding
     let bindings = state
@@ -524,3 +527,9 @@ pub async fn verify_policy_audit_chain(
         tenant_id: tenant_id.map(|s| s.to_string()),
     }))
 }
+
+// Re-export tenant policy handlers from parent module for routes.rs
+pub use super::{
+    __path_assign_policy, __path_list_policy_assignments, __path_list_violations, assign_policy,
+    list_policy_assignments, list_violations,
+};

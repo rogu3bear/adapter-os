@@ -1,6 +1,6 @@
 [package]
 name = "adapteros-cp-client"
-version = "0.1.0"
+version.workspace = true
 edition = "2021"
 description = "Control Plane client for AdapterOS workers"
 license = "MIT OR Apache-2.0"

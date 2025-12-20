@@ -1269,23 +1269,22 @@ mod tests {
     #[test]
     fn test_validation_empty_adapters() {
         // Create a temporary file for base model path (so we don't get NotFound error)
-        let temp_dir = std::env::temp_dir();
-        let temp_base = temp_dir.join("test_base_model.safetensors");
+        let temp_root = std::path::PathBuf::from("var/tmp");
+        std::fs::create_dir_all(&temp_root).unwrap();
+        let temp_dir = tempfile::TempDir::new_in(&temp_root).unwrap();
+        let temp_base = temp_dir.path().join("test_base_model.safetensors");
 
         // Create empty file (doesn't need to be valid safetensors for this validation test)
         std::fs::write(&temp_base, b"").unwrap();
 
         let config = LoraFusionConfig {
             base_model_path: temp_base.clone(),
-            output_path: temp_dir.join("test_output.safetensors"),
+            output_path: temp_dir.path().join("test_output.safetensors"),
             adapters: vec![],
             compute_units: crate::ComputeUnits::CpuAndNeuralEngine,
         };
 
         let result = fuse_lora_into_model(&config);
-
-        // Clean up
-        let _ = std::fs::remove_file(&temp_base);
 
         assert!(result.is_err());
         match result {

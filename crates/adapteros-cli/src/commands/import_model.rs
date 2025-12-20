@@ -22,8 +22,8 @@ pub async fn run(
     weights: &Path,
     config: &Path,
     tokenizer: &Path,
-    tokenizer_cfg: &Path,
-    license: &Path,
+    _tokenizer_cfg: &Path,
+    _license: &Path,
     output: &OutputWriter,
 ) -> Result<()> {
     warn!(

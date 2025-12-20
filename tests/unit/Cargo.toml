@@ -1,6 +1,6 @@
 [package]
 name = "adapteros-unit-testing"
-version = "0.1.0"
+version.workspace = true
 edition = "2021"
 description = "Comprehensive unit testing framework for AdapterOS core components"
 license = "MIT OR Apache-2.0"

@@ -32,8 +32,8 @@ pub mod mock;
 
 pub use adapter_cache::{AdapterCacheStats, MLXAdapterCache, MLXAdapterCacheConfig};
 pub use attention::{
-    mlx_multihead_attention, mlx_rope, mlx_scaled_dot_product_attention, AttentionConfig,
-    RoPEFrequencies,
+    mlx_multihead_attention, mlx_multihead_attention_legacy, mlx_rope,
+    mlx_scaled_dot_product_attention, AttentionConfig, RoPEFrequencies,
 };
 pub use backend::MLXFFIBackend;
 pub use embedding::{EmbeddingConfig, MLXEmbeddingModel};

@@ -34,7 +34,9 @@ fi
 
 BACKUP_NAME="aos-backup-${TIMESTAMP}-${KEY_ID}.tar.gz.enc"
 BACKUP_FILE="${BACKUP_ROOT}/${BACKUP_NAME}"
-TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/aos-backup.XXXXXX")"
+TMP_ROOT="${DATA_ROOT}/tmp"
+mkdir -p "${TMP_ROOT}"
+TMP_DIR="$(mktemp -d "${TMP_ROOT}/aos-backup.XXXXXX")"
 SNAPSHOT_DIR="${TMP_DIR}/data"
 
 log_json() {
@@ -238,4 +240,3 @@ if [ -n "${POST_HOOK}" ]; then
 fi
 
 log_json "info" "Backup complete at ${BACKUP_FILE}"
-

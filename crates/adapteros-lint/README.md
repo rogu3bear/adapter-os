@@ -100,8 +100,8 @@ sqlx::query("UPDATE adapters SET tier = ? WHERE adapter_id = ?")
 
 **Correct:**
 ```rust
-// Correct: Use Db trait method
-state.db.update_adapter_tier(&adapter_id, &new_tier).await?;
+// Correct: Use tenant-scoped Db trait method
+state.db.update_adapter_tier_for_tenant(&tenant_id, &adapter_id, &new_tier).await?;
 ```
 
 ### NonDeterministicSpawn

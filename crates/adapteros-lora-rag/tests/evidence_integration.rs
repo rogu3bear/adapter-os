@@ -17,6 +17,12 @@ use anyhow::Result;
 use std::path::PathBuf;
 use tempfile::TempDir;
 
+fn new_test_tempdir() -> Result<TempDir> {
+    let root = PathBuf::from("var").join("tmp");
+    std::fs::create_dir_all(&root)?;
+    Ok(TempDir::new_in(&root)?)
+}
+
 /// Create a test symbol
 fn create_test_symbol(name: &str, line: u32) -> SymbolNode {
     let file_path = "test.rs";
@@ -37,7 +43,7 @@ fn create_test_symbol(name: &str, line: u32) -> SymbolNode {
 
 #[tokio::test]
 async fn test_symbol_index_create_and_search() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
     let index_path = temp_dir.path().to_path_buf();
 
     // Create symbol index
@@ -72,7 +78,7 @@ async fn test_symbol_index_create_and_search() -> Result<()> {
 
 #[tokio::test]
 async fn test_test_index_create_and_search() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
     let index_path = temp_dir.path().to_path_buf();
 
     // Create test index
@@ -123,7 +129,7 @@ async fn test_test_index_create_and_search() -> Result<()> {
 
 #[tokio::test]
 async fn test_doc_index_create_and_search() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
     let index_path = temp_dir.path().to_path_buf();
 
     // Create doc index
@@ -174,7 +180,7 @@ async fn test_doc_index_create_and_search() -> Result<()> {
 
 #[tokio::test]
 async fn test_evidence_manager_file_removal() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
     let indices_root = temp_dir.path().to_path_buf();
 
     // Create evidence manager without embedding model
@@ -215,7 +221,7 @@ async fn test_evidence_manager_file_removal() -> Result<()> {
 
 #[tokio::test]
 async fn test_evidence_manager_stats() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
     let indices_root = temp_dir.path().to_path_buf();
 
     // Create evidence manager
@@ -239,7 +245,7 @@ async fn test_evidence_manager_stats() -> Result<()> {
 
 #[tokio::test]
 async fn test_deterministic_ordering() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
     let index_path = temp_dir.path().to_path_buf();
 
     // Create symbol index
@@ -276,7 +282,7 @@ async fn test_deterministic_ordering() -> Result<()> {
 
 #[tokio::test]
 async fn test_incremental_updates() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
     let indices_root = temp_dir.path().to_path_buf();
 
     // Create evidence manager
@@ -338,7 +344,7 @@ async fn test_incremental_updates() -> Result<()> {
 
 #[tokio::test]
 async fn test_search_with_empty_indices() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
     let indices_root = temp_dir.path().to_path_buf();
 
     // Create evidence manager

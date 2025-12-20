@@ -9,10 +9,14 @@ use adapteros_core::{
     ExecutionProfile, SeedMode,
 };
 use adapteros_lora_worker::backend_factory::{
-    auto_select_backend, create_backend, create_backend_auto, create_backend_with_model_and_hash,
+    auto_select_backend, create_backend, create_backend_auto, create_backend_with_model_hashes,
     describe_available_backends, detect_capabilities, select_backend_from_execution_profile,
     BackendCapabilities, BackendChoice, BackendStrategy, SelectionContext,
 };
+
+// For testing deprecated API behavior
+#[allow(deprecated)]
+use adapteros_lora_worker::backend_factory::create_backend_with_model_and_hash;
 
 #[test]
 fn test_detect_capabilities() {
@@ -217,11 +221,13 @@ fn test_create_backend_auto() {
 
 #[cfg(target_os = "macos")]
 #[test]
+#[allow(deprecated)]
 fn metal_backend_requires_manifest_hash() {
     use adapteros_core::B3Hash;
     use std::path::Path;
 
     let path = Path::new("var/models/nonexistent");
+    // Testing deprecated API - use create_backend_with_model_hashes for new code
     let err = create_backend_with_model_and_hash(BackendChoice::Metal, path, None)
         .err()
         .expect("Metal backend should require manifest hash");
@@ -241,10 +247,12 @@ fn metal_backend_requires_manifest_hash() {
 
 #[cfg(feature = "multi-backend")]
 #[test]
+#[allow(deprecated)]
 fn mlx_backend_requires_manifest_hash() {
     use std::path::Path;
 
     let path = Path::new("var/models/nonexistent");
+    // Testing deprecated API - use create_backend_with_model_hashes for new code
     let err = create_backend_with_model_and_hash(BackendChoice::Mlx, path, None)
         .err()
         .expect("MLX backend should require manifest hash");
@@ -691,7 +699,7 @@ fn test_model_key_from_path_determinism() {
     use std::path::Path;
 
     // Using a path that likely doesn't have config.json (falls back to path hash)
-    let path = Path::new("/tmp/test-model-path-does-not-exist");
+    let path = Path::new("var/test-model-path-does-not-exist");
 
     // Create key twice from same path
     let key1 = ModelKey::from_path(BackendType::Metal, path).unwrap();

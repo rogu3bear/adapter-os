@@ -9,6 +9,7 @@ pub mod guard;
 pub mod manager;
 
 use adapteros_core::{AosError, Result};
+use adapteros_platform::common::PlatformUtils;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -351,7 +352,7 @@ pub struct TempUsage {
 impl Default for TempConfig {
     fn default() -> Self {
         Self {
-            base_dir: std::env::temp_dir().join("adapteros"),
+            base_dir: PlatformUtils::temp_dir().join("adapteros"),
             max_file_size_bytes: 100 * 1024 * 1024, // 100MB
             default_permissions: 0o600,             // Owner read/write only
             cleanup_interval: Duration::from_secs(3600), // 1 hour

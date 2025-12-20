@@ -133,11 +133,18 @@ impl TrainFromCodeArgs {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use adapteros_platform::common::PlatformUtils;
     use tempfile::TempDir;
+
+    fn new_test_tempdir() -> TempDir {
+        let root = PlatformUtils::temp_dir();
+        std::fs::create_dir_all(&root).expect("create var/tmp");
+        TempDir::new_in(&root).expect("create temp dir")
+    }
 
     #[tokio::test]
     async fn test_validate() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
 
         // Valid arguments
         let args = TrainFromCodeArgs {
@@ -179,7 +186,7 @@ mod tests {
 
     #[test]
     fn test_validation_errors() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
 
         // Test zero rank
         let args = TrainFromCodeArgs {

@@ -1,4 +1,4 @@
-//! Adapter profiler for MPLoRA lifecycle management
+//! Adapter profiler for DIR lifecycle management
 //!
 //! Tracks per-adapter metrics:
 //! - Activation frequency (how often selected by router)

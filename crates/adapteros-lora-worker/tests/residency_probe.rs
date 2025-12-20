@@ -15,6 +15,16 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use sysinfo::System;
+use tempfile::{Builder as TempDirBuilder, TempDir};
+
+fn new_test_base_dir(prefix: &str) -> TempDir {
+    let root = std::path::PathBuf::from("var/tmp");
+    let _ = std::fs::create_dir_all(&root);
+    TempDirBuilder::new()
+        .prefix(prefix)
+        .tempdir_in(&root)
+        .expect("temp dir")
+}
 
 /// Test modes for residency probing
 #[derive(Clone, Copy, Debug)]
@@ -174,9 +184,8 @@ async fn run_probe_cycles(
 /// Smoke test for residency mechanism - quick validation
 #[tokio::test]
 async fn residency_probe_smoke_test() {
-    let base_dir = std::env::temp_dir().join("aos_residency_smoke");
-    let _ = std::fs::remove_dir_all(&base_dir);
-    std::fs::create_dir_all(&base_dir).expect("temp dir");
+    let temp_dir = new_test_base_dir("aos_residency_smoke_");
+    let base_dir = temp_dir.path().to_path_buf();
 
     let base_id = "probe-base-model";
     let base_hash = B3Hash::hash(base_id.as_bytes());
@@ -215,8 +224,6 @@ async fn residency_probe_smoke_test() {
         max_load,
         mode.max_load_latency_ms()
     );
-
-    let _ = std::fs::remove_dir_all(&base_dir);
 }
 
 /// Test that pinning prevents eviction of base model
@@ -340,9 +347,8 @@ async fn cache_lifecycle_invariants() {
     ignore = "Requires ci-residency feature"
 )]
 async fn residency_probe_standard() {
-    let base_dir = std::env::temp_dir().join("aos_residency_standard");
-    let _ = std::fs::remove_dir_all(&base_dir);
-    std::fs::create_dir_all(&base_dir).expect("temp dir");
+    let temp_dir = new_test_base_dir("aos_residency_standard_");
+    let base_dir = temp_dir.path().to_path_buf();
 
     let base_id = "probe-base-model";
     let base_hash = B3Hash::hash(base_id.as_bytes());
@@ -401,8 +407,6 @@ async fn residency_probe_standard() {
         result.p99_load_latency_ms,
         mode.p99_load_latency_ms()
     );
-
-    let _ = std::fs::remove_dir_all(&base_dir);
 }
 
 // ============================================================================
@@ -415,9 +419,8 @@ async fn residency_probe_standard() {
     ignore = "Requires hardware-residency feature and real models"
 )]
 async fn residency_probe_extended() {
-    let base_dir = std::env::temp_dir().join("aos_residency_extended");
-    let _ = std::fs::remove_dir_all(&base_dir);
-    std::fs::create_dir_all(&base_dir).expect("temp dir");
+    let temp_dir = new_test_base_dir("aos_residency_extended_");
+    let base_dir = temp_dir.path().to_path_buf();
 
     let base_id = "probe-base-model";
     let base_hash = B3Hash::hash(base_id.as_bytes());
@@ -493,9 +496,8 @@ async fn golden_run_before_after_swap_loop() {
     const RSS_GROWTH_THRESHOLD_MB: u64 = 150;
     const SWAP_CYCLES: u32 = 50;
 
-    let base_dir = std::env::temp_dir().join("aos_golden_run");
-    let _ = std::fs::remove_dir_all(&base_dir);
-    std::fs::create_dir_all(&base_dir).expect("temp dir");
+    let temp_dir = new_test_base_dir("aos_golden_run_");
+    let base_dir = temp_dir.path().to_path_buf();
 
     let base_id = "golden-base-model";
     let base_hash = B3Hash::hash(base_id.as_bytes());
@@ -604,9 +606,8 @@ pub struct MemoryTelemetryResult {
     ignore = "Requires hardware-residency feature"
 )]
 async fn residency_probe_with_telemetry() {
-    let base_dir = std::env::temp_dir().join("aos_telemetry_probe");
-    let _ = std::fs::remove_dir_all(&base_dir);
-    std::fs::create_dir_all(&base_dir).expect("temp dir");
+    let temp_dir = new_test_base_dir("aos_telemetry_probe_");
+    let base_dir = temp_dir.path().to_path_buf();
 
     let base_id = "telemetry-base-model";
     let base_hash = B3Hash::hash(base_id.as_bytes());
@@ -700,9 +701,8 @@ async fn residency_probe_with_telemetry() {
 #[tokio::test]
 #[ignore = "Superseded by residency_probe_standard; run manually if needed"]
 async fn residency_probe_rss_stability() {
-    let base_dir = std::env::temp_dir().join("aos_residency_probe_legacy");
-    let _ = std::fs::remove_dir_all(&base_dir);
-    std::fs::create_dir_all(&base_dir).expect("temp dir");
+    let temp_dir = new_test_base_dir("aos_residency_probe_legacy_");
+    let base_dir = temp_dir.path().to_path_buf();
 
     let base_id = "probe-base-model";
     let base_hash = B3Hash::hash(base_id.as_bytes());

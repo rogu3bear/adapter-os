@@ -38,6 +38,7 @@ export {
 // ===== Backend-Mapped Adapter Schemas =====
 export {
   adapterNameSchema,
+  adapterRevisionSchema,
   registerAdapterRequestSchema,
   adapterNameValidationSchema,
   adapterLifecycleStateSchema,
@@ -98,6 +99,8 @@ export {
   validationStatusSchema,
   errorResponseSchema,
   ValidationUtils,
+  patterns,
+  validators,
   type TenantId,
   type RepositoryId,
   type CommitSha,

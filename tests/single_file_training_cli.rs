@@ -351,6 +351,12 @@ fn verify_aos_format_detection(aos_path: &Path) -> Result<(), Box<dyn std::error
     Ok(())
 }
 
+fn new_test_tempdir() -> std::io::Result<TempDir> {
+    let root = PathBuf::from("var").join("tmp");
+    std::fs::create_dir_all(&root)?;
+    TempDir::new_in(&root)
+}
+
 #[tokio::test]
 async fn test_train_single_txt_file() -> Result<(), Box<dyn std::error::Error>> {
     // Skip test if tokenizer file is not available
@@ -358,7 +364,7 @@ async fn test_train_single_txt_file() -> Result<(), Box<dyn std::error::Error>> 
         return Ok(());
     }
 
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
     let output_dir = temp_dir.path().join("output");
     let data_dir = temp_dir.path().join("data");
     fs::create_dir_all(&data_dir)?;
@@ -441,7 +447,7 @@ async fn test_train_single_md_file() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
     let output_dir = temp_dir.path().join("output");
     let data_dir = temp_dir.path().join("data");
     fs::create_dir_all(&data_dir)?;
@@ -529,7 +535,7 @@ async fn test_train_single_rs_file() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
     let output_dir = temp_dir.path().join("output");
     let data_dir = temp_dir.path().join("data");
     fs::create_dir_all(&data_dir)?;
@@ -623,7 +629,7 @@ async fn test_train_single_py_file() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
     let output_dir = temp_dir.path().join("output");
     let data_dir = temp_dir.path().join("data");
     fs::create_dir_all(&data_dir)?;
@@ -713,7 +719,7 @@ async fn test_train_single_js_file() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
     let output_dir = temp_dir.path().join("output");
     let data_dir = temp_dir.path().join("data");
     fs::create_dir_all(&data_dir)?;
@@ -807,7 +813,7 @@ async fn test_train_single_ts_file() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
     let output_dir = temp_dir.path().join("output");
     let data_dir = temp_dir.path().join("data");
     fs::create_dir_all(&data_dir)?;
@@ -905,7 +911,7 @@ async fn test_train_single_json_file() -> Result<(), Box<dyn std::error::Error>>
         return Ok(());
     }
 
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
     let output_dir = temp_dir.path().join("output");
     let data_dir = temp_dir.path().join("data");
     fs::create_dir_all(&data_dir)?;
@@ -1000,7 +1006,7 @@ async fn test_train_empty_file() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
     let output_dir = temp_dir.path().join("output");
     let data_dir = temp_dir.path().join("data");
     fs::create_dir_all(&data_dir)?;
@@ -1055,7 +1061,7 @@ async fn test_train_empty_file() -> Result<(), Box<dyn std::error::Error>> {
 
 #[tokio::test]
 async fn test_train_invalid_file() -> Result<(), Box<dyn std::error::Error>> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
     let output_dir = temp_dir.path().join("output");
 
     // Use non-existent file path
@@ -1091,7 +1097,7 @@ async fn test_packaging_workflow() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
     let output_dir = temp_dir.path().join("output");
     let data_dir = temp_dir.path().join("data");
     fs::create_dir_all(&data_dir)?;

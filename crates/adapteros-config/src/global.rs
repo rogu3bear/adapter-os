@@ -60,13 +60,11 @@ impl std::error::Error for ConfigError {}
 /// ```rust,no_run
 /// use adapteros_config::global::init_runtime_config;
 ///
-/// fn main() {
-///     // Initialize tracing first...
+/// // Initialize tracing first...
 ///
-///     if let Err(e) = init_runtime_config() {
-///         eprintln!("Configuration Error:\n\n{}", e);
-///         std::process::exit(1);
-///     }
+/// if let Err(e) = init_runtime_config() {
+///     eprintln!("Configuration Error:\n\n{}", e);
+///     std::process::exit(1);
 /// }
 /// ```
 pub fn init_runtime_config() -> std::result::Result<(), ConfigError> {

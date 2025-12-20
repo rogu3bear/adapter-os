@@ -10,7 +10,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-API_URL="${API_URL:-http://127.0.0.1:8080}"
+API_URL="${API_URL:-http://127.0.0.1:${AOS_SERVER_PORT:-8080}}"
 DB_PATH="${DB_PATH:-$ROOT/var/smoke-e2e.sqlite3}"
 PID_FILE="${PID_FILE:-$ROOT/var/run/smoke-e2e-api.pid}"
 LOG_FILE="${LOG_FILE:-$ROOT/var/log/smoke-e2e-api.log}"
@@ -18,6 +18,15 @@ REQ_LOG="${REQ_LOG:-$ROOT/var/log/smoke-e2e.log}"
 MANIFEST_PATH="${AOS_MANIFEST_PATH:-$ROOT/manifests/qwen7b.yaml}"
 START_TIMEOUT="${START_TIMEOUT:-60}"
 CURL_TIMEOUT="${CURL_TIMEOUT:-10}"
+TMP_ROOT="${AOS_VAR_DIR:-$ROOT/var}/tmp"
+
+if [[ "$TMP_ROOT" == /tmp* || "$TMP_ROOT" == /private/tmp* ]]; then
+  echo "[ERROR] refusing temporary directory under /tmp: $TMP_ROOT" >&2
+  exit 1
+fi
+
+mkdir -p "$TMP_ROOT"
+RUN_TMP_DIR="$(mktemp -d "${TMP_ROOT}/smoke-e2e.XXXXXX")"
 
 E2E_EMAIL="test@example.com"
 E2E_PASS="password"
@@ -48,6 +57,7 @@ cleanup() {
     fi
     rm -f "$PID_FILE"
   fi
+  rm -rf "${RUN_TMP_DIR:-}" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
 
@@ -98,8 +108,8 @@ call_api() {
   local body="${3:-}"
   local token="${4:-}"
 
-  RESP_HEADERS="$(mktemp)"
-  RESP_BODY="$(mktemp)"
+  RESP_HEADERS="$(mktemp "${RUN_TMP_DIR}/headers.XXXXXX")"
+  RESP_BODY="$(mktemp "${RUN_TMP_DIR}/body.XXXXXX")"
 
   local args=(curl -sS -D "$RESP_HEADERS" -o "$RESP_BODY" -w "%{http_code}" -X "$method" "$url" \
     --connect-timeout "$CURL_TIMEOUT" --max-time "$CURL_TIMEOUT" \
@@ -203,6 +213,8 @@ echo "  tenant switch request: ${SWITCH_REQ_ID}"
 echo "  inference trace_id:    ${INFER_TRACE_ID} (req ${INFER_REQ_ID})"
 echo "  fixture trace_id:      ${TRACE_FIX_ID} (req ${TRACE_REQ_ID})"
 echo "  evidence count:        ${EVIDENCE_COUNT} (req ${EVIDENCE_REQ_ID})"
+
+
 
 
 

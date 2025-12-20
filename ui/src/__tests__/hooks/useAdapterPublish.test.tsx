@@ -7,7 +7,7 @@ import {
   useArchiveAdapter,
   useUnarchiveAdapter,
   adapterPublishKeys,
-} from '@/hooks/adapters';
+} from '@/hooks/adapters/useAdapterPublish';
 import type {
   PublishAdapterRequest,
   PublishAdapterResponse,
@@ -15,12 +15,12 @@ import type {
 } from '@/api/adapter-types';
 
 // Mock API client
-const mockPublishAdapterVersion = vi.fn();
-const mockArchiveAdapterVersion = vi.fn();
-const mockUnarchiveAdapterVersion = vi.fn();
+const mockPublishAdapterVersion = vi.hoisted(() => vi.fn());
+const mockArchiveAdapterVersion = vi.hoisted(() => vi.fn());
+const mockUnarchiveAdapterVersion = vi.hoisted(() => vi.fn());
 
-vi.mock('@/api/client', () => ({
-  default: {
+vi.mock('@/api/services', () => ({
+  apiClient: {
     publishAdapterVersion: (...args: unknown[]) => mockPublishAdapterVersion(...args),
     archiveAdapterVersion: (...args: unknown[]) => mockArchiveAdapterVersion(...args),
     unarchiveAdapterVersion: (...args: unknown[]) => mockUnarchiveAdapterVersion(...args),
@@ -28,8 +28,8 @@ vi.mock('@/api/client', () => ({
 }));
 
 // Mock toast
-const mockToastSuccess = vi.fn();
-const mockToastError = vi.fn();
+const mockToastSuccess = vi.hoisted(() => vi.fn());
+const mockToastError = vi.hoisted(() => vi.fn());
 
 vi.mock('sonner', () => ({
   toast: {
@@ -39,14 +39,19 @@ vi.mock('sonner', () => ({
 }));
 
 // Mock logger
-const mockLoggerInfo = vi.fn();
-const mockLoggerError = vi.fn();
+const mockLoggerInfo = vi.hoisted(() => vi.fn());
+const mockLoggerError = vi.hoisted(() => vi.fn());
 
 vi.mock('@/utils/logger', () => ({
   logger: {
     info: (...args: unknown[]) => mockLoggerInfo(...args),
     error: (...args: unknown[]) => mockLoggerError(...args),
   },
+}));
+
+// Mock useTenant for tenant-scoped query keys
+vi.mock('@/providers/FeatureProviders', () => ({
+  useTenant: () => ({ selectedTenant: 'test-tenant' }),
 }));
 
 // Test data
@@ -218,10 +223,11 @@ describe('usePublishAdapter', () => {
         data: mockPublishRequest,
       });
 
-      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['adapters'] });
-      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['adapter-versions'] });
-      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['training-jobs'] });
-      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['repos'] });
+      // Query keys now include tenant segment via withTenantKey
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['adapters', 'test-tenant'] });
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['adapter-versions', 'test-tenant'] });
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['training-jobs', 'test-tenant'] });
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['repos', 'test-tenant'] });
     });
   });
 
@@ -409,9 +415,10 @@ describe('useArchiveAdapter', () => {
 
       await result.current.mutateAsync({ versionId: 'v-123' });
 
-      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['adapters'] });
-      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['adapter-versions'] });
-      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['adapter-stacks'] });
+      // Query keys now include tenant segment via withTenantKey
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['adapters', 'test-tenant'] });
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['adapter-versions', 'test-tenant'] });
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['adapter-stacks', 'test-tenant'] });
     });
   });
 
@@ -543,9 +550,10 @@ describe('useUnarchiveAdapter', () => {
 
       await result.current.mutateAsync('v-123');
 
-      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['adapters'] });
-      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['adapter-versions'] });
-      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['adapter-stacks'] });
+      // Query keys now include tenant segment via withTenantKey
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['adapters', 'test-tenant'] });
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['adapter-versions', 'test-tenant'] });
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['adapter-stacks', 'test-tenant'] });
     });
   });
 

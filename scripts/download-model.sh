@@ -22,8 +22,8 @@ MODEL_DIR="$REPO_ROOT/var/model-cache/models"
 MODEL_NAME="qwen2.5-7b-mlx"
 MODEL_PATH="$MODEL_DIR/$MODEL_NAME"
 
-# Hugging Face model ID
-HF_MODEL_ID="mlx-community/Qwen2.5-7B-Instruct"
+# Hugging Face model ID (4-bit quantized version - public, no auth required)
+HF_MODEL_ID="mlx-community/Qwen2.5-7B-Instruct-4bit"
 
 echo -e "${BLUE}═══════════════════════════════════════════════════════════════${NC}"
 echo -e "${BLUE}  AdapterOS Model Downloader${NC}"

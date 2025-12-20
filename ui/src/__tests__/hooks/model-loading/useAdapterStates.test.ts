@@ -18,7 +18,7 @@ const mockSSEResult = {
 
 let sseOnMessage: ((event: unknown) => void) | undefined;
 
-vi.mock('@/hooks/useSSE', () => ({
+vi.mock('@/hooks/realtime/useSSE', () => ({
   useSSE: vi.fn((url: string, options: { enabled?: boolean; onMessage?: (event: unknown) => void }) => {
     sseOnMessage = options.onMessage;
     return mockSSEResult;
@@ -64,14 +64,14 @@ describe('useAdapterStates', () => {
       renderHook(() => useAdapterStates({ stackId: 'test-stack' }));
 
       // SSE hook should have been called
-      const sseModule = await import('@/hooks/useSSE');
+      const sseModule = await import('@/hooks/realtime/useSSE');
       expect(sseModule.useSSE).toHaveBeenCalled();
     });
 
     it('can be disabled via enabled option', async () => {
       renderHook(() => useAdapterStates({ stackId: 'test-stack', enabled: false }));
 
-      const sseModule = await import('@/hooks/useSSE');
+      const sseModule = await import('@/hooks/realtime/useSSE');
       const call = (sseModule.useSSE as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
       expect(call[1].enabled).toBe(false);
     });

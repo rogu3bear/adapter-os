@@ -2,6 +2,12 @@ import { Service, ServiceManagerConfig } from '@/types/service-lifecycle';
 import { ServiceLifecycleManager } from '@/services/ServiceLifecycleManager';
 import { logger } from '@/utils/logger';
 
+// Port configuration - respects environment variables for multi-developer setups
+const PORTS = {
+  backend: parseInt(import.meta.env.VITE_SERVER_PORT || import.meta.env.AOS_SERVER_PORT || '8080', 10),
+  ui: parseInt(import.meta.env.VITE_UI_PORT || import.meta.env.AOS_UI_PORT || '3200', 10),
+};
+
 // Service Registry - Factory for creating predefined AdapterOS services
 export class ServiceRegistry {
   private manager: ServiceLifecycleManager;
@@ -110,16 +116,16 @@ export class ServiceRegistry {
       version: '1.0.0',
       category: 'core',
       status: 'uninitialized',
-      port: 8080,
+      port: PORTS.backend,
       host: 'localhost',
       dependencies: [
         { serviceId: 'database', required: true, startupOrder: 'before', healthCheck: true }
       ],
       dependents: ['ui-frontend'],
-      startCommand: 'cargo run --bin adapteros-server -- --port 8080 --host 0.0.0.0',
-      stopCommand: 'pkill -f "adapteros-server.*8080"',
-      statusCommand: 'pgrep -f "adapteros-server.*8080" && curl -f http://localhost:8080/healthz || exit 1',
-      healthCommand: 'curl -f http://localhost:8080/healthz',
+      startCommand: `cargo run --bin adapteros-server -- --port ${PORTS.backend} --host 0.0.0.0`,
+      stopCommand: `pkill -f "adapteros-server.*${PORTS.backend}"`,
+      statusCommand: `pgrep -f "adapteros-server.*${PORTS.backend}" && curl -f http://localhost:${PORTS.backend}/healthz || exit 1`,
+      healthCommand: `curl -f http://localhost:${PORTS.backend}/healthz`,
       lifecycle: {
         hooks: [
           {
@@ -155,7 +161,7 @@ export class ServiceRegistry {
         healthChecks: [
           {
             type: 'http',
-            endpoint: 'http://localhost:8080/healthz',
+            endpoint: `http://localhost:${PORTS.backend}/healthz`,
             interval: 15000, // 15 seconds
             timeout: 5000,
             retries: 3,
@@ -163,7 +169,7 @@ export class ServiceRegistry {
           },
           {
             type: 'tcp',
-            endpoint: 'localhost:8080',
+            endpoint: `localhost:${PORTS.backend}`,
             interval: 30000,
             timeout: 3000,
             retries: 2,
@@ -207,16 +213,16 @@ export class ServiceRegistry {
       version: '1.0.0',
       category: 'core',
       status: 'uninitialized',
-      port: 3200,
+      port: PORTS.ui,
       host: 'localhost',
       dependencies: [
         { serviceId: 'backend-server', required: true, startupOrder: 'after', healthCheck: true }
       ],
       dependents: [],
-      startCommand: 'cd ui && pnpm dev -- --host 0.0.0.0 --port 3200',
-      stopCommand: 'pkill -f "vite.*3200"',
-      statusCommand: 'pgrep -f "vite.*3200" && curl -f http://localhost:3200 || exit 1',
-      healthCommand: 'curl -f http://localhost:3200',
+      startCommand: `cd ui && pnpm dev -- --host 0.0.0.0 --port ${PORTS.ui}`,
+      stopCommand: `pkill -f "vite.*${PORTS.ui}"`,
+      statusCommand: `pgrep -f "vite.*${PORTS.ui}" && curl -f http://localhost:${PORTS.ui} || exit 1`,
+      healthCommand: `curl -f http://localhost:${PORTS.ui}`,
       lifecycle: {
         hooks: [
           {
@@ -227,7 +233,7 @@ export class ServiceRegistry {
             preStart: async (service) => {
               // Check if backend is accessible
               try {
-                const response = await fetch('http://localhost:8080/healthz');
+                const response = await fetch(`http://localhost:${PORTS.backend}/healthz`);
                 if (!response.ok) {
                   throw new Error('Backend not healthy');
                 }
@@ -240,7 +246,7 @@ export class ServiceRegistry {
         healthChecks: [
           {
             type: 'http',
-            endpoint: 'http://localhost:3200',
+            endpoint: `http://localhost:${PORTS.ui}`,
             interval: 20000,
             timeout: 5000,
             retries: 3,
@@ -440,9 +446,9 @@ export class ServiceRegistry {
         { serviceId: 'secd', required: true, startupOrder: 'before', healthCheck: true }
       ],
       dependents: [],
-      startCommand: 'cargo run --bin adapteros-cli -- serve default base-lora --socket /tmp/aos-worker.sock',
+      startCommand: 'cargo run --bin adapteros-cli -- serve default base-lora --socket ./var/run/aos-worker.sock',
       stopCommand: 'pkill -f "adapteros-cli.*serve"',
-      statusCommand: 'pgrep -f "adapteros-cli.*serve" && test -S /tmp/aos-worker.sock',
+      statusCommand: 'pgrep -f "adapteros-cli.*serve" && test -S ./var/run/aos-worker.sock',
       healthCommand: 'echo "health"', // Would implement actual health check
       lifecycle: {
         hooks: [
@@ -477,7 +483,7 @@ export class ServiceRegistry {
         healthChecks: [
           {
             type: 'command',
-            command: 'test -S /tmp/aos-worker.sock && echo "OK"',
+            command: 'test -S ./var/run/aos-worker.sock && echo "OK"',
             interval: 25000,
             timeout: 5000,
             retries: 4,

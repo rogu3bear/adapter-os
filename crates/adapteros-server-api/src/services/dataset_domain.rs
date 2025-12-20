@@ -98,15 +98,16 @@ impl DatasetDomainService {
         Self { state }
     }
 
-    fn dataset_paths(&self) -> DatasetPaths {
-        DatasetPaths::new(resolve_dataset_root(&self.state))
+    fn dataset_paths(&self) -> Result<DatasetPaths> {
+        Ok(DatasetPaths::new(resolve_dataset_root(&self.state)?))
     }
 
-    fn resolve_version_dir(&self, dataset_id: &str, version_id: &str) -> PathBuf {
-        self.dataset_paths()
+    fn resolve_version_dir(&self, dataset_id: &str, version_id: &str) -> Result<PathBuf> {
+        Ok(self
+            .dataset_paths()?
             .dataset_dir(dataset_id)
             .join("versions")
-            .join(version_id)
+            .join(version_id))
     }
 
     fn compute_row_id(row: &CanonicalRow) -> String {
@@ -516,15 +517,21 @@ impl DatasetDomain for DatasetDomainService {
         }
 
         let version_id = Uuid::now_v7().to_string();
-        let version_dir = self.resolve_version_dir(&request.dataset_id, &version_id);
+        let version_dir = self.resolve_version_dir(&request.dataset_id, &version_id)?;
         ensure_dirs([version_dir.as_path()])
             .await
             .map_err(|(_, json)| AosError::Io(json.0.error.clone()))?;
 
         let storage = FsByteStorage::new(
-            resolve_dataset_root(&self.state),
+            resolve_dataset_root(&self.state)?,
             {
-                let cfg = self.state.config.read().expect("Config lock poisoned");
+                let cfg = match self.state.config.read() {
+                    Ok(cfg) => cfg,
+                    Err(_) => {
+                        tracing::error!("Config lock poisoned in finalize_dataset_version");
+                        return Err(AosError::Internal("Config lock poisoned".to_string()));
+                    }
+                };
                 cfg.paths.adapters_root.clone()
             }
             .into(),

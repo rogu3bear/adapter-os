@@ -33,11 +33,12 @@ is_positive_int() {
 
 redact_stream() {
   local tmp=""
-  if tmp="$(mktemp -t aos-redact.XXXXXX 2>/dev/null)"; then
-    :
-  else
-    tmp="$(mktemp "${TMPDIR:-/tmp}/aos-redact.XXXXXX")"
+  local tmp_root="${TMPDIR:-}"
+  if [[ -z "$tmp_root" || "$tmp_root" == /tmp* || "$tmp_root" == /private/tmp* ]]; then
+    tmp_root="${root_dir:-.}/var/tmp"
   fi
+  mkdir -p "$tmp_root"
+  tmp="$(mktemp "${tmp_root}/aos-redact.XXXXXX")"
 
   cat >"$tmp" <<'SED'
 s/([Aa]uthorization:[[:space:]]*[Bb]earer[[:space:]]+)[^[:space:]]+/\1REDACTED/g

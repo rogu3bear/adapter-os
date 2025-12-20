@@ -87,19 +87,20 @@ Tests use:
 
 ```rust
 #[tokio::test]
-async fn test_something() {
+async fn test_something() -> Result<(), Box<dyn std::error::Error>> {
     // Setup
     let fixture = TestDbFixture::new().await;
     let adapter_id = fixtures::single_warm(fixture.db()).await;
 
     // Create lifecycle manager
-    let temp_dir = std::env::temp_dir().join("test_name");
-    std::fs::create_dir_all(&temp_dir)?;
+    let tmp_root = std::path::PathBuf::from("var").join("tmp");
+    std::fs::create_dir_all(&tmp_root)?;
+    let temp_dir = tempfile::TempDir::new_in(&tmp_root)?;
 
     let manager = LifecycleManager::new_with_db(
         vec![adapter_id.clone()],
         &test_policies(),
-        PathBuf::from(&temp_dir),
+        temp_dir.path().to_path_buf(),
         None,
         3,
         fixture.db().clone(),
@@ -111,8 +112,7 @@ async fn test_something() {
     // Verification
     assert!(utils::verify_adapter_state(fixture.db(), &adapter_id, "expected").await);
 
-    // Cleanup
-    let _ = std::fs::remove_dir_all(&temp_dir);
+    Ok(())
 }
 ```
 
@@ -221,8 +221,8 @@ for (id, state) in adapters {
 - Subsequent tests are faster
 
 ### Temp directory cleanup
-- Ensure `let _ = std::fs::remove_dir_all(&temp_dir);` at end of tests
-- Tests on failure may leave temp directories (clean with `rm -rf /tmp/lifecycle_test_*`)
+- Tests use `tempfile::TempDir` under `var/tmp` (prefix `lifecycle_test_`)
+- On failures, clean with `rm -rf var/tmp/lifecycle_test_*`
 
 ### Async timeout
 - Default 50ms polling interval adequate for in-memory database

@@ -4,6 +4,7 @@ use adapteros_orchestrator::training::TrainingService;
 use adapteros_types::training::{
     DataLineageMode, DatasetVersionSelection, TrainingBackendKind, TrainingConfig,
 };
+use tempfile::TempDir;
 
 async fn seed_dataset_version(
     db: &adapteros_db::Db,
@@ -20,7 +21,7 @@ async fn seed_dataset_version(
             Some("desc"),
             "jsonl",
             hash_b3,
-            "/tmp/orch-dataset",
+            "var/orch-dataset",
             Some("tester"),
         )
         .await
@@ -32,7 +33,7 @@ async fn seed_dataset_version(
             dataset_id,
             Some(tenant_id),
             Some("v1"),
-            "/tmp/orch-dataset/version",
+            "var/orch-dataset/version",
             hash_b3,
             None,
             None,
@@ -68,7 +69,8 @@ fn minimal_config() -> TrainingConfig {
 async fn orch_rejects_synthetic_with_dataset_versions() {
     let mut db = DbFactory::create_in_memory().await.expect("db");
     db.migrate().await.expect("migrate");
-    let service = TrainingService::with_db(db.clone(), std::env::temp_dir());
+    let temp_dir = TempDir::new_in(".").expect("tempdir");
+    let service = TrainingService::with_db(db.clone(), temp_dir.path().to_path_buf());
 
     let cfg = minimal_config();
     let result = service
@@ -119,7 +121,8 @@ async fn orch_rejects_synthetic_with_dataset_versions() {
 async fn orch_rejects_non_synthetic_without_datasets() {
     let mut db = DbFactory::create_in_memory().await.expect("db");
     db.migrate().await.expect("migrate");
-    let service = TrainingService::with_db(db.clone(), std::env::temp_dir());
+    let temp_dir = TempDir::new_in(".").expect("tempdir");
+    let service = TrainingService::with_db(db.clone(), temp_dir.path().to_path_buf());
 
     let cfg = minimal_config();
     let result = service
@@ -176,7 +179,8 @@ async fn orch_rejects_blocked_trust_state() {
         "hash-block",
     )
     .await;
-    let service = TrainingService::with_db(db.clone(), std::env::temp_dir());
+    let temp_dir = TempDir::new_in(".").expect("tempdir");
+    let service = TrainingService::with_db(db.clone(), temp_dir.path().to_path_buf());
 
     let cfg = minimal_config();
     let result = service
@@ -236,7 +240,8 @@ async fn orch_rejects_unknown_trust_as_needs_approval() {
         "hash-unknown",
     )
     .await;
-    let service = TrainingService::with_db(db.clone(), std::env::temp_dir());
+    let temp_dir = TempDir::new_in(".").expect("tempdir");
+    let service = TrainingService::with_db(db.clone(), temp_dir.path().to_path_buf());
 
     let cfg = minimal_config();
     let result = service
@@ -288,7 +293,8 @@ async fn orch_rejects_data_spec_hash_mismatch() {
     let mut db = DbFactory::create_in_memory().await.expect("db");
     db.migrate().await.expect("migrate");
     seed_dataset_version(&db, "ds-hash", "dsv-hash", "tenant-1", "allowed", "hash-ok").await;
-    let service = TrainingService::with_db(db.clone(), std::env::temp_dir());
+    let temp_dir = TempDir::new_in(".").expect("tempdir");
+    let service = TrainingService::with_db(db.clone(), temp_dir.path().to_path_buf());
 
     let cfg = minimal_config();
     let result = service

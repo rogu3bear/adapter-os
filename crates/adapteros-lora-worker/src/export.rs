@@ -17,21 +17,16 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 #[cfg(not(feature = "coreml-backend"))]
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
 pub enum ComputeUnits {
     CpuOnly,
     CpuAndGpu,
     CpuAndNeuralEngine,
+    #[default]
     All,
 }
 
 #[cfg(not(feature = "coreml-backend"))]
-impl Default for ComputeUnits {
-    fn default() -> Self {
-        ComputeUnits::All
-    }
-}
-
 #[cfg(not(feature = "coreml-backend"))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CoreMLFusionMetadata {

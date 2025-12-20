@@ -18,9 +18,18 @@ fn test_all_variants_exist() {
         FailureCode::BackendFallback,
         FailureCode::TenantAccessDenied,
         FailureCode::KvQuotaExceeded,
+        FailureCode::WorkerOverloaded,
+        // Boot-specific failure codes
+        FailureCode::BootDbUnreachable,
+        FailureCode::BootMigrationFailed,
+        FailureCode::BootSeedFailed,
+        FailureCode::BootNoWorkers,
+        FailureCode::BootNoModels,
+        FailureCode::BootDependencyTimeout,
+        FailureCode::BootConfigInvalid,
     ];
 
-    assert_eq!(variants.len(), 9, "Expected 9 failure code variants");
+    assert_eq!(variants.len(), 17, "Expected 17 failure code variants");
 }
 
 #[test]
@@ -37,55 +46,109 @@ fn test_as_str_all_variants() {
         "TENANT_ACCESS_DENIED"
     );
     assert_eq!(FailureCode::KvQuotaExceeded.as_str(), "KV_QUOTA_EXCEEDED");
+    assert_eq!(FailureCode::WorkerOverloaded.as_str(), "WORKER_OVERLOADED");
+    // Boot-specific failure codes
+    assert_eq!(
+        FailureCode::BootDbUnreachable.as_str(),
+        "BOOT_DB_UNREACHABLE"
+    );
+    assert_eq!(
+        FailureCode::BootMigrationFailed.as_str(),
+        "BOOT_MIGRATION_FAILED"
+    );
+    assert_eq!(FailureCode::BootSeedFailed.as_str(), "BOOT_SEED_FAILED");
+    assert_eq!(FailureCode::BootNoWorkers.as_str(), "BOOT_NO_WORKERS");
+    assert_eq!(FailureCode::BootNoModels.as_str(), "BOOT_NO_MODELS");
+    assert_eq!(
+        FailureCode::BootDependencyTimeout.as_str(),
+        "BOOT_DEPENDENCY_TIMEOUT"
+    );
+    assert_eq!(
+        FailureCode::BootConfigInvalid.as_str(),
+        "BOOT_CONFIG_INVALID"
+    );
 }
 
 #[test]
 fn test_from_str_all_valid_codes() {
     assert_eq!(
-        FailureCode::from_str("MIGRATION_INVALID"),
+        FailureCode::parse_code("MIGRATION_INVALID"),
         Some(FailureCode::MigrationInvalid)
     );
     assert_eq!(
-        FailureCode::from_str("MODEL_LOAD_FAILED"),
+        FailureCode::parse_code("MODEL_LOAD_FAILED"),
         Some(FailureCode::ModelLoadFailed)
     );
     assert_eq!(
-        FailureCode::from_str("OUT_OF_MEMORY"),
+        FailureCode::parse_code("OUT_OF_MEMORY"),
         Some(FailureCode::OutOfMemory)
     );
     assert_eq!(
-        FailureCode::from_str("TRACE_WRITE_FAILED"),
+        FailureCode::parse_code("TRACE_WRITE_FAILED"),
         Some(FailureCode::TraceWriteFailed)
     );
     assert_eq!(
-        FailureCode::from_str("RECEIPT_MISMATCH"),
+        FailureCode::parse_code("RECEIPT_MISMATCH"),
         Some(FailureCode::ReceiptMismatch)
     );
     assert_eq!(
-        FailureCode::from_str("POLICY_DIVERGENCE"),
+        FailureCode::parse_code("POLICY_DIVERGENCE"),
         Some(FailureCode::PolicyDivergence)
     );
     assert_eq!(
-        FailureCode::from_str("BACKEND_FALLBACK"),
+        FailureCode::parse_code("BACKEND_FALLBACK"),
         Some(FailureCode::BackendFallback)
     );
     assert_eq!(
-        FailureCode::from_str("TENANT_ACCESS_DENIED"),
+        FailureCode::parse_code("TENANT_ACCESS_DENIED"),
         Some(FailureCode::TenantAccessDenied)
     );
     assert_eq!(
-        FailureCode::from_str("KV_QUOTA_EXCEEDED"),
+        FailureCode::parse_code("KV_QUOTA_EXCEEDED"),
         Some(FailureCode::KvQuotaExceeded)
+    );
+    assert_eq!(
+        FailureCode::parse_code("WORKER_OVERLOADED"),
+        Some(FailureCode::WorkerOverloaded)
+    );
+    // Boot-specific failure codes
+    assert_eq!(
+        FailureCode::parse_code("BOOT_DB_UNREACHABLE"),
+        Some(FailureCode::BootDbUnreachable)
+    );
+    assert_eq!(
+        FailureCode::parse_code("BOOT_MIGRATION_FAILED"),
+        Some(FailureCode::BootMigrationFailed)
+    );
+    assert_eq!(
+        FailureCode::parse_code("BOOT_SEED_FAILED"),
+        Some(FailureCode::BootSeedFailed)
+    );
+    assert_eq!(
+        FailureCode::parse_code("BOOT_NO_WORKERS"),
+        Some(FailureCode::BootNoWorkers)
+    );
+    assert_eq!(
+        FailureCode::parse_code("BOOT_NO_MODELS"),
+        Some(FailureCode::BootNoModels)
+    );
+    assert_eq!(
+        FailureCode::parse_code("BOOT_DEPENDENCY_TIMEOUT"),
+        Some(FailureCode::BootDependencyTimeout)
+    );
+    assert_eq!(
+        FailureCode::parse_code("BOOT_CONFIG_INVALID"),
+        Some(FailureCode::BootConfigInvalid)
     );
 }
 
 #[test]
 fn test_from_str_invalid_codes() {
-    assert_eq!(FailureCode::from_str("UNKNOWN_CODE"), None);
-    assert_eq!(FailureCode::from_str("migration_invalid"), None); // lowercase
-    assert_eq!(FailureCode::from_str("MigrationInvalid"), None); // PascalCase
-    assert_eq!(FailureCode::from_str(""), None);
-    assert_eq!(FailureCode::from_str("RANDOM_TEXT"), None);
+    assert_eq!(FailureCode::parse_code("UNKNOWN_CODE"), None);
+    assert_eq!(FailureCode::parse_code("migration_invalid"), None); // lowercase
+    assert_eq!(FailureCode::parse_code("MigrationInvalid"), None); // PascalCase
+    assert_eq!(FailureCode::parse_code(""), None);
+    assert_eq!(FailureCode::parse_code("RANDOM_TEXT"), None);
 }
 
 #[test]
@@ -101,11 +164,20 @@ fn test_from_str_as_str_roundtrip() {
         FailureCode::BackendFallback,
         FailureCode::TenantAccessDenied,
         FailureCode::KvQuotaExceeded,
+        FailureCode::WorkerOverloaded,
+        // Boot-specific failure codes
+        FailureCode::BootDbUnreachable,
+        FailureCode::BootMigrationFailed,
+        FailureCode::BootSeedFailed,
+        FailureCode::BootNoWorkers,
+        FailureCode::BootNoModels,
+        FailureCode::BootDependencyTimeout,
+        FailureCode::BootConfigInvalid,
     ];
 
     for variant in variants {
         let str_repr = variant.as_str();
-        let parsed = FailureCode::from_str(str_repr);
+        let parsed = FailureCode::parse_code(str_repr);
         assert_eq!(parsed, Some(variant), "Roundtrip failed for {:?}", variant);
     }
 }
@@ -185,6 +257,21 @@ fn test_deserialize_all_variants() {
         (r#""BACKEND_FALLBACK""#, FailureCode::BackendFallback),
         (r#""TENANT_ACCESS_DENIED""#, FailureCode::TenantAccessDenied),
         (r#""KV_QUOTA_EXCEEDED""#, FailureCode::KvQuotaExceeded),
+        (r#""WORKER_OVERLOADED""#, FailureCode::WorkerOverloaded),
+        // Boot-specific failure codes
+        (r#""BOOT_DB_UNREACHABLE""#, FailureCode::BootDbUnreachable),
+        (
+            r#""BOOT_MIGRATION_FAILED""#,
+            FailureCode::BootMigrationFailed,
+        ),
+        (r#""BOOT_SEED_FAILED""#, FailureCode::BootSeedFailed),
+        (r#""BOOT_NO_WORKERS""#, FailureCode::BootNoWorkers),
+        (r#""BOOT_NO_MODELS""#, FailureCode::BootNoModels),
+        (
+            r#""BOOT_DEPENDENCY_TIMEOUT""#,
+            FailureCode::BootDependencyTimeout,
+        ),
+        (r#""BOOT_CONFIG_INVALID""#, FailureCode::BootConfigInvalid),
     ];
 
     for (json, expected) in test_cases {
@@ -225,6 +312,15 @@ fn test_serialize_deserialize_roundtrip() {
         FailureCode::BackendFallback,
         FailureCode::TenantAccessDenied,
         FailureCode::KvQuotaExceeded,
+        FailureCode::WorkerOverloaded,
+        // Boot-specific failure codes
+        FailureCode::BootDbUnreachable,
+        FailureCode::BootMigrationFailed,
+        FailureCode::BootSeedFailed,
+        FailureCode::BootNoWorkers,
+        FailureCode::BootNoModels,
+        FailureCode::BootDependencyTimeout,
+        FailureCode::BootConfigInvalid,
     ];
 
     for variant in variants {

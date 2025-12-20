@@ -321,7 +321,7 @@ impl StateManager {
         let temp_path = self.state_dir.join(format!("{}.tmp", filename));
 
         // Serialize state
-        let json = serde_json::to_string_pretty(state).map_err(|e| AosError::Serialization(e))?;
+        let json = serde_json::to_string_pretty(state).map_err(AosError::Serialization)?;
 
         // Write to temporary file
         let mut file = fs::File::create(&temp_path)
@@ -384,7 +384,7 @@ impl StateManager {
             .map_err(|e| AosError::Io(format!("Failed to read state file: {}", e)))?;
 
         let state: DownloadState =
-            serde_json::from_str(&contents).map_err(|e| AosError::Serialization(e))?;
+            serde_json::from_str(&contents).map_err(AosError::Serialization)?;
 
         debug!(
             model_id = %model_id,
@@ -459,7 +459,7 @@ impl StateManager {
             let path = entry.path();
 
             // Skip if not a state file
-            if !path.extension().map_or(false, |ext| ext == "json") {
+            if path.extension().is_none_or(|ext| ext != "json") {
                 continue;
             }
 
@@ -467,7 +467,7 @@ impl StateManager {
             if path
                 .file_name()
                 .and_then(|n| n.to_str())
-                .map_or(false, |n| n.ends_with(".tmp"))
+                .is_some_and(|n| n.ends_with(".tmp"))
             {
                 continue;
             }
@@ -548,7 +548,7 @@ impl StateManager {
             let path = entry.path();
 
             // Skip if not a state file
-            if !path.extension().map_or(false, |ext| ext == "json") {
+            if path.extension().is_none_or(|ext| ext != "json") {
                 continue;
             }
 
@@ -556,7 +556,7 @@ impl StateManager {
             if path
                 .file_name()
                 .and_then(|n| n.to_str())
-                .map_or(false, |n| n.ends_with(".tmp"))
+                .is_some_and(|n| n.ends_with(".tmp"))
             {
                 continue;
             }
@@ -609,15 +609,21 @@ impl StateManager {
 
 #[cfg(test)]
 mod tests {
-    //! Unit tests use tempfile::TempDir for actual isolation.
-    //! Fixture strings like "/tmp/..." are dummy data, not real paths.
+    //! Unit tests use `tempfile::TempDir`, but always under `var/tmp` (never OS temp).
+    //! Fixture strings like "var/..." are dummy data, not real paths.
     //! Production code should use ./var/ paths - see CLAUDE.md "Storage Paths".
     use super::*;
     use tempfile::TempDir;
 
+    fn new_test_tempdir() -> TempDir {
+        let root = std::path::PathBuf::from("var").join("tmp");
+        std::fs::create_dir_all(&root).expect("create var/tmp");
+        TempDir::new_in(&root).expect("tempdir")
+    }
+
     #[tokio::test]
     async fn test_save_and_load_state() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let manager = StateManager::new(temp_dir.path().to_path_buf());
 
         let mut state = DownloadState::new(
@@ -630,7 +636,7 @@ mod tests {
             "model.safetensors".to_string(),
             "https://example.com/model.safetensors".to_string(),
             1000,
-            "/tmp/model.partial".to_string(),
+            "var/model.partial".to_string(),
             "/models/model.safetensors".to_string(),
         ));
 
@@ -649,7 +655,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_load_nonexistent_state() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let manager = StateManager::new(temp_dir.path().to_path_buf());
 
         let result = manager.load_state("nonexistent").await.unwrap();
@@ -658,7 +664,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_delete_state() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let manager = StateManager::new(temp_dir.path().to_path_buf());
 
         let state = DownloadState::new(
@@ -688,7 +694,7 @@ mod tests {
             "model.safetensors".to_string(),
             "https://example.com/model.safetensors".to_string(),
             1000,
-            "/tmp/model.partial".to_string(),
+            "var/model.partial".to_string(),
             "/models/model.safetensors".to_string(),
         ));
 
@@ -719,7 +725,7 @@ mod tests {
             "model.safetensors".to_string(),
             "https://example.com/model.safetensors".to_string(),
             1000,
-            "/tmp/model.partial".to_string(),
+            "var/model.partial".to_string(),
             "/models/model.safetensors".to_string(),
         ));
 
@@ -745,7 +751,7 @@ mod tests {
             "model.safetensors".to_string(),
             "https://example.com/model.safetensors".to_string(),
             1000,
-            "/tmp/model.partial".to_string(),
+            "var/model.partial".to_string(),
             "/models/model.safetensors".to_string(),
         ));
 
@@ -789,7 +795,7 @@ mod tests {
             "file1.bin".to_string(),
             "https://example.com/file1.bin".to_string(),
             1000,
-            "/tmp/file1.partial".to_string(),
+            "var/file1.partial".to_string(),
             "/models/file1.bin".to_string(),
         ));
 
@@ -797,7 +803,7 @@ mod tests {
             "file2.bin".to_string(),
             "https://example.com/file2.bin".to_string(),
             2000,
-            "/tmp/file2.partial".to_string(),
+            "var/file2.partial".to_string(),
             "/models/file2.bin".to_string(),
         ));
 
@@ -829,7 +835,7 @@ mod tests {
             "model.safetensors".to_string(),
             "https://example.com/model.safetensors".to_string(),
             1000,
-            "/tmp/model.partial".to_string(),
+            "var/model.partial".to_string(),
             "/models/model.safetensors".to_string(),
         ));
 
@@ -853,7 +859,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_list_incomplete_downloads() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let manager = StateManager::new(temp_dir.path().to_path_buf());
 
         // Create incomplete state
@@ -866,7 +872,7 @@ mod tests {
             "model.bin".to_string(),
             "https://example.com/model.bin".to_string(),
             1000,
-            "/tmp/model.partial".to_string(),
+            "var/model.partial".to_string(),
             "/models/model.bin".to_string(),
         ));
         manager.save_state(&incomplete_state).await.unwrap();
@@ -881,7 +887,7 @@ mod tests {
             "model.bin".to_string(),
             "https://example.com/model.bin".to_string(),
             1000,
-            "/tmp/model.partial".to_string(),
+            "var/model.partial".to_string(),
             "/models/model.bin".to_string(),
         ));
         complete_state
@@ -897,7 +903,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cleanup_stale_states() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let manager = StateManager::new(temp_dir.path().to_path_buf());
 
         // Create state with old timestamp
@@ -933,7 +939,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_atomic_write() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let manager = StateManager::new(temp_dir.path().to_path_buf());
 
         let state = DownloadState::new(

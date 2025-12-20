@@ -14,7 +14,7 @@ use crate::output::OutputWriter;
 use adapteros_config::{
     resolve_base_model_location, DEFAULT_BASE_MODEL_ID, DEFAULT_MODEL_CACHE_ROOT,
 };
-use anyhow::{Context, Result};
+use anyhow::Result;
 use clap::Args;
 use comfy_table::{presets::UTF8_FULL, Cell, Color, Table};
 use serde::{Deserialize, Serialize};
@@ -208,15 +208,15 @@ pub async fn run(cmd: PreflightCommand, output: &OutputWriter) -> Result<()> {
         .count();
 
     // Display summary
-    output.info(&format!("\n📊 Summary: {} checks run", results.len()));
+    output.info(format!("\n📊 Summary: {} checks run", results.len()));
     if failures > 0 {
-        output.error(&format!("❌ {} critical failures", failures));
+        output.error(format!("❌ {} critical failures", failures));
         if cmd.fix {
             output.info("   Some issues could not be fixed automatically");
         }
     }
     if warnings > 0 {
-        output.warning(&format!("⚠️  {} warnings", warnings));
+        output.warning(format!("⚠️  {} warnings", warnings));
     }
     if failures == 0 && warnings == 0 {
         output.success("✅ All checks passed - system ready to launch!");
@@ -373,21 +373,50 @@ async fn check_model(cmd: &PreflightCommand) -> CheckResult {
 }
 
 fn resolve_model_path_from_inputs(cmd: &PreflightCommand) -> Result<PathBuf> {
+    // 1. Explicit command-line override takes precedence
     if let Some(path) = cmd.model_path.as_ref() {
         return Ok(PathBuf::from(path));
     }
 
+    // 2. Primary method: Use canonical resolver (matches server behavior)
+    //    This reads AOS_MODEL_CACHE_DIR and AOS_BASE_MODEL_ID
+    match resolve_base_model_location(None, None, false) {
+        Ok(loc) => return Ok(loc.full_path),
+        Err(e) => {
+            // If canonical resolver fails, try legacy fallbacks before giving up
+            tracing::debug!(
+                "Canonical model resolver failed ({}), trying legacy env vars",
+                e
+            );
+        }
+    }
+
+    // 3. Legacy fallback: AOS_MODEL_PATH (deprecated)
     if let Ok(path) = std::env::var("AOS_MODEL_PATH") {
+        eprintln!("⚠️  WARNING: Using deprecated AOS_MODEL_PATH environment variable.");
+        eprintln!(
+            "   Please migrate to AOS_MODEL_CACHE_DIR and AOS_BASE_MODEL_ID for consistency with server."
+        );
+        eprintln!("   Example: export AOS_MODEL_CACHE_DIR=~/.cache/adapteros/models");
+        eprintln!("            export AOS_BASE_MODEL_ID=Qwen/Qwen2.5-7B-Instruct-4bit\n");
         return Ok(PathBuf::from(path));
     }
 
+    // 4. Legacy fallback: AOS_MLX_FFI_MODEL (deprecated)
     if let Ok(path) = std::env::var("AOS_MLX_FFI_MODEL") {
+        eprintln!("⚠️  WARNING: Using deprecated AOS_MLX_FFI_MODEL environment variable.");
+        eprintln!(
+            "   Please migrate to AOS_MODEL_CACHE_DIR and AOS_BASE_MODEL_ID for consistency with server."
+        );
+        eprintln!("   Example: export AOS_MODEL_CACHE_DIR=~/.cache/adapteros/models");
+        eprintln!("            export AOS_BASE_MODEL_ID=Qwen/Qwen2.5-7B-Instruct-4bit\n");
         return Ok(PathBuf::from(path));
     }
 
-    resolve_base_model_location(None, None, false)
-        .map(|loc| loc.full_path)
-        .map_err(|e| anyhow::anyhow!(e.to_string()))
+    // 5. All methods failed
+    Err(anyhow::anyhow!(
+        "Failed to resolve model path. Set AOS_MODEL_CACHE_DIR and AOS_BASE_MODEL_ID, or use --model-path"
+    ))
 }
 
 /// Check database initialization and migrations
@@ -563,7 +592,7 @@ async fn check_backends() -> Vec<CheckResult> {
 
         // Check for Metal compiler
         let metal_available = Command::new("xcrun")
-            .args(&["metal", "--version"])
+            .args(["metal", "--version"])
             .output()
             .map(|o| o.status.success())
             .unwrap_or(false);
@@ -594,7 +623,7 @@ async fn check_backends() -> Vec<CheckResult> {
     // Check for MLX (optional)
     let mlx_available = std::env::var("MLX_PATH").is_ok()
         || Command::new("pkg-config")
-            .args(&["--modversion", "mlx"])
+            .args(["--modversion", "mlx"])
             .output()
             .map(|o| o.status.success())
             .unwrap_or(false);
@@ -622,7 +651,7 @@ async fn check_resources() -> Vec<CheckResult> {
     // Check available disk space
     #[cfg(target_os = "macos")]
     {
-        if let Ok(output) = Command::new("df").args(&["-h", "."]).output() {
+        if let Ok(output) = Command::new("df").args(["-h", "."]).output() {
             if let Ok(stdout) = String::from_utf8(output.stdout) {
                 // Parse df output to get available space
                 let lines: Vec<&str> = stdout.lines().collect();
@@ -640,7 +669,7 @@ async fn check_resources() -> Vec<CheckResult> {
     // Check available memory
     #[cfg(target_os = "macos")]
     {
-        if let Ok(output) = Command::new("sysctl").args(&["hw.memsize"]).output() {
+        if let Ok(output) = Command::new("sysctl").args(["hw.memsize"]).output() {
             if let Ok(stdout) = String::from_utf8(output.stdout) {
                 if let Some(mem_str) = stdout.split(':').nth(1) {
                     if let Ok(mem_bytes) = mem_str.trim().parse::<u64>() {

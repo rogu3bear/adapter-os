@@ -2,7 +2,14 @@
 
 use adapteros_lint::architectural::{check_file, ArchitecturalViolation};
 use std::fs;
+use std::path::PathBuf;
 use tempfile::TempDir;
+
+fn new_test_tempdir() -> TempDir {
+    let root = PathBuf::from("var").join("tmp");
+    std::fs::create_dir_all(&root).expect("create var/tmp");
+    TempDir::new_in(&root).expect("create temp dir")
+}
 
 #[test]
 fn test_ast_parsing_extracts_line_numbers() {
@@ -18,7 +25,7 @@ pub async fn test_handler(state: AppState) -> Result<()> {
 }
 "#;
 
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = new_test_tempdir();
     let test_file = temp_dir.path().join("test_handlers.rs");
     fs::write(&test_file, test_code).unwrap();
 
@@ -48,7 +55,7 @@ pub async fn handler(state: AppState) -> Result<()> {
 }
 "#;
 
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = new_test_tempdir();
     // Use "handlers" in path to trigger handler file detection
     let test_file = temp_dir.path().join("handlers").join("test.rs");
     fs::create_dir_all(test_file.parent().unwrap()).unwrap();
@@ -100,7 +107,7 @@ pub async fn handler(state: AppState) -> Result<()> {
 }
 "#;
 
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = new_test_tempdir();
     let test_file = temp_dir.path().join("test_handlers.rs");
     fs::write(&test_file, test_code).unwrap();
 
@@ -124,7 +131,7 @@ pub async fn handler(state: AppState) -> Result<()> {
 }
 "#;
 
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = new_test_tempdir();
     let test_file = temp_dir.path().join("test_handlers.rs");
     fs::write(&test_file, test_code).unwrap();
 

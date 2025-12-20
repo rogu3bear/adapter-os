@@ -133,8 +133,8 @@ enum TraceCommand {
     /// Export an offline trace bundle for replay verification
     #[command(after_help = "\
 Examples:
-  aosctl trace export --request basic --out ./tmp/basic
-  aosctl trace export --request cross-worker --out ./tmp/cross --fixtures ./test_data/replay_fixtures
+  aosctl trace export --request basic --out ./var/trace/basic
+  aosctl trace export --request cross-worker --out ./var/trace/cross --fixtures ./test_data/replay_fixtures
 ")]
     Export {
         /// Request identifier (maps to fixture directory)
@@ -361,6 +361,13 @@ Examples:
     /// Database management commands (migrate, reset)
     #[command(subcommand)]
     Db(commands::db::DbCommand),
+
+    // ============================================================
+    // Model Management
+    // ============================================================
+    /// Model management commands (seed, list)
+    #[command(subcommand)]
+    Models(commands::models::ModelsCommand),
 
     // ============================================================
     // Plan Management
@@ -713,10 +720,10 @@ Examples:
     #[command(after_help = "\
 Examples:
   # Replay exported trace (writes replay_report.json)
-  aosctl replay --dir ./tmp/basic --verify
+  aosctl replay --dir ./var/trace/basic --verify
 
   # Replay with custom report path
-  aosctl replay --dir ./tmp/basic --report ./tmp/result.json
+  aosctl replay --dir ./var/trace/basic --report ./var/trace/result.json
 ")]
     Replay {
         /// Directory containing exported trace artifacts
@@ -1547,6 +1554,11 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
             commands::db::handle_db_command(cmd.clone(), &output).await?;
         }
 
+        // Model Management
+        Commands::Models(cmd) => {
+            commands::models::handle_models_command(cmd.clone(), &output).await?;
+        }
+
         // Plan Management
         Commands::PlanBuild {
             manifest,
@@ -2179,6 +2191,7 @@ fn get_command_name(command: &Commands) -> String {
         Commands::Registry(_) => "registry",
         Commands::Storage(_) => "storage",
         Commands::Db(_) => "db",
+        Commands::Models(_) => "models",
         Commands::PlanBuild { .. } => "build-plan",
         Commands::ModelImport { .. } => "import-model",
         Commands::Telemetry(_) => "telemetry",

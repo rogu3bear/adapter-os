@@ -80,6 +80,16 @@ pub async fn security_headers_middleware(req: Request<axum::body::Body>, next: N
             .parse().expect("valid Permissions-Policy header value"),
     );
 
+    // HTTP Strict Transport Security (HSTS)
+    // max-age=31536000 (1 year), includeSubDomains for comprehensive protection
+    // Note: Only effective over HTTPS; browsers ignore this header over HTTP
+    headers.insert(
+        "Strict-Transport-Security",
+        "max-age=31536000; includeSubDomains"
+            .parse()
+            .expect("valid Strict-Transport-Security header value"),
+    );
+
     // Prevent caching of sensitive responses
     if should_add_cache_headers {
         headers.insert(
@@ -258,6 +268,105 @@ pub async fn request_size_limit_middleware(
     Ok(next.run(req).await)
 }
 
+/// CORS configuration validation error
+#[derive(Debug, Clone)]
+pub struct CorsConfigError {
+    pub message: String,
+}
+
+impl std::fmt::Display for CorsConfigError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+
+impl std::error::Error for CorsConfigError {}
+
+/// Validate CORS configuration at startup (fail-fast in production)
+///
+/// Returns an error if:
+/// - `AOS_PRODUCTION_MODE=true` and `ALLOWED_ORIGINS` is not set
+/// - `ALLOWED_ORIGINS` is set but contains no valid origins
+///
+/// # Returns
+/// - `Ok(())` if the configuration is valid
+/// - `Err(CorsConfigError)` if the configuration is invalid
+///
+/// # Example
+/// ```rust,ignore
+/// use adapteros_server_api::middleware_security::validate_cors_config;
+///
+/// // Call at server startup
+/// if let Err(e) = validate_cors_config() {
+///     eprintln!("FATAL: {}", e);
+///     std::process::exit(1);
+/// }
+/// ```
+pub fn validate_cors_config() -> Result<(), CorsConfigError> {
+    let is_production = std::env::var("AOS_PRODUCTION_MODE")
+        .map(|v| v == "true" || v == "1")
+        .unwrap_or(false);
+
+    let allowed_origins = std::env::var("ALLOWED_ORIGINS").ok();
+
+    if is_production {
+        match allowed_origins {
+            None => {
+                return Err(CorsConfigError {
+                    message: "CORS misconfiguration: AOS_PRODUCTION_MODE=true but ALLOWED_ORIGINS is not set. \
+                              Set ALLOWED_ORIGINS to a comma-separated list of allowed origins (e.g., 'https://app.example.com')."
+                        .to_string(),
+                });
+            }
+            Some(ref origins) => {
+                let valid_origins: Vec<_> = origins
+                    .split(',')
+                    .map(|s| s.trim())
+                    .filter(|s| !s.is_empty() && s.parse::<HeaderValue>().is_ok())
+                    .collect();
+
+                if valid_origins.is_empty() {
+                    return Err(CorsConfigError {
+                        message: format!(
+                            "CORS misconfiguration: ALLOWED_ORIGINS='{}' contains no valid origins. \
+                             Provide valid HTTP(S) URLs (e.g., 'https://app.example.com').",
+                            origins
+                        ),
+                    });
+                }
+
+                tracing::info!(
+                    origins = ?valid_origins,
+                    "CORS configuration validated for production mode"
+                );
+            }
+        }
+    } else if let Some(ref origins) = allowed_origins {
+        // Development mode with explicit origins - validate them
+        let valid_origins: Vec<_> = origins
+            .split(',')
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty() && s.parse::<HeaderValue>().is_ok())
+            .collect();
+
+        if valid_origins.is_empty() {
+            warn!(
+                origins = %origins,
+                "ALLOWED_ORIGINS set but contains no valid origins; using development defaults"
+            );
+        } else {
+            debug!(
+                origins = ?valid_origins,
+                "CORS configuration validated for development mode with explicit origins"
+            );
+        }
+    } else {
+        debug!("CORS using development defaults (localhost origins)");
+    }
+
+    Ok(())
+}
+
 /// CORS configuration layer
 ///
 /// Configures Cross-Origin Resource Sharing based on runtime environment:
@@ -266,6 +375,9 @@ pub async fn request_size_limit_middleware(
 /// - Otherwise: allow localhost origins for development
 ///
 /// Always uses explicit origins with credentials support (required for cookie auth).
+///
+/// **Important**: Call `validate_cors_config()` at server startup to fail-fast
+/// if production mode is enabled without proper ALLOWED_ORIGINS configuration.
 pub fn cors_layer() -> CorsLayer {
     use std::collections::HashSet;
 
@@ -288,12 +400,19 @@ pub fn cors_layer() -> CorsLayer {
         );
         Vec::new()
     } else {
-        // Development mode: localhost origins
+        // Development mode: localhost origins (respects AOS_UI_PORT and AOS_SERVER_PORT)
+        let ui_port = std::env::var("AOS_UI_PORT").unwrap_or_else(|_| "3200".to_string());
+        let server_port = std::env::var("AOS_SERVER_PORT").unwrap_or_else(|_| "8080".to_string());
+        tracing::warn!(
+            ui_port = %ui_port,
+            server_port = %server_port,
+            "CORS: Using development localhost defaults. Set ALLOWED_ORIGINS or AOS_PRODUCTION_MODE=true for production"
+        );
         [
-            "http://localhost:3200",
-            "http://localhost:8080",
-            "http://127.0.0.1:3200",
-            "http://127.0.0.1:8080",
+            format!("http://localhost:{}", ui_port),
+            format!("http://localhost:{}", server_port),
+            format!("http://127.0.0.1:{}", ui_port),
+            format!("http://127.0.0.1:{}", server_port),
         ]
         .into_iter()
         .filter_map(|o| o.parse().ok())
@@ -375,6 +494,12 @@ mod tests {
         assert_eq!(
             headers.get("Permissions-Policy"),
             Some(&HeaderValue::from_static(PERMISSIONS_POLICY_HEADER_VALUE))
+        );
+        assert_eq!(
+            headers.get("Strict-Transport-Security"),
+            Some(&HeaderValue::from_static(
+                "max-age=31536000; includeSubDomains"
+            ))
         );
     }
 
@@ -596,6 +721,134 @@ mod tests {
                 .is_none(),
             "origin should be rejected when production origins are not configured"
         );
+    }
+
+    // =========================================================================
+    // validate_cors_config() tests
+    // =========================================================================
+
+    #[test]
+    fn test_validate_cors_config_production_without_allowed_origins_fails() {
+        let _env_guard = EnvGuard::new();
+
+        std::env::set_var("AOS_PRODUCTION_MODE", "true");
+        std::env::remove_var("ALLOWED_ORIGINS");
+
+        let result = validate_cors_config();
+        assert!(
+            result.is_err(),
+            "Should fail in production without ALLOWED_ORIGINS"
+        );
+        let err = result.unwrap_err();
+        assert!(
+            err.message.contains("AOS_PRODUCTION_MODE=true"),
+            "Error should mention production mode: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn test_validate_cors_config_production_with_valid_origins_succeeds() {
+        let _env_guard = EnvGuard::new();
+
+        std::env::set_var("AOS_PRODUCTION_MODE", "true");
+        std::env::set_var("ALLOWED_ORIGINS", "https://app.example.com");
+
+        let result = validate_cors_config();
+        assert!(
+            result.is_ok(),
+            "Should succeed with valid ALLOWED_ORIGINS in production"
+        );
+    }
+
+    #[test]
+    fn test_validate_cors_config_production_with_multiple_valid_origins_succeeds() {
+        let _env_guard = EnvGuard::new();
+
+        std::env::set_var("AOS_PRODUCTION_MODE", "true");
+        std::env::set_var(
+            "ALLOWED_ORIGINS",
+            "https://app.example.com, https://admin.example.com",
+        );
+
+        let result = validate_cors_config();
+        assert!(
+            result.is_ok(),
+            "Should succeed with multiple valid ALLOWED_ORIGINS"
+        );
+    }
+
+    #[test]
+    fn test_validate_cors_config_production_with_empty_origins_fails() {
+        let _env_guard = EnvGuard::new();
+
+        std::env::set_var("AOS_PRODUCTION_MODE", "true");
+        std::env::set_var("ALLOWED_ORIGINS", "  ,  ,  ");
+
+        let result = validate_cors_config();
+        assert!(
+            result.is_err(),
+            "Should fail with empty/whitespace-only ALLOWED_ORIGINS"
+        );
+        let err = result.unwrap_err();
+        assert!(
+            err.message.contains("no valid origins"),
+            "Error should mention no valid origins: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn test_validate_cors_config_production_mode_variants() {
+        let _env_guard = EnvGuard::new();
+
+        // Test "1" as production mode
+        std::env::set_var("AOS_PRODUCTION_MODE", "1");
+        std::env::remove_var("ALLOWED_ORIGINS");
+
+        let result = validate_cors_config();
+        assert!(
+            result.is_err(),
+            "AOS_PRODUCTION_MODE=1 should be treated as production"
+        );
+
+        // Test "false" should not be production
+        std::env::set_var("AOS_PRODUCTION_MODE", "false");
+        let result = validate_cors_config();
+        assert!(
+            result.is_ok(),
+            "AOS_PRODUCTION_MODE=false should be development mode"
+        );
+    }
+
+    #[test]
+    fn test_validate_cors_config_development_mode_always_succeeds() {
+        let _env_guard = EnvGuard::new();
+
+        std::env::remove_var("AOS_PRODUCTION_MODE");
+        std::env::remove_var("ALLOWED_ORIGINS");
+
+        let result = validate_cors_config();
+        assert!(
+            result.is_ok(),
+            "Development mode should succeed without ALLOWED_ORIGINS"
+        );
+
+        // Also succeeds with explicit origins in dev mode
+        std::env::set_var("ALLOWED_ORIGINS", "http://localhost:3000");
+        let result = validate_cors_config();
+        assert!(
+            result.is_ok(),
+            "Development mode should succeed with ALLOWED_ORIGINS"
+        );
+    }
+
+    #[test]
+    fn test_cors_config_error_display() {
+        let err = CorsConfigError {
+            message: "Test error message".to_string(),
+        };
+        assert_eq!(format!("{}", err), "Test error message");
     }
 }
 

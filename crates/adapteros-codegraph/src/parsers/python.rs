@@ -520,7 +520,14 @@ impl LanguageParser for PythonParser {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
     use tempfile::TempDir;
+
+    fn new_test_tempdir() -> TempDir {
+        let root = PathBuf::from("var").join("tmp");
+        std::fs::create_dir_all(&root).expect("create var/tmp");
+        TempDir::new_in(&root).expect("Test temp directory creation should succeed")
+    }
 
     #[test]
     fn test_python_parser_creation() {
@@ -531,7 +538,7 @@ mod tests {
     #[test]
     fn test_parse_simple_function() {
         let mut parser = PythonParser::new().expect("PythonParser creation should succeed");
-        let temp_dir = TempDir::new().expect("Test temp directory creation should succeed");
+        let temp_dir = new_test_tempdir();
         let test_file = temp_dir.path().join("test.py");
 
         std::fs::write(&test_file, "def test_function():\n    return 42")
@@ -552,7 +559,7 @@ mod tests {
     #[test]
     fn test_parse_async_function() {
         let mut parser = PythonParser::new().expect("PythonParser creation should succeed");
-        let temp_dir = TempDir::new().expect("Test temp directory creation should succeed");
+        let temp_dir = new_test_tempdir();
         let test_file = temp_dir.path().join("test.py");
 
         std::fs::write(&test_file, "async def async_function():\n    return 42")
@@ -573,7 +580,7 @@ mod tests {
     #[test]
     fn test_parse_class() {
         let mut parser = PythonParser::new().expect("PythonParser creation should succeed");
-        let temp_dir = TempDir::new().expect("Test temp directory creation should succeed");
+        let temp_dir = new_test_tempdir();
         let test_file = temp_dir.path().join("test.py");
 
         std::fs::write(
@@ -599,7 +606,7 @@ mod tests {
     #[test]
     fn test_parse_import() {
         let mut parser = PythonParser::new().expect("PythonParser creation should succeed");
-        let temp_dir = TempDir::new().expect("Test temp directory creation should succeed");
+        let temp_dir = new_test_tempdir();
         let test_file = temp_dir.path().join("test.py");
 
         std::fs::write(&test_file, "import os\nfrom sys import path")
@@ -621,7 +628,7 @@ mod tests {
     #[test]
     fn test_parse_private_function() {
         let mut parser = PythonParser::new().expect("PythonParser creation should succeed");
-        let temp_dir = TempDir::new().expect("Test temp directory creation should succeed");
+        let temp_dir = new_test_tempdir();
         let test_file = temp_dir.path().join("test.py");
 
         std::fs::write(&test_file, "def _private_function():\n    pass")

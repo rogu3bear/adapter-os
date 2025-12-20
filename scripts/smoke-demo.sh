@@ -35,13 +35,14 @@ require_cmd() {
   command -v "$1" >/dev/null 2>&1 || die "Missing required command: $1"
 }
 
+TMP_ROOT="${AOS_VAR_DIR:-$ROOT_DIR/var}/tmp"
+if [[ "$TMP_ROOT" == /tmp* || "$TMP_ROOT" == /private/tmp* ]]; then
+  die "Refusing temporary directory under /tmp: $TMP_ROOT"
+fi
+mkdir -p "$TMP_ROOT"
+
 mktemp_dir() {
-  local dir=""
-  dir="$(mktemp -d 2>/dev/null || true)"
-  if [[ -z "$dir" ]]; then
-    dir="$(mktemp -d -t aos-smoke)"
-  fi
-  printf "%s" "$dir"
+  mktemp -d "${TMP_ROOT}/aos-smoke.XXXXXX"
 }
 
 TMP_DIR="$(mktemp_dir)"
@@ -376,4 +377,3 @@ main() {
 }
 
 main "$@"
-

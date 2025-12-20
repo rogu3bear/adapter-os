@@ -77,7 +77,7 @@ fn derive_display_name(email: &str) -> String {
                 email.to_string()
             } else {
                 prefix
-                    .split(|c: char| c == '.' || c == '_' || c == '-')
+                    .split(['.', '_', '-'])
                     .filter(|segment| !segment.is_empty())
                     .map(|segment| {
                         let mut chars = segment.chars();
@@ -99,7 +99,7 @@ fn derive_display_name(email: &str) -> String {
 
 /// Generate a secure random password
 fn generate_password() -> String {
-    let mut rng = OsRng;
+    let rng = OsRng;
     rng.sample_iter(&Alphanumeric)
         .take(24)
         .map(char::from)
@@ -230,7 +230,7 @@ pub async fn run(args: InitArgs, output: &OutputWriter) -> Result<()> {
                         "System already initialized with existing users"
                     );
                     output.warning("System appears to be already initialized");
-                    output.warning(&format!("Found {} existing users", user_count));
+                    output.warning(format!("Found {} existing users", user_count));
                     output.info("");
                     output.info("Continue anyway? (y/N): ");
 
@@ -260,11 +260,11 @@ pub async fn run(args: InitArgs, output: &OutputWriter) -> Result<()> {
     match test_api_connectivity(&args.api_url, 5).await {
         Ok(_) => {
             info!(api_url = %args.api_url, "API server reachable");
-            output.success(&format!("Server reachable at {}", args.api_url));
+            output.success(format!("Server reachable at {}", args.api_url));
         }
         Err(e) => {
             warn!(api_url = %args.api_url, error = %e, "API server not reachable");
-            output.warning(&format!("Could not connect to server: {}", e));
+            output.warning(format!("Could not connect to server: {}", e));
             output.info("");
             output.info("The server may not be running yet.");
             output.info("To start the server: cargo run --release -p adapteros-server");
@@ -330,7 +330,7 @@ pub async fn run(args: InitArgs, output: &OutputWriter) -> Result<()> {
             user_id = %existing_user.id,
             "User already exists"
         );
-        output.warning(&format!(
+        output.warning(format!(
             "User with email '{}' already exists (ID: {})",
             args.owner_email, existing_user.id
         ));
@@ -472,12 +472,10 @@ pub async fn run(args: InitArgs, output: &OutputWriter) -> Result<()> {
         output.result("  NEXT STEPS");
         output.result("=".repeat(60));
         output.blank();
-        output.result(&format!(
-            "1. Start the API server: cargo run -p adapteros-server-api"
-        ));
-        output.result(&format!("2. Start the UI: cd ui && pnpm dev"));
-        output.result(&format!("3. Access the UI at: {}", args.ui_url));
-        output.result(&format!("4. Login with the credentials above"));
+        output.result("1. Start the API server: cargo run -p adapteros-server-api");
+        output.result("2. Start the UI: cd ui && pnpm dev");
+        output.result(format!("3. Access the UI at: {}", args.ui_url));
+        output.result("4. Login with the credentials above");
         output.result("5. Change your password after first login");
         output.blank();
         output.warning("IMPORTANT: Store the password securely!");
@@ -485,10 +483,7 @@ pub async fn run(args: InitArgs, output: &OutputWriter) -> Result<()> {
         output.blank();
 
         if !args.skip_config {
-            output.info(&format!(
-                "Configuration saved to: {}",
-                config_path.display()
-            ));
+            output.info(format!("Configuration saved to: {}", config_path.display()));
         }
     }
 

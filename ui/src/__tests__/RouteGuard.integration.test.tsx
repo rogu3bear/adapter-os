@@ -462,10 +462,10 @@ describe('canAccessRoute helper', () => {
       path: '/security/audit',
       component: TestComponent,
       requiresAuth: true,
-      requiredPermissions: ['audit.view'],
+      requiredPermissions: ['audit:view'],
     };
 
-    expect(canAccessRoute(auditRoute, 'admin', ['adapter.view'])).toBe(false);
+    expect(canAccessRoute(auditRoute, 'admin', ['adapter:view'])).toBe(false);
   });
 
   it('should return true when user has required permissions', async () => {
@@ -474,9 +474,71 @@ describe('canAccessRoute helper', () => {
       path: '/security/audit',
       component: TestComponent,
       requiresAuth: true,
-      requiredPermissions: ['audit.view'],
+      requiredPermissions: ['audit:view'],
     };
 
-    expect(canAccessRoute(auditRoute, 'admin', ['audit.view'])).toBe(true);
+    expect(canAccessRoute(auditRoute, 'admin', ['audit:view'])).toBe(true);
+  });
+
+  it('should check roleVisibility when defined', async () => {
+    const { canAccessRoute } = await import('../config/routes');
+    const restrictedRoute = {
+      path: '/admin/settings',
+      component: TestComponent,
+      requiresAuth: true,
+      roleVisibility: ['admin', 'operator'],
+    };
+
+    // Admin should have visibility
+    expect(canAccessRoute(restrictedRoute, 'admin', [])).toBe(true);
+    // Operator should have visibility
+    expect(canAccessRoute(restrictedRoute, 'operator', [])).toBe(true);
+    // Viewer should NOT have visibility
+    expect(canAccessRoute(restrictedRoute, 'viewer', [])).toBe(false);
+  });
+
+  it('should allow developer to bypass roleVisibility', async () => {
+    const { canAccessRoute } = await import('../config/routes');
+    const restrictedRoute = {
+      path: '/admin/settings',
+      component: TestComponent,
+      requiresAuth: true,
+      roleVisibility: ['admin'],
+    };
+
+    // Developer bypasses all restrictions
+    expect(canAccessRoute(restrictedRoute, 'developer', [])).toBe(true);
+  });
+
+  it('should require both roleVisibility AND requiredPermissions when both are defined', async () => {
+    const { canAccessRoute } = await import('../config/routes');
+    const strictRoute = {
+      path: '/secure/action',
+      component: TestComponent,
+      requiresAuth: true,
+      roleVisibility: ['admin', 'operator'],
+      requiredPermissions: ['audit:view'],
+    };
+
+    // Has visibility but not permission
+    expect(canAccessRoute(strictRoute, 'operator', [])).toBe(false);
+    // Has permission but not visibility
+    expect(canAccessRoute(strictRoute, 'viewer', ['audit:view'])).toBe(false);
+    // Has both visibility and permission
+    expect(canAccessRoute(strictRoute, 'admin', ['audit:view'])).toBe(true);
+  });
+
+  it('should handle case-insensitive role comparisons', async () => {
+    const { canAccessRoute } = await import('../config/routes');
+    const route = {
+      path: '/test',
+      component: TestComponent,
+      requiresAuth: true,
+      roleVisibility: ['Admin', 'OPERATOR'],
+    };
+
+    // Lowercase role against mixed case visibility
+    expect(canAccessRoute(route, 'admin', [])).toBe(true);
+    expect(canAccessRoute(route, 'operator', [])).toBe(true);
   });
 });

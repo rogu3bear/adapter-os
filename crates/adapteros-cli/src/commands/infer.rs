@@ -8,7 +8,7 @@ use std::path::PathBuf;
 
 /// Run a local inference against the worker UDS server
 pub async fn run(
-    adapter: Option<String>,
+    _adapter: Option<String>,
     prompt: String,
     max_tokens: Option<usize>,
     require_evidence: bool,

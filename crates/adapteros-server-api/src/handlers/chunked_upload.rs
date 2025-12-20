@@ -693,7 +693,9 @@ mod tests {
 
     #[test]
     fn test_upload_session_creation() {
-        let temp_dir = std::env::temp_dir().join("test_sessions");
+        let temp_root = std::path::PathBuf::from("var/tmp");
+        std::fs::create_dir_all(&temp_root).unwrap();
+        let temp_dir = tempfile::TempDir::new_in(&temp_root).unwrap();
         let session = UploadSession {
             session_id: "test-123".to_string(),
             file_name: "data.jsonl".to_string(),
@@ -701,7 +703,7 @@ mod tests {
             chunk_size: 10_000_000,
             content_type: "application/jsonl".to_string(),
             received_chunks: HashMap::new(),
-            temp_dir,
+            temp_dir: temp_dir.path().to_path_buf(),
             created_at: std::time::SystemTime::now(),
             compression: CompressionFormat::None,
             is_resumed: false,

@@ -363,7 +363,21 @@ describe('Role permission assignments', () => {
     expect(adminPerms).toContain(PERMISSIONS.ADAPTER_DELETE);
     expect(adminPerms).toContain(PERMISSIONS.TENANT_MANAGE);
     expect(adminPerms).toContain(PERMISSIONS.POLICY_SIGN);
+    expect(adminPerms).toContain(PERMISSIONS.POLICY_OVERRIDE);
     expect(adminPerms).toContain(PERMISSIONS.NODE_MANAGE);
+  });
+
+  it('developer has policy override permission', () => {
+    const developerPerms = ROLE_PERMISSIONS.developer;
+    expect(developerPerms).toContain(PERMISSIONS.POLICY_OVERRIDE);
+  });
+
+  it('non-admin roles do not have policy override permission', () => {
+    expect(ROLE_PERMISSIONS.operator).not.toContain(PERMISSIONS.POLICY_OVERRIDE);
+    expect(ROLE_PERMISSIONS.sre).not.toContain(PERMISSIONS.POLICY_OVERRIDE);
+    expect(ROLE_PERMISSIONS.compliance).not.toContain(PERMISSIONS.POLICY_OVERRIDE);
+    expect(ROLE_PERMISSIONS.auditor).not.toContain(PERMISSIONS.POLICY_OVERRIDE);
+    expect(ROLE_PERMISSIONS.viewer).not.toContain(PERMISSIONS.POLICY_OVERRIDE);
   });
 
   it('operator has operational permissions but not admin-only', () => {

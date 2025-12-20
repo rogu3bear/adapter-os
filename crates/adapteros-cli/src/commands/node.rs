@@ -216,9 +216,7 @@ async fn list_nodes(offline: bool, json: bool, output: &OutputWriter) -> Result<
             "nodes": json_nodes,
             "total": nodes.len()
         });
-        output.result(
-            &serde_json::to_string_pretty(&response).map_err(|e| AosError::Serialization(e))?,
-        );
+        output.result(&serde_json::to_string_pretty(&response).map_err(AosError::Serialization)?);
         return Ok(());
     }
 
@@ -248,8 +246,8 @@ async fn list_nodes(offline: bool, json: bool, output: &OutputWriter) -> Result<
         ]);
     }
 
-    output.result(&format!("{}", table));
-    output.result(&format!("\nTotal: {} node(s)", nodes.len()));
+    output.result(format!("{}", table));
+    output.result(format!("\nTotal: {} node(s)", nodes.len()));
 
     // If not offline, query live status from node runtimes
     if !offline {
@@ -258,7 +256,7 @@ async fn list_nodes(offline: bool, json: bool, output: &OutputWriter) -> Result<
         for node in &nodes {
             match query_node_status(&node.agent_endpoint).await {
                 Ok(status) => {
-                    output.result(&format!(
+                    output.result(format!(
                         "  {} [{}]: {} workers, {} VRAM",
                         node.hostname,
                         &node.id[..8.min(node.id.len())],
@@ -267,7 +265,7 @@ async fn list_nodes(offline: bool, json: bool, output: &OutputWriter) -> Result<
                     ));
                 }
                 Err(e) => {
-                    output.warning(&format!(
+                    output.warning(format!(
                         "  {} [{}]: unreachable ({})",
                         node.hostname,
                         &node.id[..8.min(node.id.len())],
@@ -335,7 +333,7 @@ async fn verify_nodes(
             if let Some(node) = db.get_node(&id).await? {
                 selected.push(node);
             } else if !json {
-                output.warning(&format!("Node not found: {}", id));
+                output.warning(format!("Node not found: {}", id));
             }
         }
         selected
@@ -349,15 +347,14 @@ async fn verify_nodes(
                 "success": false,
                 "error": "No nodes to verify"
             });
-            output.result(
-                &serde_json::to_string_pretty(&response).map_err(|e| AosError::Serialization(e))?,
-            );
+            output
+                .result(&serde_json::to_string_pretty(&response).map_err(AosError::Serialization)?);
         }
         return Err(AosError::Validation("No nodes to verify".to_string()));
     }
 
     if !json {
-        output.info(&format!("Verifying {} node(s)...", nodes.len()));
+        output.info(format!("Verifying {} node(s)...", nodes.len()));
         output.blank();
     }
 
@@ -367,25 +364,25 @@ async fn verify_nodes(
 
     for node in &nodes {
         if !json {
-            output.result(&format!("  Querying {}... ", node.hostname));
+            output.result(format!("  Querying {}... ", node.hostname));
         }
 
         match query_node_hashes(&node.agent_endpoint).await {
             Ok(hashes) => {
                 if !json {
-                    output.success(&format!("{} hashes", hashes.len()));
+                    output.success(format!("{} hashes", hashes.len()));
                 }
 
                 for (component, hash) in hashes {
                     hash_map
                         .entry(component)
-                        .or_insert_with(Vec::new)
+                        .or_default()
                         .push((node.hostname.clone(), hash));
                 }
             }
             Err(e) => {
                 if !json {
-                    output.error(&format!("{}", e));
+                    output.error(format!("{}", e));
                 }
                 errors.push((node.hostname.clone(), e.to_string()));
             }
@@ -430,7 +427,7 @@ async fn verify_nodes(
             if consistent {
                 let hash = node_hashes[0].1.to_hex();
                 let short_hash = &hash[..12.min(hash.len())];
-                output.result(&format!(
+                output.result(format!(
                     "  {} {}: b3:{}... ({}/{} nodes)",
                     symbol,
                     component,
@@ -439,7 +436,7 @@ async fn verify_nodes(
                     nodes.len()
                 ));
             } else {
-                output.error(&format!(
+                output.error(format!(
                     "  {} {}: MISMATCH ({}/{} nodes)",
                     symbol,
                     component,
@@ -450,7 +447,7 @@ async fn verify_nodes(
                 // Show which nodes have which hashes
                 for (node, hash) in node_hashes {
                     let short_hash = &hash.to_hex()[..12.min(hash.to_hex().len())];
-                    output.result(&format!("      {} -> b3:{}...", node, short_hash));
+                    output.result(format!("      {} -> b3:{}...", node, short_hash));
                 }
             }
         }
@@ -463,7 +460,7 @@ async fn verify_nodes(
             output.blank();
             output.error("Errors:");
             for (node, error) in &errors {
-                output.error(&format!("  {}: {}", node, error));
+                output.error(format!("  {}: {}", node, error));
             }
         }
     }
@@ -475,9 +472,7 @@ async fn verify_nodes(
             "errors": errors.iter().map(|(n, e)| serde_json::json!({"node": n, "error": e})).collect::<Vec<_>>(),
             "total_nodes": nodes.len()
         });
-        output.result(
-            &serde_json::to_string_pretty(&response).map_err(|e| AosError::Serialization(e))?,
-        );
+        output.result(&serde_json::to_string_pretty(&response).map_err(AosError::Serialization)?);
     } else {
         output.blank();
         if all_consistent {
@@ -585,14 +580,14 @@ async fn sync_verify(from: &str, to: &str, output: &OutputWriter) -> Result<()> 
         if let Some(to_hash) = to_hashes.get(adapter_id) {
             if from_hash == to_hash {
                 matches += 1;
-                output.success(&format!("{}: match", adapter_id));
+                output.success(format!("{}: match", adapter_id));
             } else {
                 mismatches += 1;
-                output.error(&format!("{}: hash mismatch", adapter_id));
+                output.error(format!("{}: hash mismatch", adapter_id));
             }
         } else {
             missing += 1;
-            output.warning(&format!("{}: missing on target", adapter_id));
+            output.warning(format!("{}: missing on target", adapter_id));
         }
     }
 
@@ -633,7 +628,7 @@ async fn sync_push(to: &str, adapters: &[String], output: &OutputWriter) -> Resu
     output.info("Creating replication manifest...");
     let manifest = create_replication_manifest(&cas_store, adapters).await?;
 
-    output.info(&format!(
+    output.info(format!(
         "Replicating {} artifacts...",
         manifest.artifacts.len()
     ));
@@ -664,10 +659,7 @@ async fn sync_pull(from: &str, adapters: &[String], output: &OutputWriter) -> Re
     output.info("Requesting manifest...");
     let manifest = request_manifest(&from_node.agent_endpoint, adapters).await?;
 
-    output.info(&format!(
-        "Pulling {} artifacts...",
-        manifest.artifacts.len()
-    ));
+    output.info(format!("Pulling {} artifacts...", manifest.artifacts.len()));
 
     // Download artifacts
     let cas_store = adapteros_artifacts::CasStore::new("./var/cas")?;
@@ -686,7 +678,7 @@ async fn sync_export(file: &PathBuf, output: &OutputWriter) -> Result<()> {
 
     // Use replication module to create export bundle
     output.warning("Air-gap export not yet implemented");
-    output.result(&format!("Would export to: {}", file.display()));
+    output.result(format!("Would export to: {}", file.display()));
 
     Ok(())
 }
@@ -706,7 +698,7 @@ async fn sync_import(file: &PathBuf, output: &OutputWriter) -> Result<()> {
     }
 
     output.warning("Air-gap import not yet implemented");
-    output.result(&format!("Would import from: {}", file.display()));
+    output.result(format!("Would import from: {}", file.display()));
 
     Ok(())
 }
@@ -780,8 +772,7 @@ async fn create_replication_manifest(
         "session_id": session_id,
         "artifacts": artifacts,
     });
-    let manifest_bytes =
-        serde_json::to_vec(&manifest_content).map_err(|e| AosError::Serialization(e))?;
+    let manifest_bytes = serde_json::to_vec(&manifest_content).map_err(AosError::Serialization)?;
 
     // Sign with Ed25519
     // Try to load signing key from environment or generate ephemeral one

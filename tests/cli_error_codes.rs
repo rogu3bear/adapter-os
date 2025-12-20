@@ -67,7 +67,7 @@ fn test_error_codes_list() {
     assert!(stdout.contains("Kernels/Build/Manifest"));
     assert!(stdout.contains("Telemetry/Chain"));
     assert!(stdout.contains("Artifacts/CAS"));
-    assert!(stdout.contains("Adapters/MPLoRA"));
+    assert!(stdout.contains("Adapters/DIR"));
     assert!(stdout.contains("Node/Cluster"));
     assert!(stdout.contains("CLI/Config"));
     assert!(stdout.contains("OS/Environment"));

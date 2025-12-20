@@ -61,12 +61,13 @@ fn build_adapter(u: &mut Unstructured<'_>, idx: usize) -> Option<AdapterInfo> {
         tier,
         scope_path,
         lora_tier,
+        base_model: None,
     })
 }
 
 fn build_weights(u: &mut Unstructured<'_>) -> Option<RouterWeights> {
     let weight = |u: &mut Unstructured<'_>| next_clamped(u, -2.0, 2.0, 0.0);
-    Some(RouterWeights::new_with_mplora(
+    Some(RouterWeights::new_with_dir_weights(
         weight(u)?,
         weight(u)?,
         weight(u)?,

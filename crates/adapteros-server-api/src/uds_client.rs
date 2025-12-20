@@ -68,6 +68,29 @@ pub enum UdsClientError {
     WorkerNotAvailable(String),
     #[error("Routing bypass detected: {0}")]
     RoutingBypass(String),
+    /// Worker is at capacity but healthy - caller should retry with a different worker
+    #[error("Worker overloaded (retry after {retry_after_ms}ms)")]
+    WorkerOverloaded {
+        retry_after_ms: u64,
+        message: String,
+    },
+    /// Model cache budget exceeded in worker
+    #[error("Model cache budget exceeded: needed {needed_mb} MB, freed {freed_mb} MB (pinned={pinned_count}, active={active_count}), max {max_mb} MB")]
+    CacheBudgetExceeded {
+        needed_mb: u64,
+        freed_mb: u64,
+        pinned_count: usize,
+        active_count: usize,
+        max_mb: u64,
+        model_key: Option<String>,
+    },
+}
+
+impl UdsClientError {
+    /// Returns true if this error indicates the worker is healthy but at capacity
+    pub fn is_backpressure(&self) -> bool {
+        matches!(self, UdsClientError::WorkerOverloaded { .. })
+    }
 }
 
 /// UDS client for communicating with workers
@@ -127,8 +150,10 @@ impl UdsClient {
         let request_json = serde_json::to_string(&request)
             .map_err(|e| UdsClientError::SerializationError(e.to_string()))?;
 
+        // Worker authentication: Use Bearer format for Ed25519-signed JWTs
+        // The worker validates these tokens using the control plane's public key
         let auth_header = authorization
-            .map(|token| format!("Authorization: ApiKey {}\r\n", token))
+            .map(|token| format!("Authorization: Bearer {}\r\n", token))
             .unwrap_or_default();
 
         // Create HTTP request
@@ -169,6 +194,68 @@ impl UdsClient {
         // Check status line
         let status_line = lines[0];
         if !status_line.contains("200 OK") {
+            // Check for 503 backpressure response (worker healthy but at capacity)
+            if status_line.contains("503") {
+                // Try to parse the JSON body for retry_after_ms
+                let bp_json_str = response_str
+                    .find("\r\n\r\n")
+                    .and_then(|pos| response_str.get(pos + 4..))
+                    .unwrap_or("{}");
+
+                #[derive(Deserialize)]
+                struct OverloadResponse {
+                    #[serde(default)]
+                    retry_after_ms: u64,
+                    #[serde(default)]
+                    message: String,
+                }
+
+                let overload: OverloadResponse =
+                    serde_json::from_str(bp_json_str).unwrap_or(OverloadResponse {
+                        retry_after_ms: 100,
+                        message: "Worker overloaded".to_string(),
+                    });
+
+                return Err(UdsClientError::WorkerOverloaded {
+                    retry_after_ms: overload.retry_after_ms,
+                    message: overload.message,
+                });
+            }
+
+            // Try to parse the JSON body for structured error details
+            let error_json_str = response_str
+                .find("\r\n\r\n")
+                .and_then(|pos| response_str.get(pos + 4..))
+                .unwrap_or("{}");
+
+            // Check for cache budget exceeded error by parsing error body
+            #[derive(Deserialize)]
+            struct WorkerErrorResponse {
+                #[serde(default)]
+                error: String,
+            }
+
+            if let Ok(err_response) = serde_json::from_str::<WorkerErrorResponse>(error_json_str) {
+                // Check if error message indicates cache budget exceeded
+                if err_response.error.contains("cache budget exceeded")
+                    || err_response.error.contains("Model cache budget exceeded")
+                {
+                    // Try to parse structured fields from the error message
+                    if let Some((needed_mb, freed_mb, pinned_count, active_count, max_mb)) =
+                        parse_cache_budget_error(&err_response.error)
+                    {
+                        return Err(UdsClientError::CacheBudgetExceeded {
+                            needed_mb,
+                            freed_mb,
+                            pinned_count,
+                            active_count,
+                            max_mb,
+                            model_key: None,
+                        });
+                    }
+                }
+            }
+
             return Err(UdsClientError::RequestFailed(format!(
                 "Worker returned error: {}",
                 status_line
@@ -353,6 +440,33 @@ impl UdsClient {
         // Check status line
         let status_line = lines[0];
         if !status_line.contains("200 OK") {
+            // Check for 503 backpressure response (worker healthy but at capacity)
+            if status_line.contains("503") {
+                let bp_json_str = response_str
+                    .find("\r\n\r\n")
+                    .and_then(|pos| response_str.get(pos + 4..))
+                    .unwrap_or("{}");
+
+                #[derive(Deserialize)]
+                struct OverloadResponse {
+                    #[serde(default)]
+                    retry_after_ms: u64,
+                    #[serde(default)]
+                    message: String,
+                }
+
+                let overload: OverloadResponse =
+                    serde_json::from_str(bp_json_str).unwrap_or(OverloadResponse {
+                        retry_after_ms: 100,
+                        message: "Worker overloaded".to_string(),
+                    });
+
+                return Err(UdsClientError::WorkerOverloaded {
+                    retry_after_ms: overload.retry_after_ms,
+                    message: overload.message,
+                });
+            }
+
             return Err(UdsClientError::RequestFailed(format!(
                 "Worker returned error: {}",
                 status_line
@@ -698,6 +812,47 @@ impl UdsClient {
         Ok(())
     }
 
+    /// Cancel an active inference request via UDS
+    ///
+    /// Sends a cancellation request to the worker for the specified request_id.
+    /// The worker should abort the inference loop and return early.
+    pub async fn cancel_inference(
+        &self,
+        uds_path: &Path,
+        request_id: &str,
+    ) -> Result<(), UdsClientError> {
+        let mut stream = tokio::time::timeout(self.timeout, UnixStream::connect(uds_path))
+            .await
+            .map_err(|_| UdsClientError::Timeout("Connection timed out".to_string()))?
+            .map_err(|e| UdsClientError::ConnectionFailed(e.to_string()))?;
+
+        let http_request = format!(
+            "POST /inference/cancel/{} HTTP/1.1\r\nHost: worker\r\n\r\n",
+            request_id
+        );
+
+        tokio::time::timeout(self.timeout, stream.write_all(http_request.as_bytes()))
+            .await
+            .map_err(|_| UdsClientError::Timeout("Write timed out".to_string()))?
+            .map_err(|e| UdsClientError::RequestFailed(e.to_string()))?;
+
+        let mut response_buffer = Vec::new();
+        tokio::time::timeout(self.timeout, stream.read_to_end(&mut response_buffer))
+            .await
+            .map_err(|_| UdsClientError::Timeout("Read timed out".to_string()))?
+            .map_err(|e| UdsClientError::RequestFailed(e.to_string()))?;
+
+        let response_str = String::from_utf8_lossy(&response_buffer);
+        if !response_str.contains("200 OK") {
+            return Err(UdsClientError::RequestFailed(format!(
+                "Inference cancellation failed: {}",
+                response_str.lines().next().unwrap_or("Unknown error")
+            )));
+        }
+
+        Ok(())
+    }
+
     /// Cancel a training job via UDS
     ///
     /// Sends a cancellation request to the worker and waits for confirmation.
@@ -798,6 +953,56 @@ pub struct ModelLoadResponse {
     pub error: Option<String>,
     /// Timestamp of when model was loaded
     pub loaded_at: Option<String>,
+}
+
+/// Parse cache budget exceeded error message to extract structured fields.
+///
+/// Expected format: "Model cache budget exceeded: needed X MB, freed Y MB (pinned=N, active=M), max Z MB"
+fn parse_cache_budget_error(msg: &str) -> Option<(u64, u64, usize, usize, u64)> {
+    // Look for the key numbers in the message
+    // Example: "Model cache budget exceeded: needed 8192 MB, freed 2048 MB (pinned=3, active=2), max 4096 MB"
+
+    let needed_mb = msg.find("needed ").and_then(|i| {
+        let start = i + 7;
+        let rest = &msg[start..];
+        rest.split_whitespace()
+            .next()
+            .and_then(|s| s.parse::<u64>().ok())
+    })?;
+
+    let freed_mb = msg.find("freed ").and_then(|i| {
+        let start = i + 6;
+        let rest = &msg[start..];
+        rest.split_whitespace()
+            .next()
+            .and_then(|s| s.parse::<u64>().ok())
+    })?;
+
+    let pinned_count = msg.find("pinned=").and_then(|i| {
+        let start = i + 7;
+        let rest = &msg[start..];
+        rest.split(|c: char| !c.is_ascii_digit())
+            .next()
+            .and_then(|s| s.parse::<usize>().ok())
+    })?;
+
+    let active_count = msg.find("active=").and_then(|i| {
+        let start = i + 7;
+        let rest = &msg[start..];
+        rest.split(|c: char| !c.is_ascii_digit())
+            .next()
+            .and_then(|s| s.parse::<usize>().ok())
+    })?;
+
+    let max_mb = msg.find("max ").and_then(|i| {
+        let start = i + 4;
+        let rest = &msg[start..];
+        rest.split_whitespace()
+            .next()
+            .and_then(|s| s.parse::<u64>().ok())
+    })?;
+
+    Some((needed_mb, freed_mb, pinned_count, active_count, max_mb))
 }
 
 /// Response from training job cancellation

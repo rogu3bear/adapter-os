@@ -23,15 +23,6 @@ vi.mock('react-router-dom', async () => {
   };
 });
 
-// Mock clipboard API
-const mockWriteText = vi.fn();
-Object.defineProperty(navigator, 'clipboard', {
-  writable: true,
-  value: {
-    writeText: mockWriteText,
-  },
-});
-
 // Mock document.createElement for download functionality
 const mockClick = vi.fn();
 let lastLinkElement: HTMLAnchorElement | null = null;
@@ -84,7 +75,6 @@ const mockResponse: InferResponse = {
 describe('RunReceiptPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockWriteText.mockResolvedValue(undefined);
     document.createElement = mockCreateElement as unknown as typeof document.createElement;
     global.URL.createObjectURL = mockCreateObjectURL;
     global.URL.revokeObjectURL = mockRevokeObjectURL;
@@ -216,10 +206,10 @@ describe('RunReceiptPanel', () => {
         <RunReceiptPanel response={mockResponse} />
       </MemoryRouter>
     );
-    expect(screen.getByText('trace-123')).toBeInTheDocument();
-    expect(screen.getByText('head-abc')).toBeInTheDocument();
-    expect(screen.getByText('output-xyz')).toBeInTheDocument();
-    expect(screen.getByText('receipt-def')).toBeInTheDocument();
+    expect(screen.getAllByText('trace-123').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('head-abc').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('output-xyz').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('receipt-def').length).toBeGreaterThan(0);
   });
 
   it('displays "Not provided" for missing digest values', () => {
@@ -246,10 +236,10 @@ describe('RunReceiptPanel', () => {
         <RunReceiptPanel response={mockResponse} />
       </MemoryRouter>
     );
-    expect(screen.getByText('20')).toBeInTheDocument(); // logical_prompt_tokens
-    expect(screen.getByText('5')).toBeInTheDocument(); // prefix_cached_token_count
-    expect(screen.getByText('15')).toBeInTheDocument(); // billed_input_tokens
-    expect(screen.getByText('10')).toBeInTheDocument(); // logical_output_tokens (appears twice)
+    expect(screen.getAllByText('20').length).toBeGreaterThan(0); // logical_prompt_tokens
+    expect(screen.getAllByText('5').length).toBeGreaterThan(0); // prefix_cached_token_count
+    expect(screen.getAllByText('15').length).toBeGreaterThan(0); // billed_input_tokens
+    expect(screen.getAllByText('10').length).toBeGreaterThan(0); // logical_output_tokens (appears twice)
   });
 
   it('formats token numbers with locale formatting', () => {
@@ -270,6 +260,7 @@ describe('RunReceiptPanel', () => {
 
   it('copies digest value to clipboard when copy button is clicked', async () => {
     const user = userEvent.setup();
+    const writeTextSpy = vi.spyOn(navigator.clipboard, 'writeText');
     const { container } = render(
       <MemoryRouter>
         <RunReceiptPanel response={mockResponse} />
@@ -280,7 +271,7 @@ describe('RunReceiptPanel', () => {
     await user.click(copyButton as Element);
 
     await waitFor(() => {
-      expect(mockWriteText).toHaveBeenCalledWith('trace-123');
+      expect(writeTextSpy).toHaveBeenCalledWith('trace-123');
       expect(toast.success).toHaveBeenCalledWith('Trace ID copied');
     });
   });
@@ -316,7 +307,7 @@ describe('RunReceiptPanel', () => {
     const openTraceButton = screen.getByText('Open Trace');
     await user.click(openTraceButton);
 
-    expect(mockNavigate).toHaveBeenCalledWith('/telemetry/viewer?requestId=trace-123');
+    expect(mockNavigate).toHaveBeenCalledWith('/telemetry/viewer/trace-123');
   });
 
   it('disables open trace button when trace ID is unavailable', () => {

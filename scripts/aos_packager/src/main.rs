@@ -30,6 +30,8 @@ struct AdapterManifest {
     signature: Option<String>,
     public_key: Option<String>,
     training_config: Option<TrainingConfig>,
+    #[serde(default)]
+    kernel_version: Option<String>,
     metadata: HashMap<String, serde_json::Value>,
 }
 
@@ -327,6 +329,7 @@ fn package_adapter(
             }),
             weight_decay: Some(0.01),
         }),
+        kernel_version: Some(adapteros_core::version::VERSION.to_string()),
         metadata: HashMap::new(),
     };
 
@@ -690,7 +693,9 @@ mod tests {
     #[test]
     #[serial]
     fn adapters_base_prefers_env() {
-        let tmp = tempfile::tempdir().unwrap();
+        let tmp_root = PathBuf::from("var").join("tmp");
+        std::fs::create_dir_all(&tmp_root).expect("create var/tmp");
+        let tmp = tempfile::tempdir_in(&tmp_root).expect("tempdir");
         std::env::set_var(AOS_ADAPTERS_DIR_ENV, tmp.path());
 
         let base = adapters_output_base();

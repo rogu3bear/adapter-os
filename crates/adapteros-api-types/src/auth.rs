@@ -141,3 +141,47 @@ pub struct MfaStatusResponse {
 pub struct LogoutRequest {
     // Future: could include session invalidation details
 }
+
+/// Session information for audit/management
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct SessionInfo {
+    pub jti: String,
+    pub created_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ip_address: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_agent: Option<String>,
+    pub last_activity: String,
+}
+
+/// Token refresh response
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct RefreshResponse {
+    pub token: String,
+    pub expires_at: i64,
+}
+
+/// Authentication configuration (public subset)
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct AuthConfigResponse {
+    pub dev_bypass_allowed: bool,
+    pub mfa_required: bool,
+    pub session_timeout_seconds: i64,
+    pub max_sessions_per_user: i32,
+}
+
+/// User role enum (must match DB)
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum UserRole {
+    Admin,
+    Developer,
+    Operator,
+    Sre,
+    Compliance,
+    Auditor,
+    Viewer,
+}

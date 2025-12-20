@@ -326,10 +326,17 @@ impl OutputHashManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
     use tempfile::TempDir;
 
+    fn new_test_tempdir() -> TempDir {
+        let root = PathBuf::from("var").join("tmp");
+        std::fs::create_dir_all(&root).expect("create var/tmp");
+        TempDir::new_in(&root).expect("create temp dir")
+    }
+
     async fn setup_test_db() -> Result<Db> {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let db_path = temp_dir.path().join("test.db");
         let db = Db::connect(db_path.to_str().unwrap()).await?;
         db.migrate().await?;

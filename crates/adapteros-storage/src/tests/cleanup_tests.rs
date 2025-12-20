@@ -2,16 +2,16 @@
 //!
 //! Tests for automatic storage cleanup and file pattern matching.
 
+use super::new_test_tempdir;
 use crate::cleanup::CleanupManager;
 use crate::{CleanupPolicy, StorageConfig};
 use adapteros_core::Result;
 use std::fs;
 use std::time::Duration;
-use tempfile::TempDir;
 
 #[tokio::test]
 async fn test_cleanup_manager_creation() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
     let config = StorageConfig {
         max_disk_space_bytes: 1000,
         max_files: 100,
@@ -36,7 +36,7 @@ async fn test_cleanup_manager_creation() -> Result<()> {
 
 #[tokio::test]
 async fn test_cleanup_tmp_files() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
     let config = StorageConfig {
         max_disk_space_bytes: 1000,
         max_files: 100,

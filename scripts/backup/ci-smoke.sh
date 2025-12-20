@@ -3,7 +3,10 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-ROOT="$(mktemp -d "${TMPDIR:-/tmp}/aos-backup-ci.XXXXXX")"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+TMP_ROOT="${REPO_ROOT}/var/tmp"
+mkdir -p "${TMP_ROOT}"
+ROOT="$(mktemp -d "${TMP_ROOT}/aos-backup-ci.XXXXXX")"
 DATA_ROOT="${ROOT}/data"
 VAR_DIR="${DATA_ROOT}/var"
 CONFIG_DIR="${DATA_ROOT}/configs"
@@ -59,4 +62,3 @@ AOS_TARGET_ROOT="${TARGET_ROOT}" \
   "${SCRIPT_DIR}/test-restore.sh"
 
 echo "CI smoke completed successfully"
-

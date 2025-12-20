@@ -9,7 +9,7 @@ const mockCreateEvidence = vi.fn();
 const mockDownloadEvidence = vi.fn();
 const mockInvalidateEvidence = vi.fn();
 
-vi.mock('@/hooks/useEvidenceApi', () => ({
+vi.mock('@/hooks/api/useEvidenceApi', () => ({
   useEvidenceApi: () => ({
     evidence: {
       data: mockEvidenceData,

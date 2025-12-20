@@ -82,7 +82,7 @@ describe('Single File Trainer dataset-first flow', () => {
           hash_b3: 'hash-doc',
           size_bytes: 128,
           mime_type: 'text/markdown',
-          storage_path: '/tmp/doc_123',
+          storage_path: 'var/test-documents/doc_123',
           status: 'processing',
           chunk_count: null,
           tenant_id: 'default',
@@ -119,7 +119,7 @@ describe('Single File Trainer dataset-first flow', () => {
           total_size_bytes: 512,
           format: 'jsonl',
           hash: 'hash-ds',
-          storage_path: '/tmp/ds_123',
+          storage_path: 'var/test-datasets/ds_123',
           validation_status: 'valid',
           created_by: 'tester',
           created_at: new Date().toISOString(),
@@ -139,7 +139,7 @@ describe('Single File Trainer dataset-first flow', () => {
           dataset_id: req.body.dataset_id,
           adapter_id: 'adapter_123',
           stack_id: 'stack_456',
-          aos_path: '/tmp/adapter_123.aos',
+          aos_path: 'var/test-adapters/adapter_123.aos',
           status: 'running',
           progress_pct: 10,
           created_at: new Date().toISOString(),
@@ -155,7 +155,7 @@ describe('Single File Trainer dataset-first flow', () => {
         dataset_id: 'ds_123',
         adapter_id: 'adapter_123',
         stack_id: 'stack_456',
-        aos_path: '/tmp/adapter_123.aos',
+        aos_path: 'var/test-adapters/adapter_123.aos',
         status: 'completed',
         progress_pct: 100,
         current_epoch: 3,
@@ -198,4 +198,3 @@ describe('Single File Trainer dataset-first flow', () => {
     cy.contains('View Stack').should('be.visible');
   });
 });
-

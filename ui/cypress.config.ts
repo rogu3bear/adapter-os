@@ -11,6 +11,8 @@ const workspaceRoot = path.resolve(__dirname, '..');
 
 export default defineConfig({
   e2e: {
+    // Port offset strategy: CYPRESS_BASE_URL=http://localhost:${AOS_UI_PORT}
+    // Default: 3200, Developer B: 3300 (+100), Developer C: 3400 (+200)
     baseUrl: process.env.CYPRESS_BASE_URL || 'http://localhost:3200',
     specPattern: 'e2e/cypress/e2e/**/*.cy.ts',
     supportFile: 'e2e/cypress/support/index.ts',
@@ -24,6 +26,8 @@ export default defineConfig({
     responseTimeout: 30000, // 30 seconds for response
     pageLoadTimeout: 60000, // 60 seconds for page loads
     env: {
+      // Port offset strategy: CYPRESS_API_BASE_URL=http://localhost:${AOS_SERVER_PORT}
+      // Default: 8080, Developer B: 8180 (+100), Developer C: 8280 (+200)
       API_BASE_URL: process.env.CYPRESS_API_BASE_URL || 'http://localhost:8080',
       TEST_USER_EMAIL: process.env.CYPRESS_TEST_USER_EMAIL || 'test@example.com',
       TEST_USER_PASSWORD: process.env.CYPRESS_TEST_USER_PASSWORD || 'password',

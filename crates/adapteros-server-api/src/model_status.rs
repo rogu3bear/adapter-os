@@ -147,19 +147,19 @@ mod tests {
 
     #[test]
     fn normalizes_ready_and_legacy_loaded() {
-        assert_eq!(ModelLoadStatus::Ready, ModelLoadStatus::from_str("ready"));
-        assert_eq!(ModelLoadStatus::Ready, ModelLoadStatus::from_str("loaded"));
+        assert_eq!(ModelLoadStatus::Ready, ModelLoadStatus::parse_status("ready"));
+        assert_eq!(ModelLoadStatus::Ready, ModelLoadStatus::parse_status("loaded"));
     }
 
     #[test]
     fn normalizes_no_model_variants() {
         assert_eq!(
             ModelLoadStatus::NoModel,
-            ModelLoadStatus::from_str("no-model")
+            ModelLoadStatus::parse_status("no-model")
         );
         assert_eq!(
             ModelLoadStatus::NoModel,
-            ModelLoadStatus::from_str("unloaded")
+            ModelLoadStatus::parse_status("unloaded")
         );
     }
 }

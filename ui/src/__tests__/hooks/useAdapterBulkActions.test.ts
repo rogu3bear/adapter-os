@@ -9,7 +9,7 @@ const mockUnloadAdapter = vi.fn();
 const mockDeleteAdapter = vi.fn();
 const mockRegisterAdapter = vi.fn();
 
-vi.mock('@/api/client', () => ({
+vi.mock('@/api/services', () => ({
   default: {
     loadAdapter: (...args: unknown[]) => mockLoadAdapter(...args),
     unloadAdapter: (...args: unknown[]) => mockUnloadAdapter(...args),

@@ -47,10 +47,7 @@ impl From<tantivy::query::QueryParserError> for SearchError {
 
 impl From<tantivy::directory::error::OpenDirectoryError> for SearchError {
     fn from(err: tantivy::directory::error::OpenDirectoryError) -> Self {
-        SearchError::Io(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            err.to_string(),
-        ))
+        SearchError::Io(std::io::Error::other(err.to_string()))
     }
 }
 

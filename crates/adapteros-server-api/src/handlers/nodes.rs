@@ -1,5 +1,7 @@
 use crate::auth::Claims;
-use crate::error_helpers::{db_error_msg, db_error_with_details};
+use crate::error_helpers::{
+    conflict, db_error_msg, db_error_with_details, internal_error_msg, not_found,
+};
 use crate::middleware::require_any_role;
 use crate::state::AppState;
 use crate::types::*;
@@ -50,22 +52,21 @@ pub async fn register_node(
 
     let node = state.db.get_node(&id).await.map_err(db_error_with_details)?;
 
-    let node = node.ok_or_else(|| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new("node not found after registration").with_code("NOT_FOUND")),
-        )
-    })?;
+    let node = node.ok_or_else(|| internal_error_msg("node not found after registration", "Node was registered but could not be retrieved"))?;
 
     // Audit log: node registered
-    let _ = crate::audit_helper::log_success(
+    if let Err(e) = crate::audit_helper::log_success(
         &state.db,
         &claims,
         crate::audit_helper::actions::NODE_REGISTER,
         crate::audit_helper::resources::NODE,
         Some(&node.id),
     )
-    .await;
+    .await {
+
+        tracing::warn!(error = %e, "Audit log failed");
+
+    }
 
     Ok(Json(NodeResponse {
         schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
@@ -90,22 +91,8 @@ pub async fn test_node_connection(
         .db
         .get_node(&node_id)
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("database error")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse::new("node not found").with_code("NOT_FOUND")),
-            )
-        })?;
+        .map_err(db_error_with_details)?
+        .ok_or_else(|| not_found("Node"))?;
 
     // Try to ping the node agent
     let start = std::time::Instant::now();
@@ -113,16 +100,7 @@ pub async fn test_node_connection(
         .connect_timeout(std::time::Duration::from_millis(500))
         .timeout(std::time::Duration::from_secs(5))
         .build()
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("failed to create HTTP client")
-                        .with_code("INTERNAL_SERVER_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
+        .map_err(|e| internal_error_msg("Failed to create HTTP client", e))?;
 
     let ping_url = format!("{}/health", node.agent_endpoint);
     let max_attempts = 3u32;
@@ -177,26 +155,21 @@ pub async fn mark_node_offline(
         .db
         .update_node_status(&node_id, "offline")
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("failed to update node status")
-                        .with_code("INTERNAL_SERVER_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
+        .map_err(|e| internal_error_msg("Failed to update node status", e))?;
 
     // Audit log: node marked offline
-    let _ = crate::audit_helper::log_success(
+    if let Err(e) = crate::audit_helper::log_success(
         &state.db,
         &claims,
         crate::audit_helper::actions::NODE_OFFLINE,
         crate::audit_helper::resources::NODE,
         Some(&node_id),
     )
-    .await;
+    .await {
+
+        tracing::warn!(error = %e, "Audit log failed");
+
+    }
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -210,51 +183,30 @@ pub async fn evict_node(
     require_any_role(&claims, &[Role::Operator])?;
 
     // Check for running workers on this node
-    let workers = state.db.list_all_workers().await.map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("database error")
-                    .with_code("INTERNAL_SERVER_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
+    let workers = state.db.list_all_workers().await.map_err(db_error_with_details)?;
 
     let node_has_workers = workers.iter().any(|w| w.node_id == node_id);
 
     if node_has_workers {
-        return Err((
-            StatusCode::CONFLICT,
-            Json(
-                ErrorResponse::new("node has running workers")
-                    .with_code("INTERNAL_ERROR")
-                    .with_string_details("Stop all workers before evicting node"),
-            ),
-        ));
+        return Err(conflict("Node has running workers; stop all workers before evicting node"));
     }
 
     // Delete node using Db trait method
-    state.db.delete_node(&node_id).await.map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("failed to delete node")
-                    .with_code("INTERNAL_SERVER_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
+    state.db.delete_node(&node_id).await.map_err(|e| internal_error_msg("Failed to delete node", e))?;
 
     // Audit log: node evicted
-    let _ = crate::audit_helper::log_success(
+    if let Err(e) = crate::audit_helper::log_success(
         &state.db,
         &claims,
         crate::audit_helper::actions::NODE_EVICT,
         crate::audit_helper::resources::NODE,
         Some(&node_id),
     )
-    .await;
+    .await {
+
+        tracing::warn!(error = %e, "Audit log failed");
+
+    }
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -272,34 +224,11 @@ pub async fn get_node_details(
         .db
         .get_node(&node_id)
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("database error")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse::new("node not found").with_code("NOT_FOUND")),
-            )
-        })?;
+        .map_err(db_error_with_details)?
+        .ok_or_else(|| not_found("Node"))?;
 
     // Get workers running on this node
-    let all_workers = state.db.list_all_workers().await.map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("database error")
-                    .with_code("INTERNAL_SERVER_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
+    let all_workers = state.db.list_all_workers().await.map_err(db_error_with_details)?;
 
     let workers: Vec<WorkerInfo> = all_workers
         .iter()

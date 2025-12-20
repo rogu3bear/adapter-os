@@ -11,12 +11,19 @@ use adapteros_core::AosError;
 use adapteros_lora_worker::training::checkpoint::{CheckpointManager, TrainingCheckpoint};
 use adapteros_lora_worker::training::trainer::{LoRAWeights, TrainingConfig};
 use std::io::Write;
+use std::path::PathBuf;
 use tempfile::TempDir;
 use tokio::io::AsyncWriteExt;
 
+fn new_test_tempdir() -> TempDir {
+    let root = PathBuf::from("var").join("tmp");
+    std::fs::create_dir_all(&root).expect("create var/tmp");
+    TempDir::new_in(&root).expect("create temp dir")
+}
+
 #[tokio::test]
 async fn test_checkpoint_atomic_write_prevents_corruption() {
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = new_test_tempdir();
     let checkpoint_path = temp_dir.path().join("test.ckpt");
 
     let config = TrainingConfig {
@@ -57,7 +64,7 @@ async fn test_checkpoint_atomic_write_prevents_corruption() {
 
 #[tokio::test]
 async fn test_checkpoint_load_validates_corruption() {
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = new_test_tempdir();
     let checkpoint_path = temp_dir.path().join("corrupted.ckpt");
 
     // Create a corrupted checkpoint file (invalid JSON)
@@ -80,7 +87,7 @@ async fn test_checkpoint_load_validates_corruption() {
 
 #[tokio::test]
 async fn test_checkpoint_load_detects_empty_file() {
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = new_test_tempdir();
     let checkpoint_path = temp_dir.path().join("empty.ckpt");
 
     // Create empty file
@@ -101,7 +108,7 @@ async fn test_checkpoint_load_detects_empty_file() {
 
 #[tokio::test]
 async fn test_checkpoint_load_validates_sanity() {
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = new_test_tempdir();
     let checkpoint_path = temp_dir.path().join("invalid.ckpt");
 
     // Create checkpoint with invalid data (epoch too high)
@@ -153,7 +160,7 @@ async fn test_checkpoint_load_validates_sanity() {
 
 #[tokio::test]
 async fn test_checkpoint_manager_cleanup() {
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = new_test_tempdir();
     let manager = CheckpointManager::new(temp_dir.path(), 2, 3, "test-adapter".to_string());
 
     let config = TrainingConfig::default();

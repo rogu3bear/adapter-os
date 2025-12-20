@@ -328,11 +328,18 @@ pub async fn start_rotation_daemon() -> Result<()> {
 mod tests {
     use super::*;
     use adapteros_crypto::{KeyAlgorithm, KeyHandle};
+    use std::path::PathBuf;
     use tempfile::TempDir;
+
+    fn new_test_tempdir() -> TempDir {
+        let root = PathBuf::from("var").join("tmp");
+        std::fs::create_dir_all(&root).expect("create var/tmp");
+        TempDir::new_in(&root).expect("create temp dir")
+    }
 
     #[tokio::test]
     async fn test_audit_state_persistence() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let audit_path = temp_dir.path();
 
         // Create and save state

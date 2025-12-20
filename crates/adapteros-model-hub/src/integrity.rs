@@ -109,7 +109,7 @@ impl IntegrityChecker {
     pub async fn hash_file(path: &Path) -> Result<B3Hash> {
         let mut file = tokio::fs::File::open(path)
             .await
-            .map_err(|e| ModelHubError::Io(e))?;
+            .map_err(ModelHubError::Io)?;
         let mut hasher = blake3::Hasher::new();
         let mut buffer = vec![0u8; BUFFER_SIZE];
 
@@ -255,7 +255,14 @@ impl IntegrityVerifier {
 mod tests {
     use super::*;
     use std::io::Write;
+    use std::path::PathBuf;
     use tempfile::NamedTempFile;
+
+    fn new_test_tempfile() -> NamedTempFile {
+        let root = PathBuf::from("var").join("tmp");
+        std::fs::create_dir_all(&root).expect("create var/tmp");
+        NamedTempFile::new_in(&root).expect("create temp file")
+    }
 
     #[test]
     fn test_hash_bytes() {
@@ -292,7 +299,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_hash_file() {
-        let mut temp_file = NamedTempFile::new().unwrap();
+        let mut temp_file = new_test_tempfile();
         temp_file.write_all(b"hello world").unwrap();
         temp_file.flush().unwrap();
 
@@ -307,7 +314,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_verify_file() {
-        let mut temp_file = NamedTempFile::new().unwrap();
+        let mut temp_file = new_test_tempfile();
         temp_file.write_all(b"hello world").unwrap();
         temp_file.flush().unwrap();
 
@@ -324,7 +331,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_verify_file_mismatch() {
-        let mut temp_file = NamedTempFile::new().unwrap();
+        let mut temp_file = new_test_tempfile();
         temp_file.write_all(b"hello world").unwrap();
         temp_file.flush().unwrap();
 
@@ -438,7 +445,7 @@ mod tests {
     #[tokio::test]
     async fn test_hash_large_file() {
         // Create a file larger than the buffer size (64KB)
-        let mut temp_file = NamedTempFile::new().unwrap();
+        let mut temp_file = new_test_tempfile();
         let data = vec![0x42u8; 128 * 1024]; // 128KB
         temp_file.write_all(&data).unwrap();
         temp_file.flush().unwrap();
@@ -451,7 +458,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_hash_empty_file() {
-        let temp_file = NamedTempFile::new().unwrap();
+        let temp_file = new_test_tempfile();
 
         let hash = IntegrityChecker::hash_file(temp_file.path()).await.unwrap();
 
@@ -467,7 +474,7 @@ mod tests {
     #[tokio::test]
     #[allow(deprecated)]
     async fn test_legacy_compute_checksum() {
-        let mut temp = NamedTempFile::new().unwrap();
+        let mut temp = new_test_tempfile();
         temp.write_all(b"test content").unwrap();
         temp.flush().unwrap();
 
@@ -482,7 +489,7 @@ mod tests {
     #[tokio::test]
     #[allow(deprecated)]
     async fn test_legacy_verify_file() {
-        let mut temp = NamedTempFile::new().unwrap();
+        let mut temp = new_test_tempfile();
         temp.write_all(b"test content").unwrap();
         temp.flush().unwrap();
 
@@ -500,7 +507,7 @@ mod tests {
     #[tokio::test]
     #[allow(deprecated)]
     async fn test_legacy_verify_or_error() {
-        let mut temp = NamedTempFile::new().unwrap();
+        let mut temp = new_test_tempfile();
         temp.write_all(b"test content").unwrap();
         temp.flush().unwrap();
 

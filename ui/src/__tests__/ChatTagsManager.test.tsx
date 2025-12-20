@@ -41,7 +41,7 @@ const mockUseCreateTag = vi.fn();
 const mockUseAssignTagsToSession = vi.fn();
 const mockUseRemoveTagFromSession = vi.fn();
 
-vi.mock('@/hooks/useChatTags', () => ({
+vi.mock('@/hooks/chat/useChatTags', () => ({
   useChatTags: () => mockUseChatTags(),
   useSessionTags: (sessionId: string) => mockUseSessionTags(sessionId),
   useCreateTag: (options?: unknown) => mockUseCreateTag(options),

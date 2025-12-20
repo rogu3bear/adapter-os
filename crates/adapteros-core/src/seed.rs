@@ -1,4 +1,58 @@
-//! Deterministic seed derivation using HKDF
+//! # Deterministic Seed Derivation System
+//!
+//! This module provides cryptographically secure, deterministic seed derivation for all
+//! random number generation in AdapterOS. It ensures **replay reproducibility**: given the
+//! same inputs (manifest hash, request parameters), the system produces identical outputs.
+//!
+//! ## Architecture Overview
+//!
+//! ```text
+//! ┌─────────────────────────────────────────────────────────────────────┐
+//! │                        Global Seed (B3Hash)                         │
+//! │              BLAKE3 hash of manifest/request inputs                 │
+//! └─────────────────────────────────┬───────────────────────────────────┘
+//!                                   │
+//!                            HKDF-SHA256
+//!                                   │
+//!         ┌─────────────────────────┼─────────────────────────┐
+//!         ▼                         ▼                         ▼
+//!   ┌───────────┐            ┌───────────┐            ┌───────────┐
+//!   │  Router   │            │  Dropout  │            │ Sampling  │
+//!   │   Seed    │            │   Seed    │            │   Seed    │
+//!   └───────────┘            └───────────┘            └───────────┘
+//!   Tie-breaking             Training dropout         Token sampling
+//!   in K-sparse              mask generation          temperature/top-p
+//! ```
+//!
+//! ## Seed Modes
+//!
+//! | Mode              | Behavior                                           | Use Case              |
+//! |-------------------|----------------------------------------------------|-----------------------|
+//! | `Strict`          | Requires manifest hash; fails if missing           | Production inference  |
+//! | `BestEffort`      | Uses manifest hash when present; fallback hash     | Dev/testing           |
+//! | `NonDeterministic`| Random seed (non-replayable)                       | Benchmarking only     |
+//!
+//! ## Key Functions
+//!
+//! - [`derive_seed`]: Core HKDF derivation from global seed + label
+//! - [`derive_seed_typed`]: Type-safe derivation using [`SeedLabel`] enum
+//! - [`ExecutionProfile`]: Request-scoped seed mode + backend configuration
+//!
+//! ## Critical Invariants
+//!
+//! 1. **Same inputs → Same seed**: `derive_seed(hash_A, "router")` always returns identical bytes
+//! 2. **Label uniqueness**: Different labels produce cryptographically distinct seeds
+//! 3. **No seed reuse**: Registry tracks (label, request_id) to detect accidental reuse
+//! 4. **HKDF-SHA256 only**: Do not use other KDFs; breaks replay compatibility
+//!
+//! ## Example
+//!
+//! ```ignore
+//! let global = B3Hash::hash(manifest_bytes);
+//! let router_seed = derive_seed(&global, "router");
+//! let mut rng = ChaCha20Rng::from_seed(router_seed);
+//! // All RNG operations now deterministic
+//! ```
 
 use crate::backend::BackendKind;
 use crate::hash::B3Hash;

@@ -422,7 +422,14 @@ mod tests {
     use adapteros_core::AosError;
     use adapteros_db::sqlx;
     use adapteros_db::Db;
+    use adapteros_platform::common::PlatformUtils;
     use tempfile::TempDir;
+
+    fn new_test_tempdir() -> TempDir {
+        let root = PlatformUtils::temp_dir();
+        std::fs::create_dir_all(&root).expect("create var/tmp");
+        TempDir::new_in(&root).expect("tempdir")
+    }
 
     /// Minimal in-memory DB for dataset validation gates (no global migrations)
     async fn minimal_dataset_db() -> Db {
@@ -461,7 +468,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_save_and_load_examples() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let storage_path = temp_dir.path().join("test.jsonl");
 
         // Create a test database
@@ -508,7 +515,7 @@ mod tests {
 
     #[tokio::test]
     async fn dataset_validation_gate_allows_valid_dataset() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let dataset_path = temp_dir.path().join("dataset.jsonl");
 
         // Prepare on-disk dataset file with a single training example
@@ -554,7 +561,7 @@ mod tests {
 
     #[tokio::test]
     async fn dataset_validation_gate_rejects_non_valid_dataset() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let dataset_path = temp_dir.path().join("dataset.jsonl");
 
         tokio::fs::write(

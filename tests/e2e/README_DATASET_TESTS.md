@@ -284,24 +284,24 @@ cargo test test_dataset_error_scenarios -- --ignored --nocapture
 
 ### List Events
 ```bash
-ls -la /tmp/adapteros_e2e/telemetry/
+ls -la var/tmp/adapteros_e2e/telemetry/
 ```
 
 ### View JSON Events
 ```bash
-cat /tmp/adapteros_e2e/telemetry/*.ndjson | jq .
+cat var/tmp/adapteros_e2e/telemetry/*.ndjson | jq .
 ```
 
 ### Filter Events
 ```bash
-cat /tmp/adapteros_e2e/telemetry/*.ndjson | jq 'select(.type == "dataset_created")'
+cat var/tmp/adapteros_e2e/telemetry/*.ndjson | jq 'select(.type == "dataset_created")'
 ```
 
 ## Debugging
 
 ### Check for Artifacts
 ```bash
-find /tmp/adapteros_e2e -type f
+find var/tmp/adapteros_e2e -type f
 ```
 
 ### Enable Debug Output
@@ -382,7 +382,7 @@ if start_time.elapsed() > timeout {
 
 3. **Check telemetry**
    ```bash
-   cat /tmp/adapteros_e2e/telemetry/*.ndjson | jq .
+   cat var/tmp/adapteros_e2e/telemetry/*.ndjson | jq .
    ```
 
 4. **Extend tests** as needed

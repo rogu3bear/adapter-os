@@ -415,13 +415,20 @@ impl CorruptionDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use adapteros_platform::common::PlatformUtils;
     use tempfile::TempDir;
+
+    fn new_test_tempdir() -> Result<TempDir> {
+        let root = PlatformUtils::temp_dir();
+        std::fs::create_dir_all(&root)?;
+        Ok(TempDir::new_in(&root)?)
+    }
 
     #[tokio::test]
     async fn test_corruption_detector() -> Result<()> {
         let detector = CorruptionDetector::new()?;
 
-        let temp_dir = TempDir::new()?;
+        let temp_dir = new_test_tempdir()?;
         let test_file = temp_dir.path().join("test.txt");
 
         // Test non-existent file
@@ -440,7 +447,7 @@ mod tests {
     async fn test_file_corruption_detection() -> Result<()> {
         let detector = CorruptionDetector::new()?;
 
-        let temp_dir = TempDir::new()?;
+        let temp_dir = new_test_tempdir()?;
         let test_file = temp_dir.path().join("test.txt");
 
         // Create a file with null bytes (corruption)
@@ -456,7 +463,7 @@ mod tests {
     async fn test_directory_corruption_detection() -> Result<()> {
         let detector = CorruptionDetector::new()?;
 
-        let temp_dir = TempDir::new()?;
+        let temp_dir = new_test_tempdir()?;
         let test_dir = temp_dir.path().join("test_dir");
 
         // Create a directory

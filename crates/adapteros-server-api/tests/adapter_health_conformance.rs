@@ -52,7 +52,7 @@ async fn corrupt_storage_emits_corrupt_metric() {
     .bind(&version_id)
     .bind("missing_file")
     .bind("error")
-    .bind("/tmp/aos/adapter.aos")
+    .bind("var/adapters/adapter.aos")
     .bind(Some("expected"))
     .bind(Some("actual"))
     .bind(Some("test corruption"))
@@ -101,7 +101,7 @@ async fn blocked_trust_emits_unsafe_metric() {
             Some("desc"),
             "jsonl",
             "hash-unsafe",
-            "/tmp/ds",
+            "var/ds",
             Some("tester"),
         )
         .await
@@ -113,7 +113,7 @@ async fn blocked_trust_emits_unsafe_metric() {
             dataset_id,
             Some(&claims.tenant_id),
             Some("v1"),
-            "/tmp/ds/v1",
+            "var/ds/v1",
             "hash-unsafe",
             None,
             None,

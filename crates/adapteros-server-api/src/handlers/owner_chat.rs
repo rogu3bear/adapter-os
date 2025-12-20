@@ -437,7 +437,7 @@ async fn try_adapter_response(state: &AppState, user_message: &str) -> Option<St
         match state.db.list_tenants().await {
             Ok(tenants) => {
                 for tenant in tenants {
-                    match state.db.get_adapter(&tenant.id, id).await {
+                    match state.db.get_adapter_for_tenant(&tenant.id, id).await {
                         Ok(Some(adapter)) => {
                             found = Some(adapter);
                             break;

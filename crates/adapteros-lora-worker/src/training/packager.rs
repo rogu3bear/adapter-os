@@ -96,6 +96,8 @@ pub struct AdapterManifest {
     pub training_slice_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub backend_policy: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kernel_version: Option<String>,
     pub metadata: std::collections::HashMap<String, String>,
 }
 
@@ -884,10 +886,8 @@ impl AdapterPackager {
                         .filter_map(|v| {
                             if let Some(id) = v.get("dataset_version_id").and_then(|s| s.as_str()) {
                                 Some(id.to_string())
-                            } else if let Some(s) = v.as_str() {
-                                Some(s.to_string())
                             } else {
-                                None
+                                v.as_str().map(|s| s.to_string())
                             }
                         })
                         .collect();
@@ -935,6 +935,7 @@ impl AdapterPackager {
             synthetic_mode,
             training_slice_id,
             backend_policy,
+            kernel_version: Some(adapteros_core::version::VERSION.to_string()),
             metadata,
         };
 
@@ -1063,10 +1064,8 @@ impl AdapterPackager {
                         .filter_map(|v| {
                             if let Some(id) = v.get("dataset_version_id").and_then(|s| s.as_str()) {
                                 Some(id.to_string())
-                            } else if let Some(s) = v.as_str() {
-                                Some(s.to_string())
                             } else {
-                                None
+                                v.as_str().map(|s| s.to_string())
                             }
                         })
                         .collect();
@@ -1114,6 +1113,7 @@ impl AdapterPackager {
             synthetic_mode,
             training_slice_id,
             backend_policy,
+            kernel_version: Some(adapteros_core::version::VERSION.to_string()),
             metadata,
         };
 
@@ -1203,7 +1203,7 @@ impl AdapterPackager {
     /// Canonical logical layer path for manifest keys (e.g., transformer.layer_12.attn.q_proj.lora_A)
     fn canonical_layer_id(tensor_name: &str) -> String {
         let mut segments = Vec::new();
-        let mut iter = tensor_name.split(|c| c == '.' || c == '/').peekable();
+        let mut iter = tensor_name.split(['.', '/']).peekable();
 
         while let Some(seg) = iter.next() {
             if seg.is_empty() {
@@ -1524,7 +1524,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_compute_hash() {
-        let temp_dir = tempfile::tempdir().unwrap();
+        let tmp_root = std::path::PathBuf::from("var").join("tmp");
+        std::fs::create_dir_all(&tmp_root).expect("create var/tmp");
+        let temp_dir = tempfile::tempdir_in(&tmp_root).expect("tempdir");
         let test_file = temp_dir.path().join("test.txt");
         tokio::fs::write(&test_file, b"hello world").await.unwrap();
 
@@ -1536,7 +1538,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_save_load_manifest() {
-        let temp_dir = tempfile::tempdir().unwrap();
+        let tmp_root = std::path::PathBuf::from("var").join("tmp");
+        std::fs::create_dir_all(&tmp_root).expect("create var/tmp");
+        let temp_dir = tempfile::tempdir_in(&tmp_root).expect("tempdir");
         let manifest_path = temp_dir.path().join("manifest.json");
 
         let manifest = AdapterManifest {
@@ -1567,6 +1571,7 @@ mod tests {
             synthetic_mode: None,
             training_slice_id: None,
             backend_policy: None,
+            kernel_version: None,
             metadata: std::collections::HashMap::new(),
         };
 
@@ -1586,7 +1591,9 @@ mod tests {
 
     #[tokio::test]
     async fn artifact_quota_enforces_hard_limit() {
-        let temp_dir = tempfile::tempdir().unwrap();
+        let tmp_root = std::path::PathBuf::from("var").join("tmp");
+        std::fs::create_dir_all(&tmp_root).expect("create var/tmp");
+        let temp_dir = tempfile::tempdir_in(&tmp_root).expect("tempdir");
         let tenant_dir = temp_dir.path().join("tenant1").join("adapter");
         tokio::fs::create_dir_all(&tenant_dir).await.unwrap();
         let existing = tenant_dir.join("v1.aos");

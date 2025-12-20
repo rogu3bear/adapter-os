@@ -11,7 +11,7 @@
 
 set -e
 
-BASE_URL="${1:-${AOS_API_BASE_URL:-http://localhost:8080}}"
+BASE_URL="${1:-${AOS_API_BASE_URL:-http://localhost:${AOS_SERVER_PORT:-8080}}}"
 TOKEN="${2:-${AOS_AUTH_TOKEN:-}}"
 
 # Colors for output

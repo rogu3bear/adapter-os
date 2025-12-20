@@ -10,10 +10,12 @@ use serde::{Deserialize, Serialize};
 /// Placement strategy for device selection.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum PlacementMode {
     /// Disable adaptive placement (stick to primary backend)
     Off,
     /// Balance latency, thermal headroom, and energy draw
+    #[default]
     Balanced,
     /// Prioritize lowest latency, tolerate higher energy/thermal cost
     Latency,
@@ -21,12 +23,6 @@ pub enum PlacementMode {
     Energy,
     /// Prioritize thermal headroom to avoid throttling
     Thermal,
-}
-
-impl Default for PlacementMode {
-    fn default() -> Self {
-        PlacementMode::Balanced
-    }
 }
 
 impl std::str::FromStr for PlacementMode {
@@ -99,7 +95,7 @@ impl PlacementConfig {
         let mut cfg = PlacementConfig::default();
 
         if let Ok(mode) = std::env::var("AOS_PLACEMENT_MODE") {
-            cfg.mode = mode.parse().unwrap_or_else(|_| PlacementMode::Balanced);
+            cfg.mode = mode.parse().unwrap_or(PlacementMode::Balanced);
         }
 
         if let Ok(val) = std::env::var("AOS_PLACEMENT_LATENCY_WEIGHT") {

@@ -33,7 +33,14 @@ async fn init_test_db() -> anyhow::Result<Arc<Db>> {
     std::env::set_var("AOS_SKIP_MIGRATION_SIGNATURES", "1");
 
     // Create a temporary file for the database
-    let temp_path = format!("/tmp/aos-test-{}.db", uuid::Uuid::new_v4());
+    let db_dir = std::path::PathBuf::from("var")
+        .join("tmp")
+        .join("document_chat_e2e");
+    std::fs::create_dir_all(&db_dir)?;
+    let temp_path = db_dir
+        .join(format!("aos-test-{}.db", uuid::Uuid::new_v4()))
+        .to_string_lossy()
+        .to_string();
 
     // Connect and run migrations
     let db = Db::connect(&temp_path).await?;
@@ -59,7 +66,7 @@ async fn create_test_document(db: &Db, tenant_id: &str, name: &str) -> anyhow::R
         tenant_id: tenant_id.to_string(),
         name: name.to_string(),
         content_hash: format!("hash-{}", Uuid::new_v4()),
-        file_path: format!("/tmp/{}", name),
+        file_path: format!("var/test-documents/{}", name),
         file_size: 1024,
         mime_type: "application/pdf".to_string(),
         page_count: Some(5),

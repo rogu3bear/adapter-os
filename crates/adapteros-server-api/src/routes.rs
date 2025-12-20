@@ -83,7 +83,7 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::get_adapter_activations,
         handlers::routing_decisions::get_adapter_usage,
         handlers::promote_adapter_state,
-        handlers::list_repositories,
+        handlers::list_repositories_legacy,
         handlers::get_quality_metrics,
         handlers::get_adapter_metrics,
         handlers::get_system_metrics,
@@ -136,7 +136,7 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::code::create_commit_delta,
         // Federation handlers
         handlers::federation::get_federation_status,
-        handlers::federation::get_quarantine_status,
+        handlers::federation::get_federation_quarantine_status,
         handlers::federation::release_quarantine,
         handlers::federation::get_federation_sync_status,
         // Domain adapter handlers
@@ -453,6 +453,10 @@ use utoipa_swagger_ui::SwaggerUi;
         crate::types::TrainingJobResponse,
         crate::types::TrainingMetricsResponse,
         crate::types::TrainingTemplateResponse,
+        adapteros_api_types::training::TrainingStatus,
+        adapteros_api_types::training::TrustState,
+        adapteros_api_types::training::DatasetSourceType,
+        adapteros_api_types::training::DatasetValidationStatus,
         // Repository types (new /v1/repos API)
         handlers::repos::RepoSummaryResponse,
         handlers::repos::RepoDetailResponse,
@@ -535,6 +539,12 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::auth_enhanced::LogoutResponse,
         handlers::auth_enhanced::SessionInfo,
         handlers::auth_enhanced::SessionsResponse,
+        handlers::auth_enhanced::AuthConfigResponse,
+        // Auth API types
+        adapteros_api_types::auth::SessionInfo,
+        adapteros_api_types::auth::RefreshResponse,
+        adapteros_api_types::auth::AuthConfigResponse,
+        adapteros_api_types::auth::UserRole,
         // Workspace types
         handlers::workspaces::WorkspaceResponse,
         handlers::workspaces::CreateWorkspaceRequest,
@@ -1747,7 +1757,7 @@ pub fn build(state: AppState) -> Router {
         // Repository routes (deprecated - use /v1/code/repositories instead)
         .route(
             "/v1/repositories",
-            get(handlers::adapters::list_repositories),
+            get(handlers::adapters::list_repositories_legacy),
         )
         // System overview routes
         .route(
@@ -2019,7 +2029,7 @@ pub fn build(state: AppState) -> Router {
         )
         .route(
             "/v1/federation/quarantine",
-            get(handlers::federation::get_quarantine_status),
+            get(handlers::federation::get_federation_quarantine_status),
         )
         .route(
             "/v1/federation/release-quarantine",

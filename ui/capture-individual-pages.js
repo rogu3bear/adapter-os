@@ -1,20 +1,24 @@
 const { chromium } = require('playwright');
 
+// Port configuration - respects environment variables for multi-developer setups
+const BACKEND_PORT = process.env.AOS_SERVER_PORT || '8080';
+const UI_PORT = process.env.AOS_UI_PORT || '3200';
+
 async function capturePage(pageId, pageLabel) {
   const browser = await chromium.launch({ headless: false });
   const context = await browser.newContext({
     viewport: { width: 1920, height: 1080 }
   });
   const page = await context.newPage();
-  
+
   // Set the API URL environment variable
-  await page.addInitScript(() => {
-    window.env = { VITE_API_URL: 'http://127.0.0.1:8080/api' };
-  });
+  await page.addInitScript((port) => {
+    window.env = { VITE_API_URL: `http://127.0.0.1:${port}/api` };
+  }, BACKEND_PORT);
 
   try {
     // Navigate to the app
-    await page.goto('http://localhost:3200');
+    await page.goto(`http://localhost:${UI_PORT}`);
     await page.waitForLoadState('networkidle');
     await page.waitForTimeout(2000);
 

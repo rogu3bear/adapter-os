@@ -11,13 +11,13 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 vi.unmock('@/api/client');
 
 describe('ApiClient.requestList', () => {
-  let apiClient: typeof import('@/api/client').apiClient;
+  let apiClient: InstanceType<typeof import('@/api/client').ApiClient>;
   let fetchMock: ReturnType<typeof vi.fn>;
 
   beforeEach(async () => {
-    // Import the actual module's singleton
+    // Import the actual module and create a fresh instance
     const clientModule = await vi.importActual<typeof import('@/api/client')>('@/api/client');
-    apiClient = clientModule.apiClient;
+    apiClient = new clientModule.ApiClient();
     fetchMock = vi.fn();
     global.fetch = fetchMock;
   });

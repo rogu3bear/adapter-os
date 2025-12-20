@@ -11,6 +11,12 @@ use adapteros_db::adapters::AdapterRegistrationBuilder;
 use adapteros_db::Db;
 use tempfile::TempDir;
 
+fn new_test_tempdir() -> TempDir {
+    let root = std::path::PathBuf::from("var").join("tmp");
+    std::fs::create_dir_all(&root).expect("create var/tmp");
+    TempDir::new_in(&root).expect("tempdir")
+}
+
 // NOTE: StorageMode is assumed to be defined in adapteros_db or adapteros_core
 // This is a placeholder definition for the test structure
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -48,7 +54,7 @@ async fn create_test_db(_mode: StorageMode) -> Db {
 ///
 /// Uses a temporary directory that's automatically cleaned up after the test
 async fn create_test_db_persistent(_mode: StorageMode) -> (Db, TempDir) {
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = new_test_tempdir();
     let db_path = temp_dir.path().join("test.db");
     let db_path_str = db_path.to_str().unwrap();
 

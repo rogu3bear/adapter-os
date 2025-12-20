@@ -239,7 +239,14 @@ mod tests {
     use super::*;
     use crate::cdp::{DiffSummary, SymbolChangeType, SymbolKind};
     use adapteros_lora_worker::{LinterResult, LinterType, TestResult, TestFramework};
+    use adapteros_platform::common::PlatformUtils;
     use tempfile::TempDir;
+
+    fn new_test_tempdir() -> TempDir {
+        let root = PlatformUtils::temp_dir();
+        std::fs::create_dir_all(&root).expect("create var/tmp");
+        TempDir::new_in(&root).expect("create temp dir")
+    }
 
     fn create_test_cdp() -> CommitDeltaPack {
         use crate::cdp::metadata::CdpMetadata;
@@ -250,7 +257,7 @@ mod tests {
             "Test commit".to_string(),
             Utc::now(),
             "main".to_string(),
-            PathBuf::from("/tmp/test"),
+            PathBuf::from("var/test-repo"),
         );
 
         CommitDeltaPack::new(
@@ -267,14 +274,14 @@ mod tests {
 
     #[test]
     fn test_cdp_store_creation() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let store = CdpStore::new(temp_dir.path()).unwrap();
         assert_eq!(store.metadata_index.len(), 0);
     }
 
     #[test]
     fn test_store_and_load_cdp() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let mut store = CdpStore::new(temp_dir.path()).unwrap();
         
         let cdp = create_test_cdp();
@@ -296,7 +303,7 @@ mod tests {
 
     #[test]
     fn test_list_for_repo() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let mut store = CdpStore::new(temp_dir.path()).unwrap();
         
         let cdp = create_test_cdp();
@@ -309,7 +316,7 @@ mod tests {
 
     #[test]
     fn test_search_by_author() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let mut store = CdpStore::new(temp_dir.path()).unwrap();
         
         let cdp = create_test_cdp();
@@ -322,7 +329,7 @@ mod tests {
 
     #[test]
     fn test_get_stats() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let mut store = CdpStore::new(temp_dir.path()).unwrap();
         
         let cdp = create_test_cdp();

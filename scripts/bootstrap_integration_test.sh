@@ -69,7 +69,7 @@ cleanup() {
     log_info "Cleaning up test artifacts..."
     # Kill any running test processes
     pkill -f "adapteros-server.*--config" 2>/dev/null || true
-    pkill -f "vite.*3200" 2>/dev/null || true
+    pkill -f "vite.*${AOS_UI_PORT:-3200}" 2>/dev/null || true
     # Remove test PID files
     rm -f var/backend.pid var/ui.pid var/menu-bar.pid
     rm -f var/run/worker.sock

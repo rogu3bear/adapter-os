@@ -194,7 +194,7 @@ impl CheckpointManager {
 
     /// Check if checkpoint should be saved at this epoch
     pub fn should_save(&self, epoch: u32) -> bool {
-        epoch > 0 && epoch % self.save_frequency == 0
+        epoch > 0 && epoch.is_multiple_of(self.save_frequency)
     }
 
     /// Get checkpoint path for a specific epoch
@@ -346,11 +346,18 @@ impl CheckpointManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use adapteros_platform::common::PlatformUtils;
     use tempfile::TempDir;
+
+    fn new_test_tempdir() -> TempDir {
+        let root = PlatformUtils::temp_dir();
+        std::fs::create_dir_all(&root).expect("create var/tmp");
+        TempDir::new_in(&root).expect("create temp dir")
+    }
 
     #[tokio::test]
     async fn test_checkpoint_save_load() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let checkpoint_path = temp_dir.path().join("test.ckpt");
 
         let config = TrainingConfig {
@@ -399,7 +406,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_checkpoint_manager() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let manager = CheckpointManager::new(temp_dir.path(), 2, 3, "test-adapter".to_string());
 
         let config = TrainingConfig::default();
@@ -429,7 +436,7 @@ mod tests {
 
     #[test]
     fn test_should_save() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let manager = CheckpointManager::new(temp_dir.path(), 5, 3, "test".to_string());
 
         assert!(!manager.should_save(0));

@@ -612,7 +612,7 @@ async fn run_check(
     output.table(&table as &dyn std::fmt::Display, Some(&rows))?;
 
     if rows.iter().all(|r| r.status == "pass") {
-        output.success(&format!("Scenario '{}' is ready", scenario.id));
+        output.success(format!("Scenario '{}' is ready", scenario.id));
         Ok(())
     } else {
         Err(AosError::Config(format!(
@@ -705,7 +705,7 @@ async fn run_probe(
     };
 
     let resp = client
-        .post(&format!("{}/v1/infer", base))
+        .post(format!("{}/v1/infer", base))
         .json(&body)
         .send()
         .await
@@ -788,7 +788,7 @@ async fn run_training_for_scenario(
     }
 
     let exe = env::current_exe().map_err(|e| AosError::Io(e.to_string()))?;
-    output.info(&format!(
+    output.info(format!(
         "Training scenario adapter {}/{} for base model {}",
         scenario.tenant.id, adapter_id, scenario.model.id
     ));
@@ -901,8 +901,7 @@ async fn run_chat_once(
     if !status.is_success() {
         return Err(AosError::Config(format!(
             "chat failed: {} {}",
-            status,
-            payload.to_string()
+            status, payload
         )));
     }
 
@@ -911,7 +910,7 @@ async fn run_chat_once(
     } else if let Some(text) = payload.get("text").and_then(|v| v.as_str()) {
         output.result(text);
     } else {
-        output.result(&payload.to_string());
+        output.result(payload.to_string());
     }
 
     Ok(())

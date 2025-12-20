@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { AdapterHealthFlag, AdapterHealthResponse, AdapterHealthSubcode } from '@/api/adapter-types';
-import { describeSubcode, pickPrimarySubcode } from '../health';
+import { describeSubcode, pickPrimarySubcode } from '@/utils/health';
 
 function makeHealth(
   health: AdapterHealthFlag,

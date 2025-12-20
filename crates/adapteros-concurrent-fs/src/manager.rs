@@ -240,10 +240,16 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
+    fn new_test_tempdir() -> Result<TempDir> {
+        let root = PathBuf::from("var").join("tmp");
+        std::fs::create_dir_all(&root)?;
+        Ok(TempDir::new_in(&root)?)
+    }
+
     #[tokio::test]
     async fn test_register_operation() -> Result<()> {
         let manager = ConcurrentManager::new();
-        let temp_dir = TempDir::new()?;
+        let temp_dir = new_test_tempdir()?;
         let test_path = temp_dir.path().join("test.txt");
 
         let op_id = manager
@@ -261,7 +267,7 @@ mod tests {
     #[tokio::test]
     async fn test_operation_conflict() -> Result<()> {
         let manager = ConcurrentManager::new();
-        let temp_dir = TempDir::new()?;
+        let temp_dir = new_test_tempdir()?;
         let test_path = temp_dir.path().join("test.txt");
 
         // Register read operation

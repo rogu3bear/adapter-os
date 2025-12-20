@@ -306,11 +306,10 @@ mod tests {
     use crate::{AlertThresholds, StorageMonitoring};
     use std::fs;
     use std::time::Duration;
-    use tempfile::TempDir;
 
     #[tokio::test]
     async fn test_storage_monitor() -> Result<()> {
-        let temp_dir = TempDir::new()?;
+        let temp_dir = crate::tests::new_test_tempdir()?;
         let config = StorageConfig {
             max_disk_space_bytes: 1000,
             max_files: 100,

@@ -538,6 +538,11 @@ impl From<AosError> for ApiError {
                 "ADAPTER_NOT_LOADED",
                 err.to_string(),
             ),
+            AosError::CacheBudgetExceeded { .. } => ApiError::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "CACHE_BUDGET_EXCEEDED",
+                err.to_string(),
+            ),
 
             // ========== 504 Gateway Timeout (1 variant) ==========
             AosError::Timeout { duration } => {

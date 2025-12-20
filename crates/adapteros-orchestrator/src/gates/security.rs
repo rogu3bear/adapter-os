@@ -20,7 +20,7 @@ impl Gate for SecurityGate {
         let deps = checker.check_gate("security")?;
 
         // Check for deny.toml
-        if let Some(ref status) = deps.required_paths.get("deny.toml") {
+        if let Some(status) = deps.required_paths.get("deny.toml") {
             if !status.exists {
                 warn!("deny.toml not found - skipping cargo-deny check");
             }
@@ -58,7 +58,7 @@ impl Gate for SecurityGate {
         }
 
         // Run cargo-deny if deny.toml exists
-        if let Some(ref status) = deps.required_paths.get("deny.toml") {
+        if let Some(status) = deps.required_paths.get("deny.toml") {
             if status.exists {
                 info!("Running cargo-deny...");
                 match Command::new("cargo")

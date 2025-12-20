@@ -1,6 +1,6 @@
 [package]
 name = "adapter-os"
-version = "0.1.0"
+version = "0.11.0"
 edition = "2021"
 authors = ["James KC Auchterlonie <vats-springs0m@icloud.com>"]
 license = "MIT OR Apache-2.0"
@@ -10,6 +10,7 @@ repository = "https://github.com/rogu3bear/adapter-os"
 resolver = "2"
 exclude = []  # adapteros-server temporarily included for building
 members = [
+    "crates/adapteros-boot",  # Boot lifecycle management
     "crates/adapteros-core",
     "crates/adapteros-crypto",
     "crates/adapteros-platform",  # Platform utilities and path resolution
@@ -78,7 +79,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.11.0"
 edition = "2021"
 authors = ["James KC Auchterlonie <vats-springs0m@icloud.com>"]
 license = "MIT OR Apache-2.0"
@@ -273,8 +274,14 @@ utoipa-swagger-ui = { version = "9.0", features = ["axum"] }
 # Observability
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tracing-appender = "0.2"
 sysinfo = "0.30"
 prometheus = "0.13"
+# OpenTelemetry distributed tracing
+opentelemetry = { version = "0.27", default-features = false, features = ["trace"] }
+opentelemetry_sdk = { version = "0.27", default-features = false, features = ["trace", "rt-tokio"] }
+opentelemetry-otlp = { version = "0.27", default-features = false, features = ["trace", "grpc-tonic", "http-proto", "reqwest-client"] }
+tracing-opentelemetry = "0.28"
 
 # Code Analysis
 tree-sitter = "0.20"
@@ -355,7 +362,7 @@ adapteros-chat = { path = "crates/adapteros-chat" }
 adapteros-lora-plan = { path = "crates/adapteros-lora-plan" }
 adapteros-lora-worker = { path = "crates/adapteros-lora-worker" }
 adapteros-aos = { path = "crates/adapteros-aos" }
-adapteros-telemetry = { path = "crates/adapteros-telemetry", version = "0.1" }
+adapteros-telemetry = { path = "crates/adapteros-telemetry", version = "0.11.0" }
 adapteros-policy = { path = "crates/adapteros-policy" }
 adapteros-lora-router = { path = "crates/adapteros-lora-router" }
 adapteros-lora-rag = { path = "crates/adapteros-lora-rag" }

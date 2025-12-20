@@ -46,7 +46,7 @@ describe('Git Integration API', () => {
   describe('Git Sessions', () => {
     it('should start a git session', () => {
       const sessionRequest = {
-        repository_path: '/tmp/test-repo',
+        repository_path: 'var/test-repo',
         branch: 'main',
       };
 
@@ -117,7 +117,7 @@ describe('Git Integration API', () => {
     it('should stop a git session', () => {
       // First create a session
       const sessionRequest = {
-        repository_path: '/tmp/test-repo-stop',
+        repository_path: 'var/test-repo-stop',
         branch: 'main',
       };
 

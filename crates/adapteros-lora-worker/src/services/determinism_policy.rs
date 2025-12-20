@@ -274,8 +274,8 @@ pub fn validate_backend_attestation(backend: &str, output: &[u8]) -> Result<()> 
     if expected_hash != backend_hash {
         return Err(AosError::DeterminismViolation(format!(
             "Attestation failed: expected {} but got {}",
-            backend_hash.to_hex()[..16].to_string(),
-            expected_hash.to_hex()[..16].to_string()
+            &backend_hash.to_hex()[..16],
+            &expected_hash.to_hex()[..16]
         )));
     }
     Ok(())

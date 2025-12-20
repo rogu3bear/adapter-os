@@ -459,12 +459,18 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
+    fn new_test_tempdir() -> Result<TempDir> {
+        let root = PathBuf::from("var").join("tmp");
+        std::fs::create_dir_all(&root)?;
+        Ok(TempDir::new_in(&root)?)
+    }
+
     #[tokio::test]
     async fn test_conflict_resolution() -> Result<()> {
         let config = crate::ConcurrentFsConfig::default();
         let resolver = ConflictResolver::new(&config)?;
 
-        let temp_dir = TempDir::new()?;
+        let temp_dir = new_test_tempdir()?;
         let test_file = temp_dir.path().join("test.txt");
 
         // Create a test conflict

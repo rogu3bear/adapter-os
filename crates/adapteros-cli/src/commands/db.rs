@@ -284,7 +284,7 @@ async fn run_migrate(
         return Ok(());
     }
 
-    output.info(&format!("Running database migrations on: {}", db_url));
+    output.info(format!("Running database migrations on: {}", db_url));
 
     // Connect to database and run migrations
     let db = Db::connect(&db_url).await?;
@@ -344,11 +344,11 @@ async fn run_health(db_path: Option<PathBuf>, json: bool, output: &OutputWriter)
     if json {
         output.json(&payload)?;
     } else {
-        output.info(&format!(
+        output.info(format!(
             "Database URL: {}",
             payload["db_url"].as_str().unwrap_or_default()
         ));
-        output.info(&format!("Integrity check result: {}", integrity_result));
+        output.info(format!("Integrity check result: {}", integrity_result));
         output.success("Migration signatures verified");
     }
 
@@ -382,10 +382,7 @@ async fn run_reset(db_path: Option<PathBuf>, force: bool, output: &OutputWriter)
 
     // Confirmation prompt (unless --force)
     if !force {
-        output.warning(&format!(
-            "This will DELETE the database at: {}",
-            db_path_str
-        ));
+        output.warning(format!("This will DELETE the database at: {}", db_path_str));
         output.warning("ALL DATA WILL BE PERMANENTLY LOST");
         output.info("");
         output.info("Type 'yes' to confirm: ");
@@ -404,7 +401,7 @@ async fn run_reset(db_path: Option<PathBuf>, force: bool, output: &OutputWriter)
     // Step 1: Delete database file and WAL files
     if db_file_path.exists() {
         std::fs::remove_file(&db_file_path)?;
-        output.info(&format!("Deleted {}", db_path_str));
+        output.info(format!("Deleted {}", db_path_str));
     }
 
     // Also remove WAL and SHM files if they exist
@@ -513,7 +510,7 @@ async fn run_seed_fixtures(
         if shm_path.exists() {
             std::fs::remove_file(&shm_path).ok();
         }
-        output.info(&format!(
+        output.info(format!(
             "Removed existing database at {}",
             db_file_path.display()
         ));
@@ -527,7 +524,7 @@ async fn run_seed_fixtures(
         "sqlite://./var/aos-cp.sqlite3".to_string()
     };
 
-    output.info(&format!("Seeding deterministic fixtures into {}", db_url));
+    output.info(format!("Seeding deterministic fixtures into {}", db_url));
 
     let db = Db::connect(&db_url).await?;
     db.migrate().await?;
@@ -555,14 +552,14 @@ async fn run_seed_fixtures(
     .bind(FIXED_TS)
     .bind(STACK_ID)
     .bind(&pinned)
-    .execute(&*pool)
+    .execute(pool)
     .await?;
 
     // Seed deterministic admin user for Cypress flows
     sqlx::query("DELETE FROM users WHERE email = ? OR id = ?")
         .bind(E2E_USER_EMAIL)
         .bind(E2E_USER_ID)
-        .execute(&*pool)
+        .execute(pool)
         .await?;
 
     let user_pw_hash = hash_fixture_password(E2E_USER_PASSWORD)?;
@@ -580,7 +577,7 @@ async fn run_seed_fixtures(
         sqlx::query("UPDATE users SET id = ? WHERE id = ?")
             .bind(E2E_USER_ID)
             .bind(&inserted_user_id)
-            .execute(&*pool)
+            .execute(pool)
             .await?;
     }
 
@@ -601,7 +598,7 @@ async fn run_seed_fixtures(
     .bind(&user_pw_hash)
     .bind(FIXED_TS)
     .bind(E2E_USER_ID)
-    .execute(&*pool)
+    .execute(pool)
     .await?;
 
     // Register model (then normalize fields to deterministic values)
@@ -622,7 +619,7 @@ async fn run_seed_fixtures(
         sqlx::query("UPDATE models SET id = ? WHERE id = ?")
             .bind(MODEL_ID)
             .bind(&inserted_model_id)
-            .execute(&*pool)
+            .execute(pool)
             .await?;
     }
 
@@ -645,7 +642,7 @@ async fn run_seed_fixtures(
     .bind(FIXED_TS)
     .bind(FIXED_TS)
     .bind(MODEL_ID)
-    .execute(&*pool)
+    .execute(pool)
     .await?;
 
     // Register adapter with deterministic ID
@@ -675,7 +672,7 @@ async fn run_seed_fixtures(
         sqlx::query("UPDATE adapters SET id = ? WHERE id = ?")
             .bind(ADAPTER_ID)
             .bind(&inserted_adapter_id)
-            .execute(&*pool)
+            .execute(pool)
             .await?;
     }
 
@@ -700,7 +697,7 @@ async fn run_seed_fixtures(
     .bind(serde_json::to_string(&vec![ADAPTER_ID])?)
     .bind(FIXED_TS)
     .bind(FIXED_TS)
-    .execute(&*pool)
+    .execute(pool)
     .await?;
 
     // Ensure tenant default stack + pins are aligned with seeded stack/adapter
@@ -710,13 +707,13 @@ async fn run_seed_fixtures(
     .bind(STACK_ID)
     .bind(&pinned)
     .bind(TENANT_ID)
-    .execute(&*pool)
+    .execute(pool)
     .await?;
 
     // Seed deterministic tenant policy
     sqlx::query("UPDATE policies SET active = 0 WHERE tenant_id = ?")
         .bind(TENANT_ID)
-        .execute(&*pool)
+        .execute(pool)
         .await?;
 
     let policy_body = serde_json::to_string(&TenantPolicies {
@@ -730,22 +727,22 @@ async fn run_seed_fixtures(
         .bind(&policy_hash)
         .bind(&policy_body)
         .bind(FIXED_TS)
-        .execute(&*pool)
+        .execute(pool)
         .await?;
 
     // Seed deterministic adapter repository + version
     sqlx::query("DELETE FROM adapter_version_runtime_state WHERE version_id = ?")
         .bind(VERSION_ID)
-        .execute(&*pool)
+        .execute(pool)
         .await?;
     sqlx::query("DELETE FROM adapter_versions WHERE id = ? OR repo_id = ?")
         .bind(VERSION_ID)
         .bind(REPO_ID)
-        .execute(&*pool)
+        .execute(pool)
         .await?;
     sqlx::query("DELETE FROM adapter_repositories WHERE id = ?")
         .bind(REPO_ID)
-        .execute(&*pool)
+        .execute(pool)
         .await?;
 
     sqlx::query(
@@ -770,7 +767,7 @@ async fn run_seed_fixtures(
     .bind(E2E_USER_ID)
     .bind(FIXED_TS)
     .bind("Seeded E2E repository")
-    .execute(&*pool)
+    .execute(pool)
     .await?;
 
     sqlx::query(
@@ -809,7 +806,7 @@ async fn run_seed_fixtures(
     .bind("deadbeef")
     .bind("coreml")
     .bind(FIXED_TS)
-    .execute(&*pool)
+    .execute(pool)
     .await?;
 
     sqlx::query(
@@ -825,7 +822,7 @@ async fn run_seed_fixtures(
     )
     .bind(VERSION_ID)
     .bind(FIXED_TS)
-    .execute(&*pool)
+    .execute(pool)
     .await?;
 
     sqlx::query(
@@ -854,7 +851,7 @@ async fn run_seed_fixtures(
     .bind(VERSION_BRANCH)
     .bind(E2E_USER_ID)
     .bind(FIXED_TS)
-    .execute(&*pool)
+    .execute(pool)
     .await?;
 
     // Seed a deterministic git repository row (required FK for repository_training_jobs.repo_id)
@@ -895,7 +892,7 @@ async fn run_seed_fixtures(
     .bind("ready")
     .bind(FIXED_TS)
     .bind(E2E_USER_ID)
-    .execute(&*pool)
+    .execute(pool)
     .await?;
 
     // Seed a deterministic training job (so Training UI + lineage have at least one job)
@@ -959,7 +956,7 @@ async fn run_seed_fixtures(
     .bind(Some(FIXED_TS))
     .bind(&training_config_hash)
     .bind(VERSION_ID)
-    .execute(&*pool)
+    .execute(pool)
     .await?;
 
     // Link the seeded adapter to the seeded training job for UI lineage surfaces.
@@ -967,7 +964,7 @@ async fn run_seed_fixtures(
         .bind(TRAINING_JOB_ID)
         .bind(TENANT_ID)
         .bind(ADAPTER_ID)
-        .execute(&*pool)
+        .execute(pool)
         .await?;
 
     // Optionally seed a starter chat session + message for assertions
@@ -976,11 +973,11 @@ async fn run_seed_fixtures(
         sqlx::query("DELETE FROM chat_messages WHERE session_id = ? OR id = ?")
             .bind(CHAT_SESSION_ID)
             .bind(CHAT_MESSAGE_ID)
-            .execute(&*pool)
+            .execute(pool)
             .await?;
         sqlx::query("DELETE FROM chat_sessions WHERE id = ?")
             .bind(CHAT_SESSION_ID)
-            .execute(&*pool)
+            .execute(pool)
             .await?;
 
         let session_params = CreateChatSessionParams {

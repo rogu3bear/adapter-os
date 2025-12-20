@@ -197,6 +197,53 @@ export const UuidSchema = z.string()
 export type Uuid = z.infer<typeof UuidSchema>;
 
 /**
+ * Reusable regex patterns for validation
+ *
+ * Common patterns used across multiple validation schemas to ensure consistency.
+ */
+export const patterns = {
+  /** Adapter revision pattern: rXXX format (e.g., r001, r042) */
+  revision: /^r\d{3,}$/,
+  /** UUID pattern */
+  uuid: /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+  /** Slug pattern: lowercase with hyphens */
+  slug: /^[a-z0-9]+(?:-[a-z0-9]+)*$/,
+  /** Semantic name component: lowercase letters, numbers, underscores, and hyphens */
+  semanticNameComponent: /^[a-z0-9_-]+$/,
+} as const;
+
+/**
+ * Reusable Zod validators
+ *
+ * Common validators to prevent duplication across schemas.
+ */
+export const validators = {
+  /** Adapter revision validator: rXXX format (e.g., r001, r042) */
+  revision: z.string()
+    .regex(patterns.revision, 'Revision must be in format rXXX (e.g., r001, r042)'),
+
+  /** UUID validator */
+  uuid: z.string()
+    .regex(patterns.uuid, 'Must be a valid UUID'),
+
+  /** Slug validator: lowercase with hyphens only */
+  slug: z.string()
+    .regex(patterns.slug, 'Must be lowercase with hyphens only'),
+
+  /** Non-empty string validator */
+  nonEmptyString: z.string().min(1, 'Required'),
+
+  /** Semantic name component validator */
+  semanticNameComponent: z.string()
+    .min(1, 'Cannot be empty')
+    .max(50, 'Must not exceed 50 characters')
+    .regex(
+      patterns.semanticNameComponent,
+      'Must contain only lowercase letters, numbers, underscores, and hyphens'
+    ),
+} as const;
+
+/**
  * URL schema
  */
 export const UrlSchema = z.string()

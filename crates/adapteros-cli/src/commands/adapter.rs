@@ -119,13 +119,11 @@ async fn directory_upsert(
         .map_err(|e| adapteros_core::AosError::Http(e.to_string()))?;
 
     if output.is_json() {
-        output.result(&serde_json::to_string_pretty(&value).unwrap());
+        output.result(serde_json::to_string_pretty(&value).unwrap());
+    } else if let Some(adapter_id) = value.get("adapter_id").and_then(|v| v.as_str()) {
+        output.success(format!("Adapter upserted: {}", adapter_id));
     } else {
-        if let Some(adapter_id) = value.get("adapter_id").and_then(|v| v.as_str()) {
-            output.success(&format!("Adapter upserted: {}", adapter_id));
-        } else {
-            output.success("Adapter upserted");
-        }
+        output.success("Adapter upserted");
     }
 
     Ok(())
@@ -133,7 +131,7 @@ async fn directory_upsert(
 
 /// Validate adapter ID format
 fn validate_adapter_id(adapter_id: &str) -> Result<()> {
-    validation::validate_adapter_id(adapter_id).map_err(|e| AosError::from(e))
+    validation::validate_adapter_id(adapter_id)
 }
 
 async fn emit_kv_readiness(adapter_id: &str, output: &OutputWriter) {
@@ -146,9 +144,9 @@ async fn emit_kv_readiness(adapter_id: &str, output: &OutputWriter) {
                     output.kv("KV note", &msg);
                 }
             }
-            Err(e) => output.warning(&format!("KV readiness check failed: {}", e)),
+            Err(e) => output.warning(format!("KV readiness check failed: {}", e)),
         },
-        Err(e) => output.info(&format!("KV readiness skipped (db unavailable): {}", e)),
+        Err(e) => output.info(format!("KV readiness skipped (db unavailable): {}", e)),
     }
 }
 
@@ -176,7 +174,7 @@ async fn connect_and_fetch_adapter_states(
         match client.list_adapters(socket_path).await {
             Ok(json_response) => {
                 let adapters: Vec<AdapterState> = serde_json::from_str(&json_response)
-                    .map_err(|e| adapteros_core::AosError::Serialization(e))?;
+                    .map_err(adapteros_core::AosError::Serialization)?;
 
                 info!(count = adapters.len(), "Retrieved adapter states");
                 return Ok(adapters);
@@ -227,7 +225,7 @@ async fn connect_and_fetch_adapter_profile(
         match client.get_adapter_profile(socket_path, adapter_id).await {
             Ok(json_response) => {
                 let profile: AdapterProfile = serde_json::from_str(&json_response)
-                    .map_err(|e| adapteros_core::AosError::Serialization(e))?;
+                    .map_err(adapteros_core::AosError::Serialization)?;
 
                 info!(adapter_id = %adapter_id, "Retrieved adapter profile");
                 return Ok(profile);
@@ -281,7 +279,7 @@ async fn send_adapter_command(
     // Add retry logic for transient failures
     let mut retries = 3;
     while retries > 0 {
-        let result = match command.as_ref() {
+        let result = match command {
             "evict" => client.evict_adapter(adapter_id).await,
             "pin" => client.pin_adapter(adapter_id, true).await,
             "unpin" => client.pin_adapter(adapter_id, false).await,
@@ -299,7 +297,7 @@ async fn send_adapter_command(
                 info!(command = %command, adapter_id = %adapter_id, "Adapter command sent successfully");
                 return Ok(());
             }
-            Err(e) if retries > 1 => {
+            Err(_e) if retries > 1 => {
                 retries -= 1;
                 tokio::time::sleep(Duration::from_millis(100)).await;
                 continue;
@@ -448,22 +446,22 @@ fn inspect_aos_archive(path: &Path, output: &OutputWriter) -> Result<()> {
 
     output.section("Manifest");
     if let Some(id) = adapter_id.as_ref() {
-        output.kv("adapter_id", &id);
+        output.kv("adapter_id", id);
     }
     if let Some(v) = version.as_ref() {
-        output.kv("version", &v);
+        output.kv("version", v);
     }
     if let Some(model) = base_model.as_ref() {
-        output.kv("base_model", &model);
+        output.kv("base_model", model);
     }
     if let Some(cat) = category.as_ref() {
-        output.kv("category", &cat);
+        output.kv("category", cat);
     }
     if let Some(tier) = tier.as_ref() {
-        output.kv("tier", &tier);
+        output.kv("tier", tier);
     }
     if let Some(tier) = lora_tier.as_ref() {
-        output.kv("lora_tier", &tier);
+        output.kv("lora_tier", tier);
     }
 
     output.section("Scope");
@@ -718,7 +716,7 @@ pub enum AdapterCommand {
 
     /// Update adapter lifecycle state
     #[command(
-        after_help = "Examples:\n  aosctl adapter update-lifecycle adapter-1 deprecated\n  aosctl adapter update-lifecycle adapter-1 active\n  aosctl adapter update-lifecycle adapter-1 retired --json"
+        after_help = "Examples:\n  aosctl adapter update-lifecycle adapter-1 deprecated\n  aosctl adapter update-lifecycle adapter-1 active --tenant dev\n  aosctl adapter update-lifecycle adapter-1 retired --json"
     )]
     UpdateLifecycle {
         /// Adapter ID
@@ -726,6 +724,10 @@ pub enum AdapterCommand {
 
         /// New lifecycle state (draft, active, deprecated, retired)
         state: String,
+
+        /// Tenant ID (defaults to 'default')
+        #[arg(long, default_value = "default")]
+        tenant: String,
     },
 
     /// Register a packaged adapter by path (dir or weights file)
@@ -896,7 +898,7 @@ fn extract_tenant_from_adapter_command(cmd: &AdapterCommand) -> Option<String> {
         AdapterCommand::Evict { tenant, .. } => tenant.clone(),
         AdapterCommand::DirectoryUpsert { tenant, .. } => Some(tenant.clone()),
         AdapterCommand::VerifyGpu { tenant, .. } => tenant.clone(),
-        AdapterCommand::UpdateLifecycle { .. } => None, // No tenant parameter
+        AdapterCommand::UpdateLifecycle { tenant, .. } => Some(tenant.clone()),
         AdapterCommand::Versions { .. } => None,
         AdapterCommand::PromoteVersion { .. } => None,
         AdapterCommand::RollbackVersion { .. } => None,
@@ -1001,9 +1003,11 @@ pub async fn handle_adapter_command(cmd: AdapterCommand, output: &OutputWriter) 
                 .await
                 .map_err(|e| adapteros_core::AosError::Other(e.to_string()))
         }
-        AdapterCommand::UpdateLifecycle { adapter_id, state } => {
-            update_lifecycle(&adapter_id, &state, output).await
-        }
+        AdapterCommand::UpdateLifecycle {
+            adapter_id,
+            state,
+            tenant,
+        } => update_lifecycle(&adapter_id, &tenant, &state, output).await,
         AdapterCommand::Register {
             path,
             adapter_id,
@@ -1092,7 +1096,7 @@ async fn list_adapters(
         } else {
             output.result("📊 Adapter Lifecycle Status");
             output.blank();
-            output.warning(&format!(
+            output.warning(format!(
                 "Worker socket not found at: {}",
                 socket_path.display()
             ));
@@ -1166,7 +1170,7 @@ async fn list_adapters(
                 "30s ago",
             ]);
 
-            output.result(&format!("{table}"));
+            output.result(format!("{table}"));
         }
         return Ok(());
     }
@@ -1230,7 +1234,7 @@ async fn list_adapters(
                     ]);
                 }
 
-                output.result(&format!("{table}"));
+                output.result(format!("{table}"));
             }
         }
         Err(e) => {
@@ -1241,7 +1245,7 @@ async fn list_adapters(
                 });
                 output.result(&serde_json::to_string_pretty(&error_response)?);
             } else {
-                output.error(&format!("Failed to connect to worker: {}", e));
+                output.error(format!("Failed to connect to worker: {}", e));
                 output.result("Showing mock data instead.");
                 output.blank();
 
@@ -1311,7 +1315,7 @@ async fn list_adapters(
                     "30s ago",
                 ]);
 
-                output.result(&format!("{table}"));
+                output.result(format!("{table}"));
             }
         }
     }
@@ -1366,9 +1370,9 @@ async fn profile_adapter(
                 serde_json::to_string_pretty(&mock_profile)?
             );
         } else {
-            output.result(&format!("📈 Adapter Profile: {}", adapter_id));
+            output.result(format!("📈 Adapter Profile: {}", adapter_id));
             output.blank();
-            output.warning(&format!(
+            output.warning(format!(
                 "Worker socket not found at: {}",
                 socket_path.display()
             ));
@@ -1396,62 +1400,59 @@ async fn profile_adapter(
             if json {
                 output.result(&serde_json::to_string_pretty(&profile)?);
             } else {
-                output.result(&format!("State:           {}", profile.state));
-                output.result(&format!(
+                output.result(format!("State:           {}", profile.state));
+                output.result(format!(
                     "Activation:      {:.1}% ({} / {} tokens)",
                     profile.activation_pct, profile.activations, profile.total_tokens
                 ));
-                output.result(&format!(
-                    "Avg Latency:     {:.1} µs",
-                    profile.avg_latency_us
-                ));
-                output.result(&format!("Memory Usage:    {} KB", profile.memory_kb));
-                output.result(&format!("Quality Delta:   {:.2}", profile.quality_delta));
+                output.result(format!("Avg Latency:     {:.1} µs", profile.avg_latency_us));
+                output.result(format!("Memory Usage:    {} KB", profile.memory_kb));
+                output.result(format!("Quality Delta:   {:.2}", profile.quality_delta));
                 output.blank();
                 output.result("Last 10 activations:");
                 for activation in &profile.recent_activations {
-                    output.result(&format!(
+                    output.result(format!(
                         "  Token {}-{}:  {} activations",
                         activation.start_token, activation.end_token, activation.count
                     ));
                 }
                 output.blank();
                 output.result("Performance Metrics:");
-                output.result(&format!(
+                output.result(format!(
                     "  P50 Latency:    {:.1} µs",
                     profile.performance_metrics.p50_latency_us
                 ));
-                output.result(&format!(
+                output.result(format!(
                     "  P95 Latency:    {:.1} µs",
                     profile.performance_metrics.p95_latency_us
                 ));
-                output.result(&format!(
+                output.result(format!(
                     "  P99 Latency:    {:.1} µs",
                     profile.performance_metrics.p99_latency_us
                 ));
-                output.result(&format!(
+                output.result(format!(
                     "  Throughput:     {:.1} tokens/sec",
                     profile.performance_metrics.throughput_tokens_per_sec
                 ));
-                output.result(&format!(
+                output.result(format!(
                     "  Error Rate:     {:.2}%",
                     profile.performance_metrics.error_rate * 100.0
                 ));
                 output.blank();
                 output.result("Policy Compliance:");
-                output.result(&format!(
+                output.result(format!(
                     "  Determinism:   {:.2}",
                     profile.policy_compliance.determinism_score
                 ));
-                output.result(&format!(
+                output.result(format!(
                     "  Evidence:      {:.2}",
                     profile.policy_compliance.evidence_coverage
                 ));
-                output.result(&format!(
+                output.result(format!(
                     "  Refusal Rate:  {:.2}%",
                     profile.policy_compliance.refusal_rate * 100.0
                 ));
-                output.result(&format!(
+                output.result(format!(
                     "  Violations:    {}",
                     profile.policy_compliance.policy_violations
                 ));
@@ -1465,7 +1466,7 @@ async fn profile_adapter(
                 });
                 output.result(&serde_json::to_string_pretty(&error_response)?);
             } else {
-                output.error(&format!("Failed to connect to worker: {}", e));
+                output.error(format!("Failed to connect to worker: {}", e));
                 output.result("Showing mock data instead.");
                 output.blank();
 
@@ -1507,11 +1508,11 @@ async fn promote_adapter(
             });
             output.result(&serde_json::to_string_pretty(&response)?);
         } else {
-            output.warning(&format!(
+            output.warning(format!(
                 "Worker socket not found at: {}",
                 socket_path.display()
             ));
-            output.success(&format!("Promoted adapter: {} (mock)", adapter_id));
+            output.success(format!("Promoted adapter: {} (mock)", adapter_id));
             output.result("State: warm → hot");
         }
         return Ok(());
@@ -1530,7 +1531,7 @@ async fn promote_adapter(
                 });
                 output.result(&serde_json::to_string_pretty(&response)?);
             } else {
-                output.success(&format!("Promoted adapter: {}", adapter_id));
+                output.success(format!("Promoted adapter: {}", adapter_id));
                 output.result("State: warm → hot");
             }
         }
@@ -1543,7 +1544,7 @@ async fn promote_adapter(
                 });
                 output.result(&serde_json::to_string_pretty(&response)?);
             } else {
-                output.error(&format!("Failed to promote adapter: {}", e));
+                output.error(format!("Failed to promote adapter: {}", e));
             }
         }
     }
@@ -1572,11 +1573,11 @@ async fn demote_adapter(
             });
             output.result(&serde_json::to_string_pretty(&response)?);
         } else {
-            output.warning(&format!(
+            output.warning(format!(
                 "Worker socket not found at: {}",
                 socket_path.display()
             ));
-            output.success(&format!("Demoted adapter: {} (mock)", adapter_id));
+            output.success(format!("Demoted adapter: {} (mock)", adapter_id));
             output.result("State: hot → warm");
         }
         return Ok(());
@@ -1595,7 +1596,7 @@ async fn demote_adapter(
                 });
                 output.result(&serde_json::to_string_pretty(&response)?);
             } else {
-                output.success(&format!("Demoted adapter: {}", adapter_id));
+                output.success(format!("Demoted adapter: {}", adapter_id));
                 output.result("State: hot → warm");
             }
         }
@@ -1608,7 +1609,7 @@ async fn demote_adapter(
                 });
                 output.result(&serde_json::to_string_pretty(&response)?);
             } else {
-                output.error(&format!("Failed to demote adapter: {}", e));
+                output.error(format!("Failed to demote adapter: {}", e));
             }
         }
     }
@@ -1637,11 +1638,11 @@ async fn pin_adapter(
             });
             output.result(&serde_json::to_string_pretty(&response)?);
         } else {
-            output.warning(&format!(
+            output.warning(format!(
                 "Worker socket not found at: {}",
                 socket_path.display()
             ));
-            output.success(&format!("Pinned adapter: {} (mock)", adapter_id));
+            output.success(format!("Pinned adapter: {} (mock)", adapter_id));
             output.result("State: → resident (pinned)");
         }
         return Ok(());
@@ -1660,7 +1661,7 @@ async fn pin_adapter(
                 });
                 output.result(&serde_json::to_string_pretty(&response)?);
             } else {
-                output.success(&format!("Pinned adapter: {}", adapter_id));
+                output.success(format!("Pinned adapter: {}", adapter_id));
                 output.result("State: → resident (pinned)");
             }
         }
@@ -1673,7 +1674,7 @@ async fn pin_adapter(
                 });
                 output.result(&serde_json::to_string_pretty(&response)?);
             } else {
-                output.error(&format!("Failed to pin adapter: {}", e));
+                output.error(format!("Failed to pin adapter: {}", e));
             }
         }
     }
@@ -1702,11 +1703,11 @@ async fn unpin_adapter(
             });
             output.result(&serde_json::to_string_pretty(&response)?);
         } else {
-            output.warning(&format!(
+            output.warning(format!(
                 "Worker socket not found at: {}",
                 socket_path.display()
             ));
-            output.success(&format!("Unpinned adapter: {} (mock)", adapter_id));
+            output.success(format!("Unpinned adapter: {} (mock)", adapter_id));
             output.result("Adapter can now be demoted");
         }
         return Ok(());
@@ -1725,7 +1726,7 @@ async fn unpin_adapter(
                 });
                 output.result(&serde_json::to_string_pretty(&response)?);
             } else {
-                output.success(&format!("Unpinned adapter: {}", adapter_id));
+                output.success(format!("Unpinned adapter: {}", adapter_id));
                 output.result("Adapter can now be demoted");
             }
         }
@@ -1738,7 +1739,7 @@ async fn unpin_adapter(
                 });
                 output.result(&serde_json::to_string_pretty(&response)?);
             } else {
-                output.error(&format!("Failed to unpin adapter: {}", e));
+                output.error(format!("Failed to unpin adapter: {}", e));
             }
         }
     }
@@ -1798,7 +1799,7 @@ async fn lineage_adapter(
     let descendants = lineage_data["descendants"].as_array().unwrap_or(&empty_vec);
     let total_nodes = lineage_data["total_nodes"].as_u64().unwrap_or(0);
 
-    output.info(&format!("Lineage tree for adapter: {}", adapter_id));
+    output.info(format!("Lineage tree for adapter: {}", adapter_id));
     output.kv("Total nodes", &total_nodes.to_string());
     println!();
 
@@ -1933,13 +1934,13 @@ async fn evict_adapter(
             }
             output.result(&serde_json::to_string_pretty(&response)?);
         } else {
-            output.warning(&format!(
+            output.warning(format!(
                 "Worker socket not found at: {}",
                 socket_path.display()
             ));
-            output.success(&format!("Evicted adapter: {} (mock)", adapter_id));
+            output.success(format!("Evicted adapter: {} (mock)", adapter_id));
             if let Some(r) = reason {
-                output.result(&format!("Reason: {}", r));
+                output.result(format!("Reason: {}", r));
             }
         }
         return Ok(());
@@ -1958,9 +1959,9 @@ async fn evict_adapter(
                 }
                 output.result(&serde_json::to_string_pretty(&response)?);
             } else {
-                output.success(&format!("Evicted adapter: {}", adapter_id));
+                output.success(format!("Evicted adapter: {}", adapter_id));
                 if let Some(r) = reason {
-                    output.result(&format!("Reason: {}", r));
+                    output.result(format!("Reason: {}", r));
                 }
             }
         }
@@ -1973,7 +1974,7 @@ async fn evict_adapter(
                 });
                 output.result(&serde_json::to_string_pretty(&response)?);
             } else {
-                output.error(&format!("Failed to evict adapter: {}", e));
+                output.error(format!("Failed to evict adapter: {}", e));
             }
         }
     }
@@ -1982,13 +1983,18 @@ async fn evict_adapter(
 }
 
 /// Update adapter lifecycle state
-async fn update_lifecycle(adapter_id: &str, state_str: &str, output: &OutputWriter) -> Result<()> {
+async fn update_lifecycle(
+    adapter_id: &str,
+    tenant_id: &str,
+    state_str: &str,
+    output: &OutputWriter,
+) -> Result<()> {
     use adapteros_core::lifecycle::LifecycleState;
     use std::str::FromStr;
 
     validate_adapter_id(adapter_id)?;
 
-    info!(adapter_id = %adapter_id, state = %state_str, "Updating adapter lifecycle state");
+    info!(adapter_id = %adapter_id, tenant_id = %tenant_id, state = %state_str, "Updating adapter lifecycle state");
 
     // Parse the lifecycle state
     let new_state = LifecycleState::from_str(state_str).map_err(|e| {
@@ -2015,7 +2021,7 @@ async fn update_lifecycle(adapter_id: &str, state_str: &str, output: &OutputWrit
                 });
                 output.result(&serde_json::to_string_pretty(&response)?);
             } else {
-                output.success(&format!(
+                output.success(format!(
                     "Updated adapter {} to lifecycle state: {}",
                     adapter_id,
                     new_state.as_str()
@@ -2036,7 +2042,7 @@ async fn update_lifecycle(adapter_id: &str, state_str: &str, output: &OutputWrit
                 });
                 output.result(&serde_json::to_string_pretty(&response)?);
             } else {
-                output.error(&format!("Failed to update lifecycle state: {}", error_msg));
+                output.error(format!("Failed to update lifecycle state: {}", error_msg));
             }
             Err(e)
         }
@@ -2171,9 +2177,9 @@ async fn register_adapter(
         .map_err(|e| AosError::Http(e.to_string()))?;
 
     if output.is_json() {
-        output.result(&serde_json::to_string_pretty(&value).unwrap());
+        output.result(serde_json::to_string_pretty(&value).unwrap());
     } else {
-        output.success(&format!("Adapter registered: {}", adapter_id));
+        output.success(format!("Adapter registered: {}", adapter_id));
     }
 
     Ok(())
@@ -2192,7 +2198,7 @@ async fn export_adapter_cmd(
     base_url: &str,
     output: &OutputWriter,
 ) -> Result<()> {
-    output.info(&format!("Exporting adapter: {}", adapter_id));
+    output.info(format!("Exporting adapter: {}", adapter_id));
 
     let client = reqwest::Client::new();
     let url = format!(
@@ -2248,7 +2254,7 @@ async fn export_adapter_cmd(
     if let Some(hash) = content_hash {
         output.kv("Content hash", &hash);
     }
-    output.success(&format!("Adapter exported to: {}", file_path.display()));
+    output.success(format!("Adapter exported to: {}", file_path.display()));
 
     Ok(())
 }
@@ -2263,7 +2269,7 @@ async fn import_adapter_cmd(
     base_url: &str,
     output: &OutputWriter,
 ) -> Result<()> {
-    output.info(&format!("Importing adapter from: {}", file_path.display()));
+    output.info(format!("Importing adapter from: {}", file_path.display()));
     output.kv("Tenant", tenant_id);
 
     // Verify file exists
@@ -2343,15 +2349,15 @@ async fn import_adapter_cmd(
         .unwrap_or("unknown");
 
     if output.is_json() {
-        output.result(&serde_json::to_string_pretty(&value).unwrap());
+        output.result(serde_json::to_string_pretty(&value).unwrap());
     } else {
         if deduplicated {
-            output.success(&format!(
+            output.success(format!(
                 "Adapter already exists (deduplicated): {}",
                 adapter_id
             ));
         } else {
-            output.success(&format!("Adapter imported: {}", adapter_id));
+            output.success(format!("Adapter imported: {}", adapter_id));
         }
         if auto_load {
             output.kv("Auto-load", "enabled");
@@ -2390,12 +2396,12 @@ async fn list_adapter_versions(
 
     let parsed: Value = serde_json::from_str(&text).unwrap_or(Value::String(text.clone()));
     if json {
-        output.result(&serde_json::to_string_pretty(&parsed).unwrap());
+        output.result(serde_json::to_string_pretty(&parsed).unwrap());
         return Ok(());
     }
 
     if let Some(arr) = parsed.as_array() {
-        output.info(&format!("{} versions for repo {}", arr.len(), repo_id));
+        output.info(format!("{} versions for repo {}", arr.len(), repo_id));
         for item in arr {
             let id = item.get("id").and_then(|v| v.as_str()).unwrap_or("-");
             let state = item.get("state").and_then(|v| v.as_str()).unwrap_or("-");
@@ -2464,9 +2470,9 @@ async fn promote_adapter_version(
 
     let parsed: Value = serde_json::from_str(&text).unwrap_or(Value::String(text.clone()));
     if json {
-        output.result(&serde_json::to_string_pretty(&parsed).unwrap());
+        output.result(serde_json::to_string_pretty(&parsed).unwrap());
     } else {
-        output.success(&format!(
+        output.success(format!(
             "Promoted version {} for repo {}",
             version_id, repo_id
         ));
@@ -2511,9 +2517,9 @@ async fn rollback_adapter_version(
 
     let parsed: Value = serde_json::from_str(&text).unwrap_or(Value::String(text.clone()));
     if json {
-        output.result(&serde_json::to_string_pretty(&parsed).unwrap());
+        output.result(serde_json::to_string_pretty(&parsed).unwrap());
     } else {
-        output.success(&format!(
+        output.success(format!(
             "Rolled back repo {} branch {} to version {}",
             repo_id, branch, target
         ));
@@ -2801,21 +2807,23 @@ mod tests {
         assert_eq!(
             get_adapter_command_name(&AdapterCommand::UpdateLifecycle {
                 adapter_id: "test".to_string(),
-                state: "active".to_string()
+                state: "active".to_string(),
+                tenant: "default".to_string(),
             }),
             "adapter_update_lifecycle"
         );
     }
 
     #[test]
-    fn test_update_lifecycle_no_tenant() {
-        // UpdateLifecycle does not have a tenant parameter
+    fn test_update_lifecycle_tenant() {
+        // UpdateLifecycle now has a tenant parameter
         assert_eq!(
             extract_tenant_from_adapter_command(&AdapterCommand::UpdateLifecycle {
                 adapter_id: "test".to_string(),
-                state: "active".to_string()
+                state: "active".to_string(),
+                tenant: "test-tenant".to_string(),
             }),
-            None
+            Some("test-tenant".to_string())
         );
     }
 }

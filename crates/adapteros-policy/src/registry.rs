@@ -1,6 +1,6 @@
 //! Policy Registry - Canonical 20 Policy Packs
 //!
-//! This module defines the complete set of 20 policy packs enforced by AdapterOS.
+//! This module defines the complete set of 25 policy packs enforced by AdapterOS.
 //! Each policy pack has a unique ID, name, and enforcement logic.
 
 use adapteros_core::Result;
@@ -93,7 +93,7 @@ impl PolicyId {
             PolicyId::Adapters => "Adapters",
             PolicyId::DeterministicIo => "Deterministic I/O",
             PolicyId::Drift => "Drift",
-            PolicyId::Mplora => "MPLoRA",
+            PolicyId::Mplora => "DIR",
             PolicyId::Naming => "Naming",
             PolicyId::DependencySecurity => "Dependency Security",
             PolicyId::CircuitBreaker => "Circuit Breaker",
@@ -285,7 +285,7 @@ pub trait PolicyContext {
     /// Get metadata for policy enforcement
     fn metadata(&self) -> &std::collections::HashMap<String, String> {
         static EMPTY: once_cell::sync::Lazy<std::collections::HashMap<String, String>> =
-            once_cell::sync::Lazy::new(|| std::collections::HashMap::new());
+            once_cell::sync::Lazy::new(std::collections::HashMap::new);
         &EMPTY
     }
 }

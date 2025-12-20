@@ -7,6 +7,7 @@
 //!   aos-worker --uds-path ./var/run/worker.sock --manifest manifests/qwen32b-coder-mlx.yaml \
 //!              --model-path ./var/models/Qwen2.5-7B-Instruct-4bit --manifest-hash <HASH>
 
+use adapteros_boot::jti_cache::JtiCacheStore;
 use adapteros_config::{
     prepare_socket_path, resolve_manifest_cache_dir, resolve_telemetry_dir,
     resolve_worker_socket_for_worker,
@@ -15,25 +16,28 @@ use adapteros_core::{AosError, B3Hash, ExecutionProfile, Result, SeedMode, Worke
 use adapteros_lora_worker::{
     backend_coordinator::BackendCoordinator,
     backend_factory::{
-        configure_model_cache_telemetry, create_backend_with_model_and_hash,
-        detect_capabilities as detect_backend_capabilities, select_backend_from_execution_profile,
-        BackendChoice, SelectionContext,
+        configure_model_cache_telemetry, create_backend_with_model_hashes,
+        detect_capabilities as detect_backend_capabilities, get_model_cache,
+        select_backend_from_execution_profile, validate_model_cache_budget, BackendChoice,
+        SelectionContext,
     },
     health::{HealthEvent, HealthTick},
+    panic_utils::{
+        build_fatal_payload, extract_panic_message, format_panic_location, truncate_backtrace,
+    },
     uds_server::UdsServer,
-    AvailableBackends, CoordinatedKernels, CoremlRuntimeTelemetry, CoremlVerificationSnapshot,
-    DirectKernels, HealthConfig, HealthMonitor, KernelWrapper, Worker,
+    CoordinatedKernels, CoremlRuntimeTelemetry, CoremlVerificationSnapshot, DirectKernels,
+    HealthConfig, HealthMonitor, KernelWrapper, Worker,
 };
 use adapteros_manifest::ManifestV3;
 use adapteros_telemetry::TelemetryWriter;
-use chrono::Utc;
 use clap::Parser;
 use std::io::Write;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, OnceLock,
 };
-use std::{fs, path::Path, path::PathBuf, str::FromStr};
+use std::{fs, path::PathBuf, str::FromStr};
 use tokio::signal;
 use tokio::sync::Mutex;
 use tracing::{error, info, info_span, warn};
@@ -79,7 +83,6 @@ static WORKER_IDENTITY: OnceLock<WorkerIdentity> = OnceLock::new();
 
 /// Worker registration result
 struct RegistrationResult {
-    accepted: bool,
     heartbeat_interval_secs: u32,
     kv_quota_bytes: Option<u64>,
     kv_residency_policy_id: Option<String>,
@@ -99,6 +102,7 @@ fn register_with_cp(
     model_hash: &str,
     uds_path: &str,
     capabilities: &[String],
+    strict_mode: bool,
 ) -> std::result::Result<RegistrationResult, String> {
     let registration = serde_json::json!({
         "worker_id": worker_id,
@@ -111,7 +115,8 @@ fn register_with_cp(
         "api_version": API_VERSION,
         "pid": std::process::id() as i32,
         "uds_path": uds_path,
-        "capabilities": capabilities
+        "capabilities": capabilities,
+        "strict_mode": strict_mode
     });
 
     let url = format!("{}/api/v1/workers/register", cp_url);
@@ -135,6 +140,17 @@ fn register_with_cp(
                     let kv_residency_policy_id =
                         json["kv_residency_policy_id"].as_str().map(String::from);
 
+                    // Check for strict mode mismatch between worker and control plane
+                    let cp_strict = json["cp_strict_mode"].as_bool().unwrap_or(false);
+                    if strict_mode != cp_strict {
+                        warn!(
+                            worker_strict = strict_mode,
+                            cp_strict = cp_strict,
+                            "Strict mode mismatch between worker and control plane. \
+                             This may cause inconsistent error handling behavior."
+                        );
+                    }
+
                     if !accepted {
                         let reason = json["rejection_reason"]
                             .as_str()
@@ -143,7 +159,6 @@ fn register_with_cp(
                         Err(reason)
                     } else {
                         Ok(RegistrationResult {
-                            accepted: true,
                             heartbeat_interval_secs: heartbeat,
                             kv_quota_bytes,
                             kv_residency_policy_id,
@@ -154,6 +169,129 @@ fn register_with_cp(
             }
         }
         Err(e) => Err(format!("HTTP error: {}", e)),
+    }
+}
+
+/// Register worker with control plane with retry logic for transient failures
+///
+/// Uses exponential backoff with a hard deadline to prevent both
+/// "panic and die" and "spin forever" behaviors.
+///
+/// # Retry Behavior
+///
+/// - Base delay: 1 second, backoff factor: 2x, max delay: 16 seconds
+/// - Maximum elapsed time: 120 seconds (deadline)
+/// - Logs attempt number, delay, and remaining budget on each retry
+/// - Non-transient errors (validation, rejection) fail immediately without retry
+fn register_with_cp_with_retry(
+    cp_url: &str,
+    worker_id: &str,
+    tenant_id: &str,
+    plan_id: &str,
+    manifest_hash: &str,
+    backend: &str,
+    model_hash: &str,
+    uds_path: &str,
+    capabilities: &[String],
+    strict_mode: bool,
+) -> std::result::Result<RegistrationResult, String> {
+    use std::time::{Duration, Instant};
+
+    const BASE_DELAY: Duration = Duration::from_secs(1);
+    const MAX_DELAY: Duration = Duration::from_secs(16);
+    const MAX_ELAPSED: Duration = Duration::from_secs(120);
+    const BACKOFF_FACTOR: f64 = 2.0;
+
+    let deadline = Instant::now() + MAX_ELAPSED;
+    let mut attempt: u32 = 0;
+    let mut delay = BASE_DELAY;
+
+    loop {
+        attempt += 1;
+        let remaining = deadline.saturating_duration_since(Instant::now());
+
+        // Check if we've exceeded the deadline (after first attempt)
+        if remaining.is_zero() && attempt > 1 {
+            return Err(format!(
+                "Registration failed after {} attempts ({:?} elapsed): deadline exceeded",
+                attempt - 1,
+                MAX_ELAPSED
+            ));
+        }
+
+        match register_with_cp(
+            cp_url,
+            worker_id,
+            tenant_id,
+            plan_id,
+            manifest_hash,
+            backend,
+            model_hash,
+            uds_path,
+            capabilities,
+            strict_mode,
+        ) {
+            Ok(result) => {
+                if attempt > 1 {
+                    info!(
+                        attempt = attempt,
+                        "Worker registration succeeded after retry"
+                    );
+                }
+                return Ok(result);
+            }
+            Err(err) => {
+                // Check if error is transient (network/HTTP errors) or non-transient (validation/rejection)
+                let is_transient = err.contains("HTTP error")
+                    || err.contains("connect")
+                    || err.contains("timeout")
+                    || err.contains("Connection refused")
+                    || err.contains("DNS")
+                    || err.contains("network");
+
+                if !is_transient {
+                    // Non-transient errors (validation, rejection) should fail immediately
+                    warn!(
+                        attempt = attempt,
+                        error = %err,
+                        "Worker registration failed with non-transient error, not retrying"
+                    );
+                    return Err(err);
+                }
+
+                // Check if we have time budget remaining
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                if remaining.is_zero() {
+                    error!(
+                        attempt = attempt,
+                        elapsed_ms = MAX_ELAPSED.as_millis() as u64,
+                        error = %err,
+                        "Worker registration failed: deadline exceeded"
+                    );
+                    return Err(format!(
+                        "Registration failed after {} attempts ({:?} elapsed): {}",
+                        attempt, MAX_ELAPSED, err
+                    ));
+                }
+
+                // Log retry attempt with structured fields including remaining budget
+                warn!(
+                    attempt = attempt,
+                    delay_ms = delay.as_millis() as u64,
+                    remaining_budget_ms = remaining.as_millis() as u64,
+                    error = %err,
+                    "Worker registration failed with transient error, will retry"
+                );
+
+                // Sleep for the delay (capped by remaining budget)
+                let actual_delay = delay.min(remaining);
+                std::thread::sleep(actual_delay);
+
+                // Calculate next delay with exponential backoff
+                delay = Duration::from_millis(((delay.as_millis() as f64) * BACKOFF_FACTOR) as u64)
+                    .min(MAX_DELAY);
+            }
+        }
     }
 }
 
@@ -286,6 +424,7 @@ fn cache_manifest(manifest_hash: &B3Hash, manifest_json: &str) {
     }
 }
 
+#[cfg(all(target_os = "macos", feature = "coreml-backend"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum CoremlVerifyMode {
     Off,
@@ -293,6 +432,7 @@ enum CoremlVerifyMode {
     Strict,
 }
 
+#[cfg(all(target_os = "macos", feature = "coreml-backend"))]
 fn resolve_coreml_verify_mode() -> CoremlVerifyMode {
     match std::env::var("AOS_COREML_VERIFY_MODE")
         .unwrap_or_else(|_| "warn".to_string())
@@ -435,6 +575,7 @@ async fn resolve_expected_coreml_hash(
     (None, None)
 }
 
+#[cfg(all(target_os = "macos", feature = "coreml-backend"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CoremlVerificationStatus {
     Match,
@@ -444,6 +585,7 @@ enum CoremlVerificationStatus {
     Skipped,
 }
 
+#[cfg(all(target_os = "macos", feature = "coreml-backend"))]
 impl CoremlVerificationStatus {
     fn as_str(&self) -> &'static str {
         match self {
@@ -460,6 +602,7 @@ impl CoremlVerificationStatus {
     }
 }
 
+#[cfg(all(target_os = "macos", feature = "coreml-backend"))]
 fn log_coreml_verification_result(
     mode: CoremlVerifyMode,
     expected: Option<&B3Hash>,
@@ -477,11 +620,11 @@ fn log_coreml_verification_result(
                 );
                 Ok(CoremlVerificationStatus::Match)
             } else if mode == CoremlVerifyMode::Strict {
-                return Err(AosError::Validation(format!(
+                Err(AosError::Validation(format!(
                     "CoreML fused package hash mismatch (expected {}, got {})",
                     exp.to_hex(),
                     act.to_hex()
-                )));
+                )))
             } else {
                 warn!(
                     mode = ?mode,
@@ -574,21 +717,39 @@ fn parse_backend_choice(raw: &str) -> BackendChoice {
     })
 }
 
-/// Detect backend capabilities
+/// Detect backend capabilities based on compiled features
 fn detect_capabilities(backend_choice: &str) -> Vec<String> {
     let mut caps = vec![];
 
-    // Add backend capability
+    // Check if MLX is actually compiled into this binary
+    #[cfg(feature = "multi-backend")]
+    let has_mlx_support = true;
+    #[cfg(not(feature = "multi-backend"))]
+    let has_mlx_support = false;
+
+    // Add backend capability based on requested backend AND compiled features
     match backend_choice.to_lowercase().as_str() {
         "coreml" => caps.push("coreml".to_string()),
-        "mlx" => caps.push("mlx".to_string()),
+        "mlx" => {
+            // Only advertise MLX if we actually have it compiled
+            if has_mlx_support {
+                caps.push("mlx".to_string());
+            } else {
+                tracing::warn!(
+                    "MLX backend requested but binary not compiled with multi-backend feature"
+                );
+            }
+        }
         "metal" => caps.push("metal".to_string()),
         "auto" => {
-            // Auto tries in order: CoreML -> MLX -> Metal
+            // Auto tries in order: CoreML -> MLX (if available) -> Metal
             #[cfg(target_os = "macos")]
             {
                 caps.push("coreml".to_string());
-                caps.push("mlx".to_string());
+                // Only advertise MLX capability if the feature is actually compiled in
+                if has_mlx_support {
+                    caps.push("mlx".to_string());
+                }
                 caps.push("metal".to_string());
             }
         }
@@ -627,65 +788,30 @@ struct WorkerIdentity {
     cp_url: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum WorkerRuntimeMode {
-    Dev,
-    Staging,
-    Prod,
-}
-
-impl WorkerRuntimeMode {
-    fn from_env() -> Self {
-        match std::env::var("AOS_RUNTIME_MODE")
-            .unwrap_or_else(|_| "dev".to_string())
-            .to_ascii_lowercase()
-            .as_str()
-        {
-            "prod" | "production" => WorkerRuntimeMode::Prod,
-            "staging" | "stage" => WorkerRuntimeMode::Staging,
-            _ => WorkerRuntimeMode::Dev,
-        }
-    }
-}
-
 /// Set up panic hook to report fatal errors to the control plane
 fn setup_panic_hook() {
     let default_hook = std::panic::take_hook();
 
     std::panic::set_hook(Box::new(move |panic_info| {
         // Extract panic message
-        let message = if let Some(s) = panic_info.payload().downcast_ref::<&str>() {
-            s.to_string()
-        } else if let Some(s) = panic_info.payload().downcast_ref::<String>() {
-            s.clone()
-        } else {
-            "Unknown panic".to_string()
-        };
+        let message = extract_panic_message(panic_info.payload());
 
         // Extract location
         let location = panic_info
             .location()
-            .map(|l| format!("{}:{}:{}", l.file(), l.line(), l.column()))
+            .map(|l| format_panic_location(l.file(), l.line(), l.column()))
             .unwrap_or_else(|| "unknown".to_string());
 
         // Capture backtrace (first 2000 chars to avoid oversized messages)
         let backtrace = std::backtrace::Backtrace::capture();
         let backtrace_str = format!("{}", backtrace);
-        let backtrace_snippet = if backtrace_str.len() > 2000 {
-            format!("{}...(truncated)", &backtrace_str[..2000])
-        } else {
-            backtrace_str
-        };
+        let backtrace_snippet = truncate_backtrace(&backtrace_str, 2000);
 
         // Attempt to notify CP of fatal error
         if let Some(identity) = WORKER_IDENTITY.get() {
             // Build fatal error payload
-            let fatal_payload = serde_json::json!({
-                "worker_id": identity.worker_id,
-                "reason": format!("PANIC at {}: {}", location, message),
-                "backtrace_snippet": backtrace_snippet,
-                "timestamp": chrono::Utc::now().to_rfc3339()
-            });
+            let fatal_payload =
+                build_fatal_payload(&identity.worker_id, &location, &message, &backtrace_snippet);
 
             // Use blocking HTTP client (ureq) since we're in panic context
             // and can't use async. Best-effort delivery with short timeout.
@@ -765,10 +891,62 @@ struct Args {
     /// Enable backend coordinator (primary + fallback) for runtime failover
     #[arg(long, env = "AOS_COORDINATOR_ENABLED", default_value_t = false)]
     coordinator_enabled: bool,
+
+    /// Enable strict mode (fail-closed boot)
+    /// When enabled:
+    /// - Worker public key must exist (var/keys/worker_signing.pub)
+    /// - Tokens from CP are required for all requests
+    #[arg(long, env = "AOS_STRICT")]
+    strict: bool,
+}
+
+/// Exit codes for worker process control
+///
+/// These codes determine restart behavior:
+/// - 0: Graceful shutdown (don't restart)
+/// - 1: Config/validation error (don't restart - requires manual fix)
+/// - 2: Transient error (restart with backoff)
+/// - 3: Fatal error (don't restart - requires investigation)
+const EXIT_SUCCESS: i32 = 0;
+const EXIT_CONFIG_ERROR: i32 = 1;
+const EXIT_TRANSIENT_ERROR: i32 = 2;
+const EXIT_FATAL_ERROR: i32 = 3;
+
+/// Determine exit code based on error type
+fn error_to_exit_code(err: &AosError) -> i32 {
+    match err {
+        // Config/validation errors should not restart (need manual fix)
+        AosError::Config(_) | AosError::Validation(_) => EXIT_CONFIG_ERROR,
+
+        // Network/transient errors should restart with backoff
+        AosError::Network(_) | AosError::Timeout { .. } => EXIT_TRANSIENT_ERROR,
+
+        // Fatal errors (internal, cache corruption, etc.) should not restart
+        AosError::Internal(_) | AosError::CacheCorruption { .. } => EXIT_FATAL_ERROR,
+
+        // Default: treat as transient for unknown error types
+        _ => EXIT_TRANSIENT_ERROR,
+    }
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Run the actual worker logic and map errors to exit codes
+    match run_worker().await {
+        Ok(()) => std::process::exit(EXIT_SUCCESS),
+        Err(e) => {
+            let exit_code = error_to_exit_code(&e);
+            error!(
+                error = %e,
+                exit_code = exit_code,
+                "Worker exiting with error"
+            );
+            std::process::exit(exit_code);
+        }
+    }
+}
+
+async fn run_worker() -> Result<()> {
     // Initialize tracing
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -782,6 +960,22 @@ async fn main() -> Result<()> {
 
     // Load canonical .env before any environment-based resolution
     adapteros_config::model::load_dotenv();
+
+    // Early validation: check model cache budget BEFORE any expensive operations
+    // This is a fail-fast check to avoid 100-200ms of wasted work (manifest loading,
+    // backend selection) when the configuration is missing.
+    info!("Validating model cache budget configuration...");
+    if let Err(e) = validate_model_cache_budget() {
+        error!(error = %e, "FATAL: Model cache budget not configured");
+        eprintln!(
+            "ERROR: Model cache budget not configured.\n\
+             Set AOS_MODEL_CACHE_MAX_MB=<megabytes> environment variable\n\
+             or model.cache.max.mb in the config TOML file."
+        );
+        // Exit immediately with config error - no point in continuing
+        std::process::exit(EXIT_CONFIG_ERROR);
+    }
+    info!("Model cache budget validated successfully");
 
     // Set up panic hook for fatal error reporting
     let worker_id = args
@@ -1044,39 +1238,52 @@ async fn main() -> Result<()> {
     };
     #[cfg(not(all(target_os = "macos", feature = "coreml-backend")))]
     let coreml_primary_runtime: Option<CoremlRuntimeTelemetry> = None;
-    let mut fallback_coreml_runtime: Option<CoremlRuntimeTelemetry> = None;
+    let fallback_coreml_runtime: Option<CoremlRuntimeTelemetry> = None;
 
-    // Create kernel backend with manifest hash for deterministic caching
+    // NOTE: Model cache budget validation moved to startup (line ~835) for fail-fast behavior.
+    // The budget is validated before any expensive operations like manifest loading.
+
+    // Create kernel backend with manifest hash for cache identity and model hash for integrity verification
     info!(
         backend = %backend_choice.as_str(),
-        "Creating kernel backend with manifest hash"
+        manifest_hash = %manifest_hash.to_hex(),
+        model_hash = %manifest.base.model_hash.to_hex(),
+        "Creating kernel backend with integrity verification"
     );
-    let primary_kernels =
-        create_backend_with_model_and_hash(backend_choice, &model_path, Some(&manifest_hash))
-            .map_err(|e| {
-                // #region agent log
-                write_debug_log(
-                    "H3",
-                    "aos_worker.rs:create_backend",
-                    "primary backend creation failed",
-                    serde_json::json!({
-                        "backend": backend_choice.as_str(),
-                        "model_path": model_path,
-                        "manifest_hash": manifest_hash.to_hex(),
-                        "error": e.to_string()
-                    }),
-                );
-                // #endregion
-                e
-            })?;
+    let primary_kernels = create_backend_with_model_hashes(
+        backend_choice,
+        &model_path,
+        Some(&manifest_hash),
+        Some(&manifest.base.model_hash),
+    )
+    .inspect_err(|e| {
+        // #region agent log
+        write_debug_log(
+            "H3",
+            "aos_worker.rs:create_backend",
+            "primary backend creation failed",
+            serde_json::json!({
+                "backend": backend_choice.as_str(),
+                "model_path": model_path,
+                "manifest_hash": manifest_hash.to_hex(),
+                "model_hash": manifest.base.model_hash.to_hex(),
+                "error": e.to_string()
+            }),
+        );
+        // #endregion
+    })?;
 
     // Optional fallback backend via coordinator
     let mut fallback_backend_kind: Option<BackendChoice> = None;
     let fallback_kernels = if args.coordinator_enabled {
         match BackendCoordinator::select_fallback_backend(&backend_choice, &capabilities) {
             Ok(choice) => {
-                match create_backend_with_model_and_hash(choice, &model_path, Some(&manifest_hash))
-                {
+                match create_backend_with_model_hashes(
+                    choice,
+                    &model_path,
+                    Some(&manifest_hash),
+                    Some(&manifest.base.model_hash),
+                ) {
                     Ok(k) => {
                         if choice == BackendChoice::CoreML {
                             #[cfg(all(target_os = "macos", feature = "coreml-backend"))]
@@ -1131,6 +1338,7 @@ async fn main() -> Result<()> {
     };
 
     // Compute and verify CoreML fused package hash when CoreML is in play.
+    #[allow(unused_variables)]
     let coreml_in_use = backend_choice == BackendChoice::CoreML
         || matches!(available_backends.fallback, Some(BackendChoice::CoreML));
 
@@ -1262,7 +1470,7 @@ async fn main() -> Result<()> {
         "Registering with control plane"
     );
 
-    let registration_result = match register_with_cp(
+    let registration_result = match register_with_cp_with_retry(
         &args.cp_url,
         &worker_id,
         &args.tenant_id,
@@ -1272,6 +1480,7 @@ async fn main() -> Result<()> {
         &model_hash_hex,
         &uds_path_str,
         &capabilities,
+        args.strict,
     ) {
         Ok(result) => {
             // #region agent log
@@ -1325,7 +1534,7 @@ async fn main() -> Result<()> {
                 }),
             );
             // #endregion
-            lifecycle = lifecycle
+            let _lifecycle = lifecycle
                 .transition_to(WorkerStatus::Error)
                 .unwrap_or(lifecycle);
             notify_cp_status(
@@ -1419,9 +1628,77 @@ async fn main() -> Result<()> {
     }
 
     // Start UDS server (bind before marking healthy)
+    // Try to load worker verifying key for CP->Worker authentication
+    // In strict mode, we use retry with exponential backoff (worker may start before CP generates keypair).
+    // In non-strict mode, we try once and fall back to no authentication if key is missing.
+    const KEY_LOAD_DEADLINE: std::time::Duration = std::time::Duration::from_secs(120);
+
+    let worker_verifying_key = if args.strict {
+        // Strict mode: use retry with deadline, then fail with transient error code
+        match adapteros_boot::load_worker_public_key_with_retry("var/keys", KEY_LOAD_DEADLINE) {
+            Ok(key) => {
+                info!("Worker public key loaded for CP->Worker authentication");
+                Some(key)
+            }
+            Err(e) => {
+                error!(
+                    error = %e,
+                    deadline_secs = KEY_LOAD_DEADLINE.as_secs(),
+                    "STRICT MODE: Failed to load worker public key after retry"
+                );
+                // Use transient error code so orchestrator will retry
+                std::process::exit(EXIT_TRANSIENT_ERROR);
+            }
+        }
+    } else {
+        // Non-strict mode: try once, fall back to no auth if missing
+        match adapteros_boot::load_worker_public_key("var/keys") {
+            Ok(key) => {
+                info!("Worker public key loaded for CP->Worker authentication");
+                Some(key)
+            }
+            Err(e) => {
+                warn!(
+                    error = %e,
+                    "Worker public key not found, running without CP->Worker token validation"
+                );
+                None
+            }
+        }
+    };
+
+    // Initialize persistent JTI cache for replay defense (only when auth is enabled)
+    // The cache is loaded from disk on startup and persisted on shutdown.
+    let jti_cache = if worker_verifying_key.is_some() {
+        let jti_cache_path = PathBuf::from("var/keys/jti_cache.json");
+        let cache = JtiCacheStore::load_or_new(jti_cache_path);
+        info!(
+            entries = cache.len(),
+            capacity = cache.capacity(),
+            "JTI cache initialized for replay defense"
+        );
+        Some(Arc::new(Mutex::new(cache)))
+    } else {
+        None
+    };
+
     info!(uds_path = %uds_path.display(), "Starting UDS server");
-    let server = UdsServer::new(uds_path.clone(), worker.clone(), None, drain_flag.clone());
-    let listener = server.bind().await.map_err(|e| {
+    let server = if let Some(verifying_key) = worker_verifying_key {
+        let jti_cache = jti_cache.expect("JTI cache should be initialized when auth is enabled");
+        UdsServer::new_with_worker_auth(
+            uds_path.clone(),
+            worker.clone(),
+            None,
+            drain_flag.clone(),
+            verifying_key,
+            worker_id.clone(),
+            jti_cache,
+        )
+    } else {
+        // In non-strict mode, this is allowed
+        UdsServer::new(uds_path.clone(), worker.clone(), None, drain_flag.clone())
+    };
+    let listener = server.bind().await.inspect_err(|e| {
         // #region agent log
         write_debug_log(
             "H5",
@@ -1433,7 +1710,6 @@ async fn main() -> Result<()> {
             }),
         );
         // #endregion
-        e
     })?;
 
     lifecycle = lifecycle
@@ -1514,6 +1790,18 @@ async fn main() -> Result<()> {
         res = &mut serve_fut => res,
         _ = &mut shutdown_signal => {
             info!(worker_id = %worker_id, "Drain signal received, initiating worker drain");
+
+            // Persist JTI cache before shutdown to maintain replay defense across restarts
+            if let Err(e) = server.persist_jti_cache().await {
+                warn!(error = %e, "Failed to persist JTI cache during shutdown");
+            }
+
+            // Cleanup model cache during drain to free pinned entries
+            if let Ok(cache) = get_model_cache() {
+                info!("Cleaning up model cache before drain");
+                cache.cleanup_all();
+            }
+
             drain_flag.store(true, Ordering::Relaxed);
             lifecycle = lifecycle.transition_to(WorkerStatus::Draining)
                 .map_err(|e| AosError::Lifecycle(e.to_string()))?;
@@ -1536,7 +1824,7 @@ async fn main() -> Result<()> {
     } else {
         WorkerStatus::Stopped
     };
-    lifecycle = lifecycle
+    let _lifecycle = lifecycle
         .transition_to(final_status)
         .map_err(|e| AosError::Lifecycle(e.to_string()))?;
     notify_cp_status(
@@ -1579,18 +1867,6 @@ mod tests {
     }
 
     #[test]
-    fn worker_runtime_mode_parsing() {
-        std::env::set_var("AOS_RUNTIME_MODE", "prod");
-        assert_eq!(WorkerRuntimeMode::from_env(), WorkerRuntimeMode::Prod);
-
-        std::env::set_var("AOS_RUNTIME_MODE", "staging");
-        assert_eq!(WorkerRuntimeMode::from_env(), WorkerRuntimeMode::Staging);
-
-        std::env::remove_var("AOS_RUNTIME_MODE");
-        assert_eq!(WorkerRuntimeMode::from_env(), WorkerRuntimeMode::Dev);
-    }
-
-    #[test]
     fn parses_known_backends() {
         assert_eq!(parse_backend_choice("auto"), BackendChoice::Auto);
         assert_eq!(parse_backend_choice("metal"), BackendChoice::Metal);
@@ -1605,6 +1881,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(all(target_os = "macos", feature = "coreml-backend"))]
     fn coreml_verification_status_helpers() {
         let h1 = B3Hash::hash(b"expected");
         let h2 = B3Hash::hash(b"actual");
@@ -1626,6 +1903,114 @@ mod tests {
                 .expect("off mode should skip cleanly");
         assert_eq!(skipped_status, CoremlVerificationStatus::Skipped);
         assert!(!skipped_status.is_mismatch());
+    }
+
+    #[test]
+    fn retry_logic_succeeds_on_first_attempt() {
+        // This test validates that the retry wrapper doesn't add overhead when
+        // registration succeeds immediately. We can't easily test the actual HTTP
+        // call without a mock server, but we can verify the error classification logic.
+
+        // Test that non-transient errors are identified correctly
+        let validation_error = "Invalid manifest hash";
+        let is_transient = validation_error.contains("HTTP error")
+            || validation_error.contains("connect")
+            || validation_error.contains("timeout")
+            || validation_error.contains("Connection refused");
+        assert!(
+            !is_transient,
+            "Validation errors should not be classified as transient"
+        );
+
+        // Test that transient errors are identified correctly
+        let network_error = "HTTP error: Connection refused";
+        let is_transient = network_error.contains("HTTP error")
+            || network_error.contains("connect")
+            || network_error.contains("timeout")
+            || network_error.contains("Connection refused");
+        assert!(
+            is_transient,
+            "Network errors should be classified as transient"
+        );
+
+        let timeout_error = "HTTP error: timeout reading response";
+        let is_transient = timeout_error.contains("HTTP error")
+            || timeout_error.contains("connect")
+            || timeout_error.contains("timeout")
+            || timeout_error.contains("Connection refused");
+        assert!(
+            is_transient,
+            "Timeout errors should be classified as transient"
+        );
+    }
+
+    #[test]
+    fn retry_logic_identifies_non_transient_errors() {
+        // Validation error should not be retried
+        let err = "Worker registration rejected: invalid tenant";
+        let is_transient = err.contains("HTTP error")
+            || err.contains("connect")
+            || err.contains("timeout")
+            || err.contains("Connection refused")
+            || err.contains("DNS")
+            || err.contains("network");
+        assert!(!is_transient, "Rejection errors should not be retried");
+
+        // Invalid response should not be retried
+        let err = "Invalid response: expected JSON object";
+        let is_transient = err.contains("HTTP error")
+            || err.contains("connect")
+            || err.contains("timeout")
+            || err.contains("Connection refused")
+            || err.contains("DNS")
+            || err.contains("network");
+        assert!(
+            !is_transient,
+            "Invalid response errors should not be retried"
+        );
+    }
+
+    #[test]
+    fn retry_logic_identifies_transient_errors() {
+        let transient_errors = vec![
+            "HTTP error: Connection refused",
+            "HTTP error: connect failed",
+            "HTTP error: timeout reading response",
+            "network error occurred",
+            "DNS resolution failed",
+        ];
+
+        for err in transient_errors {
+            let is_transient = err.contains("HTTP error")
+                || err.contains("connect")
+                || err.contains("timeout")
+                || err.contains("Connection refused")
+                || err.contains("DNS")
+                || err.contains("network");
+            assert!(
+                is_transient,
+                "Error '{}' should be classified as transient",
+                err
+            );
+        }
+    }
+
+    #[test]
+    fn exponential_backoff_calculation() {
+        // Verify the exponential backoff formula: BASE_DELAY_MS * 2^(attempt - 1)
+        const BASE_DELAY_MS: u64 = 1000;
+
+        // First retry: 1000 * 2^0 = 1000ms (1s)
+        let delay_1 = BASE_DELAY_MS * 2u64.pow(1 - 1);
+        assert_eq!(delay_1, 1000);
+
+        // Second retry: 1000 * 2^1 = 2000ms (2s)
+        let delay_2 = BASE_DELAY_MS * 2u64.pow(2 - 1);
+        assert_eq!(delay_2, 2000);
+
+        // Third retry: 1000 * 2^2 = 4000ms (4s)
+        let delay_3 = BASE_DELAY_MS * 2u64.pow(3 - 1);
+        assert_eq!(delay_3, 4000);
     }
 
     #[cfg(all(target_os = "macos", feature = "coreml-backend"))]

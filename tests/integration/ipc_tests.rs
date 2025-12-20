@@ -30,7 +30,7 @@ impl ServerFixture {
     fn new() -> Self {
         Self {
             server_process: None,
-            socket_path: "/tmp/aos_test_server.sock".to_string(),
+            socket_path: "var/run/aos_test_server.sock".to_string(),
         }
     }
 
@@ -252,7 +252,7 @@ async fn test_ipc_error_handling() {
     // Test with non-existent socket
     let client = adapteros_client::uds::UdsClient::new(Duration::from_millis(25));
     let result = client
-        .send_request(Path::new("/tmp/nonexistent.sock"), "GET", "/health", None)
+        .send_request(Path::new("/var/run/aos/nonexistent.sock"), "GET", "/health", None)
         .await;
     assert!(matches!(
         result,
@@ -264,7 +264,7 @@ async fn test_ipc_error_handling() {
 
     // Test connection pool with invalid parameters
     let pool_result = adapteros_client::uds::ConnectionPool::new(
-        Path::new("/tmp/invalid.sock"),
+        Path::new("/var/run/aos/invalid.sock"),
         1,
         Duration::from_millis(10),
     )
@@ -281,6 +281,7 @@ async fn test_ipc_performance_baseline() {
     println!("🧪 Establishing IPC performance baseline...");
 
     use std::time::Instant;
+    let temp_dir = TempDir::new_in(".").expect("tempdir");
 
     // Test signal creation performance
     let start = Instant::now();
@@ -301,7 +302,7 @@ async fn test_ipc_performance_baseline() {
     // Test connection pool creation performance
     let start = Instant::now();
     for i in 0..100 {
-        let path = PathBuf::from(format!("/tmp/perf_pool_{}.sock", i));
+        let path = temp_dir.path().join(format!("perf_pool_{}.sock", i));
         let _pool =
             adapteros_client::uds::ConnectionPool::new(path.as_path(), 0, Duration::from_millis(5))
                 .await
@@ -318,7 +319,7 @@ async fn test_ipc_performance_baseline() {
 async fn prepare_socket_listener(
     pool_size: usize,
 ) -> (TempDir, PathBuf, Arc<Mutex<Vec<UnixStream>>>) {
-    let tempdir = TempDir::new().expect("tempdir");
+    let tempdir = TempDir::new_in(".").expect("tempdir");
     let socket_path = tempdir.path().join("worker.sock");
 
     // Ensure no stale socket exists

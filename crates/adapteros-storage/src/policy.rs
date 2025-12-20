@@ -468,11 +468,10 @@ impl Default for StorageConstraints {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
 
     #[test]
     fn test_storage_policy_engine() -> Result<()> {
-        let temp_dir = TempDir::new()?;
+        let temp_dir = crate::tests::new_test_tempdir()?;
         let policy = StoragePolicy {
             name: "test_policy".to_string(),
             description: "Test storage policy".to_string(),
@@ -493,7 +492,7 @@ mod tests {
 
     #[test]
     fn test_file_extension_constraints() -> Result<()> {
-        let temp_dir = TempDir::new()?;
+        let temp_dir = crate::tests::new_test_tempdir()?;
         let mut constraints = StorageConstraints::default();
         constraints.blocked_extensions.push("exe".to_string());
 

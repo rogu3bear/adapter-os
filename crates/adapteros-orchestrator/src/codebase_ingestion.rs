@@ -247,7 +247,7 @@ impl CodebaseIngestion {
             .values()
             .filter(|s| self.should_include_symbol(s))
             .collect();
-        symbols.sort_by(|a, b| a.qualified_name().cmp(&b.qualified_name()));
+        symbols.sort_by_key(|a| a.qualified_name());
 
         for symbol in symbols {
             // Generate positive examples (knowledge)
@@ -255,16 +255,15 @@ impl CodebaseIngestion {
             pairs.extend(positive_pairs);
 
             // Generate negative examples (abstention) for undocumented symbols
-            if self.config.generate_negative_examples {
-                if symbol
+            if self.config.generate_negative_examples
+                && symbol
                     .docstring
                     .as_ref()
                     .map(|s| s.trim().is_empty())
                     .unwrap_or(true)
-                {
-                    if let Some(negative) = self.generate_negative_pair(symbol, repo_path) {
-                        pairs.push(negative);
-                    }
+            {
+                if let Some(negative) = self.generate_negative_pair(symbol, repo_path) {
+                    pairs.push(negative);
                 }
             }
         }

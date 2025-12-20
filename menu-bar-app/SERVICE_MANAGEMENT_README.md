@@ -194,7 +194,7 @@ export SERVICE_PANEL_LOG_LEVEL=debug
 tail -f ui/service-panel.log
 
 # Check menu bar logs (if implemented)
-tail -f /tmp/adapteros-menu.log
+log stream --predicate 'process == "aos-menu"' --style compact
 ```
 
 ## Security Considerations

@@ -1,8 +1,15 @@
 use std::path::PathBuf;
 use std::process::Command;
 
+use adapteros_platform::common::PlatformUtils;
 use serde_json::Value;
 use tempfile::TempDir;
+
+fn new_test_tempdir() -> TempDir {
+    let root = PlatformUtils::temp_dir();
+    std::fs::create_dir_all(&root).expect("create var/tmp");
+    TempDir::new_in(&root).expect("temp dir should create")
+}
 
 fn fixture_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -24,7 +31,7 @@ fn run_aosctl(args: &[&str]) -> std::process::Output {
 
 #[test]
 fn export_then_replay_passes() {
-    let temp = TempDir::new().expect("temp dir should create");
+    let temp = new_test_tempdir();
     let out_dir = temp.path().join("basic");
     let fixture = fixture_root();
 
@@ -49,7 +56,7 @@ fn export_then_replay_passes() {
 
 #[test]
 fn replay_fails_when_gate_is_modified() {
-    let temp = TempDir::new().expect("temp dir should create");
+    let temp = new_test_tempdir();
     let out_dir = temp.path().join("basic");
     let fixture = fixture_root();
 
@@ -95,7 +102,7 @@ fn replay_fails_when_gate_is_modified() {
 
 #[test]
 fn replay_fails_when_adapter_hash_changes() {
-    let temp = TempDir::new().expect("temp dir should create");
+    let temp = new_test_tempdir();
     let out_dir = temp.path().join("basic");
     let fixture = fixture_root();
 
@@ -141,7 +148,7 @@ fn replay_fails_when_adapter_hash_changes() {
 
 #[test]
 fn cross_worker_fixture_passes_with_allow_flag() {
-    let temp = TempDir::new().expect("temp dir should create");
+    let temp = new_test_tempdir();
     let out_dir = temp.path().join("cross");
     let fixture = fixture_root();
 

@@ -12,6 +12,11 @@ import { WorkbenchProvider } from '@/contexts/WorkbenchContext';
 import { DatasetChatProvider } from '@/contexts/DatasetChatContext';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
+// Mock useTenant for tenant-scoped query keys
+vi.mock('@/providers/FeatureProviders', () => ({
+  useTenant: () => ({ selectedTenant: 'test-tenant' }),
+}));
+
 // Mock the hooks that child components use
 vi.mock('@/hooks/useTraining', () => ({
   useTraining: {

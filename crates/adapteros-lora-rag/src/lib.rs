@@ -79,7 +79,7 @@ impl RagSystem {
         embedding: Vec<f32>,
         metadata: DocMetadata,
     ) -> Result<()> {
-        let index = self.get_tenant_index(&tenant_id)?;
+        let index = self.get_tenant_index(tenant_id)?;
         index.add_document(doc_id, text, embedding, metadata)
     }
 
@@ -212,11 +212,18 @@ pub struct RetrievalResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
     use tempfile::TempDir;
+
+    fn new_test_tempdir() -> TempDir {
+        let root = PathBuf::from("var").join("tmp");
+        std::fs::create_dir_all(&root).expect("create var/tmp");
+        TempDir::new_in(&root).expect("create temp dir")
+    }
 
     #[test]
     fn namespace_layout_creates_per_tenant_dirs() {
-        let tmp = TempDir::new().unwrap();
+        let tmp = new_test_tempdir();
         let hash = B3Hash::hash(b"ns-hash");
         let mut rag = RagSystem::new(tmp.path(), hash).expect("rag init should succeed");
 
@@ -235,7 +242,7 @@ mod tests {
 
     #[test]
     fn rag_results_are_namespace_isolated() {
-        let tmp = TempDir::new().unwrap();
+        let tmp = new_test_tempdir();
         let hash = B3Hash::hash(b"ns-hash");
         let mut rag = RagSystem::new(tmp.path(), hash).expect("rag init should succeed");
 

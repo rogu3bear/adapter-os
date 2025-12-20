@@ -1,11 +1,11 @@
-//! Implementation of all 20 policy packs for AdapterOS
+//! Implementation of all 25 policy packs for AdapterOS
 //!
 //! This module provides concrete implementations of each policy pack
 //! with validation logic, enforcement rules, and compliance reporting.
 //!
 //! # Citations
 //! - Policy Pack #1-20: Complete implementation of all policy packs
-//! - CLAUDE.md L142: "Policy Engine: Enforces 20 policy packs"
+//! - CLAUDE.md L142: "Policy Engine: Enforces 25 policy packs"
 //! - .cursor/rules/global.mdc: Policy pack definitions and enforcement rules
 
 use adapteros_core::Result;
@@ -415,7 +415,7 @@ impl PolicyPackManager {
 
     /// Initialize all policy packs
     fn initialize_policy_packs(&mut self) {
-        info!("Initializing all 20 policy packs");
+        info!("Initializing all 25 policy packs");
 
         // Register all policy pack validators
         self.register_pack(PolicyPackId::Egress, Box::new(EgressValidator::new()));
@@ -460,7 +460,7 @@ impl PolicyPackManager {
         // Set default configurations
         self.set_default_configurations();
 
-        info!("All 20 policy packs initialized successfully");
+        info!("All 25 policy packs initialized successfully");
     }
 
     /// Register a policy pack validator

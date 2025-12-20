@@ -372,17 +372,17 @@ export const HUB_DEFINITIONS: Record<string, {
   },
   '/training': {
     section: 'Training',
-    expectedTabs: ['/training/jobs', '/training/datasets', '/training/templates'],
+    expectedTabs: ['/training/jobs', '/training/datasets', '/training/templates', '/training/artifacts', '/training/settings'],
     description: 'Training pipeline hub',
   },
   '/system': {
     section: 'System',
-    expectedTabs: ['/system/nodes', '/system/workers', '/system/memory', '/system/metrics'],
+    expectedTabs: ['/system/nodes', '/system/workers', '/system/memory', '/system/metrics', '/system/pilot-status'],
     description: 'System infrastructure overview',
   },
   '/telemetry': {
     section: 'Monitor',
-    expectedTabs: ['/telemetry/viewer', '/telemetry/alerts', '/telemetry/exports', '/telemetry/filters'],
+    expectedTabs: ['/telemetry/viewer', '/telemetry/traces', '/telemetry/alerts', '/telemetry/exports', '/telemetry/filters'],
     description: 'Telemetry hub (path-based tabs)',
   },
   '/admin': {

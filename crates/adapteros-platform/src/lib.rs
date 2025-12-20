@@ -336,7 +336,14 @@ impl Default for PlatformConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::common::PlatformUtils;
     use tempfile::TempDir;
+
+    fn new_test_tempdir() -> Result<TempDir> {
+        let root = PlatformUtils::temp_dir();
+        std::fs::create_dir_all(&root)?;
+        Ok(TempDir::new_in(&root)?)
+    }
 
     #[test]
     fn test_platform_detection() {
@@ -368,7 +375,7 @@ mod tests {
         let config = PlatformFsManager::detect_platform_config()?;
         let manager = PlatformFsManager::new(config)?;
 
-        let temp_dir = TempDir::new()?;
+        let temp_dir = new_test_tempdir()?;
         let test_path = temp_dir.path().join("test.txt");
 
         let normalized = manager.normalize_path(&test_path)?;

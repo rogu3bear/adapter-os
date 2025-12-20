@@ -507,13 +507,20 @@ pub struct ValidationStatistics {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use adapteros_platform::common::PlatformUtils;
     use tempfile::TempDir;
+
+    fn new_test_tempdir() -> Result<TempDir> {
+        let root = PlatformUtils::temp_dir();
+        std::fs::create_dir_all(&root)?;
+        Ok(TempDir::new_in(&root)?)
+    }
 
     #[tokio::test]
     async fn test_validation_engine() -> Result<()> {
         let mut engine = ValidationEngine::new()?;
 
-        let temp_dir = TempDir::new()?;
+        let temp_dir = new_test_tempdir()?;
         let test_file = temp_dir.path().join("test.txt");
 
         // Test validation of non-existent file
@@ -532,7 +539,7 @@ mod tests {
     async fn test_file_validation() -> Result<()> {
         let mut engine = ValidationEngine::new()?;
 
-        let temp_dir = TempDir::new()?;
+        let temp_dir = new_test_tempdir()?;
         let test_file = temp_dir.path().join("test.json");
 
         // Test JSON validation
@@ -552,7 +559,7 @@ mod tests {
     async fn test_directory_validation() -> Result<()> {
         let engine = ValidationEngine::new()?;
 
-        let temp_dir = TempDir::new()?;
+        let temp_dir = new_test_tempdir()?;
         let test_dir = temp_dir.path().join("test_dir");
 
         // Test validation of non-existent directory

@@ -12,10 +12,12 @@ use std::str::FromStr;
 /// User-facing CoreML compute preference
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum CoreMLComputePreference {
     /// CPU only (deterministic, slowest)
     CpuOnly,
     /// CPU + GPU (preferred default for throughput)
+    #[default]
     CpuAndGpu,
     /// CPU + Neural Engine
     CpuAndNe,
@@ -32,12 +34,6 @@ impl CoreMLComputePreference {
             CoreMLComputePreference::CpuAndNe => "cpu_and_ne",
             CoreMLComputePreference::All => "all",
         }
-    }
-}
-
-impl Default for CoreMLComputePreference {
-    fn default() -> Self {
-        CoreMLComputePreference::CpuAndGpu
     }
 }
 

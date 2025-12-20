@@ -103,7 +103,7 @@ pub enum PolicyCommand {
 }
 
 #[derive(Debug, Clone, clap::ValueEnum)]
-enum OutputFormat {
+pub enum OutputFormat {
     Table,
     Json,
     Yaml,
@@ -201,7 +201,7 @@ fn list_policy_packs(only_implemented: bool, format: OutputFormat) -> Result<()>
 fn explain_policy_pack(policy_ref: &str) -> Result<()> {
     // Try to parse as ID number first, then as name
     let policy_id = if let Ok(id) = policy_ref.parse::<usize>() {
-        if id < 1 || id > 25 {
+        if !(1..=25).contains(&id) {
             return Err(adapteros_core::AosError::Validation(
                 "Policy ID must be between 1 and 25".to_string(),
             ));
@@ -248,7 +248,7 @@ fn enforce_policies(pack: Option<&str>, all: bool, dry_run: bool) -> Result<()> 
     };
 
     let mut passed = 0;
-    let mut failed = 0;
+    let failed = 0;
     let mut skipped = 0;
 
     for policy_id in policies_to_check {
@@ -284,7 +284,7 @@ fn enforce_policies(pack: Option<&str>, all: bool, dry_run: bool) -> Result<()> 
 fn parse_policy_id(policy_ref: &str) -> Result<PolicyId> {
     // Try to parse as ID number first, then as name
     if let Ok(id) = policy_ref.parse::<usize>() {
-        if id < 1 || id > 25 {
+        if !(1..=25).contains(&id) {
             return Err(adapteros_core::AosError::Validation(
                 "Policy ID must be between 1 and 25".to_string(),
             ));

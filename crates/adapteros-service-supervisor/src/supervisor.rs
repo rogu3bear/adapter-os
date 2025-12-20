@@ -5,7 +5,9 @@ use crate::config::SupervisorConfig;
 use crate::error::{Result, SupervisorError};
 use crate::health::{HealthCheck, HealthMonitor, HealthResult};
 use crate::service::{ManagedService, ServiceStatus};
+use adapteros_config::path_resolver::resolve_supervisor_signing_key_path;
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{error, info, warn};
@@ -39,15 +41,35 @@ pub struct ServiceSupervisor {
 impl ServiceSupervisor {
     /// Create a new service supervisor
     pub async fn new(config: SupervisorConfig, keypair_pem: &str) -> Result<Self> {
-        // Load or generate keypair for JWT
+        // Resolve key path with /tmp rejection and env var support
+        let default_key_path = resolve_supervisor_signing_key_path()
+            .map_err(|e| SupervisorError::Configuration(format!("Invalid key path: {}", e)))?
+            .path;
+
+        // Check if running in production mode
+        let is_production = std::env::var("AOS_PRODUCTION_MODE")
+            .map(|v| v == "true" || v == "1")
+            .unwrap_or(false);
+
+        // Load or generate keypair for JWT authentication
         let keypair = if !keypair_pem.is_empty() {
-            // Try to load from PEM if provided
-            warn!("PEM loading not implemented yet, generating new keypair");
-            adapteros_crypto::Keypair::generate()
+            // Try to load from PEM string (base64-encoded 32-byte Ed25519 seed)
+            match Self::load_keypair_from_pem(keypair_pem) {
+                Ok(kp) => {
+                    info!("Loaded signing keypair from PEM");
+                    kp
+                }
+                Err(e) => {
+                    error!(
+                        "Failed to parse keypair PEM: {}. Falling back to file-based key.",
+                        e
+                    );
+                    Self::load_or_generate_keypair(&default_key_path, is_production)?
+                }
+            }
         } else {
-            // Generate a new keypair for development
-            warn!("No keypair provided, generating new one for development");
-            adapteros_crypto::Keypair::generate()
+            // No PEM provided, use file-based key management
+            Self::load_or_generate_keypair(&default_key_path, is_production)?
         };
 
         let auth_service = Arc::new(AuthService::new(keypair, config.auth.token_ttl_hours));
@@ -238,7 +260,7 @@ impl ServiceSupervisor {
             self.config
                 .services
                 .get(service.id())
-                .map(|config| -(config.startup_order as i32)) // Negative for reverse order
+                .map(|config| -config.startup_order) // Negative for reverse order
                 .unwrap_or(-999)
         });
 
@@ -282,5 +304,109 @@ impl ServiceSupervisor {
 
         info!("Service supervisor shutdown complete");
         Ok(())
+    }
+
+    /// Load keypair from PEM string.
+    ///
+    /// # Expected Format
+    /// Base64-encoded 32-byte Ed25519 seed, optionally wrapped in PEM headers:
+    /// ```text
+    /// -----BEGIN ED25519 PRIVATE KEY-----
+    /// <base64 encoded 32 bytes>
+    /// -----END ED25519 PRIVATE KEY-----
+    /// ```
+    /// Or raw base64 without headers.
+    ///
+    /// **Note:** This is NOT standard PKCS#8 format. The expected input is either:
+    /// - Raw base64 of exactly 32 bytes (Ed25519 seed)
+    /// - The same wrapped in simple PEM headers
+    ///
+    /// To generate a compatible key, use `adapteros_crypto::generate_signing_key()`
+    /// or base64-encode a 32-byte random seed directly.
+    fn load_keypair_from_pem(pem: &str) -> Result<adapteros_crypto::Keypair> {
+        use base64::Engine;
+
+        // Parse PEM-like format: extract base64 content between headers
+        let content = pem
+            .replace("-----BEGIN PRIVATE KEY-----", "")
+            .replace("-----END PRIVATE KEY-----", "")
+            .replace("-----BEGIN ED25519 PRIVATE KEY-----", "")
+            .replace("-----END ED25519 PRIVATE KEY-----", "")
+            .replace(['\n', '\r', ' '], "");
+
+        // If no headers found, assume raw base64
+        let key_bytes = base64::engine::general_purpose::STANDARD
+            .decode(&content)
+            .map_err(|e| SupervisorError::Configuration(format!("Invalid PEM base64: {}", e)))?;
+
+        if key_bytes.len() != 32 {
+            return Err(SupervisorError::Configuration(format!(
+                "Invalid key length: {} (expected 32 bytes for Ed25519 seed)",
+                key_bytes.len()
+            )));
+        }
+
+        let mut key_array = [0u8; 32];
+        key_array.copy_from_slice(&key_bytes);
+
+        Ok(adapteros_crypto::Keypair::from_bytes(&key_array))
+    }
+
+    /// Load keypair from file or generate a new one with self-healing
+    fn load_or_generate_keypair(
+        key_path: &PathBuf,
+        is_production: bool,
+    ) -> Result<adapteros_crypto::Keypair> {
+        if key_path.exists() {
+            // Load existing key
+            match adapteros_crypto::load_signing_key(key_path) {
+                Ok(keypair) => {
+                    info!(
+                        key_path = %key_path.display(),
+                        "Loaded supervisor signing keypair from file"
+                    );
+                    return Ok(keypair);
+                }
+                Err(e) => {
+                    error!(
+                        key_path = %key_path.display(),
+                        error = %e,
+                        "Failed to load existing keypair, will generate new one"
+                    );
+                }
+            }
+        }
+
+        // Key doesn't exist or failed to load - generate new one
+        if is_production {
+            // CRITICAL: In production, generating a new keypair breaks existing tokens
+            warn!(
+                "⚠️ PRODUCTION WARNING: Generating new supervisor signing keypair. \
+                 This will invalidate all existing supervisor JWT tokens! \
+                 Consider using SUPERVISOR_KEYPAIR_PEM environment variable for persistent keys."
+            );
+        } else {
+            info!(
+                key_path = %key_path.display(),
+                "Generating new supervisor signing keypair (development mode)"
+            );
+        }
+
+        // Generate and save the keypair
+        let keypair = adapteros_crypto::generate_signing_key(key_path).map_err(|e| {
+            SupervisorError::Internal(format!(
+                "Failed to generate signing keypair at {}: {}",
+                key_path.display(),
+                e
+            ))
+        })?;
+
+        info!(
+            key_path = %key_path.display(),
+            public_key = %hex::encode(keypair.public_key().to_bytes()),
+            "Generated and saved new supervisor signing keypair"
+        );
+
+        Ok(keypair)
     }
 }

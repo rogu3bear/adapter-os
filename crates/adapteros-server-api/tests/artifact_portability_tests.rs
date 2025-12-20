@@ -58,7 +58,9 @@ fn create_test_aos_file(manifest: &serde_json::Value, weights: &[u8]) -> Vec<u8>
     writer
         .add_segment(BackendTag::Canonical, Some(scope_path), weights)
         .unwrap();
-    let temp = NamedTempFile::new().unwrap();
+    let root = std::path::PathBuf::from("var").join("tmp");
+    std::fs::create_dir_all(&root).expect("create var/tmp");
+    let temp = NamedTempFile::new_in(&root).unwrap();
     writer
         .write_archive(temp.path(), &manifest_enriched)
         .expect("write test aos");

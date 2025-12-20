@@ -178,7 +178,7 @@ impl IngestDocsArgs {
 
         let embedding_resolution = adapteros_config::resolve_embedding_model_path_with_override(
             self.embedding_model.as_deref(),
-        );
+        )?;
         let embedding_model_path = embedding_resolution.path;
         let tokenizer_path = embedding_model_path.join("tokenizer.json");
         info!(
@@ -316,8 +316,7 @@ impl IngestDocsArgs {
 
         // Write to output file
         let output_path = self.training_output.as_ref().unwrap();
-        let json =
-            serde_json::to_string_pretty(&training_data).map_err(|e| AosError::Serialization(e))?;
+        let json = serde_json::to_string_pretty(&training_data).map_err(AosError::Serialization)?;
 
         fs::write(output_path, json).map_err(|e| {
             AosError::Io(format!(

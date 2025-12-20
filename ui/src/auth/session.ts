@@ -1,14 +1,24 @@
-export const SESSION_EXPIRED_FLAG_KEY = 'aos-session-expired';
-export const SESSION_EXPIRED_EVENT = 'aos:session-expired';
+/**
+ * Session Expiration Utilities
+ *
+ * Manages session expired state for cross-page communication.
+ * Uses sessionStorage with in-memory fallback.
+ */
+
+import { AUTH_STORAGE_KEYS, AUTH_EVENTS } from './constants';
+
+// Re-export for backward compatibility
+export const SESSION_EXPIRED_FLAG_KEY = AUTH_STORAGE_KEYS.SESSION_EXPIRED;
+export const SESSION_EXPIRED_EVENT = AUTH_EVENTS.SESSION_EXPIRED;
 
 let memoryFlag = false;
 
 export function markSessionExpired(): void {
   if (typeof sessionStorage !== 'undefined') {
     try {
-      sessionStorage.setItem(SESSION_EXPIRED_FLAG_KEY, '1');
+      sessionStorage.setItem(AUTH_STORAGE_KEYS.SESSION_EXPIRED, '1');
       if (typeof window !== 'undefined') {
-        window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT));
+        window.dispatchEvent(new Event(AUTH_EVENTS.SESSION_EXPIRED));
       }
       return;
     } catch {
@@ -17,14 +27,14 @@ export function markSessionExpired(): void {
   }
   memoryFlag = true;
   if (typeof window !== 'undefined') {
-    window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT));
+    window.dispatchEvent(new Event(AUTH_EVENTS.SESSION_EXPIRED));
   }
 }
 
 export function clearSessionExpiredFlag(): void {
   if (typeof sessionStorage !== 'undefined') {
     try {
-      sessionStorage.removeItem(SESSION_EXPIRED_FLAG_KEY);
+      sessionStorage.removeItem(AUTH_STORAGE_KEYS.SESSION_EXPIRED);
     } catch {
       // ignore storage errors; use in-memory flag as best effort
     }
@@ -41,9 +51,9 @@ export function consumeSessionExpiredFlag(): string | null {
 
   if (typeof sessionStorage !== 'undefined') {
     try {
-      expired = sessionStorage.getItem(SESSION_EXPIRED_FLAG_KEY) === '1';
+      expired = sessionStorage.getItem(AUTH_STORAGE_KEYS.SESSION_EXPIRED) === '1';
       if (expired) {
-        sessionStorage.removeItem(SESSION_EXPIRED_FLAG_KEY);
+        sessionStorage.removeItem(AUTH_STORAGE_KEYS.SESSION_EXPIRED);
       }
     } catch {
       // fall back to memory flag if sessionStorage is not accessible
@@ -61,4 +71,3 @@ export function consumeSessionExpiredFlag(): string | null {
 
   return null;
 }
-

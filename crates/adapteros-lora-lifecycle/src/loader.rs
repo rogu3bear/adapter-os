@@ -40,7 +40,7 @@ impl Drop for LoadedWeights {
 }
 
 /// Adapter metadata parsed from SafeTensors
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct AdapterMetadata {
     /// Total number of parameters
     pub num_parameters: usize,
@@ -68,30 +68,11 @@ pub struct AdapterMetadata {
     pub segment_id: Option<u32>,
 }
 
-impl Default for AdapterMetadata {
-    fn default() -> Self {
-        Self {
-            num_parameters: 0,
-            rank: None,
-            target_modules: Vec::new(),
-            lora_tier: None,
-            lora_strength: None,
-            scope: None,
-            domain: None,
-            group: None,
-            operation: None,
-            scope_path: None,
-            backend_tag: None,
-            segment_id: None,
-        }
-    }
-}
-
 /// Canonical logical layer identifier used for per-layer hashing
 /// Example: "transformer.layer_12.attn.q_proj.lora_A"
 fn canonical_layer_id(tensor_name: &str) -> String {
     let mut segments = Vec::new();
-    let mut iter = tensor_name.split(|c| c == '.' || c == '/').peekable();
+    let mut iter = tensor_name.split(['.', '/']).peekable();
 
     while let Some(seg) = iter.next() {
         if seg.is_empty() {
@@ -724,6 +705,8 @@ impl AdapterLoader {
         let manifest: ManifestForVerify = serde_json::from_slice(file_view.manifest_bytes)
             .map_err(|e| AosError::Parse(format!("Failed to parse adapter manifest: {}", e)))?;
 
+        Self::validate_kernel_version(&manifest)?;
+
         Self::validate_base_model_identity(
             expected_base_model_id,
             expected_base_model_hash,
@@ -978,6 +961,37 @@ impl AdapterLoader {
         Ok(())
     }
 
+    /// Validates that adapter's kernel version exactly matches runtime version.
+    /// Legacy adapters without kernel_version get a warning but are allowed.
+    fn validate_kernel_version(manifest: &ManifestForVerify) -> Result<()> {
+        let runtime_version = adapteros_core::version::VERSION;
+
+        match &manifest.kernel_version {
+            Some(adapter_version) => {
+                if adapter_version != runtime_version {
+                    return Err(AosError::Validation(format!(
+                        "Adapter kernel version mismatch: adapter requires '{}', runtime is '{}'. \
+                         Adapter must be retrained with current kernel version.",
+                        adapter_version, runtime_version
+                    )));
+                }
+                tracing::debug!(
+                    adapter_version = %adapter_version,
+                    runtime_version = %runtime_version,
+                    "Kernel version validation passed"
+                );
+                Ok(())
+            }
+            None => {
+                tracing::warn!(
+                    runtime_version = %runtime_version,
+                    "Adapter missing kernel_version field - legacy adapter detected"
+                );
+                Ok(())
+            }
+        }
+    }
+
     fn verify_per_layer_hashes(
         tensors: &SafeTensors,
         expected: &HashMap<String, LayerHashEntry>,
@@ -1178,6 +1192,8 @@ struct ManifestForVerify {
     base_model_hash: Option<String>,
     #[serde(default)]
     coreml_placement: Option<CoremlPlacementSpec>,
+    #[serde(default)]
+    kernel_version: Option<String>,
 }
 
 type CoremlPlacementSpec = CoreMLPlacementSpec;
@@ -1237,6 +1253,16 @@ mod tests {
     use safetensors::tensor::serialize;
     use serde::Serialize;
     use std::fs;
+    use tempfile::{Builder as TempDirBuilder, TempDir};
+
+    fn new_test_tempdir(prefix: &str) -> TempDir {
+        let root = std::path::PathBuf::from("var/tmp");
+        let _ = fs::create_dir_all(&root);
+        TempDirBuilder::new()
+            .prefix(prefix)
+            .tempdir_in(&root)
+            .expect("Test temp directory creation should succeed")
+    }
 
     /// Create a valid SafeTensors file with test data
     fn create_test_safetensors(path: &std::path::Path) -> Vec<u8> {
@@ -1277,17 +1303,16 @@ mod tests {
 
     #[test]
     fn test_loader_basic() {
-        let temp_dir = std::env::temp_dir().join("mplora_test_loader");
-        let _ = fs::remove_dir_all(&temp_dir); // Clean up any previous run
-        fs::create_dir_all(&temp_dir).expect("Test temp directory creation should succeed");
+        let temp_dir = new_test_tempdir("mplora_test_loader_");
+        let temp_dir_path = temp_dir.path().to_path_buf();
 
         // Create a valid SafeTensors adapter file
-        let adapter_path = temp_dir.join("test_adapter.safetensors");
+        let adapter_path = temp_dir_path.join("test_adapter.safetensors");
         let serialized = create_test_safetensors(&adapter_path);
 
         let mut expected_hashes = HashMap::new();
         expected_hashes.insert("test_adapter".to_string(), B3Hash::hash(&serialized));
-        let mut loader = AdapterLoader::new(temp_dir.clone(), expected_hashes);
+        let mut loader = AdapterLoader::new(temp_dir_path.clone(), expected_hashes);
 
         // Load adapter
         let handle = loader
@@ -1314,24 +1339,20 @@ mod tests {
             .expect("Test adapter unload should succeed");
         assert!(!loader.is_loaded(0));
         assert_eq!(loader.loaded_count(), 0);
-
-        // Cleanup
-        fs::remove_dir_all(temp_dir).expect("Test cleanup should succeed");
     }
 
     #[test]
     fn test_loader_hash_mismatch() {
-        let temp_dir = std::env::temp_dir().join("mplora_test_loader_mismatch");
-        let _ = fs::remove_dir_all(&temp_dir); // Clean up any previous run
-        fs::create_dir_all(&temp_dir).expect("Test temp directory creation should succeed");
+        let temp_dir = new_test_tempdir("mplora_test_loader_mismatch_");
+        let temp_dir_path = temp_dir.path().to_path_buf();
 
-        let adapter_path = temp_dir.join("test_adapter.safetensors");
+        let adapter_path = temp_dir_path.join("test_adapter.safetensors");
         let serialized = create_test_safetensors(&adapter_path);
 
         let mut expected_hashes = HashMap::new();
         expected_hashes.insert("test_adapter".to_string(), B3Hash::hash(b"different data"));
 
-        let mut loader = AdapterLoader::new(temp_dir.clone(), expected_hashes);
+        let mut loader = AdapterLoader::new(temp_dir_path.clone(), expected_hashes);
 
         match loader.load_adapter(0, "test_adapter") {
             Err(AosError::AdapterHashMismatch {
@@ -1349,8 +1370,6 @@ mod tests {
 
         assert!(!loader.is_loaded(0));
         assert_eq!(loader.loaded_count(), 0);
-
-        fs::remove_dir_all(temp_dir).expect("Test cleanup should succeed");
     }
 
     #[test]
@@ -1390,9 +1409,8 @@ mod tests {
     fn test_aos_per_layer_corruption_reports_layer() {
         use std::collections::HashMap as StdHashMap;
 
-        let temp_dir = std::env::temp_dir().join("mplora_test_per_layer_aos");
-        let _ = fs::remove_dir_all(&temp_dir);
-        fs::create_dir_all(&temp_dir).expect("Temp dir create should succeed");
+        let temp_dir = new_test_tempdir("mplora_test_per_layer_aos_");
+        let temp_dir_path = temp_dir.path();
 
         // Build safetensors with two tensors in the same logical layer
         let lora_a_data: Vec<f32> = vec![0.1, 0.2, 0.3, 0.4];
@@ -1474,7 +1492,7 @@ mod tests {
             )])),
         };
 
-        let aos_path = temp_dir.join("test_adapter.aos");
+        let aos_path = temp_dir_path.join("test_adapter.aos");
         let mut writer = AosWriter::new();
         writer
             .add_segment(BackendTag::Canonical, None, &serialized)
@@ -1500,7 +1518,7 @@ mod tests {
 
         let mut expected_hashes = HashMap::new();
         expected_hashes.insert("test_adapter".to_string(), B3Hash::hash(&serialized));
-        let mut loader = AdapterLoader::new(temp_dir.clone(), expected_hashes);
+        let mut loader = AdapterLoader::new(temp_dir_path.to_path_buf(), expected_hashes);
 
         match loader.load_adapter(0, "test_adapter") {
             Err(AosError::AdapterLayerHashMismatch { layer_id, .. }) => {
@@ -1513,20 +1531,17 @@ mod tests {
             Err(e) => panic!("Unexpected error: {}", e),
             Ok(_) => panic!("Expected per-layer hash mismatch"),
         }
-
-        fs::remove_dir_all(temp_dir).expect("cleanup temp dir");
     }
 
     #[test]
     fn test_loader_file_not_found() {
-        let temp_dir = std::env::temp_dir().join("mplora_test_loader_not_found");
-        let _ = fs::remove_dir_all(&temp_dir);
-        fs::create_dir_all(&temp_dir).expect("Test temp directory creation should succeed");
+        let temp_dir = new_test_tempdir("mplora_test_loader_not_found_");
+        let temp_dir_path = temp_dir.path().to_path_buf();
 
         let mut expected_hashes = HashMap::new();
         expected_hashes.insert("missing_adapter".to_string(), B3Hash::hash(b"data"));
 
-        let mut loader = AdapterLoader::new(temp_dir.clone(), expected_hashes);
+        let mut loader = AdapterLoader::new(temp_dir_path.clone(), expected_hashes);
 
         match loader.load_adapter(0, "missing_adapter") {
             Err(AosError::Lifecycle(msg)) => {
@@ -1535,16 +1550,14 @@ mod tests {
             Err(e) => panic!("Unexpected error type: {}", e),
             Ok(_) => panic!("Expected file not found error"),
         }
-
-        fs::remove_dir_all(temp_dir).expect("Test cleanup should succeed");
     }
 
     #[test]
     fn test_unload_not_loaded() {
-        let temp_dir = std::env::temp_dir().join("mplora_test_unload_not_loaded");
-        fs::create_dir_all(&temp_dir).expect("Test temp directory creation should succeed");
+        let temp_dir = new_test_tempdir("mplora_test_unload_not_loaded_");
+        let temp_dir_path = temp_dir.path().to_path_buf();
 
-        let mut loader = AdapterLoader::new(temp_dir.clone(), HashMap::new());
+        let mut loader = AdapterLoader::new(temp_dir_path.clone(), HashMap::new());
 
         match loader.unload_adapter(99) {
             Err(AosError::Lifecycle(msg)) => {
@@ -1553,15 +1566,12 @@ mod tests {
             Err(e) => panic!("Unexpected error type: {}", e),
             Ok(_) => panic!("Expected not loaded error"),
         }
-
-        let _ = fs::remove_dir_all(temp_dir);
     }
 
     #[test]
     fn test_production_mode_enforces_signature_requirement_flag() {
-        let temp_dir = std::env::temp_dir().join("mplora_prod_flag");
-        let _ = fs::remove_dir_all(&temp_dir);
-        fs::create_dir_all(&temp_dir).expect("Temp dir create should succeed");
+        let temp_dir = new_test_tempdir("mplora_prod_flag_");
+        let temp_dir_path = temp_dir.path().to_path_buf();
 
         let prev = std::env::var("AOS_SERVER_PRODUCTION_MODE").ok();
         #[allow(unused_unsafe)]
@@ -1569,7 +1579,7 @@ mod tests {
             std::env::set_var("AOS_SERVER_PRODUCTION_MODE", "true");
         }
 
-        let loader = AdapterLoader::new(temp_dir.clone(), HashMap::new());
+        let loader = AdapterLoader::new(temp_dir_path.clone(), HashMap::new());
         assert!(loader.signatures_required());
 
         #[allow(unused_unsafe)]
@@ -1599,6 +1609,7 @@ mod tests {
             base_model: Some("model-a".to_string()),
             base_model_hash: Some(B3Hash::hash(b"base").to_hex()),
             coreml_placement: None,
+            kernel_version: None,
         };
 
         let result = AdapterLoader::validate_base_model_identity(

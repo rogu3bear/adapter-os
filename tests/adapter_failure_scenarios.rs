@@ -18,6 +18,14 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
+fn new_test_dir(prefix: &str) -> Result<PathBuf> {
+    let temp_root = PathBuf::from("var/tmp");
+    std::fs::create_dir_all(&temp_root)?;
+    let temp_dir = temp_root.join(format!("{}_{}", prefix, Uuid::new_v4()));
+    std::fs::create_dir_all(&temp_dir)?;
+    Ok(temp_dir)
+}
+
 /// Mock adapter loader that can simulate failures
 struct MockAdapterLoader {
     base_path: PathBuf,
@@ -107,8 +115,7 @@ async fn test_db_succeeds_runtime_load_fails() -> Result<()> {
     let db = Db::connect(":memory:").await?;
     db.migrate().await?;
 
-    let temp_dir = std::env::temp_dir().join(format!("aos_failure_test_{}", Uuid::new_v4()));
-    std::fs::create_dir_all(&temp_dir)?;
+    let temp_dir = new_test_dir("aos_failure_test")?;
 
     let adapter_id = "failure-adapter-1";
     let adapter_file = temp_dir.join("failure-adapter-1.safetensors");
@@ -170,8 +177,7 @@ async fn test_runtime_load_succeeds_db_update_fails() -> Result<()> {
     let db = Db::connect(":memory:").await?;
     db.migrate().await?;
 
-    let temp_dir = std::env::temp_dir().join(format!("aos_failure_test_{}", Uuid::new_v4()));
-    std::fs::create_dir_all(&temp_dir)?;
+    let temp_dir = new_test_dir("aos_failure_test")?;
 
     let adapter_id = "failure-adapter-2";
     let adapter_file = temp_dir.join("failure-adapter-2.safetensors");
@@ -221,8 +227,7 @@ async fn test_db_succeeds_runtime_unload_fails() -> Result<()> {
     let db = Db::connect(":memory:").await?;
     db.migrate().await?;
 
-    let temp_dir = std::env::temp_dir().join(format!("aos_failure_test_{}", Uuid::new_v4()));
-    std::fs::create_dir_all(&temp_dir)?;
+    let temp_dir = new_test_dir("aos_failure_test")?;
 
     let adapter_id = "failure-adapter-3";
     let adapter_file = temp_dir.join("failure-adapter-3.safetensors");
@@ -290,8 +295,7 @@ async fn test_partial_failure_concurrent_ops() -> Result<()> {
     let db = Db::connect(":memory:").await?;
     db.migrate().await?;
 
-    let temp_dir = std::env::temp_dir().join(format!("aos_failure_test_{}", Uuid::new_v4()));
-    std::fs::create_dir_all(&temp_dir)?;
+    let temp_dir = new_test_dir("aos_failure_test")?;
 
     // Create multiple adapters
     let num_adapters = 5;
@@ -403,8 +407,7 @@ async fn test_state_recovery_after_failure() -> Result<()> {
     let db = Db::connect(":memory:").await?;
     db.migrate().await?;
 
-    let temp_dir = std::env::temp_dir().join(format!("aos_failure_test_{}", Uuid::new_v4()));
-    std::fs::create_dir_all(&temp_dir)?;
+    let temp_dir = new_test_dir("aos_failure_test")?;
 
     let adapter_id = "recovery-adapter";
     let adapter_file = temp_dir.join("recovery-adapter.safetensors");
@@ -465,8 +468,7 @@ async fn test_memory_consistency_after_failures() -> Result<()> {
     let db = Db::connect(":memory:").await?;
     db.migrate().await?;
 
-    let temp_dir = std::env::temp_dir().join(format!("aos_failure_test_{}", Uuid::new_v4()));
-    std::fs::create_dir_all(&temp_dir)?;
+    let temp_dir = new_test_dir("aos_failure_test")?;
 
     let adapter_id = "memory-consistency-adapter";
     let adapter_file = temp_dir.join("memory-consistency-adapter.safetensors");
@@ -539,8 +541,7 @@ async fn test_multiple_failure_scenarios_sequence() -> Result<()> {
     let db = Db::connect(":memory:").await?;
     db.migrate().await?;
 
-    let temp_dir = std::env::temp_dir().join(format!("aos_failure_test_{}", Uuid::new_v4()));
-    std::fs::create_dir_all(&temp_dir)?;
+    let temp_dir = new_test_dir("aos_failure_test")?;
 
     let adapter_id = "sequence-failure-adapter";
     let adapter_file = temp_dir.join("sequence-failure-adapter.safetensors");

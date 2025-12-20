@@ -399,4 +399,4 @@ async fn my_operation(&self) -> Result<MyResult> {
 - Check existing services: `adapter_service.rs`, `training_service.rs`
 - Read handler code: `handlers/adapters.rs`, `handlers/training.rs`
 - See [CLAUDE.md](../../../../CLAUDE.md) for AdapterOS standards
-- Look at [docs/ARCHITECTURE_PATTERNS.md](../../../../docs/ARCHITECTURE_PATTERNS.md)
+- Look at [docs/ARCHITECTURE.md#core-concepts](../../../../docs/ARCHITECTURE.md#core-concepts)

@@ -6,12 +6,18 @@ use adapteros_codegraph::parsers::test_utils::{
 use adapteros_codegraph::{
     detect_language, parse_directory, CodeGraph, Language, ParserFactory, SymbolKind,
 };
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use tempfile::TempDir;
+
+fn new_test_tempdir() -> TempDir {
+    let root = PathBuf::from("var").join("tmp");
+    std::fs::create_dir_all(&root).expect("create var/tmp");
+    TempDir::new_in(&root).expect("create temp dir")
+}
 
 #[tokio::test]
 async fn test_multi_language_directory_parsing() {
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = new_test_tempdir();
     create_multi_language_test_files(temp_dir.path()).unwrap();
 
     // Parse the entire directory
@@ -92,7 +98,7 @@ async fn test_parser_factory() {
 
 #[tokio::test]
 async fn test_rust_parser_symbol_extraction() {
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = new_test_tempdir();
     let test_file = temp_dir.path().join("test.rs");
 
     std::fs::write(
@@ -137,7 +143,7 @@ async fn test_rust_parser_symbol_extraction() {
 
 #[tokio::test]
 async fn test_python_parser_symbol_extraction() {
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = new_test_tempdir();
     let test_file = temp_dir.path().join("test.py");
 
     std::fs::write(
@@ -190,7 +196,7 @@ async fn test_python_parser_symbol_extraction() {
 
 #[tokio::test]
 async fn test_typescript_parser_symbol_extraction() {
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = new_test_tempdir();
     let test_file = temp_dir.path().join("test.ts");
 
     std::fs::write(
@@ -254,7 +260,7 @@ async fn test_typescript_parser_symbol_extraction() {
 
 #[tokio::test]
 async fn test_javascript_parser_symbol_extraction() {
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = new_test_tempdir();
     let test_file = temp_dir.path().join("test.js");
 
     std::fs::write(
@@ -313,7 +319,7 @@ async fn test_javascript_parser_symbol_extraction() {
 
 #[tokio::test]
 async fn test_go_parser_symbol_extraction() {
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = new_test_tempdir();
     let test_file = temp_dir.path().join("test.go");
 
     std::fs::write(
@@ -382,7 +388,7 @@ async fn test_go_parser_symbol_extraction() {
 
 #[tokio::test]
 async fn test_cross_language_import_detection() {
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = new_test_tempdir();
 
     // Create files with cross-language imports
     std::fs::write(
@@ -444,7 +450,7 @@ async fn test_cross_language_import_detection() {
 
 #[tokio::test]
 async fn test_deterministic_hashing_across_languages() {
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = new_test_tempdir();
     create_multi_language_test_files(temp_dir.path()).unwrap();
 
     // Parse directory multiple times
@@ -462,7 +468,7 @@ async fn test_deterministic_hashing_across_languages() {
 
 #[tokio::test]
 async fn test_codegraph_from_multi_language_directory() {
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = new_test_tempdir();
     create_multi_language_test_files(temp_dir.path()).unwrap();
 
     // Build CodeGraph from directory
@@ -490,7 +496,7 @@ async fn test_codegraph_from_multi_language_directory() {
 
 #[tokio::test]
 async fn test_parser_error_handling() {
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = new_test_tempdir();
 
     // Create files with syntax errors
     std::fs::write(

@@ -94,11 +94,71 @@ cargo bench
 ./target/release/aosctl db migrate
 ```
 
+### Port Configuration (Multi-Developer)
+
+When multiple developers work on the codebase simultaneously, use **port offsets** to avoid conflicts. Each developer picks a unique offset (100, 200, 300, etc.) and configures their `.env.local`:
+
+```bash
+# Developer A: default (no offset)
+AOS_SERVER_PORT=8080
+AOS_UI_PORT=3200
+AOS_PANEL_PORT=3301
+
+# Developer B: +100 offset
+AOS_SERVER_PORT=8180
+AOS_UI_PORT=3300
+AOS_PANEL_PORT=3401
+
+# Developer C: +200 offset
+AOS_SERVER_PORT=8280
+AOS_UI_PORT=3400
+AOS_PANEL_PORT=3501
+```
+
+**Convention**: Pick your offset and stick with it. Document your offset in team channels to avoid collisions.
+
+**Environment Variables** (all respect these):
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `AOS_SERVER_PORT` | 8080 | Backend API server |
+| `AOS_UI_PORT` | 3200 | Vite UI dev server |
+| `AOS_PANEL_PORT` | 3301 | Service panel API |
+
+**Test overrides** (for CI/E2E):
+```bash
+# Cypress
+CYPRESS_BASE_URL=http://localhost:$AOS_UI_PORT
+CYPRESS_API_BASE_URL=http://localhost:$AOS_SERVER_PORT
+
+# Playwright
+PLAYWRIGHT_BASE_URL=http://localhost:$AOS_UI_PORT
+PLAYWRIGHT_API_BASE_URL=http://localhost:$AOS_SERVER_PORT
+```
+
+**Example multi-developer workflow**:
+```bash
+# Developer B with +100 offset
+# In .env.local:
+AOS_SERVER_PORT=8180
+AOS_UI_PORT=3300
+AOS_PANEL_PORT=3401
+
+# Running Cypress tests:
+CYPRESS_BASE_URL=http://localhost:3300 \
+CYPRESS_API_BASE_URL=http://localhost:8180 \
+pnpm cypress:open
+
+# Running Playwright tests:
+PLAYWRIGHT_BASE_URL=http://localhost:3300 \
+PLAYWRIGHT_API_BASE_URL=http://localhost:8180 \
+pnpm playwright test
+```
+
 ## Contributing Guidelines
 
 ### Alpha Release Considerations
 
-**Important**: AdapterOS is currently in alpha-v0.04-unstable. This means:
+**Important**: AdapterOS is currently in alpha-v0.11-unstable-pre-release. This means:
 
 - **Breaking Changes**: May occur without notice
 - **API Stability**: Not guaranteed
@@ -141,7 +201,7 @@ cargo bench
 - Add tests for new functionality
 
 #### Policy Compliance
-- All changes must comply with the 23 canonical policy packs
+- All changes must comply with the 25 canonical policy packs
 - Security-sensitive code requires review
 - Performance changes need benchmarks
 - Breaking changes need migration guides
@@ -309,7 +369,7 @@ Brief description of changes
 - [ ] Performance benchmarks updated (if applicable)
 
 ## Policy Compliance
-- [ ] Changes comply with all 23 canonical policy packs
+- [ ] Changes comply with all 25 canonical policy packs
 - [ ] Security implications reviewed
 - [ ] Performance impact assessed
 - [ ] Breaking changes documented
@@ -363,7 +423,7 @@ What actually happens
 - OS: macOS 13.0+
 - Hardware: Apple Silicon (M1/M2/M3/M4)
 - Rust Version: 1.75+
-- AdapterOS Version: alpha-v0.04-unstable
+- AdapterOS Version: alpha-v0.11-unstable-pre-release
 
 ## Additional Context
 Any other relevant information
@@ -401,7 +461,7 @@ For security vulnerabilities:
 
 ## Alpha Release Status
 
-### Current Status: alpha-v0.04-unstable
+### Current Status: alpha-v0.11-unstable-pre-release
 
 #### What's Working
 - Core inference engine with policy enforcement

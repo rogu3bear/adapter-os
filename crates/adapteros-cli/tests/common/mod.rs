@@ -87,7 +87,9 @@ pub struct StubUdsServer {
 impl StubUdsServer {
     /// Launch stub server with pre-programmed responses returned FIFO per request.
     pub async fn start(responses: Vec<StubHttpResponse>) -> Result<Self> {
-        let tempdir = TempDir::new()?;
+        let root = PathBuf::from("var").join("tmp");
+        std::fs::create_dir_all(&root)?;
+        let tempdir = TempDir::new_in(&root)?;
         let socket_path = tempdir.path().join("worker.sock");
 
         // Ensure stale socket is removed if present

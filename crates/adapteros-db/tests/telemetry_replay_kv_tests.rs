@@ -8,8 +8,14 @@ use adapteros_db::{Db, KvDb, StorageMode};
 use tempfile::TempDir;
 use uuid::Uuid;
 
+fn new_test_tempdir() -> TempDir {
+    let root = std::path::PathBuf::from("var").join("tmp");
+    std::fs::create_dir_all(&root).expect("create var/tmp");
+    TempDir::new_in(&root).expect("tempdir")
+}
+
 async fn create_dual_write_db() -> (Db, TempDir, TempDir) {
-    let sql_temp = TempDir::new().unwrap();
+    let sql_temp = new_test_tempdir();
     let sql_path = sql_temp.path().join("test.db");
     let mut db = Db::connect(sql_path.to_str().unwrap()).await.unwrap();
     db.migrate().await.unwrap();
@@ -95,7 +101,7 @@ async fn create_dual_write_db() -> (Db, TempDir, TempDir) {
         .await
         .unwrap();
 
-    (db, sql_temp, TempDir::new().unwrap())
+    (db, sql_temp, new_test_tempdir())
 }
 
 #[tokio::test]

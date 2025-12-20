@@ -86,12 +86,12 @@ impl<T: Serialize> VersionedRecord<T> {
 
     /// Get the creation timestamp as a DateTime
     pub fn created_at_utc(&self) -> DateTime<Utc> {
-        DateTime::from_timestamp(self.created_at, 0).unwrap_or_else(|| DateTime::UNIX_EPOCH)
+        DateTime::from_timestamp(self.created_at, 0).unwrap_or(DateTime::UNIX_EPOCH)
     }
 
     /// Get the update timestamp as a DateTime
     pub fn updated_at_utc(&self) -> DateTime<Utc> {
-        DateTime::from_timestamp(self.updated_at, 0).unwrap_or_else(|| DateTime::UNIX_EPOCH)
+        DateTime::from_timestamp(self.updated_at, 0).unwrap_or(DateTime::UNIX_EPOCH)
     }
 }
 

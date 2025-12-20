@@ -47,7 +47,7 @@ pub type BufferVerificationResult = (u64, Vec<u8>, Vec<u8>, Vec<u8>);
 /// - Release builds: `error!` log + zero-fill offending entries
 ///
 /// [source: crates/adapteros-lora-kernel-api/src/lib.rs L22-68]
-/// [source: docs/ARCHITECTURE_INDEX.md#router-kernel-unification]
+/// [source: docs/ARCHITECTURE.md#inference-flow]
 #[derive(Debug, Clone)]
 pub struct RouterRing {
     /// Adapter indices (fixed K=8, unused entries zero-filled)
@@ -268,7 +268,7 @@ impl IoBuffers {
 ///
 /// [source: crates/adapteros-lora-kernel-api/src/lib.rs L198-244]
 /// [source: crates/adapteros-lora-worker/src/backend_factory.rs L30-45]
-/// [source: docs/ARCHITECTURE_INDEX.md#multi-backend-architecture]
+/// [source: docs/ARCHITECTURE.md#architecture-components]
 pub trait FusedKernels: Send + Sync {
     /// Load model plan and adapter weights
     ///
@@ -698,7 +698,7 @@ pub trait AdapterLookup: Send + Sync {
     fn get_adapter_index(&self, adapter_id: &str) -> Option<u16>;
 }
 
-/// MPLoRA configuration for kernels
+/// DIR configuration for kernels
 /// Reference: https://openreview.net/pdf?id=jqz6Msm3AF
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MploraConfig {
@@ -723,9 +723,9 @@ impl Default for MploraConfig {
     }
 }
 
-/// Extended kernel trait with MPLoRA support
+/// Extended kernel trait with DIR support
 pub trait MploraKernels: FusedKernels {
-    /// Execute MPLoRA with shared downsample
+    /// Execute DIR with shared downsample
     fn execute_mplora(
         &mut self,
         ring: &RouterRing,

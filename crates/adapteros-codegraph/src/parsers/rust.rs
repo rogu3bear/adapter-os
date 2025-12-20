@@ -693,7 +693,14 @@ impl LanguageParser for RustParser {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
     use tempfile::TempDir;
+
+    fn new_test_tempdir() -> TempDir {
+        let root = PathBuf::from("var").join("tmp");
+        std::fs::create_dir_all(&root).expect("create var/tmp");
+        TempDir::new_in(&root).expect("Test temp directory creation should succeed")
+    }
 
     #[test]
     fn test_rust_parser_creation() {
@@ -704,7 +711,7 @@ mod tests {
     #[test]
     fn test_parse_simple_function() {
         let mut parser = RustParser::new().expect("RustParser creation should succeed");
-        let temp_dir = TempDir::new().expect("Test temp directory creation should succeed");
+        let temp_dir = new_test_tempdir();
         let test_file = temp_dir.path().join("test.rs");
 
         std::fs::write(&test_file, "pub fn test_function() -> i32 { 42 }")
@@ -725,7 +732,7 @@ mod tests {
     #[test]
     fn test_parse_struct() {
         let mut parser = RustParser::new().expect("RustParser creation should succeed");
-        let temp_dir = TempDir::new().expect("Test temp directory creation should succeed");
+        let temp_dir = new_test_tempdir();
         let test_file = temp_dir.path().join("test.rs");
 
         std::fs::write(&test_file, "struct TestStruct { field: i32 }")
@@ -746,7 +753,7 @@ mod tests {
     #[test]
     fn test_parse_trait() {
         let mut parser = RustParser::new().expect("RustParser creation should succeed");
-        let temp_dir = TempDir::new().expect("Test temp directory creation should succeed");
+        let temp_dir = new_test_tempdir();
         let test_file = temp_dir.path().join("test.rs");
 
         std::fs::write(&test_file, "pub trait TestTrait { fn method(); }")
@@ -767,7 +774,7 @@ mod tests {
     #[test]
     fn test_parse_enum() {
         let mut parser = RustParser::new().expect("RustParser creation should succeed");
-        let temp_dir = TempDir::new().expect("Test temp directory creation should succeed");
+        let temp_dir = new_test_tempdir();
         let test_file = temp_dir.path().join("test.rs");
 
         std::fs::write(&test_file, "enum TestEnum { Variant1, Variant2 }")

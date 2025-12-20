@@ -355,13 +355,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_secd_client_creation() {
-        let client = SecdClient::new("/tmp/test-socket");
-        assert_eq!(client.socket_path, "/tmp/test-socket");
+        let client = SecdClient::new("/var/run/aos/test-socket");
+        assert_eq!(client.socket_path, "/var/run/aos/test-socket");
     }
 
     #[tokio::test]
     async fn test_secd_client_timeout() {
-        let client = SecdClient::new("/tmp/test-socket").with_timeout(Duration::from_millis(100));
+        let client =
+            SecdClient::new("/var/run/aos/test-socket").with_timeout(Duration::from_millis(100));
 
         // This will fail because socket doesn't exist, but tests timeout setting
         let result = client.ping().await;

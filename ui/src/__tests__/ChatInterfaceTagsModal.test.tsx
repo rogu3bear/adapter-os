@@ -20,7 +20,7 @@ const mockStacks: AdapterStack[] = [
 ];
 
 // Mock API client
-vi.mock('@/api/client', () => ({
+vi.mock('@/api/services', () => ({
   __esModule: true,
   default: {
     streamInfer: vi.fn(),
@@ -31,14 +31,14 @@ vi.mock('@/api/client', () => ({
 }));
 
 // Mock hooks
-vi.mock('@/hooks/useAdmin', () => ({
-  useAdapterStacks: () => ({ data: mockStacks }),
-  useGetDefaultStack: () => ({ data: null }),
+vi.mock('@/hooks/admin/useAdmin', () => ({
+  useAdapterStacks: () => ({ data: mockStacks, isLoading: false }),
+  useGetDefaultStack: () => ({ data: null, isLoading: false }),
 }));
 
 // Mock collections API
-vi.mock('@/hooks/useCollectionsApi', () => ({
-  useCollections: () => ({ data: [] }),
+vi.mock('@/hooks/api/useCollectionsApi', () => ({
+  useCollections: () => ({ data: [], isLoading: false }),
 }));
 
 // Mock the session management hook
@@ -49,20 +49,23 @@ const mockUpdateMessage = vi.fn();
 const mockDeleteSession = vi.fn();
 const mockCreateSession = vi.fn();
 const mockUpdateSessionCollection = vi.fn();
+let mockSessions = [
+  {
+    id: 'session-1',
+    name: 'Test Session',
+    stackId: 'stack-1',
+    messages: [],
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  },
+];
 
-vi.mock('@/hooks/useChatSessionsApi', () => ({
+vi.mock('@/hooks/chat/useChatSessionsApi', () => ({
   useChatSessionsApi: () => ({
-    sessions: [
-      {
-        id: 'session-1',
-        name: 'Test Session',
-        stackId: 'stack-1',
-        messages: [],
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      },
-    ],
+    sessions: mockSessions,
     isLoading: false,
+    isUnsupported: false,
+    unsupportedReason: null,
     createSession: mockCreateSession,
     updateSession: mockUpdateSession,
     addMessage: mockAddMessage,
@@ -76,6 +79,192 @@ vi.mock('@/hooks/useChatSessionsApi', () => ({
 // Mock SSE hook
 vi.mock('@/hooks/useSSE', () => ({
   useSSE: () => ({}),
+}));
+
+// Mock chat hooks
+vi.mock('@/hooks/chat', () => ({
+  useChatStreaming: () => ({
+    isStreaming: false,
+    streamedText: '',
+    currentRequestId: null,
+    sendMessage: vi.fn(),
+    cancelStream: vi.fn(),
+    chunks: [],
+    tokensReceived: 0,
+    streamDuration: 0,
+  }),
+  useChatAdapterState: () => ({
+    adapterStates: new Map(),
+    isCheckingAdapters: false,
+    allAdaptersReady: true,
+    loadAllAdapters: vi.fn(),
+    showAdapterPrompt: false,
+    dismissAdapterPrompt: vi.fn(),
+    continueWithUnready: vi.fn(),
+  }),
+  useChatRouterDecisions: () => ({
+    isLoadingDecision: false,
+    fetchDecision: vi.fn(async () => null),
+    decisionHistory: [],
+    lastDecision: null,
+    clearDecisions: vi.fn(),
+  }),
+  useSessionManager: () => ({
+    currentSessionId: null,
+    messages: [],
+    setMessages: vi.fn(),
+    setCurrentSessionId: vi.fn(),
+    clearSession: vi.fn(),
+    loadSession: vi.fn(),
+    createSession: vi.fn(),
+  }),
+  useChatModals: () => {
+    const [state, setState] = React.useState<{
+      active: 'history' | 'routerActivity' | 'archive' | 'share' | 'tags' | null;
+      data: { sessionId?: string } | null;
+    }>({
+      active: null,
+      data: null,
+    });
+
+    const openModal = React.useCallback(
+      (type: 'history' | 'routerActivity' | 'archive' | 'share' | 'tags', data?: { sessionId?: string }) => {
+        setState({
+          active: type,
+          data: data ?? null,
+        });
+      },
+      []
+    );
+
+    const closeModal = React.useCallback(() => {
+      setState({
+        active: null,
+        data: null,
+      });
+    }, []);
+
+    const isHistoryOpen = state.active === 'history';
+    const isRouterActivityOpen = state.active === 'routerActivity';
+    const isArchivePanelOpen = state.active === 'archive';
+    const shareDialogSessionId = state.active === 'share' ? state.data?.sessionId ?? null : null;
+    const tagsDialogSessionId = state.active === 'tags' ? state.data?.sessionId ?? null : null;
+
+    return {
+      isHistoryOpen,
+      isRouterActivityOpen,
+      isArchivePanelOpen,
+      shareDialogSessionId,
+      tagsDialogSessionId,
+      setIsHistoryOpen: (open: boolean) => {
+        if (open) {
+          openModal('history');
+        } else if (state.active === 'history') {
+          closeModal();
+        }
+      },
+      setIsRouterActivityOpen: (open: boolean) => {
+        if (open) {
+          openModal('routerActivity');
+        } else if (state.active === 'routerActivity') {
+          closeModal();
+        }
+      },
+      setIsArchivePanelOpen: (open: boolean) => {
+        if (open) {
+          openModal('archive');
+        } else if (state.active === 'archive') {
+          closeModal();
+        }
+      },
+      setShareDialogSessionId: (sessionId: string | null) => {
+        if (sessionId) {
+          openModal('share', { sessionId });
+        } else if (state.active === 'share') {
+          closeModal();
+        }
+      },
+      setTagsDialogSessionId: (sessionId: string | null) => {
+        if (sessionId) {
+          openModal('tags', { sessionId });
+        } else if (state.active === 'tags') {
+          closeModal();
+        }
+      },
+    };
+  },
+}));
+
+// Mock feature flags
+vi.mock('@/hooks/config/useFeatureFlags', () => ({
+  useChatAutoLoadModels: () => false,
+}));
+
+// Mock model loading hooks
+vi.mock('@/hooks/model-loading', () => ({
+  useModelLoadingState: () => ({
+    isLoading: false,
+    loadingModel: null,
+    progress: 0,
+    overallReady: true,
+    baseModelReady: true,
+    failedAdapters: [],
+    loadingAdapters: [],
+    readyAdapters: [],
+    adapterStates: new Map(),
+    error: null,
+  }),
+  useModelLoader: () => ({
+    loadModels: vi.fn(),
+    retryFailed: vi.fn(),
+    cancelLoading: vi.fn(),
+  }),
+  useChatLoadingPersistence: () => ({
+    persistedState: null,
+    persist: vi.fn(),
+    clear: vi.fn(),
+    isRecoverable: false,
+  }),
+  useLoadingAnnouncements: () => ({
+    announcement: null,
+  }),
+}));
+
+// Mock evidence drawer context
+vi.mock('@/contexts/EvidenceDrawerContext', () => ({
+  EvidenceDrawerProvider: ({ children }: { children: React.ReactNode }) => children,
+  useEvidenceDrawerOptional: () => null,
+}));
+
+// Mock export hook
+vi.mock('@/components/export', () => ({
+  useChatExport: () => ({
+    handleExportMarkdown: vi.fn(),
+    handleExportJson: vi.fn(),
+    handleExportPdf: vi.fn(),
+    ExportButton: () => null,
+  }),
+}));
+
+// Mock chat components that are not being tested
+vi.mock('@/components/chat/ChatLoadingOverlay', () => ({
+  ChatLoadingOverlay: () => null,
+}));
+
+vi.mock('@/components/chat/ChatErrorDisplay', () => ({
+  ChatErrorDisplay: () => null,
+}));
+
+vi.mock('@/components/chat/MissingPinnedAdaptersBanner', () => ({
+  MissingPinnedAdaptersBanner: () => null,
+}));
+
+vi.mock('@/components/chat/EvidenceDrawer', () => ({
+  EvidenceDrawer: () => null,
+}));
+
+vi.mock('@/components/chat/InlineModelLoadingBlock', () => ({
+  InlineModelLoadingBlock: () => null,
 }));
 
 // Mock toast
@@ -178,6 +367,16 @@ describe('ChatInterface - Tags Modal Integration', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
+    mockSessions = [
+      {
+        id: 'session-1',
+        name: 'Test Session',
+        stackId: 'stack-1',
+        messages: [],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    ];
     mockGetSession.mockReturnValue({
       id: 'session-1',
       name: 'Test Session',
@@ -342,8 +541,8 @@ describe('ChatInterface - Tags Modal Integration', () => {
 
     // Verify the dialog title exists (use getAllByText since button also has this text)
     const manageTagsElements = screen.getAllByText('Manage Tags');
-    // Should have at least 2: the button and the dialog title
-    expect(manageTagsElements.length).toBeGreaterThanOrEqual(2);
+    // Should have at least 1: the dialog title (history may close when the dialog opens)
+    expect(manageTagsElements.length).toBeGreaterThanOrEqual(1);
 
     // Find the dialog title by looking for the one with the text-lg class (DialogTitle)
     const dialogTitle = manageTagsElements.find(el => el.className?.includes('text-lg'));
@@ -385,44 +584,26 @@ describe('ChatInterface - Tags Modal Integration', () => {
       };
     });
 
-    // Update the useChatSessionsApi mock to return multiple sessions
-    vi.mocked(vi.importActual('@/hooks/useChatSessionsApi')).useChatSessionsApi = () => ({
-      sessions: [
-        {
-          id: 'session-1',
-          name: 'Test Session',
-          stackId: 'stack-1',
-          messages: [],
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        },
-        {
-          id: 'session-2',
-          name: 'Second Session',
-          stackId: 'stack-1',
-          messages: [],
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        },
-      ],
-      isLoading: false,
-      createSession: mockCreateSession,
-      updateSession: mockUpdateSession,
-      addMessage: mockAddMessage,
-      updateMessage: mockUpdateMessage,
-      deleteSession: mockDeleteSession,
-      getSession: mockGetSession,
-      updateSessionCollection: mockUpdateSessionCollection,
-    });
+    mockSessions = [
+      {
+        id: 'session-1',
+        name: 'Test Session',
+        stackId: 'stack-1',
+        messages: [],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+      {
+        id: 'session-2',
+        name: 'Second Session',
+        stackId: 'stack-1',
+        messages: [],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    ];
 
-    const { rerender } = render(
-      <TestWrapper>
-        <ChatInterface selectedTenant="default" initialStackId="stack-1" />
-      </TestWrapper>
-    );
-
-    // Force a re-render to pick up the new mock
-    rerender(
+    render(
       <TestWrapper>
         <ChatInterface selectedTenant="default" initialStackId="stack-1" />
       </TestWrapper>

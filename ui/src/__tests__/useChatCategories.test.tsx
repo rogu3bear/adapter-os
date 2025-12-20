@@ -22,7 +22,7 @@ const mockUpdateChatCategory = vi.fn();
 const mockDeleteChatCategory = vi.fn();
 const mockSetSessionCategory = vi.fn();
 
-vi.mock('@/api/client', () => ({
+vi.mock('@/api/services', () => ({
   default: {
     listChatCategories: (...args: unknown[]) => mockListChatCategories(...args),
     createChatCategory: (...args: unknown[]) => mockCreateChatCategory(...args),
@@ -30,6 +30,11 @@ vi.mock('@/api/client', () => ({
     deleteChatCategory: (...args: unknown[]) => mockDeleteChatCategory(...args),
     setSessionCategory: (...args: unknown[]) => mockSetSessionCategory(...args),
   },
+}));
+
+// Mock useTenant for tenant-scoped query keys
+vi.mock('@/providers/FeatureProviders', () => ({
+  useTenant: () => ({ selectedTenant: 'test-tenant' }),
 }));
 
 // Test data
@@ -270,7 +275,7 @@ describe('useCreateCategory - Mutation Hook', () => {
 
     await result.current.mutateAsync({ name: 'Test' });
 
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['chat', 'categories'] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['chat', 'categories', 'test-tenant'] });
   });
 
   it('calls onSuccess callback with correct TanStack v5 signature', async () => {
@@ -398,7 +403,7 @@ describe('useUpdateCategory - Mutation Hook', () => {
       request: { name: 'Updated' },
     });
 
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['chat', 'categories'] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['chat', 'categories', 'test-tenant'] });
   });
 
   it('calls onSuccess callback with correct TanStack v5 signature', async () => {
@@ -492,9 +497,9 @@ describe('useDeleteCategory - Mutation Hook', () => {
 
     await result.current.mutateAsync('cat-1');
 
-    // Verify BOTH query keys are invalidated
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['chat', 'categories'] });
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['chat-sessions'] });
+    // Verify BOTH query keys are invalidated (with tenant segment)
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['chat', 'categories', 'test-tenant'] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['chat-sessions', 'test-tenant'] });
     expect(invalidateSpy).toHaveBeenCalledTimes(2);
   });
 
@@ -622,9 +627,9 @@ describe('useSetSessionCategory - Mutation Hook', () => {
       categoryId: 'cat-1',
     });
 
-    // Verify BOTH query keys are invalidated
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['chat', 'categories'] });
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['chat-sessions'] });
+    // Verify BOTH query keys are invalidated (with tenant segment)
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['chat', 'categories', 'test-tenant'] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['chat-sessions', 'test-tenant'] });
     expect(invalidateSpy).toHaveBeenCalledTimes(2);
   });
 

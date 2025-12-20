@@ -79,7 +79,7 @@ golden_runs/
 3. **Ask questions about AdapterOS:**
    - "What are golden runs?"
    - "How does the adapter lifecycle work?"
-   - "What are the 24 policy packs?"
+   - "What are the 25 policy packs?"
    - "Explain K-sparse routing"
    - "What is deterministic execution?"
 
@@ -94,12 +94,13 @@ golden_runs/
 questions=(
   "What are golden runs and how do they work?"
   "Explain the adapter lifecycle states"
-  "What are the 24 policy packs?"
+  "What are the 25 policy packs?"
   "How does K-sparse routing work?"
   "What is deterministic execution?"
 )
 
 # Create baseline for each question
+mkdir -p var/tmp
 for i in "${!questions[@]}"; do
   echo "Creating baseline $((i+1))/5..."
   
@@ -108,7 +109,7 @@ for i in "${!questions[@]}"; do
     --prompt "${questions[$i]}" \
     --adapter system/docs/adapteros/r003 \
     --socket ./var/run/worker.sock \
-    --max-tokens 512 > /tmp/response_$i.txt
+    --max-tokens 512 > var/tmp/response_$i.txt
   
   # Create golden run (when capture-events is supported)
   # ./aosctl golden create \
@@ -143,7 +144,7 @@ done
 ## Training Data Details
 
 **Source Documents:**
-- Architecture guides (ARCHITECTURE_INDEX.md, ARCHITECTURE_PATTERNS.md)
+- Architecture guide (ARCHITECTURE.md)
 - API references (API_REFERENCE.md, API_ENDPOINT_INVENTORY.md)
 - Developer guides (CLAUDE.md, AGENTS.md would need to be added)
 - Feature documentation (LIFECYCLE.md, TRAINING_PIPELINE.md, etc.)
@@ -168,7 +169,7 @@ Expected: Explanation of golden runs as cryptographically signed reference basel
 **Q: "How does the adapter lifecycle work?"**
 Expected: Description of the state machine (Unloaded → Cold → Warm → Hot → Resident) with transitions based on activation percentages and memory pressure.
 
-**Q: "What are the 24 policy packs?"**
+**Q: "What are the 25 policy packs?"**
 Expected: List of all 24 canonical policies organized by category (Security, Quality, Compliance, Performance).
 
 ## Next Steps
@@ -243,4 +244,3 @@ ls -la golden_runs/
 The self-knowledge demo infrastructure is complete and ready for use. The documentation adapter has been trained on 340 markdown files, generating 7,201 Q&A pairs, and is configured to power the Owner Home chat interface. The golden runs infrastructure is initialized and ready to capture reference baselines once the server is running.
 
 To complete the demo, start the server with `make dev` and navigate to the Owner Home page to interact with the AI-powered documentation assistant.
-

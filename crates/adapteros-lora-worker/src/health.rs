@@ -105,10 +105,6 @@ impl HealthMonitor {
     }
 
     fn emit_health_status(&self, kind: HealthEventKind, status: &str, error: Option<String>) {
-        let Some(writer) = &self.telemetry else {
-            return;
-        };
-
         let mut last = self.last_status.lock().unwrap_or_else(|e| e.into_inner());
 
         let previous = last.clone();
@@ -118,6 +114,14 @@ impl HealthMonitor {
         if !should_emit {
             return;
         }
+
+        // Always update last_status, even without telemetry
+        *last = Some(status.to_string());
+
+        // Emit telemetry if configured
+        let Some(writer) = &self.telemetry else {
+            return;
+        };
 
         let identity = IdentityEnvelope::new(
             self.tenant_id.clone(),
@@ -140,8 +144,6 @@ impl HealthMonitor {
         if let Err(e) = writer.log_health_lifecycle(identity, payload) {
             warn!(error = %e, "Failed to emit health telemetry");
         }
-
-        *last = Some(status.to_string());
     }
 
     /// Emit a fatal health event outside the periodic monitor loop.

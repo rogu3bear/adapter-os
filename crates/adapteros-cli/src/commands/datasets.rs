@@ -266,7 +266,7 @@ async fn create_dataset(args: CreateArgs, output: &OutputWriter) -> Result<()> {
         .await
         .map_err(|e| AosError::Io(format!("Failed to parse dataset response: {e}")))?;
 
-    let mut db = Db::connect_env().await?;
+    let db = Db::connect_env().await?;
     let version_id = db
         .ensure_dataset_version_exists(&dataset.dataset_id)
         .await?;
@@ -357,14 +357,14 @@ async fn ingest_dataset(args: IngestArgs, output: &OutputWriter) -> Result<()> {
 
     if let Some(ref expected) = args.dataset_id {
         if expected != &upload.dataset_id {
-            output.warning(&format!(
+            output.warning(format!(
                 "Requested dataset {} but backend created {}",
                 expected, upload.dataset_id
             ));
         }
     }
 
-    let mut db = Db::connect_env().await?;
+    let db = Db::connect_env().await?;
     let dataset_id = upload.dataset_id.clone();
     let version_id = db.ensure_dataset_version_exists(&dataset_id).await?;
     let trust_state = db
@@ -425,7 +425,7 @@ async fn list_datasets(args: ListArgs, output: &OutputWriter) -> Result<()> {
         .await
         .map_err(|e| AosError::Io(format!("Failed to parse list response: {e}")))?;
 
-    let mut db = Db::connect_env().await?;
+    let db = Db::connect_env().await?;
     let mut rows = Vec::new();
     for ds in datasets {
         let version_id = db.ensure_dataset_version_exists(&ds.dataset_id).await?;
@@ -494,7 +494,7 @@ async fn list_datasets(args: ListArgs, output: &OutputWriter) -> Result<()> {
 }
 
 async fn list_versions(args: VersionsArgs, output: &OutputWriter) -> Result<()> {
-    let mut db = Db::connect_env().await?;
+    let db = Db::connect_env().await?;
     let versions = db.list_all_dataset_versions().await?;
     let mut filtered: Vec<TrainingDatasetVersion> = versions
         .into_iter()
@@ -573,7 +573,7 @@ async fn show_version(args: ShowArgs, output: &OutputWriter) -> Result<()> {
         Err(_) => None,
     };
 
-    let mut db = Db::connect_env().await?;
+    let db = Db::connect_env().await?;
     let version = db
         .get_training_dataset_version(&args.dataset_version_id)
         .await?
@@ -618,7 +618,7 @@ async fn validate_dataset(args: ValidateArgs, output: &OutputWriter) -> Result<(
         .map_err(|e| AosError::Io(format!("Failed to load auth: {e}")))?
         .ok_or_else(|| AosError::Validation("No stored auth; run `aosctl auth login`".into()))?;
 
-    let mut db = Db::connect_env().await?;
+    let db = Db::connect_env().await?;
 
     let (dataset_id, version_id) = if let Some(ref vid) = args.dataset_version_id {
         let v = db

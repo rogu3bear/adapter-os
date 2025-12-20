@@ -436,7 +436,7 @@ impl TestTrainingJobFactory {
         )
         .bind(&test_repo_id)
         .bind(&test_repo_id)
-        .bind("/tmp/test-repo")
+        .bind("var/test-repo")
         .bind("main")
         .bind("{}")
         .bind("{}")

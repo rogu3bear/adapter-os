@@ -169,3 +169,24 @@ pub mod replay_indexes {
     /// Index replay sessions by id
     pub const SESSIONS_BY_ID: &str = "replay_sessions_by_id";
 }
+
+/// Index definitions for datasets
+pub mod dataset_indexes {
+    /// Index datasets by tenant
+    pub const BY_TENANT: &str = "datasets_by_tenant";
+    /// Index datasets by validation status
+    pub const BY_VALIDATION_STATUS: &str = "datasets_by_validation_status";
+    /// Index datasets by content hash
+    pub const BY_HASH: &str = "datasets_by_hash";
+
+    /// Index dataset versions by tenant
+    pub const VERSION_BY_TENANT: &str = "dataset_versions_by_tenant";
+    /// Index dataset versions by parent dataset
+    pub const VERSION_BY_DATASET: &str = "dataset_versions_by_dataset";
+    /// Index dataset versions by trust state
+    pub const VERSION_BY_TRUST_STATE: &str = "dataset_versions_by_trust_state";
+    /// Index dataset versions by validation status
+    pub const VERSION_BY_VALIDATION_STATUS: &str = "dataset_versions_by_validation_status";
+    /// Index dataset versions by content hash
+    pub const VERSION_BY_HASH: &str = "dataset_versions_by_hash";
+}

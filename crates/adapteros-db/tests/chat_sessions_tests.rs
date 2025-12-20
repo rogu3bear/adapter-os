@@ -315,7 +315,7 @@ async fn test_source_types_and_messages_persist() -> Result<()> {
 
     sqlx::query(
         "INSERT INTO documents (id, tenant_id, name, content_hash, file_path, file_size, mime_type, page_count)
-         VALUES ('doc-main', 'tenant-1', 'Doc Main', 'hash', '/tmp/doc', 1, 'text/plain', NULL)",
+         VALUES ('doc-main', 'tenant-1', 'Doc Main', 'hash', 'var/doc', 1, 'text/plain', NULL)",
     )
     .execute(db.pool())
     .await

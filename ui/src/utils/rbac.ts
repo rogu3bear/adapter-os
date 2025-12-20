@@ -70,6 +70,7 @@ export const PERMISSIONS = {
   POLICY_APPLY: 'policy:apply',
   POLICY_VALIDATE: 'policy:validate',
   POLICY_SIGN: 'policy:sign',
+  POLICY_OVERRIDE: 'policy:override',
 
   // Promotion
   PROMOTION_EXECUTE: 'promotion:execute',
@@ -137,6 +138,7 @@ export const PERMISSIONS = {
   PLAN_VIEW: 'plan:view',
 
   // Replay
+  REPLAY_VIEW: 'replay:view',
   REPLAY_MANAGE: 'replay:manage',
 
   // Telemetry
@@ -166,6 +168,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, string[]> = {
     PERMISSIONS.POLICY_APPLY,
     PERMISSIONS.POLICY_VALIDATE,
     PERMISSIONS.POLICY_SIGN,
+    PERMISSIONS.POLICY_OVERRIDE,
     PERMISSIONS.PROMOTION_EXECUTE,
     PERMISSIONS.PROMOTION_VIEW,
     PERMISSIONS.AUDIT_VIEW,
@@ -201,6 +204,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, string[]> = {
     PERMISSIONS.DASHBOARD_MANAGE,
     PERMISSIONS.DASHBOARD_VIEW,
     PERMISSIONS.PLAN_VIEW,
+    PERMISSIONS.REPLAY_VIEW,
     PERMISSIONS.REPLAY_MANAGE,
     PERMISSIONS.TELEMETRY_VIEW,
   ],
@@ -220,6 +224,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, string[]> = {
     PERMISSIONS.POLICY_APPLY,
     PERMISSIONS.POLICY_VALIDATE,
     PERMISSIONS.POLICY_SIGN,
+    PERMISSIONS.POLICY_OVERRIDE,
     PERMISSIONS.PROMOTION_EXECUTE,
     PERMISSIONS.PROMOTION_VIEW,
     PERMISSIONS.AUDIT_VIEW,
@@ -255,6 +260,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, string[]> = {
     PERMISSIONS.DASHBOARD_MANAGE,
     PERMISSIONS.DASHBOARD_VIEW,
     PERMISSIONS.PLAN_VIEW,
+    PERMISSIONS.REPLAY_VIEW,
     PERMISSIONS.REPLAY_MANAGE,
     PERMISSIONS.TELEMETRY_VIEW,
   ],
@@ -317,6 +323,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, string[]> = {
     PERMISSIONS.METRICS_VIEW,
     PERMISSIONS.DASHBOARD_VIEW,
     PERMISSIONS.PLAN_VIEW,
+    PERMISSIONS.REPLAY_VIEW,
     PERMISSIONS.REPLAY_MANAGE,
     PERMISSIONS.TELEMETRY_VIEW,
   ],
@@ -339,6 +346,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, string[]> = {
     PERMISSIONS.METRICS_VIEW,
     PERMISSIONS.DASHBOARD_VIEW,
     PERMISSIONS.PLAN_VIEW,
+    PERMISSIONS.REPLAY_VIEW, // Compliance can view replays for audit purposes
     PERMISSIONS.TELEMETRY_VIEW,
   ],
   auditor: [
@@ -349,6 +357,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, string[]> = {
     PERMISSIONS.ACTIVITY_VIEW,
     PERMISSIONS.TELEMETRY_VIEW,
     PERMISSIONS.METRICS_VIEW,
+    PERMISSIONS.REPLAY_VIEW, // Auditors can view replays to verify determinism (read-only)
   ],
   viewer: [
     // Viewer is read-only
@@ -467,6 +476,7 @@ export function getPermissionDescription(permission: string): string {
     'policy:apply': 'Apply policies',
     'policy:validate': 'Validate policies',
     'policy:sign': 'Sign policies',
+    'policy:override': 'Override policy checks',
     'promotion:execute': 'Execute promotions',
     'promotion:view': 'View promotions',
     'audit:view': 'View audit logs',
@@ -502,6 +512,7 @@ export function getPermissionDescription(permission: string): string {
     'dashboard:manage': 'Manage dashboards',
     'dashboard:view': 'View dashboards',
     'plan:view': 'View plans',
+    'replay:view': 'View replay sessions',
     'replay:manage': 'Manage replay sessions',
     'telemetry:view': 'View telemetry',
   };

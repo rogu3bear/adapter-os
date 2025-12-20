@@ -297,6 +297,6 @@ All services must follow AdapterOS standards:
 ## References
 
 - [CLAUDE.md](../../../../CLAUDE.md) - Architecture patterns
-- [docs/ARCHITECTURE_PATTERNS.md](../../../../docs/ARCHITECTURE_PATTERNS.md) - Design patterns
+- [docs/ARCHITECTURE.md#architecture-components](../../../../docs/ARCHITECTURE.md#architecture-components) - Design patterns
 - [docs/LIFECYCLE.md](../../../../docs/LIFECYCLE.md) - Adapter lifecycle states
 - [docs/TRAINING_PIPELINE.md](../../../../docs/TRAINING_PIPELINE.md) - Training flow

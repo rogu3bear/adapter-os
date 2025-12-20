@@ -15,6 +15,8 @@ use crate::MLXFFITensor;
 pub struct AttentionConfig {
     /// Number of attention heads
     pub num_heads: usize,
+    /// Number of key-value heads (for GQA support)
+    pub num_kv_heads: usize,
     /// Dimension per head (d_k = hidden_size / num_heads)
     pub head_dim: usize,
     /// Whether to apply causal mask (for autoregressive models)
@@ -41,6 +43,7 @@ impl AttentionConfig {
 
         Ok(Self {
             num_heads,
+            num_kv_heads: num_heads, // Default: standard MHA (no GQA)
             head_dim,
             causal_mask,
             dropout_prob: 0.0,
@@ -52,6 +55,71 @@ impl AttentionConfig {
     pub fn with_dropout(mut self, dropout_prob: f32) -> Self {
         self.dropout_prob = dropout_prob;
         self
+    }
+
+    /// Create attention config with Grouped Query Attention (GQA) support
+    ///
+    /// GQA uses fewer key-value heads than query heads for efficiency.
+    ///
+    /// # Arguments
+    /// * `hidden_size` - Total hidden dimension
+    /// * `num_heads` - Number of query heads
+    /// * `num_kv_heads` - Number of key-value heads (must divide num_heads)
+    /// * `causal_mask` - Whether to apply causal masking
+    ///
+    /// # Returns
+    /// Attention config with GQA enabled
+    ///
+    /// # Example
+    /// ```ignore
+    /// // 8 query heads, 2 KV heads (4x repetition)
+    /// let config = AttentionConfig::new_with_gqa(256, 8, 2, true)?;
+    /// ```
+    pub fn new_with_gqa(
+        hidden_size: usize,
+        num_heads: usize,
+        num_kv_heads: usize,
+        causal_mask: bool,
+    ) -> Result<Self> {
+        if hidden_size % num_heads != 0 {
+            return Err(AosError::Validation(format!(
+                "hidden_size ({}) must be divisible by num_heads ({})",
+                hidden_size, num_heads
+            )));
+        }
+        if num_heads % num_kv_heads != 0 {
+            return Err(AosError::Validation(format!(
+                "num_heads ({}) must be divisible by num_kv_heads ({}) for GQA",
+                num_heads, num_kv_heads
+            )));
+        }
+
+        let head_dim = hidden_size / num_heads;
+        let scale = (head_dim as f32).sqrt().recip();
+
+        Ok(Self {
+            num_heads,
+            num_kv_heads,
+            head_dim,
+            causal_mask,
+            dropout_prob: 0.0,
+            scale,
+        })
+    }
+
+    /// Get GQA repetition factor (how many query heads share one KV head)
+    ///
+    /// For standard MHA: returns 1 (num_heads == num_kv_heads)
+    /// For GQA: returns num_heads / num_kv_heads (e.g., 4 if 8 query heads, 2 KV heads)
+    pub fn gqa_repetition_factor(&self) -> usize {
+        self.num_heads / self.num_kv_heads
+    }
+
+    /// Check if GQA is enabled (num_kv_heads < num_heads)
+    ///
+    /// Returns true if using GQA, false for standard MHA
+    pub fn is_gqa_enabled(&self) -> bool {
+        self.num_kv_heads < self.num_heads
     }
 }
 
@@ -523,9 +591,9 @@ fn simd_exp_approx_neon_safe(
     const C1: f32 = 1.0;
     const C2: f32 = 1.0;
     const C3: f32 = 0.5;
-    const C4: f32 = 0.16666666666666666; // 1/6
-    const C5: f32 = 0.041666666666666664; // 1/24
-    const C6: f32 = 0.008333333333333333; // 1/120
+    const C4: f32 = 0.166_666_67; // 1/6
+    const C5: f32 = 0.041_666_668; // 1/24
+    const C6: f32 = 0.008_333_334; // 1/120
 
     unsafe {
         // Check for underflow
@@ -596,9 +664,9 @@ fn fast_exp_safe(x: f32) -> f32 {
     const C1: f32 = 1.0;
     const C2: f32 = 1.0;
     const C3: f32 = 0.5;
-    const C4: f32 = 0.16666666666666666;
-    const C5: f32 = 0.041666666666666664;
-    const C6: f32 = 0.008333333333333333;
+    const C4: f32 = 0.166_666_67;
+    const C5: f32 = 0.041_666_668;
+    const C6: f32 = 0.008_333_334;
 
     // Range reduction: x = n * ln(2) + r where |r| <= ln(2)/2
     let n = (x * LOG2E).round();
@@ -615,32 +683,94 @@ fn fast_exp_safe(x: f32) -> f32 {
     poly * pow2n
 }
 
-/// Multi-head scaled dot-product attention (convenience wrapper)
+/// Repeat KV heads to match query head count for GQA
+///
+/// Input shape: [batch, seq, num_kv_heads, head_dim]
+/// Output shape: [batch, seq, num_heads, head_dim]
+fn repeat_kv_heads(
+    tensor: &MLXFFITensor,
+    num_kv_heads: usize,
+    n_rep: usize,
+) -> Result<MLXFFITensor> {
+    let shape = tensor.shape();
+    if shape.len() != 4 {
+        return Err(AosError::Validation(
+            "KV tensor must have 4 dimensions".to_string(),
+        ));
+    }
+
+    let batch = shape[0];
+    let seq_len = shape[1];
+    let head_dim = shape[3];
+    let target_heads = num_kv_heads * n_rep;
+
+    // If n_rep == 1, no expansion needed, but we still need to return an owned tensor
+    if n_rep == 1 {
+        let data = tensor.to_float_vec()?;
+        return MLXFFITensor::from_data(&data, shape.to_vec());
+    }
+
+    let data = tensor.to_float_vec()?;
+    let mut expanded = Vec::with_capacity(batch * seq_len * target_heads * head_dim);
+
+    for b in 0..batch {
+        for s in 0..seq_len {
+            for kv_h in 0..num_kv_heads {
+                for _ in 0..n_rep {
+                    for d in 0..head_dim {
+                        let idx = b * seq_len * num_kv_heads * head_dim
+                            + s * num_kv_heads * head_dim
+                            + kv_h * head_dim
+                            + d;
+                        expanded.push(data[idx]);
+                    }
+                }
+            }
+        }
+    }
+
+    MLXFFITensor::from_data(&expanded, vec![batch, seq_len, target_heads, head_dim])
+}
+
+/// Multi-head scaled dot-product attention with GQA support
 ///
 /// Automatically handles reshaping for multi-head computation.
+/// Supports Grouped Query Attention (GQA) where num_kv_heads < num_heads.
 ///
 /// # Arguments
 /// * `query` - Query tensor of shape [batch, seq_len, hidden_size]
 /// * `key` - Key tensor of shape [batch, kv_seq_len, hidden_size]
 /// * `value` - Value tensor of shape [batch, kv_seq_len, hidden_size]
-/// * `num_heads` - Number of attention heads
+/// * `num_heads` - Number of query attention heads
+/// * `num_kv_heads` - Number of key-value heads (for GQA)
 /// * `causal_mask` - Whether to apply causal mask
 ///
 /// # Returns
 /// Output tensor of shape [batch, seq_len, hidden_size]
+///
+/// # Example
+/// ```ignore
+/// // Standard MHA: 8 query heads, 8 KV heads
+/// let output = mlx_multihead_attention(&q, &k, &v, 8, 8, true)?;
+///
+/// // GQA: 8 query heads, 2 KV heads (4x repetition)
+/// let output = mlx_multihead_attention(&q, &k, &v, 8, 2, true)?;
+/// ```
 pub fn mlx_multihead_attention(
     query: &MLXFFITensor,
     key: &MLXFFITensor,
     value: &MLXFFITensor,
     num_heads: usize,
+    num_kv_heads: usize,
     causal_mask: bool,
 ) -> Result<MLXFFITensor> {
     let q_shape = query.shape();
     let hidden_size = q_shape[q_shape.len() - 1];
 
-    let config = AttentionConfig::new(hidden_size, num_heads, causal_mask)?;
+    // Create config with GQA support
+    let config = AttentionConfig::new_with_gqa(hidden_size, num_heads, num_kv_heads, causal_mask)?;
 
-    // Reshape for multi-head attention
+    // Reshape query for multi-head attention
     // [batch, seq_len, hidden_size] -> [batch, seq_len, num_heads, head_dim]
     let mut q_reshaped = q_shape.to_vec();
     q_reshaped.pop(); // Remove hidden_size
@@ -649,10 +779,12 @@ pub fn mlx_multihead_attention(
 
     let query_reshaped = query.reshape(q_reshaped)?;
 
+    // Reshape K/V for num_kv_heads (not num_heads!)
+    // [batch, kv_seq_len, hidden_size] -> [batch, kv_seq_len, num_kv_heads, head_dim]
     let k_shape = key.shape();
     let mut k_reshaped = k_shape.to_vec();
     k_reshaped.pop();
-    k_reshaped.push(num_heads);
+    k_reshaped.push(num_kv_heads);
     k_reshaped.push(config.head_dim);
 
     let key_reshaped = key.reshape(k_reshaped)?;
@@ -660,16 +792,28 @@ pub fn mlx_multihead_attention(
     let v_shape = value.shape();
     let mut v_reshaped = v_shape.to_vec();
     v_reshaped.pop();
-    v_reshaped.push(num_heads);
+    v_reshaped.push(num_kv_heads);
     v_reshaped.push(config.head_dim);
 
     let value_reshaped = value.reshape(v_reshaped)?;
 
+    // For GQA: expand K/V heads to match query heads
+    let (key_expanded, value_expanded) = if config.is_gqa_enabled() {
+        let n_rep = config.gqa_repetition_factor();
+        (
+            repeat_kv_heads(&key_reshaped, num_kv_heads, n_rep)?,
+            repeat_kv_heads(&value_reshaped, num_kv_heads, n_rep)?,
+        )
+    } else {
+        // Standard MHA: no repetition needed
+        (key_reshaped, value_reshaped)
+    };
+
     // Apply SDPA
     let output = mlx_scaled_dot_product_attention(
         &query_reshaped,
-        &key_reshaped,
-        &value_reshaped,
+        &key_expanded,
+        &value_expanded,
         &config,
         None,
     )?;
@@ -677,6 +821,31 @@ pub fn mlx_multihead_attention(
     // Reshape back to [batch, seq_len, hidden_size]
     let final_shape = q_shape.to_vec();
     output.reshape(final_shape)
+}
+
+/// Backward-compatible wrapper for multi-head attention (standard MHA)
+///
+/// This is the legacy function signature for code that doesn't use GQA.
+/// Equivalent to calling `mlx_multihead_attention(q, k, v, num_heads, num_heads, mask)`.
+///
+/// # Arguments
+/// * `query` - Query tensor of shape [batch, seq_len, hidden_size]
+/// * `key` - Key tensor of shape [batch, kv_seq_len, hidden_size]
+/// * `value` - Value tensor of shape [batch, kv_seq_len, hidden_size]
+/// * `num_heads` - Number of attention heads (same for Q, K, V)
+/// * `causal_mask` - Whether to apply causal mask
+///
+/// # Returns
+/// Output tensor of shape [batch, seq_len, hidden_size]
+pub fn mlx_multihead_attention_legacy(
+    query: &MLXFFITensor,
+    key: &MLXFFITensor,
+    value: &MLXFFITensor,
+    num_heads: usize,
+    causal_mask: bool,
+) -> Result<MLXFFITensor> {
+    // Standard MHA: num_kv_heads = num_heads (no GQA)
+    mlx_multihead_attention(query, key, value, num_heads, num_heads, causal_mask)
 }
 
 #[cfg(test)]
@@ -1132,5 +1301,31 @@ mod tests {
             "Large array softmax sum should be 1.0, got {}",
             sum
         );
+    }
+
+    // =========================================================================
+    // GQA (GROUPED QUERY ATTENTION) TESTS
+    // =========================================================================
+
+    #[test]
+    fn test_attention_config_gqa() {
+        let config = AttentionConfig::new_with_gqa(3584, 28, 4, true).unwrap();
+        assert_eq!(config.num_heads, 28);
+        assert_eq!(config.num_kv_heads, 4);
+        assert_eq!(config.gqa_repetition_factor(), 7);
+        assert!(config.is_gqa_enabled());
+    }
+
+    #[test]
+    fn test_attention_config_mha() {
+        let config = AttentionConfig::new_with_gqa(4096, 32, 32, false).unwrap();
+        assert_eq!(config.gqa_repetition_factor(), 1);
+        assert!(!config.is_gqa_enabled());
+    }
+
+    #[test]
+    fn test_gqa_constraint_validation() {
+        let result = AttentionConfig::new_with_gqa(4096, 32, 5, true);
+        assert!(result.is_err());
     }
 }

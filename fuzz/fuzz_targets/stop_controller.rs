@@ -25,25 +25,15 @@ fuzz_target!(|data: &[u8]| {
         Err(_) => return,
     };
 
-    let eos_token_id = match u.int_in_range::<u32>(0..=50000) {
-        Ok(v) => v,
-        Err(_) => 151645, // Qwen default
-    };
+    let eos_token_id = u.int_in_range::<u32>(0..=50000).unwrap_or(151645);
 
-    let completion_threshold_q15 = match u.int_in_range::<i16>(0..=STOP_Q15_DENOM as i16) {
-        Ok(v) => v,
-        Err(_) => 24576, // ~0.75
-    };
+    let completion_threshold_q15 = u
+        .int_in_range::<i16>(0..=STOP_Q15_DENOM as i16)
+        .unwrap_or(24576);
 
-    let repetition_ngram = match u.int_in_range::<u32>(2..=8) {
-        Ok(v) => v,
-        Err(_) => 3,
-    };
+    let repetition_ngram = u.int_in_range::<u32>(2..=8).unwrap_or(3);
 
-    let repetition_window = match u.int_in_range::<u32>(8..=128) {
-        Ok(v) => v,
-        Err(_) => 32,
-    };
+    let repetition_window = u.int_in_range::<u32>(8..=128).unwrap_or(32);
 
     let policy = StopPolicySpec {
         output_max_tokens,
@@ -92,9 +82,7 @@ fuzz_target!(|data: &[u8]| {
         match logit_mode {
             0 => {
                 // Uniform logits
-                for logit in &mut logits {
-                    *logit = 0.0;
-                }
+                logits.fill(0.0);
             }
             1 => {
                 // High EOS probability

@@ -147,9 +147,12 @@ fn test_telemetry_event_for_adapter_registration() {
     // Verify telemetry captures adapter registration with provenance
 
     use adapteros_telemetry::TelemetryWriter;
+    use std::path::PathBuf;
     use tempfile::TempDir;
 
-    let temp_dir = TempDir::new().unwrap();
+    let root = PathBuf::from("var").join("tmp");
+    std::fs::create_dir_all(&root).expect("create var/tmp");
+    let temp_dir = TempDir::new_in(&root).unwrap();
     let telemetry = TelemetryWriter::new(temp_dir.path(), 1000, 1024 * 1024).unwrap();
 
     #[derive(serde::Serialize)]

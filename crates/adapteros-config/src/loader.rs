@@ -308,6 +308,12 @@ mod tests {
     use std::io::Write;
     use tempfile::NamedTempFile;
 
+    fn new_temp_file() -> NamedTempFile {
+        let temp_root = std::path::PathBuf::from("var/tmp");
+        std::fs::create_dir_all(&temp_root).unwrap();
+        NamedTempFile::new_in(&temp_root).unwrap()
+    }
+
     struct EnvGuard {
         snapshot: HashMap<String, String>,
     }
@@ -337,7 +343,7 @@ mod tests {
     #[test]
     fn test_load_manifest() {
         let _env = EnvGuard::new();
-        let mut temp_file = NamedTempFile::new().unwrap();
+        let mut temp_file = new_temp_file();
         writeln!(
             temp_file,
             r#"
@@ -373,7 +379,7 @@ strict_mode = true
     #[test]
     fn test_precedence_order() {
         let _env = EnvGuard::new();
-        let mut temp_file = NamedTempFile::new().unwrap();
+        let mut temp_file = new_temp_file();
         writeln!(
             temp_file,
             r#"
@@ -453,7 +459,7 @@ url = "sqlite://manifest.db"
     fn test_aos_model_path_precedence() {
         let _env = EnvGuard::new();
         // Test that CLI > ENV > manifest precedence is maintained
-        let mut temp_file = NamedTempFile::new().unwrap();
+        let mut temp_file = new_temp_file();
         writeln!(
             temp_file,
             r#"
@@ -572,7 +578,7 @@ url = "sqlite://manifest.db"
         let _env = EnvGuard::new();
         // Test that TOML keys are mapped to config_key via schema's toml_key field
         // cp.toml uses db.path, but schema uses database.url
-        let mut temp_file = NamedTempFile::new().unwrap();
+        let mut temp_file = new_temp_file();
         writeln!(
             temp_file,
             r#"
@@ -603,7 +609,7 @@ port = 8888
     #[test]
     fn test_env_overrides_toml() {
         // Test that AOS_* env vars override TOML values
-        let mut temp_file = NamedTempFile::new().unwrap();
+        let mut temp_file = new_temp_file();
         writeln!(
             temp_file,
             r#"

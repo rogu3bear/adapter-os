@@ -5,8 +5,11 @@ use std::path::{Path, PathBuf};
 /// Absolute prefixes that are forbidden for system/local sockets.
 const FORBIDDEN_TMP_PREFIXES: [&str; 2] = ["/tmp", "/private/tmp"];
 
+/// Environment variable to disable symlink validation (testing/debug only).
+const AOS_SKIP_SYMLINK_CHECK_ENV: &str = "AOS_SKIP_SYMLINK_CHECK";
+
 /// Dev-only fixture path for the default local Qwen2.5-7B-Instruct-4bit model.
-pub const DEV_MODEL_PATH: &str = "./var/models/Qwen2.5-7B-Instruct-4bit";
+pub const DEV_MODEL_PATH: &str = "./var/model-cache/models/qwen2.5-7b-mlx";
 
 /// Dev-only fixture path for the default local Qwen2.5-7B-Instruct-4bit manifest (config.json).
 pub const DEV_MANIFEST_PATH: &str = "./var/models/Qwen2.5-7B-Instruct-4bit/config.json";
@@ -43,6 +46,9 @@ pub const DEFAULT_CP_WORKER_SOCKET: &str = "/var/run/adapteros.sock";
 
 /// Default status file path consumed by the menu bar app.
 pub const DEFAULT_STATUS_PATH: &str = "/var/run/adapteros_status.json";
+
+/// Default supervisor signing key path.
+const DEFAULT_SUPERVISOR_SIGNING_KEY_PATH: &str = "var/keys/supervisor_signing.key";
 
 /// Default SQLite URL for the control plane database.
 pub const DEFAULT_DB_PATH: &str = "sqlite://var/aos-cp.sqlite3";
@@ -112,10 +118,11 @@ pub fn resolve_manifest_path(
 /// Resolve the base model location using a single source of truth.
 ///
 /// Precedence (id + cache root independently):
-/// 1. Explicit overrides
-/// 2. Environment: AOS_BASE_MODEL_ID / AOS_MODEL_CACHE_DIR
-/// 3. Effective config (base_model.id / base_model.cache_root) if initialized
-/// 4. Defaults: DEFAULT_BASE_MODEL_ID / DEFAULT_MODEL_CACHE_ROOT
+/// 1. Explicit overrides (id_override, cache_root_override)
+/// 2. Environment: AOS_BASE_MODEL_ID / AOS_MODEL_CACHE_DIR (canonical)
+/// 3. Legacy: AOS_MODEL_PATH (deprecated, only if no canonical env vars set)
+/// 4. Effective config (base_model.id / base_model.cache_root) if initialized
+/// 5. Defaults: DEFAULT_BASE_MODEL_ID / DEFAULT_MODEL_CACHE_ROOT
 pub fn resolve_base_model_location(
     id_override: Option<&str>,
     cache_root_override: Option<&Path>,
@@ -123,6 +130,50 @@ pub fn resolve_base_model_location(
 ) -> Result<BaseModelLocation> {
     crate::model::load_dotenv();
     let effective = crate::effective::try_effective_config();
+
+    // Check if canonical env vars are set
+    let has_canonical_env =
+        std::env::var("AOS_MODEL_CACHE_DIR").is_ok() || std::env::var("AOS_BASE_MODEL_ID").is_ok();
+
+    // Legacy AOS_MODEL_PATH fallback (deprecated)
+    // Only use if no canonical env vars and no overrides are provided
+    if !has_canonical_env && id_override.is_none() && cache_root_override.is_none() {
+        if let Ok(legacy_path) = std::env::var("AOS_MODEL_PATH") {
+            let full_path = PathBuf::from(&legacy_path);
+            reject_tmp_persistent_path(&full_path, "model-path")?;
+            tracing::warn!(
+                legacy_var = "AOS_MODEL_PATH",
+                path = %full_path.display(),
+                "Using deprecated AOS_MODEL_PATH. Please migrate to AOS_MODEL_CACHE_DIR and AOS_BASE_MODEL_ID."
+            );
+
+            // Extract model ID from path (last component)
+            let id = full_path
+                .file_name()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_else(|| DEFAULT_BASE_MODEL_ID.to_string());
+
+            // Extract cache root (parent directory)
+            let cache_root = full_path
+                .parent()
+                .map(PathBuf::from)
+                .unwrap_or_else(|| PathBuf::from(DEFAULT_MODEL_CACHE_ROOT));
+            reject_tmp_persistent_path(&cache_root, "model-cache-root")?;
+
+            if require_existing && !full_path.exists() {
+                return Err(AosError::Config(format!(
+                    "Model path does not exist: {}. Configure AOS_MODEL_CACHE_DIR and AOS_BASE_MODEL_ID or set base_model.cache_root/base_model.id in config.",
+                    full_path.display()
+                )));
+            }
+
+            return Ok(BaseModelLocation {
+                id,
+                cache_root,
+                full_path,
+            });
+        }
+    }
 
     let id = id_override
         .map(|s| s.to_string())
@@ -144,7 +195,9 @@ pub fn resolve_base_model_location(
         })
         .unwrap_or_else(|| PathBuf::from(DEFAULT_MODEL_CACHE_ROOT));
 
+    reject_tmp_persistent_path(&cache_root, "model-cache-root")?;
     let full_path = cache_root.join(&id);
+    reject_tmp_persistent_path(&full_path, "model-path")?;
 
     if require_existing && !full_path.exists() {
         return Err(AosError::Config(format!(
@@ -161,7 +214,7 @@ pub fn resolve_base_model_location(
 }
 
 /// Resolve embedding model path with env/default provenance.
-pub fn resolve_embedding_model_path() -> ResolvedPath {
+pub fn resolve_embedding_model_path() -> Result<ResolvedPath> {
     resolve_embedding_model_path_with_override(None)
 }
 
@@ -171,25 +224,28 @@ pub fn resolve_embedding_model_path() -> ResolvedPath {
 /// 1) CLI override (validated)
 /// 2) AOS_EMBEDDING_MODEL_PATH
 /// 3) Default: DEFAULT_EMBEDDING_MODEL_PATH
-pub fn resolve_embedding_model_path_with_override(cli_override: Option<&Path>) -> ResolvedPath {
+pub fn resolve_embedding_model_path_with_override(
+    cli_override: Option<&Path>,
+) -> Result<ResolvedPath> {
     crate::model::load_dotenv();
 
     if let Some(path) = cli_override {
         let path = path.to_path_buf();
+        reject_tmp_persistent_path(&path, "embedding-model")?;
         tracing::info!(
             path = %path.display(),
             source = %PathSource::Cli,
             kind = %"embedding-model",
             "Resolved embedding model path from CLI override"
         );
-        return ResolvedPath {
+        return Ok(ResolvedPath {
             path,
             source: PathSource::Cli,
             used_dev_fallback: false,
-        };
+        });
     }
 
-    resolve_env_or_default(
+    resolve_env_or_default_no_tmp(
         "AOS_EMBEDDING_MODEL_PATH",
         DEFAULT_EMBEDDING_MODEL_PATH,
         "embedding-model",
@@ -464,25 +520,108 @@ pub fn prepare_socket_path(path: &Path, kind: &str) -> Result<()> {
     Ok(())
 }
 
-fn reject_tmp_socket(path: &Path, kind: &str) -> Result<()> {
-    let path_str = path.display().to_string();
+/// Check if symlink validation should be skipped (debug builds only).
+fn should_skip_symlink_check() -> bool {
+    cfg!(debug_assertions) && std::env::var(AOS_SKIP_SYMLINK_CHECK_ENV).is_ok()
+}
+
+/// String-based literal check for /tmp prefixes (fast path).
+fn reject_tmp_literal(path_str: &str, kind: &str, original_path: &Path) -> Result<()> {
     if FORBIDDEN_TMP_PREFIXES
         .iter()
         .any(|prefix| path_str.starts_with(prefix))
     {
         return Err(AosError::Config(format!(
-            "{} socket path must not be under /tmp: {}",
+            "{} path must not be under /tmp: {}",
             kind,
-            path.display()
+            original_path.display()
         )));
     }
     Ok(())
 }
 
-fn reject_tmp_persistent_path(path: &Path, kind: &str) -> Result<()> {
+/// Validate that a path does not resolve to /tmp, even through symlinks.
+///
+/// For existing paths: canonicalizes to resolve symlinks before checking.
+/// For new paths: validates the parent directory if it exists.
+fn validate_path_not_in_tmp(path: &Path, kind: &str) -> Result<()> {
+    let path_str = path.display().to_string();
+
+    // Fast path: check literal string first
+    reject_tmp_literal(&path_str, kind, path)?;
+
+    // Skip symlink resolution if explicitly disabled (testing only)
+    if should_skip_symlink_check() {
+        return Ok(());
+    }
+
+    // For existing paths, canonicalize to detect symlink attacks
+    if path.exists() {
+        match std::fs::canonicalize(path) {
+            Ok(canonical) => {
+                let canonical_str = canonical.display().to_string();
+                if FORBIDDEN_TMP_PREFIXES
+                    .iter()
+                    .any(|prefix| canonical_str.starts_with(prefix))
+                {
+                    return Err(AosError::Config(format!(
+                        "{} path must not resolve to /tmp: {} (symlink detected pointing to {})",
+                        kind,
+                        path.display(),
+                        canonical.display()
+                    )));
+                }
+            }
+            Err(e) => {
+                // Log warning but don't fail - path exists but can't canonicalize
+                // This can happen with permission issues
+                tracing::warn!(
+                    path = %path.display(),
+                    error = %e,
+                    "Failed to canonicalize {} path for symlink check",
+                    kind
+                );
+            }
+        }
+    } else if let Some(parent) = path.parent() {
+        // For new paths, validate the parent if it exists
+        if parent.exists() && !parent.as_os_str().is_empty() {
+            if let Ok(canonical_parent) = std::fs::canonicalize(parent) {
+                // Reconstruct path with canonical parent
+                if let Some(file_name) = path.file_name() {
+                    let canonical = canonical_parent.join(file_name);
+                    let canonical_str = canonical.display().to_string();
+                    if FORBIDDEN_TMP_PREFIXES
+                        .iter()
+                        .any(|prefix| canonical_str.starts_with(prefix))
+                    {
+                        return Err(AosError::Config(format!(
+                            "{} path must not resolve to /tmp: {} (parent symlink detected pointing to {})",
+                            kind,
+                            path.display(),
+                            canonical.display()
+                        )));
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn reject_tmp_socket(path: &Path, kind: &str) -> Result<()> {
+    validate_path_not_in_tmp(path, kind)
+}
+
+/// Reject paths under /tmp or /private/tmp for persistent storage.
+/// This prevents accidental loss of critical runtime state on system restart.
+/// Also detects symlink attacks where a path under /var resolves to /tmp.
+pub fn reject_tmp_persistent_path(path: &Path, kind: &str) -> Result<()> {
     let path_str = path.display().to_string();
     let mut candidate = path_str.as_str();
 
+    // Strip URL prefixes for database URLs
     for prefix in ["sqlite://", "sqlite:", "file://", "file:"] {
         if let Some(stripped) = candidate.strip_prefix(prefix) {
             candidate = stripped;
@@ -494,23 +633,70 @@ fn reject_tmp_persistent_path(path: &Path, kind: &str) -> Result<()> {
         candidate = &candidate[1..];
     }
 
-    if FORBIDDEN_TMP_PREFIXES
-        .iter()
-        .any(|prefix| candidate.starts_with(prefix))
-    {
-        return Err(AosError::Config(format!(
-            "{} path must not be under /tmp: {}",
-            kind,
-            path.display()
-        )));
+    // Fast path: check literal string
+    reject_tmp_literal(candidate, kind, path)?;
+
+    // Skip symlink resolution if explicitly disabled (testing only)
+    if should_skip_symlink_check() {
+        return Ok(());
+    }
+
+    // Canonicalize the cleaned path to detect symlink attacks
+    let clean_path = Path::new(candidate);
+    if clean_path.exists() {
+        if let Ok(canonical) = std::fs::canonicalize(clean_path) {
+            let canonical_str = canonical.display().to_string();
+            if FORBIDDEN_TMP_PREFIXES
+                .iter()
+                .any(|prefix| canonical_str.starts_with(prefix))
+            {
+                return Err(AosError::Config(format!(
+                    "{} path must not resolve to /tmp: {} (symlink detected pointing to {})",
+                    kind,
+                    path.display(),
+                    canonical.display()
+                )));
+            }
+        }
+    } else if let Some(parent) = clean_path.parent() {
+        // For new paths, validate parent
+        if parent.exists() && !parent.as_os_str().is_empty() {
+            if let Ok(canonical_parent) = std::fs::canonicalize(parent) {
+                if let Some(file_name) = clean_path.file_name() {
+                    let canonical = canonical_parent.join(file_name);
+                    let canonical_str = canonical.display().to_string();
+                    if FORBIDDEN_TMP_PREFIXES
+                        .iter()
+                        .any(|prefix| canonical_str.starts_with(prefix))
+                    {
+                        return Err(AosError::Config(format!(
+                            "{} path must not resolve to /tmp: {} (parent symlink detected pointing to {})",
+                            kind,
+                            path.display(),
+                            canonical.display()
+                        )));
+                    }
+                }
+            }
+        }
     }
 
     Ok(())
 }
 
 /// Resolve status file path for menu bar integration.
-pub fn resolve_status_path() -> ResolvedPath {
-    resolve_env_or_default("AOS_STATUS_PATH", DEFAULT_STATUS_PATH, "status-path")
+pub fn resolve_status_path() -> Result<ResolvedPath> {
+    resolve_env_or_default_no_tmp("AOS_STATUS_PATH", DEFAULT_STATUS_PATH, "status-path")
+}
+
+/// Resolve supervisor signing key path with env/default provenance.
+/// Rejects /tmp paths for security.
+pub fn resolve_supervisor_signing_key_path() -> Result<ResolvedPath> {
+    resolve_env_or_default_no_tmp(
+        "AOS_SUPERVISOR_SIGNING_KEY_PATH",
+        DEFAULT_SUPERVISOR_SIGNING_KEY_PATH,
+        "supervisor-signing-key",
+    )
 }
 
 /// Resolve model path with precedence: env > CLI > config > dev fallback.
@@ -543,6 +729,7 @@ fn resolve_path(
     if let Ok(val) = std::env::var(env_var) {
         if !val.is_empty() {
             let path = PathBuf::from(&val);
+            reject_tmp_persistent_path(&path, kind)?;
             validate_path_exists(&path, kind, env_var)?;
             tracing::info!(path = %path.display(), source = %PathSource::Env(env_var), kind, "Resolved {} path from environment", kind);
             return Ok(ResolvedPath {
@@ -555,6 +742,7 @@ fn resolve_path(
 
     // 2) CLI override
     if let Some(path) = cli_override {
+        reject_tmp_persistent_path(path, kind)?;
         validate_path_exists(path, kind, "CLI")?;
         tracing::info!(
             path = %path.display(),
@@ -572,6 +760,7 @@ fn resolve_path(
 
     // 3) Config file
     if let Some(path) = config_path {
+        reject_tmp_persistent_path(path, kind)?;
         validate_path_exists(path, kind, "config")?;
         tracing::info!(
             path = %path.display(),
@@ -597,6 +786,7 @@ fn resolve_path(
         }
 
         let path = PathBuf::from(fallback);
+        reject_tmp_persistent_path(&path, kind)?;
         if !path.exists() {
             tracing::warn!(
                 path = %path.display(),
@@ -697,9 +887,15 @@ mod tests {
     use std::path::PathBuf;
     use tempfile::TempDir;
 
+    fn new_test_tempdir() -> TempDir {
+        let root = PathBuf::from("var").join("tmp");
+        std::fs::create_dir_all(&root).expect("create var/tmp");
+        TempDir::new_in(&root).expect("tempdir")
+    }
+
     #[test]
     fn env_beats_cli_and_config() {
-        let tmp = TempDir::new().unwrap();
+        let tmp = new_test_tempdir();
         let env_path = tmp.path().join("env_manifest.json");
         fs::write(&env_path, "{}").unwrap();
 
@@ -755,7 +951,7 @@ mod tests {
 
     #[test]
     fn base_model_resolves_with_overrides_and_defaults() {
-        let tmp_root = TempDir::new().unwrap();
+        let tmp_root = new_test_tempdir();
         let id_override = "custom-id";
         let cache_root_override = tmp_root.path();
         let resolved =
@@ -770,8 +966,22 @@ mod tests {
     #[test]
     fn base_model_uses_env_cache_root() {
         std::env::set_var("AOS_MODEL_CACHE_DIR", "/tmp/cache-root");
-        let resolved = resolve_base_model_location(None, None, false).unwrap();
-        assert_eq!(resolved.cache_root, PathBuf::from("/tmp/cache-root"));
+        let err = resolve_base_model_location(None, None, false)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("must not be under /tmp"));
+        assert!(err.contains("model-cache-root"));
+        std::env::remove_var("AOS_MODEL_CACHE_DIR");
+    }
+
+    #[test]
+    fn base_model_rejects_private_tmp_env_cache_root() {
+        std::env::set_var("AOS_MODEL_CACHE_DIR", "/private/tmp/cache-root");
+        let err = resolve_base_model_location(None, None, false)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("must not be under /tmp"));
+        assert!(err.contains("model-cache-root"));
         std::env::remove_var("AOS_MODEL_CACHE_DIR");
     }
 
@@ -984,12 +1194,12 @@ mod tests {
 
     #[test]
     fn embedding_model_prefers_env() {
-        let tmp = TempDir::new().unwrap();
+        let tmp = new_test_tempdir();
         let embed_path = tmp.path().join("embed-model");
         fs::create_dir_all(&embed_path).unwrap();
 
         std::env::set_var("AOS_EMBEDDING_MODEL_PATH", &embed_path);
-        let resolved = resolve_embedding_model_path();
+        let resolved = resolve_embedding_model_path().unwrap();
         assert_eq!(resolved.path, embed_path);
         assert_eq!(resolved.source, PathSource::Env("AOS_EMBEDDING_MODEL_PATH"));
         std::env::remove_var("AOS_EMBEDDING_MODEL_PATH");
@@ -998,8 +1208,149 @@ mod tests {
     #[test]
     fn embedding_model_defaults_when_env_unset() {
         std::env::remove_var("AOS_EMBEDDING_MODEL_PATH");
-        let resolved = resolve_embedding_model_path();
+        let resolved = resolve_embedding_model_path().unwrap();
         assert_eq!(resolved.path, PathBuf::from(DEFAULT_EMBEDDING_MODEL_PATH));
         assert_eq!(resolved.source, PathSource::Default("embedding-model"));
+    }
+
+    #[test]
+    fn status_path_rejects_tmp_env() {
+        std::env::set_var("AOS_STATUS_PATH", "/tmp/adapteros_status.json");
+        let err = resolve_status_path().unwrap_err().to_string();
+        assert!(err.contains("must not be under /tmp"));
+        assert!(err.contains("status-path"));
+        std::env::remove_var("AOS_STATUS_PATH");
+    }
+
+    #[test]
+    fn status_path_rejects_private_tmp_env() {
+        std::env::set_var("AOS_STATUS_PATH", "/private/tmp/adapteros_status.json");
+        let err = resolve_status_path().unwrap_err().to_string();
+        assert!(err.contains("must not be under /tmp"));
+        assert!(err.contains("status-path"));
+        std::env::remove_var("AOS_STATUS_PATH");
+    }
+
+    #[test]
+    fn symlink_to_tmp_detected_for_socket() {
+        // Create a symlink from a safe-looking path to /tmp
+        let tmp = new_test_tempdir();
+        let link_path = tmp.path().join("safe-looking.sock");
+        let target = PathBuf::from("/tmp/malicious.sock");
+
+        // Create the target file so the symlink is valid
+        if std::fs::write(&target, b"target").is_ok() {
+            // Create symlink
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::symlink;
+                if symlink(&target, &link_path).is_ok() {
+                    // The symlink should be detected and rejected
+                    let err = reject_tmp_socket(&link_path, "test-socket")
+                        .unwrap_err()
+                        .to_string();
+                    assert!(
+                        err.contains("symlink detected")
+                            || err.contains("must not resolve to /tmp")
+                    );
+                    assert!(err.contains("/tmp"));
+
+                    // Cleanup
+                    let _ = std::fs::remove_file(&link_path);
+                }
+            }
+            let _ = std::fs::remove_file(&target);
+        }
+    }
+
+    #[test]
+    fn symlink_to_private_tmp_detected_for_persistent_path() {
+        // Create a symlink from a safe-looking path to /private/tmp
+        let tmp = new_test_tempdir();
+        let link_path = tmp.path().join("safe-db.sqlite");
+        let target = PathBuf::from("/private/tmp/malicious.db");
+
+        // Create the target file so the symlink is valid
+        if std::fs::write(&target, b"target").is_ok() {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::symlink;
+                if symlink(&target, &link_path).is_ok() {
+                    // The symlink should be detected and rejected
+                    let err = reject_tmp_persistent_path(&link_path, "test-db")
+                        .unwrap_err()
+                        .to_string();
+                    assert!(
+                        err.contains("symlink detected")
+                            || err.contains("must not resolve to /tmp")
+                    );
+                    assert!(err.contains("/tmp") || err.contains("/private/tmp"));
+
+                    // Cleanup
+                    let _ = std::fs::remove_file(&link_path);
+                }
+            }
+            let _ = std::fs::remove_file(&target);
+        }
+    }
+
+    #[test]
+    fn parent_symlink_to_tmp_detected() {
+        // Test case: parent directory is a symlink to /tmp
+        // Create /tmp/test-parent as target, symlink from var/tmp/xxx/parent -> /tmp/test-parent
+        let tmp = new_test_tempdir();
+        let target_parent = PathBuf::from("/tmp/symlink-test-parent");
+        let link_parent = tmp.path().join("fake-parent");
+
+        // Create target directory
+        if std::fs::create_dir_all(&target_parent).is_ok() {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::symlink;
+                if symlink(&target_parent, &link_parent).is_ok() {
+                    // Try to use a path through the symlinked parent
+                    let bad_path = link_parent.join("new-file.sock");
+
+                    // The parent symlink should be detected
+                    let err = reject_tmp_socket(&bad_path, "test-socket")
+                        .unwrap_err()
+                        .to_string();
+                    assert!(
+                        err.contains("symlink detected")
+                            || err.contains("must not resolve to /tmp")
+                    );
+
+                    // Cleanup
+                    let _ = std::fs::remove_file(&link_parent);
+                }
+            }
+            let _ = std::fs::remove_dir_all(&target_parent);
+        }
+    }
+
+    #[test]
+    fn non_symlink_path_allowed() {
+        // A regular path that doesn't involve symlinks should pass
+        let tmp = new_test_tempdir();
+        let regular_path = tmp.path().join("regular.sock");
+
+        // Should pass without error
+        reject_tmp_socket(&regular_path, "test-socket")
+            .expect("non-symlink path should be allowed");
+    }
+
+    #[test]
+    fn skip_symlink_check_env_works() {
+        // When AOS_SKIP_SYMLINK_CHECK is set in debug builds, symlink checks should be skipped
+        std::env::set_var("AOS_SKIP_SYMLINK_CHECK", "1");
+
+        // The literal /tmp check should still work
+        let tmp_path = PathBuf::from("/tmp/direct.sock");
+        let err = reject_tmp_socket(&tmp_path, "test")
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("must not be under /tmp"));
+
+        std::env::remove_var("AOS_SKIP_SYMLINK_CHECK");
     }
 }

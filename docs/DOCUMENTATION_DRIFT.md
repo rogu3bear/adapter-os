@@ -31,7 +31,7 @@ Traditional documentation maintenance focuses on keeping docs current with code 
 AdapterOS implements critical security and correctness invariants:
 
 - **Tenant isolation** prevents cross-tenant data leakage
-- **Path security** prevents persistent data in `/tmp`
+- **Path security** prevents persistent data in `/tmp` (or macOS `/private/tmp`)
 - **Deterministic routing** ensures reproducible adapter selection
 - **Q15 quantization** maintains precision-critical gate values
 
@@ -51,7 +51,7 @@ Each rule defines an invariant with validation criteria:
 {
   "id": "fs-01",
   "category": "path",
-  "description": "Runtime state must live under canonical paths and must not persist under /tmp",
+  "description": "Runtime state must live under canonical paths and must not persist under /tmp (or /private/tmp)",
   "source": "directive + AGENTS.md + CLAUDE.md"
 }
 ```
@@ -77,22 +77,19 @@ Validation is performed via systematic code analysis:
 ## Rule Categories
 
 ### fs-01: Path Security
-**Invariant:** Runtime state must live under canonical paths (`var/`) and must NOT persist under `/tmp`.
+**Invariant:** Runtime state must live under canonical paths (`var/`) and must NOT persist under `/tmp` (or `/private/tmp`).
 
 **Rationale:** `/tmp` is world-writable and can be manipulated by other users/processes.
 
 **Validation:**
 ```rust
-// ✅ CORRECT: Guards against /tmp
-pub fn resolve_telemetry_root() -> Result<PathBuf> {
-    let path = resolve_env_path("AOS_TELEMETRY_ROOT", "./var/telemetry")?;
-    reject_tmp_persistent_path(&path)?;  // Guards /tmp
-    Ok(path)
+// ✅ CORRECT: Rejects /tmp and /private/tmp for persisted runtime state
+pub fn resolve_telemetry_dir() -> Result<ResolvedPath> {
+    resolve_env_or_default_no_tmp("AOS_TELEMETRY_DIR", DEFAULT_TELEMETRY_DIR, "telemetry-dir")
 }
 
-// ❌ VIOLATION: No tmp guard
-pub fn resolve_index_root() -> Result<PathBuf> {
-    resolve_env_path("AOS_INDEX_ROOT", "./var/indices")  // Missing guard
+pub fn resolve_index_root() -> Result<ResolvedPath> {
+    resolve_env_or_default_no_tmp("AOS_INDEX_DIR", DEFAULT_INDEX_ROOT, "index-root")
 }
 ```
 
@@ -203,10 +200,8 @@ pub fn resolve_index_root() -> Result<PathBuf> {
 #### Fix fs-01: Index Root Path Guard
 ```rust
 // crates/adapteros-config/src/path_resolver.rs
-pub fn resolve_index_root() -> Result<PathBuf> {
-    let path = resolve_env_path("AOS_INDEX_ROOT", "./var/indices")?;
-    reject_tmp_persistent_path(&path)?;  // Add this guard
-    Ok(path)
+pub fn resolve_index_root() -> Result<ResolvedPath> {
+    resolve_env_or_default_no_tmp("AOS_INDEX_DIR", DEFAULT_INDEX_ROOT, "index-root")
 }
 ```
 
@@ -215,7 +210,7 @@ pub fn resolve_index_root() -> Result<PathBuf> {
 // crates/adapteros-config/src/path_resolver.rs
 #[test]
 fn test_index_root_rejects_tmp() {
-    std::env::set_var("AOS_INDEX_ROOT", "/tmp/indices");
+    std::env::set_var("AOS_INDEX_DIR", "/tmp/indices");
     assert!(resolve_index_root().is_err());
 }
 ```

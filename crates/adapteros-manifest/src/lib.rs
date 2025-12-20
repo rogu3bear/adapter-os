@@ -257,7 +257,7 @@ pub struct RouterCfg {
     #[serde(default = "default_algorithm")]
     pub algorithm: String, // "weighted" | "entropy_floor" | "plugin:<name>"
 
-    // MPLoRA enhancements
+    // DIR (Deterministic Inference Runtime) enhancements
     // Reference: https://openreview.net/pdf?id=jqz6Msm3AF
     #[serde(default = "default_orthogonal_penalty")]
     pub orthogonal_penalty: f32, // Default: 0.1
@@ -277,7 +277,7 @@ fn default_algorithm() -> String {
     "weighted".to_string()
 }
 
-// MPLoRA default functions
+// DIR default functions
 fn default_orthogonal_penalty() -> f32 {
     0.1
 }
@@ -585,7 +585,7 @@ impl ManifestV3 {
             ));
         }
 
-        // MPLoRA validation
+        // DIR validation
         // Reference: https://openreview.net/pdf?id=jqz6Msm3AF
         if self.router.orthogonal_penalty < 0.0 || self.router.orthogonal_penalty > 1.0 {
             return Err(AosError::InvalidManifest(

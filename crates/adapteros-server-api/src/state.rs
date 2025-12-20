@@ -48,6 +48,14 @@ pub struct WorkerRuntimeInfo {
     pub backend: Option<String>,
     pub model_hash: Option<String>,
     pub capabilities: Vec<String>,
+    /// Current cache memory usage in MB
+    pub cache_used_mb: Option<u32>,
+    /// Maximum cache memory budget in MB
+    pub cache_max_mb: Option<u32>,
+    /// Number of pinned cache entries (cannot be evicted)
+    pub cache_pinned_entries: Option<u32>,
+    /// Number of active cache entries (in-use, cannot be evicted)
+    pub cache_active_entries: Option<u32>,
 }
 
 /// Capacity limits configuration
@@ -168,6 +176,27 @@ pub struct ServerConfigApi {
     pub uds_socket: Option<String>,
     #[serde(default)]
     pub production_mode: bool,
+    /// Timeout in milliseconds for health check database probe (default: 2000)
+    #[serde(default = "default_health_check_db_timeout_ms")]
+    pub health_check_db_timeout_ms: u64,
+    /// Timeout in milliseconds for health check worker probe (default: 2000)
+    #[serde(default = "default_health_check_worker_timeout_ms")]
+    pub health_check_worker_timeout_ms: u64,
+    /// Timeout in milliseconds for health check models probe (default: 2000)
+    #[serde(default = "default_health_check_models_timeout_ms")]
+    pub health_check_models_timeout_ms: u64,
+}
+
+fn default_health_check_db_timeout_ms() -> u64 {
+    2000
+}
+
+fn default_health_check_worker_timeout_ms() -> u64 {
+    2000
+}
+
+fn default_health_check_models_timeout_ms() -> u64 {
+    2000
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -482,7 +511,7 @@ pub struct DatasetProgressEvent {
 ///
 /// [source: crates/adapteros-server-api/src/state.rs L76-115]
 /// [source: crates/adapteros-server-api/src/main.rs L45-67]
-/// [source: docs/ARCHITECTURE_INDEX.md#api-server-architecture]
+/// [source: docs/ARCHITECTURE.md#architecture-components]
 #[derive(Clone)]
 pub struct AppState {
     pub db: Db,
@@ -509,6 +538,10 @@ pub struct AppState {
     pub ed25519_public_keys: Vec<(String, String)>,
     pub hmac_keys: Vec<(String, Vec<u8>)>,
     pub jwt_primary_kid: String,
+    // Worker authentication (Ed25519 keypair for CP->Worker tokens)
+    pub worker_signing_keypair: Option<Arc<ed25519_dalek::SigningKey>>,
+    pub worker_signing_public: Option<Arc<ed25519_dalek::VerifyingKey>>,
+    pub worker_key_kid: Option<String>,
     // Telemetry and metrics fields
     pub metrics_collector: Arc<MetricsCollector>,
     pub metrics_registry: Arc<MetricsRegistry>,
@@ -533,6 +566,8 @@ pub struct AppState {
     pub boot_state: Option<BootStateManager>,
     // Runtime mode (dev/staging/prod)
     pub runtime_mode: Option<RuntimeMode>,
+    // Strict mode (fail-closed on errors)
+    pub strict_mode: bool,
     // In-flight request counter for graceful shutdown
     pub in_flight_requests: Arc<AtomicUsize>,
     // Plugin event bus for dispatching events to plugins
@@ -591,7 +626,11 @@ impl AppState {
         // JWT algorithm selection: respect jwt_mode config, with build-type defaults
         // Must compute before struct init since config is moved
         let use_ed25519 = {
-            let cfg = config.read().unwrap();
+            // STABILITY: Use poison-safe lock access to avoid panics
+            let cfg = config.read().unwrap_or_else(|e| {
+                tracing::warn!("Config lock was poisoned during state init, recovering");
+                e.into_inner()
+            });
             let preferred_mode = if cfg!(debug_assertions) {
                 cfg.auth.dev_algo.clone()
             } else {
@@ -675,6 +714,10 @@ impl AppState {
             ed25519_public_keys,
             hmac_keys,
             jwt_primary_kid: primary_ed_kid,
+            // Worker auth initialized to None - set via set_worker_signing_keypair()
+            worker_signing_keypair: None,
+            worker_signing_public: None,
+            worker_key_kid: None,
             metrics_collector,
             metrics_registry,
             telemetry_buffer: Arc::new(TelemetryBuffer::default()),
@@ -692,9 +735,11 @@ impl AppState {
             )),
             // Default to 1000 max concurrent upload sessions
             upload_session_manager: Arc::new(UploadSessionManager::new(1000)),
-            // Boot state and runtime mode are set later via with_boot_state/with_runtime_mode
+            // Boot state, runtime mode, and strict mode are set later via builder methods
             boot_state: None,
             runtime_mode: None,
+            // Strict mode defaults to false, set via with_strict_mode
+            strict_mode: false,
             // Initialize in-flight request counter
             in_flight_requests: Arc::new(AtomicUsize::new(0)),
             // Event bus is set later via with_event_bus
@@ -728,9 +773,28 @@ impl AppState {
         self
     }
 
+    /// Set worker signing keypair for internal authentication (CP -> Worker).
+    ///
+    /// This enables Ed25519-signed JWTs for worker requests.
+    /// The keypair should be loaded from `var/keys/worker_signing.key`.
+    pub fn with_worker_signing_keypair(mut self, signing_key: ed25519_dalek::SigningKey) -> Self {
+        let verifying_key = signing_key.verifying_key();
+        let kid = adapteros_boot::derive_kid_from_verifying_key(&verifying_key);
+        self.worker_signing_keypair = Some(Arc::new(signing_key));
+        self.worker_signing_public = Some(Arc::new(verifying_key));
+        self.worker_key_kid = Some(kid);
+        self
+    }
+
     /// Set runtime mode for policy enforcement
     pub fn with_runtime_mode(mut self, runtime_mode: RuntimeMode) -> Self {
         self.runtime_mode = Some(runtime_mode);
+        self
+    }
+
+    /// Set strict mode (fail-closed on errors)
+    pub fn with_strict_mode(mut self, strict: bool) -> Self {
+        self.strict_mode = strict;
         self
     }
 

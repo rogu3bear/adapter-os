@@ -5,6 +5,7 @@
 //! Tests the complete workflow: train -> package .aos -> deploy -> infer
 
 use std::process::Command;
+use std::path::PathBuf;
 use tokio::time::{sleep, Duration};
 use anyhow::Result;
 use tempfile::TempDir;
@@ -12,7 +13,9 @@ use adapteros_config::{DEFAULT_BASE_MODEL_ID, DEFAULT_MODEL_CACHE_ROOT};
 
 #[tokio::test]
 async fn test_aos_complete_workflow() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let root = PathBuf::from("var").join("tmp");
+    std::fs::create_dir_all(&root)?;
+    let temp_dir = TempDir::new_in(&root)?;
     let manifest_path = "training/datasets/base/code/adapteros/manifest.json";
     let tokenizer_path = std::env::var("AOS_TOKENIZER_PATH")
         .unwrap_or_else(|_| {

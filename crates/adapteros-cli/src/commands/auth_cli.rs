@@ -124,6 +124,7 @@ mod tests {
     };
     use crate::output::{OutputMode, OutputWriter};
     use adapteros_api_types::auth::LoginResponse;
+    use adapteros_platform::common::PlatformUtils;
     use axum::{routing::post, serve, Json, Router};
     use serial_test::serial;
     use std::env;
@@ -132,6 +133,12 @@ mod tests {
     use tempfile::TempDir;
     use tokio::net::TcpListener;
     use tokio::task::JoinHandle;
+
+    fn new_test_tempdir() -> TempDir {
+        let root = PlatformUtils::temp_dir();
+        std::fs::create_dir_all(&root).expect("create var/tmp");
+        TempDir::new_in(&root).expect("tmpdir")
+    }
 
     async fn start_mock_auth_server(body: LoginResponse) -> (String, JoinHandle<()>) {
         let app = {
@@ -161,7 +168,7 @@ mod tests {
     #[tokio::test]
     #[serial]
     async fn login_stores_and_preloads_env_without_leaking_token() {
-        let temp = TempDir::new().expect("tmpdir");
+        let temp = new_test_tempdir();
         let auth_path = temp.path().join("auth.json");
         env::set_var("AOSCTL_AUTH_PATH", &auth_path);
         env::remove_var("AOS_TOKEN");
@@ -223,7 +230,7 @@ mod tests {
     #[tokio::test]
     #[serial]
     async fn warns_on_tenant_mismatch() {
-        let temp = TempDir::new().expect("tmpdir");
+        let temp = new_test_tempdir();
         let auth_path = temp.path().join("auth.json");
         env::set_var("AOSCTL_AUTH_PATH", &auth_path);
 

@@ -1,0 +1,18 @@
+{
+  "$schema": "https://raw.githubusercontent.com/OpenAPITools/openapi-generator/master/modules/openapi-generator-cli/src/config-schema.json",
+  "generatorName": "python",
+  "outputDir": "../sdk/python",
+  "inputSpec": "../docs/api/openapi.json",
+  "additionalProperties": {
+    "packageName": "adapteros_client",
+    "packageVersion": "0.1.0",
+    "projectName": "adapteros-client",
+    "pythonAttrNoneIfUnset": true,
+    "generateSourceCodeOnly": false
+  },
+  "globalProperty": {
+    "models": "",
+    "apis": "",
+    "supportingFiles": ""
+  }
+}

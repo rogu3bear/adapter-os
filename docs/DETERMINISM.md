@@ -201,6 +201,165 @@ let router_seed = derive_seed(&manifest_hash, "router");
 
 This ensures symmetric quantization around zero and matches fixed-point arithmetic conventions. Violating this breaks determinism across quantization boundaries.
 
+### Why Q15 Eliminates Float Drift
+
+```mermaid
+flowchart LR
+    subgraph "The Problem"
+        P1["Machine A: 0.84729385"]
+        P2["Machine B: 0.84729381"]
+        P3["Hardware differences cause<br/>tiny float variations"]
+    end
+    
+    subgraph "The Q15 Solution"
+        Q1["Multiply by 32,767"]
+        Q2["Round to integer"]
+        Q3["Both get: 27,751"]
+        Q4["Identical routing decision"]
+    end
+    
+    P1 --> P3
+    P2 --> P3
+    P3 --> Q1 --> Q2 --> Q3 --> Q4
+```
+
+---
+
+## Hardware Determinism on Apple Silicon
+
+AdapterOS achieves determinism through a combination of hardware advantages and software controls.
+
+### Unified Memory Architecture (UMA)
+
+```mermaid
+flowchart TD
+    subgraph "Apple Silicon Advantage"
+        subgraph "Unified Memory Pool"
+            UMA["Single memory space<br/>shared by all processors"]
+        end
+        
+        subgraph "Processors"
+            CPU["CPU Cores"]
+            GPU["GPU Cores"]
+            ANE["Neural Engine"]
+        end
+        
+        subgraph "Benefits"
+            B1["No CPU↔GPU copying"]
+            B2["No transfer timing variance"]
+            B3["Consistent memory view"]
+            B4["Predictable access patterns"]
+        end
+    end
+    
+    CPU --> UMA
+    GPU --> UMA
+    ANE --> UMA
+    UMA --> B1 --> B2 --> B3 --> B4
+```
+
+### The Determinism Stack
+
+| Layer | Mechanism | Purpose |
+|-------|-----------|---------|
+| **Hardware** | UMA shared memory | No copy timing variance |
+| **Hardware** | ANE fixed datapath | Consistent tensor operations |
+| **Kernels** | Precompiled .metallib | No runtime compilation drift |
+| **Verification** | BLAKE3 hash check | Detect kernel tampering |
+| **Seeds** | HKDF from manifest | Controlled randomness |
+| **Quantization** | Q15 fixed-point | Eliminate float drift |
+| **Reduction** | Kahan summation | Consistent rounding |
+| **Tie-breaking** | Index ascending | No comparison ambiguity |
+| **Compiler** | No -ffast-math | IEEE 754 compliance |
+
+### Critical Compiler Constraints
+
+**No Fast-Math:** The `-ffast-math` flag is prohibited because it allows:
+- Operation reordering (breaks associativity)
+- Fused multiply-add substitution
+- Relaxed IEEE 754 compliance
+
+```toml
+# Cargo.toml - No fast-math flags allowed
+[profile.release]
+# Determinism requires strict IEEE floating-point
+```
+
+---
+
+## Conversation Trace: Determinism in Action
+
+This trace shows how a single message becomes deterministically reproducible:
+
+```mermaid
+flowchart TD
+    subgraph "Step 1: System State Fingerprint"
+        S1["Model weights + Adapters + Config"]
+        S2["BLAKE3 hash → manifest_hash"]
+        S3["This identifies exact system state"]
+    end
+    
+    subgraph "Step 2: Request Processing"
+        R1["User: 'What is machine learning?'"]
+        R2["Tokenized: [1724, 374, 5765, 6975, 30]"]
+        R3["context_digest = BLAKE3(tenant + stack + tokens)"]
+    end
+    
+    subgraph "Step 3: Deterministic Routing"
+        A1["Adapter scores computed"]
+        A2["Quantized to Q15: ML[27751], Code[10223]"]
+        A3["Sorted: score DESC, index ASC"]
+        A4["Top-K selected: [ML-Expert, Code-Expert]"]
+    end
+    
+    subgraph "Step 4: Token Generation"
+        T1["Each token: route → compute → sample"]
+        T2["Seed controls 'random' sampling"]
+        T3["Same seed = same token choice"]
+        T4["Decision hash computed per token"]
+    end
+    
+    subgraph "Step 5: Receipt Creation"
+        RC1["context_digest + decision_chain + output_digest"]
+        RC2["+ token_accounting + stop_reason"]
+        RC3["BLAKE3 → receipt_digest"]
+        RC4["Ed25519 signature"]
+    end
+    
+    S1 --> S2 --> S3 --> R1
+    R1 --> R2 --> R3 --> A1
+    A1 --> A2 --> A3 --> A4 --> T1
+    T1 --> T2 --> T3 --> T4 --> RC1
+    RC1 --> RC2 --> RC3 --> RC4
+```
+
+### Per-Token Decision Chain
+
+Every generated token creates a hash linking to the previous:
+
+```mermaid
+flowchart LR
+    subgraph "Hash Chain"
+        H0["context_digest"]
+        D1["Token 0<br/>decision_hash"]
+        D2["Token 1<br/>decision_hash"]
+        D3["Token 2<br/>decision_hash"]
+        DN["Token N<br/>decision_hash"]
+        RH["run_head_hash"]
+    end
+    
+    H0 --> D1 --> D2 --> D3 --> DN --> RH
+```
+
+Each `decision_hash` includes:
+- Token index
+- Selected adapter IDs
+- Gate values (Q15)
+- Policy mask digest
+- Backend ID
+
+**Tampering any token breaks the chain** → receipt verification fails.
+
 ---
 
 ## RAG Determinism
@@ -652,12 +811,14 @@ clear_seed_registry();
 ## Related Documentation
 
 - **[CLAUDE.md](../CLAUDE.md)** - Developer quick reference, determinism invariants
+- **[VISUAL_GUIDES.md](VISUAL_GUIDES.md)** - Visual guides: comparisons, token flows, KV cache diagrams
+- **[replay_spec.md](replay_spec.md)** - Replay harness and verification
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** - System architecture and token accounting
 - **[POLICIES.md](POLICIES.md)** - Policy system architecture
 - **[POLICY_ENFORCEMENT.md](POLICY_ENFORCEMENT.md)** - Policy enforcement middleware
 - **[TELEMETRY_EVENTS.md](TELEMETRY_EVENTS.md)** - Audit event logging
 - **[DATABASE.md](DATABASE.md)** - Database schema (inference_evidence, replay_metadata)
-- **[ARCHITECTURE_PATTERNS.md](ARCHITECTURE_PATTERNS.md)** - System patterns and diagrams (if exists)
 
 ---
 
-**MLNavigator Inc 2025-12-11**
+**MLNavigator Inc 2025-12-18**

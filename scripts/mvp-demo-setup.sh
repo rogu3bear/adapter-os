@@ -193,8 +193,14 @@ build_project() {
 
     # Build main workspace
     log_step "Building Rust workspace (this may take a few minutes)..."
-    # Build with multi-backend to support the default MLX model
-    cargo build --release --workspace --features multi-backend 2>&1 | tail -5
+    # Build with default features (deterministic-only + coreml-backend)
+    # Use mlx-backend feature only if MLX python package is available
+    # Exclude fuzz crate (requires special cargo-fuzz setup)
+    local build_features=""
+    if python3 -c "import mlx.core" &>/dev/null; then
+        build_features="--features mlx-backend"
+    fi
+    cargo build --release --workspace --exclude adapteros-fuzz $build_features 2>&1 | tail -5
 
     # Build CLI with TUI
     if [ -f "${REPO_ROOT}/Makefile" ]; then

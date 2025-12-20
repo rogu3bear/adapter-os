@@ -29,6 +29,12 @@ use adapteros_single_file_adapter::{
 use std::collections::HashMap;
 use tempfile::TempDir;
 
+fn new_test_tempdir() -> TempDir {
+    let root = std::path::PathBuf::from("var").join("tmp");
+    std::fs::create_dir_all(&root).expect("create var/tmp");
+    TempDir::new_in(&root).unwrap()
+}
+
 fn create_test_adapter() -> SingleFileAdapter {
     let weights = vec![1, 2, 3, 4, 5]; // Dummy weights
     let training_data = vec![
@@ -76,7 +82,7 @@ fn create_test_adapter() -> SingleFileAdapter {
 
 #[tokio::test]
 async fn test_aos_full_lifecycle() {
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = new_test_tempdir();
     let aos_path = temp_dir.path().join("test_adapter.aos");
 
     // Create adapter
@@ -109,7 +115,7 @@ async fn test_aos_full_lifecycle() {
 
 #[tokio::test]
 async fn test_aos_validation() {
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = new_test_tempdir();
     let aos_path = temp_dir.path().join("test_adapter.aos");
 
     // Create and save adapter
@@ -129,7 +135,7 @@ async fn test_aos_validation() {
 
 #[tokio::test]
 async fn test_aos_missing_file_validation() {
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = new_test_tempdir();
     let aos_path = temp_dir.path().join("nonexistent.aos");
 
     let result = SingleFileAdapterValidator::validate(&aos_path)

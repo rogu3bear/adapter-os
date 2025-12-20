@@ -20,6 +20,7 @@ use axum::{
     Router,
 };
 use std::sync::Arc;
+use tempfile::TempDir;
 use tokio::sync::broadcast;
 use tower::Service;
 
@@ -43,7 +44,9 @@ async fn test_alert_creation_broadcasts_to_sse() {
     let (alert_tx, mut alert_rx) = broadcast::channel::<adapteros_server_api::types::ProcessAlertResponse>(10);
 
     // Create alert evaluator with broadcast channel
-    let telemetry_writer = TelemetryWriter::new(std::path::Path::new("/tmp"), 1000, 1024 * 1024).unwrap_or_default();
+    let temp_dir = TempDir::new_in(".").unwrap();
+    let telemetry_writer =
+        TelemetryWriter::new(temp_dir.path(), 1000, 1024 * 1024).unwrap_or_default();
     let alerting_config = AlertingConfig::default();
     let notification_sender = Arc::new(MockNotificationSender);
 

@@ -22,7 +22,7 @@ const mockGetSessionTags = vi.fn();
 const mockAssignTagsToSession = vi.fn();
 const mockRemoveTagFromSession = vi.fn();
 
-vi.mock('@/api/client', () => ({
+vi.mock('@/api/services', () => ({
   default: {
     listChatTags: (...args: unknown[]) => mockListChatTags(...args),
     createChatTag: (...args: unknown[]) => mockCreateChatTag(...args),

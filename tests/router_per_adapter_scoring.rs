@@ -3,7 +3,7 @@
 //! This test file verifies the router refactoring that fixes:
 //! 1. Per-adapter feature scores (different for each adapter)
 //! 2. Orthogonality penalties applied during scoring
-//! 3. MPLoRA diversity controls actually working
+//! 3. DIR diversity controls actually working
 
 use adapteros_lora_router::{
     policy_mask::PolicyMask, AdapterInfo, CodeFeatures, Router, RouterWeights,

@@ -32,6 +32,7 @@ impl Default for SymlinkProtection {
                 PathBuf::from("/sbin"),
                 PathBuf::from("/var"),
                 PathBuf::from("/tmp"),
+                PathBuf::from("/private/tmp"),
                 PathBuf::from("/root"),
                 PathBuf::from("/home"),
             ],
@@ -189,9 +190,15 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
+    fn new_test_tempdir() -> Result<TempDir> {
+        let root = std::path::PathBuf::from("var").join("tmp");
+        std::fs::create_dir_all(&root)?;
+        Ok(TempDir::new_in(&root)?)
+    }
+
     #[test]
     fn test_symlink_safety() -> Result<()> {
-        let temp_dir = TempDir::new()?;
+        let temp_dir = new_test_tempdir()?;
         let test_file = temp_dir.path().join("test.txt");
         std::fs::write(&test_file, "hello")?;
 
@@ -208,7 +215,7 @@ mod tests {
 
     #[test]
     fn test_blocked_symlink() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir().unwrap();
         let blocked_target = PathBuf::from("/etc/passwd");
         let symlink_path = temp_dir.path().join("blocked_link");
 

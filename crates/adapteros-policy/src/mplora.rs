@@ -1,13 +1,13 @@
-//! MPLoRA Policy Pack
+//! DIR (Deterministic Inference Runtime) Policy Pack
 //!
-//! Enforces orthogonal multi-path LoRA constraints
+//! Enforces orthogonal multi-path LoRA constraints for DIR
 //! Reference: <https://openreview.net/pdf?id=jqz6Msm3AF>
 
 use adapteros_core::{AosError, Result};
 use adapteros_manifest::RouterCfg;
 use serde::{Deserialize, Serialize};
 
-/// MPLoRA policy enforcement
+/// DIR (Deterministic Inference Runtime) policy enforcement
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MploraPolicy {
     pub orthogonal_constraints_required: bool,
@@ -40,7 +40,7 @@ impl Default for MploraPolicy {
 }
 
 impl MploraPolicy {
-    /// Validate router configuration against MPLoRA policy
+    /// Validate router configuration against DIR policy
     pub fn validate_router_config(&self, config: &RouterCfg) -> Result<()> {
         // Validate compression ratio
         if config.compression_ratio < self.compression_ratio_min
@@ -149,14 +149,14 @@ impl MploraPolicy {
         }
     }
 
-    /// Validate MPLoRA configuration parameters
+    /// Validate DIR configuration parameters
     pub fn validate_mplora_config(&self, config: &MploraConfig) -> Result<()> {
         // Validate compression ratio
         if config.compression_ratio < self.compression_ratio_min
             || config.compression_ratio > self.compression_ratio_max
         {
             return Err(AosError::Policy(format!(
-                "MPLoRA compression ratio {} must be between {} and {}",
+                "DIR compression ratio {} must be between {} and {}",
                 config.compression_ratio, self.compression_ratio_min, self.compression_ratio_max
             )));
         }
@@ -192,7 +192,7 @@ impl MploraPolicy {
         Ok(())
     }
 
-    /// Check if MPLoRA features are properly configured
+    /// Check if DIR features are properly configured
     pub fn check_mplora_configuration(&self, config: &MploraConfig) -> Result<()> {
         // Check if orthogonal constraints are properly configured
         if config.orthogonal_constraints {
@@ -223,7 +223,7 @@ impl MploraPolicy {
     }
 }
 
-/// MPLoRA configuration for policy validation
+/// DIR configuration for policy validation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MploraConfig {
     pub shared_downsample: bool,
@@ -341,7 +341,7 @@ mod tests {
     fn test_mplora_config_validation() {
         let policy = MploraPolicy::default();
 
-        // Valid MPLoRA configuration
+        // Valid DIR configuration
         let valid_config = MploraConfig {
             shared_downsample: true,
             compression_ratio: 0.8,

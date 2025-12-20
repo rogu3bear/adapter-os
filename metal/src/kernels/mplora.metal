@@ -1,4 +1,4 @@
-// MPLoRA: Orthogonal Multi-Path Low-Rank Adaptation
+// DIR (Deterministic Inference Runtime): Orthogonal Multi-Path Low-Rank Adaptation
 // Implements shared downsample matrix and compression
 // Reference: https://openreview.net/pdf?id=jqz6Msm3AF
 
@@ -21,7 +21,7 @@ struct OrthogonalConfig {
     uint32_t history_window;
 };
 
-// MPLoRA kernel with shared downsample
+// DIR (Deterministic Inference Runtime) kernel with shared downsample
 kernel void mplora_shared_downsample(
     device const float* input,                    // [batch_size, hidden_size]
     device const float* shared_A,                 // [shared_rank, hidden_size] - shared downsample
@@ -56,7 +56,7 @@ kernel void mplora_shared_downsample(
     );
 }
 
-// Compression kernel for MPLoRA
+// Compression kernel for DIR (Deterministic Inference Runtime)
 kernel void mplora_compress(
     device const float* input,                    // [batch_size, hidden_size]
     device float* compressed,                     // [batch_size, compressed_size]
@@ -80,7 +80,7 @@ kernel void mplora_compress(
     compressed[gid.x] = sum / step;
 }
 
-// Decompression kernel for MPLoRA
+// Decompression kernel for DIR (Deterministic Inference Runtime)
 kernel void mplora_decompress(
     device const float* compressed,              // [batch_size, compressed_size]
     device float* output,                         // [batch_size, hidden_size]

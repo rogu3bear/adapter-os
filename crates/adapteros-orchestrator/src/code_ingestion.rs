@@ -10,6 +10,7 @@ use adapteros_core::{AosError, Result};
 use adapteros_db::{AdapterRegistrationBuilder, Db};
 use adapteros_lora_worker::tokenizer::QwenTokenizer;
 use adapteros_lora_worker::training::{MicroLoRATrainer, TrainingConfig, TrainingExample};
+use adapteros_platform::common::PlatformUtils;
 use blake3::Hasher;
 use git2::Repository;
 use std::collections::{BTreeMap, HashMap};
@@ -732,7 +733,16 @@ fn load_local_repo(
 }
 
 fn clone_remote_repo(url: &str) -> Result<PreparedRepo> {
-    let temp_dir = TempDir::new().map_err(|e| AosError::Io(format!("Temp dir error: {}", e)))?;
+    let tmp_root = PlatformUtils::temp_dir();
+    std::fs::create_dir_all(&tmp_root).map_err(|e| {
+        AosError::Io(format!(
+            "Failed to create temp root {}: {}",
+            tmp_root.display(),
+            e
+        ))
+    })?;
+    let temp_dir =
+        TempDir::new_in(&tmp_root).map_err(|e| AosError::Io(format!("Temp dir error: {}", e)))?;
     let clone_path = temp_dir.path().join("repo");
     Repository::clone(url, &clone_path)
         .map_err(|e| AosError::Git(format!("Clone failed: {}", e)))?;

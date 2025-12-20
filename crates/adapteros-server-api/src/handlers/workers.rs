@@ -6,7 +6,7 @@ use crate::types::*;
 use adapteros_api_types::workers::{
     WorkerRegistrationRequest, WorkerRegistrationResponse, WorkerStatusNotification,
 };
-use adapteros_core::{identity::IdentityEnvelope, version::API_SCHEMA_VERSION, WorkerStatus};
+use adapteros_core::{identity::IdentityEnvelope, reject_forbidden_tmp_path, version::API_SCHEMA_VERSION, WorkerStatus};
 use adapteros_db::users::Role;
 use adapteros_db::workers::{is_schema_compatible, WorkerRegistrationParams};
 use adapteros_telemetry::{build_health_event, make_health_payload, HealthEventKind};
@@ -74,11 +74,23 @@ pub async fn worker_spawn(
             not_found_with_details("node not found", format!("Node ID: {}", req.node_id))
         })?;
 
-    // Prepare spawn request for node agent
-    let spawn_req = serde_json::json!({
+    // Prepare spawn request for node agent with config propagation
+    let mut spawn_req = serde_json::json!({
         "tenant_id": req.tenant_id,
         "plan_id": req.plan_id,
+        "uid": req.uid,
+        "gid": req.gid,
     });
+
+    // Include model cache budget if provided (critical for worker startup)
+    if let Some(cache_mb) = req.model_cache_max_mb {
+        spawn_req["model_cache_max_mb"] = serde_json::json!(cache_mb);
+    }
+
+    // Include config TOML path if provided
+    if let Some(config_path) = &req.config_toml_path {
+        spawn_req["config_toml_path"] = serde_json::json!(config_path);
+    }
 
     // Send HTTP POST to node agent
     let client = reqwest::Client::builder()
@@ -133,7 +145,24 @@ pub async fn worker_spawn(
     })? as i32;
 
     // Create UDS path for worker
+    // SECURITY: Validate tenant_id doesn't contain path traversal sequences
+    if req.tenant_id.contains("..") || req.tenant_id.contains('/') || req.tenant_id.contains('\\') {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new("invalid tenant_id")
+                    .with_code("VALIDATION_ERROR")
+                    .with_string_details("tenant_id contains invalid characters"),
+            ),
+        ));
+    }
+
     let uds_path = format!("/var/run/aos/{}/worker.sock", req.tenant_id);
+
+    // SECURITY: Validate constructed path is safe
+    let uds_path_buf = std::path::PathBuf::from(&uds_path);
+    reject_forbidden_tmp_path(&uds_path_buf, "worker-socket")
+        .map_err(|e| internal_error_msg("worker socket path validation failed", e))?;
 
     // Register worker using Db trait method
     use adapteros_db::workers::WorkerInsertBuilder;
@@ -172,10 +201,17 @@ pub async fn worker_spawn(
         model_id: None,
         model_hash: None,
         model_loaded: false,
+        cache_used_mb: None,
+        cache_max_mb: None,
+        cache_pinned_entries: None,
+        cache_active_entries: None,
     }))
 }
 
 /// List workers with optional tenant filter
+///
+/// PRD-RECT-002: Non-admin users can only list workers from their own tenant.
+/// Admins can list workers from any tenant or list all workers.
 pub async fn list_workers(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -183,7 +219,18 @@ pub async fn list_workers(
 ) -> Result<Json<Vec<WorkerResponse>>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
 
-    let workers = if let Some(tenant_id) = query.tenant_id {
+    let is_admin = claims.roles.iter().any(|r| r.to_lowercase() == "admin");
+
+    // PRD-RECT-002: Determine effective tenant filter based on role
+    let effective_tenant_id = if is_admin {
+        // Admin: can query any tenant or all workers (use provided query.tenant_id or None)
+        query.tenant_id.clone()
+    } else {
+        // Non-admin: forced to their own tenant (ignore query.tenant_id)
+        Some(claims.tenant_id.clone())
+    };
+
+    let workers = if let Some(tenant_id) = effective_tenant_id {
         state
             .db
             .list_workers_by_tenant(&tenant_id)
@@ -199,6 +246,7 @@ pub async fn list_workers(
                 )
             })?
     } else {
+        // Only admin reaches here (listing all workers)
         state.db.list_all_workers().await.map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -229,6 +277,11 @@ pub async fn list_workers(
             model_id: None,
             model_hash: None,
             model_loaded: false,
+            // Cache metrics populated from worker heartbeats (not persisted in DB)
+            cache_used_mb: None,
+            cache_max_mb: None,
+            cache_pinned_entries: None,
+            cache_active_entries: None,
         })
         .collect();
 
@@ -269,10 +322,11 @@ pub async fn stop_worker(
     // Require worker manage permission
     crate::permissions::require_permission(&claims, crate::permissions::Permission::WorkerManage)?;
 
-    // Get worker from database
+    // PRD-RECT-002: Use tenant-scoped query to prevent cross-tenant worker access.
+    // Returns 404 for both missing and cross-tenant workers.
     let worker = state
         .db
-        .get_worker(&worker_id)
+        .get_worker_for_tenant(&claims.tenant_id, &worker_id)
         .await
         .map_err(|e| {
             (
@@ -285,6 +339,7 @@ pub async fn stop_worker(
             )
         })?
         .ok_or_else(|| {
+            // Returns same error for both "not found" and "cross-tenant" cases
             (
                 StatusCode::NOT_FOUND,
                 Json(
@@ -391,14 +446,17 @@ pub async fn stop_worker(
     );
 
     // Audit log
-    let _ = crate::audit_helper::log_success(
+    if let Err(e) = crate::audit_helper::log_success(
         &state.db,
         &claims,
         "worker.stop",
         crate::audit_helper::resources::WORKER,
         Some(&worker_id),
     )
-    .await;
+    .await
+    {
+        tracing::warn!(error = %e, "Audit log failed");
+    }
 
     Ok(Json(crate::types::WorkerStopResponse {
         worker_id,
@@ -465,6 +523,17 @@ pub async fn register_worker(
         "Worker registration request received"
     );
 
+    // 0. Check strict mode mismatch and warn if different
+    if req.strict_mode != state.strict_mode {
+        warn!(
+            worker_id = %req.worker_id,
+            worker_strict = req.strict_mode,
+            cp_strict = state.strict_mode,
+            "Strict mode mismatch between worker and control plane. \
+             This may cause inconsistent error handling behavior."
+        );
+    }
+
     // 1. Check if worker already exists
     let exists = state
         .db
@@ -501,6 +570,7 @@ pub async fn register_worker(
                 heartbeat_interval_secs: 30,
                 kv_quota_bytes: None,
                 kv_residency_policy_id: None,
+                cp_strict_mode: state.strict_mode,
             }));
         }
     };
@@ -534,6 +604,7 @@ pub async fn register_worker(
             heartbeat_interval_secs: 30,
             kv_quota_bytes: None,
             kv_residency_policy_id: None,
+            cp_strict_mode: state.strict_mode,
         }));
     }
 
@@ -555,6 +626,7 @@ pub async fn register_worker(
             heartbeat_interval_secs: 30,
             kv_quota_bytes: None,
             kv_residency_policy_id: None,
+            cp_strict_mode: state.strict_mode,
         }));
     }
 
@@ -592,6 +664,13 @@ pub async fn register_worker(
         uds_path: req.uds_path.clone(),
         pid: req.pid,
         manifest_hash: req.manifest_hash.clone(),
+        backend: req.backend.clone(),
+        model_hash_b3: req.model_hash.clone(),
+        capabilities_json: if req.capabilities.is_empty() {
+            None
+        } else {
+            serde_json::to_string(&req.capabilities).ok()
+        },
         schema_version: req.schema_version.clone(),
         api_version: req.api_version.clone(),
     };
@@ -608,6 +687,10 @@ pub async fn register_worker(
             backend: req.backend.clone(),
             model_hash: req.model_hash.clone(),
             capabilities: req.capabilities.clone(),
+            cache_used_mb: None,
+            cache_max_mb: None,
+            cache_pinned_entries: None,
+            cache_active_entries: None,
         },
     );
 
@@ -651,6 +734,7 @@ pub async fn register_worker(
         heartbeat_interval_secs: 30,
         kv_quota_bytes,
         kv_residency_policy_id,
+        cp_strict_mode: state.strict_mode,
     }))
 }
 
@@ -778,6 +862,28 @@ pub async fn notify_worker_status(
     )
     .await;
 
+    // Update cache metrics in worker runtime if provided
+    if req.cache_used_mb.is_some()
+        || req.cache_max_mb.is_some()
+        || req.cache_pinned_entries.is_some()
+        || req.cache_active_entries.is_some()
+    {
+        if let Some(mut entry) = state.worker_runtime.get_mut(&req.worker_id) {
+            if let Some(v) = req.cache_used_mb {
+                entry.cache_used_mb = Some(v);
+            }
+            if let Some(v) = req.cache_max_mb {
+                entry.cache_max_mb = Some(v);
+            }
+            if let Some(v) = req.cache_pinned_entries {
+                entry.cache_pinned_entries = Some(v);
+            }
+            if let Some(v) = req.cache_active_entries {
+                entry.cache_active_entries = Some(v);
+            }
+        }
+    }
+
     Ok(Json(serde_json::json!({
         "success": true,
         "worker_id": req.worker_id,
@@ -815,28 +921,31 @@ pub async fn get_worker_history(
 > {
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
 
-    // Check worker exists
-    let worker = state
-        .db
-        .get_worker(&worker_id)
-        .await
-        .map_err(|e| db_error_msg("database error", e))?
-        .ok_or_else(|| {
-            not_found_with_details("worker not found", format!("Worker ID: {}", worker_id))
-        })?;
-
-    // Verify tenant access (for multi-tenant scenarios)
+    // PRD-RECT-002: Use tenant-scoped query for non-admins to prevent enumeration.
+    // Admins can access workers across tenants (intentional for admin operations).
     let is_admin = claims.roles.iter().any(|r| r.to_lowercase() == "admin");
-    if claims.tenant_id != worker.tenant_id && !is_admin {
-        return Err((
-            StatusCode::FORBIDDEN,
-            Json(
-                ErrorResponse::new("Access denied")
-                    .with_code("FORBIDDEN")
-                    .with_string_details("Worker belongs to different tenant"),
-            ),
-        ));
-    }
+    let _worker = if is_admin {
+        // Admin: can access any worker
+        state
+            .db
+            .get_worker(&worker_id)
+            .await
+            .map_err(|e| db_error_msg("database error", e))?
+            .ok_or_else(|| {
+                not_found_with_details("worker not found", format!("Worker ID: {}", worker_id))
+            })?
+    } else {
+        // Non-admin: tenant-scoped query, returns 404 for cross-tenant (not 403)
+        state
+            .db
+            .get_worker_for_tenant(&claims.tenant_id, &worker_id)
+            .await
+            .map_err(|e| db_error_msg("database error", e))?
+            .ok_or_else(|| {
+                // Same error for both "not found" and "cross-tenant" cases
+                not_found_with_details("worker not found", format!("Worker ID: {}", worker_id))
+            })?
+    };
 
     let history = state
         .db

@@ -323,7 +323,7 @@ function AdapterLoader() {
 
 - [CLAUDE.md](../CLAUDE.md) - Policy Packs section
 - [docs/RBAC.md](../docs/RBAC.md) - Admin permissions and roles
-- [docs/ARCHITECTURE_PATTERNS.md](../docs/ARCHITECTURE_PATTERNS.md) - Policy enforcement patterns
+- [docs/ARCHITECTURE.md#architecture-components](../docs/ARCHITECTURE.md#architecture-components) - Policy enforcement patterns
 - `ui/src/components/golden/PolicyCheckDisplay.tsx` - Related component for promotion workflows
 - `crates/adapteros-policy/` - Backend policy implementations
 

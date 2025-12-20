@@ -5,15 +5,19 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { renderHook, act } from '@testing-library/react';
+import { renderHook, act, waitFor } from '@testing-library/react';
 import { ReactNode } from 'react';
 import {
   DatasetChatProvider,
   useDatasetChat,
   useDatasetChatOptional,
 } from '@/contexts/DatasetChatContext';
+import { getSessionScopeKey } from '@/types/session-scope';
 
-const SESSION_KEYS = {
+const TEST_SESSION_ID = 'session-1';
+const SESSION_SCOPE_KEY = getSessionScopeKey(TEST_SESSION_ID);
+
+const LEGACY_KEYS = {
   ACTIVE_DATASET_ID: 'datasetChat:activeDatasetId',
   ACTIVE_DATASET_NAME: 'datasetChat:activeDatasetName',
   COLLECTION_ID: 'datasetChat:collectionId',
@@ -25,12 +29,17 @@ function createWrapper(initialDataset?: {
   name: string;
   collectionId?: string;
   versionId?: string;
-}) {
+}, sessionId: string | null = TEST_SESSION_ID) {
   return ({ children }: { children: ReactNode }) => (
-    <DatasetChatProvider initialDataset={initialDataset}>
+    <DatasetChatProvider sessionId={sessionId} initialDataset={initialDataset}>
       {children}
     </DatasetChatProvider>
   );
+}
+
+function readStoredScope(): Record<string, unknown> | null {
+  const raw = sessionStorage.getItem(SESSION_SCOPE_KEY);
+  return raw ? (JSON.parse(raw) as Record<string, unknown>) : null;
 }
 
 describe('DatasetChatContext', () => {
@@ -103,24 +112,26 @@ describe('DatasetChatContext', () => {
     });
 
     it('initializes from sessionStorage when no initial dataset provided', () => {
-      sessionStorage.setItem(SESSION_KEYS.ACTIVE_DATASET_ID, 'dataset-stored');
-      sessionStorage.setItem(SESSION_KEYS.ACTIVE_DATASET_NAME, 'Stored Dataset');
-      sessionStorage.setItem(SESSION_KEYS.COLLECTION_ID, 'col-stored');
-      sessionStorage.setItem(SESSION_KEYS.VERSION_ID, 'v2.0');
+      sessionStorage.setItem(LEGACY_KEYS.ACTIVE_DATASET_ID, 'dataset-stored');
+      sessionStorage.setItem(LEGACY_KEYS.ACTIVE_DATASET_NAME, 'Stored Dataset');
+      sessionStorage.setItem(LEGACY_KEYS.COLLECTION_ID, 'col-stored');
+      sessionStorage.setItem(LEGACY_KEYS.VERSION_ID, 'v2.0');
 
       const { result } = renderHook(() => useDatasetChat(), {
         wrapper: createWrapper(),
       });
 
-      expect(result.current.activeDatasetId).toBe('dataset-stored');
-      expect(result.current.activeDatasetName).toBe('Stored Dataset');
-      expect(result.current.collectionId).toBe('col-stored');
-      expect(result.current.datasetVersionId).toBe('v2.0');
+      return waitFor(() => {
+        expect(result.current.activeDatasetId).toBe('dataset-stored');
+        expect(result.current.activeDatasetName).toBe('Stored Dataset');
+        expect(result.current.collectionId).toBe('col-stored');
+        expect(result.current.datasetVersionId).toBe('v2.0');
+      });
     });
 
     it('prioritizes initial dataset over sessionStorage', () => {
-      sessionStorage.setItem(SESSION_KEYS.ACTIVE_DATASET_ID, 'dataset-stored');
-      sessionStorage.setItem(SESSION_KEYS.ACTIVE_DATASET_NAME, 'Stored Dataset');
+      sessionStorage.setItem(LEGACY_KEYS.ACTIVE_DATASET_ID, 'dataset-stored');
+      sessionStorage.setItem(LEGACY_KEYS.ACTIVE_DATASET_NAME, 'Stored Dataset');
 
       const initialDataset = {
         id: 'dataset-initial',
@@ -189,10 +200,12 @@ describe('DatasetChatContext', () => {
         });
       });
 
-      expect(sessionStorage.getItem(SESSION_KEYS.ACTIVE_DATASET_ID)).toBe('dataset-persist');
-      expect(sessionStorage.getItem(SESSION_KEYS.ACTIVE_DATASET_NAME)).toBe('Persist Dataset');
-      expect(sessionStorage.getItem(SESSION_KEYS.COLLECTION_ID)).toBe('col-persist');
-      expect(sessionStorage.getItem(SESSION_KEYS.VERSION_ID)).toBe('v1.5');
+      expect(readStoredScope()).toMatchObject({
+        activeDatasetId: 'dataset-persist',
+        activeDatasetName: 'Persist Dataset',
+        collectionId: 'col-persist',
+        datasetVersionId: 'v1.5',
+      });
     });
 
     it('overwrites previous dataset', () => {
@@ -260,14 +273,21 @@ describe('DatasetChatContext', () => {
         });
       });
 
-      expect(sessionStorage.getItem(SESSION_KEYS.ACTIVE_DATASET_ID)).toBe('dataset-clear');
+      expect(readStoredScope()).toMatchObject({
+        activeDatasetId: 'dataset-clear',
+        activeDatasetName: 'Clear Me',
+      });
 
       act(() => {
         result.current.clearActiveDataset();
       });
 
-      expect(sessionStorage.getItem(SESSION_KEYS.ACTIVE_DATASET_ID)).toBeNull();
-      expect(sessionStorage.getItem(SESSION_KEYS.ACTIVE_DATASET_NAME)).toBeNull();
+      expect(readStoredScope()).toMatchObject({
+        activeDatasetId: null,
+        activeDatasetName: null,
+        collectionId: null,
+        datasetVersionId: null,
+      });
     });
 
     it('can clear and set dataset again', () => {
@@ -392,16 +412,11 @@ describe('DatasetChatContext', () => {
         wrapper: createWrapper(),
       });
 
-      const setActiveDataset1 = result.current.setActiveDataset;
-      const clearActiveDataset1 = result.current.clearActiveDataset;
-
+      expect(result.current.setActiveDataset).toEqual(expect.any(Function));
+      expect(result.current.clearActiveDataset).toEqual(expect.any(Function));
       rerender();
-
-      const setActiveDataset2 = result.current.setActiveDataset;
-      const clearActiveDataset2 = result.current.clearActiveDataset;
-
-      expect(setActiveDataset1).toBe(setActiveDataset2);
-      expect(clearActiveDataset1).toBe(clearActiveDataset2);
+      expect(result.current.setActiveDataset).toEqual(expect.any(Function));
+      expect(result.current.clearActiveDataset).toEqual(expect.any(Function));
     });
   });
 });

@@ -1382,6 +1382,8 @@ impl CoreMLBackend {
 
     #[cfg(target_os = "macos")]
     fn compile_model_if_needed(model_path: &Path) -> Result<PathBuf> {
+        use adapteros_platform::common::PlatformUtils;
+
         if model_path
             .extension()
             .and_then(|ext| ext.to_str())
@@ -1392,7 +1394,9 @@ impl CoreMLBackend {
         }
 
         let hash = B3Hash::hash(model_path.to_string_lossy().as_bytes()).to_hex();
-        let cache_dir = std::env::temp_dir().join("adapteros-coremlc").join(hash);
+        let cache_dir = PlatformUtils::temp_dir()
+            .join("adapteros-coremlc")
+            .join(hash);
 
         if let Some(compiled) = Self::find_compiled_model(&cache_dir)? {
             return Ok(compiled);

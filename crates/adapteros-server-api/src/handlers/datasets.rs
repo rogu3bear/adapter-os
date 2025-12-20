@@ -93,15 +93,16 @@ fn quota_error(message: impl Into<String>) -> (StatusCode, Json<ErrorResponse>) 
     )
 }
 
-/// Map validation status: 'pending' → 'draft' for API responses
+/// Map validation status: 'pending' → 'pending' for API responses
 pub(crate) fn map_validation_status(status: &str) -> DatasetValidationStatus {
     match status {
         "validating" => DatasetValidationStatus::Validating,
         "valid" => DatasetValidationStatus::Valid,
         "invalid" => DatasetValidationStatus::Invalid,
-        "failed" => DatasetValidationStatus::Failed,
-        "pending" => DatasetValidationStatus::Draft,
-        _ => DatasetValidationStatus::Draft,
+        "failed" => DatasetValidationStatus::Invalid,
+        "pending" => DatasetValidationStatus::Pending,
+        "skipped" => DatasetValidationStatus::Skipped,
+        _ => DatasetValidationStatus::Pending,
     }
 }
 
@@ -265,9 +266,16 @@ pub async fn upload_dataset(
     require_permission(&claims, Permission::DatasetUpload)?;
 
     let dataset_id = Uuid::now_v7().to_string();
-    let paths = DatasetPaths::new(resolve_dataset_root(&state));
+    let dataset_root = resolve_dataset_root(&state).map_err(internal_error)?;
+    let paths = DatasetPaths::new(dataset_root);
     let adapters_root = {
-        let cfg = state.config.read().expect("Config lock poisoned");
+        let cfg = state.config.read().map_err(|_| {
+            tracing::error!("Config lock poisoned");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new("config lock poisoned").with_code("CONFIG_UNAVAILABLE")),
+            )
+        })?;
         cfg.paths.adapters_root.clone()
     };
     let storage = FsByteStorage::new(paths.files.clone(), adapters_root.into());
@@ -280,7 +288,13 @@ pub async fn upload_dataset(
     .await?;
 
     let adapters_root = {
-        let cfg = state.config.read().expect("Config lock poisoned");
+        let cfg = state.config.read().map_err(|_| {
+            tracing::error!("Config lock poisoned");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new("config lock poisoned").with_code("CONFIG_UNAVAILABLE")),
+            )
+        })?;
         cfg.paths.adapters_root.clone()
     };
     let storage = FsByteStorage::new(paths.files.clone(), adapters_root.into());
@@ -518,14 +532,17 @@ pub async fn upload_dataset(
     );
 
     // Audit log: dataset uploaded
-    let _ = crate::audit_helper::log_success(
+    if let Err(e) = crate::audit_helper::log_success(
         &state.db,
         &claims,
         crate::audit_helper::actions::DATASET_UPLOAD,
         crate::audit_helper::resources::DATASET,
         Some(&dataset_id),
     )
-    .await;
+    .await
+    {
+        tracing::warn!(error = %e, "Audit log failed");
+    }
 
     // Build citation index for training files (best-effort)
     if let Err(e) = build_dataset_index(&state, &dataset_id, &claims.tenant_id).await {
@@ -597,7 +614,8 @@ pub async fn initiate_chunked_upload(
         .unwrap_or_else(|| "application/octet-stream".to_string());
     let compression = CompressionFormat::from_content_type(&content_type);
 
-    let paths = DatasetPaths::new(resolve_dataset_root(&state));
+    let dataset_root = resolve_dataset_root(&state).map_err(internal_error)?;
+    let paths = DatasetPaths::new(dataset_root);
 
     // Use shared session manager from AppState
     let session = prepare_session(
@@ -1634,6 +1652,239 @@ pub async fn apply_dataset_trust_override(
     })))
 }
 
+/// Apply trust override to a specific dataset version
+#[utoipa::path(
+    post,
+    path = "/v1/datasets/{dataset_id}/versions/{version_id}/trust-override",
+    params(
+        ("dataset_id" = String, Path, description = "Dataset ID"),
+        ("version_id" = String, Path, description = "Dataset version ID")
+    ),
+    request_body = DatasetTrustOverrideRequest,
+    responses(
+        (status = 200, description = "Trust override applied successfully"),
+        (status = 403, description = "Tenant isolation violation"),
+        (status = 404, description = "Dataset or version not found"),
+        (status = 400, description = "Invalid override state"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "datasets"
+)]
+pub async fn apply_dataset_version_trust_override(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path((dataset_id, version_id)): Path<(String, String)>,
+    Json(payload): Json<DatasetTrustOverrideRequest>,
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::DatasetValidate)?;
+
+    // Validate dataset exists and enforce tenant isolation
+    let dataset = state
+        .db
+        .get_training_dataset(&dataset_id)
+        .await
+        .map_err(|e| db_error(format!("Failed to load dataset: {}", e)))?
+        .ok_or_else(|| not_found("Dataset"))?;
+
+    if let Some(ref dataset_tenant_id) = dataset.tenant_id {
+        validate_tenant_isolation(&claims, dataset_tenant_id)?;
+    }
+
+    // Validate version exists and belongs to the dataset
+    let version = state
+        .db
+        .get_training_dataset_version(&version_id)
+        .await
+        .map_err(|e| db_error(format!("Failed to load dataset version: {}", e)))?
+        .ok_or_else(|| not_found("Dataset version"))?;
+
+    if version.dataset_id != dataset_id {
+        return Err(bad_request(
+            "Version does not belong to the specified dataset",
+        ));
+    }
+
+    // Enforce tenant isolation on version
+    if let Some(ref version_tenant_id) = version.tenant_id {
+        validate_tenant_isolation(&claims, version_tenant_id)?;
+    }
+
+    // Validate override state
+    let allowed_states = [
+        "allowed",
+        "allowed_with_warning",
+        "blocked",
+        "needs_approval",
+    ];
+    if !allowed_states
+        .iter()
+        .any(|s| s.eq_ignore_ascii_case(payload.override_state.as_str()))
+    {
+        return Err(bad_request(
+            "Invalid override_state. Must be one of: allowed, allowed_with_warning, blocked, needs_approval",
+        ));
+    }
+
+    // Create the override (this automatically propagates trust changes via DB triggers)
+    state
+        .db
+        .create_dataset_version_override(
+            &version_id,
+            payload.override_state.as_str(),
+            payload.reason.as_deref(),
+            &claims.sub,
+        )
+        .await
+        .map_err(|e| db_error(format!("Failed to create override: {}", e)))?;
+
+    // Get the effective trust state after override
+    let effective = state
+        .db
+        .get_effective_trust_state(&version_id)
+        .await
+        .map_err(|e| db_error(format!("Failed to read effective trust_state: {}", e)))?
+        .unwrap_or_else(|| "unknown".to_string());
+
+    info!(
+        dataset_id = %dataset_id,
+        version_id = %version_id,
+        override_state = %payload.override_state,
+        effective_state = %effective,
+        actor = %claims.sub,
+        "Applied dataset version trust override"
+    );
+
+    Ok(Json(serde_json::json!({
+        "dataset_id": dataset_id,
+        "dataset_version_id": version_id,
+        "override_state": payload.override_state,
+        "effective_trust_state": effective,
+        "reason": payload.reason,
+    })))
+}
+
+/// Update safety signals for a specific dataset version
+#[utoipa::path(
+    post,
+    path = "/v1/datasets/{dataset_id}/versions/{version_id}/safety",
+    params(
+        ("dataset_id" = String, Path, description = "Dataset ID"),
+        ("version_id" = String, Path, description = "Dataset version ID")
+    ),
+    request_body = UpdateDatasetSafetyRequest,
+    responses(
+        (status = 200, description = "Safety status updated successfully", body = UpdateDatasetSafetyResponse),
+        (status = 403, description = "Tenant isolation violation"),
+        (status = 404, description = "Dataset or version not found"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "datasets"
+)]
+pub async fn update_dataset_version_safety(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path((dataset_id, version_id)): Path<(String, String)>,
+    Json(body): Json<UpdateDatasetSafetyRequest>,
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::DatasetValidate)?;
+
+    // Validate dataset exists and enforce tenant isolation
+    let dataset = state
+        .db
+        .get_training_dataset(&dataset_id)
+        .await
+        .map_err(|e| db_error(format!("Failed to get dataset: {}", e)))?
+        .ok_or_else(|| not_found("Dataset"))?;
+
+    if let Some(ref dataset_tenant_id) = dataset.tenant_id {
+        validate_tenant_isolation(&claims, dataset_tenant_id)?;
+    }
+
+    // Validate version exists and belongs to the dataset
+    let version = state
+        .db
+        .get_training_dataset_version(&version_id)
+        .await
+        .map_err(|e| db_error(format!("Failed to load dataset version: {}", e)))?
+        .ok_or_else(|| not_found("Dataset version"))?;
+
+    if version.dataset_id != dataset_id {
+        return Err(bad_request(
+            "Version does not belong to the specified dataset",
+        ));
+    }
+
+    // Enforce tenant isolation on version
+    if let Some(ref version_tenant_id) = version.tenant_id {
+        validate_tenant_isolation(&claims, version_tenant_id)?;
+    }
+
+    // Compute overall safety for validation record
+    let overall_safety = {
+        let statuses = [
+            body.pii_status.as_deref().unwrap_or("unknown"),
+            body.toxicity_status.as_deref().unwrap_or("unknown"),
+            body.leak_status.as_deref().unwrap_or("unknown"),
+            body.anomaly_status.as_deref().unwrap_or("unknown"),
+        ];
+        if statuses
+            .iter()
+            .any(|s| s.eq_ignore_ascii_case("block") || s.eq_ignore_ascii_case("unsafe"))
+        {
+            "block".to_string()
+        } else if statuses.iter().any(|s| s.eq_ignore_ascii_case("warn")) {
+            "warn".to_string()
+        } else if statuses.iter().all(|s| s.eq_ignore_ascii_case("unknown")) {
+            "unknown".to_string()
+        } else {
+            "clean".to_string()
+        }
+    };
+
+    // Update safety status (this automatically propagates trust changes via DB layer)
+    let trust_state = state
+        .db
+        .update_dataset_version_safety_status(
+            &version_id,
+            body.pii_status.as_deref(),
+            body.toxicity_status.as_deref(),
+            body.leak_status.as_deref(),
+            body.anomaly_status.as_deref(),
+        )
+        .await
+        .map_err(|e| db_error(format!("Failed to update safety status: {}", e)))?;
+
+    // Record validation run for audit trail
+    let _ = state
+        .db
+        .record_dataset_version_validation_run(
+            &version_id,
+            "tier2_safety",
+            &overall_safety,
+            None,
+            None,
+            None,
+            Some(claims.sub.as_str()),
+        )
+        .await;
+
+    info!(
+        dataset_id = %dataset_id,
+        version_id = %version_id,
+        trust_state = %trust_state,
+        overall_safety = %overall_safety,
+        actor = %claims.sub,
+        "Updated dataset version safety status"
+    );
+
+    Ok(Json(UpdateDatasetSafetyResponse {
+        dataset_id,
+        dataset_version_id: version_id,
+        trust_state,
+        overall_safety_status: overall_safety,
+    }))
+}
+
 /// Delete a dataset
 #[utoipa::path(
     delete,
@@ -1701,14 +1952,17 @@ pub async fn delete_dataset(
     info!("Deleted dataset {} and its files", dataset_id);
 
     // Audit log: dataset deleted
-    let _ = crate::audit_helper::log_success(
+    if let Err(e) = crate::audit_helper::log_success(
         &state.db,
         &claims,
         crate::audit_helper::actions::DATASET_DELETE,
         crate::audit_helper::resources::DATASET,
         Some(&dataset_id),
     )
-    .await;
+    .await
+    {
+        tracing::warn!(error = %e, "Audit log failed");
+    }
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -2082,7 +2336,9 @@ mod safety_scan_tests {
 
     #[tokio::test]
     async fn safety_scan_marks_parse_errors_as_anomaly() {
-        let tmp = tempfile::tempdir().unwrap();
+        let tmp_root = std::path::PathBuf::from("var").join("tmp");
+        std::fs::create_dir_all(&tmp_root).expect("create var/tmp");
+        let tmp = tempfile::tempdir_in(&tmp_root).expect("tempdir");
         let path = tmp.path().join("data.jsonl");
         let row = mk_row("ok prompt", "resp", "row-1");
         let content = format!(
@@ -2435,7 +2691,8 @@ pub async fn complete_chunked_upload(
     // Check permission
     require_permission(&claims, Permission::DatasetUpload)?;
 
-    let paths = DatasetPaths::new(resolve_dataset_root(&state));
+    let dataset_root = resolve_dataset_root(&state).map_err(internal_error)?;
+    let paths = DatasetPaths::new(dataset_root);
 
     // Get session
     let session = state
@@ -2493,7 +2750,13 @@ pub async fn complete_chunked_upload(
     .await?;
 
     let adapters_root = {
-        let cfg = state.config.read().expect("Config lock poisoned");
+        let cfg = state.config.read().map_err(|_| {
+            tracing::error!("Config lock poisoned");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new("config lock poisoned").with_code("CONFIG_UNAVAILABLE")),
+            )
+        })?;
         cfg.paths.adapters_root.clone()
     };
     let storage = FsByteStorage::new(paths.files.clone(), adapters_root.into());
@@ -2793,14 +3056,17 @@ pub async fn cancel_chunked_upload(
     info!("Cancelled chunked upload session {}", session_id);
 
     // Audit log: chunked upload cancelled
-    let _ = crate::audit_helper::log_success(
+    if let Err(e) = crate::audit_helper::log_success(
         &state.db,
         &claims,
         crate::audit_helper::actions::DATASET_CHUNKED_UPLOAD_CANCEL,
         crate::audit_helper::resources::DATASET,
         Some(&session_id),
     )
-    .await;
+    .await
+    {
+        tracing::warn!(error = %e, "Audit log failed");
+    }
 
     Ok(StatusCode::NO_CONTENT)
 }

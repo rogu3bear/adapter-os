@@ -530,7 +530,7 @@ pub async fn validate(args: ValidateArgs, output: &OutputWriter) -> Result<()> {
             Ok(())
         }
         Err(e) => {
-            output.error(&e.to_string());
+            output.error(e.to_string());
             std::process::exit(1);
         }
     }
@@ -1057,7 +1057,7 @@ fn output_validation_text(
         output.kv("  Warnings", &warning_count.to_string());
         output.kv("  Errors", &error_count.to_string());
         output.blank();
-        output.result(&format!(
+        output.result(format!(
             "Status: {}",
             if passed { "PASSED" } else { "FAILED" }
         ));
@@ -1148,7 +1148,7 @@ pub async fn migrate(args: MigrateArgs, output: &OutputWriter) -> Result<()> {
     info!(input = ?args.input, dry_run = args.dry_run, "Migrating configuration");
 
     if !args.input.exists() {
-        output.error(&format!("Source file not found: {}", args.input.display()));
+        output.error(format!("Source file not found: {}", args.input.display()));
         std::process::exit(2);
     }
 
@@ -1467,8 +1467,8 @@ fn output_migration_preview(
             if !migrations.is_empty() {
                 output.result("Migrations:");
                 for migration in migrations {
-                    output.result(&format!("  {} -> {}", migration.from, migration.to));
-                    output.result(&format!("    Current: {}", migration.value));
+                    output.result(format!("  {} -> {}", migration.from, migration.to));
+                    output.result(format!("    Current: {}", migration.value));
                 }
             }
 
@@ -1476,7 +1476,7 @@ fn output_migration_preview(
                 output.blank();
                 output.warning("Conflicts (both legacy and new variable exist):");
                 for conflict in conflicts {
-                    output.result(&format!(
+                    output.result(format!(
                         "  {} and {} both exist",
                         conflict.from, conflict.to
                     ));
@@ -1536,18 +1536,18 @@ fn output_migration_summary(
             println!("{}", serde_json::to_string_pretty(&json)?);
         }
         _ => {
-            output.success(&format!(
+            output.success(format!(
                 "Migration completed: {} variables migrated",
                 migrated_count
             ));
             if !conflicts.is_empty() {
-                output.warning(&format!(
+                output.warning(format!(
                     "{} conflicts detected (both legacy and new exist)",
                     conflicts.len()
                 ));
             }
             if skipped_count > 0 {
-                output.result(&format!("  {} skipped", skipped_count));
+                output.result(format!("  {} skipped", skipped_count));
             }
         }
     }
@@ -1681,12 +1681,10 @@ fn collect_effective_config(args: &ShowArgs, should_redact: bool) -> Result<Vec<
             } else {
                 continue;
             }
+        } else if args.show_unset {
+            ("(unset)".to_string(), ConfigSource::Default)
         } else {
-            if args.show_unset {
-                ("(unset)".to_string(), ConfigSource::Default)
-            } else {
-                continue;
-            }
+            continue;
         };
 
         let display_value = if SENSITIVE_VARS.contains(&name) && should_redact {
@@ -1717,11 +1715,11 @@ fn output_show_table(config: &[ConfigEntry], output: &OutputWriter) -> Result<()
     for entry in config {
         if entry.category != current_category {
             output.blank();
-            output.result(&format!("Category: {}", capitalize(&entry.category)));
+            output.result(format!("Category: {}", capitalize(&entry.category)));
             current_category = entry.category.clone();
         }
 
-        output.result(&format!(
+        output.result(format!(
             "  {:30} = {:30} [{}]",
             entry.name,
             truncate(&entry.value, 30),
@@ -1957,7 +1955,7 @@ fn output_effective_table(
         config_hash
     };
 
-    output.result(&format!("Effective Configuration (hash: {})", hash_short));
+    output.result(format!("Effective Configuration (hash: {})", hash_short));
     output.result("============================================");
     output.result("Precedence: CLI > ENV > TOML > Default");
     output.blank();
@@ -1980,7 +1978,7 @@ fn output_effective_table(
             .strip_prefix(&format!("{}.", entry.category.to_lowercase()))
             .unwrap_or(&entry.key);
 
-        output.result(&format!(
+        output.result(format!(
             "  {:30} = {:30} [{}]",
             key_display,
             truncate(&entry.value, 30),

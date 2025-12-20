@@ -2,10 +2,18 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-API_URL="${CYPRESS_API_URL:-http://127.0.0.1:8080}"
+API_URL="${CYPRESS_API_URL:-http://127.0.0.1:${AOS_SERVER_PORT:-8080}}"
 E2E_USER="${CYPRESS_E2E_USER:-dev@local}"
 E2E_PASS="${CYPRESS_E2E_PASS:-dev123}"
 AUTH_TOKEN_FILE="$ROOT/var/run/adapteros-e2e-token"
+TMP_ROOT="${AOS_VAR_DIR:-$ROOT/var}/tmp"
+
+if [[ "$TMP_ROOT" == /tmp* || "$TMP_ROOT" == /private/tmp* ]]; then
+  echo "error: refusing temporary directory under /tmp: $TMP_ROOT" >&2
+  exit 1
+fi
+
+mkdir -p "$TMP_ROOT"
 
 payload=$(cat <<EOF
 { "email": "${E2E_USER}", "password": "${E2E_PASS}" }
@@ -15,7 +23,7 @@ EOF
 mkdir -p "$(dirname "$AUTH_TOKEN_FILE")"
 
 echo "Seeding E2E user via ${API_URL}/v1/dev/bootstrap..."
-response_file="$(mktemp)"
+response_file="$(mktemp "${TMP_ROOT}/adapteros-e2e-seed.XXXXXX")"
 status_code=$(curl -sS -o "$response_file" -w "%{http_code}" \
   -X POST "${API_URL}/v1/dev/bootstrap" \
   -H "Content-Type: application/json" \

@@ -227,7 +227,7 @@ fn draw_main_menu(f: &mut Frame, app: &App, area: Rect) {
     // Create the log entries string separately to avoid temporary value issue
     let log_entries_str = format!("[{} new entries]", app.recent_logs.len());
 
-    let menu_items = vec![
+    let menu_items = [
         ("Boot All Services", "[Ready to boot]", Color::Green),
         ("Boot Single Service", "[Select from list]", Color::Cyan),
         (

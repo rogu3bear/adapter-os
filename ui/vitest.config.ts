@@ -8,8 +8,10 @@ export default defineConfig({
     // Include both top-level tests and component colocated tests
     include: [
       'src/__tests__/**/*.test.{ts,tsx}',
+      'src/api/__tests__/**/*.test.{ts,tsx}',
       'src/components/__tests__/**/*.test.{ts,tsx}',
       'src/pages/**/*.test.{ts,tsx}',
+      'src/utils/**/*.test.{ts,tsx}',
     ],
     globals: true,
     css: true,

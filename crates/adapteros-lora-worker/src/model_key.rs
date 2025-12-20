@@ -169,7 +169,9 @@ impl std::str::FromStr for FusionMode {
 
 /// Context identity fields that must be part of cache keys to align with the
 /// context manifest (kernel + quantization + fusion cadence).
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+///
+/// PRD-RECT-003: Implements Ord for deterministic cache eviction ordering.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ModelCacheIdentity {
     pub kernel_version_id: String,
     pub quantization_mode: String,
@@ -219,7 +221,10 @@ impl ModelCacheIdentity {
 ///
 /// Two models are considered identical only if backend, manifest hash, and the
 /// context identity fields match.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+///
+/// PRD-RECT-003: Implements Ord for deterministic cache eviction ordering.
+/// Ordering: backend_type → manifest_hash → identity (lexicographic)
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ModelKey {
     /// The backend type (Metal, CoreML, MLX)
     pub backend_type: BackendType,

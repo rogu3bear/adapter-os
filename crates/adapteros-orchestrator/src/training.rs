@@ -1,7 +1,92 @@
-//! Training job orchestration and management
+//! # Training Job Orchestration and Management
 //!
 //! Handles scheduling, executing, and monitoring adapter training jobs.
 //! Integrates with MLX backend for actual training operations.
+//!
+//! ## State Management Architecture (Triple State)
+//!
+//! Training jobs maintain state in **three separate locations**, which can
+//! diverge under failure conditions. Understanding this is critical for
+//! debugging and ensuring consistency.
+//!
+//! ```text
+//! ┌───────────────────────────────────────────────────────────────────────────────┐
+//! │                         TRIPLE STATE MANAGEMENT                               │
+//! │                                                                               │
+//! │  ┌─────────────────────────────────────────────────────────────────────────┐  │
+//! │  │                    1. IN-MEMORY STATE (jobs HashMap)                    │  │
+//! │  │                                                                         │  │
+//! │  │  - Arc<RwLock<HashMap<String, TrainingJob>>>                            │  │
+//! │  │  - Authoritative for progress_pct, current_epoch, status               │  │
+//! │  │  - Lost on process restart                                             │  │
+//! │  │  - Updated in real-time during training                                │  │
+//! │  └─────────────────────────────────────────────────────────────────────────┘  │
+//! │                                   │                                           │
+//! │                                   │ persist (non-blocking)                    │
+//! │                                   ▼                                           │
+//! │  ┌─────────────────────────────────────────────────────────────────────────┐  │
+//! │  │                    2. DATABASE STATE (SQLite)                           │  │
+//! │  │                                                                         │  │
+//! │  │  - training_jobs table                                                  │  │
+//! │  │  - Updated periodically (every epoch or status change)                  │  │
+//! │  │  - **DB writes are non-fatal**: failures logged but don't stop job     │  │
+//! │  │  - May lag behind in-memory state                                       │  │
+//! │  └─────────────────────────────────────────────────────────────────────────┘  │
+//! │                                                                               │
+//! │  ┌─────────────────────────────────────────────────────────────────────────┐  │
+//! │  │                    3. CANCEL TOKENS (AtomicBool)                        │  │
+//! │  │                                                                         │  │
+//! │  │  - Arc<RwLock<HashMap<String, Arc<AtomicBool>>>>                        │  │
+//! │  │  - Cooperative cancellation (checked at epoch boundaries)               │  │
+//! │  │  - Token removed after job completes (success or failure)               │  │
+//! │  │  - No persistence - cancel requests lost on restart                     │  │
+//! │  └─────────────────────────────────────────────────────────────────────────┘  │
+//! └───────────────────────────────────────────────────────────────────────────────┘
+//! ```
+//!
+//! ## Race Condition Scenarios
+//!
+//! | Scenario | Symptom | Cause | Mitigation |
+//! |----------|---------|-------|------------|
+//! | Process crash during training | DB shows "running" but no progress | In-memory state lost | Implement startup recovery scan |
+//! | DB write failure | DB shows old progress_pct | Non-fatal write logged | Retry logic, monitoring |
+//! | Cancel during epoch | Job completes current epoch | Token only checked at boundaries | Document expected behavior |
+//! | Concurrent status updates | Inconsistent reads | RwLock allows concurrent reads | Use single-writer pattern |
+//!
+//! ## Job Lifecycle
+//!
+//! ```text
+//!   ┌────────────┐     create_job()     ┌──────────────┐
+//!   │   (none)   │ ─────────────────────▶│   pending    │
+//!   └────────────┘                       └──────────────┘
+//!                                               │
+//!                                               │ run_training_job()
+//!                                               ▼
+//!   ┌────────────┐     cancel_job()     ┌──────────────┐
+//!   │ cancelled  │ ◀─────────────────────│   running    │
+//!   └────────────┘                       └──────────────┘
+//!                                               │
+//!                           ┌─────────────────┬┴───────────────┐
+//!                           │ success         │ failure        │
+//!                           ▼                 ▼                │
+//!                    ┌──────────────┐  ┌──────────────┐        │
+//!                    │  completed   │  │    failed    │        │
+//!                    └──────────────┘  └──────────────┘        │
+//! ```
+//!
+//! ## Critical Functions
+//!
+//! - [`TrainingService::create_job`]: Creates job in pending state
+//! - [`TrainingService::run_training_job`]: Spawns deterministic task, manages tokens
+//! - [`TrainingService::cancel_job`]: Sets cancel token (cooperative cancellation)
+//! - [`TrainingService::update_job_progress`]: Updates in-memory + DB (non-fatal write)
+//!
+//! ## Known Limitations
+//!
+//! 1. **No startup recovery**: Jobs in "running" state after restart are orphaned
+//! 2. **Non-transactional**: In-memory and DB updates are not atomic
+//! 3. **Cancel latency**: Up to 1 epoch delay for cancellation to take effect
+//! 4. **No distributed locking**: Single-node assumption for job management
 
 use adapteros_config::CoreMLComputePreference;
 use adapteros_core::{backend::BackendKind, AosError, B3Hash};
@@ -12,7 +97,7 @@ use adapteros_lora_worker::training::{
     MicroLoRATrainer as WorkerTrainer, TrainingBackend as WorkerTrainingBackend,
     TrainingConfig as WorkerTrainingConfig, TrainingExample as WorkerTrainingExample,
 };
-use adapteros_lora_worker::{run_coreml_export, ComputeUnits, CoreMLExportJob, CoreMLExportRecord};
+use adapteros_lora_worker::{ComputeUnits, CoreMLExportJob, CoreMLExportRecord};
 use anyhow::Result;
 use blake3;
 use chrono::Utc;
@@ -407,6 +492,48 @@ impl TrainingService {
                         sel.dataset_version_id, trust_state
                     ))
                     .into());
+                }
+
+                // Workstream 9: Verify dataset integrity before training
+                // Check that all dataset files match their stored BLAKE3 hashes
+                {
+                    let dataset_id_val = &ds_version.dataset_id;
+                    let integrity_result = db
+                        .verify_dataset_integrity(dataset_id_val)
+                        .await
+                        .map_err(|e| {
+                            AosError::Database(format!("Dataset integrity check failed: {}", e))
+                        })?;
+
+                    if !integrity_result.is_valid {
+                        let mismatch_summary: Vec<String> = integrity_result
+                            .mismatches
+                            .iter()
+                            .take(5) // Limit to first 5 for error message
+                            .map(|m| {
+                                format!(
+                                    "{} (expected: {}, actual: {})",
+                                    m.file_name, m.expected_hash, m.actual_hash
+                                )
+                            })
+                            .collect();
+
+                        return Err(AosError::Validation(format!(
+                            "Dataset {} failed integrity check: {}/{} files corrupted. Mismatches: {}",
+                            dataset_id_val,
+                            integrity_result.mismatches.len(),
+                            integrity_result.total_files,
+                            mismatch_summary.join(", ")
+                        ))
+                        .into());
+                    }
+
+                    info!(
+                        dataset_id = %dataset_id_val,
+                        verified_files = integrity_result.verified_files,
+                        total_files = integrity_result.total_files,
+                        "Dataset integrity verified before training"
+                    );
                 }
 
                 let weight = if sel.weight <= 0.0 { 1.0 } else { sel.weight };
@@ -976,7 +1103,7 @@ impl TrainingService {
             .clone()
             .unwrap_or_else(|| "default".to_string());
 
-        if let Err(e) = run_coreml_export_flow(
+        run_coreml_export_flow(
             self.jobs.clone(),
             job_id,
             &adapter_id,
@@ -987,10 +1114,7 @@ impl TrainingService {
             Some(tenant.as_str()),
             self.db.as_ref(),
         )
-        .await
-        {
-            return Err(e);
-        }
+        .await?;
 
         self.get_job(job_id).await
     }
@@ -1372,11 +1496,8 @@ async fn run_training_job(
         repo_id: Option<String>,
         base_version_id: Option<String>,
         code_commit_sha: Option<String>,
-        data_spec_json: Option<String>,
         data_spec_hash: Option<String>,
         dataset_version_ids: Option<Vec<DatasetVersionSelection>>,
-        synthetic_mode: bool,
-        data_lineage_mode: Option<DataLineageMode>,
     }
 
     let versioning_snapshot = {
@@ -1389,11 +1510,8 @@ async fn run_training_job(
             repo_id: job.repo_id.clone(),
             base_version_id: job.base_version_id.clone(),
             code_commit_sha: job.code_commit_sha.clone(),
-            data_spec_json: job.data_spec_json.clone(),
             data_spec_hash: job.data_spec_hash.clone(),
             dataset_version_ids: job.dataset_version_ids.clone(),
-            synthetic_mode: job.synthetic_mode,
-            data_lineage_mode: job.data_lineage_mode,
         })
     };
 
@@ -1505,7 +1623,7 @@ async fn run_training_job(
         let config_value = post_actions
             .adapters_root
             .as_deref()
-            .or_else(|| storage_adapters_str.as_deref());
+            .or(storage_adapters_str.as_deref());
         // AdapterPaths::from_config() will respect ENV > Config > Default precedence
         AdapterPaths::from_config(config_value).root().to_path_buf()
     };
@@ -1552,8 +1670,8 @@ async fn run_training_job(
     if let Some(placement) = orchestrator_cfg.coreml_placement.as_ref() {
         if let Some(first) = placement.bindings.first() {
             let placement_hidden = first.shape.output_dim as usize;
-            if placement_hidden > 0 {
-                if worker_cfg.hidden_dim != placement_hidden {
+            if placement_hidden > 0
+                && worker_cfg.hidden_dim != placement_hidden {
                     tracing::info!(
                         worker_hidden_dim = worker_cfg.hidden_dim,
                         placement_hidden_dim = placement_hidden,
@@ -1561,7 +1679,6 @@ async fn run_training_job(
                     );
                     worker_cfg.hidden_dim = placement_hidden;
                 }
-            }
         }
     }
 
@@ -2840,7 +2957,7 @@ async fn run_training_job(
         }
     }
 
-    return outcome;
+    outcome
 }
 
 async fn run_coreml_export_flow(
@@ -3081,7 +3198,14 @@ fn perform_coreml_export(job: CoreMLExportJob) -> Result<CoreMLExportRecord> {
 mod tests {
     use super::*;
     use adapteros_lora_worker::training::TrainingExample as WorkerTrainingExample;
+    use adapteros_platform::common::PlatformUtils;
     use tempfile::TempDir;
+
+    fn new_test_tempdir() -> TempDir {
+        let root = PlatformUtils::temp_dir();
+        std::fs::create_dir_all(&root).expect("create var/tmp");
+        TempDir::new_in(&root).expect("tempdir")
+    }
 
     #[test]
     fn map_preferred_backend_coreml_does_not_inject_default_fallback() {
@@ -3142,7 +3266,7 @@ mod tests {
     fn stub_coreml_export_path_is_invokable_when_allowed() {
         use std::fs;
 
-        let tmp = TempDir::new().expect("tempdir");
+        let tmp = new_test_tempdir();
         let base = tmp.path().join("base.json");
         let adapter = tmp.path().join("adapter.aos");
         fs::write(&base, b"base-bytes").unwrap();
@@ -3438,7 +3562,7 @@ mod tests {
     #[tokio::test]
     async fn coreml_export_flow_updates_job_and_registry() {
         std::env::set_var("AOS_ALLOW_COREML_EXPORT_STUB", "1");
-        let temp = TempDir::new().unwrap();
+        let temp = new_test_tempdir();
         let base_dir = temp.path().join("base");
         std::fs::create_dir_all(&base_dir).unwrap();
         std::fs::write(base_dir.join("Manifest.json"), "{}").unwrap();
@@ -3587,7 +3711,7 @@ mod tests {
     #[tokio::test]
     async fn gpu_optional_falls_back_when_init_fails() {
         std::env::set_var("AOS_FORCE_GPU_BACKEND", "metal");
-        let temp_model = TempDir::new().unwrap();
+        let temp_model = new_test_tempdir();
         let model_path = temp_model.path().join("model.safetensors");
         std::fs::write(&model_path, b"not-a-real-model").unwrap();
         std::env::set_var("AOS_MODEL_PATH", temp_model.path());

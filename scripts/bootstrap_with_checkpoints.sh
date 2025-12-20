@@ -15,7 +15,8 @@ if [[ ! "$REPLY" =~ ^[Yy]$ ]]; then
 fi
 
 # Configuration
-CHECKPOINT_FILE="${1:-/tmp/adapteros_install.state}"
+DEFAULT_CHECKPOINT_FILE="$HOME/Library/Application Support/AdapterOS/installer/adapteros_install.state"
+CHECKPOINT_FILE="${1:-$DEFAULT_CHECKPOINT_FILE}"
 MODE="${2:-full}"
 AIRGAPPED="${3:-false}"
 JSON_OUTPUT="${4:-false}"
@@ -127,7 +128,9 @@ create_directories() {
     mkdir -p var
     mkdir -p artifacts
     mkdir -p plan
-    mkdir -p /tmp/adapteros/models 2>/dev/null || mkdir -p "$HOME/.adapteros/models"
+    mkdir -p var/model-cache/models
+    mkdir -p var/run
+    mkdir -p var/tmp
     echo "Directories created"
 }
 
@@ -270,4 +273,3 @@ main() {
 
 # Run main
 main
-

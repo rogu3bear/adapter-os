@@ -2,14 +2,14 @@
 //!
 //! Tests for disk quota enforcement, space reservation, and usage calculation.
 
+use super::new_test_tempdir;
 use crate::quota::QuotaManager;
 use crate::StorageConfig;
 use adapteros_core::Result;
-use tempfile::TempDir;
 
 #[tokio::test]
 async fn test_quota_manager_creation() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
     let config = StorageConfig {
         max_disk_space_bytes: 1000,
         max_files: 100,
@@ -27,7 +27,7 @@ async fn test_quota_manager_creation() -> Result<()> {
 
 #[tokio::test]
 async fn test_space_reservation() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = new_test_tempdir()?;
     let config = StorageConfig {
         max_disk_space_bytes: 1000,
         max_files: 100,

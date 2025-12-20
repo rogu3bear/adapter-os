@@ -8,7 +8,7 @@ import type { TraceResponseV1 } from '@/api/types';
 // Mock API client
 const mockGetTrace = vi.fn();
 
-vi.mock('@/api/client', () => ({
+vi.mock('@/api/services', () => ({
   default: {
     getTrace: (...args: unknown[]) => mockGetTrace(...args),
   },

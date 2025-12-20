@@ -7,7 +7,7 @@ import { ErrorStoreProvider, useErrorStore } from '@/stores/errorStore';
 vi.unmock('@/api/client');
 
 describe('ApiClient error handling', () => {
-  let apiClient: typeof import('@/api/client').apiClient;
+  let apiClient: InstanceType<typeof import('@/api/client').ApiClient>;
   let fetchMock: ReturnType<typeof vi.fn>;
   let originalEnv: ImportMetaEnv;
 
@@ -24,7 +24,7 @@ describe('ApiClient error handling', () => {
     };
 
     const clientModule = await vi.importActual<typeof import('@/api/client')>('@/api/client');
-    apiClient = clientModule.apiClient;
+    apiClient = new clientModule.ApiClient();
   });
 
   afterEach(() => {

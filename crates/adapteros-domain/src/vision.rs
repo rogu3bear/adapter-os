@@ -413,7 +413,14 @@ pub fn image_to_tensor(adapter: &VisionAdapter, image_data: &[u8]) -> Result<Ten
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
     use tempfile::NamedTempFile;
+
+    fn new_test_tempfile() -> NamedTempFile {
+        let root = PathBuf::from("var").join("tmp");
+        std::fs::create_dir_all(&root).expect("create var/tmp");
+        NamedTempFile::new_in(&root).expect("create temp file")
+    }
 
     fn create_test_manifest() -> (AdapterManifest, NamedTempFile) {
         use crate::manifest::{save_manifest, AdapterManifest};
@@ -443,7 +450,7 @@ mod tests {
             serde_json::Value::Number(3.into()),
         );
 
-        let temp_file = NamedTempFile::new().unwrap();
+        let temp_file = new_test_tempfile();
         save_manifest(&manifest, temp_file.path()).unwrap();
 
         (manifest, temp_file)

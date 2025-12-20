@@ -611,8 +611,10 @@ async fn start_ui(pid_file: &str, cli: &Cli) -> Result<()> {
         .try_clone()
         .map_err(|e| AosError::Io(format!("Failed to clone UI log file: {}", e)))?;
 
+    // Respect AOS_UI_PORT for port offset strategy
+    let ui_port = std::env::var("AOS_UI_PORT").unwrap_or_else(|_| "3200".to_string());
     let mut cmd = Command::new("pnpm");
-    cmd.args(["dev", "--host", "0.0.0.0", "--port", "3200"])
+    cmd.args(["dev", "--host", "0.0.0.0", "--port", &ui_port])
         .current_dir("ui")
         .stdout(Stdio::from(log))
         .stderr(Stdio::from(log_clone));

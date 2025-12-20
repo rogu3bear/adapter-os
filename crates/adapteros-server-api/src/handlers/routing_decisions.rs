@@ -21,7 +21,6 @@ use axum::{response::IntoResponse, Json};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::json;
 use serde_json::Value;
-use std::sync::Arc;
 use tracing::{debug, warn};
 use utoipa::ToSchema;
 use uuid::Uuid;
@@ -349,7 +348,12 @@ pub async fn get_routing_decision_chain(
 
 fn chain_record_to_response(rec: RoutingDecisionChainRecord) -> RoutingDecisionChainItem {
     fn parse_vec<T: DeserializeOwned>(raw: &str) -> Vec<T> {
-        serde_json::from_str(raw).unwrap_or_default()
+        // Safe to use default on parse failure: chain records may have empty/malformed JSON from legacy data.
+        // Empty vec is semantically correct for missing data in display contexts.
+        serde_json::from_str(raw).unwrap_or_else(|e| {
+            warn!(error = %e, raw = %raw, "Failed to parse chain record JSON array, using empty vec");
+            Vec::default()
+        })
     }
 
     let decision_hash = rec
@@ -566,31 +570,35 @@ pub async fn get_adapter_usage(
 
     debug!(adapter_id = %adapter_id, "Querying adapter usage statistics");
 
-    // Verify adapter exists
-    let adapter = state.db.get_adapter(&adapter_id).await.map_err(|e| {
-        warn!(error = %e, adapter_id = %adapter_id, "Failed to query adapter");
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("Failed to query adapter")
-                    .with_code("DATABASE_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
-
-    let adapter = adapter.ok_or_else(|| {
-        (
-            StatusCode::NOT_FOUND,
-            Json(
-                ErrorResponse::new("Adapter not found")
-                    .with_code("NOT_FOUND")
-                    .with_string_details(format!("Adapter '{}' not found", adapter_id)),
-            ),
-        )
-    })?;
-
-    validate_tenant_isolation(&claims, &adapter.tenant_id)?;
+    // PRD-RECT-001: Use tenant-scoped query to prevent cross-tenant enumeration.
+    // Returns 404 for both missing and cross-tenant adapters.
+    let _adapter = state
+        .db
+        .get_adapter_for_tenant(&claims.tenant_id, &adapter_id)
+        .await
+        .map_err(|e| {
+            warn!(error = %e, adapter_id = %adapter_id, "Failed to query adapter");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to query adapter")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?
+        .ok_or_else(|| {
+            // Returns same error for both "not found" and "cross-tenant" cases
+            (
+                StatusCode::NOT_FOUND,
+                Json(
+                    ErrorResponse::new("Adapter not found")
+                        .with_code("NOT_FOUND")
+                        .with_string_details(format!("Adapter '{}' not found", adapter_id)),
+                ),
+            )
+        })?;
+    // No validate_tenant_isolation() call needed - query is already tenant-scoped
 
     // Get usage statistics from routing decisions
     let (call_count, avg_gate, last_used) = state
@@ -716,7 +724,16 @@ pub async fn get_session_router_view(
                             })
                             .collect()
                     })
-                    .unwrap_or_default();
+                    .unwrap_or_else(|| {
+                        // Safe to use empty vec on parse failure: allows session view to render with partial data.
+                        // Empty adapters_fired indicates corrupted/missing routing data for this step.
+                        warn!(
+                            step = decision.step,
+                            raw = %decision.candidate_adapters,
+                            "Failed to parse candidate_adapters JSON, using empty vec"
+                        );
+                        Vec::default()
+                    });
 
             SessionStep {
                 step: decision.step,
@@ -774,7 +791,16 @@ fn convert_decision_to_response(decision: DbRoutingDecision) -> RoutingDecisionR
                     })
                     .collect()
             })
-            .unwrap_or_default();
+            .unwrap_or_else(|| {
+                // Safe to use empty vec on parse failure: allows response to return with partial data.
+                // Empty candidates indicates corrupted/missing routing data in database.
+                warn!(
+                    decision_id = %decision.id,
+                    raw = %decision.candidate_adapters,
+                    "Failed to parse candidate_adapters JSON, using empty vec"
+                );
+                Vec::default()
+            });
 
     RoutingDecisionResponse {
         id: decision.id,
@@ -809,7 +835,7 @@ fn convert_decision_to_response(decision: DbRoutingDecision) -> RoutingDecisionR
     )
 )]
 pub async fn debug_routing(
-    State(_state): State<Arc<AppState>>,
+    State(_state): State<AppState>,
     Extension(_claims): Extension<Claims>,
     Json(payload): Json<serde_json::Value>,
 ) -> impl IntoResponse {
@@ -827,7 +853,7 @@ pub async fn debug_routing(
     )
 )]
 pub async fn get_routing_history(
-    State(_state): State<Arc<AppState>>,
+    State(_state): State<AppState>,
     Extension(_claims): Extension<Claims>,
 ) -> impl IntoResponse {
     // Stub implementation

@@ -370,7 +370,8 @@ export RUST_LOG="${RUST_LOG:-info}"
 # Start API server
 log_info "Starting API server on port $API_PORT..."
 cd "$PROJECT_ROOT"
-cargo run --release -p adapteros-server-api > /tmp/adapteros-server.log 2>&1 &
+mkdir -p var/log
+cargo run --release -p adapteros-server-api > var/log/adapteros-server.log 2>&1 &
 SERVER_PID=$!
 log_info "API server PID: $SERVER_PID"
 
@@ -390,8 +391,8 @@ echo ""
 
 if [ $WAITED -ge $MAX_WAIT ]; then
     log_error "Server failed to start within ${MAX_WAIT}s"
-    log_info "Check logs: /tmp/adapteros-server.log"
-    tail -20 /tmp/adapteros-server.log
+    log_info "Check logs: var/log/adapteros-server.log"
+    tail -20 var/log/adapteros-server.log
     exit 1
 fi
 
@@ -408,7 +409,7 @@ if [ "$START_UI" = true ]; then
         pnpm install --silent
     fi
 
-    AOS_UI_PORT="$UI_PORT" pnpm dev -- --host 0.0.0.0 --port "$UI_PORT" > /tmp/adapteros-ui.log 2>&1 &
+    VITE_PORT="$UI_PORT" AOS_UI_PORT="$UI_PORT" pnpm dev -- --host 0.0.0.0 --port "$UI_PORT" > var/log/adapteros-ui.log 2>&1 &
     UI_PID=$!
     log_info "UI server PID: $UI_PID"
 
@@ -416,8 +417,8 @@ if [ "$START_UI" = true ]; then
     sleep 3
     if ! kill -0 "$UI_PID" 2>/dev/null; then
         log_error "UI server failed to start"
-        log_info "Check logs: /tmp/adapteros-ui.log"
-        tail -20 /tmp/adapteros-ui.log
+        log_info "Check logs: var/log/adapteros-ui.log"
+        tail -20 var/log/adapteros-ui.log
     else
         log_success "UI server ready at http://localhost:$UI_PORT"
     fi
@@ -481,9 +482,9 @@ echo "  - Model loading:     2-3 seconds"
 echo ""
 
 echo -e "${GREEN}${BOLD}Logs:${NC}"
-echo "  API Server: /tmp/adapteros-server.log"
+echo "  API Server: var/log/adapteros-server.log"
 if [ "$START_UI" = true ]; then
-    echo "  UI Server:  /tmp/adapteros-ui.log"
+    echo "  UI Server:  var/log/adapteros-ui.log"
 fi
 echo ""
 

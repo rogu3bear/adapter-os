@@ -491,9 +491,15 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
+    fn new_test_tempdir() -> TempDir {
+        let root = std::path::PathBuf::from("var").join("tmp");
+        std::fs::create_dir_all(&root).expect("create var/tmp");
+        TempDir::new_in(&root).expect("tempdir")
+    }
+
     #[tokio::test]
     async fn test_file_provider_create() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let key_file = temp_dir.path().join("test_keys.json");
 
         let _provider = FileProvider::new(key_file.clone(), true).unwrap();
@@ -502,7 +508,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_file_provider_generate_and_sign() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let key_file = temp_dir.path().join("test_keys.json");
 
         let provider = FileProvider::new(key_file, true).unwrap();
@@ -522,7 +528,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_file_provider_seal_unseal() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let key_file = temp_dir.path().join("test_keys.json");
 
         let provider = FileProvider::new(key_file, true).unwrap();
@@ -544,7 +550,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_file_provider_rotate() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let key_file = temp_dir.path().join("test_keys.json");
 
         let provider = FileProvider::new(key_file, true).unwrap();
@@ -570,7 +576,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_file_provider_rejects_without_allow_insecure() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let key_file = temp_dir.path().join("test_keys.json");
 
         let result = FileProvider::new(key_file, false);

@@ -1,8 +1,8 @@
 # Candidate Rectifications
 
 - **fs-01 (path): finish /tmp bans**
-  - Index root resolver still permits `/tmp`; apply `reject_tmp_persistent_path` there and cover with a unit test.
-  - Follow-up audit of artifact/dataset roots to ensure no persistent `/tmp` usage.
+  - ✅ Index root resolver rejects `/tmp` and `/private/tmp` with unit test coverage.
+  - ✅ Dataset/document roots reject `/tmp` and `/private/tmp`; keep auditing new path env overrides for the same guardrail.
 
 - **telemetry-01 (schema enforcement)**
   - Tenant validation added via `TelemetryFilters::validate/with_tenant` and `TelemetryBuffer::query`; builder rejects empty tenant. Follow-up: confirm all emitters pass tenant/model context (router/inference telemetry).

@@ -119,9 +119,15 @@ mod tests {
     use crate::write_trace_bundle;
     use tempfile::TempDir;
 
+    fn new_test_tempdir() -> TempDir {
+        let root = std::path::PathBuf::from("var").join("tmp");
+        std::fs::create_dir_all(&root).expect("create var/tmp");
+        TempDir::new_in(&root).expect("tempdir")
+    }
+
     #[test]
     fn test_trace_reader_creation() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let trace_path = temp_dir.path().join("test_trace.ndjson");
 
         // Create a test file
@@ -141,7 +147,7 @@ mod tests {
 
     #[test]
     fn test_read_all_events() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let trace_path = temp_dir.path().join("test_trace.ndjson");
 
         // Create a test file with events
@@ -163,7 +169,7 @@ mod tests {
 
     #[test]
     fn test_read_trace_bundle() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let trace_path = temp_dir.path().join("test_trace.ndjson");
 
         // Create a test file

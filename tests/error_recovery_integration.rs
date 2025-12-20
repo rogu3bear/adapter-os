@@ -335,28 +335,25 @@ mod hash_verification_failures {
     #[test]
     fn test_hash_file() {
         use std::io::Write;
+        use tempfile::NamedTempFile;
 
-        let temp_dir = std::env::temp_dir();
-        let temp_file = temp_dir.join("aos_test_hash_file.txt");
+        let temp_root = std::path::PathBuf::from("var/tmp");
+        std::fs::create_dir_all(&temp_root).unwrap();
+        let mut temp_file = NamedTempFile::new_in(&temp_root).unwrap();
 
         // Write test content
         let test_content = b"test file content for hashing";
-        {
-            let mut file = std::fs::File::create(&temp_file).unwrap();
-            file.write_all(test_content).unwrap();
-        }
+        temp_file.write_all(test_content).unwrap();
+        temp_file.flush().unwrap();
 
         // Hash the file
-        let file_hash = B3Hash::hash_file(&temp_file).unwrap();
+        let file_hash = B3Hash::hash_file(temp_file.path()).unwrap();
         let content_hash = B3Hash::hash(test_content);
 
         assert_eq!(
             file_hash, content_hash,
             "File hash should match content hash"
         );
-
-        // Cleanup
-        let _ = std::fs::remove_file(&temp_file);
     }
 }
 

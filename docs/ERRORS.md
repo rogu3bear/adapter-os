@@ -1,6 +1,6 @@
 # Error Handling in AdapterOS
 
-**Version:** v0.3-alpha
+**Version:** alpha-v0.11-unstable-pre-release
 **Last Updated:** 2025-12-11
 
 This document provides a comprehensive guide to error handling in AdapterOS, including error codes, patterns, helper utilities, and best practices.

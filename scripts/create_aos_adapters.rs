@@ -48,6 +48,8 @@ struct AdapterManifest {
     signature: Option<String>,
     public_key: Option<String>,
     training_config: Option<TrainingConfig>,
+    #[serde(default)]
+    kernel_version: Option<String>,
     metadata: HashMap<String, serde_json::Value>,
 }
 
@@ -204,6 +206,7 @@ fn package_adapter(
             dropout: Some(0.1),
             weight_decay: Some(0.01),
         }),
+        kernel_version: Some(adapteros_core::version::VERSION.to_string()),
         metadata: HashMap::new(),
     };
 

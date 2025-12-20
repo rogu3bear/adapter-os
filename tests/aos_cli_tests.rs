@@ -23,7 +23,7 @@ fn build_aos_command(args: &[&str]) -> Command {
     ])
     .args(args);
     // Provide a valid database URL to satisfy config validation (defaults are stricter).
-    cmd.env("AOS_DATABASE_URL", "sqlite:///tmp/aos-cli-test.db");
+    cmd.env("AOS_DATABASE_URL", "sqlite::memory:");
     cmd.env("AOS_LOG_LEVEL", "info");
     cmd
 }

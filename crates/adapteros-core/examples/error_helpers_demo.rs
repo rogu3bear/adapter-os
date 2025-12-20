@@ -81,7 +81,7 @@ fn main() {
 
     // Example 2: I/O error with path
     println!("Example 2: I/O error with path context");
-    let path = Path::new("/tmp/nonexistent_adapter.toml");
+    let path = Path::new("var/nonexistent_adapter.toml");
     match read_adapter_manifest(path) {
         Ok(result) => println!("  Success: {}", result),
         Err(e) => println!("  Error: {}", e),
@@ -118,7 +118,7 @@ fn main() {
 
     // Example 5: Chained operations
     println!("Example 5: Multiple error types in one function");
-    match load_and_validate_adapter("", Path::new("/tmp/adapter.toml")) {
+    match load_and_validate_adapter("", Path::new("var/adapter.toml")) {
         Ok(result) => println!("  Success: {}", result),
         Err(e) => println!("  Error: {}", e),
     }
@@ -128,7 +128,7 @@ fn main() {
     println!("Error type examples:");
     let errors: Vec<AosError> = vec![
         fetch_adapter_by_id("test").unwrap_err(),
-        read_adapter_manifest(Path::new("/tmp/test")).unwrap_err(),
+        read_adapter_manifest(Path::new("var/test")).unwrap_err(),
         parse_server_port("bad").unwrap_err(),
         validate_adapter_name("").unwrap_err(),
     ];

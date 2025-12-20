@@ -2,9 +2,15 @@ use adapteros_db::users::Role;
 use adapteros_db::{Db, KvDb, StorageMode};
 use tempfile::TempDir;
 
+fn new_test_tempdir() -> TempDir {
+    let root = std::path::PathBuf::from("var").join("tmp");
+    std::fs::create_dir_all(&root).expect("create var/tmp");
+    TempDir::new_in(&root).expect("tempdir")
+}
+
 #[tokio::test]
 async fn kv_only_bootstrap_creates_system_tenant_and_policies() -> adapteros_core::Result<()> {
-    let tmp = TempDir::new().unwrap();
+    let tmp = new_test_tempdir();
     let kv_path = tmp.path().join("kv.redb");
     let kv = KvDb::init_redb(kv_path.as_path())?;
     let mut db = Db::new_kv_only(Some(std::sync::Arc::new(kv)), StorageMode::KvOnly);

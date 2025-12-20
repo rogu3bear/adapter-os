@@ -351,6 +351,30 @@ const ERROR_CODE_MAP: Record<string, (context?: ErrorContext) => UserFriendlyErr
     variant: 'warning'
   }),
 
+  'SYSTEM_NOT_READY': () => ({
+    title: 'System Not Ready',
+    message: 'The system is still starting up. Please wait a moment and try again.',
+    actionText: 'Check Status',
+    helpUrl: '/docs/troubleshooting#startup',
+    variant: 'warning'
+  }),
+
+  'NO_WORKERS': () => ({
+    title: 'No Workers Available',
+    message: 'No inference workers are currently running. Start a worker to enable chat.',
+    actionText: 'Start Worker',
+    helpUrl: '/docs/quickstart#workers',
+    variant: 'warning'
+  }),
+
+  'NO_WORKER_AVAILABLE': () => ({
+    title: 'No Workers Available',
+    message: 'No inference workers are currently running. Start a worker to enable chat.',
+    actionText: 'Start Worker',
+    helpUrl: '/docs/quickstart#workers',
+    variant: 'warning'
+  }),
+
   'MAINTENANCE': () => ({
     title: 'Maintenance In Progress',
     message: 'The system is currently undergoing maintenance. Please try again later.',
@@ -391,6 +415,31 @@ const ERROR_CODE_MAP: Record<string, (context?: ErrorContext) => UserFriendlyErr
     actionText: 'Try Again',
     helpUrl: '/docs/chat#timeouts',
     variant: 'warning'
+  }),
+
+  // Initial page load errors
+  'INITIAL_LOAD_TIMEOUT': () => ({
+    title: 'Loading Timeout',
+    message: 'The page is taking too long to load. The server may be busy or unavailable.',
+    actionText: 'Retry All',
+    helpUrl: '/docs/troubleshooting#timeouts',
+    variant: 'warning'
+  }),
+
+  'NO_WORKERS_AVAILABLE': () => ({
+    title: 'No Workers Available',
+    message: 'No inference workers are available. Start a worker to enable chat.',
+    actionText: 'View Docs',
+    helpUrl: '/docs/quickstart#starting-workers',
+    variant: 'warning'
+  }),
+
+  'DRAINING': () => ({
+    title: 'System Maintenance',
+    message: 'The system is currently draining for maintenance. Please try again shortly.',
+    actionText: 'Check Status',
+    helpUrl: '/docs/status',
+    variant: 'info'
   })
 };
 

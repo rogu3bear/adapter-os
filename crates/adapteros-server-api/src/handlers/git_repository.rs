@@ -769,6 +769,14 @@ impl PathValidator {
         // Construct full path and canonicalize
         let full_path = std::path::Path::new(repo_root).join(file_path);
 
+        // SECURITY: Check for symlinks before exists() to prevent TOCTOU attacks
+        // An attacker could swap a valid file for a symlink between exists() and canonicalize()
+        if full_path.is_symlink() {
+            return Err(AosError::Validation(
+                "Symlinks not allowed in repository file paths".into(),
+            ));
+        }
+
         // Canonicalize repo root
         let canonical_root = std::fs::canonicalize(repo_root)
             .map_err(|e| AosError::Validation(format!("Invalid repo root: {}", e)))?;

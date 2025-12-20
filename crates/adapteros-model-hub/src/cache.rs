@@ -611,8 +611,14 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
+    fn new_test_tempdir() -> TempDir {
+        let root = std::path::PathBuf::from("var").join("tmp");
+        std::fs::create_dir_all(&root).expect("create var/tmp");
+        TempDir::new_in(&root).expect("tempdir")
+    }
+
     fn create_test_cache() -> (ModelCache, TempDir) {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let cache = ModelCache::new(temp_dir.path().to_path_buf()).unwrap();
         (cache, temp_dir)
     }
@@ -726,7 +732,7 @@ mod tests {
 
     #[test]
     fn test_file_lock() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let lock_path = temp_dir.path().join("test.lock");
 
         let lock = FileLock::acquire(&lock_path).unwrap();

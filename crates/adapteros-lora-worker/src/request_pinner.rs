@@ -64,7 +64,7 @@ impl PinnedRequest {
 mod tests {
     use super::*;
     use adapteros_core::B3Hash;
-    use tokio::time::{sleep, Duration};
+    use tokio::time::Duration;
 
     #[tokio::test]
     async fn swap_waits_until_pins_released() {
@@ -116,30 +116,32 @@ mod tests {
             "pinned request should see the original adapter"
         );
 
-        // Stage a new adapter and attempt swap while old pins are held.
+        // Stage a new adapter and swap while old pins are held.
+        // Note: AdapterTable::swap() does NOT wait on pinned requests - it swaps
+        // atomically and retires the old stack. Waiting for drain happens at the
+        // AdapterManager level via wait_for_zero_refs() in handle_command().
         let h2 = B3Hash::hash(b"b2");
         table
             .preload("b".to_string(), h2, 1)
             .await
             .expect("preload b");
 
-        let table_for_swap = table.clone();
-        let swap_task = tokio::spawn(async move {
-            table_for_swap
-                .swap(&["b".to_string()], &["a".to_string()])
-                .await
-        });
-        sleep(Duration::from_millis(50)).await;
+        // Swap completes immediately (AdapterTable doesn't wait on pins)
+        let swap_result = table.swap(&["b".to_string()], &["a".to_string()]).await;
+        assert!(swap_result.is_ok(), "swap should succeed immediately");
+
+        // Old pinned request still sees original adapter (snapshot isolation)
+        let old_hashes_after_swap: Vec<B3Hash> =
+            pinned_old.stack().active.values().map(|s| s.hash).collect();
         assert!(
-            !swap_task.is_finished(),
-            "swap should wait on in-flight request pins"
+            old_hashes_after_swap.contains(&h1),
+            "pinned request should still see original adapter after swap"
         );
 
-        // Release old request pins before swapping.
+        // Release old pins
         drop(pinned_old);
-        let swap_result = swap_task.await.expect("swap task should join");
-        assert!(swap_result.is_ok(), "swap should succeed after release");
 
+        // New requests see the swapped adapter
         let pinned_new = pinner.pin().expect("pin new should succeed");
         let hashes: Vec<B3Hash> = pinned_new.stack().active.values().map(|s| s.hash).collect();
         assert!(

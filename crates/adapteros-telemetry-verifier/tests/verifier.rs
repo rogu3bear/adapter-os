@@ -10,7 +10,9 @@ fn write(path: &std::path::Path, content: &str) {
 }
 
 fn fixture_dir() -> TempDir {
-    TempDir::new().expect("tempdir")
+    let root = std::path::PathBuf::from("var").join("tmp");
+    fs::create_dir_all(&root).expect("create var/tmp");
+    TempDir::new_in(&root).expect("tempdir")
 }
 
 #[test]

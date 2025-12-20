@@ -148,8 +148,10 @@ fn test_file_io_determinism() {
     let global_seed = [0x42; 32];
 
     // Create deterministic temporary files
-    let mut file1 = NamedTempFile::new().unwrap();
-    let mut file2 = NamedTempFile::new().unwrap();
+    let temp_root = std::path::PathBuf::from("var/tmp");
+    std::fs::create_dir_all(&temp_root).unwrap();
+    let mut file1 = NamedTempFile::new_in(&temp_root).unwrap();
+    let mut file2 = NamedTempFile::new_in(&temp_root).unwrap();
 
     // Write identical content using deterministic seeding
     for i in 0..10 {

@@ -247,7 +247,14 @@ pub fn save_manifest<P: AsRef<Path>>(manifest: &AdapterManifest, path: P) -> Res
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
     use tempfile::NamedTempFile;
+
+    fn new_test_tempfile() -> NamedTempFile {
+        let root = PathBuf::from("var").join("tmp");
+        std::fs::create_dir_all(&root).expect("create var/tmp");
+        NamedTempFile::new_in(&root).expect("create temp file")
+    }
 
     fn create_test_manifest() -> AdapterManifest {
         let mut manifest = AdapterManifest::new(
@@ -303,7 +310,7 @@ mod tests {
     #[test]
     fn test_manifest_save_load() {
         let manifest = create_test_manifest();
-        let temp_file = NamedTempFile::new().unwrap();
+        let temp_file = new_test_tempfile();
 
         save_manifest(&manifest, temp_file.path()).unwrap();
         let loaded = load_manifest(temp_file.path()).unwrap();

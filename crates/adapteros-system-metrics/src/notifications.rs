@@ -587,7 +587,7 @@ pub struct NotificationStatus {
 mod tests {
     use super::*;
     use adapteros_telemetry::TelemetryWriter;
-    use std::path::Path;
+    use tempfile::TempDir;
 
     #[tokio::test]
     async fn test_notification_config_defaults() {
@@ -610,8 +610,9 @@ mod tests {
                 .expect("Failed to create test database"),
         );
 
+        let temp_dir = TempDir::new_in(".").unwrap();
         let telemetry_writer = Arc::new(
-            TelemetryWriter::new(Path::new("/tmp"), 1000, 1024 * 1024)
+            TelemetryWriter::new(temp_dir.path(), 1000, 1024 * 1024)
                 .expect("Failed to create telemetry writer"),
         );
 

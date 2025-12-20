@@ -93,10 +93,24 @@ Entry: `src/main.tsx` mounts `BrowserRouter` → `LayoutProvider` → `RootLayou
 
 ### Scripts
 
-- `pnpm dev` - Start full stack development (recommended)
-- `pnpm build` - Build for production
+#### Development
+- `pnpm dev` - Start full stack development (default mode, recommended)
+- `pnpm dev:demo` - Start in demo mode
+- `pnpm dev:minimal` - Start minimal build variant (lightweight)
+- `pnpm service-panel:dev` - Start service panel development server
+
+#### Building
+- `pnpm build` - Build for production (default mode)
+- `pnpm build:demo` - Build in demo mode
+- `pnpm build:minimal` - Build minimal variant
+- `pnpm build:service-panel` - Build service panel variant
+
+#### Testing & Quality
 - `pnpm test` - Run tests
 - `pnpm lint` - Lint code
+- `pnpm format` - Format code with Biome
+
+> **Note**: The build system now uses a unified Vite config. See [VITE_CONFIG_CONSOLIDATION.md](./VITE_CONFIG_CONSOLIDATION.md) for details on build modes and migration from old configs.
 
 ### Backend Integration
 
@@ -264,6 +278,37 @@ The API client automatically:
 - Session persistence via secure cookies
 - Route guards with RequireAuth component
 - Role-based access control (Admin, Operator, SRE, etc.)
+
+## Authentication Mode
+
+AdapterOS UI uses **Bearer-only authentication** for all API calls except auth endpoints.
+
+### How it works
+
+1. **Login** (`/v1/auth/login`): Uses `credentials: 'include'` to receive auth cookies
+2. **Refresh** (`/v1/auth/refresh`): Uses `credentials: 'include'` with CSRF header to send refresh_token cookie
+3. **Logout** (`/v1/auth/logout`): Uses `credentials: 'include'` to clear server session
+4. **All other API calls**: Use `credentials: 'omit'` with `Authorization: Bearer <token>` header
+
+### Why Bearer-only?
+
+- **Security**: CSRF attacks cannot exploit requests that don't send cookies
+- **Simplicity**: No need to manage CSRF tokens for most API calls
+- **Consistency**: Single auth mechanism for API clients (CLI, SDK, UI all use Bearer)
+
+### Direct fetch calls
+
+When using `fetch()` directly (for streaming, blob downloads, etc.), use Bearer auth:
+
+```typescript
+const token = apiClient.getToken();
+const response = await fetch(url, {
+  headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+  credentials: 'omit', // No cookies
+});
+```
+
+Auth endpoints that use cookies MUST include the CSRF header for POST/PUT/PATCH/DELETE operations.
 
 ### Dashboard
 - Real-time system metrics

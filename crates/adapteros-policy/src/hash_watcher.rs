@@ -430,8 +430,14 @@ mod tests {
     use tempfile::TempDir;
     use uuid::Uuid;
 
+    fn new_test_tempdir() -> TempDir {
+        let root = std::path::PathBuf::from("var").join("tmp");
+        std::fs::create_dir_all(&root).expect("create var/tmp");
+        TempDir::new_in(&root).expect("tempdir")
+    }
+
     async fn setup_test_watcher() -> (PolicyHashWatcher, TempDir) {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         // Use unique database name per test to avoid migration conflicts
         let db_path = temp_dir.path().join(format!("test-{}.db", Uuid::new_v4()));
         let db_url = format!("sqlite://{}", db_path.display());

@@ -19,6 +19,12 @@ use adapteros_storage::repos::adapter::AdapterRepository;
 use std::sync::Arc;
 use tempfile::TempDir;
 
+fn new_test_tempdir() -> TempDir {
+    let root = std::path::PathBuf::from("var").join("tmp");
+    std::fs::create_dir_all(&root).expect("create var/tmp");
+    TempDir::new_in(&root).expect("tempdir")
+}
+
 /// Initialize tracing for tests (call once per test)
 fn init_tracing() {
     // Tracing initialization is optional for tests
@@ -32,7 +38,7 @@ fn init_tracing() {
 async fn create_kv_primary_db() -> (Db, TempDir) {
     init_tracing();
 
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = new_test_tempdir();
     let db_path = temp_dir.path().join("test.db");
     let kv_path = temp_dir.path().join("kv.redb");
 
@@ -67,7 +73,7 @@ async fn create_kv_primary_db() -> (Db, TempDir) {
 async fn create_dual_write_db() -> (Db, TempDir) {
     init_tracing();
 
-    let temp_dir = TempDir::new().unwrap();
+    let temp_dir = new_test_tempdir();
     let db_path = temp_dir.path().join("test.db");
     let kv_path = temp_dir.path().join("kv.redb");
 
@@ -155,6 +161,16 @@ async fn insert_adapter_to_kv(
         archived_by: None,
         archive_reason: None,
         purged_at: None,
+        base_model_id: None,
+        manifest_schema_version: None,
+        content_hash_b3: None,
+        provenance_json: None,
+        drift_tier: None,
+        drift_metric: None,
+        drift_loss_metric: None,
+        drift_reference_backend: None,
+        drift_baseline_backend: None,
+        drift_test_backend: None,
     };
 
     let repo = AdapterRepository::new(kv.backend().clone(), kv.index_manager().clone());
@@ -560,8 +576,9 @@ async fn test_kv_primary_find_by_hash() {
 
     // Find by hash - currently falls back to SQL for cross-tenant hash lookup
     // This is expected behavior (see TODO in adapters.rs)
+    // Updated to use tenant hint for 2-phase lookup
     let adapter = db
-        .find_adapter_by_hash("b3:unique_hash_12345")
+        .find_adapter_by_hash("b3:unique_hash_12345", Some("default-tenant"))
         .await
         .unwrap()
         .expect("Adapter should be found by hash");

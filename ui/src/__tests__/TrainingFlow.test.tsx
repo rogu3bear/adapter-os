@@ -61,7 +61,7 @@ const mockApiClient = {
   streamInfer: vi.fn(),
 };
 
-vi.mock('@/api/client', () => ({
+vi.mock('@/api/services', () => ({
   __esModule: true,
   default: mockApiClient,
 }));

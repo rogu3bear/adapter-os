@@ -34,8 +34,7 @@ policies:
     allow_tcp: false
     allow_udp: false
     uds_paths:
-      - "/var/run/aos/default/*.sock"
-      - "/tmp/*.sock"
+      - "/var/run/aos/default"
   determinism:
     require_metallib_embed: false
     require_kernel_hash_match: false

@@ -40,8 +40,9 @@ impl TestConfig {
             OperationTracker::new_with_progress(std::time::Duration::from_secs(300), progress_tx);
 
         // Create temporary directory for test adapters
-        let temp_dir =
-            std::env::temp_dir().join(format!("adapter_integration_test_{}", Uuid::new_v4()));
+        let temp_root = PathBuf::from("var/tmp");
+        std::fs::create_dir_all(&temp_root).unwrap();
+        let temp_dir = temp_root.join(format!("adapter_integration_test_{}", Uuid::new_v4()));
         std::fs::create_dir_all(&temp_dir).unwrap();
 
         Self {

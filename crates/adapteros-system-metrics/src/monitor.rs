@@ -396,16 +396,20 @@ impl SystemMonitoringService {
 mod tests {
     use super::*;
     use adapteros_telemetry::TelemetryWriter;
-    use std::path::Path;
     use std::sync::Arc;
+    use tempfile::TempDir;
+
+    fn test_telemetry_writer() -> (TempDir, Arc<TelemetryWriter>) {
+        let dir = TempDir::new_in(".").expect("test telemetry dir");
+        let writer = TelemetryWriter::new(dir.path(), 1000, 1024 * 1024)
+            .expect("Test telemetry writer creation should succeed");
+        (dir, Arc::new(writer))
+    }
 
     #[tokio::test]
     async fn test_monitor_creation() {
         let config = MetricsConfig::default();
-        let telemetry_writer = Arc::new(
-            TelemetryWriter::new(Path::new("/tmp"), 1000, 1024 * 1024)
-                .expect("Test telemetry writer creation should succeed"),
-        );
+        let (_dir, telemetry_writer) = test_telemetry_writer();
         let test_seed = B3Hash::hash(b"test_seed");
         let monitor = SystemMonitor::new(telemetry_writer, config, &test_seed);
 
@@ -415,10 +419,7 @@ mod tests {
     #[tokio::test]
     async fn test_metrics_collection() {
         let config = MetricsConfig::default();
-        let telemetry_writer = Arc::new(
-            TelemetryWriter::new(Path::new("/tmp"), 1000, 1024 * 1024)
-                .expect("Test telemetry writer creation should succeed"),
-        );
+        let (_dir, telemetry_writer) = test_telemetry_writer();
         let test_seed = B3Hash::hash(b"test_seed");
         let mut monitor = SystemMonitor::new(telemetry_writer, config, &test_seed);
 
@@ -430,10 +431,7 @@ mod tests {
     #[tokio::test]
     async fn test_health_status() {
         let config = MetricsConfig::default();
-        let telemetry_writer = Arc::new(
-            TelemetryWriter::new(Path::new("/tmp"), 1000, 1024 * 1024)
-                .expect("Test telemetry writer creation should succeed"),
-        );
+        let (_dir, telemetry_writer) = test_telemetry_writer();
         let test_seed = B3Hash::hash(b"test_seed");
         let mut monitor = SystemMonitor::new(telemetry_writer, config, &test_seed);
 
@@ -456,14 +454,8 @@ mod tests {
         };
 
         let seed = B3Hash::hash(b"determinism_test_seed");
-        let telemetry_writer1 = Arc::new(
-            TelemetryWriter::new(Path::new("/tmp"), 1000, 1024 * 1024)
-                .expect("Test telemetry writer creation should succeed"),
-        );
-        let telemetry_writer2 = Arc::new(
-            TelemetryWriter::new(Path::new("/tmp"), 1000, 1024 * 1024)
-                .expect("Test telemetry writer creation should succeed"),
-        );
+        let (_dir1, telemetry_writer1) = test_telemetry_writer();
+        let (_dir2, telemetry_writer2) = test_telemetry_writer();
 
         let monitor1 = SystemMonitor::new(telemetry_writer1, config.clone(), &seed);
         let monitor2 = SystemMonitor::new(telemetry_writer2, config.clone(), &seed);
@@ -503,14 +495,8 @@ mod tests {
         let seed1 = B3Hash::hash(b"seed_1");
         let seed2 = B3Hash::hash(b"seed_2");
 
-        let telemetry_writer1 = Arc::new(
-            TelemetryWriter::new(Path::new("/tmp"), 1000, 1024 * 1024)
-                .expect("Test telemetry writer creation should succeed"),
-        );
-        let telemetry_writer2 = Arc::new(
-            TelemetryWriter::new(Path::new("/tmp"), 1000, 1024 * 1024)
-                .expect("Test telemetry writer creation should succeed"),
-        );
+        let (_dir1, telemetry_writer1) = test_telemetry_writer();
+        let (_dir2, telemetry_writer2) = test_telemetry_writer();
 
         let monitor1 = SystemMonitor::new(telemetry_writer1, config.clone(), &seed1);
         let monitor2 = SystemMonitor::new(telemetry_writer2, config.clone(), &seed2);

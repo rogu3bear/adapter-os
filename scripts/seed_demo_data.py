@@ -541,7 +541,7 @@ def seed_core_entities(cur: sqlite3.Cursor) -> None:
             "default",
             "node-demo-east",
             "plan-demo-qwen",
-            "/tmp/aos-demo.sock",
+            "/var/run/aos/default/worker.sock",
             4312,
             "serving",
             34.2,

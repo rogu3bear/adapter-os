@@ -29,6 +29,7 @@
 //!    - ❌ `"Verification failed"`
 
 use crate::B3Hash;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use zip::result::ZipError;
 
@@ -41,7 +42,7 @@ pub type Result<T> = std::result::Result<T, AosError>;
 ///
 /// [source: crates/adapteros-core/src/error.rs L38-388]
 /// [source: CLAUDE.md#error-handling]
-/// [source: docs/ARCHITECTURE_INDEX.md#error-handling]
+/// [source: docs/ERRORS.md#error-handling]
 #[derive(Error, Debug)]
 pub enum AosError {
     #[error("Invalid hash: {0}")]
@@ -170,6 +171,27 @@ pub enum AosError {
         resource: String,
         /// Failure code string (e.g., "KV_QUOTA_EXCEEDED")
         failure_code: Option<String>,
+    },
+
+    /// Model cache budget exceeded during eviction
+    ///
+    /// This error occurs when the model cache cannot free enough memory
+    /// to accommodate a new model load, typically because entries are
+    /// pinned (base models) or active (in-flight inference).
+    #[error("Model cache budget exceeded: needed {needed_mb} MB, freed {freed_mb} MB (pinned={pinned_count}, active={active_count}), max {max_mb} MB")]
+    CacheBudgetExceeded {
+        /// Memory needed in megabytes
+        needed_mb: u64,
+        /// Memory freed during eviction attempt in megabytes
+        freed_mb: u64,
+        /// Number of pinned entries that blocked eviction
+        pinned_count: usize,
+        /// Number of active entries that blocked eviction
+        active_count: usize,
+        /// Maximum cache budget in megabytes
+        max_mb: u64,
+        /// Optional model key identifier (for diagnostics)
+        model_key: Option<String>,
     },
 
     #[error("Resource unavailable: {0}")]
@@ -378,6 +400,53 @@ pub enum AosError {
         #[source]
         source: Box<AosError>,
     },
+}
+
+/// Serializable representation of cache budget exceeded error
+///
+/// This struct is used to transport cache budget error details across
+/// serialization boundaries (e.g., UDS, HTTP responses) where the full
+/// `AosError` type cannot be directly serialized.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CacheBudgetExceededInfo {
+    /// Memory needed in megabytes
+    pub needed_mb: u64,
+    /// Memory freed during eviction attempt in megabytes
+    pub freed_mb: u64,
+    /// Number of pinned entries that blocked eviction
+    pub pinned_count: usize,
+    /// Number of active entries that blocked eviction
+    pub active_count: usize,
+    /// Maximum cache budget in megabytes
+    pub max_mb: u64,
+    /// Optional model key identifier (for diagnostics)
+    pub model_key: Option<String>,
+}
+
+impl CacheBudgetExceededInfo {
+    /// Extract info from an `AosError::CacheBudgetExceeded` variant
+    ///
+    /// Returns `None` if the error is not a `CacheBudgetExceeded` variant.
+    pub fn from_error(e: &AosError) -> Option<Self> {
+        match e {
+            AosError::CacheBudgetExceeded {
+                needed_mb,
+                freed_mb,
+                pinned_count,
+                active_count,
+                max_mb,
+                model_key,
+            } => Some(Self {
+                needed_mb: *needed_mb,
+                freed_mb: *freed_mb,
+                pinned_count: *pinned_count,
+                active_count: *active_count,
+                max_mb: *max_mb,
+                model_key: model_key.clone(),
+            }),
+            _ => None,
+        }
+    }
 }
 
 // Rusqlite conversions removed to avoid conflicts with sqlx

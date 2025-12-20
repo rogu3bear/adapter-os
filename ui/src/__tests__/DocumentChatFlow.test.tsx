@@ -24,6 +24,21 @@ import type { AdapterStack } from '@/api/types';
 import type { Collection, Document, DocumentChunk } from '@/api/document-types';
 import type { ChatSession as LocalChatSession } from '@/types/chat';
 
+// Disable virtualization in tests so chat messages render deterministically in JSDOM.
+vi.mock('@tanstack/react-virtual', () => ({
+  useVirtualizer: ({ count }: { count: number }) => ({
+    getTotalSize: () => count * 150,
+    getVirtualItems: () => Array.from({ length: count }, (_, index) => ({ index, start: index * 150 })),
+    measureElement: () => undefined,
+    scrollToIndex: () => undefined,
+  }),
+}));
+
+// Mock useTenant for tenant-scoped query keys
+vi.mock('@/providers/FeatureProviders', () => ({
+  useTenant: () => ({ selectedTenant: 'test-tenant' }),
+}));
+
 // ============================================================================
 // Mock Data
 // ============================================================================
@@ -139,7 +154,7 @@ const mockCreateChatSession = vi.fn();
 const mockAddChatMessage = vi.fn();
 
 // Mock API client - use arrow functions to access external mocks
-vi.mock('@/api/client', () => ({
+vi.mock('@/api/services', () => ({
   __esModule: true,
   default: {
     streamInfer: vi.fn((...args) => mockStreamInfer(...args)),
@@ -156,7 +171,7 @@ vi.mock('@/api/client', () => ({
 }));
 
 // Mock hooks with proper return values
-vi.mock('@/hooks/useAdmin', () => ({
+vi.mock('@/hooks/admin/useAdmin', () => ({
   useAdapterStacks: () => ({
     data: [mockStack],
     isLoading: false,
@@ -169,7 +184,7 @@ vi.mock('@/hooks/useAdmin', () => ({
   }),
 }));
 
-vi.mock('@/hooks/useCollectionsApi', () => ({
+vi.mock('@/hooks/api/useCollectionsApi', () => ({
   useCollections: () => ({
     data: [mockCollection],
     isLoading: false,
@@ -194,8 +209,29 @@ vi.mock('@/hooks/chat', async () => {
       continueWithUnready: vi.fn(),
       sseConnected: true,
     }),
+    useSessionManager: () => {
+      const [currentSessionId, setCurrentSessionId] = React.useState<string | null>(null);
+      const [messages, setMessages] = React.useState([]);
+
+      return {
+        currentSessionId,
+        messages,
+        setMessages,
+        setCurrentSessionId,
+        clearSession: vi.fn(() => {
+          setCurrentSessionId(null);
+          setMessages([]);
+        }),
+        loadSession: vi.fn(),
+        createSession: vi.fn(),
+      };
+    },
   };
 });
+
+vi.mock('@/hooks/config/useFeatureFlags', () => ({
+  useChatAutoLoadModels: () => false,
+}));
 
 // Simplify Select component for testing to avoid portal behavior
 vi.mock('@/components/ui/select', () => {
@@ -231,6 +267,7 @@ vi.mock('@/hooks/model-loading', () => ({
   useModelLoadingState: () => ({
     isLoading: false,
     overallReady: true,
+    baseModelReady: true,
     error: null,
     loadingAdapters: [],
     readyAdapters: [],
@@ -255,7 +292,7 @@ vi.mock('@/hooks/model-loading', () => ({
 }));
 
 const mockUseChatSessionsApi = vi.fn();
-vi.mock('@/hooks/useChatSessionsApi', () => ({
+vi.mock('@/hooks/chat/useChatSessionsApi', () => ({
   useChatSessionsApi: (tenantId: string) => mockUseChatSessionsApi(tenantId),
 }));
 
@@ -330,7 +367,12 @@ async function waitForSendReady() {
 
 describe('DocumentChatFlow Integration', () => {
   beforeEach(() => {
+    vi.useRealTimers();
     vi.clearAllMocks();
+
+    // Reset mockStreamInfer implementation to ensure test isolation
+    // (clearAllMocks only clears call history, not implementations)
+    mockStreamInfer.mockReset();
 
     // Setup default useChatSessionsApi mock
     mockUseChatSessionsApi.mockReturnValue({
@@ -399,6 +441,7 @@ describe('DocumentChatFlow Integration', () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.clearAllMocks();
   });
 
@@ -459,18 +502,19 @@ describe('DocumentChatFlow Integration', () => {
         (
           req: unknown,
           callbacks: {
-            onToken: (token: string) => void;
+            onToken: (token: string, chunk: { id?: string }) => void;
             onComplete: (text: string, reason: string | null) => void;
             onError: (error: Error) => void;
           }
         ) => {
+          const mockChunk = { id: 'test-trace-id' };
           setTimeout(() => {
-            callbacks.onToken('The ');
-            callbacks.onToken('authentication ');
-            callbacks.onToken('system ');
-            callbacks.onToken('uses ');
-            callbacks.onToken('JWT ');
-            callbacks.onToken('tokens.');
+            callbacks.onToken('The ', mockChunk);
+            callbacks.onToken('authentication ', mockChunk);
+            callbacks.onToken('system ', mockChunk);
+            callbacks.onToken('uses ', mockChunk);
+            callbacks.onToken('JWT ', mockChunk);
+            callbacks.onToken('tokens.', mockChunk);
             callbacks.onComplete('The authentication system uses JWT tokens.', 'stop');
           }, 10);
           return Promise.resolve();
@@ -526,12 +570,26 @@ describe('DocumentChatFlow Integration', () => {
     });
 
     it('displays loading state during message streaming', async () => {
-      let resolveStream: ((value: void) => void) | null = null;
-      const streamPromise = new Promise<void>((resolve) => {
-        resolveStream = resolve;
-      });
+      let streamCallbacks: {
+        onToken: (token: string, chunk?: { id?: string }) => void;
+        onComplete: (text: string, reason: string | null, metadata?: { request_id?: string }) => void;
+        onError: (error: Error) => void;
+      } | null = null;
 
-      mockStreamInfer.mockImplementation(() => streamPromise);
+      mockStreamInfer.mockImplementation(
+        (
+          req: unknown,
+          callbacks: {
+            onToken: (token: string, chunk?: { id?: string }) => void;
+            onComplete: (text: string, reason: string | null, metadata?: { request_id?: string }) => void;
+            onError: (error: Error) => void;
+          }
+        ) => {
+          streamCallbacks = callbacks;
+          // Return a promise that resolves immediately - the callbacks control the stream state
+          return Promise.resolve();
+        }
+      );
 
       render(
         <TestWrapper>
@@ -555,8 +613,12 @@ describe('DocumentChatFlow Integration', () => {
         expect(loadingButton).toBeDisabled();
       });
 
-      // Resolve stream
-      resolveStream?.();
+      // Complete the stream to clean up properly
+      if (streamCallbacks) {
+        const mockChunk = { id: 'test-request-123' };
+        streamCallbacks.onToken('Done', mockChunk);
+        streamCallbacks.onComplete('Done', 'stop', { request_id: 'test-request-123' });
+      }
     });
 
     it('handles inference errors gracefully', async () => {
@@ -564,7 +626,7 @@ describe('DocumentChatFlow Integration', () => {
         (
           req: unknown,
           callbacks: {
-            onToken: (token: string) => void;
+            onToken: (token: string, chunk?: { id?: string }) => void;
             onComplete: (text: string, reason: string | null) => void;
             onError: (error: Error) => void;
           }
@@ -605,15 +667,17 @@ describe('DocumentChatFlow Integration', () => {
         (
           req: unknown,
           callbacks: {
-            onToken: (token: string) => void;
+            onToken: (token: string, chunk?: { id?: string }) => void;
             onComplete: (text: string, reason: string | null, metadata?: { request_id?: string }) => void;
             onError: (error: Error) => void;
           }
         ) => {
-          setTimeout(() => {
-            callbacks.onToken('Response text');
+          const mockChunk = { id: 'test-request-123' };
+          // Use queueMicrotask for more reliable async scheduling in test environment
+          queueMicrotask(() => {
+            callbacks.onToken('Response text', mockChunk);
             callbacks.onComplete('Response text', 'stop', { request_id: 'test-request-123' });
-          }, 10);
+          });
           return Promise.resolve();
         }
       );
@@ -634,10 +698,9 @@ describe('DocumentChatFlow Integration', () => {
       const sendButton = screen.getByRole('button', { name: /send message/i });
       await user.click(sendButton);
 
-      // Wait for response to complete
-      await waitFor(() => {
-        expect(screen.getByText('Response text')).toBeInTheDocument();
-      });
+      // Wait for response to complete - use findByText for more reliable async waiting
+      const responseText = await screen.findByText('Response text', {}, { timeout: 3000 });
+      expect(responseText).toBeInTheDocument();
 
       // Verify evidence was fetched
       await waitFor(
@@ -653,12 +716,14 @@ describe('DocumentChatFlow Integration', () => {
         (
           req: unknown,
           callbacks: {
-            onToken: (token: string) => void;
+            onToken: (token: string, chunk?: { id?: string }) => void;
             onComplete: (text: string, reason: string | null, metadata?: { request_id?: string }) => void;
             onError: (error: Error) => void;
           }
         ) => {
+          const mockChunk = { id: 'test-request-123' };
           setTimeout(() => {
+            callbacks.onToken('Response', mockChunk);
             callbacks.onComplete('Response', 'stop', { request_id: 'test-request-123' });
           }, 10);
           return Promise.resolve();
@@ -704,12 +769,14 @@ describe('DocumentChatFlow Integration', () => {
         (
           req: unknown,
           callbacks: {
-            onToken: (token: string) => void;
+            onToken: (token: string, chunk?: { id?: string }) => void;
             onComplete: (text: string, reason: string | null, metadata?: { request_id?: string }) => void;
             onError: (error: Error) => void;
           }
         ) => {
+          const mockChunk = { id: 'test-request-123' };
           setTimeout(() => {
+            callbacks.onToken('Response', mockChunk);
             callbacks.onComplete('Response', 'stop', { request_id: 'test-request-123' });
           }, 10);
           return Promise.resolve();
@@ -755,12 +822,14 @@ describe('DocumentChatFlow Integration', () => {
         (
           req: unknown,
           callbacks: {
-            onToken: (token: string) => void;
+            onToken: (token: string, chunk?: { id?: string }) => void;
             onComplete: (text: string, reason: string | null, metadata?: { request_id?: string }) => void;
             onError: (error: Error) => void;
           }
         ) => {
+          const mockChunk = { id: 'test-request-123' };
           setTimeout(() => {
+            callbacks.onToken('Response', mockChunk);
             callbacks.onComplete('Response', 'stop', { request_id: 'test-request-123' });
           }, 10);
           return Promise.resolve();
@@ -809,12 +878,14 @@ describe('DocumentChatFlow Integration', () => {
         (
           req: unknown,
           callbacks: {
-            onToken: (token: string) => void;
+            onToken: (token: string, chunk?: { id?: string }) => void;
             onComplete: (text: string, reason: string | null, metadata?: { request_id?: string }) => void;
             onError: (error: Error) => void;
           }
         ) => {
+          const mockChunk = { id: 'test-request-123' };
           setTimeout(() => {
+            callbacks.onToken('Response', mockChunk);
             callbacks.onComplete('Response', 'stop', { request_id: 'test-request-123' });
           }, 10);
           return Promise.resolve();
@@ -861,12 +932,14 @@ describe('DocumentChatFlow Integration', () => {
         (
           req: unknown,
           callbacks: {
-            onToken: (token: string) => void;
+            onToken: (token: string, chunk?: { id?: string }) => void;
             onComplete: (text: string, reason: string | null, metadata?: { request_id?: string }) => void;
             onError: (error: Error) => void;
           }
         ) => {
+          const mockChunk = { id: 'test-request-123' };
           setTimeout(() => {
+            callbacks.onToken('Response', mockChunk);
             callbacks.onComplete('Response', 'stop', { request_id: 'test-request-123' });
           }, 10);
           return Promise.resolve();
@@ -968,12 +1041,14 @@ describe('DocumentChatFlow Integration', () => {
         (
           req: unknown,
           callbacks: {
-            onToken: (token: string) => void;
+            onToken: (token: string, chunk?: { id?: string }) => void;
             onComplete: (text: string, reason: string | null, metadata?: { request_id?: string }) => void;
             onError: (error: Error) => void;
           }
         ) => {
+          const mockChunk = { id: 'test-request-123' };
           setTimeout(() => {
+            callbacks.onToken('Response', mockChunk);
             callbacks.onComplete('Response', 'stop', { request_id: 'test-request-123' });
           }, 10);
           return Promise.resolve();
@@ -1032,12 +1107,14 @@ describe('DocumentChatFlow Integration', () => {
         (
           req: unknown,
           callbacks: {
-            onToken: (token: string) => void;
+            onToken: (token: string, chunk?: { id?: string }) => void;
             onComplete: (text: string, reason: string | null, metadata?: { request_id?: string }) => void;
             onError: (error: Error) => void;
           }
         ) => {
+          const mockChunk = { id: 'test-request-123' };
           setTimeout(() => {
+            callbacks.onToken('Response', mockChunk);
             callbacks.onComplete('Response', 'stop', { request_id: 'test-request-123' });
           }, 10);
           return Promise.resolve();
@@ -1076,12 +1153,14 @@ describe('DocumentChatFlow Integration', () => {
         (
           req: unknown,
           callbacks: {
-            onToken: (token: string) => void;
+            onToken: (token: string, chunk?: { id?: string }) => void;
             onComplete: (text: string, reason: string | null, metadata?: { request_id?: string }) => void;
             onError: (error: Error) => void;
           }
         ) => {
+          const mockChunk = { id: 'test-request-123' };
           setTimeout(() => {
+            callbacks.onToken('Response', mockChunk);
             callbacks.onComplete('Response', 'stop', { request_id: 'test-request-123' });
           }, 10);
           return Promise.resolve();
@@ -1117,7 +1196,7 @@ describe('DocumentChatFlow Integration', () => {
         (
           req: unknown,
           callbacks: {
-            onToken: (token: string) => void;
+            onToken: (token: string, chunk?: { id?: string }) => void;
             onComplete: (text: string, reason: string | null) => void;
             onError: (error: Error) => void;
           }

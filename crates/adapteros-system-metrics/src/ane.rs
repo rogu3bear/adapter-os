@@ -79,9 +79,9 @@ impl AneMetricsCollector {
                 .args(["-n", "machdep.cpu.brand_string"])
                 .output()
                 .ok()
-                .and_then(|output| {
+                .map(|output| {
                     let brand = String::from_utf8_lossy(&output.stdout);
-                    Some(brand.contains("Apple"))
+                    brand.contains("Apple")
                 })
                 .unwrap_or(false);
 
@@ -105,7 +105,7 @@ impl AneMetricsCollector {
             .args(["-n", "machdep.cpu.brand_string"])
             .output()
             .ok()
-            .and_then(|output| Some(String::from_utf8_lossy(&output.stdout).to_string()))
+            .map(|output| String::from_utf8_lossy(&output.stdout).to_string())
             .unwrap_or_default();
 
         // Rough estimation based on Apple Silicon generation

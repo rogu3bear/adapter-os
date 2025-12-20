@@ -621,6 +621,12 @@ mod tests {
     use crate::packager::{PackageOptions, SingleFileAdapterPackager};
     use tempfile::TempDir;
 
+    fn new_test_tempdir() -> TempDir {
+        let root = std::path::PathBuf::from("var").join("tmp");
+        std::fs::create_dir_all(&root).expect("create var/tmp");
+        TempDir::new_in(&root).expect("tempdir")
+    }
+
     fn create_test_adapter() -> SingleFileAdapter {
         let positive = WeightGroup {
             lora_a: vec![vec![0.1, 0.2], vec![0.3, 0.4]],
@@ -673,7 +679,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "FIXME: This test hangs indefinitely - investigate ZIP parsing performance issue"]
     async fn test_mmap_vs_standard_manifest() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let aos_path = temp_dir.path().join("mmap_manifest_test.aos");
 
         let adapter = create_test_adapter();
@@ -725,7 +731,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_zero_copy_weights_when_stored() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let aos_path = temp_dir.path().join("mmap_zero_copy_test.aos");
 
         let adapter = create_test_adapter();
@@ -756,7 +762,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_lru_eviction() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let aos1 = temp_dir.path().join("a1.aos");
         let aos2 = temp_dir.path().join("a2.aos");
 
@@ -797,7 +803,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_mmap_skip_rejected_in_production_mode() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let aos_path = temp_dir.path().join("prod_guard_mmap.aos");
 
         let adapter = create_test_adapter();
@@ -831,7 +837,7 @@ mod tests {
         use std::sync::Arc as StdArc;
         use tokio::task::JoinSet;
 
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let aos_path = temp_dir.path().join("mmap_concurrent.aos");
 
         let adapter = create_test_adapter();

@@ -13,6 +13,8 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 MIGRATIONS_DIR="$PROJECT_ROOT/migrations"
 SIGNATURES_FILE="$MIGRATIONS_DIR/signatures.json"
 KEY_FILE="$PROJECT_ROOT/var/migration_signing_key.txt"
+TMP_WORK_DIR="$PROJECT_ROOT/var/tmp"
+mkdir -p "$TMP_WORK_DIR"
 
 # Colors for output
 RED='\033[0;31m'
@@ -92,10 +94,12 @@ for migration_file in "$MIGRATIONS_DIR"/*.sql; do
     fi
 
     # Sign the file hash
-    echo -n "$file_hash" > /tmp/hash_input.txt
-    $OPENSSL_BIN pkeyutl -sign -rawin -inkey "$KEY_FILE" -in /tmp/hash_input.txt -out /tmp/migration.sig 2>/dev/null
-    signature=$(base64 < /tmp/migration.sig | tr -d '\n')
-    rm -f /tmp/migration.sig /tmp/hash_input.txt
+    hash_input="$(mktemp "$TMP_WORK_DIR/hash_input.XXXXXX")"
+    sig_file="$(mktemp "$TMP_WORK_DIR/migration.sig.XXXXXX")"
+    echo -n "$file_hash" > "$hash_input"
+    $OPENSSL_BIN pkeyutl -sign -rawin -inkey "$KEY_FILE" -in "$hash_input" -out "$sig_file" 2>/dev/null
+    signature=$(base64 < "$sig_file" | tr -d '\n')
+    rm -f "$sig_file" "$hash_input"
 
     # Add to JSON (with comma handling)
     if [ "$first" = true ]; then
@@ -154,14 +158,16 @@ for migration_file in "$MIGRATIONS_DIR"/*.sql; do
     fi
 
     # Verify signature
-    echo "$signature" | base64 -d > /tmp/migration.sig
-    echo -n "$file_hash" > /tmp/hash_input.txt
-    if $OPENSSL_BIN pkeyutl -verify -rawin -pubin -inkey "$PUBLIC_KEY_FILE" -in /tmp/hash_input.txt -sigfile /tmp/migration.sig 2>/dev/null; then
+    sig_file="$(mktemp "$TMP_WORK_DIR/migration.sig.XXXXXX")"
+    hash_input="$(mktemp "$TMP_WORK_DIR/hash_input.XXXXXX")"
+    echo "$signature" | base64 -d > "$sig_file"
+    echo -n "$file_hash" > "$hash_input"
+    if $OPENSSL_BIN pkeyutl -verify -rawin -pubin -inkey "$PUBLIC_KEY_FILE" -in "$hash_input" -sigfile "$sig_file" 2>/dev/null; then
         verify_count=$((verify_count + 1))
     else
         echo -e "${RED}✗ Signature verification failed for $filename${NC}"
     fi
-    rm -f /tmp/migration.sig /tmp/hash_input.txt
+    rm -f "$sig_file" "$hash_input"
 done
 
 echo -e "${GREEN}✓ Verified $verify_count/$migration_count signatures${NC}"

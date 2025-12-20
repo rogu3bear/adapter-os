@@ -1,3 +1,13 @@
+/**
+ * DEPRECATED: This config is superseded by vite.config.ts with VITE_BUILD_MODE=minimal
+ *
+ * Migration:
+ *   Old: vite build --config vite.config.minimal.ts
+ *   New: VITE_BUILD_MODE=minimal vite build
+ *
+ * This file is kept for backwards compatibility and will be removed in a future release.
+ */
+
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react-swc';
 import path from 'path';
@@ -26,16 +36,16 @@ export default defineConfig({
     reportCompressedSize: true
   },
   server: {
-    port: 3200,
+    port: parseInt(process.env.AOS_UI_PORT || '3200', 10),
     strictPort: true,
     proxy: {
       '/api': {
-        target: 'http://localhost:8080',
+        target: `http://localhost:${process.env.AOS_SERVER_PORT || '8080'}`,
         changeOrigin: true,
         secure: false,
       },
       '/v1': {
-        target: 'http://localhost:8080',
+        target: `http://localhost:${process.env.AOS_SERVER_PORT || '8080'}`,
         changeOrigin: true,
         secure: false,
       },

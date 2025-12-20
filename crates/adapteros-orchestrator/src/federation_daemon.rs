@@ -390,10 +390,17 @@ impl FederationDaemon {
 mod tests {
     use super::*;
     use adapteros_crypto::Keypair;
+    use adapteros_platform::common::PlatformUtils;
     use tempfile::TempDir;
 
+    fn new_test_tempdir() -> TempDir {
+        let root = PlatformUtils::temp_dir();
+        std::fs::create_dir_all(&root).expect("create var/tmp");
+        TempDir::new_in(&root).expect("tempdir")
+    }
+
     async fn setup_test_daemon() -> (FederationDaemon, TempDir) {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let db_path = temp_dir.path().join("test.db");
         let db_url = format!("sqlite://{}", db_path.display());
 

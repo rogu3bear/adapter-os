@@ -8,13 +8,15 @@
 use adapteros_orchestrator::{Orchestrator, OrchestratorConfig, ReportFormat};
 use anyhow::Result;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use tempfile::TempDir;
 
 #[tokio::test]
 async fn test_orchestrator_gate_run() -> Result<()> {
     // Create temporary directory for test
-    let temp_dir = TempDir::new()?;
+    let root = PathBuf::from("var").join("tmp");
+    std::fs::create_dir_all(&root)?;
+    let temp_dir = TempDir::new_in(&root)?;
     let temp_path = temp_dir.path();
 
     // Create test database
@@ -195,7 +197,9 @@ seeds:
 #[tokio::test]
 async fn test_orchestrator_gate_failure() -> Result<()> {
     // Test orchestrator behavior when gates fail
-    let temp_dir = TempDir::new()?;
+    let root = PathBuf::from("var").join("tmp");
+    std::fs::create_dir_all(&root)?;
+    let temp_dir = TempDir::new_in(&root)?;
     let temp_path = temp_dir.path();
 
     // Create test database

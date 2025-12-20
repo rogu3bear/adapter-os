@@ -1,4 +1,4 @@
-//! Adapter lifecycle management for MPLoRA
+//! Adapter lifecycle management for DIR
 //!
 //! Orchestrates adapter state transitions:
 //! - Promotion (Cold → Warm → Hot → Resident)
@@ -2887,6 +2887,16 @@ mod tests {
     use adapteros_core::B3Hash;
     use adapteros_manifest::Policies;
     use std::collections::HashMap;
+    use tempfile::{Builder as TempDirBuilder, TempDir};
+
+    fn new_test_tempdir(prefix: &str) -> TempDir {
+        let root = std::path::PathBuf::from("var/tmp");
+        let _ = std::fs::create_dir_all(&root);
+        TempDirBuilder::new()
+            .prefix(prefix)
+            .tempdir_in(&root)
+            .expect("Test temp directory creation should succeed")
+    }
 
     fn test_policies() -> Policies {
         Policies::default()
@@ -2902,15 +2912,15 @@ mod tests {
     #[tokio::test]
     async fn test_lifecycle_basic() {
         let adapter_names = vec!["adapter_0".to_string(), "adapter_1".to_string()];
-        let temp_dir = std::env::temp_dir().join("mplora_test_lifecycle");
-        std::fs::create_dir_all(&temp_dir).expect("Test temp directory creation should succeed");
+        let temp_dir = new_test_tempdir("mplora_test_lifecycle_");
+        let temp_dir_path = temp_dir.path().to_path_buf();
 
         let adapter_hashes = build_adapter_hashes(&adapter_names);
         let manager = LifecycleManager::new(
             adapter_names.clone(),
             adapter_hashes,
             &test_policies(),
-            temp_dir.clone(),
+            temp_dir_path.clone(),
             None,
             3,
         );
@@ -2931,22 +2941,20 @@ mod tests {
             .await
             .expect("Test adapter demotion should succeed");
         assert_eq!(manager.get_state(0), Some(AdapterState::Unloaded));
-
-        std::fs::remove_dir_all(temp_dir).expect("Test cleanup should succeed");
     }
 
     #[tokio::test]
     async fn test_pinning() {
         let adapter_names = vec!["adapter_0".to_string()];
-        let temp_dir = std::env::temp_dir().join("mplora_test_pinning");
-        std::fs::create_dir_all(&temp_dir).expect("Test temp directory creation should succeed");
+        let temp_dir = new_test_tempdir("mplora_test_pinning_");
+        let temp_dir_path = temp_dir.path().to_path_buf();
 
         let adapter_hashes = build_adapter_hashes(&adapter_names);
         let manager = LifecycleManager::new(
             adapter_names.clone(),
             adapter_hashes,
             &test_policies(),
-            temp_dir.clone(),
+            temp_dir_path.clone(),
             None,
             3,
         );
@@ -2972,22 +2980,20 @@ mod tests {
             .await
             .expect("Test adapter demotion should succeed");
         assert_eq!(manager.get_state(0), Some(AdapterState::Hot));
-
-        std::fs::remove_dir_all(temp_dir).expect("Test cleanup should succeed");
     }
 
     #[tokio::test]
     async fn router_decision_updates_activation_and_eviction() {
         let adapter_names = vec!["adapter_a".to_string(), "adapter_b".to_string()];
-        let temp_dir = std::env::temp_dir().join("mplora_activation_tracker");
-        std::fs::create_dir_all(&temp_dir).expect("Test temp directory creation should succeed");
+        let temp_dir = new_test_tempdir("mplora_activation_tracker_");
+        let temp_dir_path = temp_dir.path().to_path_buf();
 
         let adapter_hashes = build_adapter_hashes(&adapter_names);
         let manager = LifecycleManager::new(
             adapter_names.clone(),
             adapter_hashes,
             &test_policies(),
-            temp_dir.clone(),
+            temp_dir_path.clone(),
             None,
             2,
         );
@@ -3025,8 +3031,6 @@ mod tests {
             "Adapter 0 should be demoted, got {:?}",
             state0
         );
-
-        std::fs::remove_dir_all(temp_dir).expect("Test cleanup should succeed");
     }
 
     /// Test deadlock detection: concurrent operations should complete without hanging.
@@ -3042,16 +3046,15 @@ mod tests {
             "adapter_1".to_string(),
             "adapter_2".to_string(),
         ];
-        let temp_dir = std::env::temp_dir().join("mplora_test_deadlock_concurrent");
-        let _ = std::fs::remove_dir_all(&temp_dir);
-        std::fs::create_dir_all(&temp_dir).expect("Test temp directory creation should succeed");
+        let temp_dir = new_test_tempdir("mplora_test_deadlock_concurrent_");
+        let temp_dir_path = temp_dir.path().to_path_buf();
 
         let adapter_hashes = build_adapter_hashes(&adapter_names);
         let manager = Arc::new(LifecycleManager::new(
             adapter_names.clone(),
             adapter_hashes,
             &test_policies(),
-            temp_dir.clone(),
+            temp_dir_path.clone(),
             None,
             3,
         ));
@@ -3098,23 +3101,21 @@ mod tests {
             3,
             "All concurrent operations should complete"
         );
-
-        std::fs::remove_dir_all(temp_dir).expect("Test cleanup should succeed");
     }
 
     /// Test that locks are properly scoped and released
     #[tokio::test]
     async fn test_lock_scope_explicit() {
         let adapter_names = vec!["adapter_0".to_string()];
-        let temp_dir = std::env::temp_dir().join("mplora_test_lock_scope");
-        std::fs::create_dir_all(&temp_dir).expect("Test temp directory creation should succeed");
+        let temp_dir = new_test_tempdir("mplora_test_lock_scope_");
+        let temp_dir_path = temp_dir.path().to_path_buf();
 
         let adapter_hashes = build_adapter_hashes(&adapter_names);
         let manager = LifecycleManager::new(
             adapter_names.clone(),
             adapter_hashes,
             &test_policies(),
-            temp_dir.clone(),
+            temp_dir_path.clone(),
             None,
             1,
         );
@@ -3133,24 +3134,21 @@ mod tests {
 
         // Verify state was updated
         assert_eq!(manager.get_state(0), Some(AdapterState::Warm));
-
-        std::fs::remove_dir_all(temp_dir).expect("Test cleanup should succeed");
     }
 
     /// Test concurrent record_adapter_activation doesn't deadlock
     #[tokio::test]
     async fn test_concurrent_activation_recording() {
         let adapter_names = vec!["adapter_0".to_string(), "adapter_1".to_string()];
-        let temp_dir = std::env::temp_dir().join("mplora_test_activation_concurrent");
-        let _ = std::fs::remove_dir_all(&temp_dir);
-        std::fs::create_dir_all(&temp_dir).expect("Test temp directory creation should succeed");
+        let temp_dir = new_test_tempdir("mplora_test_activation_concurrent_");
+        let temp_dir_path = temp_dir.path().to_path_buf();
 
         let adapter_hashes = build_adapter_hashes(&adapter_names);
         let manager = Arc::new(LifecycleManager::new(
             adapter_names.clone(),
             adapter_hashes,
             &test_policies(),
-            temp_dir.clone(),
+            temp_dir_path.clone(),
             None,
             2,
         ));
@@ -3186,23 +3184,21 @@ mod tests {
         for handle in handles {
             handle.await.expect("task should complete without deadlock");
         }
-
-        std::fs::remove_dir_all(temp_dir).expect("Test cleanup should succeed");
     }
 
     /// Test evict_adapter doesn't deadlock with nested locks
     #[tokio::test]
     async fn test_evict_adapter_no_deadlock() {
         let adapter_names = vec!["adapter_0".to_string()];
-        let temp_dir = std::env::temp_dir().join("mplora_test_evict_deadlock");
-        std::fs::create_dir_all(&temp_dir).expect("Test temp directory creation should succeed");
+        let temp_dir = new_test_tempdir("mplora_test_evict_deadlock_");
+        let temp_dir_path = temp_dir.path().to_path_buf();
 
         let adapter_hashes = build_adapter_hashes(&adapter_names);
         let manager = LifecycleManager::new(
             adapter_names.clone(),
             adapter_hashes,
             &test_policies(),
-            temp_dir.clone(),
+            temp_dir_path.clone(),
             None,
             1,
         );
@@ -3226,7 +3222,5 @@ mod tests {
                 assert!(e.to_string().contains("not loaded"));
             }
         }
-
-        std::fs::remove_dir_all(temp_dir).expect("Test cleanup should succeed");
     }
 }

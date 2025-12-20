@@ -78,6 +78,20 @@ pub struct AdapterKv {
     pub archive_reason: Option<String>,
     pub purged_at: Option<String>,
 
+    // Base model and artifact hardening
+    pub base_model_id: Option<String>,
+    pub manifest_schema_version: Option<String>,
+    pub content_hash_b3: Option<String>,
+    pub provenance_json: Option<String>,
+
+    // Drift detection fields
+    pub drift_tier: Option<String>,
+    pub drift_metric: Option<f64>,
+    pub drift_loss_metric: Option<f64>,
+    pub drift_reference_backend: Option<String>,
+    pub drift_baseline_backend: Option<String>,
+    pub drift_test_backend: Option<String>,
+
     // Timestamps
     pub created_at: String,
     pub updated_at: String,
@@ -86,9 +100,7 @@ pub struct AdapterKv {
 impl AdapterKv {
     /// Canonical key identifier: prefer adapter_id, fall back to legacy UUID id.
     pub fn key_id(&self) -> &str {
-        self.adapter_id
-            .as_deref()
-            .unwrap_or_else(|| self.id.as_str())
+        self.adapter_id.as_deref().unwrap_or(self.id.as_str())
     }
 
     /// Get the primary key for this adapter

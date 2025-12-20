@@ -15,6 +15,24 @@ pub enum FailureCode {
     TenantAccessDenied,
     /// KV cache quota exceeded - tenant has exhausted KV cache allocation
     KvQuotaExceeded,
+    /// Worker is at capacity and cannot accept more requests (retryable)
+    WorkerOverloaded,
+
+    // Boot-specific failure codes
+    /// Database is unreachable during boot
+    BootDbUnreachable,
+    /// Database migration failed during boot
+    BootMigrationFailed,
+    /// Seed derivation or initialization failed during boot
+    BootSeedFailed,
+    /// No workers registered or available during boot
+    BootNoWorkers,
+    /// No models loaded or available during boot
+    BootNoModels,
+    /// Dependency timeout during boot
+    BootDependencyTimeout,
+    /// Configuration invalid during boot
+    BootConfigInvalid,
 }
 
 impl FailureCode {
@@ -29,10 +47,18 @@ impl FailureCode {
             FailureCode::BackendFallback => "BACKEND_FALLBACK",
             FailureCode::TenantAccessDenied => "TENANT_ACCESS_DENIED",
             FailureCode::KvQuotaExceeded => "KV_QUOTA_EXCEEDED",
+            FailureCode::WorkerOverloaded => "WORKER_OVERLOADED",
+            FailureCode::BootDbUnreachable => "BOOT_DB_UNREACHABLE",
+            FailureCode::BootMigrationFailed => "BOOT_MIGRATION_FAILED",
+            FailureCode::BootSeedFailed => "BOOT_SEED_FAILED",
+            FailureCode::BootNoWorkers => "BOOT_NO_WORKERS",
+            FailureCode::BootNoModels => "BOOT_NO_MODELS",
+            FailureCode::BootDependencyTimeout => "BOOT_DEPENDENCY_TIMEOUT",
+            FailureCode::BootConfigInvalid => "BOOT_CONFIG_INVALID",
         }
     }
 
-    pub fn from_str(code: &str) -> Option<Self> {
+    pub fn parse_code(code: &str) -> Option<Self> {
         match code {
             "MIGRATION_INVALID" => Some(FailureCode::MigrationInvalid),
             "MODEL_LOAD_FAILED" => Some(FailureCode::ModelLoadFailed),
@@ -43,6 +69,14 @@ impl FailureCode {
             "BACKEND_FALLBACK" => Some(FailureCode::BackendFallback),
             "TENANT_ACCESS_DENIED" => Some(FailureCode::TenantAccessDenied),
             "KV_QUOTA_EXCEEDED" => Some(FailureCode::KvQuotaExceeded),
+            "WORKER_OVERLOADED" => Some(FailureCode::WorkerOverloaded),
+            "BOOT_DB_UNREACHABLE" => Some(FailureCode::BootDbUnreachable),
+            "BOOT_MIGRATION_FAILED" => Some(FailureCode::BootMigrationFailed),
+            "BOOT_SEED_FAILED" => Some(FailureCode::BootSeedFailed),
+            "BOOT_NO_WORKERS" => Some(FailureCode::BootNoWorkers),
+            "BOOT_NO_MODELS" => Some(FailureCode::BootNoModels),
+            "BOOT_DEPENDENCY_TIMEOUT" => Some(FailureCode::BootDependencyTimeout),
+            "BOOT_CONFIG_INVALID" => Some(FailureCode::BootConfigInvalid),
             _ => None,
         }
     }

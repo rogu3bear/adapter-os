@@ -171,7 +171,8 @@ xcrun --find metal
 # Expected: /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/metal
 
 # Test compilation
-cd /tmp
+mkdir -p var/tmp
+cd var/tmp
 cat > test.metal << 'EOF'
 #include <metal_stdlib>
 using namespace metal;

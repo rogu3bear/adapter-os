@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use base64::Engine;
 use ed25519_dalek::{Signer, SigningKey, VerifyingKey};
 use rand::rngs::OsRng;
 use serde::{Deserialize, Serialize};
@@ -65,7 +66,7 @@ fn main() -> Result<()> {
     };
 
     let verifying_key: VerifyingKey = signing_key.verifying_key();
-    let public_key_base64 = base64::encode(verifying_key.as_bytes());
+    let public_key_base64 = base64::prelude::BASE64_STANDARD.encode(verifying_key.as_bytes());
 
     println!("✓ Public key: {}\n", &public_key_base64[..32]);
     println!("Signing migrations...\n");
@@ -106,7 +107,7 @@ fn main() -> Result<()> {
 
         // Sign the hash
         let signature = signing_key.sign(file_hash.as_bytes());
-        let signature_base64 = base64::encode(signature.to_bytes());
+        let signature_base64 = base64::prelude::BASE64_STANDARD.encode(signature.to_bytes());
 
         signatures.insert(
             filename.clone(),
@@ -152,7 +153,7 @@ fn main() -> Result<()> {
         let file_hash = hasher.finalize();
 
         // Verify signature
-        let signature_bytes = base64::decode(&sig_data.signature)?;
+        let signature_bytes = base64::prelude::BASE64_STANDARD.decode(&sig_data.signature)?;
         let signature = ed25519_dalek::Signature::from_bytes(
             signature_bytes.as_slice().try_into()?,
         );

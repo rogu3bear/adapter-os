@@ -1,4 +1,4 @@
-# AdapterOS: LORAX Deterministic ML Inference Runtime
+# AdapterOS: Deterministic ML Inference Platform
 
 [![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-Apache%202.0%2FMIT-blue.svg)](LICENSE)
@@ -7,19 +7,27 @@
 [![Stars](https://img.shields.io/github/stars/rogu3bear/adapter-os.svg)](https://github.com/rogu3bear/adapter-os/stargazers)
 [![Forks](https://img.shields.io/github/forks/rogu3bear/adapter-os.svg)](https://github.com/rogu3bear/adapter-os/network/members)
 
-**LORAX (Low Rank Adapter Exchange)** — High-performance inference runtime with K-sparse LoRA routing, Metal-optimized kernels, and comprehensive policy enforcement for production environments.
+**Deterministic ML Inference Platform** — High-performance inference with K-sparse LoRA routing, Metal-optimized kernels, and comprehensive policy enforcement for production environments.
 
-AdapterOS (v0.3-alpha) is a Rust-based ML inference platform powered by the **LORAX runtime**, optimized for Apple Silicon. Features deterministic execution across multiple backends (CoreML, MLX, Metal), modular Metal kernels, centralized policy enforcement, and memory-efficient adapter management with zero network egress during serving.
+AdapterOS (alpha-v0.11-unstable-pre-release) is a Rust-based ML inference platform optimized for Apple Silicon. Features deterministic execution across multiple backends (CoreML, MLX, Metal), modular Metal kernels, centralized policy enforcement, and memory-efficient adapter management with zero network egress during serving.
 
 ---
 
 ## [TARGET] What is AdapterOS?
 
-AdapterOS is an ML inference platform built on the **LORAX (Low Rank Adapter Exchange)** runtime. It enables **deterministic multi-adapter inference** on Apple Silicon by:
+AdapterOS is an ML inference platform that enables **deterministic multi-adapter inference** on Apple Silicon by:
+
+### Core Technologies
+
+- **Deterministic Inference Runtime (DIR)**: The core execution engine that ensures reproducible, auditable inference with token-level determinism
+- **Token Artifact System (TAS)**: Transforms inference outputs into persistent, reusable artifacts that can be referenced and composed
+- **K-Sparse LoRA Routing**: Dynamic gating with Q15 quantized gates and entropy floor
+- **Modular Metal Kernels**: Precompiled `.metallib` kernels with deterministic compilation
+- **Policy Enforcement**: 25 canonical policy packs for compliance, security, and quality
 
 - **K-Sparse LoRA Routing**: Dynamic gating with Q15 quantized gates and entropy floor
 - **Modular Metal Kernels**: Precompiled `.metallib` kernels with deterministic compilation
-- **Policy Enforcement**: 24 canonical policy packs for compliance, security, and quality
+- **Policy Enforcement**: 25 canonical policy packs for compliance, security, and quality
 - **Environment Fingerprinting**: Cryptographically signed drift detection with automatic baseline creation
 - **Deterministic Execution**: Reproducible outputs with HKDF seeding and canonical JSON
 - **Zero Network Egress**: Air-gapped serving with Unix domain sockets only
@@ -50,9 +58,9 @@ AdapterOS is an ML inference platform built on the **LORAX (Low Rank Adapter Exc
 
 ```mermaid
 graph TB
-    subgraph Runtime[LORAX Runtime v0.1.0]
+    subgraph Runtime[AdapterOS Runtime v0.11.0]
         subgraph Control[Control Layer]
-            Policy[Policy Registry<br/>28 Canonical Packs]
+            Policy[Policy Registry<br/>25 Canonical Packs]
             Router[K-Sparse Router<br/>Q15 Quantized Gates]
             Kernels[Modular Metal Kernels<br/>.metallib]
         end
@@ -339,13 +347,13 @@ Unloaded -> Cold -> Warm -> Hot -> Resident
 
 See [docs/LIFECYCLE.md](docs/LIFECYCLE.md) for detailed state machine documentation.
 
-## 📊 Current Status (v0.3-alpha)
+## 📊 Current Status (alpha-v0.11-unstable-pre-release)
 
 ### ✅ **Implemented Features**
 - **Multi-Backend Support**: CoreML (ANE, primary), MLX (GPU, secondary), Metal (incomplete fallback) backends
 - **K-Sparse LoRA Routing**: Dynamic adapter selection with Q15 quantization
 - **Deterministic Execution**: HKDF seeding, reproducible results
-- **Policy Enforcement**: 24 canonical policy packs with runtime validation
+- **Policy Enforcement**: 25 canonical policy packs with runtime validation
 - **Adapter Lifecycle**: Hot-swap, pinning, TTL management, memory optimization
 - **REST API**: Complete inference endpoints with streaming support
 - **Database**: SQLite with migrations, adapter registry, telemetry
@@ -358,7 +366,7 @@ See [docs/LIFECYCLE.md](docs/LIFECYCLE.md) for detailed state machine documentat
 - **Advanced UI**: Web dashboard with real-time monitoring
 - **Production Deployment**: Kubernetes operators, service mesh integration
 
-**📋 Completion Roadmap**: See [docs/PRD-COMPLETION-V03-ALPHA.md](docs/PRD-COMPLETION-V03-ALPHA.md) for the comprehensive plan to complete all features (12 weeks, 70 tasks, 6-7 agent teams)
+**📋 Completion Roadmap**: See project board for the comprehensive plan to complete all features.
 
 ### 🎯 **Architecture Highlights**
 - **Zero Network Egress**: Air-gapped inference with Unix domain sockets
@@ -371,7 +379,7 @@ See [docs/LIFECYCLE.md](docs/LIFECYCLE.md) for detailed state machine documentat
 AdapterOS includes comprehensive visual documentation. Here are key diagrams:
 
 ### **System Architecture**
-- **[High-Level Architecture](docs/ARCHITECTURE_INDEX.md)**: Architecture documentation hub
+- **[System Architecture](docs/ARCHITECTURE.md)**: Architecture documentation
 - **[Precision Diagrams](docs/architecture/precision-diagrams.md)**: Code-verified architecture diagrams
 - **[Multi-Backend Strategy](docs/ADR_MULTI_BACKEND_STRATEGY.md)**: Backend selection rationale
 
@@ -395,7 +403,7 @@ AdapterOS includes comprehensive visual documentation. Here are key diagrams:
 
 | Component | Diagram | Location |
 |-----------|---------|----------|
-| **System Overview** | Architecture Flow | [docs/ARCHITECTURE_INDEX.md](docs/ARCHITECTURE_INDEX.md) |
+| **System Overview** | Architecture Flow | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
 | **Inference Pipeline** | Token Processing | [docs/INFERENCE_FLOW.md](docs/INFERENCE_FLOW.md) |
 | **Database Schema** | Entity Relationships | [docs/database-schema.md](docs/database-schema.md) |
 | **Adapter Lifecycle** | State Machine | [docs/LIFECYCLE.md](docs/LIFECYCLE.md) |
@@ -441,7 +449,7 @@ cargo clippy --workspace -- -D warnings
 
 ## Performance
 
-Benchmarked on **M3 Max (128GB unified memory)** with v0.3-alpha:
+Benchmarked on **M3 Max (128GB unified memory)** with alpha-v0.11:
 
 | Configuration | Tokens/sec | Latency (p95) | Memory | Determinism |
 |--------------|-----------|---------------|---------|-------------|
@@ -486,11 +494,11 @@ evict_order = ["ephemeral_ttl", "cold_lru", "warm_lru"]
 
 ## 🛠️ Alpha Release Features
 
-AdapterOS v0.3-alpha includes:
+AdapterOS alpha-v0.11 includes:
 
 ### Completed Features
 - ✅ **Naming Unification**: All crates renamed to `adapteros-*` with compatibility shims
-- ✅ **Policy Registry**: 24 canonical policy packs with CLI commands
+- ✅ **Policy Registry**: 25 canonical policy packs with CLI commands
 - ✅ **Adapter Taxonomy**: Semantic naming with lineage tracking and fork semantics
 - ✅ **Metal Kernel Refactor**: Modular kernels with parameter structs
 - ✅ **Deterministic Config**: Precedence rules with freeze mechanism
@@ -501,7 +509,7 @@ AdapterOS v0.3-alpha includes:
 - 🔄 **Integration Tests**: End-to-end testing with policy enforcement
 - 🔄 **Documentation**: Complete API reference and deployment guides
 
-### Planned for v0.02
+### Planned
 - 📋 **Performance Optimization**: Router calibration and kernel tuning
 - 📋 **Security Hardening**: Advanced threat detection and response
 - 📋 **Monitoring**: Comprehensive observability and alerting
@@ -513,14 +521,13 @@ AdapterOS v0.3-alpha includes:
 ### Quick Links
 - **[Quick Start Guide](docs/QUICKSTART.md)** - Get running in 10 minutes
 - **[Documentation Index](docs/README.md)** - Complete documentation navigation
-- **[System Architecture](docs/ARCHITECTURE_INDEX.md)** - High-level design and components
-- **[Policy Registry](docs/POLICIES.md)** - 24 canonical policy packs
-- **[Adapter Taxonomy](docs/ADAPTER_TAXONOMY.md)** - Semantic naming and lineage tracking
-- **[Completion PRD](docs/PRD-COMPLETION-V03-ALPHA.md)** - 12-week plan to finish v0.3-alpha (70 tasks, 6-7 teams)
+- **[System Architecture](docs/ARCHITECTURE.md)** - High-level design and components
+- **[Policy Registry](docs/POLICIES.md)** - 25 canonical policy packs
+- **[Security Guide](docs/SECURITY.md)** - Security architecture and practices
 
 ### Key Topics
 - **Environment Setup**: [docs/ENVIRONMENT_SETUP.md](docs/ENVIRONMENT_SETUP.md) - Configuration profiles and variable reference
-- **Control Plane**: [docs/control-plane.md](docs/control-plane.md)
+- **API Reference**: [docs/API_REFERENCE.md](docs/API_REFERENCE.md) - REST API documentation
 - **Configuration**: [docs/CONFIG_PRECEDENCE.md](docs/CONFIG_PRECEDENCE.md)
 - **Metal Kernels**: [docs/metal/phase4-metal-kernels.md](docs/metal/phase4-metal-kernels.md)
 - **Safety Features**: [docs/runaway-prevention.md](docs/runaway-prevention.md)
@@ -528,7 +535,7 @@ AdapterOS v0.3-alpha includes:
 
 ### API Reference
 - **Rust API**: Run `cargo doc --open`
-- **REST API**: See [docs/control-plane.md](docs/control-plane.md) - includes hot-swap endpoints like `POST /v1/adapter-stacks/{id}/activate` for zero-downtime stack swaps
+- **REST API**: See [docs/API_REFERENCE.md](docs/API_REFERENCE.md) - includes hot-swap endpoints like `POST /v1/adapter-stacks/{id}/activate` for zero-downtime stack swaps
 - **CLI Commands**: See [crates/adapteros-cli/docs/aosctl_manual.md](crates/adapteros-cli/docs/aosctl_manual.md)
 
 ### Web UI Ports / Boot Entrypoint
@@ -613,7 +620,7 @@ See [LICENSE](LICENSE) for the complete license text.
 
 ---
 
-**AdapterOS v0.1.0 - Built with ❤️ for Apple Silicon**
+**AdapterOS alpha-v0.11-unstable-pre-release - Built with ❤️ for Apple Silicon**
 
 *Deterministic ML inference with policy enforcement and zero network egress*
 
@@ -655,8 +662,8 @@ curl -X GET http://localhost:8080/v1/plugins \
 ## See Also
 
 - [QUICKSTART.md](QUICKSTART.md) - Quick start guide for macOS
-- [docs/ARCHITECTURE_INDEX.md](docs/ARCHITECTURE_INDEX.md) - Full architecture documentation
-- [docs/ARCHITECTURE_PATTERNS.md](docs/ARCHITECTURE_PATTERNS.md) - Detailed architectural patterns
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) - Full architecture documentation
+- [docs/ARCHITECTURE.md#architecture-components](docs/ARCHITECTURE.md#architecture-components) - Detailed architectural patterns
 - [CLAUDE.md](CLAUDE.md) - Developer quick reference guide
 - [docs/MLX_INTEGRATION.md](docs/MLX_INTEGRATION.md) - MLX backend integration
 - [docs/COREML_INTEGRATION.md](docs/COREML_INTEGRATION.md) - CoreML backend with ANE acceleration

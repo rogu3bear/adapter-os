@@ -231,9 +231,15 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
+    fn new_test_tempdir() -> TempDir {
+        let root = std::path::PathBuf::from("var").join("tmp");
+        std::fs::create_dir_all(&root).expect("create var/tmp");
+        TempDir::new_in(&root).expect("tempdir")
+    }
+
     #[test]
     fn test_init_golden_runs_dir() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let golden_runs_dir = init_golden_runs_dir(temp_dir.path()).unwrap();
 
         assert!(golden_runs_dir.exists());
@@ -245,7 +251,7 @@ mod tests {
 
     #[test]
     fn test_list_golden_runs_empty() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         init_golden_runs_dir(temp_dir.path()).unwrap();
 
         let golden_runs_dir = temp_dir.path().join("golden_runs");

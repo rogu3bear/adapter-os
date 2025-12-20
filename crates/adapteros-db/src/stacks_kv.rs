@@ -375,7 +375,7 @@ impl StackKvOps for StackKvRepository {
         let workflow_type = req
             .workflow_type
             .as_ref()
-            .and_then(|wt| WorkflowType::from_str(wt));
+            .and_then(|wt| WorkflowType::parse_workflow(wt));
         let routing_determinism_mode = parse_routing_mode(&req.routing_determinism_mode);
 
         let stack = AdapterStackKv {
@@ -472,7 +472,7 @@ impl StackKvOps for StackKvRepository {
         let workflow_type = req
             .workflow_type
             .as_ref()
-            .and_then(|wt| WorkflowType::from_str(wt));
+            .and_then(|wt| WorkflowType::parse_workflow(wt));
         let routing_determinism_mode = parse_routing_mode(&req.routing_determinism_mode)
             .or(old_stack.routing_determinism_mode.clone());
 
@@ -759,10 +759,10 @@ pub fn stack_record_to_kv(record: &StackRecord) -> Result<AdapterStackKv> {
     let workflow_type = record
         .workflow_type
         .as_ref()
-        .and_then(|wt| WorkflowType::from_str(wt));
+        .and_then(|wt| WorkflowType::parse_workflow(wt));
 
     // Parse lifecycle state
-    let lifecycle_state = LifecycleState::from_str(&record.lifecycle_state).ok_or_else(|| {
+    let lifecycle_state = LifecycleState::parse_state(&record.lifecycle_state).ok_or_else(|| {
         AosError::Database(format!(
             "Invalid lifecycle state: {}",
             record.lifecycle_state

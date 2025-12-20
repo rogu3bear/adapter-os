@@ -42,6 +42,11 @@ Always produces the same output for the same input. In AdapterOS, this is achiev
 
 **See also:** [Determinism Policy](POLICIES.md#2-determinism)
 
+### DIR (Deterministic Inference Runtime)
+The core execution engine that ensures reproducible, auditable inference with token-level determinism. DIR transforms ephemeral inference outputs into persistent, deterministic artifacts that can be reused across sessions.
+
+**See also:** [TAS](#tas-token-artifact-system)
+
 ---
 
 ## E
@@ -97,12 +102,19 @@ Apple's GPU programming framework for Mac. AdapterOS uses Metal for high-perform
 
 **See also:** [Metal Kernels](metal/PHASE4-METAL-KERNELS.md)
 
-### MPLoRA
-**Multi-Path LoRA** - The technical/internal name for the AdapterOS inference engine. MPLoRA refers to the core routing and adapter management system. "AdapterOS" is the user-facing name for the complete system.
+### Deterministic Inference Runtime (DIR)
+**DIR** - The core inference engine that enables deterministic execution and token artifact reusability. DIR refers to the routing, adapter management, and execution system that treats inference outputs as persistent, reusable artifacts.
 
-**Note:** In user-facing documentation, use "AdapterOS". Use "MPLoRA" only when referring to the specific routing algorithm or internal implementation.
+**Note:** Use "AdapterOS" for the complete system. Use "DIR" when referring to the inference runtime specifically.
 
-**See also:** [Naming Conventions](README.md#naming-conventions)
+**See also:** [Token Artifact System](#token-artifact-system-tas), [Naming Conventions](README.md#naming-conventions)
+
+### Token Artifact System (TAS)
+**TAS** - The artifact management layer that enables inference outputs to be stored, referenced, and reused as deterministic tokens. TAS transforms ephemeral inference results into persistent, composable artifacts.
+
+**Note:** TAS is enabled by the Deterministic Inference Runtime and represents the core innovation of treating tokens as reusable building blocks.
+
+**See also:** [Deterministic Inference Runtime](#deterministic-inference-runtime-dir)
 
 ---
 
@@ -156,6 +168,11 @@ Recording what the system does for monitoring and debugging. AdapterOS uses cano
 ### Tokenization
 Breaking text into pieces the AI can understand. The tokenizer converts human-readable text into tokens that the model processes.
 
+### TAS (Token Artifact System)
+Transforms inference outputs into persistent, reusable artifacts that can be referenced, verified, and composed into larger workflows. Unlike traditional ML systems where outputs are ephemeral, TAS treats tokens as immutable artifacts with audit trails and composition capabilities.
+
+**See also:** [DIR](#dir-deterministic-inference-runtime)
+
 ---
 
 ## U
@@ -190,7 +207,7 @@ A process that does the actual AI inference work. Workers run in isolated proces
 | **JCS** | JSON Canonicalization Scheme | Deterministic JSON serialization |
 | **JWT** | JSON Web Token | Authentication token format |
 | **LoRA** | Low-Rank Adaptation | Efficient model fine-tuning technique |
-| **MPLoRA** | Multi-Path LoRA | Core routing algorithm name |
+| **DIR** | Deterministic Inference Runtime | Core inference engine |
 | **PF** | Packet Filter | macOS firewall system |
 | **Q15** | 16-bit fixed-point format | Quantization format |
 | **RAG** | Retrieval-Augmented Generation | Evidence retrieval system |

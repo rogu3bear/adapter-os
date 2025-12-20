@@ -437,21 +437,26 @@ pub async fn adapter_state_stream(
 
                     // Check if state has changed
                     if previous_state.as_ref() != Some(&state_str) {
-                        // Get additional adapter info from database
-                        let (adapter_name, activation_pct, memory_mb) =
-                            match state.db.get_adapter(&record.adapter_id).await {
-                                Ok(Some(adapter)) => {
-                                    let name = adapter.name.clone();
-                                    let activation = 0.0; // Not available in Adapter struct
-                                    let memory = if adapter.memory_bytes > 0 {
-                                        Some(adapter.memory_bytes as f64 / (1024.0 * 1024.0))
-                                    } else {
-                                        None
-                                    };
-                                    (name, activation, memory)
-                                }
-                                _ => (record.adapter_id.clone(), 0.0, None),
-                            };
+                        // PRD-RECT-001: Use tenant-scoped query to prevent cross-tenant data leakage.
+                        // Only show adapter details for adapters belonging to the current tenant.
+                        let (adapter_name, activation_pct, memory_mb) = match state
+                            .db
+                            .get_adapter_for_tenant(&tenant_id, &record.adapter_id)
+                            .await
+                        {
+                            Ok(Some(adapter)) => {
+                                let name = adapter.name.clone();
+                                let activation = 0.0; // Not available in Adapter struct
+                                let memory = if adapter.memory_bytes > 0 {
+                                    Some(adapter.memory_bytes as f64 / (1024.0 * 1024.0))
+                                } else {
+                                    None
+                                };
+                                (name, activation, memory)
+                            }
+                            // Cross-tenant or not found: use fallback info (no details leaked)
+                            _ => (record.adapter_id.clone(), 0.0, None),
+                        };
 
                         events.push(AdapterStateEvent {
                             adapter_id: record.adapter_id.clone(),

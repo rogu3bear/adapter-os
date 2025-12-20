@@ -20,7 +20,9 @@ use adapteros_trace::{
 
 /// Create a test trace bundle with deterministic events
 fn create_test_trace_bundle() -> (TempDir, PathBuf) {
-    let temp_dir = TempDir::new().unwrap();
+    let root = PathBuf::from("var").join("tmp");
+    std::fs::create_dir_all(&root).expect("create var/tmp");
+    let temp_dir = TempDir::new_in(&root).unwrap();
     let trace_path = temp_dir.path().join("test_trace.ndjson");
 
     let global_seed = B3Hash::hash(b"test_seed");

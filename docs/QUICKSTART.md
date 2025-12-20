@@ -284,7 +284,7 @@ cargo test --workspace --jobs 4
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                    MPLoRA Runtime                        │
+│                DIR (Deterministic Inference Runtime)     │
 ├─────────────────────────────────────────────────────────┤
 │                                                          │
 │  ┌──────────────┐    ┌──────────────┐   ┌───────────┐ │
@@ -323,8 +323,7 @@ cargo test --workspace --jobs 4
 ## Getting Help
 
 - **Documentation**: See `/docs` directory
-  - Architecture: `docs/architecture.md`
-  - Code Intelligence: `docs/code-intelligence/`
+  - Architecture: `docs/ARCHITECTURE.md`
   - Metal Kernels: `docs/metal/`
 - **Examples**: Check `examples/` directory
 - **API Reference**: Run `cargo doc --open`

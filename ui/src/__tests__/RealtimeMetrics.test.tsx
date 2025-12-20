@@ -2,10 +2,10 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { vi } from 'vitest';
 import { RealtimeMetrics } from '@/components/RealtimeMetrics';
-import * as api from '@/api/client';
+import * as api from '@/api/services';
 
-// Mock api client default export and named apiClient
-vi.mock('@/api/client', () => {
+// Mock api client
+vi.mock('@/api/services', () => {
   const mock = {
     getSystemMetrics: vi.fn(),
     subscribeToMetrics: vi.fn(() => () => {}),

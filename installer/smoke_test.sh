@@ -18,7 +18,7 @@ NC='\033[0m' # No Color
 # Test configuration
 TEST_TENANT="smoke_test"
 TEST_PLAN="qwen7b"
-TEST_SOCKET="/tmp/aos_smoke_test.sock"
+TEST_SOCKET="./var/run/aos_smoke_test.sock"
 TEST_TIMEOUT=30
 SERVER_PORT=8080
 

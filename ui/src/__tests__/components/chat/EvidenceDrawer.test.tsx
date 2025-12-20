@@ -5,13 +5,14 @@ import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { EvidenceDrawer } from '@/components/chat/EvidenceDrawer';
 import { EvidenceDrawerTrigger } from '@/components/chat/EvidenceDrawerTrigger';
-import { EvidenceDrawerProvider } from '@/contexts/EvidenceDrawerContext';
+import { EvidenceDrawerProvider, useEvidenceDrawer } from '@/contexts/EvidenceDrawerContext';
+import { TooltipProvider } from '@/components/ui/tooltip';
 import type { EvidenceItem } from '@/components/chat/ChatMessage';
 import type { ExtendedRouterDecision } from '@/api/types';
 
 // Mock useTrace hook
 const mockUseTrace = vi.fn();
-vi.mock('@/hooks/useTrace', () => ({
+vi.mock('@/hooks/observability/useTrace', () => ({
   useTrace: (...args: unknown[]) => mockUseTrace(...args),
 }));
 
@@ -112,9 +113,11 @@ function TestWrapper({ children }: WrapperProps) {
   return (
     <QueryClientProvider client={queryClient}>
       <MemoryRouter>
-        <EvidenceDrawerProvider>
-          {children}
-        </EvidenceDrawerProvider>
+        <TooltipProvider>
+          <EvidenceDrawerProvider>
+            {children}
+          </EvidenceDrawerProvider>
+        </TooltipProvider>
       </MemoryRouter>
     </QueryClientProvider>
   );
@@ -369,8 +372,8 @@ describe('EvidenceDrawer', () => {
 
       await waitFor(() => {
         expect(screen.getByText('Routing Decision')).toBeInTheDocument();
-        expect(screen.getByText('adapter-finance')).toBeInTheDocument();
-        expect(screen.getByText('adapter-legal')).toBeInTheDocument();
+        expect(screen.getAllByText('adapter-finance').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('adapter-legal').length).toBeGreaterThan(0);
       });
     });
 
@@ -412,7 +415,7 @@ describe('EvidenceDrawer', () => {
       const user = userEvent.setup();
 
       const TestComponent = () => {
-        const { openDrawer, setMessageData } = require('@/contexts/EvidenceDrawerContext').useEvidenceDrawer();
+        const { openDrawer, setMessageData } = useEvidenceDrawer();
 
         return (
           <>

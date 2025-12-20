@@ -9,6 +9,7 @@
 //! Key precedence: Environment variable > File path > OS Keychain > KMS
 
 use crate::key_provider::{KeyAlgorithm, KeyHandle, KeyProvider, KeyProviderMode};
+use crate::providers::env::EnvProvider;
 use crate::providers::file::FileProvider;
 use crate::providers::keychain::KeychainProvider;
 use crate::providers::kms::KmsProvider;
@@ -197,17 +198,11 @@ impl KeyManager {
             )));
         }
 
-        // Create a temporary file provider with the key
-        let temp_dir = std::env::temp_dir();
-        let key_file = temp_dir.join("aos_env_signing_key");
-        std::fs::write(&key_file, &key_bytes).map_err(|e| {
-            AosError::Io(format!(
-                "Failed to write environment key to temp file: {}",
-                e
-            ))
-        })?;
+        let mut key_array = [0u8; 32];
+        key_array.copy_from_slice(&key_bytes);
+        let signing_key = SigningKey::from_bytes(&key_array);
 
-        Ok(Box::new(FileProvider::new(key_file, true)?))
+        Ok(Box::new(EnvProvider::new(signing_key)))
     }
 
     /// Get the signing key for JWT or bundle signing
@@ -348,9 +343,15 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
+    fn new_test_tempdir() -> TempDir {
+        let root = std::path::PathBuf::from("var").join("tmp");
+        std::fs::create_dir_all(&root).expect("create var/tmp");
+        TempDir::new_in(&root).expect("tempdir")
+    }
+
     #[tokio::test]
     async fn test_key_manager_file_provider() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let key_file = temp_dir.path().join("test_keys.json");
 
         let config = KeyManagerConfig {
@@ -378,7 +379,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_key_manager_rejects_file_in_production() {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = new_test_tempdir();
         let key_file = temp_dir.path().join("test_keys.json");
 
         let config = KeyManagerConfig {

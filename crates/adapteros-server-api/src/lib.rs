@@ -34,6 +34,7 @@ pub mod plugin_registry;
 pub mod prefix_resolver;
 pub mod reconciler;
 pub mod request_id;
+pub mod request_tracker;
 pub mod routes;
 pub mod runtime_mode;
 pub mod security;

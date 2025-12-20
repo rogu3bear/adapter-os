@@ -14,6 +14,14 @@ pub enum SupervisorError {
     #[error("Authorization failed: {0}")]
     Authorization(String),
 
+    /// Authentication required - missing or invalid token
+    #[error("Authentication required: {0}")]
+    Unauthorized(String),
+
+    /// Insufficient permissions for the requested operation
+    #[error("Insufficient permissions: {0}")]
+    Forbidden(String),
+
     #[error("Service not found: {0}")]
     ServiceNotFound(String),
 
@@ -85,6 +93,12 @@ impl From<SupervisorError> for AosError {
             }
             SupervisorError::Authorization(msg) => {
                 AosError::Authz(format!("Supervisor authorization failed: {}", msg))
+            }
+            SupervisorError::Unauthorized(msg) => {
+                AosError::Auth(format!("Authentication required: {}", msg))
+            }
+            SupervisorError::Forbidden(msg) => {
+                AosError::Authz(format!("Insufficient permissions: {}", msg))
             }
             SupervisorError::ServiceNotFound(msg) => {
                 AosError::NotFound(format!("Service not found: {}", msg))

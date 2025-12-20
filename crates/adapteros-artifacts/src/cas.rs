@@ -89,9 +89,15 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
+    fn new_test_tempdir() -> TempDir {
+        let root = std::path::PathBuf::from("var").join("tmp");
+        std::fs::create_dir_all(&root).expect("create var/tmp");
+        TempDir::new_in(&root).expect("tempdir")
+    }
+
     #[test]
     fn test_cas_store_load() {
-        let temp = TempDir::new().expect("Test temp directory creation should succeed");
+        let temp = new_test_tempdir();
         let store = CasStore::new(temp.path()).expect("Test CAS store creation should succeed");
 
         let data = b"test data";
@@ -107,7 +113,7 @@ mod tests {
 
     #[test]
     fn test_cas_hash_verification() {
-        let temp = TempDir::new().expect("Test temp directory creation should succeed");
+        let temp = new_test_tempdir();
         let store = CasStore::new(temp.path()).expect("Test CAS store creation should succeed");
 
         let data = b"test data";

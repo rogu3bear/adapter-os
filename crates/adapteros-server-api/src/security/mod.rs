@@ -27,11 +27,15 @@ pub use token_revocation::{
 
 use crate::auth::Claims;
 use crate::types::ErrorResponse;
+use adapteros_core::tenant_isolation::{
+    TenantIsolationConfig, TenantIsolationEngine, TenantIsolationRequest, TenantPrincipal,
+};
 use adapteros_core::Result;
 use adapteros_db::Db;
 use axum::{http::StatusCode, Json};
 use chrono::{DateTime, Duration, Utc};
 use sqlx::{FromRow, Row};
+use std::sync::OnceLock;
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -48,40 +52,30 @@ fn dev_no_auth_enabled() -> bool {
     crate::auth::dev_no_auth_enabled()
 }
 
+fn tenant_isolation_engine() -> &'static TenantIsolationEngine {
+    static ENGINE: OnceLock<TenantIsolationEngine> = OnceLock::new();
+    ENGINE.get_or_init(|| {
+        let mut cfg = TenantIsolationConfig::default();
+        cfg.set_dev_mode_admin_all_tenants(dev_no_auth_enabled());
+        TenantIsolationEngine::new(cfg)
+    })
+}
+
 /// Core tenant access check logic (shared by all validation functions)
 ///
 /// This is the single source of truth for tenant isolation logic.
 /// Returns `true` if access is allowed, `false` otherwise.
 fn check_tenant_access_core(claims: &Claims, resource_tenant_id: &str) -> bool {
-    // Same tenant - always allowed
-    if claims.tenant_id == resource_tenant_id {
-        return true;
-    }
+    let principal = TenantPrincipal::new(
+        claims.tenant_id.as_str(),
+        claims.role.as_str(),
+        &claims.admin_tenants,
+    )
+    .with_roles(&claims.roles)
+    .with_subject(Some(claims.sub.as_str()), Some(claims.email.as_str()));
 
-    // Dev mode bypass: Allow admin role in dev mode to access any tenant
-    // SECURITY: This only works in debug builds, release builds ignore AOS_DEV_NO_AUTH
-    if dev_no_auth_enabled() && claims.role == "admin" {
-        return true;
-    }
-
-    // Admin with explicit access
-    if claims.role == "admin" {
-        // Wildcard "*" grants access to ALL tenants (used by dev_no_auth_claims)
-        // SECURITY: Tokens with wildcard can only be generated in debug builds
-        // via dev_no_auth_claims() or dev_bootstrap_handler()
-        if claims.admin_tenants.contains(&"*".to_string()) {
-            return true;
-        }
-        // Specific tenant grant
-        if claims
-            .admin_tenants
-            .contains(&resource_tenant_id.to_string())
-        {
-            return true;
-        }
-    }
-
-    false
+    let request = TenantIsolationRequest::new(principal, resource_tenant_id);
+    tenant_isolation_engine().check(&request)
 }
 
 /// Check if tenant access is allowed (includes dev mode bypass)

@@ -23,7 +23,12 @@
 
 ## Deployment Overview
 
-AdapterOS is an ML inference platform powered by **LORAX (Low Rank Adapter Exchange)** — an offline-capable, UMA-optimized orchestration layer for multi-LoRA systems on Apple Silicon.
+AdapterOS is an ML inference platform with an offline-capable, UMA-optimized orchestration layer for multi-LoRA systems on Apple Silicon.
+
+### Core Technologies
+
+- **DIR (Deterministic Inference Runtime)**: The core execution engine ensuring reproducible, auditable inference with token-level determinism
+- **TAS (Token Artifact System)**: Transforms inference outputs into persistent, reusable artifacts for composition and audit trails
 
 ### Architecture Diagram
 
@@ -38,7 +43,7 @@ graph TB
     subgraph ControlPlane["Control Plane :8080"]
         API[API Server<br/>adapteros-server]
         Auth[JWT Auth]
-        Policy[Policy Engine<br/>22 Policy Packs]
+        Policy[Policy Engine<br/>25 Policy Packs]
         DB[(SQLite DB<br/>var/aos-cp.sqlite3)]
     end
 
@@ -370,7 +375,7 @@ json_output = "/var/log/adapteros/telemetry.jsonl"
 prometheus_port = 9090
 
 [policies]
-# Enable all 22 policy packs
+# Enable all 25 policy packs
 egress = true
 determinism = true
 router = true
@@ -761,7 +766,7 @@ tar -xzf adapteros-airgap.tar.gz
 
 # Run air-gapped bootstrap
 bash scripts/bootstrap_with_checkpoints.sh \
-  /tmp/adapteros_install.state \
+  var/installer/adapteros_install.state \
   minimal \
   true \
   false
@@ -1218,8 +1223,43 @@ server {
     add_header X-Frame-Options "SAMEORIGIN" always;
     add_header X-Content-Type-Options "nosniff" always;
 
+    # Large uploads (datasets) - adjust as needed
+    client_max_body_size 2g;
+
+    # Streaming endpoints (SSE + fetch streaming) must not be buffered
+    location ~ ^/api/v1/(infer/stream|stream/|datasets/upload/progress) {
+        proxy_pass http://localhost:8080;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+        gzip off;
+        add_header X-Accel-Buffering no;
+    }
+
+    # Dataset uploads - avoid buffering request bodies to disk
+    location ^~ /api/v1/datasets/upload {
+        proxy_pass http://localhost:8080;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        proxy_request_buffering off;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+    }
+
     location / {
         proxy_pass http://localhost:8080;
+        proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -1267,6 +1307,24 @@ tar czf - /backup/adapteros/jwt-keys/$(date +%Y%m%d)/ | \
 5. Remove old public key
 
 ---
+
+### Performance Standards
+
+**Tenant Isolation Performance (Migration 0210)**
+
+All tenant-scoped queries must meet strict SLAs to ensure scalability:
+
+| Operation | SLA Target | Required Index |
+|-----------|------------|----------------|
+| Adapter Listing | < 10ms | `idx_adapters_tenant_active_tier_created` |
+| Hash Lookup | < 1ms | `idx_adapters_tenant_hash_active_covering` |
+| Doc Pagination | < 10ms | `idx_documents_tenant_created` |
+| Chat History | < 10ms | `idx_chat_messages_tenant_created` |
+
+**Verification:**
+- Run `./scripts/monitor_index_performance.sh` pre-deployment.
+- Ensure no `SCAN TABLE` or `USE TEMP B-TREE` in output.
+- Verify `ANALYZE` has been run on production DB.
 
 ## Scaling Guidelines
 
@@ -1400,7 +1458,7 @@ k_sparse = 5  # Activate more adapters simultaneously
 
 ### Policies
 
-- [ ] All 22 policy packs enabled
+- [ ] All 25 policy packs enabled
 - [ ] Compliance reports generated weekly
 - [ ] Audit trail retention configured (90 days)
 - [ ] Incident freeze procedures tested
@@ -1637,7 +1695,7 @@ curl http://localhost:8080/healthz
 - [README.md](../README.md) - Quick start and feature overview
 - [CLAUDE.md](../CLAUDE.md) - Development guide
 - [docs/AUTHENTICATION.md](AUTHENTICATION.md) - Authentication details
-- [docs/POLICIES.md](POLICIES.md) - 22 policy packs
+- [docs/POLICIES.md](POLICIES.md) - 25 policy packs
 - [docs/DETERMINISM.md](DETERMINISM.md) - Determinism and replay guarantees
 
 ---

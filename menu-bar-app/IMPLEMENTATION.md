@@ -92,7 +92,7 @@ make menu-bar-install  # Install to /usr/local/bin/aos-menu
 #### `menu-bar-app/com.adapteros.menu.plist.template`
 - LaunchAgent template for auto-start
 - Keeps app alive automatically
-- Logs to /tmp for debugging
+- Logs to the system log (unified logging / launchd)
 
 ## JSON Schema
 
@@ -895,4 +895,3 @@ Metrics.shared.createGauge("menu_bar_memory_usage", value: memoryUsed)
 ---
 
 Implementation complete. Security reviewed. Ready for production deployment.
-

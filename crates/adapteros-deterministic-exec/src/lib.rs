@@ -254,20 +254,15 @@ pub enum ExecutorEvent {
 }
 
 /// Enforcement mode for tick ledger policy violations
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum EnforcementMode {
     /// Record violations but continue execution (default)
+    #[default]
     AuditOnly,
     /// Log warnings for violations but continue
     Warn,
     /// Fail execution on policy violations
     Enforce,
-}
-
-impl Default for EnforcementMode {
-    fn default() -> Self {
-        Self::AuditOnly
-    }
 }
 
 /// Configuration for the deterministic executor

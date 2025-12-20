@@ -178,7 +178,7 @@ impl BaseModelState {
     pub async fn load_from_db(&mut self) -> Result<()> {
         if let Some(status_record) = self.db.get_base_model_status(&self.tenant_id).await? {
             let model_status =
-                adapteros_api_types::ModelLoadStatus::from_str(&status_record.status);
+                adapteros_api_types::ModelLoadStatus::parse_status(&status_record.status);
             self.lifecycle = LifecycleState::from(model_status);
             self.error_message = status_record.error_message;
             self.memory_usage_mb = status_record.memory_usage_mb.map(|mb| mb as u32);

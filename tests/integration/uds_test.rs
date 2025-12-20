@@ -18,7 +18,9 @@ use tokio::time::sleep;
 
 #[tokio::test]
 async fn test_uds_serving() -> Result<(), Box<dyn std::error::Error>> {
-    let temp_dir = tempfile::tempdir()?;
+    let tmp_root = std::path::PathBuf::from("var").join("tmp");
+    std::fs::create_dir_all(&tmp_root)?;
+    let temp_dir = tempfile::tempdir_in(&tmp_root)?;
     let socket_path = temp_dir.path().join("test.sock");
     let worker = // Mock or real Worker for test; assume default
         adapteros_lora_worker::Worker::new_mock(); // Assume mock fn for test

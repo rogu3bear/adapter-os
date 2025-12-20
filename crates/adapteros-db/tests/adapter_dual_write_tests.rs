@@ -8,13 +8,19 @@ use adapteros_db::{Db, StorageMode};
 use adapteros_storage::repos::adapter::AdapterRepository;
 use tempfile::TempDir;
 
+fn new_test_tempdir() -> TempDir {
+    let root = std::path::PathBuf::from("var").join("tmp");
+    std::fs::create_dir_all(&root).expect("create var/tmp");
+    TempDir::new_in(&root).expect("tempdir")
+}
+
 /// Helper to set up test database with KV backend in DualWrite mode
 async fn create_dual_write_db() -> (Db, TempDir, TempDir) {
     // Note: tracing is initialized by test harness if needed
 
     // Create temp directories for SQL and KV
-    let sql_temp = TempDir::new().unwrap();
-    let kv_temp = TempDir::new().unwrap();
+    let sql_temp = new_test_tempdir();
+    let kv_temp = new_test_tempdir();
 
     let sql_path = sql_temp.path().join("test.db");
     let kv_path = kv_temp.path().join("test.kv");

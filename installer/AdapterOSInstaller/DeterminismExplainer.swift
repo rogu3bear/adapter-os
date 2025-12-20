@@ -49,13 +49,13 @@ cargo run --bin aosctl serve --tenant default --plan qwen7b --socket /var/run/ao
 
 ### Learn More
 
-- `docs/architecture.md` - System architecture overview
+- `docs/ARCHITECTURE.md` - System architecture overview
 - `docs/control-plane.md` - Control plane operations
 - `README.md` - Getting started guide
 
 ## Learn More
 
-Visit the documentation at `docs/architecture.md` for detailed technical information.
+Visit the documentation at `docs/ARCHITECTURE.md` for detailed technical information.
 """
     
     static func saveToFile() -> Bool {

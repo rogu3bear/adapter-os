@@ -24,7 +24,7 @@ pub const DEFAULT_OVERHEAD_BUDGET_PCT: f32 = 8.0;
 /// Maximum allowed k-sparse value
 pub const MAX_K: usize = 8;
 
-/// Default compression ratio for MPLoRA
+/// Default compression ratio for DIR (Deterministic Inference Runtime)
 pub const DEFAULT_COMPRESSION_RATIO: f32 = 0.8;
 
 /// Boost value added to priors for pinned adapters (CHAT-PIN-02).

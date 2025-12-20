@@ -148,7 +148,8 @@ pub async fn reset(
         {
             continue;
         }
-        let stmt = format!("DELETE FROM {}", table);
+        // Quote identifier to prevent SQL injection (table names from sqlite_master)
+        let stmt = format!("DELETE FROM \"{}\"", table.replace('"', "\"\""));
         sqlx::query(&stmt).execute(pool).await.map_err(map_err)?;
         cleared += 1;
     }
@@ -793,7 +794,7 @@ pub async fn create_evidence_fixture(
     .bind(&tenant_id)
     .bind("Fixture Document")
     .bind("b3_doc_fixture_hash")
-    .bind("/tmp/doc-fixture.txt")
+    .bind("./var/testkit/doc-fixture.txt")
     .bind(1024_i64)
     .bind("text/plain")
     .bind(1_i64)

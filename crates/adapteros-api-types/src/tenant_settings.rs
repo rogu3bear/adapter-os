@@ -80,6 +80,7 @@ pub struct TenantSettingsResponse {
 /// Fields not provided will preserve existing values.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub struct UpdateTenantSettingsRequest {
     /// When true, new chat sessions inherit stack_id from tenants.default_stack_id
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -94,15 +95,4 @@ pub struct UpdateTenantSettingsRequest {
     /// Policy knobs for determinism and routing control
     #[serde(skip_serializing_if = "Option::is_none")]
     pub determinism_policy: Option<DeterminismPolicyKnobs>,
-}
-
-impl Default for UpdateTenantSettingsRequest {
-    fn default() -> Self {
-        Self {
-            use_default_stack_on_chat_create: None,
-            use_default_stack_on_infer_session: None,
-            settings_json: None,
-            determinism_policy: None,
-        }
-    }
 }

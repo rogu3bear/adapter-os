@@ -1,6 +1,6 @@
 //! Migration Validation Tests
 //!
-//! Comprehensive tests for migrations 0193-0202 that verify:
+//! Comprehensive tests for migrations 0193-0210 that verify:
 //! 1. Schema changes are applied correctly
 //! 2. Foreign key constraints work as expected
 //! 3. Triggers enforce business logic
@@ -18,6 +18,7 @@
 //! - 0200: drop_adapter_packages
 //! - 0201: adapter_version_publish_attach
 //! - 0202: adapter_stacks_metadata
+//! - 0210: tenant_scoped_query_optimization (composite indexes)
 
 use adapteros_db::Db;
 use anyhow::Result;
@@ -1032,14 +1033,14 @@ async fn test_migration_0201_free_mode_no_scope_trigger() -> Result<()> {
 
     sqlx::query(
         "INSERT INTO training_datasets (id, tenant_id, name, description, format, hash_b3, storage_path)
-         VALUES ('dataset-1', 'tenant-trigger', 'Dataset', 'Test', 'jsonl', 'b3:hash123', '/tmp/test')",
+         VALUES ('dataset-1', 'tenant-trigger', 'Dataset', 'Test', 'jsonl', 'b3:hash123', 'var/test')",
     )
     .execute(db.pool())
     .await?;
 
     sqlx::query(
         "INSERT INTO training_dataset_versions (id, dataset_id, tenant_id, version_number, storage_path, hash_b3)
-         VALUES ('dsv-1', 'dataset-1', 'tenant-trigger', 1, '/tmp/dsv-1', 'b3:dsv1hash')",
+         VALUES ('dsv-1', 'dataset-1', 'tenant-trigger', 1, 'var/dsv-1', 'b3:dsv1hash')",
     )
     .execute(db.pool())
     .await?;
@@ -1130,14 +1131,14 @@ async fn test_migration_0201_scope_tenant_isolation_trigger() -> Result<()> {
 
     sqlx::query(
         "INSERT INTO training_datasets (id, tenant_id, name, description, format, hash_b3, storage_path)
-         VALUES ('dataset-b', 'tenant-b', 'Dataset', 'Test', 'jsonl', 'b3:hash456', '/tmp/test-b')",
+         VALUES ('dataset-b', 'tenant-b', 'Dataset', 'Test', 'jsonl', 'b3:hash456', 'var/test-b')",
     )
     .execute(db.pool())
     .await?;
 
     sqlx::query(
         "INSERT INTO training_dataset_versions (id, dataset_id, tenant_id, version_number, storage_path, hash_b3)
-         VALUES ('dsv-b', 'dataset-b', 'tenant-b', 1, '/tmp/dsv-b', 'b3:dsvbhash')",
+         VALUES ('dsv-b', 'dataset-b', 'tenant-b', 1, 'var/dsv-b', 'b3:dsvbhash')",
     )
     .execute(db.pool())
     .await?;
@@ -1421,5 +1422,442 @@ async fn test_integration_evidence_chain_with_prefix_templates() -> Result<()> {
     assert_eq!(template_count, 1);
 
     println!("✓ Integration: Evidence chain with prefix templates works");
+    Ok(())
+}
+
+// =============================================================================
+// Migration 0210: Tenant-Scoped Query Optimization (Composite Indexes)
+// =============================================================================
+
+/// Helper to create test data for tenant-scoped query optimization tests
+async fn setup_tenant_scoped_test_data(db: &Db, tenant_id: &str) -> Result<()> {
+    // Create tenant
+    sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
+        .bind(tenant_id)
+        .bind(format!("Test Tenant {}", tenant_id))
+        .execute(db.pool())
+        .await?;
+
+    // Create adapters with various states for testing
+    for i in 0..10 {
+        let adapter_id = format!("adapter-{}-{}", tenant_id, i);
+        let hash_b3 = format!("b3:hash_{}_{}", tenant_id, i);
+        let tier = match i % 3 {
+            0 => "persistent",
+            1 => "warm",
+            _ => "ephemeral",
+        };
+        let expires_at = if i < 3 {
+            Some("2025-12-31 23:59:59")
+        } else {
+            None
+        };
+
+        sqlx::query(
+            r#"
+            INSERT INTO adapters (
+                id, tenant_id, name, tier, hash_b3, rank, alpha, targets_json,
+                adapter_id, active, lifecycle_state, load_state, activation_count, memory_bytes
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            "#,
+        )
+        .bind(format!("id-{}-{}", tenant_id, i))
+        .bind(tenant_id)
+        .bind(format!("Adapter {}-{}", tenant_id, i))
+        .bind(tier)
+        .bind(&hash_b3)
+        .bind(16)
+        .bind(32.0)
+        .bind("[]")
+        .bind(&adapter_id)
+        .bind(1)
+        .bind("active")
+        .bind("cold")
+        .bind(i as i64)
+        .bind((i as i64) * 1024)
+        .execute(db.pool())
+        .await?;
+
+        // Set expires_at for some adapters
+        if let Some(expires) = expires_at {
+            sqlx::query("UPDATE adapters SET expires_at = ? WHERE adapter_id = ?")
+                .bind(expires)
+                .bind(&adapter_id)
+                .execute(db.pool())
+                .await?;
+        }
+    }
+
+    // Create documents for testing
+    for i in 0..5 {
+        sqlx::query(
+            r#"
+            INSERT INTO documents (
+                id, tenant_id, name, content_hash, file_path, file_size, mime_type
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            "#,
+        )
+        .bind(format!("doc-{}-{}", tenant_id, i))
+        .bind(tenant_id)
+        .bind(format!("Document {}-{}", tenant_id, i))
+        .bind(format!("b3:doc_{}_{}", tenant_id, i))
+        .bind(format!("var/docs/{}/{}", tenant_id, i))
+        .bind((i as i64 + 1) * 1000)
+        .bind("text/plain")
+        .execute(db.pool())
+        .await?;
+    }
+
+    // Create training jobs for testing
+    for i in 0..3 {
+        let status = match i % 3 {
+            0 => "running",
+            1 => "completed",
+            _ => "failed",
+        };
+
+        sqlx::query(
+            r#"
+            INSERT INTO repository_training_jobs (
+                id, tenant_id, repository_id, status, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, datetime('now', '-{} hours'), datetime('now'))
+            "#,
+        )
+        .bind(format!("job-{}-{}", tenant_id, i))
+        .bind(tenant_id)
+        .bind(format!("repo-{}-{}", tenant_id, i))
+        .bind(status)
+        .bind(i)
+        .execute(db.pool())
+        .await?;
+    }
+
+    // Create chat messages for testing
+    for i in 0..4 {
+        sqlx::query(
+            r#"
+            INSERT INTO chat_messages (
+                id, tenant_id, session_id, role, content, created_at
+            ) VALUES (?, ?, ?, ?, ?, datetime('now', '-{} minutes'))
+            "#,
+        )
+        .bind(format!("msg-{}-{}", tenant_id, i))
+        .bind(tenant_id)
+        .bind(format!("session-{}-{}", tenant_id, i % 2))
+        .bind(if i % 2 == 0 { "user" } else { "assistant" })
+        .bind(format!("Message content {}-{}", tenant_id, i))
+        .bind(i)
+        .execute(db.pool())
+        .await?;
+    }
+
+    // Create base model status for testing
+    sqlx::query(
+        r#"
+        INSERT INTO base_model_status (
+            tenant_id, model_id, status, last_checked_at
+        ) VALUES (?, ?, ?, datetime('now'))
+        "#,
+    )
+    .bind(tenant_id)
+    .bind(format!("model-{}", tenant_id))
+    .bind("available")
+    .execute(db.pool())
+    .await?;
+
+    Ok(())
+}
+
+/// Helper to validate EXPLAIN QUERY PLAN output
+async fn validate_query_plan(
+    db: &Db,
+    query: &str,
+    params: Vec<sqlx::types::JsonValue>,
+    expected_no_temp_btree: bool,
+) -> Result<()> {
+    // Build the query with placeholders
+    let sql = format!("EXPLAIN QUERY PLAN {}", query);
+    let mut query_builder = sqlx::query(&sql);
+
+    // Bind parameters
+    for param in params {
+        query_builder = query_builder.bind(param);
+    }
+
+    let plan_rows = query_builder.fetch_all(db.pool()).await?;
+
+    println!("Query Plan for: {}", query);
+    let mut has_temp_btree = false;
+
+    for row in &plan_rows {
+        let id: i32 = row.get(0);
+        let parent: i32 = row.get(1);
+        let notused: i32 = row.get(2);
+        let detail: String = row.get(3);
+
+        println!(
+            "  [{}] parent={}, notused={}, detail={}",
+            id, parent, notused, detail
+        );
+
+        if detail.contains("USE TEMP B-TREE FOR ORDER BY") {
+            has_temp_btree = true;
+        }
+    }
+
+    if expected_no_temp_btree {
+        assert!(
+            !has_temp_btree,
+            "Query should NOT use 'USE TEMP B-TREE FOR ORDER BY' but it does: {}",
+            query
+        );
+        println!("✓ Query plan validation passed - no temp B-tree for ORDER BY");
+    } else {
+        // For cases where we expect temp B-tree (to verify the test works)
+        assert!(
+            has_temp_btree,
+            "Query should use 'USE TEMP B-TREE FOR ORDER BY' but it doesn't: {}",
+            query
+        );
+        println!("✓ Query plan validation passed - temp B-tree expected and found");
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_migration_0210_tenant_scoped_indexes_exist() -> Result<()> {
+    let db = create_test_db().await?;
+
+    let expected_indexes = vec![
+        "idx_adapters_tenant_active_tier_created",
+        "idx_adapters_tenant_hash_active",
+        "idx_adapters_tenant_expires",
+        "idx_documents_tenant_created",
+        "idx_training_jobs_tenant_status_created",
+        "idx_chat_messages_tenant_created",
+        "idx_base_model_status_tenant_model",
+    ];
+
+    for expected in &expected_indexes {
+        let index_exists: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM sqlite_master
+             WHERE type='index' AND name = ?",
+        )
+        .bind(expected)
+        .fetch_one(db.pool())
+        .await?;
+
+        assert_eq!(index_exists, 1, "Index '{}' should exist", expected);
+    }
+
+    println!("✓ Migration 0210: All 7 tenant-scoped composite indexes exist");
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_migration_0210_adapter_listing_query_plan() -> Result<()> {
+    let db = create_test_db().await?;
+    let tenant_id = "test-tenant-adapters";
+
+    setup_tenant_scoped_test_data(&db, tenant_id).await?;
+
+    // Test query: SELECT * FROM adapters WHERE tenant_id = ? AND active = 1 ORDER BY tier ASC, created_at DESC
+    let query = "SELECT * FROM adapters WHERE tenant_id = ? AND active = 1 ORDER BY tier ASC, created_at DESC";
+    let params = vec![sqlx::types::JsonValue::String(tenant_id.to_string())];
+
+    validate_query_plan(&db, query, params, true).await?;
+
+    println!("✓ Migration 0210: Adapter listing query uses composite index (no temp B-tree)");
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_migration_0210_adapter_hash_lookup_query_plan() -> Result<()> {
+    let db = create_test_db().await?;
+    let tenant_id = "test-tenant-hash";
+
+    setup_tenant_scoped_test_data(&db, tenant_id).await?;
+
+    // Test query: SELECT * FROM adapters WHERE tenant_id = ? AND hash_b3 = ? AND active = 1
+    let query = "SELECT * FROM adapters WHERE tenant_id = ? AND hash_b3 = ? AND active = 1";
+    let params = vec![
+        sqlx::types::JsonValue::String(tenant_id.to_string()),
+        sqlx::types::JsonValue::String(format!("b3:hash_{}_0", tenant_id)),
+    ];
+
+    validate_query_plan(&db, query, params, true).await?;
+
+    println!("✓ Migration 0210: Adapter hash lookup query uses composite index (no temp B-tree)");
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_migration_0210_adapter_ttl_enforcement_query_plan() -> Result<()> {
+    let db = create_test_db().await?;
+    let tenant_id = "test-tenant-ttl";
+
+    setup_tenant_scoped_test_data(&db, tenant_id).await?;
+
+    // Test query: SELECT * FROM adapters WHERE tenant_id = ? AND expires_at IS NOT NULL AND expires_at < datetime('now')
+    let query = "SELECT * FROM adapters WHERE tenant_id = ? AND expires_at IS NOT NULL AND expires_at < datetime('now')";
+    let params = vec![sqlx::types::JsonValue::String(tenant_id.to_string())];
+
+    validate_query_plan(&db, query, params, true).await?;
+
+    println!(
+        "✓ Migration 0210: Adapter TTL enforcement query uses composite index (no temp B-tree)"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_migration_0210_document_listing_query_plan() -> Result<()> {
+    let db = create_test_db().await?;
+    let tenant_id = "test-tenant-docs";
+
+    setup_tenant_scoped_test_data(&db, tenant_id).await?;
+
+    // Test query: SELECT * FROM documents WHERE tenant_id = ? ORDER BY created_at DESC
+    let query = "SELECT * FROM documents WHERE tenant_id = ? ORDER BY created_at DESC";
+    let params = vec![sqlx::types::JsonValue::String(tenant_id.to_string())];
+
+    validate_query_plan(&db, query, params, true).await?;
+
+    println!("✓ Migration 0210: Document listing query uses composite index (no temp B-tree)");
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_migration_0210_training_jobs_query_plan() -> Result<()> {
+    let db = create_test_db().await?;
+    let tenant_id = "test-tenant-jobs";
+
+    setup_tenant_scoped_test_data(&db, tenant_id).await?;
+
+    // Test query: SELECT * FROM repository_training_jobs WHERE tenant_id = ? AND status = ? ORDER BY created_at DESC
+    let query = "SELECT * FROM repository_training_jobs WHERE tenant_id = ? AND status = ? ORDER BY created_at DESC";
+    let params = vec![
+        sqlx::types::JsonValue::String(tenant_id.to_string()),
+        sqlx::types::JsonValue::String("running".to_string()),
+    ];
+
+    validate_query_plan(&db, query, params, true).await?;
+
+    println!("✓ Migration 0210: Training jobs query uses composite index (no temp B-tree)");
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_migration_0210_chat_messages_query_plan() -> Result<()> {
+    let db = create_test_db().await?;
+    let tenant_id = "test-tenant-chat";
+
+    setup_tenant_scoped_test_data(&db, tenant_id).await?;
+
+    // Test query: SELECT * FROM chat_messages WHERE tenant_id = ? ORDER BY created_at DESC
+    let query = "SELECT * FROM chat_messages WHERE tenant_id = ? ORDER BY created_at DESC";
+    let params = vec![sqlx::types::JsonValue::String(tenant_id.to_string())];
+
+    validate_query_plan(&db, query, params, true).await?;
+
+    println!("✓ Migration 0210: Chat messages query uses composite index (no temp B-tree)");
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_migration_0210_base_model_status_upsert() -> Result<()> {
+    let db = create_test_db().await?;
+    let tenant_id = "test-tenant-model";
+
+    setup_tenant_scoped_test_data(&db, tenant_id).await?;
+
+    // Test upsert pattern: INSERT OR REPLACE based on tenant_id + model_id uniqueness
+    let result = sqlx::query(
+        r#"
+        INSERT OR REPLACE INTO base_model_status (
+            tenant_id, model_id, status, last_checked_at
+        ) VALUES (?, ?, ?, datetime('now'))
+        "#,
+    )
+    .bind(tenant_id)
+    .bind(format!("model-{}", tenant_id))
+    .bind("updated")
+    .execute(db.pool())
+    .await?;
+
+    assert_eq!(result.rows_affected(), 1, "Upsert should affect 1 row");
+
+    // Verify the update
+    let status: String = sqlx::query_scalar(
+        "SELECT status FROM base_model_status WHERE tenant_id = ? AND model_id = ?",
+    )
+    .bind(tenant_id)
+    .bind(format!("model-{}", tenant_id))
+    .fetch_one(db.pool())
+    .await?;
+
+    assert_eq!(status, "updated", "Status should be updated via upsert");
+
+    println!("✓ Migration 0210: Base model status upsert works correctly");
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_migration_0210_query_performance_validation() -> Result<()> {
+    let db = create_test_db().await?;
+    let tenant_id = "test-tenant-perf";
+
+    setup_tenant_scoped_test_data(&db, tenant_id).await?;
+
+    // Test that queries execute without temp B-tree operations
+    // This validates the indexes provide optimal query performance
+
+    // Adapter listing query
+    let start = std::time::Instant::now();
+    let adapters: Vec<sqlx::sqlite::SqliteRow> = sqlx::query(
+        "SELECT * FROM adapters WHERE tenant_id = ? AND active = 1 ORDER BY tier ASC, created_at DESC",
+    )
+    .bind(tenant_id)
+    .fetch_all(db.pool())
+    .await?;
+    let adapter_time = start.elapsed();
+
+    // Document listing query
+    let start = std::time::Instant::now();
+    let documents: Vec<sqlx::sqlite::SqliteRow> =
+        sqlx::query("SELECT * FROM documents WHERE tenant_id = ? ORDER BY created_at DESC")
+            .bind(tenant_id)
+            .fetch_all(db.pool())
+            .await?;
+    let document_time = start.elapsed();
+
+    // Training jobs query
+    let start = std::time::Instant::now();
+    let jobs: Vec<sqlx::sqlite::SqliteRow> = sqlx::query(
+        "SELECT * FROM repository_training_jobs WHERE tenant_id = ? AND status = ? ORDER BY created_at DESC",
+    )
+    .bind(tenant_id)
+    .bind("running")
+    .fetch_all(db.pool())
+    .await?;
+    let job_time = start.elapsed();
+
+    println!(
+        "Query performance - Adapters: {}μs ({} rows), Documents: {}μs ({} rows), Jobs: {}μs ({} rows)",
+        adapter_time.as_micros(),
+        adapters.len(),
+        document_time.as_micros(),
+        documents.len(),
+        job_time.as_micros(),
+        jobs.len()
+    );
+
+    // Performance should be reasonable (< 10ms for small datasets)
+    assert!(adapter_time.as_millis() < 100, "Adapter query too slow");
+    assert!(document_time.as_millis() < 100, "Document query too slow");
+    assert!(job_time.as_millis() < 100, "Job query too slow");
+
+    println!("✓ Migration 0210: Query performance validation passed");
     Ok(())
 }

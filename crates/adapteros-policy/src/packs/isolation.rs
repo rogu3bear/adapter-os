@@ -451,7 +451,7 @@ mod tests {
             process_id: 1234,
             user_id: 1000,
             group_id: 1000,
-            working_directory: PathBuf::from("/tmp"),
+            working_directory: PathBuf::from("/var/run/aos/tenant1"),
             environment: HashMap::new(),
         };
 
@@ -462,7 +462,7 @@ mod tests {
             process_id: 1234,
             user_id: 1000,
             group_id: 1000,
-            working_directory: PathBuf::from("/tmp"),
+            working_directory: PathBuf::from("/var/run/aos/tenant1"),
             environment: HashMap::new(),
         };
 
@@ -480,7 +480,7 @@ mod tests {
                 process_id: 1234,
                 user_id: 1000,
                 group_id: 1000,
-                working_directory: PathBuf::from("/tmp"),
+                working_directory: PathBuf::from("/var/run/aos/tenant1"),
                 environment: HashMap::new(),
             },
             TenantContext {
@@ -488,7 +488,7 @@ mod tests {
                 process_id: 5678,
                 user_id: 1001,
                 group_id: 1001,
-                working_directory: PathBuf::from("/tmp"),
+                working_directory: PathBuf::from("/var/run/aos/tenant2"),
                 environment: HashMap::new(),
             },
         ];
@@ -501,7 +501,7 @@ mod tests {
                 process_id: 1234,
                 user_id: 1000,
                 group_id: 1000,
-                working_directory: PathBuf::from("/tmp"),
+                working_directory: PathBuf::from("/var/run/aos/tenant1"),
                 environment: HashMap::new(),
             },
             TenantContext {
@@ -509,7 +509,7 @@ mod tests {
                 process_id: 1234, // Duplicate process ID
                 user_id: 1001,
                 group_id: 1001,
-                working_directory: PathBuf::from("/tmp"),
+                working_directory: PathBuf::from("/var/run/aos/tenant2"),
                 environment: HashMap::new(),
             },
         ];

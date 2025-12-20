@@ -185,12 +185,10 @@ pub async fn run(output: &OutputWriter) -> Result<i32> {
 
     if output.is_json() {
         output.json(&result)?;
+    } else if ok {
+        output.success("Determinism Loop checks passed");
     } else {
-        if ok {
-            output.success("Determinism Loop checks passed");
-        } else {
-            output.error("Determinism Loop checks failed");
-        }
+        output.error("Determinism Loop checks failed");
     }
 
     Ok(if ok { 0 } else { 1 })

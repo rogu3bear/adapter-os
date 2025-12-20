@@ -121,9 +121,9 @@ pub async fn handle_codegraph_command(cmd: CodegraphCommand, output: &OutputWrit
         } => {
             // Temporarily disabled due to mplora-codegraph dependency
             output.error("CodeGraph export is temporarily disabled");
-            output.info(&format!("Database path: {}", codegraph_db.display()));
-            output.info(&format!("Output path: {}", output_path.display()));
-            output.info(&format!("Format: {}", format));
+            output.info(format!("Database path: {}", codegraph_db.display()));
+            output.info(format!("Output path: {}", output_path.display()));
+            output.info(format!("Format: {}", format));
             output.blank();
             output.info("This command requires the mplora-codegraph dependency which is currently unavailable.");
             output.info(
@@ -143,7 +143,7 @@ pub async fn handle_codegraph_command(cmd: CodegraphCommand, output: &OutputWrit
         CodegraphCommand::Stats { codegraph_db } => {
             // Temporarily disabled due to mplora-codegraph dependency
             output.error("CodeGraph stats is temporarily disabled");
-            output.info(&format!("Database path: {}", codegraph_db.display()));
+            output.info(format!("Database path: {}", codegraph_db.display()));
             output.blank();
             output.info("This command requires the mplora-codegraph dependency which is currently unavailable.");
             output.info(

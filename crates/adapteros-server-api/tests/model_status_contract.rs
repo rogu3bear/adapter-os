@@ -123,6 +123,7 @@ fn minimal_request(tenant_id: &str, model_id: &str) -> InferenceRequestInternal 
         batch_item_id: None,
         rag_enabled: false,
         rag_collection_id: None,
+        dataset_version_id: None,
         adapter_stack: None,
         adapters: None,
         stack_id: None,

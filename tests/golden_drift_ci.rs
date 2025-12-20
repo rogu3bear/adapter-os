@@ -296,9 +296,12 @@ fn test_drift_result_classification() {
 #[test]
 fn test_empty_baselines_graceful() {
     // Ensure test passes gracefully when no baselines exist
+    use std::path::PathBuf;
     use tempfile::TempDir;
 
-    let temp_dir = TempDir::new().unwrap();
+    let root = PathBuf::from("var").join("tmp");
+    std::fs::create_dir_all(&root).expect("create var/tmp");
+    let temp_dir = TempDir::new_in(&root).unwrap();
     let results = run_drift_checks(temp_dir.path()).expect("Should handle empty dir gracefully");
     assert!(results.is_empty());
 }

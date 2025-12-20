@@ -28,13 +28,9 @@ async fn readyz_does_not_report_stopped_during_startup() {
     let body_bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let readyz: ReadyzResponse = serde_json::from_slice(&body_bytes).unwrap();
 
+    let hint = readyz.checks.worker.hint.clone().unwrap_or_default();
     assert!(
-        !readyz
-            .checks
-            .worker
-            .hint
-            .unwrap_or_default()
-            .contains("stopped"),
+        !hint.contains("stopped"),
         "readyz should not advertise stopped during startup: {}",
         serde_json::to_string(&readyz).unwrap()
     );

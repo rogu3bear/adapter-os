@@ -4,14 +4,17 @@ use adapteros_core::{AosError, B3Hash, Result};
 use serde::{Deserialize, Serialize};
 
 /// Backend type identifier
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+///
+/// PRD-RECT-003: Implements Ord for deterministic cache eviction ordering.
+/// Variants ordered alphabetically: CoreML < Metal < Mlx < Mock
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum BackendType {
+    /// CoreML backend (macOS Neural Engine) - deterministic if ANE available
+    CoreML,
     /// Metal backend (macOS GPU) - deterministic
     Metal,
     /// MLX backend (deterministic HKDF-seeded execution)
     Mlx,
-    /// CoreML backend (macOS Neural Engine) - deterministic if ANE available
-    CoreML,
     /// Mock backend for testing
     Mock,
 }

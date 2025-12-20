@@ -23,6 +23,13 @@ Describe what this PR changes and why.
 - [ ] Added inline code comments for complex logic (prefer `///` doc comments for public APIs)
 - [ ] Updated CLAUDE.md if changing core patterns, architecture, or adding new subsystems
 
+### Database Optimizations (Required when changing DB performance)
+- [ ] If this PR includes a DB optimization (indexes, query rewrites, PRAGMA tuning, ANALYZE jobs):
+  - [ ] Added/updated an entry in [`optimizations/db/registry.toml`](optimizations/db/registry.toml:1)
+  - [ ] Declared `touches` + resolved conflicts/dependencies before implementation
+  - [ ] Documented `canary` + `rollback` procedure and provided rollback script(s) when applicable
+  - [ ] Attached impact assessment (baseline EXPLAIN + expected/observed p95 deltas)
+
 **Documentation Guidelines**:
 - New telemetry events → Add to `docs/flows/diagrams.md` § 5. Telemetry Event Schema
 - New state transitions → Update Mermaid diagram in `docs/flows/diagrams.md` § 2. Lifecycle State Machine

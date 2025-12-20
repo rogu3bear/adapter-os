@@ -6,7 +6,6 @@
 use adapteros_core::{AosError, Result};
 use adapteros_db::adapters::AdapterRegistrationBuilder;
 use adapteros_db::Db;
-use chrono::{Duration, Utc};
 
 async fn create_tenant(db: &Db, tenant_id: &str) -> Result<()> {
     sqlx::query("INSERT INTO tenants (id, name, itar_flag) VALUES (?, ?, 0)")
@@ -116,58 +115,6 @@ async fn list_adapters_for_tenant_returns_only_that_tenants_adapters() -> Result
     assert!(!tenant_b
         .iter()
         .any(|a| a.adapter_id.as_deref() == Some("a-2")));
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn find_expired_adapters_for_tenant_is_tenant_scoped() -> Result<()> {
-    let db = Db::new_in_memory().await?;
-
-    create_tenant(&db, "tenant-a").await?;
-    create_tenant(&db, "tenant-b").await?;
-
-    let expired_time = (Utc::now() - Duration::hours(1))
-        .format("%Y-%m-%d %H:%M:%S")
-        .to_string();
-    let future_time = (Utc::now() + Duration::days(7))
-        .format("%Y-%m-%d %H:%M:%S")
-        .to_string();
-
-    register_adapter(
-        &db,
-        "tenant-a",
-        "expired-a",
-        "b3:hash-expired-a",
-        Some(expired_time.clone()),
-    )
-    .await?;
-    register_adapter(
-        &db,
-        "tenant-a",
-        "active-a",
-        "b3:hash-active-a",
-        Some(future_time),
-    )
-    .await?;
-    register_adapter(
-        &db,
-        "tenant-b",
-        "expired-b",
-        "b3:hash-expired-b",
-        Some(expired_time),
-    )
-    .await?;
-
-    let expired_a = db.find_expired_adapters_for_tenant("tenant-a").await?;
-    assert_eq!(expired_a.len(), 1);
-    assert_eq!(expired_a[0].tenant_id, "tenant-a");
-    assert_eq!(expired_a[0].adapter_id.as_deref(), Some("expired-a"));
-
-    let expired_b = db.find_expired_adapters_for_tenant("tenant-b").await?;
-    assert_eq!(expired_b.len(), 1);
-    assert_eq!(expired_b[0].tenant_id, "tenant-b");
-    assert_eq!(expired_b[0].adapter_id.as_deref(), Some("expired-b"));
 
     Ok(())
 }

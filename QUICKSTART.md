@@ -305,7 +305,7 @@ cd ui && pnpm dev
 
 ## Next Steps
 
-- **[Full Architecture](docs/ARCHITECTURE_INDEX.md)** - System design
+- **[Full Architecture](docs/ARCHITECTURE.md)** - System design
 - **[MLX Integration](docs/MLX_INTEGRATION.md)** - Backend details
 - **[Training Guide](docs/training/aos_adapters.md)** - Advanced training
 - **[REST API Reference](CLAUDE.md#rest-api-reference)** - All endpoints
@@ -320,7 +320,7 @@ cd ui && pnpm dev
 - [docs/FEATURE_FLAGS.md](docs/FEATURE_FLAGS.md) - Feature flag reference
 - [docs/COREML_INTEGRATION.md](docs/COREML_INTEGRATION.md) - CoreML backend with ANE acceleration
 - [QUICKSTART_GPU_TRAINING.md](QUICKSTART_GPU_TRAINING.md) - GPU training quick start
-- [docs/ARCHITECTURE_PATTERNS.md](docs/ARCHITECTURE_PATTERNS.md) - Detailed architecture patterns
+- [docs/ARCHITECTURE.md#core-concepts](docs/ARCHITECTURE.md#core-concepts) - Detailed architecture patterns
 - [docs/DATABASE_REFERENCE.md](docs/DATABASE_REFERENCE.md) - Database schema reference
 
 ---

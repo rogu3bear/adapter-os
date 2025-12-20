@@ -16,14 +16,17 @@ pub fn validate_repo_id(repo_id: &str) -> Result<(), (StatusCode, Json<ErrorResp
     if repo_id.is_empty() {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(ErrorResponse::new("repo_id cannot be empty").with_code("VALIDATION_ERROR")),
+            Json(
+                ErrorResponse::new("Validation failed: repo_id cannot be empty")
+                    .with_code("VALIDATION_ERROR"),
+            ),
         ));
     }
     if repo_id.len() > 256 {
         return Err((
             StatusCode::BAD_REQUEST,
             Json(
-                ErrorResponse::new("repo_id too long (max 256 chars)")
+                ErrorResponse::new("Invalid repo_id: exceeds maximum length of 256 characters")
                     .with_code("VALIDATION_ERROR"),
             ),
         ));
@@ -36,7 +39,7 @@ pub fn validate_repo_id(repo_id: &str) -> Result<(), (StatusCode, Json<ErrorResp
         return Err((
             StatusCode::BAD_REQUEST,
             Json(
-                ErrorResponse::new("repo_id contains invalid characters")
+                ErrorResponse::new("Invalid repo_id: contains invalid characters")
                     .with_code("VALIDATION_ERROR"),
             ),
         ));
@@ -51,8 +54,10 @@ pub fn validate_description(description: &str) -> Result<(), (StatusCode, Json<E
         return Err((
             StatusCode::BAD_REQUEST,
             Json(
-                ErrorResponse::new("description too long (max 10000 chars)")
-                    .with_code("VALIDATION_ERROR"),
+                ErrorResponse::new(
+                    "Invalid description: exceeds maximum length of 10000 characters",
+                )
+                .with_code("VALIDATION_ERROR"),
             ),
         ));
     }
@@ -65,14 +70,18 @@ pub fn validate_file_paths(paths: &[String]) -> Result<(), (StatusCode, Json<Err
     if paths.is_empty() {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(ErrorResponse::new("target_files cannot be empty").with_code("VALIDATION_ERROR")),
+            Json(
+                ErrorResponse::new("Validation failed: target_files cannot be empty")
+                    .with_code("VALIDATION_ERROR"),
+            ),
         ));
     }
     if paths.len() > 100 {
         return Err((
             StatusCode::BAD_REQUEST,
             Json(
-                ErrorResponse::new("too many target files (max 100)").with_code("VALIDATION_ERROR"),
+                ErrorResponse::new("Invalid target_files: exceeds maximum of 100 files")
+                    .with_code("VALIDATION_ERROR"),
             ),
         ));
     }
@@ -81,14 +90,18 @@ pub fn validate_file_paths(paths: &[String]) -> Result<(), (StatusCode, Json<Err
             return Err((
                 StatusCode::BAD_REQUEST,
                 Json(
-                    ErrorResponse::new("path traversal not allowed").with_code("VALIDATION_ERROR"),
+                    ErrorResponse::new("Validation failed: path traversal not allowed")
+                        .with_code("VALIDATION_ERROR"),
                 ),
             ));
         }
         if path.is_empty() {
             return Err((
                 StatusCode::BAD_REQUEST,
-                Json(ErrorResponse::new("empty path not allowed").with_code("VALIDATION_ERROR")),
+                Json(
+                    ErrorResponse::new("Validation failed: empty path not allowed")
+                        .with_code("VALIDATION_ERROR"),
+                ),
             ));
         }
     }
@@ -101,14 +114,17 @@ pub fn validate_adapter_id(adapter_id: &str) -> Result<(), (StatusCode, Json<Err
     if adapter_id.is_empty() {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(ErrorResponse::new("adapter_id cannot be empty").with_code("VALIDATION_ERROR")),
+            Json(
+                ErrorResponse::new("Validation failed: adapter_id cannot be empty")
+                    .with_code("VALIDATION_ERROR"),
+            ),
         ));
     }
     if adapter_id.len() > 128 {
         return Err((
             StatusCode::BAD_REQUEST,
             Json(
-                ErrorResponse::new("adapter_id too long (max 128 chars)")
+                ErrorResponse::new("Invalid adapter_id: exceeds maximum length of 128 characters")
                     .with_code("VALIDATION_ERROR"),
             ),
         ));
@@ -121,7 +137,7 @@ pub fn validate_adapter_id(adapter_id: &str) -> Result<(), (StatusCode, Json<Err
         return Err((
             StatusCode::BAD_REQUEST,
             Json(
-                ErrorResponse::new("adapter_id contains invalid characters")
+                ErrorResponse::new("Invalid adapter_id: contains invalid characters")
                     .with_code("VALIDATION_ERROR"),
             ),
         ));
@@ -135,13 +151,19 @@ pub fn validate_name(name: &str) -> Result<(), (StatusCode, Json<ErrorResponse>)
     if name.is_empty() {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(ErrorResponse::new("name cannot be empty").with_code("VALIDATION_ERROR")),
+            Json(
+                ErrorResponse::new("Validation failed: name cannot be empty")
+                    .with_code("VALIDATION_ERROR"),
+            ),
         ));
     }
     if name.len() > 256 {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(ErrorResponse::new("name too long (max 256 chars)").with_code("VALIDATION_ERROR")),
+            Json(
+                ErrorResponse::new("Invalid name: exceeds maximum length of 256 characters")
+                    .with_code("VALIDATION_ERROR"),
+            ),
         ));
     }
     Ok(())
@@ -153,7 +175,10 @@ pub fn validate_hash_b3(hash: &str) -> Result<(), (StatusCode, Json<ErrorRespons
     if hash.is_empty() {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(ErrorResponse::new("hash_b3 cannot be empty").with_code("VALIDATION_ERROR")),
+            Json(
+                ErrorResponse::new("Validation failed: hash_b3 cannot be empty")
+                    .with_code("VALIDATION_ERROR"),
+            ),
         ));
     }
     // BLAKE3 produces 256-bit (32-byte) hashes, which is 64 hex chars
@@ -161,7 +186,7 @@ pub fn validate_hash_b3(hash: &str) -> Result<(), (StatusCode, Json<ErrorRespons
         return Err((
             StatusCode::BAD_REQUEST,
             Json(
-                ErrorResponse::new("hash_b3 must be 64 hex characters")
+                ErrorResponse::new("Invalid hash_b3: must be 64 hex characters")
                     .with_code("VALIDATION_ERROR"),
             ),
         ));
@@ -170,7 +195,7 @@ pub fn validate_hash_b3(hash: &str) -> Result<(), (StatusCode, Json<ErrorRespons
         return Err((
             StatusCode::BAD_REQUEST,
             Json(
-                ErrorResponse::new("hash_b3 must contain only hex characters")
+                ErrorResponse::new("Invalid hash_b3: must contain only hex characters")
                     .with_code("VALIDATION_ERROR"),
             ),
         ));
