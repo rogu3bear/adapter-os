@@ -187,7 +187,9 @@ pub use linter_runner::{
 };
 pub use llm_backend::{create_llm_backend, LlmBackendType, LocalLlmBackend, LocalLlmConfig};
 pub use memory::UmaPressureMonitor as MemoryMonitor;
-pub use model_handle_cache::{CacheStats, CachedModelEntry, ModelHandle, ModelHandleCache};
+pub use model_handle_cache::{
+    CacheStats, CachedModelEntry, ModelHandle, ModelHandleCache, DEFAULT_MAX_PINNED_ENTRIES,
+};
 pub use model_key::{FusionMode, ModelCacheIdentityV2, ModelKey, QuantizationMode};
 pub use model_loader::{ModelInfo, ModelLoader, QwenModel, QwenModelConfig, TransformerLayer};
 pub use prefix_kv_cache::{PrefixKvCache, PrefixKvCacheStats, PrefixKvEntry};
