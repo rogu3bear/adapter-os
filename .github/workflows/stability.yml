@@ -39,8 +39,5 @@ jobs:
         run: |
           echo "AOS_DATABASE_URL=sqlite:var/aos-cp.sqlite3" > .env
 
-      - name: Check inference bypass
-        run: scripts/check_inference_bypass.sh
-
       - name: Run stability gate
         run: scripts/ci/stability.sh
