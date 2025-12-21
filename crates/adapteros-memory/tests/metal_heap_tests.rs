@@ -493,7 +493,7 @@ fn test_device_optional_creation() {
 // ============================================================================
 
 #[test]
-#[ignore = "Requires Metal hardware - run with: cargo test --release -- --ignored test_metal_device_availability"]
+#[ignore = "Requires Metal hardware - run with: cargo test --release -- --ignored test_metal_device_availability [tracking: STAB-IGN-001]"]
 fn test_metal_device_availability() {
     if let Some(_device) = get_test_device() {
         println!("Metal device found and initialized");
@@ -503,7 +503,7 @@ fn test_metal_device_availability() {
 }
 
 #[test]
-#[ignore = "Requires Metal hardware - run with: cargo test --release -- --ignored"]
+#[ignore = "Requires Metal hardware - run with: cargo test --release -- --ignored [tracking: STAB-IGN-001]"]
 fn test_real_metal_heap_observer_creation() {
     if let Some(device) = get_test_device() {
         let observer = MetalHeapObserver::new(device, 1.0);
@@ -513,7 +513,7 @@ fn test_real_metal_heap_observer_creation() {
 }
 
 #[test]
-#[ignore = "Blocked: sampling_rate field is private - add getter method to MetalHeapObserver"]
+#[ignore = "Blocked: sampling_rate field is private - add getter method to MetalHeapObserver [tracking: STAB-IGN-001]"]
 fn test_real_metal_heap_observer_sampling_rate() {
     if let Some(device) = get_test_device() {
         // Test that observer can be created with various sampling rates
@@ -526,7 +526,7 @@ fn test_real_metal_heap_observer_sampling_rate() {
 }
 
 #[test]
-#[ignore = "Requires Metal hardware - run with: cargo test --release -- --ignored"]
+#[ignore = "Requires Metal hardware - run with: cargo test --release -- --ignored [tracking: STAB-IGN-001]"]
 fn test_real_metal_heap_observer_memory_stats() {
     if let Some(device) = get_test_device() {
         let observer = MetalHeapObserver::new(device, 1.0);
@@ -540,7 +540,7 @@ fn test_real_metal_heap_observer_memory_stats() {
 }
 
 #[test]
-#[ignore = "Requires Metal hardware - run with: cargo test --release -- --ignored"]
+#[ignore = "Requires Metal hardware - run with: cargo test --release -- --ignored [tracking: STAB-IGN-001]"]
 fn test_real_metal_heap_fragmentation_detection() {
     if let Some(device) = get_test_device() {
         let observer = MetalHeapObserver::new(device, 1.0);
@@ -555,7 +555,7 @@ fn test_real_metal_heap_fragmentation_detection() {
 }
 
 #[test]
-#[ignore = "Requires Metal hardware - run with: cargo test --release -- --ignored"]
+#[ignore = "Requires Metal hardware - run with: cargo test --release -- --ignored [tracking: STAB-IGN-001]"]
 fn test_real_metal_heap_state_tracking() {
     if let Some(device) = get_test_device() {
         let observer = MetalHeapObserver::new(device, 1.0);
@@ -568,7 +568,7 @@ fn test_real_metal_heap_state_tracking() {
 }
 
 #[test]
-#[ignore = "Requires Metal hardware - run with: cargo test --release -- --ignored"]
+#[ignore = "Requires Metal hardware - run with: cargo test --release -- --ignored [tracking: STAB-IGN-001]"]
 fn test_real_metal_heap_migration_events() {
     if let Some(device) = get_test_device() {
         let observer = MetalHeapObserver::new(device, 1.0);
@@ -581,7 +581,7 @@ fn test_real_metal_heap_migration_events() {
 }
 
 #[test]
-#[ignore = "Requires Metal hardware - run with: cargo test --release -- --ignored"]
+#[ignore = "Requires Metal hardware - run with: cargo test --release -- --ignored [tracking: STAB-IGN-001]"]
 fn test_real_metal_heap_observer_clear() {
     if let Some(device) = get_test_device() {
         let observer = MetalHeapObserver::new(device, 1.0);
@@ -594,7 +594,7 @@ fn test_real_metal_heap_observer_clear() {
 }
 
 #[test]
-#[ignore = "Requires Metal hardware - run with: cargo test --release -- --ignored"]
+#[ignore = "Requires Metal hardware - run with: cargo test --release -- --ignored [tracking: STAB-IGN-001]"]
 fn test_real_metal_heap_observer_performance() {
     if let Some(device) = get_test_device() {
         let observer = Arc::new(MetalHeapObserver::new(device, 1.0));

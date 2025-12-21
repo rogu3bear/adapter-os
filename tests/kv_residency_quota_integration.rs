@@ -543,7 +543,7 @@ fn test_reservation_timeout_and_cleanup() {
 #[tokio::test]
 #[cfg_attr(
     not(feature = "hardware-residency"),
-    ignore = "Requires hardware-residency feature and Metal backend"
+    ignore = "Requires hardware-residency feature and Metal backend [tracking: STAB-IGN-001]"
 )]
 async fn test_worker_enforces_kv_quota_during_inference() {
     // This test requires:
@@ -566,7 +566,7 @@ async fn test_worker_enforces_kv_quota_during_inference() {
 #[tokio::test]
 #[cfg_attr(
     not(feature = "hardware-residency"),
-    ignore = "Requires hardware-residency feature and Metal backend"
+    ignore = "Requires hardware-residency feature and Metal backend [tracking: STAB-IGN-001]"
 )]
 async fn test_residency_promotion_in_real_inference() {
     // This test requires:
@@ -588,7 +588,7 @@ async fn test_residency_promotion_in_real_inference() {
 #[tokio::test]
 #[cfg_attr(
     not(feature = "hardware-residency"),
-    ignore = "Requires hardware-residency feature and Metal backend"
+    ignore = "Requires hardware-residency feature and Metal backend [tracking: STAB-IGN-001]"
 )]
 async fn test_receipt_contains_kv_usage_stats_e2e() {
     // This test requires:
@@ -614,7 +614,7 @@ async fn test_receipt_contains_kv_usage_stats_e2e() {
 #[tokio::test]
 #[cfg_attr(
     not(feature = "hardware-residency"),
-    ignore = "Requires hardware-residency feature and Metal backend"
+    ignore = "Requires hardware-residency feature and Metal backend [tracking: STAB-IGN-001]"
 )]
 async fn test_concurrent_requests_with_quota_enforcement() {
     // This test requires:

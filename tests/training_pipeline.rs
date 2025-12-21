@@ -185,7 +185,7 @@ async fn test_end_to_end_training_and_quantization() {
 
 // Performance target: training < 30s for rank-4, 100 examples
 #[tokio::test]
-#[ignore = "Expensive benchmark test - run with: cargo test --release -- --ignored test_training_performance_benchmark"]
+#[ignore = "Expensive benchmark test - run with: cargo test --release -- --ignored test_training_performance_benchmark [tracking: STAB-IGN-001]"]
 async fn test_training_performance_benchmark() {
     use std::time::Instant;
 

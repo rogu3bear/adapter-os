@@ -57,62 +57,62 @@ async fn test_adapter_list_response_contract() {
 }
 
 #[test]
-#[ignore = "Pending API refactoring"]
+#[ignore = "Pending API refactoring [tracking: STAB-IGN-001]"]
 fn test_adapter_detail_response_contract() {}
 #[test]
-#[ignore = "Pending API refactoring"]
+#[ignore = "Pending API refactoring [tracking: STAB-IGN-001]"]
 fn test_training_job_response_contract() {}
 #[test]
-#[ignore = "Pending API refactoring"]
+#[ignore = "Pending API refactoring [tracking: STAB-IGN-001]"]
 fn test_tenant_response_contract() {}
 #[test]
-#[ignore = "Pending API refactoring"]
+#[ignore = "Pending API refactoring [tracking: STAB-IGN-001]"]
 fn test_policy_response_contract() {}
 #[test]
-#[ignore = "Pending API refactoring"]
+#[ignore = "Pending API refactoring [tracking: STAB-IGN-001]"]
 fn test_metrics_response_contract() {}
 #[test]
-#[ignore = "Pending API refactoring"]
+#[ignore = "Pending API refactoring [tracking: STAB-IGN-001]"]
 fn test_audit_log_response_contract() {}
 #[test]
-#[ignore = "Pending API refactoring"]
+#[ignore = "Pending API refactoring [tracking: STAB-IGN-001]"]
 fn test_stack_response_contract() {}
 #[test]
-#[ignore = "Pending API refactoring"]
+#[ignore = "Pending API refactoring [tracking: STAB-IGN-001]"]
 fn test_worker_response_contract() {}
 #[test]
-#[ignore = "Pending API refactoring"]
+#[ignore = "Pending API refactoring [tracking: STAB-IGN-001]"]
 fn test_node_response_contract() {}
 #[test]
-#[ignore = "Pending API refactoring"]
+#[ignore = "Pending API refactoring [tracking: STAB-IGN-001]"]
 fn test_health_response_contract() {}
 #[test]
-#[ignore = "Pending API refactoring"]
+#[ignore = "Pending API refactoring [tracking: STAB-IGN-001]"]
 fn test_error_response_contract() {}
 #[test]
-#[ignore = "Pending API refactoring"]
+#[ignore = "Pending API refactoring [tracking: STAB-IGN-001]"]
 fn test_pagination_response_contract() {}
 #[test]
-#[ignore = "Pending API refactoring"]
+#[ignore = "Pending API refactoring [tracking: STAB-IGN-001]"]
 fn test_filter_request_contract() {}
 #[test]
-#[ignore = "Pending API refactoring"]
+#[ignore = "Pending API refactoring [tracking: STAB-IGN-001]"]
 fn test_sort_request_contract() {}
 #[test]
-#[ignore = "Pending API refactoring"]
+#[ignore = "Pending API refactoring [tracking: STAB-IGN-001]"]
 fn test_inference_request_contract() {}
 #[test]
-#[ignore = "Pending API refactoring"]
+#[ignore = "Pending API refactoring [tracking: STAB-IGN-001]"]
 fn test_inference_response_contract() {}
 #[test]
-#[ignore = "Pending API refactoring"]
+#[ignore = "Pending API refactoring [tracking: STAB-IGN-001]"]
 fn test_streaming_event_contract() {}
 #[test]
-#[ignore = "Pending API refactoring"]
+#[ignore = "Pending API refactoring [tracking: STAB-IGN-001]"]
 fn test_telemetry_event_contract() {}
 #[test]
-#[ignore = "Pending API refactoring"]
+#[ignore = "Pending API refactoring [tracking: STAB-IGN-001]"]
 fn test_authentication_contract() {}
 #[test]
-#[ignore = "Pending API refactoring"]
+#[ignore = "Pending API refactoring [tracking: STAB-IGN-001]"]
 fn test_authorization_contract() {}

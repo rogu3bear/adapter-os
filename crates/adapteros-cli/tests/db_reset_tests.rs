@@ -14,7 +14,7 @@
 use std::process::Command;
 
 #[test]
-#[ignore = "db subcommand not wired into main.rs - available in app.rs"]
+#[ignore = "db subcommand not wired into main.rs - available in app.rs [tracking: STAB-IGN-001]"]
 fn test_db_reset_command_help_output() {
     let output = Command::new("cargo")
         .args(["run", "--bin", "aosctl", "--", "db", "reset", "--help"])
@@ -32,7 +32,7 @@ fn test_db_reset_command_help_output() {
 }
 
 #[test]
-#[ignore = "db subcommand not wired into main.rs - available in app.rs"]
+#[ignore = "db subcommand not wired into main.rs - available in app.rs [tracking: STAB-IGN-001]"]
 fn test_db_reset_requires_confirmation() {
     // This test would require setting up a test database
     // For now, we'll test the command structure
@@ -56,7 +56,7 @@ fn test_db_reset_requires_confirmation() {
 }
 
 #[test]
-#[ignore = "db subcommand not wired into main.rs - available in app.rs"]
+#[ignore = "db subcommand not wired into main.rs - available in app.rs [tracking: STAB-IGN-001]"]
 fn test_db_reset_with_force_flag() {
     // Test with --force flag (would normally destroy data)
     // Note: the actual flag is --force, not --yes

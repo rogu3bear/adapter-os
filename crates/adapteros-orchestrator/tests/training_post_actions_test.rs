@@ -183,7 +183,7 @@ fn test_post_actions_create_stack_does_not_imply_default() {
 /// Training finishes → adapter registered →
 /// stack auto-created, but NOT set as default.
 #[test]
-#[ignore = "Requires running infrastructure - documents expected E2E flow"]
+#[ignore = "Requires running infrastructure - documents expected E2E flow [tracking: STAB-IGN-001]"]
 fn test_e2e_training_creates_stack_without_setting_default() {
     // This test documents the expected flow but cannot run without infrastructure.
     //

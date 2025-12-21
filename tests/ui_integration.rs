@@ -319,7 +319,7 @@ async fn test_endpoint_connectivity() {
 }
 
 #[tokio::test]
-#[ignore = "Requires API client mock infrastructure - verify process debugging, monitoring, and routing methods exist in ui/src/api/client.ts"]
+#[ignore = "Requires API client mock infrastructure - verify process debugging, monitoring, and routing methods exist in ui/src/api/client.ts [tracking: STAB-IGN-001]"]
 async fn test_api_client_methods() {
     // Test that all new API client methods are properly implemented
     // Citation: ui/src/api/client.ts L747-L817
@@ -333,7 +333,7 @@ async fn test_api_client_methods() {
 }
 
 #[tokio::test]
-#[ignore = "Requires component analysis framework - verify ApiClient usage in ProcessDebugger, ContactsPage, RealtimeMetrics, DomainAdapterManager"]
+#[ignore = "Requires component analysis framework - verify ApiClient usage in ProcessDebugger, ContactsPage, RealtimeMetrics, DomainAdapterManager [tracking: STAB-IGN-001]"]
 async fn test_component_api_usage() {
     // Test that components use ApiClient consistently
     // Citation: ui/src/components/ProcessDebugger.tsx L129-L131
