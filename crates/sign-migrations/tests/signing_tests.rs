@@ -61,7 +61,7 @@ fn test_migration_file_naming() {
             .expect("Failed to read migrations directory");
 
         for entry in entries.filter_map(|e| e.ok()) {
-            let file_name = entry.file_name().to_string_lossy();
+            let file_name = entry.file_name().to_string_lossy().into_owned();
 
             // Should start with numbers (migration order)
             if file_name.ends_with(".sql") {

@@ -144,6 +144,7 @@ dev-macos-real = ["coreml-backend", "metal-backend", "multi-backend", "mlx"]
 
 # Testing features - used in 157+ test files and test infrastructure
 extended-tests = []  # Extended test suite with intensive tests
+hardware-residency = ["adapteros-lora-worker/hardware-residency"]  # Enable hardware residency integration tests
 integration_tests = []  # Integration test suite
 security_tests = []  # Security unit and integration tests
 loom = []  # Concurrency testing with loom (thread model verification)
