@@ -101,11 +101,17 @@ mod tests {
                 .expect("Failed to create database"),
         );
 
+        // Create required tenant for FK constraint
+        let tenant_id = db
+            .create_tenant("Test Tenant", false)
+            .await
+            .expect("Failed to create tenant");
+
         // Create writer and receiver
         let (writer, receiver) = RouterDecisionWriter::new();
 
         // Spawn consumer
-        let consumer_handle = spawn_consumer(receiver, db.clone(), "test-tenant".to_string());
+        let consumer_handle = spawn_consumer(receiver, db.clone(), tenant_id.clone());
 
         // Emit some events
         for step in 0..5 {
@@ -147,7 +153,7 @@ mod tests {
         // Verify events were persisted
         let decisions = db
             .query_routing_decisions(&adapteros_db::RoutingDecisionFilters {
-                tenant_id: Some("test-tenant".to_string()),
+                tenant_id: Some(tenant_id),
                 limit: Some(10),
                 ..Default::default()
             })
