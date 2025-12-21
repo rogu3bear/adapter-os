@@ -1,4 +1,4 @@
-.PHONY: help build prepare test test-rust test-ui test-e2e test-ignored test-hw clean fmt clippy metal ui ui-dev menu-bar menu-bar-dev menu-bar-install infra-check dev dev-no-auth build-mlx test-mlx bench-mlx verify-mlx-env cli setup-git-hooks lint-fix mvp-demo stability-check stability-ci
+.PHONY: help build prepare test test-rust test-ui test-e2e test-ignored test-hw clean fmt fmt-check clippy metal ui ui-dev menu-bar menu-bar-dev menu-bar-install infra-check dev dev-no-auth build-mlx test-mlx bench-mlx verify-mlx-env cli setup-git-hooks lint-fix mvp-demo stability-check stability-ci ignored-tests-audit ignored-tests-check
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -59,22 +59,44 @@ IGNORED_EXCLUDE ?=
 IGNORED_EXCLUDE_ARGS := $(foreach ex,$(IGNORED_EXCLUDE),--exclude $(ex))
 IGNORED_FEATURES ?= extended-tests
 IGNORED_FEATURES_ARGS := $(if $(strip $(IGNORED_FEATURES)),--features $(IGNORED_FEATURES),)
-test-ignored: ## Run ignored Rust tests (unit + integration) across the workspace
+test-ignored: ## Run ignored Rust tests (non-blocking suite, requires tracking IDs in ignore reasons)
+	@echo "=== Running Ignored Tests (Non-Blocking) ==="
+	@echo "These tests require infrastructure, pending APIs, or external dependencies"
+	@echo "All ignored tests must have tracking IDs: [tracking: STAB-IGN-XXXX]"
+	@echo ""
 	cargo test --workspace $(IGNORED_EXCLUDE_ARGS) $(IGNORED_FEATURES_ARGS) --lib --bins --examples -- --ignored
 	cargo test --workspace $(IGNORED_EXCLUDE_ARGS) $(IGNORED_FEATURES_ARGS) --tests -- --ignored
+	@echo ""
+	@echo "=== Ignored Tests Complete ==="
+	@echo "Review failures in docs/stability/IGNORED_TESTS.md before release"
 
 HW_PROFILE ?= release
 HW_ROOT_FEATURES ?= hardware-residency
 HW_WORKER_FEATURES ?= hardware-residency,ci-residency
-test-hw: ## Run hardware-dependent Rust tests (Metal/VRAM/residency)
+test-hw: ## Run hardware-dependent tests (non-blocking, requires macOS with Metal GPU)
+	@echo "=== Running Hardware Tests (Non-Blocking) ==="
+	@echo "Requires: macOS with Metal GPU, signed kernel libraries"
+	@echo "Cannot run in CI - for local validation only"
+	@echo ""
+	@echo "Metal LoRA buffer population tests..."
 	cargo test --test lora_buffer_population_integration --features extended-tests --profile $(HW_PROFILE) -- --ignored --nocapture
+	@echo ""
+	@echo "KV residency and quota integration tests..."
 	cargo test --test kv_residency_quota_integration --features $(HW_ROOT_FEATURES)
+	@echo ""
+	@echo "Worker enforcement and residency probe tests..."
 	cargo test -p adapteros-lora-worker --features $(HW_WORKER_FEATURES) --test worker_enforcement_tests
 	cargo test -p adapteros-lora-worker --features $(HW_WORKER_FEATURES) --test residency_probe
+	@echo ""
+	@echo "CoreML kernel integration tests..."
 	cargo test -p adapteros-lora-kernel-coreml --test integration_tests -- --ignored
+	@echo ""
+	@echo "Metal heap observer tests..."
 	cargo test -p adapteros-memory --test metal_heap_tests --profile $(HW_PROFILE) -- --ignored
 	cargo test -p adapteros-memory --lib --profile $(HW_PROFILE) -- --ignored
-
+	@echo ""
+	@echo "=== Hardware Tests Complete ==="
+	@echo "All tests use tracking IDs from docs/stability/IGNORED_TESTS.md"
 clean: ## Clean build artifacts
 	cargo clean
 	rm -f metal/*.air metal/*.metallib
@@ -95,6 +117,9 @@ license-check: ## Check dependency license compliance
 
 fmt: ## Format code
 	cargo fmt --all
+
+fmt-check: ## Check formatting without modifying files
+	cargo fmt --all --check
 
 clippy: ## Run clippy (with smart test/example suppression via clippy.toml)
 	cargo clippy --all-features -- -D warnings
@@ -170,9 +195,15 @@ check: fmt clippy test determinism-check ## Run all checks
 stability-ci: ## Feature matrix build (defaults + all-features)
 	./scripts/ci/feature_matrix.sh
 
-stability-check: ## Must-pass stabilization gate
-	@$(MAKE) check
+stability-check: ## Must-pass stabilization gate (see docs/stability/CHECKLIST.md)
+	@echo "=== Stability Gate ==="
+	@echo "Step 1/3: Inference bypass guard..."
+	./scripts/check_inference_bypass.sh
+	@echo "Step 2/3: Full test suite (fmt, clippy, Rust tests, UI tests)..."
+	@$(MAKE) test
+	@echo "Step 3/3: Determinism checks..."
 	@$(MAKE) determinism-check
+	@echo "=== Stability Gate Passed ==="
 
 install: build ## Install aosctl
 	cargo install --path crates/aos-cli
@@ -260,6 +291,22 @@ kv-verify: ## Run SQL↔KV drift verification (fails on drift, no repair)
 
 dup: ## Check for code duplication (fails on violations)
 	bash scripts/run_jscpd.sh
+
+ignored-tests-audit: ## Audit ignored tests: show mismatches between code and registry
+	@echo "=== Ignored Tests Audit ==="
+	@code_count=$$(grep -rn '#\[ignore *= *"' --include='*.rs' crates tests 2>/dev/null | grep -c 'tracking: STAB-IGN' || echo "0"); \
+	echo "Tracked in code: $$code_count"; \
+	echo "Run 'grep -rn \"#\[ignore\" --include=\"*.rs\" crates tests | grep -v tracking' to find untracked ignores"
+
+ignored-tests-check: ## Strict check: fails if ignored tests lack tracking IDs
+	@echo "=== Ignored Tests Check ==="
+	@missing=$$(grep -rn '#\[ignore *= *"' --include='*.rs' crates tests 2>/dev/null | grep -v 'tracking: STAB-IGN' || true); \
+	if [ -n "$$missing" ]; then \
+		echo "FAIL: Found ignored tests without tracking IDs:"; \
+		echo "$$missing" | head -10; \
+		exit 1; \
+	fi
+	@echo "All ignored tests have tracking IDs"
 
 # E2E worker startup harness (uses MLX 4-bit Qwen defaults from .env)
 E2E_MODEL_PATH ?= ./var/models/Qwen2.5-7B-Instruct-4bit
