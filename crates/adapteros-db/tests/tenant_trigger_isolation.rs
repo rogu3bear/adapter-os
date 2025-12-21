@@ -1321,6 +1321,29 @@ async fn create_test_user(db: &Db, user_id: &str, email: &str) -> Result<(), sql
     Ok(())
 }
 
+/// Create a git repository row for training job FK requirements.
+async fn create_test_git_repo(db: &Db, repo_id: &str) -> Result<(), sqlx::Error> {
+    let git_id = format!("git-{}", uuid::Uuid::new_v4());
+
+    sqlx::query(
+        "INSERT OR IGNORE INTO git_repositories (id, repo_id, path, branch, analysis_json, evidence_json, security_scan_json, status, created_by) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(&git_id)
+    .bind(repo_id)
+    .bind(format!("var/test/{}", repo_id))
+    .bind("main")
+    .bind("{}")
+    .bind("{}")
+    .bind("{}")
+    .bind("active")
+    .bind("test-user")
+    .execute(db.pool())
+    .await?;
+
+    Ok(())
+}
+
 /// Create training job for testing training-related tenant isolation
 async fn create_test_training_job(
     db: &Db,
@@ -1328,17 +1351,22 @@ async fn create_test_training_job(
     repo_id: &str,
     dataset_id: &str,
 ) -> Result<String, sqlx::Error> {
+    create_test_git_repo(db, repo_id).await?;
+
     let job_id = format!("job-{}-{}", tenant_id, uuid::Uuid::new_v4());
 
     sqlx::query(
-        "INSERT INTO repository_training_jobs (id, tenant_id, repo_id, dataset_id, status, created_at) \
-         VALUES (?, ?, ?, ?, ?, datetime('now'))",
+        "INSERT INTO repository_training_jobs (id, tenant_id, repo_id, dataset_id, status, training_config_json, progress_json, created_by, created_at) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))",
     )
     .bind(&job_id)
     .bind(tenant_id)
     .bind(repo_id)
     .bind(dataset_id)
     .bind("pending")
+    .bind("{}")
+    .bind("{}")
+    .bind("test-user")
     .execute(db.pool())
     .await?;
 
