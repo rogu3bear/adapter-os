@@ -352,7 +352,7 @@ mod generation_tests {
     use adapteros_lora_mlx_ffi::ModelConfig;
 
     #[test]
-    #[ignore = "Blocked: Generate method not fully implemented in MockMLXFFIModel"]
+    #[ignore = "Blocked: Generate method not fully implemented in MockMLXFFIModel [tracking: STAB-IGN-001]"]
     fn test_text_generation() {
         let config = ModelConfig {
             hidden_size: 4096,
@@ -458,7 +458,7 @@ mod embedding_config_tests {
 #[cfg(test)]
 mod embedding_model_tests {
     #[test]
-    #[ignore = "Requires embedding model files - run with: cargo test --release --features mlx -- --ignored"]
+    #[ignore = "Requires embedding model files - run with: cargo test --release --features mlx -- --ignored [tracking: STAB-IGN-001]"]
     fn test_embedding_model_load() {
         // This test requires:
         // - model.safetensors
@@ -468,7 +468,7 @@ mod embedding_model_tests {
     }
 
     #[test]
-    #[ignore = "Requires embedding model files - run with: cargo test --release --features mlx -- --ignored"]
+    #[ignore = "Requires embedding model files - run with: cargo test --release --features mlx -- --ignored [tracking: STAB-IGN-001]"]
     fn test_embedding_encode_text() {
         // This test would verify text encoding
         // Skipped as it requires real model files

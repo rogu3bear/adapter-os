@@ -546,7 +546,7 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    #[ignore = "E2E test requires full system setup - run with: cargo test --release -- --ignored"]
+    #[ignore = "E2E test requires full system setup - run with: cargo test --release -- --ignored [tracking: STAB-IGN-001]"]
     async fn test_dataset_to_inference_complete_workflow() -> Result<()> {
         let config = TestConfig::default();
         let env = TestEnvironment::new(config).await?;
@@ -559,7 +559,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "E2E test requires full system setup - run with: cargo test --release -- --ignored"]
+    #[ignore = "E2E test requires full system setup - run with: cargo test --release -- --ignored [tracking: STAB-IGN-001]"]
     async fn test_dataset_error_scenarios() -> Result<()> {
         let config = TestConfig::default();
         let env = TestEnvironment::new(config).await?;

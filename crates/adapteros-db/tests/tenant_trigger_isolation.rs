@@ -1577,7 +1577,7 @@ async fn trigger_allows_pinned_adapter_same_tenant() {
 // ----------------------------------------------------------------------------
 
 #[tokio::test]
-async fn trigger_rejects_adapter_cross_tenant_training_job() {
+async fn test_tenant_trigger_isolation_rejects_adapter_cross_tenant_training_job() {
     std::env::set_var("AOS_SKIP_MIGRATION_SIGNATURES", "1");
     let db = Db::new_in_memory().await.expect("db");
     let (tenant_a, tenant_b) = setup_tenants(&db).await;
@@ -1603,7 +1603,7 @@ async fn trigger_rejects_adapter_cross_tenant_training_job() {
 }
 
 #[tokio::test]
-async fn trigger_allows_adapter_same_tenant_training_job() {
+async fn test_tenant_trigger_isolation_allows_adapter_same_tenant_training_job() {
     std::env::set_var("AOS_SKIP_MIGRATION_SIGNATURES", "1");
     let db = Db::new_in_memory().await.expect("db");
     let (tenant_a, _) = setup_tenants(&db).await;
@@ -1630,7 +1630,7 @@ async fn trigger_allows_adapter_same_tenant_training_job() {
 }
 
 #[tokio::test]
-async fn trigger_rejects_dataset_adapter_links_cross_tenant_insert() {
+async fn test_tenant_trigger_isolation_rejects_dataset_adapter_links_cross_tenant_insert() {
     std::env::set_var("AOS_SKIP_MIGRATION_SIGNATURES", "1");
     let db = Db::new_in_memory().await.expect("db");
     let (tenant_a, tenant_b) = setup_tenants(&db).await;
@@ -1657,7 +1657,7 @@ async fn trigger_rejects_dataset_adapter_links_cross_tenant_insert() {
 }
 
 #[tokio::test]
-async fn trigger_allows_dataset_adapter_links_same_tenant_insert() {
+async fn test_tenant_trigger_isolation_allows_dataset_adapter_links_same_tenant_insert() {
     std::env::set_var("AOS_SKIP_MIGRATION_SIGNATURES", "1");
     let db = Db::new_in_memory().await.expect("db");
     let (tenant_a, _) = setup_tenants(&db).await;
@@ -1685,7 +1685,7 @@ async fn trigger_allows_dataset_adapter_links_same_tenant_insert() {
 }
 
 #[tokio::test]
-async fn trigger_rejects_dataset_adapter_links_cross_tenant_update() {
+async fn test_tenant_trigger_isolation_rejects_dataset_adapter_links_cross_tenant_update() {
     std::env::set_var("AOS_SKIP_MIGRATION_SIGNATURES", "1");
     let db = Db::new_in_memory().await.expect("db");
     let (tenant_a, tenant_b) = setup_tenants(&db).await;
@@ -1720,7 +1720,7 @@ async fn trigger_rejects_dataset_adapter_links_cross_tenant_update() {
 }
 
 #[tokio::test]
-async fn trigger_rejects_evidence_entries_cross_tenant_adapter_insert() {
+async fn test_tenant_trigger_isolation_rejects_evidence_entries_cross_tenant_adapter_insert() {
     std::env::set_var("AOS_SKIP_MIGRATION_SIGNATURES", "1");
     let db = Db::new_in_memory().await.expect("db");
     let (tenant_a, tenant_b) = setup_tenants(&db).await;
@@ -1746,7 +1746,7 @@ async fn trigger_rejects_evidence_entries_cross_tenant_adapter_insert() {
 }
 
 #[tokio::test]
-async fn trigger_allows_evidence_entries_same_tenant_adapter_insert() {
+async fn test_tenant_trigger_isolation_allows_evidence_entries_same_tenant_adapter_insert() {
     std::env::set_var("AOS_SKIP_MIGRATION_SIGNATURES", "1");
     let db = Db::new_in_memory().await.expect("db");
     let (tenant_a, _) = setup_tenants(&db).await;
@@ -1773,7 +1773,7 @@ async fn trigger_allows_evidence_entries_same_tenant_adapter_insert() {
 }
 
 #[tokio::test]
-async fn trigger_rejects_evidence_entries_cross_tenant_adapter_update() {
+async fn test_tenant_trigger_isolation_rejects_evidence_entries_cross_tenant_adapter_update() {
     std::env::set_var("AOS_SKIP_MIGRATION_SIGNATURES", "1");
     let db = Db::new_in_memory().await.expect("db");
     let (tenant_a, tenant_b) = setup_tenants(&db).await;
@@ -1807,7 +1807,7 @@ async fn trigger_rejects_evidence_entries_cross_tenant_adapter_update() {
 }
 
 #[tokio::test]
-async fn trigger_rejects_adapter_version_history_cross_tenant_insert() {
+async fn test_tenant_trigger_isolation_rejects_adapter_version_history_cross_tenant_insert() {
     std::env::set_var("AOS_SKIP_MIGRATION_SIGNATURES", "1");
     let db = Db::new_in_memory().await.expect("db");
     let (tenant_a, tenant_b) = setup_tenants(&db).await;
@@ -1837,7 +1837,7 @@ async fn trigger_rejects_adapter_version_history_cross_tenant_insert() {
 }
 
 #[tokio::test]
-async fn trigger_allows_adapter_version_history_same_tenant_insert() {
+async fn test_tenant_trigger_isolation_allows_adapter_version_history_same_tenant_insert() {
     std::env::set_var("AOS_SKIP_MIGRATION_SIGNATURES", "1");
     let db = Db::new_in_memory().await.expect("db");
     let (tenant_a, _) = setup_tenants(&db).await;

@@ -406,7 +406,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "Verifies actual migrations directory - run with: cargo test --release -- --ignored test_verify_actual_migrations"]
+    #[ignore = "Verifies actual migrations directory - run with: cargo test --release -- --ignored test_verify_actual_migrations [tracking: STAB-IGN-001]"]
     fn test_verify_actual_migrations() {
         // This test verifies the actual migrations in the project
         // Run with: cargo test test_verify_actual_migrations -- --ignored

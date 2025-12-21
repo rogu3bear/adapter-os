@@ -5,7 +5,7 @@ use adapteros_git::{GitConfig, GitSubsystem};
 
 /// Test Git subsystem stub compiles and starts
 #[tokio::test]
-#[ignore = "Git subsystem integration tests require database refactoring"]
+#[ignore = "Git subsystem integration tests require database refactoring [tracking: STAB-IGN-001]"]
 async fn test_git_subsystem_integration() {
     let config = GitConfig::default();
     let db = Db::connect(":memory:")
@@ -18,7 +18,7 @@ async fn test_git_subsystem_integration() {
 
 /// Test Git subsystem stub starts without errors
 #[tokio::test]
-#[ignore = "Git subsystem integration tests require database refactoring"]
+#[ignore = "Git subsystem integration tests require database refactoring [tracking: STAB-IGN-001]"]
 async fn test_git_error_handling() {
     let config = GitConfig::default();
     let db = Db::connect(":memory:")
@@ -31,7 +31,7 @@ async fn test_git_error_handling() {
 
 /// Test Git subsystem stub can be started
 #[tokio::test]
-#[ignore = "Git subsystem integration tests require database refactoring"]
+#[ignore = "Git subsystem integration tests require database refactoring [tracking: STAB-IGN-001]"]
 async fn test_commit_batching() {
     let config = GitConfig::default();
     let db = Db::connect(":memory:")

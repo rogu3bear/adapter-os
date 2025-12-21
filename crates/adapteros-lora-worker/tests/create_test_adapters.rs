@@ -6,6 +6,7 @@ use adapteros_core::Result;
 use adapteros_lora_worker::training::{
     AdapterPackager, LoRAQuantizer, MicroLoRATrainer, TrainingConfig, TrainingExample,
 };
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 #[tokio::test]
@@ -69,12 +70,13 @@ async fn create_test_adapter_fixtures() -> Result<()> {
     let quantized = LoRAQuantizer::quantize_to_q15(&result.weights);
     let packager = AdapterPackager::new(&output_dir);
     let packaged = packager
-        .package_aos_for_tenant(
+        .package_aos_with_metadata(
             "default",
             "test_adapter",
             &quantized,
             &config,
             "test-base-model",
+            synthetic_metadata(),
         )
         .await?;
 
@@ -102,12 +104,13 @@ async fn create_test_adapter_fixtures() -> Result<()> {
     let large_result = large_trainer.train(&examples).await?;
     let large_quantized = LoRAQuantizer::quantize_to_q15(&large_result.weights);
     let large_packaged = packager
-        .package_aos_for_tenant(
+        .package_aos_with_metadata(
             "default",
             "large_adapter",
             &large_quantized,
             &large_config,
             "test-base-model",
+            synthetic_metadata(),
         )
         .await?;
 
@@ -161,12 +164,13 @@ async fn create_test_adapter_fixtures() -> Result<()> {
         let adapter_quantized = LoRAQuantizer::quantize_to_q15(&adapter_result.weights);
         let adapter_name = format!("adapter_{}", i);
         let _adapter_packaged = packager
-            .package_aos_for_tenant(
+            .package_aos_with_metadata(
                 "default",
                 &adapter_name,
                 &adapter_quantized,
                 &adapter_config,
                 "test-base-model",
+                synthetic_metadata(),
             )
             .await?;
 
@@ -186,4 +190,10 @@ async fn create_test_adapter_fixtures() -> Result<()> {
     println!("Run: cargo test --test gpu_verification_integration --ignored\n");
 
     Ok(())
+}
+
+fn synthetic_metadata() -> HashMap<String, String> {
+    let mut metadata = HashMap::new();
+    metadata.insert("synthetic_mode".to_string(), "true".to_string());
+    metadata
 }

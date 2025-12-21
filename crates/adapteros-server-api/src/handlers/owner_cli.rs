@@ -433,7 +433,7 @@ mod tests {
     // Note: Tests for actual aosctl commands require the aosctl binary to be available
     // These tests are integration tests and should run in CI with the full build
     #[tokio::test]
-    #[ignore = "Requires aosctl binary in PATH - run with --ignored for integration testing"]
+    #[ignore = "Requires aosctl binary in PATH - run with --ignored for integration testing [tracking: STAB-IGN-001]"]
     async fn test_execute_command_status() {
         let result = execute_command("aosctl status").await.unwrap();
         // Real aosctl should return 0 on success
@@ -441,7 +441,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "Requires aosctl binary in PATH - run with --ignored for integration testing"]
+    #[ignore = "Requires aosctl binary in PATH - run with --ignored for integration testing [tracking: STAB-IGN-001]"]
     async fn test_execute_command_adapters_list() {
         let result = execute_command("aosctl adapters list").await.unwrap();
         // May succeed or fail depending on database state

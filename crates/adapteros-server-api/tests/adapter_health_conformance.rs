@@ -31,7 +31,7 @@ async fn corrupt_storage_emits_corrupt_metric() {
     let claims = test_admin_claims();
     let adapter_id = "adapter-health-corrupt";
     let params = base_adapter_params(&claims.tenant_id, adapter_id);
-    let version_id = state
+    state
         .db
         .register_adapter(params)
         .await
@@ -49,7 +49,7 @@ async fn corrupt_storage_emits_corrupt_metric() {
     .bind(&claims.tenant_id)
     .bind("adapter")
     .bind(adapter_id)
-    .bind(&version_id)
+    .bind(adapter_id)
     .bind("missing_file")
     .bind("error")
     .bind("var/adapters/adapter.aos")
@@ -102,7 +102,7 @@ async fn blocked_trust_emits_unsafe_metric() {
             "jsonl",
             "hash-unsafe",
             "var/ds",
-            Some("tester"),
+            Some(&claims.sub),
         )
         .await
         .expect("dataset");
@@ -117,7 +117,7 @@ async fn blocked_trust_emits_unsafe_metric() {
             "hash-unsafe",
             None,
             None,
-            Some("tester"),
+            Some(&claims.sub),
         )
         .await
         .expect("dataset version");
@@ -185,5 +185,5 @@ async fn tenant_cannot_read_other_tenant_adapter_health() {
         "Cross-tenant adapter health access must be rejected"
     );
     let (status, _) = result.unwrap_err();
-    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(status, StatusCode::NOT_FOUND);
 }

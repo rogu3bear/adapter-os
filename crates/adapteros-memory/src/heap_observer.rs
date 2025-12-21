@@ -1362,7 +1362,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "flaky: race condition with global Metal state when run in parallel"]
+    #[ignore = "flaky: race condition with global Metal state when run in parallel [tracking: STAB-IGN-001]"]
     fn test_ffi_metal_memory_metrics() {
         if let Some(device) = get_test_device() {
             let observer = Arc::new(MetalHeapObserver::new(device, 1.0));
