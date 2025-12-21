@@ -76,6 +76,9 @@ pub struct CriticalComponentMetrics {
     pub model_cache_misses_total: Counter,
     pub model_cache_eviction_blocked_pinned_total: Counter,
     pub model_cache_pinned_entries: Gauge,
+    pub model_cache_pin_limit_rejections_total: Counter,
+    pub model_cache_pinned_memory_bytes: Gauge,
+    pub model_cache_pin_limit: Gauge,
 
     // Residency probe metrics
     pub residency_probe_ok: Gauge,
@@ -594,6 +597,30 @@ impl CriticalComponentMetrics {
             adapteros_core::AosError::Telemetry(format!("Gauge creation failed: {}", e))
         })?;
 
+        let model_cache_pin_limit_rejections_total = Counter::new(
+            "model_cache_pin_limit_rejections_total",
+            "Total pin attempts rejected due to pin limit exceeded",
+        )
+        .map_err(|e| {
+            adapteros_core::AosError::Telemetry(format!("Counter creation failed: {}", e))
+        })?;
+
+        let model_cache_pinned_memory_bytes = Gauge::new(
+            "model_cache_pinned_memory_bytes",
+            "Total memory in bytes used by pinned cache entries",
+        )
+        .map_err(|e| {
+            adapteros_core::AosError::Telemetry(format!("Gauge creation failed: {}", e))
+        })?;
+
+        let model_cache_pin_limit = Gauge::new(
+            "model_cache_pin_limit",
+            "Configured maximum number of pinned entries allowed",
+        )
+        .map_err(|e| {
+            adapteros_core::AosError::Telemetry(format!("Gauge creation failed: {}", e))
+        })?;
+
         // Residency probe metrics
         let residency_probe_ok = Gauge::new(
             "residency_probe_ok",
@@ -944,6 +971,24 @@ impl CriticalComponentMetrics {
             })?;
 
         registry_arc
+            .register(Box::new(model_cache_pin_limit_rejections_total.clone()))
+            .map_err(|e| {
+                adapteros_core::AosError::Telemetry(format!("Registration failed: {}", e))
+            })?;
+
+        registry_arc
+            .register(Box::new(model_cache_pinned_memory_bytes.clone()))
+            .map_err(|e| {
+                adapteros_core::AosError::Telemetry(format!("Registration failed: {}", e))
+            })?;
+
+        registry_arc
+            .register(Box::new(model_cache_pin_limit.clone()))
+            .map_err(|e| {
+                adapteros_core::AosError::Telemetry(format!("Registration failed: {}", e))
+            })?;
+
+        registry_arc
             .register(Box::new(residency_probe_ok.clone()))
             .map_err(|e| {
                 adapteros_core::AosError::Telemetry(format!("Registration failed: {}", e))
@@ -1156,6 +1201,9 @@ impl CriticalComponentMetrics {
             model_cache_misses_total,
             model_cache_eviction_blocked_pinned_total,
             model_cache_pinned_entries,
+            model_cache_pin_limit_rejections_total,
+            model_cache_pinned_memory_bytes,
+            model_cache_pin_limit,
             // Residency probe metrics
             residency_probe_ok,
             residency_probe_runs_total,
@@ -1609,6 +1657,36 @@ impl CriticalComponentMetrics {
     /// Get current number of pinned cache entries
     pub fn get_pinned_entries_count(&self) -> usize {
         self.model_cache_pinned_entries.get() as usize
+    }
+
+    /// Record a pin limit rejection
+    pub fn record_pin_limit_rejection(&self) {
+        self.model_cache_pin_limit_rejections_total.inc();
+    }
+
+    /// Get total pin limit rejections
+    pub fn get_pin_limit_rejections(&self) -> f64 {
+        self.model_cache_pin_limit_rejections_total.get()
+    }
+
+    /// Set the current pinned memory in bytes
+    pub fn set_pinned_memory_bytes(&self, bytes: u64) {
+        self.model_cache_pinned_memory_bytes.set(bytes as f64);
+    }
+
+    /// Get current pinned memory in bytes
+    pub fn get_pinned_memory_bytes(&self) -> u64 {
+        self.model_cache_pinned_memory_bytes.get() as u64
+    }
+
+    /// Set the configured pin limit
+    pub fn set_pin_limit(&self, limit: usize) {
+        self.model_cache_pin_limit.set(limit as f64);
+    }
+
+    /// Get configured pin limit
+    pub fn get_pin_limit(&self) -> usize {
+        self.model_cache_pin_limit.get() as usize
     }
 
     // ========================================

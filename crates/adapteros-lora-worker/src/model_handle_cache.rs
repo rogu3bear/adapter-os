@@ -287,6 +287,8 @@ pub struct ModelHandleCache {
     listeners: RwLock<HashMap<ModelKey, Arc<dyn CacheEventListener>>>,
     /// Optional telemetry metrics for Prometheus export
     metrics: Option<Arc<CriticalComponentMetrics>>,
+    /// Maximum number of pinned entries allowed (safety cap to prevent unbounded growth)
+    max_pinned_entries: usize,
 }
 
 /// Cache statistics for observability
@@ -304,6 +306,10 @@ pub struct CacheStats {
 
 /// Operation label for SingleFlight metrics
 const MODEL_LOAD_OPERATION: &str = "model_load";
+
+/// Default maximum number of pinned entries allowed to prevent unbounded cache growth.
+/// This is a safety cap - operators can override via `with_max_pinned_entries()`.
+pub const DEFAULT_MAX_PINNED_ENTRIES: usize = 16;
 
 impl CacheStats {
     /// Calculate hit ratio (0.0 to 1.0)
@@ -330,11 +336,14 @@ impl ModelHandleCache {
             pinned_keys: RwLock::new(HashSet::new()),
             listeners: RwLock::new(HashMap::new()),
             metrics: None,
+            max_pinned_entries: DEFAULT_MAX_PINNED_ENTRIES,
         }
     }
 
     /// Create a new cache with telemetry metrics enabled
     pub fn new_with_metrics(max_memory_bytes: u64, metrics: Arc<CriticalComponentMetrics>) -> Self {
+        // Set the pin limit gauge so it's visible in Prometheus
+        metrics.set_pin_limit(DEFAULT_MAX_PINNED_ENTRIES);
         Self {
             cache: RwLock::new(HashMap::new()),
             active_counts: RwLock::new(HashMap::new()),
@@ -346,11 +355,35 @@ impl ModelHandleCache {
             pinned_keys: RwLock::new(HashSet::new()),
             listeners: RwLock::new(HashMap::new()),
             metrics: Some(metrics),
+            max_pinned_entries: DEFAULT_MAX_PINNED_ENTRIES,
         }
+    }
+
+    /// Set the maximum number of pinned entries allowed
+    ///
+    /// This is a safety cap to prevent unbounded cache growth from pinned models.
+    /// When the limit is reached, new pin attempts will be rejected and logged.
+    ///
+    /// # Arguments
+    ///
+    /// * `limit` - Maximum number of entries that can be pinned. Use `usize::MAX`
+    ///   to effectively disable the limit (not recommended for production).
+    pub fn with_max_pinned_entries(mut self, limit: usize) -> Self {
+        self.max_pinned_entries = limit;
+        if let Some(ref m) = self.metrics {
+            m.set_pin_limit(limit);
+        }
+        self
+    }
+
+    /// Get the configured maximum number of pinned entries
+    pub fn max_pinned_entries(&self) -> usize {
+        self.max_pinned_entries
     }
 
     /// Set telemetry metrics after construction
     pub fn set_metrics(&mut self, metrics: Arc<CriticalComponentMetrics>) {
+        metrics.set_pin_limit(self.max_pinned_entries);
         self.metrics = Some(metrics);
     }
 
@@ -590,6 +623,13 @@ impl ModelHandleCache {
     /// Base models should remain resident while adapters are hot-swapped.
     /// This method calls [`get_or_load`] and then pins the entry.
     ///
+    /// # Pin Limit
+    ///
+    /// If the configured `max_pinned_entries` limit would be exceeded, the model
+    /// is still loaded but NOT pinned. A warning is logged and the rejection is
+    /// counted in the `model_cache_pin_limit_rejections_total` metric. The model
+    /// will be subject to normal LRU eviction.
+    ///
     /// # Warning
     ///
     /// The pinned model will **never** be evicted until explicitly unpinned via
@@ -600,6 +640,7 @@ impl ModelHandleCache {
     /// To monitor for pinning leaks in production:
     /// - Watch the `model_cache_pinned_entries` gauge
     /// - Watch the `model_cache_eviction_blocked_pinned_total` counter rate
+    /// - Watch the `model_cache_pin_limit_rejections_total` counter rate
     ///
     /// # Example
     ///
@@ -607,7 +648,7 @@ impl ModelHandleCache {
     /// let handle = cache.get_or_load_base_model(&base_key, || {
     ///     Ok((ModelHandle::Metal(Arc::new(model_bytes)), size))
     /// })?;
-    /// // base_key is now pinned and won't be evicted
+    /// // base_key is now pinned and won't be evicted (if under limit)
     ///
     /// // When done with the base model:
     /// cache.unpin(&base_key);
@@ -618,17 +659,40 @@ impl ModelHandleCache {
     {
         let handle = self.get_or_load(key, loader)?;
 
-        // Auto-pin the base model
+        // Auto-pin the base model (respecting the limit)
         {
             let mut pinned = self.pinned_keys.write();
-            if pinned.insert(key.clone()) {
-                if let Some(ref m) = self.metrics {
-                    m.set_pinned_entries_count(pinned.len());
+
+            // Check if already pinned (idempotent)
+            if !pinned.contains(key) {
+                // Check pin limit before adding new entry
+                if pinned.len() >= self.max_pinned_entries {
+                    tracing::warn!(
+                        key = %key.short_hex(),
+                        current_pinned = pinned.len(),
+                        max_pinned = self.max_pinned_entries,
+                        "Base model loaded but NOT pinned: pin limit reached. Model is subject to LRU eviction."
+                    );
+                    if let Some(ref m) = self.metrics {
+                        m.record_pin_limit_rejection();
+                    }
+                    // Still return the handle - model is loaded, just not pinned
+                    return Ok(handle);
                 }
-                tracing::info!(
-                    key = %key.short_hex(),
-                    "Base model pinned to prevent eviction"
-                );
+
+                if pinned.insert(key.clone()) {
+                    if let Some(ref m) = self.metrics {
+                        m.set_pinned_entries_count(pinned.len());
+                        // Update pinned memory gauge
+                        drop(pinned); // Release lock before calling pinned_memory_bytes
+                        let pinned_mem = self.pinned_memory_bytes();
+                        m.set_pinned_memory_bytes(pinned_mem);
+                    }
+                    tracing::info!(
+                        key = %key.short_hex(),
+                        "Base model pinned to prevent eviction"
+                    );
+                }
             }
         }
 
@@ -641,7 +705,13 @@ impl ModelHandleCache {
     /// Pin a cache entry to prevent eviction
     ///
     /// Returns `true` if the key was found in cache and pinned,
-    /// `false` if the key is not in the cache.
+    /// `false` if the key is not in the cache or if the pin limit is exceeded.
+    ///
+    /// # Pin Limit
+    ///
+    /// If the configured `max_pinned_entries` limit would be exceeded by this pin,
+    /// the operation is rejected, a warning is logged, and the rejection is counted
+    /// in the `model_cache_pin_limit_rejections_total` metric.
     pub fn pin(&self, key: &ModelKey) -> bool {
         // Check if key exists in cache first
         let exists = self.cache.read().contains_key(key);
@@ -650,10 +720,34 @@ impl ModelHandleCache {
         }
 
         let mut pinned = self.pinned_keys.write();
+
+        // If already pinned, return true (idempotent)
+        if pinned.contains(key) {
+            return true;
+        }
+
+        // Check pin limit before adding new entry
+        if pinned.len() >= self.max_pinned_entries {
+            tracing::warn!(
+                key = %key.short_hex(),
+                current_pinned = pinned.len(),
+                max_pinned = self.max_pinned_entries,
+                "Pin rejected: maximum pinned entries limit reached"
+            );
+            if let Some(ref m) = self.metrics {
+                m.record_pin_limit_rejection();
+            }
+            return false;
+        }
+
         let was_new = pinned.insert(key.clone());
         if was_new {
             if let Some(ref m) = self.metrics {
                 m.set_pinned_entries_count(pinned.len());
+                // Also update pinned memory gauge
+                drop(pinned); // Release lock before calling pinned_memory_bytes
+                let pinned_mem = self.pinned_memory_bytes();
+                m.set_pinned_memory_bytes(pinned_mem);
             }
         }
         tracing::debug!(key = %key.short_hex(), "Model pinned");
@@ -670,6 +764,10 @@ impl ModelHandleCache {
         if removed {
             if let Some(ref m) = self.metrics {
                 m.set_pinned_entries_count(pinned.len());
+                // Update pinned memory gauge
+                drop(pinned); // Release lock before calling pinned_memory_bytes
+                let pinned_mem = self.pinned_memory_bytes();
+                m.set_pinned_memory_bytes(pinned_mem);
             }
             tracing::debug!(key = %key.short_hex(), "Model unpinned");
         }
@@ -734,6 +832,68 @@ impl ModelHandleCache {
             .collect()
     }
 
+    /// Audit pinned entries and log a report
+    ///
+    /// This method is intended to be called periodically (e.g., every 5 minutes)
+    /// to help operators detect potential pin leaks. It logs:
+    /// - Current pinned count vs limit
+    /// - Total memory used by pinned entries
+    /// - Any stale pinned entries (older than the given threshold)
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Run audit every 5 minutes
+    /// cache.audit_pinned_entries(Duration::from_secs(3600)); // 1 hour threshold
+    /// ```
+    pub fn audit_pinned_entries(&self, stale_threshold: std::time::Duration) {
+        let pinned_count = self.pinned_count();
+        let pinned_memory = self.pinned_memory_bytes();
+        let max_pinned = self.max_pinned_entries;
+        let stale_entries = self.stale_pinned_entries(stale_threshold);
+
+        // Always log current state at debug level
+        tracing::debug!(
+            pinned_count = pinned_count,
+            max_pinned = max_pinned,
+            pinned_memory_mb = pinned_memory / (1024 * 1024),
+            "Pinned entries audit"
+        );
+
+        // Warn if approaching or at the limit
+        if pinned_count >= max_pinned {
+            tracing::warn!(
+                pinned_count = pinned_count,
+                max_pinned = max_pinned,
+                pinned_memory_mb = pinned_memory / (1024 * 1024),
+                "Pin limit reached! New base models will NOT be pinned and may be evicted."
+            );
+        } else if pinned_count as f64 / max_pinned as f64 >= 0.8 {
+            tracing::warn!(
+                pinned_count = pinned_count,
+                max_pinned = max_pinned,
+                pinned_memory_mb = pinned_memory / (1024 * 1024),
+                "Approaching pin limit (80%+ utilization)"
+            );
+        }
+
+        // Log stale entries that may indicate leaks
+        if !stale_entries.is_empty() {
+            tracing::warn!(
+                stale_count = stale_entries.len(),
+                threshold_secs = stale_threshold.as_secs(),
+                "Detected stale pinned entries - potential memory leak"
+            );
+            for (key, age) in &stale_entries {
+                tracing::warn!(
+                    key = %key.short_hex(),
+                    age_secs = age.as_secs(),
+                    "Stale pinned entry"
+                );
+            }
+        }
+    }
+
     /// Unpin all entries (emergency memory recovery)
     ///
     /// # Warning
@@ -752,6 +912,7 @@ impl ModelHandleCache {
             pinned.clear();
             if let Some(ref m) = self.metrics {
                 m.set_pinned_entries_count(0);
+                m.set_pinned_memory_bytes(0);
             }
         }
         count
@@ -2045,5 +2206,230 @@ mod tests {
         // With very long threshold, nothing is stale
         let stale = cache.stale_pinned_entries(Duration::from_secs(3600));
         assert!(stale.is_empty());
+    }
+
+    // ========================================
+    // Pin limit behavior tests
+    // ========================================
+
+    #[test]
+    fn test_pin_limit_default() {
+        let cache = ModelHandleCache::new(1024);
+        assert_eq!(
+            cache.max_pinned_entries(),
+            super::DEFAULT_MAX_PINNED_ENTRIES
+        );
+    }
+
+    #[test]
+    fn test_pin_limit_configurable() {
+        let cache = ModelHandleCache::new(1024).with_max_pinned_entries(4);
+        assert_eq!(cache.max_pinned_entries(), 4);
+    }
+
+    #[test]
+    fn test_pin_limit_enforced_on_pin() {
+        let cache = ModelHandleCache::new(1024).with_max_pinned_entries(2);
+        let key1 = make_key(BackendType::Metal, b"model1");
+        let key2 = make_key(BackendType::Metal, b"model2");
+        let key3 = make_key(BackendType::Metal, b"model3");
+
+        // Load all models
+        cache
+            .get_or_load(&key1, || Ok((ModelHandle::Metal(Arc::new(vec![1])), 1)))
+            .unwrap();
+        cache
+            .get_or_load(&key2, || Ok((ModelHandle::Metal(Arc::new(vec![2])), 1)))
+            .unwrap();
+        cache
+            .get_or_load(&key3, || Ok((ModelHandle::Metal(Arc::new(vec![3])), 1)))
+            .unwrap();
+
+        // Pin first two - should succeed
+        assert!(cache.pin(&key1), "First pin should succeed");
+        assert!(cache.pin(&key2), "Second pin should succeed");
+        assert_eq!(cache.pinned_count(), 2);
+
+        // Third pin should fail due to limit
+        assert!(!cache.pin(&key3), "Third pin should fail due to limit");
+        assert_eq!(cache.pinned_count(), 2);
+        assert!(!cache.is_pinned(&key3));
+    }
+
+    #[test]
+    fn test_pin_limit_enforced_on_base_model_load() {
+        let cache = ModelHandleCache::new(1024).with_max_pinned_entries(2);
+        let key1 = make_key(BackendType::Metal, b"model1");
+        let key2 = make_key(BackendType::Metal, b"model2");
+        let key3 = make_key(BackendType::Metal, b"model3");
+
+        // Load first two as base models - should be pinned
+        cache
+            .get_or_load_base_model(&key1, || Ok((ModelHandle::Metal(Arc::new(vec![1])), 1)))
+            .unwrap();
+        cache
+            .get_or_load_base_model(&key2, || Ok((ModelHandle::Metal(Arc::new(vec![2])), 1)))
+            .unwrap();
+
+        assert_eq!(cache.pinned_count(), 2);
+        assert!(cache.is_pinned(&key1));
+        assert!(cache.is_pinned(&key2));
+
+        // Third base model load should succeed (model loaded) but NOT be pinned
+        let result = cache.get_or_load_base_model(&key3, || {
+            Ok((ModelHandle::Metal(Arc::new(vec![3])), 1))
+        });
+        assert!(result.is_ok(), "Model should load even when pin limit exceeded");
+        assert_eq!(cache.len(), 3, "Model should be in cache");
+        assert_eq!(cache.pinned_count(), 2, "Pinned count should not increase");
+        assert!(!cache.is_pinned(&key3), "Third model should NOT be pinned");
+    }
+
+    #[test]
+    fn test_pin_is_idempotent() {
+        let cache = ModelHandleCache::new(1024).with_max_pinned_entries(2);
+        let key = make_key(BackendType::Metal, b"model");
+
+        cache
+            .get_or_load(&key, || Ok((ModelHandle::Metal(Arc::new(vec![1])), 1)))
+            .unwrap();
+
+        // First pin succeeds
+        assert!(cache.pin(&key));
+        assert_eq!(cache.pinned_count(), 1);
+
+        // Second pin of same key should succeed (idempotent)
+        assert!(cache.pin(&key));
+        assert_eq!(cache.pinned_count(), 1, "Pinning same key twice shouldn't double-count");
+    }
+
+    #[test]
+    fn test_pin_limit_freed_after_unpin() {
+        let cache = ModelHandleCache::new(1024).with_max_pinned_entries(2);
+        let key1 = make_key(BackendType::Metal, b"model1");
+        let key2 = make_key(BackendType::Metal, b"model2");
+        let key3 = make_key(BackendType::Metal, b"model3");
+
+        cache
+            .get_or_load(&key1, || Ok((ModelHandle::Metal(Arc::new(vec![1])), 1)))
+            .unwrap();
+        cache
+            .get_or_load(&key2, || Ok((ModelHandle::Metal(Arc::new(vec![2])), 1)))
+            .unwrap();
+        cache
+            .get_or_load(&key3, || Ok((ModelHandle::Metal(Arc::new(vec![3])), 1)))
+            .unwrap();
+
+        // Pin first two
+        assert!(cache.pin(&key1));
+        assert!(cache.pin(&key2));
+
+        // Third fails
+        assert!(!cache.pin(&key3));
+
+        // Unpin one
+        assert!(cache.unpin(&key1));
+        assert_eq!(cache.pinned_count(), 1);
+
+        // Now third should succeed
+        assert!(cache.pin(&key3));
+        assert_eq!(cache.pinned_count(), 2);
+        assert!(!cache.is_pinned(&key1));
+        assert!(cache.is_pinned(&key2));
+        assert!(cache.is_pinned(&key3));
+    }
+
+    #[test]
+    fn test_pin_limit_with_metrics() {
+        use adapteros_telemetry::metrics::critical_components::CriticalComponentMetrics;
+
+        let metrics = Arc::new(CriticalComponentMetrics::new().expect("metrics"));
+        let cache = ModelHandleCache::new_with_metrics(1024, metrics.clone())
+            .with_max_pinned_entries(2);
+
+        let key1 = make_key(BackendType::Metal, b"model1");
+        let key2 = make_key(BackendType::Metal, b"model2");
+        let key3 = make_key(BackendType::Metal, b"model3");
+
+        // Verify limit is set in metrics
+        assert_eq!(metrics.get_pin_limit(), 2);
+
+        // Load and pin models
+        cache
+            .get_or_load_base_model(&key1, || {
+                Ok((ModelHandle::Metal(Arc::new(vec![0; 100])), 100))
+            })
+            .unwrap();
+        cache
+            .get_or_load_base_model(&key2, || {
+                Ok((ModelHandle::Metal(Arc::new(vec![0; 200])), 200))
+            })
+            .unwrap();
+
+        // Verify pinned count and memory in metrics
+        assert_eq!(metrics.get_pinned_entries_count(), 2);
+        assert_eq!(metrics.get_pinned_memory_bytes(), 300);
+
+        // Load third - should hit limit
+        cache
+            .get_or_load_base_model(&key3, || {
+                Ok((ModelHandle::Metal(Arc::new(vec![0; 50])), 50))
+            })
+            .unwrap();
+
+        // Verify rejection was counted
+        assert_eq!(
+            metrics.get_pin_limit_rejections(),
+            1.0,
+            "Pin limit rejection should be counted"
+        );
+
+        // Pinned count should not have increased
+        assert_eq!(metrics.get_pinned_entries_count(), 2);
+        // Pinned memory should be unchanged
+        assert_eq!(metrics.get_pinned_memory_bytes(), 300);
+    }
+
+    #[test]
+    fn test_audit_pinned_entries_runs_without_panic() {
+        let cache = ModelHandleCache::new(1024).with_max_pinned_entries(2);
+        let key = make_key(BackendType::Metal, b"model");
+
+        cache
+            .get_or_load_base_model(&key, || Ok((ModelHandle::Metal(Arc::new(vec![1])), 1)))
+            .unwrap();
+
+        // Should not panic
+        cache.audit_pinned_entries(Duration::from_secs(0));
+        cache.audit_pinned_entries(Duration::from_secs(3600));
+    }
+
+    #[test]
+    fn test_zero_pin_limit_rejects_all() {
+        let cache = ModelHandleCache::new(1024).with_max_pinned_entries(0);
+        let key = make_key(BackendType::Metal, b"model");
+
+        cache
+            .get_or_load(&key, || Ok((ModelHandle::Metal(Arc::new(vec![1])), 1)))
+            .unwrap();
+
+        // Pin should always fail with limit of 0
+        assert!(!cache.pin(&key));
+        assert_eq!(cache.pinned_count(), 0);
+    }
+
+    #[test]
+    fn test_max_pin_limit_allows_many() {
+        // With a very high limit, many pins should work
+        let cache = ModelHandleCache::new(1024 * 1024).with_max_pinned_entries(usize::MAX);
+
+        for i in 0..100 {
+            let key = make_key(BackendType::Metal, format!("model{}", i).as_bytes());
+            cache
+                .get_or_load_base_model(&key, || Ok((ModelHandle::Metal(Arc::new(vec![1])), 1)))
+                .unwrap();
+        }
+
+        assert_eq!(cache.pinned_count(), 100);
     }
 }
