@@ -30,6 +30,7 @@
 //!     .with_request_id(&request_id)
 //! ```
 
+use crate::middleware::context::RequestContext;
 use crate::types::ErrorResponse;
 use adapteros_core::AosError;
 use axum::{
@@ -37,8 +38,71 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
+use once_cell::sync::Lazy;
+use regex::Regex;
 use std::borrow::Cow;
 use tracing::{error, warn};
+
+// ============================================================================
+// Error Redaction
+// ============================================================================
+//
+// Automatically strips sensitive information from error details before they
+// reach API clients. Patterns cover file paths, tokens, connection strings,
+// and other potentially sensitive data.
+//
+// To disable redaction for debugging, set: ADAPTEROS_DISABLE_ERROR_REDACTION=1
+
+/// Pre-compiled regex patterns for sensitive data redaction
+///
+/// Pattern order matters: more specific patterns should come before general ones.
+/// For example, /tmp and /run patterns must come before the general path pattern.
+static REDACTION_PATTERNS: Lazy<Vec<(Regex, &'static str)>> = Lazy::new(|| {
+    vec![
+        // Bearer tokens
+        (Regex::new(r"Bearer\s+[A-Za-z0-9\-_\.]+").unwrap(), "Bearer [REDACTED]"),
+        // JWT tokens (three base64 segments)
+        (Regex::new(r"eyJ[A-Za-z0-9\-_]+\.eyJ[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+").unwrap(), "[JWT]"),
+        // API keys (common formats)
+        (Regex::new(r"(?i)(api[_-]?key|apikey)[=:\s]+[A-Za-z0-9\-_]{16,}").unwrap(), "$1=[REDACTED]"),
+        // Secrets/tokens/passwords (base64-like values)
+        (Regex::new(r"(?i)(secret|password)[=:\s]+[A-Za-z0-9+/]{16,}=*").unwrap(), "$1=[REDACTED]"),
+        // PostgreSQL connection strings
+        (Regex::new(r"postgres://[^@\s]+@[^\s]+").unwrap(), "postgres://[REDACTED]"),
+        // SQLite paths
+        (Regex::new(r"sqlite://[^\s]+\.db").unwrap(), "sqlite://[REDACTED]"),
+        // UDS socket paths (before general paths)
+        (Regex::new(r"/run/[^\s]+\.sock").unwrap(), "[SOCKET]"),
+        // Temp file paths (before general paths)
+        (Regex::new(r"/tmp/[^\s]+").unwrap(), "[TEMP]"),
+        // Stack trace locations (file.rs:123:45)
+        (Regex::new(r"\b[a-z_]+\.rs:\d+:\d+\b").unwrap(), "[SOURCE]"),
+        // File paths (Unix absolute paths with 3+ segments) - must be last
+        (Regex::new(r"(/[a-zA-Z0-9_\-\.]+){3,}").unwrap(), "[PATH]"),
+    ]
+});
+
+/// Redact sensitive information from error details
+///
+/// Applies regex-based redaction patterns to mask file paths, tokens,
+/// connection strings, and other potentially sensitive data in error messages.
+///
+/// Set `ADAPTEROS_DISABLE_ERROR_REDACTION=1` to bypass redaction for debugging.
+pub fn redact_error_details(input: &str) -> String {
+    // Check environment override for debugging
+    if std::env::var("ADAPTEROS_DISABLE_ERROR_REDACTION")
+        .map(|v| v == "1")
+        .unwrap_or(false)
+    {
+        return input.to_string();
+    }
+
+    let mut result = input.to_string();
+    for (pattern, replacement) in REDACTION_PATTERNS.iter() {
+        result = pattern.replace_all(&result, *replacement).to_string();
+    }
+    result
+}
 
 /// Unified API error type implementing IntoResponse
 ///
@@ -51,6 +115,7 @@ pub struct ApiError {
     message: String,
     details: Option<String>,
     request_id: Option<String>,
+    tenant_id: Option<String>,
 }
 
 /// Standard API result type - handlers should use this
@@ -65,6 +130,7 @@ impl ApiError {
             message: message.into(),
             details: None,
             request_id: None,
+            tenant_id: None,
         }
     }
 
@@ -74,9 +140,41 @@ impl ApiError {
         self
     }
 
+    /// Add details with automatic redaction of sensitive information
+    ///
+    /// Preferred method for adding error details - automatically redacts
+    /// file paths, tokens, database details, and other sensitive data
+    /// before storing in the error. This provides defense-in-depth alongside
+    /// the automatic redaction in `IntoResponse`.
+    ///
+    /// # Example
+    /// ```ignore
+    /// ApiError::internal("operation failed")
+    ///     .with_redacted_details(e.to_string())
+    /// ```
+    pub fn with_redacted_details(self, details: impl Into<String>) -> Self {
+        self.with_details(redact_error_details(&details.into()))
+    }
+
     /// Add request ID for tracing
     pub fn with_request_id(mut self, id: impl Into<String>) -> Self {
         self.request_id = Some(id.into());
+        self
+    }
+
+    /// Add tenant ID for tracing
+    pub fn with_tenant_id(mut self, id: impl Into<String>) -> Self {
+        self.tenant_id = Some(id.into());
+        self
+    }
+
+    /// Add request context (tenant_id and request_id) for structured logging
+    ///
+    /// This helper extracts both tenant_id and request_id from the request context
+    /// and includes them in the error response for consistent tracing.
+    pub fn with_request_context(mut self, ctx: &RequestContext) -> Self {
+        self.request_id = Some(ctx.request_id.clone());
+        self.tenant_id = Some(ctx.tenant_id().to_string());
         self
     }
 
@@ -297,18 +395,35 @@ impl IntoResponse for ApiError {
         let mut error_response = ErrorResponse::new(&self.message).with_code(self.code);
 
         if let Some(details) = self.details {
-            error_response = error_response.with_string_details(details);
+            // Apply redaction at final serialization point (defense-in-depth)
+            let redacted = redact_error_details(&details);
+            error_response = error_response.with_string_details(redacted);
         }
 
-        if let Some(request_id) = self.request_id {
+        // Build context suffix with tenant_id and request_id for tracing
+        let mut context_parts = Vec::new();
+        if let Some(ref tenant_id) = self.tenant_id {
+            context_parts.push(format!("Tenant ID: {}", tenant_id));
+        }
+        if let Some(ref request_id) = self.request_id {
+            context_parts.push(format!("Request ID: {}", request_id));
+        }
+
+        if !context_parts.is_empty() {
             let existing = error_response
                 .details
                 .as_ref()
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string();
-            error_response = error_response
-                .with_string_details(format!("{}. Request ID: {}", existing, request_id));
+            let context_suffix = context_parts.join(", ");
+            let new_details = if existing.is_empty() {
+                context_suffix
+            } else {
+                format!("{}. {}", existing, context_suffix)
+            };
+            // Context parts (tenant_id, request_id) are safe to include without redaction
+            error_response = error_response.with_string_details(new_details);
         }
 
         (self.status, Json(error_response)).into_response()
@@ -335,6 +450,7 @@ impl From<(StatusCode, Json<ErrorResponse>)> for ApiError {
             message: error,
             details: details.and_then(|v| v.as_str().map(|s| s.to_string())),
             request_id: None,
+            tenant_id: None,
         }
     }
 }
@@ -618,6 +734,13 @@ impl From<AosError> for ApiError {
 mod tests {
     use super::*;
     use adapteros_core::AosError;
+    use std::sync::Mutex;
+
+    static REDACTION_ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    fn redaction_env_guard() -> std::sync::MutexGuard<'static, ()> {
+        REDACTION_ENV_LOCK.lock().expect("redaction env lock")
+    }
 
     #[test]
     fn test_api_error_into_response() {
@@ -669,5 +792,133 @@ mod tests {
         assert_eq!(api_err.status, StatusCode::BAD_REQUEST);
         assert_eq!(api_err.code, "LEGACY_CODE");
         assert_eq!(api_err.message, "legacy failure");
+    }
+
+    // =========================================================================
+    // Redaction Tests
+    // =========================================================================
+
+    #[test]
+    fn test_redacts_file_paths() {
+        let _guard = redaction_env_guard();
+        let input = "Failed to open /Users/admin/secrets/config.json";
+        let result = redact_error_details(input);
+        assert!(!result.contains("/Users/"), "Path should be redacted");
+        assert!(result.contains("[PATH]"), "Should contain [PATH] placeholder");
+    }
+
+    #[test]
+    fn test_redacts_jwt_tokens() {
+        let _guard = redaction_env_guard();
+        let input = "Invalid token: eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0.abcdefghijk";
+        let result = redact_error_details(input);
+        assert!(!result.contains("eyJ"), "JWT should be redacted");
+        assert!(result.contains("[JWT]"), "Should contain [JWT] placeholder");
+    }
+
+    #[test]
+    fn test_redacts_bearer_tokens() {
+        let _guard = redaction_env_guard();
+        let input = "Authorization: Bearer sk-12345abcdefghijklmnop";
+        let result = redact_error_details(input);
+        assert!(
+            !result.contains("sk-12345"),
+            "Bearer token should be redacted"
+        );
+        assert!(
+            result.contains("Bearer [REDACTED]"),
+            "Should contain Bearer [REDACTED]"
+        );
+    }
+
+    #[test]
+    fn test_redacts_postgres_connection() {
+        let _guard = redaction_env_guard();
+        let input = "Connection failed: postgres://user:password@localhost:5432/db";
+        let result = redact_error_details(input);
+        assert!(!result.contains("password"), "Password should be redacted");
+        assert!(
+            result.contains("postgres://[REDACTED]"),
+            "Should contain postgres://[REDACTED]"
+        );
+    }
+
+    #[test]
+    fn test_redacts_api_keys() {
+        let _guard = redaction_env_guard();
+        let input = "Invalid api_key=sk_test_1234567890abcdef";
+        let result = redact_error_details(input);
+        assert!(
+            !result.contains("sk_test_1234567890abcdef"),
+            "API key should be redacted"
+        );
+        assert!(
+            result.contains("api_key=[REDACTED]"),
+            "Should contain api_key=[REDACTED]"
+        );
+    }
+
+    #[test]
+    fn test_redacts_secrets() {
+        let _guard = redaction_env_guard();
+        let input = "secret=VGhpcyBpcyBhIHNlY3JldCB2YWx1ZSB0aGF0IHNob3VsZCBiZSByZWRhY3RlZA==";
+        let result = redact_error_details(input);
+        assert!(!result.contains("VGhpcyBpc"), "Secret should be redacted");
+        assert!(
+            result.contains("secret=[REDACTED]"),
+            "Should contain secret=[REDACTED]"
+        );
+    }
+
+    #[test]
+    fn test_redacts_temp_paths() {
+        let _guard = redaction_env_guard();
+        let input = "Temp file error at /tmp/adapter-12345/weights.bin";
+        let result = redact_error_details(input);
+        assert!(
+            !result.contains("/tmp/adapter-12345"),
+            "Temp path should be redacted"
+        );
+        assert!(result.contains("[TEMP]"), "Should contain [TEMP] placeholder");
+    }
+
+    #[test]
+    fn test_preserves_error_codes_and_messages() {
+        let _guard = redaction_env_guard();
+        let input = "DATABASE_ERROR: connection refused";
+        let result = redact_error_details(input);
+        assert!(
+            result.contains("DATABASE_ERROR"),
+            "Error code should be preserved"
+        );
+        assert!(
+            result.contains("connection refused"),
+            "Error message should be preserved"
+        );
+    }
+
+    #[test]
+    fn test_with_redacted_details_method() {
+        let _guard = redaction_env_guard();
+        let error = ApiError::internal("failed").with_redacted_details(
+            "Error at /Users/admin/secrets/config.json: connection refused",
+        );
+        let details = error.details.unwrap();
+        assert!(!details.contains("/Users/"), "Path should be redacted");
+        assert!(
+            details.contains("connection refused"),
+            "Error message should be preserved"
+        );
+    }
+
+    #[test]
+    fn test_redaction_disabled_via_env() {
+        let _guard = redaction_env_guard();
+        // Note: This test modifies global state and should ideally run in isolation
+        std::env::set_var("ADAPTEROS_DISABLE_ERROR_REDACTION", "1");
+        let input = "/Users/admin/secrets/config.json";
+        let result = redact_error_details(input);
+        assert_eq!(result, input, "Should return input unchanged when disabled");
+        std::env::remove_var("ADAPTEROS_DISABLE_ERROR_REDACTION");
     }
 }
