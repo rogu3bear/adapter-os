@@ -27,6 +27,8 @@ export interface SamplingParams {
   max_tokens: number;
   /** Random seed for reproducibility (undefined for non-deterministic) */
   seed?: number;
+  /** Error code captured for failed inference metadata */
+  error_code?: string;
 }
 
 /**
@@ -69,6 +71,10 @@ export type ReplayStatus =
   | 'approximate'
   /** Some RAG documents are missing */
   | 'degraded'
+  /** Original inference failed (no replayable output) */
+  | 'failed_inference'
+  /** Replay metadata capture failed (record incomplete) */
+  | 'failed_capture'
   /** Critical components missing (manifest, backend) */
   | 'unavailable';
 
@@ -250,6 +256,9 @@ export function getReplayStatusColor(status: ReplayStatus): string {
       return 'text-yellow-600 dark:text-yellow-400';
     case 'degraded':
       return 'text-orange-600 dark:text-orange-400';
+    case 'failed_inference':
+    case 'failed_capture':
+      return 'text-red-600 dark:text-red-400';
     case 'unavailable':
       return 'text-red-600 dark:text-red-400';
     default:
@@ -269,6 +278,10 @@ export function getReplayStatusIcon(status: ReplayStatus): string {
     case 'approximate':
       return 'AlertCircle';
     case 'degraded':
+      return 'AlertTriangle';
+    case 'failed_inference':
+      return 'XCircle';
+    case 'failed_capture':
       return 'AlertTriangle';
     case 'unavailable':
       return 'XCircle';
@@ -326,6 +339,10 @@ export function getReplayStatusLabel(status: ReplayStatus): string {
       return 'Approximate';
     case 'degraded':
       return 'Degraded';
+    case 'failed_inference':
+      return 'Failed Inference';
+    case 'failed_capture':
+      return 'Capture Failed';
     case 'unavailable':
       return 'Unavailable';
     default:
@@ -393,6 +410,9 @@ export function getReplayStatusBadgeVariant(status: ReplayStatus): 'default' | '
       return 'secondary';
     case 'degraded':
       return 'outline';
+    case 'failed_inference':
+    case 'failed_capture':
+      return 'destructive';
     case 'unavailable':
       return 'destructive';
     default:

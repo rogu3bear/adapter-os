@@ -37,7 +37,7 @@ pub const AOS_ADAPTERS_DIR_ENV: &str = "AOS_ADAPTERS_DIR";
 pub const AOS_ADAPTERS_ROOT_ENV: &str = "AOS_ADAPTERS_ROOT";
 
 /// Default adapters directory (relative to project root)
-pub const DEFAULT_ADAPTERS_DIR: &str = "./var/adapters";
+pub const DEFAULT_ADAPTERS_DIR: &str = crate::defaults::DEFAULT_ADAPTERS_ROOT;
 
 /// Production adapters directory (absolute path)
 pub const PRODUCTION_ADAPTERS_DIR: &str = "/var/lib/adapteros/adapters";

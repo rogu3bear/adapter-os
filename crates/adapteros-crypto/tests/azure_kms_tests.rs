@@ -97,7 +97,7 @@ mod azure_kms_integration_tests {
             .await?;
 
         assert_eq!(key_handle.algorithm, KeyAlgorithm::Ed25519);
-        assert!(!key_handle.key_id.is_empty());
+        assert!(!key_handle.provider_id.is_empty());
 
         Ok(())
     }
@@ -233,7 +233,7 @@ mod azure_kms_integration_tests {
         // Both should have the same algorithm but different key IDs
         assert_eq!(rotated.algorithm, original.algorithm);
         // Key IDs might contain version info
-        assert!(!rotated.key_id.is_empty());
+        assert!(!rotated.provider_id.is_empty());
 
         Ok(())
     }
@@ -390,7 +390,7 @@ mod azure_kms_integration_tests {
             .generate_key("test-ns-key", KeyAlgorithm::Ed25519)
             .await?;
 
-        assert!(!key.key_id.is_empty());
+        assert!(!key.provider_id.is_empty());
 
         Ok(())
     }

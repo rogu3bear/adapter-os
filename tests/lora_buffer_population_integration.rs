@@ -76,7 +76,7 @@ fn create_mock_plan_with_adapters(adapter_count: usize) -> Vec<u8> {
 /// Verifies that populating a single adapter works without errors
 /// and that the population is idempotent (can be called multiple times).
 #[test]
-#[ignore = "Requires signed Metal kernel library - run with: cargo test --release -- --ignored [tracking: STAB-IGN-001]"]
+#[ignore = "Requires signed Metal kernel library - run with: cargo test --release -- --ignored [tracking: STAB-IGN-0188]"]
 fn test_single_adapter_population() -> Result<()> {
     let mut kernels = MetalKernels::new()?;
 
@@ -115,7 +115,7 @@ fn test_single_adapter_population() -> Result<()> {
 /// - Re-activating previously populated adapters works correctly
 /// - No memory corruption or conflicts occur
 #[test]
-#[ignore = "Requires signed Metal kernel library - run with: cargo test --release -- --ignored [tracking: STAB-IGN-001]"]
+#[ignore = "Requires signed Metal kernel library - run with: cargo test --release -- --ignored [tracking: STAB-IGN-0189]"]
 fn test_multiple_adapter_toggle_sequence() -> Result<()> {
     let mut kernels = MetalKernels::new()?;
 
@@ -171,7 +171,7 @@ fn test_multiple_adapter_toggle_sequence() -> Result<()> {
 /// Verifies that calling populate multiple times for the same adapter
 /// does not cause errors or duplicate work.
 #[test]
-#[ignore = "Requires signed Metal kernel library - run with: cargo test --release -- --ignored [tracking: STAB-IGN-001]"]
+#[ignore = "Requires signed Metal kernel library - run with: cargo test --release -- --ignored [tracking: STAB-IGN-0190]"]
 fn test_population_idempotency() -> Result<()> {
     let mut kernels = MetalKernels::new()?;
 
@@ -207,7 +207,7 @@ fn test_population_idempotency() -> Result<()> {
 /// - Adapter ID 0 should be skipped (reserved for base model)
 /// - Out-of-range IDs should not cause crashes
 #[test]
-#[ignore = "Requires signed Metal kernel library - run with: cargo test --release -- --ignored [tracking: STAB-IGN-001]"]
+#[ignore = "Requires signed Metal kernel library - run with: cargo test --release -- --ignored [tracking: STAB-IGN-0191]"]
 fn test_edge_case_adapter_ids() -> Result<()> {
     let mut kernels = MetalKernels::new()?;
 
@@ -246,7 +246,7 @@ fn test_edge_case_adapter_ids() -> Result<()> {
 /// Simulates a workload with frequent adapter changes to stress-test
 /// the population tracking mechanism.
 #[test]
-#[ignore = "Requires signed Metal kernel library - run with: cargo test --release -- --ignored [tracking: STAB-IGN-001]"]
+#[ignore = "Requires signed Metal kernel library - run with: cargo test --release -- --ignored [tracking: STAB-IGN-0192]"]
 fn test_rapid_adapter_switching() -> Result<()> {
     let mut kernels = MetalKernels::new()?;
 
@@ -298,7 +298,7 @@ fn test_rapid_adapter_switching() -> Result<()> {
 /// Tests scenarios where multiple adapters are activated simultaneously,
 /// verifying that buffer population handles concurrent requests correctly.
 #[test]
-#[ignore = "Requires signed Metal kernel library - run with: cargo test --release -- --ignored [tracking: STAB-IGN-001]"]
+#[ignore = "Requires signed Metal kernel library - run with: cargo test --release -- --ignored [tracking: STAB-IGN-0193]"]
 fn test_concurrent_adapter_activation() -> Result<()> {
     let mut kernels = MetalKernels::new()?;
 

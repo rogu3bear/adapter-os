@@ -83,7 +83,7 @@ async fn register_adapter_with_optional_fields() -> Result<()> {
         .hash_b3("b3:hash-full")
         .rank(16)
         .tier("persistent")
-        .category("translation")
+        .category("codebase")
         .scope("tenant")
         .alpha(32.0)
         .lora_strength(Some(0.75))
@@ -141,7 +141,10 @@ async fn get_adapter_for_tenant_enforces_isolation() -> Result<()> {
     assert_eq!(adapter_a.tenant_id, "tenant-a");
 
     let not_found = db.get_adapter_for_tenant("tenant-a", "adapter-b").await?;
-    assert!(not_found.is_none(), "tenant-a should not see tenant-b's adapter");
+    assert!(
+        not_found.is_none(),
+        "tenant-a should not see tenant-b's adapter"
+    );
 
     Ok(())
 }
@@ -196,15 +199,16 @@ async fn update_adapter_state_changes_current_state() -> Result<()> {
         .get_adapter_for_tenant("tenant-a", "state-test")
         .await?
         .expect("adapter exists");
-    assert_eq!(adapter.current_state, "idle");
+    assert_eq!(adapter.current_state, "unloaded");
 
-    db.update_adapter_state("state-test", "loading", "test").await?;
+    db.update_adapter_state("state-test", "warm", "test")
+        .await?;
 
     let adapter = db
         .get_adapter_for_tenant("tenant-a", "state-test")
         .await?
         .expect("adapter exists");
-    assert_eq!(adapter.current_state, "loading");
+    assert_eq!(adapter.current_state, "warm");
 
     Ok(())
 }
@@ -284,14 +288,14 @@ async fn update_adapter_state_and_memory_atomically() -> Result<()> {
 
     register_adapter(&db, "tenant-a", "atomic-test", "b3:hash-atomic").await?;
 
-    db.update_adapter_state_and_memory("atomic-test", "loaded", 2097152, "test")
+    db.update_adapter_state_and_memory("atomic-test", "warm", 2097152, "test")
         .await?;
 
     let adapter = db
         .get_adapter_for_tenant("tenant-a", "atomic-test")
         .await?
         .expect("adapter exists");
-    assert_eq!(adapter.current_state, "loaded");
+    assert_eq!(adapter.current_state, "warm");
     assert_eq!(adapter.memory_bytes, 2097152);
 
     Ok(())
@@ -305,7 +309,7 @@ async fn update_adapter_state_cas_succeeds_with_correct_expected_state() -> Resu
     register_adapter(&db, "tenant-a", "cas-test", "b3:hash-cas").await?;
 
     let success = db
-        .update_adapter_state_cas("cas-test", "idle", "loading", "test")
+        .update_adapter_state_cas("cas-test", "unloaded", "warm", "test")
         .await?;
     assert!(success);
 
@@ -313,7 +317,7 @@ async fn update_adapter_state_cas_succeeds_with_correct_expected_state() -> Resu
         .get_adapter_for_tenant("tenant-a", "cas-test")
         .await?
         .expect("adapter exists");
-    assert_eq!(adapter.current_state, "loading");
+    assert_eq!(adapter.current_state, "warm");
 
     Ok(())
 }
@@ -325,22 +329,22 @@ async fn update_adapter_state_cas_fails_with_wrong_expected_state() -> Result<()
 
     register_adapter(&db, "tenant-a", "cas-fail", "b3:hash-cas-fail").await?;
 
-    // First transition to loading
-    db.update_adapter_state_cas("cas-fail", "idle", "loading", "test")
+    // First transition to warm
+    db.update_adapter_state_cas("cas-fail", "unloaded", "warm", "test")
         .await?;
 
-    // Try to transition from idle (wrong state) to loaded - should fail
+    // Try to transition from unloaded (wrong state) to hot - should fail
     let failed = db
-        .update_adapter_state_cas("cas-fail", "idle", "loaded", "test")
+        .update_adapter_state_cas("cas-fail", "unloaded", "hot", "test")
         .await?;
     assert!(!failed, "CAS should fail with incorrect expected state");
 
-    // State should remain loading
+    // State should remain warm
     let adapter = db
         .get_adapter_for_tenant("tenant-a", "cas-fail")
         .await?
         .expect("adapter exists");
-    assert_eq!(adapter.current_state, "loading");
+    assert_eq!(adapter.current_state, "warm");
 
     Ok(())
 }
@@ -359,13 +363,18 @@ async fn delete_adapter_for_tenant_enforces_isolation() -> Result<()> {
     register_adapter(&db, "tenant-b", "adapter-b", "b3:hash-del-b").await?;
 
     // Tenant A cannot delete tenant B's adapter
-    db.delete_adapter_for_tenant("tenant-a", "adapter-b").await?;
+    let err = db
+        .delete_adapter_for_tenant("tenant-a", "adapter-b")
+        .await
+        .expect_err("cross-tenant delete should be denied");
+    assert!(matches!(err, AosError::NotFound(_)));
 
     let adapter_b = db.get_adapter_for_tenant("tenant-b", "adapter-b").await?;
     assert!(adapter_b.is_some(), "tenant-b's adapter should still exist");
 
     // Tenant A can delete their own adapter
-    db.delete_adapter_for_tenant("tenant-a", "adapter-a").await?;
+    db.delete_adapter_for_tenant("tenant-a", "adapter-a")
+        .await?;
 
     let adapter_a = db.get_adapter_for_tenant("tenant-a", "adapter-a").await?;
     assert!(adapter_a.is_none(), "tenant-a's adapter should be deleted");
@@ -400,7 +409,7 @@ async fn list_adapters_by_category() -> Result<()> {
         .hash_b3("b3:hash-translate-1")
         .rank(8)
         .tier("warm")
-        .category("translation")
+        .category("framework")
         .scope("global")
         .build()?;
 
@@ -461,13 +470,16 @@ async fn list_adapters_by_state() -> Result<()> {
     register_adapter(&db, "tenant-a", "idle-1", "b3:hash-idle-1").await?;
     register_adapter(&db, "tenant-a", "loading-1", "b3:hash-loading-1").await?;
 
-    db.update_adapter_state("loading-1", "loading", "test").await?;
+    db.update_adapter_state("loading-1", "warm", "test")
+        .await?;
 
-    let idle_adapters = db.list_adapters_by_state("tenant-a", "idle").await?;
-    assert!(idle_adapters.iter().any(|a| a.current_state == "idle"));
+    let unloaded_adapters = db.list_adapters_by_state("tenant-a", "unloaded").await?;
+    assert!(unloaded_adapters
+        .iter()
+        .any(|a| a.current_state == "unloaded"));
 
-    let loading_adapters = db.list_adapters_by_state("tenant-a", "loading").await?;
-    assert!(loading_adapters.iter().any(|a| a.current_state == "loading"));
+    let warm_adapters = db.list_adapters_by_state("tenant-a", "warm").await?;
+    assert!(warm_adapters.iter().any(|a| a.current_state == "warm"));
 
     Ok(())
 }
@@ -483,12 +495,12 @@ async fn get_adapter_state_summary_returns_counts() -> Result<()> {
     let summary = db.get_adapter_state_summary("tenant-a").await?;
 
     // Summary is a Vec<(category, scope, state, count, total_memory, avg_activations, most_recent)>
-    let idle_count = summary
+    let unloaded_count = summary
         .iter()
-        .find(|(_, _, state, _, _, _, _)| state == "idle")
+        .find(|(_, _, state, _, _, _, _)| state == "unloaded")
         .map(|(_, _, _, count, _, _, _)| *count);
 
-    assert_eq!(idle_count, Some(2));
+    assert_eq!(unloaded_count, Some(2));
 
     Ok(())
 }
@@ -536,7 +548,7 @@ async fn adapter_expires_at_sets_expiration() -> Result<()> {
         .rank(8)
         .tier("ephemeral")
         .category("code")
-        .scope("user")
+        .scope("tenant")
         .expires_at(Some(expiration))
         .build()?;
 
@@ -572,7 +584,7 @@ async fn adapter_parent_child_relationship() -> Result<()> {
         .category("code")
         .scope("global")
         .parent_id(Some(&parent_id))
-        .fork_type(Some("fine_tune"))
+        .fork_type(Some("extension"))
         .build()?;
 
     let child_id = db.register_adapter(params).await?;
@@ -582,7 +594,7 @@ async fn adapter_parent_child_relationship() -> Result<()> {
         .await?
         .expect("child exists");
     assert_eq!(child.parent_id.as_deref(), Some(parent_id.as_str()));
-    assert_eq!(child.fork_type.as_deref(), Some("fine_tune"));
+    assert_eq!(child.fork_type.as_deref(), Some("extension"));
 
     let children = db.get_adapter_children(&parent_id).await?;
     assert!(children.iter().any(|a| a.id == child_id));

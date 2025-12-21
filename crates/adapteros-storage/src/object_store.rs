@@ -222,4 +222,3 @@ mod tests {
         assert!(reopened.is_none());
     }
 }
-

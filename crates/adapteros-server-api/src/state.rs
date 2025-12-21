@@ -101,22 +101,26 @@ enum BackgroundTaskStatus {
 impl BackgroundTaskTracker {
     pub fn record_spawned(&self, name: &str, critical: bool) {
         let mut tasks = self.tasks.write().unwrap_or_else(|e| e.into_inner());
-        let entry = tasks.entry(name.to_string()).or_insert(BackgroundTaskRecord {
-            critical,
-            status: BackgroundTaskStatus::Spawned,
-        });
+        let entry = tasks
+            .entry(name.to_string())
+            .or_insert(BackgroundTaskRecord {
+                critical,
+                status: BackgroundTaskStatus::Spawned,
+            });
         entry.critical = entry.critical || critical;
         entry.status = BackgroundTaskStatus::Spawned;
     }
 
     pub fn record_failed(&self, name: &str, error: &str, critical: bool) {
         let mut tasks = self.tasks.write().unwrap_or_else(|e| e.into_inner());
-        let entry = tasks.entry(name.to_string()).or_insert(BackgroundTaskRecord {
-            critical,
-            status: BackgroundTaskStatus::Failed {
-                error: error.to_string(),
-            },
-        });
+        let entry = tasks
+            .entry(name.to_string())
+            .or_insert(BackgroundTaskRecord {
+                critical,
+                status: BackgroundTaskStatus::Failed {
+                    error: error.to_string(),
+                },
+            });
         entry.critical = entry.critical || critical;
         entry.status = BackgroundTaskStatus::Failed {
             error: error.to_string(),

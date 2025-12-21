@@ -513,8 +513,7 @@ fn tail_file(path: &Path, lines: usize) -> Result<String> {
         fs::File::open(path).map_err(|e| AosError::Io(format!("Failed to open file: {}", e)))?;
     let reader = BufReader::new(file);
 
-    let mut all_lines: Vec<String> =
-        reader.lines().map_while(std::result::Result::ok).collect();
+    let mut all_lines: Vec<String> = reader.lines().map_while(std::result::Result::ok).collect();
 
     // Get last N lines
     let start_index = if all_lines.len() > lines {

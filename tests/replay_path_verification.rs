@@ -2,5 +2,5 @@
 //! NOTE: Stubbed pending API updates
 
 #[test]
-#[ignore = "Pending API updates - replay types changed [tracking: STAB-IGN-001]"]
+#[ignore = "Pending API updates - replay types changed [tracking: STAB-IGN-0203]"]
 fn test_replay_path_verification_stub() {}

@@ -983,7 +983,8 @@ pub async fn execute_domain_adapter(
     ];
 
     let core = InferenceCore::new(&state);
-    let mut inference_req = InferenceRequestInternal::new(claims.tenant_id.clone(), input_str.clone());
+    let mut inference_req =
+        InferenceRequestInternal::new(claims.tenant_id.clone(), input_str.clone());
     inference_req.adapters = Some(vec![adapter_id.clone()]);
     inference_req.max_tokens = 512;
     inference_req.stack_determinism_mode = Some("strict".to_string());

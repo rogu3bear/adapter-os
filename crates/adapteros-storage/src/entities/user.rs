@@ -227,6 +227,9 @@ mod tests {
             mfa_enrolled_at: None,
             mfa_last_verified_at: None,
             mfa_recovery_last_used_at: None,
+            password_rotated_at: None,
+            token_rotated_at: None,
+            last_login_at: None,
         };
 
         assert!(admin.is_admin());
@@ -252,6 +255,9 @@ mod tests {
             mfa_enrolled_at: None,
             mfa_last_verified_at: None,
             mfa_recovery_last_used_at: None,
+            password_rotated_at: None,
+            token_rotated_at: None,
+            last_login_at: None,
         };
 
         assert!(!viewer.is_admin());
@@ -280,6 +286,9 @@ mod tests {
             mfa_enrolled_at: None,
             mfa_last_verified_at: None,
             mfa_recovery_last_used_at: None,
+            password_rotated_at: None,
+            token_rotated_at: None,
+            last_login_at: None,
         };
 
         assert!(user.is_active());

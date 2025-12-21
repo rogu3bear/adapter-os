@@ -1066,9 +1066,7 @@ fn hash_decision(
     backend_id: Option<&str>,
     kernel_version_id: Option<&str>,
 ) -> B3Hash {
-    let policy_bytes = policy_mask_digest
-        .map(|d| d.to_vec())
-        .unwrap_or_default();
+    let policy_bytes = policy_mask_digest.map(|d| d.to_vec()).unwrap_or_default();
     let backend_bytes = backend_id.unwrap_or("").as_bytes().to_vec();
     let kernel_bytes = kernel_version_id.unwrap_or("").as_bytes().to_vec();
 

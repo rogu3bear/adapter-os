@@ -251,40 +251,35 @@ async fn test_adapter_state_transitions() {
         .expect("Failed to create test adapter");
 
     // Verify initial state in database
-    let result = sqlx::query!(
-        "SELECT lifecycle_state FROM adapters WHERE id = ?",
-        "state-test-adapter"
-    )
-    .fetch_one(harness.db().pool())
-    .await;
+    let result: Result<String, _> =
+        sqlx::query_scalar("SELECT lifecycle_state FROM adapters WHERE id = ?")
+            .bind("state-test-adapter")
+            .fetch_one(harness.db().pool())
+            .await;
 
     assert!(result.is_ok(), "Adapter should exist in database");
 
     // Test state transition via lifecycle endpoints (would require actual lifecycle manager)
     // For now, verify database schema supports lifecycle states
-    let update_result = sqlx::query!(
-        "UPDATE adapters SET lifecycle_state = ? WHERE id = ?",
-        "warm",
-        "state-test-adapter"
-    )
-    .execute(harness.db().pool())
-    .await;
+    let update_result = sqlx::query("UPDATE adapters SET lifecycle_state = ? WHERE id = ?")
+        .bind("warm")
+        .bind("state-test-adapter")
+        .execute(harness.db().pool())
+        .await;
 
     assert!(
         update_result.is_ok(),
         "Should be able to update lifecycle state"
     );
 
-    let result = sqlx::query!(
-        "SELECT lifecycle_state FROM adapters WHERE id = ?",
-        "state-test-adapter"
-    )
-    .fetch_one(harness.db().pool())
-    .await
-    .unwrap();
+    let state: String = sqlx::query_scalar("SELECT lifecycle_state FROM adapters WHERE id = ?")
+        .bind("state-test-adapter")
+        .fetch_one(harness.db().pool())
+        .await
+        .unwrap();
 
     assert_eq!(
-        result.lifecycle_state.as_str(),
+        state,
         "warm",
         "Lifecycle state should be updated"
     );

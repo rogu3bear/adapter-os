@@ -200,10 +200,7 @@ fn compile_metal_shaders() {
                     .output()
                     .expect("Failed to compile Metal shaders with fallback toolchain");
                 if fallback_output.status.success() {
-                    println!(
-                        "cargo:warning=Using metal from {}",
-                        metal_path.display()
-                    );
+                    println!("cargo:warning=Using metal from {}", metal_path.display());
                 } else {
                     eprintln!("\n❌ Metal compilation failed:");
                     eprintln!("{}", stderr);
@@ -221,9 +218,7 @@ fn compile_metal_shaders() {
                 eprintln!("  ./scripts/install-metal-toolchain.sh");
                 eprintln!("\nOr install manually:");
                 eprintln!("  xcodebuild -downloadComponent MetalToolchain");
-                eprintln!(
-                    "\nOr set METAL_TOOLCHAIN_BIN to the toolchain usr/bin directory."
-                );
+                eprintln!("\nOr set METAL_TOOLCHAIN_BIN to the toolchain usr/bin directory.");
                 eprintln!("\nFor more information, see: docs/METAL_TOOLCHAIN_SETUP.md");
                 std::process::exit(1);
             }
@@ -271,7 +266,9 @@ fn compile_metal_shaders() {
                 }
             } else {
                 eprintln!("Metallib linking failed: {}", stderr);
-                eprintln!("Install the Metal Toolchain or set METAL_TOOLCHAIN_BIN to its usr/bin path.");
+                eprintln!(
+                    "Install the Metal Toolchain or set METAL_TOOLCHAIN_BIN to its usr/bin path."
+                );
                 std::process::exit(1);
             }
         } else {
@@ -408,7 +405,9 @@ fn compile_additional_kernel(
             } else {
                 eprintln!("\n❌ Metal compilation failed for {}:", kernel_name);
                 eprintln!("{}", stderr);
-                eprintln!("Install the Metal Toolchain or set METAL_TOOLCHAIN_BIN to its usr/bin path.");
+                eprintln!(
+                    "Install the Metal Toolchain or set METAL_TOOLCHAIN_BIN to its usr/bin path."
+                );
                 std::process::exit(1);
             }
         } else {
@@ -458,7 +457,9 @@ fn compile_additional_kernel(
                 }
             } else {
                 eprintln!("Metallib linking failed for {}: {}", kernel_name, stderr);
-                eprintln!("Install the Metal Toolchain or set METAL_TOOLCHAIN_BIN to its usr/bin path.");
+                eprintln!(
+                    "Install the Metal Toolchain or set METAL_TOOLCHAIN_BIN to its usr/bin path."
+                );
                 std::process::exit(1);
             }
         } else {
@@ -502,7 +503,10 @@ fn get_sdk_version() -> String {
 }
 
 fn get_sdk_path() -> Option<String> {
-    let output = Command::new("xcrun").args(["--show-sdk-path"]).output().ok()?;
+    let output = Command::new("xcrun")
+        .args(["--show-sdk-path"])
+        .output()
+        .ok()?;
 
     if output.status.success() {
         Some(String::from_utf8_lossy(&output.stdout).trim().to_string())

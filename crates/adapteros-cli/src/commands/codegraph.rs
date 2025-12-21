@@ -4,8 +4,8 @@
 //! - `codegraph export` - Export call graph to various formats (DOT, JSON, CSV)
 //! - `codegraph stats` - Generate CodeGraph database statistics
 //!
-use crate::output::OutputWriter;
 use crate::commands::{codegraph_stats, export_callgraph};
+use crate::output::OutputWriter;
 use adapteros_core::Result;
 use clap::Subcommand;
 use std::path::PathBuf;
@@ -126,13 +126,8 @@ pub async fn handle_codegraph_command(cmd: CodegraphCommand, output: &OutputWrit
             let format = format
                 .parse::<ExportFormat>()
                 .map_err(adapteros_core::AosError::Validation)?;
-            export_callgraph::export_callgraph(
-                &codegraph_db,
-                &output_path,
-                format.into(),
-                output,
-            )
-            .await?;
+            export_callgraph::export_callgraph(&codegraph_db, &output_path, format.into(), output)
+                .await?;
             Ok(())
         }
         CodegraphCommand::Stats { codegraph_db } => {

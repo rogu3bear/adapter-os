@@ -144,10 +144,7 @@ mod formatting_tests {
     #[test]
     fn test_truncate_hash_long() {
         assert_eq!(truncate_hash("1a2b3c4d5e6f7g8h9i0j"), "1a2b3c4d5e6f");
-        assert_eq!(
-            truncate_hash("abcdefghijklmnopqrstuvwxyz"),
-            "abcdefghijkl"
-        );
+        assert_eq!(truncate_hash("abcdefghijklmnopqrstuvwxyz"), "abcdefghijkl");
     }
 
     #[test]

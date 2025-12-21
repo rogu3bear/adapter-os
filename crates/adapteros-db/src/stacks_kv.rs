@@ -762,12 +762,13 @@ pub fn stack_record_to_kv(record: &StackRecord) -> Result<AdapterStackKv> {
         .and_then(|wt| WorkflowType::parse_workflow(wt));
 
     // Parse lifecycle state
-    let lifecycle_state = LifecycleState::parse_state(&record.lifecycle_state).ok_or_else(|| {
-        AosError::Database(format!(
-            "Invalid lifecycle state: {}",
-            record.lifecycle_state
-        ))
-    })?;
+    let lifecycle_state =
+        LifecycleState::parse_state(&record.lifecycle_state).ok_or_else(|| {
+            AosError::Database(format!(
+                "Invalid lifecycle state: {}",
+                record.lifecycle_state
+            ))
+        })?;
 
     // Parse timestamps
     let created_at = NaiveDateTime::parse_from_str(&record.created_at, "%Y-%m-%d %H:%M:%S")

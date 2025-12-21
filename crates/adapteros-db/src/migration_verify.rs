@@ -246,15 +246,15 @@ impl MigrationVerifier {
         );
 
         // Verify signature against file hash (hex string or raw bytes)
-        if verifying_key.verify(file_hash.as_bytes(), &signature).is_err() {
-            let raw_hash = hex::decode(file_hash).map_err(|e| {
-                AosError::Crypto(format!("Failed to decode file hash hex: {}", e))
+        if verifying_key
+            .verify(file_hash.as_bytes(), &signature)
+            .is_err()
+        {
+            let raw_hash = hex::decode(file_hash)
+                .map_err(|e| AosError::Crypto(format!("Failed to decode file hash hex: {}", e)))?;
+            verifying_key.verify(&raw_hash, &signature).map_err(|e| {
+                AosError::Crypto(format!("Ed25519 signature verification failed: {}", e))
             })?;
-            verifying_key
-                .verify(&raw_hash, &signature)
-                .map_err(|e| {
-                    AosError::Crypto(format!("Ed25519 signature verification failed: {}", e))
-                })?;
         }
 
         debug!(
@@ -406,7 +406,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "Verifies actual migrations directory - run with: cargo test --release -- --ignored test_verify_actual_migrations [tracking: STAB-IGN-001]"]
+    #[ignore = "Verifies actual migrations directory - run with: cargo test --release -- --ignored test_verify_actual_migrations [tracking: STAB-IGN-0021]"]
     fn test_verify_actual_migrations() {
         // This test verifies the actual migrations in the project
         // Run with: cargo test test_verify_actual_migrations -- --ignored

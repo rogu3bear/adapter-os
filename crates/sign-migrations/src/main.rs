@@ -36,13 +36,14 @@ fn main() -> Result<()> {
 
     let migrations_dir = project_root.join("migrations");
     let signatures_file = migrations_dir.join("signatures.json");
-    let key_file = project_root.join("var").join("migration_signing_key_rust.bin");
+    let key_file = project_root
+        .join("var")
+        .join("migration_signing_key_rust.bin");
 
     // Load or generate signing key
     let signing_key = if key_file.exists() {
         println!("✓ Loading existing signing key: {}", key_file.display());
-        let key_bytes = fs::read(&key_file)
-            .context("Failed to read signing key")?;
+        let key_bytes = fs::read(&key_file).context("Failed to read signing key")?;
         SigningKey::from_bytes(
             key_bytes
                 .as_slice()
@@ -56,8 +57,7 @@ fn main() -> Result<()> {
         let mut csprng = OsRng;
         let signing_key = SigningKey::generate(&mut csprng);
 
-        fs::write(&key_file, signing_key.to_bytes())
-            .context("Failed to write signing key")?;
+        fs::write(&key_file, signing_key.to_bytes()).context("Failed to write signing key")?;
 
         println!("✓ Key generated: {}", key_file.display());
         println!("⚠  Keep this key secure - required for CAB promotion\n");
@@ -132,8 +132,7 @@ fn main() -> Result<()> {
     };
 
     let json = serde_json::to_string_pretty(&signatures_data)?;
-    fs::write(&signatures_file, json)
-        .context("Failed to write signatures file")?;
+    fs::write(&signatures_file, json).context("Failed to write signatures file")?;
 
     println!("\n✓ Successfully signed {} migrations", count);
     println!("✓ Signatures written to: {}", signatures_file.display());
@@ -154,12 +153,14 @@ fn main() -> Result<()> {
 
         // Verify signature
         let signature_bytes = base64::prelude::BASE64_STANDARD.decode(&sig_data.signature)?;
-        let signature = ed25519_dalek::Signature::from_bytes(
-            signature_bytes.as_slice().try_into()?,
-        );
+        let signature =
+            ed25519_dalek::Signature::from_bytes(signature_bytes.as_slice().try_into()?);
 
         use ed25519_dalek::Verifier;
-        if verifying_key.verify(file_hash.as_bytes(), &signature).is_ok() {
+        if verifying_key
+            .verify(file_hash.as_bytes(), &signature)
+            .is_ok()
+        {
             verify_count += 1;
         } else {
             println!("✗ Signature verification failed for {}", filename);

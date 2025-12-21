@@ -7,13 +7,12 @@
 
 use adapteros_core::{B3Hash, SeedMode};
 use adapteros_db::{CreateReplayMetadataParams, Db, InferenceReplayMetadata};
-use adapteros_server_api::determinism_context::{
-    from_replay_metadata, from_request, DeterminismContext,
-};
+use adapteros_server_api::determinism_context::{from_replay_metadata, from_request};
 use adapteros_server_api::handlers::replay_inference::execute_replay;
+use adapteros_server_api::inference_core::InferenceCore;
 use adapteros_server_api::types::{
-    DivergenceDetails, ErrorResponse, ReplayKey, ReplayMatchStatus, ReplayRequest, ReplayStatus,
-    SamplingParams, MAX_REPLAY_TEXT_SIZE, SAMPLING_ALGORITHM_VERSION,
+    DivergenceDetails, ErrorResponse, InferenceRequestInternal, ReplayKey, ReplayMatchStatus,
+    ReplayRequest, ReplayStatus, SamplingParams, MAX_REPLAY_TEXT_SIZE, SAMPLING_ALGORITHM_VERSION,
 };
 use axum::{extract::State, http::StatusCode, Extension, Json};
 
@@ -327,6 +326,63 @@ async fn replay_handler_rejects_seedless_metadata() {
     assert!(body.error.contains("request_seed"));
 }
 
+#[tokio::test]
+async fn test_failed_inference_records_minimal_replay_metadata() {
+    let state = setup_state(None).await.expect("state");
+    let core = InferenceCore::new(&state);
+
+    let mut request = InferenceRequestInternal::new("tenant-1".to_string(), "prompt".to_string());
+    request.request_id = "failed-inference-metadata-001".to_string();
+    request.stack_id = Some("missing-stack".to_string());
+
+    let err = core
+        .route_and_infer(request, None)
+        .await
+        .expect_err("inference should fail for missing stack");
+
+    let metadata = state
+        .db
+        .get_replay_metadata_by_inference("failed-inference-metadata-001")
+        .await
+        .unwrap()
+        .expect("metadata should be recorded for failed inference");
+
+    assert_eq!(metadata.tenant_id, "tenant-1");
+    assert_eq!(metadata.replay_status, "failed_inference");
+
+    let sampling_params: SamplingParams =
+        serde_json::from_str(&metadata.sampling_params_json).unwrap();
+    assert_eq!(
+        sampling_params.error_code.as_deref(),
+        Some(err.error_code())
+    );
+}
+
+#[tokio::test]
+async fn test_failed_capture_marks_replay_status() {
+    let state = setup_state(None).await.expect("state");
+    let inference_id = "failed-capture-metadata-001";
+    create_test_metadata(&state.db, inference_id, "tenant-1").await;
+
+    let core = InferenceCore::new(&state);
+    let mut request = InferenceRequestInternal::new("tenant-1".to_string(), "prompt".to_string());
+    request.request_id = inference_id.to_string();
+    request.stack_id = Some("missing-stack".to_string());
+
+    core.route_and_infer(request, None)
+        .await
+        .expect_err("inference should fail for missing stack");
+
+    let metadata = state
+        .db
+        .get_replay_metadata_by_inference(inference_id)
+        .await
+        .unwrap()
+        .expect("metadata should exist");
+
+    assert_eq!(metadata.replay_status, "failed_capture");
+}
+
 // ============================================================================
 // Acceptance Test 1: Deterministic Replay Key Structure
 // ============================================================================
@@ -344,6 +400,7 @@ fn test_replay_key_includes_all_required_fields() {
             top_p: Some(0.9),
             max_tokens: 512,
             seed: Some(42),
+            error_code: None,
             seed_mode: None,
             backend_profile: None,
             request_seed_hex: None,
@@ -384,6 +441,7 @@ fn test_sampling_params_serialization() {
         top_p: Some(0.95),
         max_tokens: 2048,
         seed: Some(12345),
+        error_code: None,
         seed_mode: None,
         backend_profile: None,
         request_seed_hex: None,
@@ -517,10 +575,12 @@ fn test_divergence_position_prefix() {
 
 #[test]
 fn test_replay_status_enum_values() {
-    // Replay status values: available, approximate, degraded, unavailable
+    // Replay status values: available, approximate, degraded, failed_inference, failed_capture, unavailable
     let available = ReplayStatus::Available;
     let approximate = ReplayStatus::Approximate;
     let degraded = ReplayStatus::Degraded;
+    let failed_inference = ReplayStatus::FailedInference;
+    let failed_capture = ReplayStatus::FailedCapture;
     let unavailable = ReplayStatus::Unavailable;
 
     // Verify serialization matches expected snake_case
@@ -530,6 +590,14 @@ fn test_replay_status_enum_values() {
         "\"approximate\""
     );
     assert_eq!(serde_json::to_string(&degraded).unwrap(), "\"degraded\"");
+    assert_eq!(
+        serde_json::to_string(&failed_inference).unwrap(),
+        "\"failed_inference\""
+    );
+    assert_eq!(
+        serde_json::to_string(&failed_capture).unwrap(),
+        "\"failed_capture\""
+    );
     assert_eq!(
         serde_json::to_string(&unavailable).unwrap(),
         "\"unavailable\""
@@ -1076,6 +1144,7 @@ async fn test_replay_with_golden_policy_enforcement() {
         top_p: Some(0.9),
         max_tokens: 100,
         seed: Some(42), // Required for strict mode
+        error_code: None,
         seed_mode: None,
         backend_profile: None,
         request_seed_hex: None,
@@ -1248,6 +1317,7 @@ async fn test_replay_metadata_supports_drift_detection() {
         top_p: Some(0.9),
         max_tokens: 100,
         seed: Some(42),
+        error_code: None,
         seed_mode: None,
         backend_profile: None,
         request_seed_hex: None,

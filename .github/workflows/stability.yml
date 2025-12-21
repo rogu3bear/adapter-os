@@ -41,3 +41,23 @@ jobs:
 
       - name: Run stability gate
         run: scripts/ci/stability.sh
+
+  ignored-tests:
+    name: Ignored Test Sweep (Non-blocking)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust (nightly)
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rustfmt, clippy
+
+      - name: Seed test env
+        run: |
+          echo "AOS_DATABASE_URL=sqlite:var/aos-cp.sqlite3" > .env
+
+      - name: Run ignored test sweep
+        run: make test-ignored

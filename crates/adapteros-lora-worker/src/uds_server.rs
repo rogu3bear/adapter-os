@@ -1149,7 +1149,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "TODO: implement UDS server creation test with mock worker and temp directory [tracking: STAB-IGN-001]"]
+    #[ignore = "TODO: implement UDS server creation test with mock worker and temp directory [tracking: STAB-IGN-0045]"]
     async fn test_uds_server_creation() {
         // This test would require a mock worker and temp directory setup
         // The core UDS server functionality is tested via integration tests

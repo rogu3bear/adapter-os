@@ -74,13 +74,19 @@ pub trait AdapterKvOps {
     async fn find_adapter_by_hash_kv(&self, hash_b3: &str) -> Result<Option<Adapter>>;
 
     /// List adapters by category
-    async fn list_adapters_by_category_kv(&self, tenant_id: &str, category: &str) -> Result<Vec<Adapter>>;
+    async fn list_adapters_by_category_kv(
+        &self,
+        tenant_id: &str,
+        category: &str,
+    ) -> Result<Vec<Adapter>>;
 
     /// List adapters by scope
-    async fn list_adapters_by_scope_kv(&self, tenant_id: &str, scope: &str) -> Result<Vec<Adapter>>;
+    async fn list_adapters_by_scope_kv(&self, tenant_id: &str, scope: &str)
+        -> Result<Vec<Adapter>>;
 
     /// List adapters by state
-    async fn list_adapters_by_state_kv(&self, tenant_id: &str, state: &str) -> Result<Vec<Adapter>>;
+    async fn list_adapters_by_state_kv(&self, tenant_id: &str, state: &str)
+        -> Result<Vec<Adapter>>;
 
     /// Update adapter tier
     async fn update_adapter_tier_kv(&self, adapter_id: &str, tier: &str) -> Result<()>;
@@ -596,7 +602,11 @@ impl AdapterKvOps for AdapterKvRepository {
         Ok(adapter_kv.map(|kv| kv.into()))
     }
 
-    async fn list_adapters_by_category_kv(&self, tenant_id: &str, category: &str) -> Result<Vec<Adapter>> {
+    async fn list_adapters_by_category_kv(
+        &self,
+        tenant_id: &str,
+        category: &str,
+    ) -> Result<Vec<Adapter>> {
         // Get all adapters for tenant, then filter by category
         let adapters = self
             .repo
@@ -613,7 +623,11 @@ impl AdapterKvOps for AdapterKvRepository {
         Ok(filtered)
     }
 
-    async fn list_adapters_by_scope_kv(&self, tenant_id: &str, scope: &str) -> Result<Vec<Adapter>> {
+    async fn list_adapters_by_scope_kv(
+        &self,
+        tenant_id: &str,
+        scope: &str,
+    ) -> Result<Vec<Adapter>> {
         // Get all adapters for tenant, then filter by scope
         let adapters = self
             .repo
@@ -630,7 +644,11 @@ impl AdapterKvOps for AdapterKvRepository {
         Ok(filtered)
     }
 
-    async fn list_adapters_by_state_kv(&self, tenant_id: &str, state: &str) -> Result<Vec<Adapter>> {
+    async fn list_adapters_by_state_kv(
+        &self,
+        tenant_id: &str,
+        state: &str,
+    ) -> Result<Vec<Adapter>> {
         let adapters = self
             .repo
             .list_by_state(tenant_id, state)

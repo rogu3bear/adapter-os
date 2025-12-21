@@ -60,11 +60,7 @@ async fn create_test_repo(db: &Db, repo_id: &str, tenant_id: &str) -> Result<()>
 }
 
 /// Test helper to create a test dataset with actual JSONL content
-async fn create_test_training_dataset(
-    db: &Db,
-    dataset_id: &str,
-    tenant_id: &str,
-) -> Result<()> {
+async fn create_test_training_dataset(db: &Db, dataset_id: &str, tenant_id: &str) -> Result<()> {
     use adapteros_core::B3Hash;
 
     // Create minimal JSONL dataset content
@@ -213,8 +209,8 @@ async fn test_e2e_training_workflow() -> Result<()> {
         require_gpu: None,
         max_gpu_memory_mb: None,
     };
-    let training_config_json = serde_json::to_string(&training_config)
-        .expect("training config should serialize");
+    let training_config_json =
+        serde_json::to_string(&training_config).expect("training config should serialize");
 
     // Note: In a real E2E test, we would call the handler directly via the router.
     // For this test, we'll verify the job can be created in the database.
@@ -451,9 +447,7 @@ async fn test_training_progress_monitoring() {
 
     // Setup
     create_test_tenant(&state.db, tenant_id).await.ok();
-    create_test_repo(&state.db, &repo_id, tenant_id)
-        .await
-        .ok();
+    create_test_repo(&state.db, &repo_id, tenant_id).await.ok();
 
     // Create job
     sqlx::query(

@@ -461,11 +461,10 @@ mod tests {
 
     #[test]
     fn test_client_creation() {
-        let client =
-            match build_client_or_skip(|| SupervisorClient::new("http://localhost:3301")) {
-                Some(client) => client,
-                None => return,
-            };
+        let client = match build_client_or_skip(|| SupervisorClient::new("http://localhost:3301")) {
+            Some(client) => client,
+            None => return,
+        };
         assert_eq!(client.base_url, "http://localhost:3301");
         assert_eq!(client.max_retries, 3);
     }

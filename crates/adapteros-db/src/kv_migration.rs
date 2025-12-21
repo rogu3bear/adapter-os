@@ -1705,9 +1705,7 @@ impl Db {
             let kv_tenant: adapteros_storage::entities::tenant::TenantKv = tenant.clone().into();
             if let Err(e) = repo.put_tenant(&kv_tenant).await {
                 stats.failed += 1;
-                stats
-                    .errors
-                    .push(format!("tenant {}: {}", kv_tenant.id, e));
+                stats.errors.push(format!("tenant {}: {}", kv_tenant.id, e));
             } else {
                 stats.migrated += 1;
             }
@@ -1784,9 +1782,7 @@ impl Db {
                 Ok(kv_stack) => {
                     if let Err(e) = repo.put_stack(kv_stack).await {
                         stats.failed += 1;
-                        stats
-                            .errors
-                            .push(format!("stack {}: {}", record.id, e));
+                        stats.errors.push(format!("stack {}: {}", record.id, e));
                     } else {
                         stats.migrated += 1;
                     }
@@ -1867,9 +1863,7 @@ impl Db {
                 Ok(plan_kv) => {
                     if let Err(e) = repo.put_plan(plan_kv).await {
                         stats.failed += 1;
-                        stats
-                            .errors
-                            .push(format!("plan {}: {}", plan.id, e));
+                        stats.errors.push(format!("plan {}: {}", plan.id, e));
                     } else {
                         stats.migrated += 1;
                     }

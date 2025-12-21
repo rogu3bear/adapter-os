@@ -123,7 +123,7 @@ async fn cross_tenant_access_is_forbidden() {
     let (status, Json(err)): (StatusCode, Json<ErrorResponse>) =
         result.expect_err("expected forbidden");
     assert_eq!(status, StatusCode::FORBIDDEN);
-    assert_eq!(err.code, "FORBIDDEN");
+    assert_eq!(err.code, "TENANT_ISOLATION_ERROR");
 }
 
 #[tokio::test]

@@ -1286,11 +1286,7 @@ pub async fn login_handler(
 
     // Update last login timestamp (best effort, doesn't fail login)
     let now = chrono::Utc::now().to_rfc3339();
-    state
-        .db
-        .update_user_last_login(&user.id, &now)
-        .await
-        .ok();
+    state.db.update_user_last_login(&user.id, &now).await.ok();
 
     // Log audit (best effort, doesn't fail login)
     log_auth_event(

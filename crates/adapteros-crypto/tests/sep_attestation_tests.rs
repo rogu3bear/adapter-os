@@ -44,11 +44,7 @@ fn test_check_sep_availability() {
         SepChipGeneration::Intel => {
             assert!(!availability.available);
             assert!(availability.reason.is_some());
-            assert!(availability
-                .reason
-                .as_ref()
-                .unwrap()
-                .contains("Intel"));
+            assert!(availability.reason.as_ref().unwrap().contains("Intel"));
         }
         SepChipGeneration::M1
         | SepChipGeneration::M2
@@ -96,13 +92,9 @@ fn test_sep_availability_serialization() {
     assert!(!json.is_empty());
 
     // Should be deserializable
-    let deserialized: adapteros_crypto::SepAvailability =
-        serde_json::from_str(&json).unwrap();
+    let deserialized: adapteros_crypto::SepAvailability = serde_json::from_str(&json).unwrap();
     assert_eq!(deserialized.available, availability.available);
-    assert_eq!(
-        deserialized.chip_generation,
-        availability.chip_generation
-    );
+    assert_eq!(deserialized.chip_generation, availability.chip_generation);
 }
 
 #[tokio::test]
@@ -115,7 +107,10 @@ async fn test_generate_sep_key_with_attestation() {
     // May succeed on Apple Silicon or fall back to regular keys
     match result {
         Ok(attestation) => {
-            println!("SEP attestation generated on chip: {}", attestation.chip_generation);
+            println!(
+                "SEP attestation generated on chip: {}",
+                attestation.chip_generation
+            );
 
             // Verify attestation structure
             assert_eq!(attestation.nonce, nonce);
@@ -124,7 +119,10 @@ async fn test_generate_sep_key_with_attestation() {
 
             // For M-series Macs with SEP, certificate chain may be present
             // For Intel or fallback, it will be empty
-            println!("Certificate chain length: {}", attestation.certificate_chain.len());
+            println!(
+                "Certificate chain length: {}",
+                attestation.certificate_chain.len()
+            );
         }
         Err(e) => {
             println!("SEP key generation failed (may be expected): {}", e);
@@ -197,8 +195,7 @@ fn test_attestation_serialization() {
     assert!(!json.is_empty());
 
     // Should deserialize
-    let deserialized: adapteros_crypto::SepAttestation =
-        serde_json::from_str(&json).unwrap();
+    let deserialized: adapteros_crypto::SepAttestation = serde_json::from_str(&json).unwrap();
     assert_eq!(deserialized.public_key, attestation.public_key);
     assert_eq!(deserialized.nonce, attestation.nonce);
     assert_eq!(deserialized.chip_generation, attestation.chip_generation);

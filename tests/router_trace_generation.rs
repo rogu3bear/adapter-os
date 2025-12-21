@@ -2,5 +2,5 @@
 //! NOTE: Stubbed pending API updates
 
 #[test]
-#[ignore = "Pending API updates - RouterCandidate not exported [tracking: STAB-IGN-001]"]
+#[ignore = "Pending API updates - RouterCandidate not exported [tracking: STAB-IGN-0205]"]
 fn test_router_trace_generation_stub() {}

@@ -248,7 +248,10 @@ async fn test_e2e_inference_with_audit_trail() {
 
         if let Ok((mut stream, _)) = listener.accept().await {
             let mut buf = vec![0u8; 8192];
-            let n = stream.read(&mut buf).await.expect("Failed to read from UDS");
+            let n = stream
+                .read(&mut buf)
+                .await
+                .expect("Failed to read from UDS");
 
             // Record inference metric
             metrics_registry
@@ -256,13 +259,17 @@ async fn test_e2e_inference_with_audit_trail() {
                 .await;
 
             // Send HTTP response over UDS
-            let body = serde_json::to_string(&worker_response).expect("Failed to serialize response");
+            let body =
+                serde_json::to_string(&worker_response).expect("Failed to serialize response");
             let response = format!(
                 "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
                 body.len(),
                 body
             );
-            stream.write_all(response.as_bytes()).await.expect("Failed to write to UDS");
+            stream
+                .write_all(response.as_bytes())
+                .await
+                .expect("Failed to write to UDS");
             let _ = stream.shutdown().await;
         }
     });
@@ -294,7 +301,12 @@ async fn test_e2e_inference_with_audit_trail() {
 
     state
         .db
-        .transition_worker_status(worker_id, "serving", "Ready for E2E test", Some("test-system"))
+        .transition_worker_status(
+            worker_id,
+            "serving",
+            "Ready for E2E test",
+            Some("test-system"),
+        )
         .await
         .expect("Failed to transition worker to serving");
 
@@ -343,8 +355,7 @@ async fn test_e2e_inference_with_audit_trail() {
 
     // Verify response text
     assert_eq!(
-        payload.text,
-        "This text has a positive sentiment.",
+        payload.text, "This text has a positive sentiment.",
         "Response text should match worker output"
     );
 
@@ -364,8 +375,7 @@ async fn test_e2e_inference_with_audit_trail() {
 
     // Verify finish reason
     assert_eq!(
-        payload.finish_reason,
-        "stop",
+        payload.finish_reason, "stop",
         "Finish reason should be 'stop'"
     );
 
@@ -402,8 +412,7 @@ async fn test_e2e_inference_with_audit_trail() {
     );
 
     assert_eq!(
-        receipt.sampling_params.max_tokens,
-        50,
+        receipt.sampling_params.max_tokens, 50,
         "Receipt should capture sampling params"
     );
 
@@ -466,10 +475,7 @@ async fn test_e2e_inference_with_audit_trail() {
         .await
         .expect("Failed to query policy decisions");
 
-    println!(
-        "Policy decisions recorded: {}",
-        policy_decisions.len()
-    );
+    println!("Policy decisions recorded: {}", policy_decisions.len());
 
     // Verify policy audit chain integrity
     let chain_result = state
@@ -499,9 +505,7 @@ async fn test_e2e_inference_with_audit_trail() {
 
     println!(
         "Policy hooks fired - before_routing: {}, before_inference: {}, after_inference: {}",
-        has_before_routing,
-        has_before_inference,
-        has_after_inference
+        has_before_routing, has_before_inference, has_after_inference
     );
 
     // Verify at least one policy decision was made
@@ -553,27 +557,29 @@ async fn test_e2e_inference_with_audit_trail() {
         .expect("Failed to insert routing decision");
 
     // Verify routing decision was recorded
-    let routing_filters = adapteros_server_api::handlers::routing_decisions::RoutingDecisionsQuery {
-        tenant: claims.tenant_id.clone(),
-        limit: Some(10),
-        offset: None,
-        since: None,
-        until: None,
-        stack_id: None,
-        adapter_id: None,
-        source_type: Some("general".to_string()),
-        min_entropy: None,
-        max_overhead_pct: None,
-        anomalies_only: Some(false),
-    };
+    let routing_filters =
+        adapteros_server_api::handlers::routing_decisions::RoutingDecisionsQuery {
+            tenant: claims.tenant_id.clone(),
+            limit: Some(10),
+            offset: None,
+            since: None,
+            until: None,
+            stack_id: None,
+            adapter_id: None,
+            source_type: Some("general".to_string()),
+            min_entropy: None,
+            max_overhead_pct: None,
+            anomalies_only: Some(false),
+        };
 
-    let routing_decisions = adapteros_server_api::handlers::routing_decisions::get_routing_decisions(
-        State(state.clone()),
-        Extension(claims.clone()),
-        axum::extract::Query(routing_filters),
-    )
-    .await
-    .expect("Failed to query routing decisions");
+    let routing_decisions =
+        adapteros_server_api::handlers::routing_decisions::get_routing_decisions(
+            State(state.clone()),
+            Extension(claims.clone()),
+            axum::extract::Query(routing_filters),
+        )
+        .await
+        .expect("Failed to query routing decisions");
 
     assert!(
         !routing_decisions.0.items.is_empty(),
@@ -673,8 +679,7 @@ async fn test_e2e_inference_fails_when_model_not_ready() {
                 "Should return 503 for model not ready"
             );
             assert_eq!(
-                body.code,
-                "MODEL_NOT_READY",
+                body.code, "MODEL_NOT_READY",
                 "Error code should be MODEL_NOT_READY"
             );
             println!("✓ Correctly failed with MODEL_NOT_READY: {}", body.error);
@@ -770,11 +775,7 @@ async fn test_e2e_inference_tenant_isolation() {
     // Should fail - exact error depends on where isolation is enforced
     match result {
         Err((status, Json(body))) => {
-            println!(
-                "✓ Cross-tenant access blocked: {} - {}",
-                status,
-                body.error
-            );
+            println!("✓ Cross-tenant access blocked: {} - {}", status, body.error);
             // Could be 403 FORBIDDEN, 404 NOT_FOUND, or 400 BAD_REQUEST
             // depending on where tenant isolation catches it
             assert!(

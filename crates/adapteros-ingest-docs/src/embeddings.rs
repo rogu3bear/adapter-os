@@ -207,21 +207,21 @@ impl EmbeddingModel for SimpleEmbeddingModel {
 #[cfg(test)]
 mod tests {
     #[test]
-    #[ignore = "Requires tokenizer model files - run with: cargo test --release -- --ignored [tracking: STAB-IGN-001]"]
+    #[ignore = "Requires tokenizer model files - run with: cargo test --release -- --ignored [tracking: STAB-IGN-0026]"]
     fn test_simple_embedding_deterministic() {
         // This test requires a real tokenizer file
         // Skipped for CI/CD
     }
 
     #[test]
-    #[ignore = "Requires tokenizer model files - run with: cargo test --release -- --ignored [tracking: STAB-IGN-001]"]
+    #[ignore = "Requires tokenizer model files - run with: cargo test --release -- --ignored [tracking: STAB-IGN-0027]"]
     fn test_empty_text_embedding() {
         // This test requires a real tokenizer file
         // Skipped for CI/CD
     }
 
     #[test]
-    #[ignore = "Requires tokenizer model files - run with: cargo test --release -- --ignored [tracking: STAB-IGN-001]"]
+    #[ignore = "Requires tokenizer model files - run with: cargo test --release -- --ignored [tracking: STAB-IGN-0028]"]
     fn test_production_model_fallback() {
         // This test requires a real tokenizer file
         // Skipped for CI/CD

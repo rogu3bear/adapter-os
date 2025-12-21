@@ -1155,10 +1155,7 @@ mod tests {
 
         // Spawn a task that yields but never completes
         let _task_id = executor
-            .spawn_deterministic(
-                "Yielding Task".to_string(),
-                PendingNTimes { remaining: 10 },
-            )
+            .spawn_deterministic("Yielding Task".to_string(), PendingNTimes { remaining: 10 })
             .unwrap();
 
         executor.run().await.unwrap();

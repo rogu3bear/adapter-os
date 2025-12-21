@@ -252,10 +252,12 @@ mod tests {
     async fn setup_db() -> Arc<Db> {
         let db = Arc::new(Db::new_in_memory().await.expect("Failed to create test db"));
         // Create tenant for FK constraint
-        sqlx::query("INSERT INTO tenants (id, name, itar_flag) VALUES ('tenant-1', 'Test Tenant', 0)")
-            .execute(db.pool())
-            .await
-            .expect("Failed to create test tenant");
+        sqlx::query(
+            "INSERT INTO tenants (id, name, itar_flag) VALUES ('tenant-1', 'Test Tenant', 0)",
+        )
+        .execute(db.pool())
+        .await
+        .expect("Failed to create test tenant");
         db
     }
 

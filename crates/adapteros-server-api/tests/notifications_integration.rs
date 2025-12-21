@@ -2,5 +2,5 @@
 //! NOTE: Stubbed pending API updates
 
 #[test]
-#[ignore = "Pending API updates - test setup requires updates [tracking: STAB-IGN-001]"]
+#[ignore = "Pending API updates - test setup requires updates [tracking: STAB-IGN-0134]"]
 fn test_notifications_integration_stub() {}

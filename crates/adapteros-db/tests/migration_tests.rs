@@ -138,10 +138,7 @@ async fn test_migrate_adapter_to_kv_single() {
     db.register_adapter(params).await.unwrap();
 
     // Migrate single adapter
-    let migrated = db
-        .migrate_adapter_to_kv("single-test")
-        .await
-        .unwrap();
+    let migrated = db.migrate_adapter_to_kv("single-test").await.unwrap();
 
     // Should return true for successful migration
     assert!(migrated, "Single adapter migration should return true");
@@ -168,17 +165,11 @@ async fn test_migrate_adapter_to_kv_already_migrated() {
     db.register_adapter(params).await.unwrap();
 
     // First migration - should succeed
-    let first_result = db
-        .migrate_adapter_to_kv("already-migrated")
-        .await
-        .unwrap();
+    let first_result = db.migrate_adapter_to_kv("already-migrated").await.unwrap();
     assert!(first_result, "First migration should return true");
 
     // Second migration - should detect already migrated and skip
-    let second_result = db
-        .migrate_adapter_to_kv("already-migrated")
-        .await
-        .unwrap();
+    let second_result = db.migrate_adapter_to_kv("already-migrated").await.unwrap();
     assert!(
         !second_result,
         "Second migration should return false (already migrated)"
@@ -517,9 +508,7 @@ async fn test_migration_preserves_adapter_fields() {
         .unwrap();
 
     // Migrate
-    db.migrate_adapter_to_kv("full-fields-test")
-        .await
-        .unwrap();
+    db.migrate_adapter_to_kv("full-fields-test").await.unwrap();
 
     // Verify no discrepancies
     let discrepancies = db.verify_migration_consistency().await.unwrap();
@@ -545,9 +534,7 @@ async fn test_migration_adapter_not_found() {
     let (db, _sql_dir, _kv_dir) = create_test_db_with_kv().await;
 
     // Try to migrate non-existent adapter
-    let result = db
-        .migrate_adapter_to_kv("non-existent")
-        .await;
+    let result = db.migrate_adapter_to_kv("non-existent").await;
 
     // Should return NotFound error
     assert!(
@@ -679,7 +666,7 @@ async fn test_migration_stats_with_failures() {
 }
 
 #[tokio::test]
-#[ignore = "Blocked by KV index prefix scan bug - adapter IDs with common prefixes cause false matches (test-adapter-1 matches test-adapter-10) [tracking: STAB-IGN-001]"]
+#[ignore = "Blocked by KV index prefix scan bug - adapter IDs with common prefixes cause false matches (test-adapter-1 matches test-adapter-10) [tracking: STAB-IGN-0022]"]
 async fn test_migration_large_dataset() {
     let (db, _sql_dir, _kv_dir) = create_test_db_with_kv().await;
 

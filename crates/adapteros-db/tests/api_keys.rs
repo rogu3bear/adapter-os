@@ -62,4 +62,3 @@ async fn api_keys_create_lookup_revoke() -> anyhow::Result<()> {
 
     Ok(())
 }
-

@@ -225,7 +225,7 @@ impl OptimizationImpact {
     ) -> Self {
         let baseline_latency = baseline.avg_time_us;
         let current_latency = current.avg_time_us;
-        
+
         let improvement_pct = if baseline_latency > 0 {
             ((baseline_latency as f64 - current_latency as f64) / baseline_latency as f64) * 100.0
         } else {
@@ -726,13 +726,7 @@ impl QueryPerformanceMonitor {
                 continue;
             }
             let stats = Self::compute_stats(query_name, metrics);
-            self.evaluate_thresholds_for(
-                query_name,
-                None,
-                &stats,
-                Some(metrics),
-                &mut violations,
-            );
+            self.evaluate_thresholds_for(query_name, None, &stats, Some(metrics), &mut violations);
         }
 
         for (key, metrics) in &self.tenant_metrics {
@@ -808,8 +802,7 @@ impl QueryPerformanceMonitor {
         }
 
         if let Some(metrics_slice) = metrics {
-            if let Some(variance_analysis) =
-                self.build_variance_analysis(query_name, metrics_slice)
+            if let Some(variance_analysis) = self.build_variance_analysis(query_name, metrics_slice)
             {
                 if variance_analysis.has_significant_variance {
                     Self::push_threshold_violation(
@@ -876,14 +869,15 @@ impl QueryPerformanceMonitor {
         self.baseline_stats
             .iter()
             .filter_map(|(key, baseline)| {
-                self.get_tenant_stats(key.tenant_label(), &key.query_name).map(|current| {
-                    OptimizationImpact::from_stats(
-                        key,
-                        baseline,
-                        &current,
-                        self.regression_thresholds.min_improvement_pct,
-                    )
-                })
+                self.get_tenant_stats(key.tenant_label(), &key.query_name)
+                    .map(|current| {
+                        OptimizationImpact::from_stats(
+                            key,
+                            baseline,
+                            &current,
+                            self.regression_thresholds.min_improvement_pct,
+                        )
+                    })
             })
             .collect()
     }
@@ -997,7 +991,7 @@ pub fn generate_regression_alerts(alerts: &[RegressionAlert]) -> Vec<String> {
             )
         })
         .collect()
-    }
+}
 
 /// Generate realistic multi-tenant dataset for performance testing
 pub async fn generate_multi_tenant_dataset(
@@ -1107,7 +1101,7 @@ fn select_weighted_tier(tier_weights: &HashMap<String, f64>, rng: &mut impl Rng)
         .next()
         .unwrap_or(&"warm".to_string())
         .clone()
-    }
+}
 
 /// Run concurrent performance test to simulate high-concurrency scenarios
 pub async fn run_concurrency_performance_test(

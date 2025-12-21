@@ -1,3 +1,11 @@
+use adapteros_core::defaults::DEFAULT_SUPERVISOR_SIGNING_KEY_PATH;
+pub use adapteros_core::defaults::{
+    DEFAULT_ADAPTERS_ROOT, DEFAULT_BASE_MODEL_ID, DEFAULT_CP_WORKER_SOCKET, DEFAULT_DB_PATH,
+    DEFAULT_EMBEDDING_MODEL_PATH, DEFAULT_INDEX_ROOT, DEFAULT_MANIFEST_CACHE_DIR,
+    DEFAULT_MODEL_CACHE_ROOT, DEFAULT_QWEN_INT4_MANIFEST_DIR, DEFAULT_STATUS_PATH,
+    DEFAULT_TELEMETRY_DIR, DEFAULT_WORKER_SOCKET_DEV, DEFAULT_WORKER_SOCKET_PROD_ROOT,
+    DEV_MANIFEST_PATH, DEV_MODEL_PATH,
+};
 use adapteros_core::paths::AOS_ADAPTERS_DIR_ENV;
 use adapteros_core::{AosError, Result};
 use std::path::{Path, PathBuf};
@@ -8,53 +16,7 @@ const FORBIDDEN_TMP_PREFIXES: [&str; 2] = ["/tmp", "/private/tmp"];
 /// Environment variable to disable symlink validation (testing/debug only).
 const AOS_SKIP_SYMLINK_CHECK_ENV: &str = "AOS_SKIP_SYMLINK_CHECK";
 
-/// Dev-only fixture path for the default local Qwen2.5-7B-Instruct-4bit model.
-pub const DEV_MODEL_PATH: &str = "./var/model-cache/models/qwen2.5-7b-mlx";
-
-/// Dev-only fixture path for the default local Qwen2.5-7B-Instruct-4bit manifest (config.json).
-pub const DEV_MANIFEST_PATH: &str = "./var/models/Qwen2.5-7B-Instruct-4bit/config.json";
-
-/// Default cache root for base models (can be overridden via AOS_MODEL_CACHE_DIR).
-pub const DEFAULT_MODEL_CACHE_ROOT: &str = "./var/model-cache/models";
-
-/// Default embedding model path (can be overridden via AOS_EMBEDDING_MODEL_PATH).
-pub const DEFAULT_EMBEDDING_MODEL_PATH: &str = "./var/model-cache/models/bge-small-en-v1.5";
-
-/// Default base model identifier (can be overridden via AOS_BASE_MODEL_ID).
-pub const DEFAULT_BASE_MODEL_ID: &str = "qwen2.5-7b-mlx";
-
-/// Default Qwen2.5 int4 manifest directory.
-pub const DEFAULT_QWEN_INT4_MANIFEST_DIR: &str = "artifacts/qwen2_5_7b_int4";
-
-/// Default telemetry directory.
-pub const DEFAULT_TELEMETRY_DIR: &str = "./var/telemetry";
-
-/// Default index root directory (per-tenant subdirs will be appended).
-pub const DEFAULT_INDEX_ROOT: &str = "./var/indices";
-
-/// Default manifest cache directory.
-pub const DEFAULT_MANIFEST_CACHE_DIR: &str = "./var/manifest-cache";
-
-/// Default adapters root directory.
-pub const DEFAULT_ADAPTERS_ROOT: &str = "./var/adapters";
-
-/// Production worker socket root.
-pub const DEFAULT_WORKER_SOCKET_PROD_ROOT: &str = "/var/run/aos";
-
-/// Development worker socket path.
-pub const DEFAULT_WORKER_SOCKET_DEV: &str = "./var/run/worker.sock";
-
-/// Control plane worker socket default (training cancel path).
-pub const DEFAULT_CP_WORKER_SOCKET: &str = "/var/run/adapteros.sock";
-
-/// Default status file path consumed by the menu bar app.
-pub const DEFAULT_STATUS_PATH: &str = "/var/run/adapteros_status.json";
-
-/// Default supervisor signing key path.
-const DEFAULT_SUPERVISOR_SIGNING_KEY_PATH: &str = "var/keys/supervisor_signing.key";
-
-/// Default SQLite URL for the control plane database.
-pub const DEFAULT_DB_PATH: &str = "sqlite://var/aos-cp.sqlite3";
+// Default values are centralized in adapteros-core defaults to prevent drift.
 
 /// Primary adapters root environment variable.
 pub const AOS_ADAPTERS_ROOT_ENV: &str = "AOS_ADAPTERS_ROOT";
@@ -658,7 +620,7 @@ fn validate_path_not_in_tmp(path: &Path, kind: &str) -> Result<()> {
     Ok(())
 }
 
-fn reject_tmp_socket(path: &Path, kind: &str) -> Result<()> {
+pub fn reject_tmp_socket(path: &Path, kind: &str) -> Result<()> {
     validate_path_not_in_tmp(path, kind)
 }
 
@@ -932,6 +894,7 @@ mod tests {
     use super::*;
     use crate::schema::default_schema;
     use crate::test_support::TestEnvGuard;
+    use adapteros_core::defaults as core_defaults;
     use std::fs;
     use std::path::PathBuf;
     use tempfile::TempDir;
@@ -940,6 +903,50 @@ mod tests {
         let root = PathBuf::from("var").join("tmp");
         std::fs::create_dir_all(&root).expect("create var/tmp");
         TempDir::new_in(&root).expect("tempdir")
+    }
+
+    #[test]
+    fn path_defaults_match_core_defaults() {
+        assert_eq!(DEV_MODEL_PATH, core_defaults::DEV_MODEL_PATH);
+        assert_eq!(DEV_MANIFEST_PATH, core_defaults::DEV_MANIFEST_PATH);
+        assert_eq!(
+            DEFAULT_MODEL_CACHE_ROOT,
+            core_defaults::DEFAULT_MODEL_CACHE_ROOT
+        );
+        assert_eq!(
+            DEFAULT_EMBEDDING_MODEL_PATH,
+            core_defaults::DEFAULT_EMBEDDING_MODEL_PATH
+        );
+        assert_eq!(DEFAULT_BASE_MODEL_ID, core_defaults::DEFAULT_BASE_MODEL_ID);
+        assert_eq!(
+            DEFAULT_QWEN_INT4_MANIFEST_DIR,
+            core_defaults::DEFAULT_QWEN_INT4_MANIFEST_DIR
+        );
+        assert_eq!(DEFAULT_TELEMETRY_DIR, core_defaults::DEFAULT_TELEMETRY_DIR);
+        assert_eq!(DEFAULT_INDEX_ROOT, core_defaults::DEFAULT_INDEX_ROOT);
+        assert_eq!(
+            DEFAULT_MANIFEST_CACHE_DIR,
+            core_defaults::DEFAULT_MANIFEST_CACHE_DIR
+        );
+        assert_eq!(DEFAULT_ADAPTERS_ROOT, core_defaults::DEFAULT_ADAPTERS_ROOT);
+        assert_eq!(
+            DEFAULT_WORKER_SOCKET_PROD_ROOT,
+            core_defaults::DEFAULT_WORKER_SOCKET_PROD_ROOT
+        );
+        assert_eq!(
+            DEFAULT_WORKER_SOCKET_DEV,
+            core_defaults::DEFAULT_WORKER_SOCKET_DEV
+        );
+        assert_eq!(
+            DEFAULT_CP_WORKER_SOCKET,
+            core_defaults::DEFAULT_CP_WORKER_SOCKET
+        );
+        assert_eq!(DEFAULT_STATUS_PATH, core_defaults::DEFAULT_STATUS_PATH);
+        assert_eq!(
+            DEFAULT_SUPERVISOR_SIGNING_KEY_PATH,
+            core_defaults::DEFAULT_SUPERVISOR_SIGNING_KEY_PATH
+        );
+        assert_eq!(DEFAULT_DB_PATH, core_defaults::DEFAULT_DB_PATH);
     }
 
     #[test]
@@ -1348,6 +1355,26 @@ mod tests {
             .to_string();
         assert!(err.contains("must not be under /tmp"));
         assert!(err.contains("worker-manifest"));
+    }
+
+    #[test]
+    fn config_toml_rejects_tmp_path() {
+        let path = PathBuf::from("/tmp/cp.toml");
+        let err = reject_tmp_persistent_path(&path, "config-toml")
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("must not be under /tmp"));
+        assert!(err.contains("config-toml"));
+    }
+
+    #[test]
+    fn config_toml_rejects_private_tmp_path() {
+        let path = PathBuf::from("/private/tmp/cp.toml");
+        let err = reject_tmp_persistent_path(&path, "config-toml")
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("must not be under /tmp"));
+        assert!(err.contains("config-toml"));
     }
 
     #[test]

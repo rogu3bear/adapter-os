@@ -377,7 +377,9 @@ async fn test_partial_failure_concurrent_ops() -> Result<()> {
     // Verify all adapters are in consistent states
     let warm_adapters = db.list_adapters_by_state("default-tenant", "warm").await?;
     let cold_adapters = db.list_adapters_by_state("default-tenant", "cold").await?;
-    let loading_adapters = db.list_adapters_by_state("default-tenant", "loading").await?;
+    let loading_adapters = db
+        .list_adapters_by_state("default-tenant", "loading")
+        .await?;
 
     assert_eq!(
         loading_adapters.len(),

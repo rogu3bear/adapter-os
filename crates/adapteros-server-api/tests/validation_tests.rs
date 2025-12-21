@@ -42,13 +42,13 @@ fn test_validate_adapter_id_too_long() {
 #[test]
 fn test_validate_adapter_id_invalid_chars() {
     let test_cases = vec![
-        "adapter@id",      // @ symbol
-        "adapter id",      // space
-        "adapter/id",      // forward slash
-        "adapter.id",      // dot
-        "adapter#id",      // hash
-        "adapter$id",      // dollar sign
-        "адаптер",         // non-ASCII
+        "adapter@id", // @ symbol
+        "adapter id", // space
+        "adapter/id", // forward slash
+        "adapter.id", // dot
+        "adapter#id", // hash
+        "adapter$id", // dollar sign
+        "адаптер",    // non-ASCII
     ];
 
     for invalid_id in test_cases {
@@ -114,12 +114,12 @@ fn test_validate_name_too_long() {
 #[test]
 fn test_validate_name_invalid_chars() {
     let test_cases = vec![
-        "name@example",  // @ symbol
-        "name/example",  // forward slash
-        "name.example",  // dot
-        "name#example",  // hash
-        "name$example",  // dollar sign
-        "имя",           // non-ASCII
+        "name@example", // @ symbol
+        "name/example", // forward slash
+        "name.example", // dot
+        "name#example", // hash
+        "name$example", // dollar sign
+        "имя",          // non-ASCII
     ];
 
     for invalid_name in test_cases {
@@ -172,7 +172,7 @@ fn test_validate_hash_b3_missing_prefix() {
 #[test]
 fn test_validate_hash_b3_wrong_length() {
     let test_cases = vec![
-        "b3:abc".to_string(),              // Too short
+        "b3:abc".to_string(),             // Too short
         format!("b3:{}", "a".repeat(63)), // 63 chars
         format!("b3:{}", "a".repeat(65)), // 65 chars
     ];
@@ -254,11 +254,11 @@ fn test_validate_repo_id_too_long() {
 #[test]
 fn test_validate_repo_id_invalid_chars() {
     let test_cases = vec![
-        "repo@id",      // @ symbol
-        "repo id",      // space
-        "repo#id",      // hash
-        "repo$id",      // dollar sign
-        "репо",         // non-ASCII
+        "repo@id", // @ symbol
+        "repo id", // space
+        "repo#id", // hash
+        "repo$id", // dollar sign
+        "репо",    // non-ASCII
     ];
 
     for invalid_id in test_cases {
@@ -411,7 +411,10 @@ fn test_validate_file_paths_too_long() {
 fn test_validate_file_paths_absolute_path() {
     let test_cases = vec![
         vec!["/absolute/path.txt".to_string()],
-        vec!["relative/path.txt".to_string(), "/absolute/path.txt".to_string()],
+        vec![
+            "relative/path.txt".to_string(),
+            "/absolute/path.txt".to_string(),
+        ],
     ];
 
     for paths in test_cases {

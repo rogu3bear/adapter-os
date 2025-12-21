@@ -3006,7 +3006,9 @@ async fn apply_background_task_degraded(
         tasks = ?failed_names,
         "Critical background tasks failed to spawn; boot state degraded"
     );
-    boot_state.degrade_component("background-tasks", &reason).await;
+    boot_state
+        .degrade_component("background-tasks", &reason)
+        .await;
     true
 }
 

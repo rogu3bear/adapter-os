@@ -12,9 +12,7 @@
 //! 2. Cross-tenant access returns 404 (not 403) to prevent enumeration
 //! 3. Admin users can access workers across tenants (with admin_tenants grants)
 
-use adapteros_api_types::workers::{
-    WorkerRegistrationRequest, WorkerStatusNotification,
-};
+use adapteros_api_types::workers::{WorkerRegistrationRequest, WorkerStatusNotification};
 use adapteros_api_types::API_SCHEMA_VERSION;
 use adapteros_core::{AosError, Result, WorkerStatus};
 use adapteros_db::sqlx;
@@ -428,7 +426,11 @@ async fn list_workers_by_tenant_returns_empty_for_other_tenant() {
         .list_workers_by_tenant("tenant-no-workers")
         .await
         .expect("query workers");
-    assert_eq!(workers.len(), 0, "Should return empty list for tenant without workers");
+    assert_eq!(
+        workers.len(),
+        0,
+        "Should return empty list for tenant without workers"
+    );
 }
 
 // ============================================================================
@@ -451,9 +453,7 @@ async fn worker_health_metrics_are_tenant_scoped() {
 
     // Update health metrics for the worker
     db.update_worker_health_metrics(
-        &worker_id,
-        "healthy",
-        12.5, // avg_latency_ms
+        &worker_id, "healthy", 12.5, // avg_latency_ms
         10,   // latency_samples
         1,    // consecutive_slow_responses
         0,    // consecutive_failures
@@ -691,7 +691,7 @@ async fn worker_registration_validates_uds_path_no_tmp() {
     };
 
     // Note: The DB layer doesn't validate paths - that's done at the handler layer
-    // via reject_forbidden_tmp_path before calling register_worker.
+    // via reject_tmp_socket before calling register_worker.
     // This test documents that path validation is a handler-layer responsibility.
     let result = db.register_worker(params).await;
 
@@ -740,7 +740,7 @@ async fn worker_registration_with_path_traversal_in_tenant_id() {
 #[tokio::test]
 async fn worker_uds_path_must_be_under_var_not_tmp() {
     // This test documents that UDS paths should be under var/, not /tmp
-    // Handler uses reject_forbidden_tmp_path to enforce this.
+    // Handler uses reject_tmp_socket to enforce this.
     std::env::set_var("AOS_SKIP_MIGRATION_SIGNATURES", "1");
 
     // Valid path: var/run/aos/tenant-123/worker.sock
@@ -749,32 +749,32 @@ async fn worker_uds_path_must_be_under_var_not_tmp() {
     // The validation happens in worker_spawn handler:
     //   let uds_path = format!("/var/run/aos/{}/worker.sock", req.tenant_id);
     //   let uds_path_buf = std::path::PathBuf::from(&uds_path);
-    //   reject_forbidden_tmp_path(&uds_path_buf, "worker-socket")?;
+    //   reject_tmp_socket(&uds_path_buf, "worker-socket")?;
 
     // This test documents the expected behavior rather than testing it directly
     // since path validation is a handler-layer concern.
 
-    use adapteros_core::reject_forbidden_tmp_path;
+    use adapteros_config::reject_tmp_socket;
     use std::path::PathBuf;
 
     // Valid path
     let valid_path = PathBuf::from("var/run/aos/tenant-123/worker.sock");
     assert!(
-        reject_forbidden_tmp_path(&valid_path, "worker-socket").is_ok(),
+        reject_tmp_socket(&valid_path, "worker-socket").is_ok(),
         "var/ paths should be accepted"
     );
 
     // Invalid path - /tmp
     let tmp_path = PathBuf::from("/tmp/worker.sock");
     assert!(
-        reject_forbidden_tmp_path(&tmp_path, "worker-socket").is_err(),
+        reject_tmp_socket(&tmp_path, "worker-socket").is_err(),
         "/tmp paths should be rejected"
     );
 
     // Invalid path - /private/tmp (macOS)
     let private_tmp_path = PathBuf::from("/private/tmp/worker.sock");
     assert!(
-        reject_forbidden_tmp_path(&private_tmp_path, "worker-socket").is_err(),
+        reject_tmp_socket(&private_tmp_path, "worker-socket").is_err(),
         "/private/tmp paths should be rejected"
     );
 }

@@ -3,34 +3,37 @@
 //! These constants define the default values for router configuration.
 //! The k_sparse value is 4 (matching the schema default).
 
-/// Default number of adapters to select per token (k-sparse selection)
-///
-/// This matches the AOS_ROUTER_K_SPARSE environment variable default.
-pub const DEFAULT_K_SPARSE: usize = 4;
+pub use adapteros_core::defaults::{
+    DEFAULT_COMPRESSION_RATIO, DEFAULT_ENTROPY_FLOOR, DEFAULT_GATE_QUANT_STR, DEFAULT_K_SPARSE,
+    DEFAULT_OVERHEAD_BUDGET_PCT, DEFAULT_SAMPLE_TOKENS_FULL, MAX_K, PINNED_BOOST,
+};
 
-/// Default entropy floor for gate values
-pub const DEFAULT_ENTROPY_FLOOR: f32 = 0.02;
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use adapteros_core::defaults as core_defaults;
 
-/// Default gate quantization format (Q15 = 16-bit fixed-point)
-pub const DEFAULT_GATE_QUANT_STR: &str = "q15";
-
-/// Default sample tokens for full telemetry logging
-/// Per Telemetry Ruleset #9
-pub const DEFAULT_SAMPLE_TOKENS_FULL: usize = 128;
-
-/// Default overhead budget percentage for router CPU
-pub const DEFAULT_OVERHEAD_BUDGET_PCT: f32 = 8.0;
-
-/// Maximum allowed k-sparse value
-pub const MAX_K: usize = 8;
-
-/// Default compression ratio for DIR (Deterministic Inference Runtime)
-pub const DEFAULT_COMPRESSION_RATIO: f32 = 0.8;
-
-/// Boost value added to priors for pinned adapters (CHAT-PIN-02).
-///
-/// Creates preference without exclusivity - pinned adapters are more likely
-/// to be selected but non-pinned can still win with higher feature scores.
-/// This value is added to the prior score for each pinned adapter before
-/// the router's scoring algorithm runs.
-pub const PINNED_BOOST: f32 = 0.3;
+    #[test]
+    fn router_defaults_match_core_defaults() {
+        assert_eq!(DEFAULT_K_SPARSE, core_defaults::DEFAULT_K_SPARSE);
+        assert_eq!(DEFAULT_ENTROPY_FLOOR, core_defaults::DEFAULT_ENTROPY_FLOOR);
+        assert_eq!(
+            DEFAULT_GATE_QUANT_STR,
+            core_defaults::DEFAULT_GATE_QUANT_STR
+        );
+        assert_eq!(
+            DEFAULT_SAMPLE_TOKENS_FULL,
+            core_defaults::DEFAULT_SAMPLE_TOKENS_FULL
+        );
+        assert_eq!(
+            DEFAULT_OVERHEAD_BUDGET_PCT,
+            core_defaults::DEFAULT_OVERHEAD_BUDGET_PCT
+        );
+        assert_eq!(
+            DEFAULT_COMPRESSION_RATIO,
+            core_defaults::DEFAULT_COMPRESSION_RATIO
+        );
+        assert_eq!(MAX_K, core_defaults::MAX_K);
+        assert_eq!(PINNED_BOOST, core_defaults::PINNED_BOOST);
+    }
+}

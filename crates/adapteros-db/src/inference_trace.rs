@@ -220,9 +220,7 @@ impl SqlTraceSink {
         backend_id: Option<&str>,
         kernel_version_id: Option<&str>,
     ) -> B3Hash {
-        let policy_bytes = policy_mask_digest
-            .map(|d| d.to_vec())
-            .unwrap_or_default();
+        let policy_bytes = policy_mask_digest.map(|d| d.to_vec()).unwrap_or_default();
         let allowed_bytes = allowed_mask_blob.unwrap_or(&[]);
         let overrides_bytes = policy_overrides_json
             .map(|s| s.as_bytes().to_vec())

@@ -510,6 +510,10 @@ pub fn find_by_code(code: &str) -> Option<ErrorCode> {
     all_error_codes().into_iter().find(|ec| ec.code == code)
 }
 
+pub fn get_error_code(code: &str) -> Option<ErrorCode> {
+    find_by_code(code)
+}
+
 /// Registry of error codes for fast lookup
 pub static REGISTRY: Lazy<HashMap<&'static str, ErrorCode>> = Lazy::new(|| {
     let mut m = HashMap::new();

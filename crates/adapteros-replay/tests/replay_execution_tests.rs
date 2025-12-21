@@ -39,9 +39,8 @@ async fn test_replay_session_creation_with_verification_mode() {
     adapteros_trace::writer::write_trace_bundle(&trace_path, bundle).unwrap();
 
     // Test strict mode
-    let session_strict =
-        ReplaySession::from_log_with_mode(&trace_path, VerificationMode::Strict)
-            .expect("Failed to create strict session");
+    let session_strict = ReplaySession::from_log_with_mode(&trace_path, VerificationMode::Strict)
+        .expect("Failed to create strict session");
     let stats = session_strict.stats().await;
     assert_eq!(stats.total_events, 3);
 
@@ -258,7 +257,11 @@ async fn test_replay_session_with_trusted_pubkey() {
 
     // Verify signature
     let result = session.verify_replay_signature();
-    assert!(result.is_ok(), "Signature verification failed: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Signature verification failed: {:?}",
+        result
+    );
 }
 
 #[tokio::test]

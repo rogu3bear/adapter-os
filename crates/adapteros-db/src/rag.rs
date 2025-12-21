@@ -7,7 +7,15 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tracing::{debug, warn};
 
-type RagDocumentRow = (String, String, String, String, String, Option<String>, String);
+type RagDocumentRow = (
+    String,
+    String,
+    String,
+    String,
+    String,
+    Option<String>,
+    String,
+);
 
 /// Input payload for persisting a RAG embedding document.
 #[derive(Clone, Debug, Serialize, Deserialize)]

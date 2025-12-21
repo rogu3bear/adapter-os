@@ -309,7 +309,7 @@ mod tests {
 
         // Apply routing decision chain schema directly
         sqlx::query(include_str!(
-            "../migrations/0158_routing_decision_chain.sql"
+            "../../../migrations/0158_routing_decision_chain.sql"
         ))
         .execute(db.pool())
         .await

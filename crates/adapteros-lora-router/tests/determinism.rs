@@ -14,11 +14,11 @@
 //! Note: Router seed is used for telemetry sampling determinism, not routing decisions.
 //! Routing determinism comes from stable sorting (score desc, then index asc).
 
+use adapteros_core::AosError;
 use adapteros_lora_router::{
     policy_mask::PolicyMask, AdapterInfo, Decision, Router, ROUTER_GATE_Q15_DENOM,
     ROUTER_GATE_Q15_MAX,
 };
-use adapteros_core::AosError;
 use proptest::prelude::*;
 use smallvec::smallvec;
 
@@ -540,7 +540,10 @@ fn test_score_sorting_descending_with_index_tiebreak() {
         .expect("router decision");
 
     // Should select indices in score-descending order
-    assert_eq!(decision.indices[0], 0, "Highest score should be selected first");
+    assert_eq!(
+        decision.indices[0], 0,
+        "Highest score should be selected first"
+    );
 
     // For tied scores, index ascending should win
     assert!(
@@ -611,7 +614,10 @@ fn test_k_sparse_boundary_conditions() {
     let decision_k0 = router_k0
         .route_with_adapter_info(&[], &priors, &adapter_info, &mask)
         .expect("router decision");
-    assert!(decision_k0.indices.is_empty(), "K=0 should select no adapters");
+    assert!(
+        decision_k0.indices.is_empty(),
+        "K=0 should select no adapters"
+    );
     assert!(decision_k0.gates_q15.is_empty(), "K=0 should have no gates");
 
     // Test K=1 (single selection)
@@ -634,7 +640,11 @@ fn test_k_sparse_boundary_conditions() {
     let decision_k5 = router_k5
         .route_with_adapter_info(&[], &priors, &adapter_info, &mask)
         .expect("router decision");
-    assert_eq!(decision_k5.indices.len(), 5, "K=5 should select all 5 adapters");
+    assert_eq!(
+        decision_k5.indices.len(),
+        5,
+        "K=5 should select all 5 adapters"
+    );
 }
 
 #[test]

@@ -610,10 +610,15 @@ pub async fn streaming_infer(
     // This loads chat history and formats it with role markers for context
     let (base_prompt, chat_context_hash) = if let Some(ref session_id) = req.session_id {
         // STABILITY: Use poison-safe lock access
-        let chat_config = state.config.read().unwrap_or_else(|e| {
-            tracing::warn!("Config lock poisoned in streaming_infer, recovering");
-            e.into_inner()
-        }).chat_context.clone();
+        let chat_config = state
+            .config
+            .read()
+            .unwrap_or_else(|e| {
+                tracing::warn!("Config lock poisoned in streaming_infer, recovering");
+                e.into_inner()
+            })
+            .chat_context
+            .clone();
         match build_chat_prompt(&state.db, session_id, &req.prompt, &chat_config).await {
             Ok(result) => {
                 info!(

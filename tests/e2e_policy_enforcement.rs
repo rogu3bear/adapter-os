@@ -68,16 +68,14 @@ async fn test_determinism_policy_enforcement() {
         .expect("Failed to create deterministic adapter");
 
     // Verify adapter exists with correct tier (persistent = deterministic)
-    let adapter = sqlx::query!(
-        "SELECT tier FROM adapters WHERE id = ?",
-        "deterministic-adapter"
-    )
-    .fetch_one(harness.db().pool())
-    .await
-    .expect("Adapter should exist");
+    let tier: String = sqlx::query_scalar("SELECT tier FROM adapters WHERE id = ?")
+        .bind("deterministic-adapter")
+        .fetch_one(harness.db().pool())
+        .await
+        .expect("Adapter should exist");
 
     assert_eq!(
-        adapter.tier, "persistent",
+        tier, "persistent",
         "Adapter should have deterministic tier"
     );
 
@@ -101,15 +99,17 @@ async fn test_router_policy_enforcement() {
     }
 
     // Verify all adapters have rank (required for routing)
-    let adapters = sqlx::query!("SELECT id, rank FROM adapters WHERE id LIKE 'router-adapter-%'")
-        .fetch_all(harness.db().pool())
-        .await
-        .expect("Should be able to fetch router adapters");
+    let adapters: Vec<(String, i64)> = sqlx::query_as(
+        "SELECT id, rank FROM adapters WHERE id LIKE 'router-adapter-%'",
+    )
+    .fetch_all(harness.db().pool())
+    .await
+    .expect("Should be able to fetch router adapters");
 
     assert_eq!(adapters.len(), 3, "Should have 3 router adapters");
 
-    for adapter in adapters {
-        assert_eq!(adapter.rank, 8, "Each adapter should have rank 8");
+    for (_, rank) in adapters {
+        assert_eq!(rank, 8, "Each adapter should have rank 8");
     }
 
     println!("✓ Router policy enforcement test passed");

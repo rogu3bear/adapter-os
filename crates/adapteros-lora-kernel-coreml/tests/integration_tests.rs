@@ -2,5 +2,5 @@
 //! NOTE: Stubbed pending FFI updates
 
 #[test]
-#[ignore = "Pending FFI updates - TensorBridgeType not exported [tracking: STAB-IGN-001]"]
+#[ignore = "Pending FFI updates - TensorBridgeType not exported [tracking: STAB-IGN-0029]"]
 fn test_coreml_integration_stub() {}

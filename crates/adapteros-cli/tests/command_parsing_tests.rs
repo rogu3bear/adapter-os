@@ -20,26 +20,26 @@ mod command_parsing {
         let result = parse_cli(vec!["aosctl", "--json", "adapter-list"]);
         assert!(result.is_ok());
         let cli = result.unwrap();
-        assert!(cli.json);
+        assert!(cli.is_json());
 
         // Test quiet flag
         let result = parse_cli(vec!["aosctl", "--quiet", "adapter-list"]);
         assert!(result.is_ok());
         let cli = result.unwrap();
-        assert!(cli.quiet);
+        assert!(cli.is_quiet());
 
         // Test verbose flag
         let result = parse_cli(vec!["aosctl", "--verbose", "adapter-list"]);
         assert!(result.is_ok());
         let cli = result.unwrap();
-        assert!(cli.verbose);
+        assert!(cli.is_verbose());
 
         // Test short flags
         let result = parse_cli(vec!["aosctl", "-q", "-v", "adapter-list"]);
         assert!(result.is_ok());
         let cli = result.unwrap();
-        assert!(cli.quiet);
-        assert!(cli.verbose);
+        assert!(cli.is_quiet());
+        assert!(cli.is_verbose());
     }
 
     #[test]
@@ -244,7 +244,12 @@ mod command_parsing {
     #[test]
     fn test_missing_required_arguments() {
         // Missing adapter ID for register
-        let result = parse_cli(vec!["aosctl", "adapter-register", "--aos", "/path/to/adapter.aos"]);
+        let result = parse_cli(vec![
+            "aosctl",
+            "adapter-register",
+            "--aos",
+            "/path/to/adapter.aos",
+        ]);
         assert!(result.is_err());
 
         // Missing tenant for pin
@@ -275,13 +280,13 @@ mod command_parsing {
         // Help for main command
         let result = parse_cli(vec!["aosctl", "--help"]);
         assert!(result.is_err()); // Help causes exit
-        let err = result.unwrap_err();
+        let err = result.err().expect("expected help error");
         assert_eq!(err.kind(), clap::error::ErrorKind::DisplayHelp);
 
         // Help for subcommand
         let result = parse_cli(vec!["aosctl", "adapter-list", "--help"]);
         assert!(result.is_err());
-        let err = result.unwrap_err();
+        let err = result.err().expect("expected help error");
         assert_eq!(err.kind(), clap::error::ErrorKind::DisplayHelp);
     }
 
@@ -289,7 +294,7 @@ mod command_parsing {
     fn test_version_flag() {
         let result = parse_cli(vec!["aosctl", "--version"]);
         assert!(result.is_err());
-        let err = result.unwrap_err();
+        let err = result.err().expect("expected version error");
         assert_eq!(err.kind(), clap::error::ErrorKind::DisplayVersion);
     }
 
@@ -297,7 +302,7 @@ mod command_parsing {
     fn test_unknown_command() {
         let result = parse_cli(vec!["aosctl", "unknown-command"]);
         assert!(result.is_err());
-        let err = result.unwrap_err();
+        let err = result.err().expect("expected invalid subcommand error");
         assert_eq!(err.kind(), clap::error::ErrorKind::InvalidSubcommand);
     }
 
@@ -305,7 +310,7 @@ mod command_parsing {
     fn test_unknown_flag() {
         let result = parse_cli(vec!["aosctl", "--unknown-flag", "adapter-list"]);
         assert!(result.is_err());
-        let err = result.unwrap_err();
+        let err = result.err().expect("expected unknown argument error");
         assert_eq!(err.kind(), clap::error::ErrorKind::UnknownArgument);
     }
 

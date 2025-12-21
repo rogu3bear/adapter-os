@@ -332,7 +332,10 @@ mod tests {
             restored.activation_history.len(),
             constraints.activation_history.len()
         );
-        assert_eq!(restored.similarity_threshold, constraints.similarity_threshold);
+        assert_eq!(
+            restored.similarity_threshold,
+            constraints.similarity_threshold
+        );
         assert_eq!(restored.penalty_weight, constraints.penalty_weight);
         assert_eq!(restored.history_window, constraints.history_window);
 

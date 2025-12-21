@@ -18,7 +18,7 @@
 //!   Use when KV is proven stable and you want ACID guarantees across both stores.
 //! - **Best-Effort** (opt-out): KV writes are logged-on-failure but don't block operations.
 //!   Only use for controlled rollouts or debugging.
-//! 
+//!
 //! ## Configuration
 //!
 //! Strict mode is enabled by default. Set `AOS_ATOMIC_DUAL_WRITE_STRICT=0` to opt
@@ -2125,7 +2125,11 @@ impl Db {
     }
 
     /// List adapters by category
-    pub async fn list_adapters_by_category(&self, tenant_id: &str, category: &str) -> Result<Vec<Adapter>> {
+    pub async fn list_adapters_by_category(
+        &self,
+        tenant_id: &str,
+        category: &str,
+    ) -> Result<Vec<Adapter>> {
         // Try KV first if enabled
         if self.storage_mode().read_from_kv() {
             if let Some(repo) = self.get_adapter_kv_repo(tenant_id) {
@@ -2167,7 +2171,11 @@ impl Db {
     }
 
     /// List adapters by scope (tenant-scoped)
-    pub async fn list_adapters_by_scope(&self, tenant_id: &str, scope: &str) -> Result<Vec<Adapter>> {
+    pub async fn list_adapters_by_scope(
+        &self,
+        tenant_id: &str,
+        scope: &str,
+    ) -> Result<Vec<Adapter>> {
         // Try KV first if enabled
         if self.storage_mode().read_from_kv() {
             if let Some(repo) = self.get_adapter_kv_repo(tenant_id) {
@@ -2209,7 +2217,11 @@ impl Db {
     }
 
     /// List adapters by state
-    pub async fn list_adapters_by_state(&self, tenant_id: &str, state: &str) -> Result<Vec<Adapter>> {
+    pub async fn list_adapters_by_state(
+        &self,
+        tenant_id: &str,
+        state: &str,
+    ) -> Result<Vec<Adapter>> {
         // Try KV first if enabled
         let read_from_kv = self.storage_mode().read_from_kv();
         if read_from_kv && self.storage_mode().sql_fallback_enabled() {

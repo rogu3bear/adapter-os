@@ -1454,10 +1454,10 @@ mod tests {
         assert!(result.is_valid);
 
         // Force corrupt the tail
-        let (corrupted_id, original_hash, seq) =
-            db.force_corrupt_policy_audit_tail("tenant-a")
-                .await
-                .unwrap();
+        let (corrupted_id, original_hash, seq) = db
+            .force_corrupt_policy_audit_tail("tenant-a")
+            .await
+            .unwrap();
         assert_eq!(seq, 3);
         assert!(!original_hash.is_empty());
         assert!(!corrupted_id.is_empty());

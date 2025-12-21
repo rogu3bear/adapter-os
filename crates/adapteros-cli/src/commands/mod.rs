@@ -34,9 +34,9 @@ pub mod doctor;
 pub mod datasets;
 pub mod drift_check;
 pub mod explain;
-pub mod federation;
 #[cfg(feature = "codegraph")]
 pub mod export_callgraph;
+pub mod federation;
 pub mod golden;
 pub mod import;
 pub mod import_model;

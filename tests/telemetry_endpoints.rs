@@ -54,7 +54,7 @@ async fn setup_test_state() -> Result<AppState> {
 
 /// Test GET /v1/telemetry/events/recent endpoint
 #[tokio::test]
-#[ignore = "Requires database setup - run with: cargo test --features integration -- --ignored [tracking: STAB-IGN-001]"]
+#[ignore = "Requires database setup - run with: cargo test --features integration -- --ignored [tracking: STAB-IGN-0210]"]
 async fn test_get_recent_activity() -> Result<()> {
     println!("Testing GET /v1/telemetry/events/recent endpoint...");
 
@@ -132,7 +132,7 @@ async fn test_get_recent_activity() -> Result<()> {
 
 /// Test GET /v1/telemetry/events/recent with event type filtering
 #[tokio::test]
-#[ignore = "Requires database setup - run with: cargo test --features integration -- --ignored [tracking: STAB-IGN-001]"]
+#[ignore = "Requires database setup - run with: cargo test --features integration -- --ignored [tracking: STAB-IGN-0211]"]
 async fn test_get_recent_activity_with_filter() -> Result<()> {
     println!("Testing GET /v1/telemetry/events/recent with event type filter...");
 
@@ -210,7 +210,7 @@ async fn test_get_recent_activity_with_filter() -> Result<()> {
 
 /// Test SSE stream endpoint authentication with query parameter token
 #[tokio::test]
-#[ignore = "Requires database setup - run with: cargo test --features integration -- --ignored [tracking: STAB-IGN-001]"]
+#[ignore = "Requires database setup - run with: cargo test --features integration -- --ignored [tracking: STAB-IGN-0212]"]
 async fn test_sse_stream_query_param_auth() -> Result<()> {
     println!("Testing SSE stream with query parameter token authentication...");
 

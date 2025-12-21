@@ -315,7 +315,7 @@ async fn test_database_connection_pool_stress() {
 
         let task = tokio::spawn(async move {
             // Perform a simple query
-            let result = sqlx::query!("SELECT COUNT(*) as count FROM adapters")
+            let result = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) as count FROM adapters")
                 .fetch_one(db.pool())
                 .await;
 
@@ -403,17 +403,17 @@ async fn test_memory_pressure_simulation() {
     }
 
     // Verify adapters were created
-    let count = sqlx::query!(
-        "SELECT COUNT(*) as count FROM adapters WHERE id LIKE 'memory-pressure-adapter-%'"
+    let count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) as count FROM adapters WHERE id LIKE 'memory-pressure-adapter-%'",
     )
     .fetch_one(harness.db().pool())
     .await
     .expect("Should be able to count adapters");
 
-    println!("Created {} adapters for memory pressure test", count.count);
+    println!("Created {} adapters for memory pressure test", count);
 
     assert!(
-        count.count >= 90,
+        count >= 90,
         "At least 90% of adapters should be created"
     );
 
@@ -564,10 +564,10 @@ async fn test_consistent_results_under_load() {
         .expect("Failed to create adapter");
 
     // Get expected values
-    let expected = sqlx::query!(
+    let expected: (String, String, String, i64) = sqlx::query_as(
         "SELECT id, tenant_id, tier, rank FROM adapters WHERE id = ?",
-        "consistency-test-adapter"
     )
+    .bind("consistency-test-adapter")
     .fetch_one(harness.db().pool())
     .await
     .expect("Adapter should exist");
@@ -579,10 +579,10 @@ async fn test_consistent_results_under_load() {
         let db = harness.db().clone();
 
         let task = tokio::spawn(async move {
-            let result = sqlx::query!(
+            let result: Result<(String, String, String, i64), _> = sqlx::query_as(
                 "SELECT id, tenant_id, tier, rank FROM adapters WHERE id = ?",
-                "consistency-test-adapter"
             )
+            .bind("consistency-test-adapter")
             .fetch_one(db.pool())
             .await;
 
@@ -602,11 +602,7 @@ async fn test_consistent_results_under_load() {
         match result {
             Ok((i, Ok(row))) => {
                 success_count += 1;
-                if row.id == expected.id
-                    && row.tenant_id == expected.tenant_id
-                    && row.tier == expected.tier
-                    && row.rank == expected.rank
-                {
+                if row == expected {
                     consistent_count += 1;
                 }
             }

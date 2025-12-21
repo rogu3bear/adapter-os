@@ -53,7 +53,7 @@ impl TrainBaseAdapterArgs {
         );
 
         Err(AosError::Config(
-            "train-base-adapter: pending reimplementation".to_string()
+            "train-base-adapter: pending reimplementation".to_string(),
         ))
     }
 }

@@ -926,8 +926,13 @@ impl Db {
         .map_err(|e| AosError::Database(e.to_string()))?;
 
         if let Some(dataset_ids) = params.dataset_version_ids {
-            self.upsert_adapter_version_dataset_versions_with_tx(&mut tx, params.tenant_id, &id, dataset_ids)
-                .await?;
+            self.upsert_adapter_version_dataset_versions_with_tx(
+                &mut tx,
+                params.tenant_id,
+                &id,
+                dataset_ids,
+            )
+            .await?;
         }
 
         self.insert_version_history(
@@ -1087,8 +1092,13 @@ impl Db {
         .map_err(|e| AosError::Database(e.to_string()))?;
 
         if let Some(dataset_ids) = params.dataset_version_ids {
-            self.upsert_adapter_version_dataset_versions_with_tx(&mut tx, params.tenant_id, &id, dataset_ids)
-                .await?;
+            self.upsert_adapter_version_dataset_versions_with_tx(
+                &mut tx,
+                params.tenant_id,
+                &id,
+                dataset_ids,
+            )
+            .await?;
         }
 
         self.insert_version_history(

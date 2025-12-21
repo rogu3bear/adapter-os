@@ -217,9 +217,7 @@ impl UploadSessionManager {
     /// Check if upload is complete
     pub async fn is_upload_complete(&self, session_id: &str) -> Result<bool> {
         let session = self.get_session(session_id).await?;
-        let expected_chunks = session
-            .total_size
-            .div_ceil(session.chunk_size as u64);
+        let expected_chunks = session.total_size.div_ceil(session.chunk_size as u64);
         Ok(session.received_chunks.len() == expected_chunks as usize)
     }
 

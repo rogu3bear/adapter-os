@@ -4,9 +4,7 @@
 //! status checking, and tenant isolation.
 
 use adapteros_core::Result;
-use adapteros_server_api::handlers::{
-    cancel_training, get_training_job, list_training_jobs,
-};
+use adapteros_server_api::handlers::{cancel_training, get_training_job, list_training_jobs};
 use adapteros_server_api::types::TrainingListParams;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
@@ -78,10 +76,7 @@ async fn list_training_jobs_returns_tenant_scoped_results() -> Result<()> {
     assert!(result.is_ok(), "list should succeed");
     let jobs = result.unwrap().0;
     assert_eq!(jobs.jobs.len(), 2, "should only see tenant-1 jobs");
-    assert!(jobs
-        .jobs
-        .iter()
-        .all(|j| j.id.starts_with("job-tenant1")));
+    assert!(jobs.jobs.iter().all(|j| j.id.starts_with("job-tenant1")));
 
     // List with default tenant credentials
     let default_claims = test_viewer_claims(); // default tenant

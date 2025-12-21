@@ -7,17 +7,19 @@
 //! - Invalid config rejection
 //! - Edge cases and error conditions
 
-use adapteros_config::schema::{default_schema, parse_bool, validate_value, ConfigType, ConfigVariable};
+use adapteros_config::schema::{
+    default_schema, parse_bool, validate_value, ConfigType, ConfigVariable,
+};
 use adapteros_config::{
-    resolve_adapters_root, resolve_database_url, resolve_embedding_model_path,
-    resolve_index_root, resolve_manifest_cache_dir, resolve_status_path,
-    resolve_telemetry_dir, resolve_worker_socket_for_cp, resolve_worker_socket_for_worker,
-    reject_tmp_persistent_path,
+    reject_tmp_persistent_path, resolve_adapters_root, resolve_database_url,
+    resolve_embedding_model_path, resolve_index_root, resolve_manifest_cache_dir,
+    resolve_status_path, resolve_telemetry_dir, resolve_worker_socket_for_cp,
+    resolve_worker_socket_for_worker,
 };
 mod test_env;
-use test_env::TestEnvGuard;
 use std::collections::HashMap;
 use std::path::PathBuf;
+use test_env::TestEnvGuard;
 
 fn setup_test_env() -> TestEnvGuard {
     TestEnvGuard::new()
@@ -372,7 +374,11 @@ fn test_validate_float_out_of_range_high() {
 fn test_validate_enum_invalid_value() {
     let var = ConfigVariable::new("AOS_MODEL_BACKEND")
         .config_type(ConfigType::Enum {
-            values: vec!["auto".to_string(), "coreml".to_string(), "metal".to_string()],
+            values: vec![
+                "auto".to_string(),
+                "coreml".to_string(),
+                "metal".to_string(),
+            ],
         })
         .build();
 
@@ -385,7 +391,11 @@ fn test_validate_enum_invalid_value() {
 fn test_validate_enum_case_insensitive() {
     let var = ConfigVariable::new("AOS_MODEL_BACKEND")
         .config_type(ConfigType::Enum {
-            values: vec!["auto".to_string(), "coreml".to_string(), "metal".to_string()],
+            values: vec![
+                "auto".to_string(),
+                "coreml".to_string(),
+                "metal".to_string(),
+            ],
         })
         .build();
 
@@ -552,7 +562,9 @@ fn test_schema_get_sensitive() {
 
     let sensitive = schema.get_sensitive();
     // Should include JWT secret at minimum
-    assert!(sensitive.iter().any(|v| v.name == "AOS_SECURITY_JWT_SECRET"));
+    assert!(sensitive
+        .iter()
+        .any(|v| v.name == "AOS_SECURITY_JWT_SECRET"));
 }
 
 // ============================================================================

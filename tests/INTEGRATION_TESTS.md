@@ -25,15 +25,20 @@ by default in `make test` / `make stability-check`.
 | Hardware-dependent tests (Metal/VRAM/residency) | Non-blocking | `make test-hw` |
 
 **Tracking requirement:** any test that remains ignored must include a tracking tag
-in the ignore reason, e.g. `[tracking: STAB-IGN-001]`. Replace with a specific issue
-ID when one is filed so stabilization doesn't silently skip it.
+in the ignore reason, e.g. `[tracking: STAB-IGN-0001]`, and the ID must have a
+matching entry in `docs/stability/IGNORED_TESTS.md`.
+
+`make test-ignored` runs with `extended-tests` enabled by default; use
+`IGNORED_FEATURES` or `IGNORED_EXCLUDE` to adjust coverage for your environment.
 
 `make test-hw` currently covers:
 - `tests/lora_buffer_population_integration.rs`
 - `tests/kv_residency_quota_integration.rs`
 - `crates/adapteros-lora-worker/tests/worker_enforcement_tests.rs`
 - `crates/adapteros-lora-worker/tests/residency_probe.rs`
+- `crates/adapteros-lora-kernel-coreml/tests/integration_tests.rs`
 - `crates/adapteros-memory/tests/metal_heap_tests.rs`
+- `crates/adapteros-memory/src/heap_observer.rs` (ignored lib test)
 
 ---
 
