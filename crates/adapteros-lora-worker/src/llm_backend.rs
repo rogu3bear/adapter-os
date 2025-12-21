@@ -127,6 +127,10 @@ impl LlmBackend for LocalLlmBackend {
 }
 
 /// Remote LLM backend (for external API services)
+///
+/// NOTE: This backend is only available when the `remote-llm` feature is enabled.
+/// Zero-egress builds disable this feature by default to prevent network access.
+#[cfg(feature = "remote-llm")]
 pub struct RemoteLlmBackend {
     api_endpoint: String,
     api_key: Option<String>,
@@ -135,6 +139,7 @@ pub struct RemoteLlmBackend {
 }
 
 /// Request body for remote LLM API
+#[cfg(feature = "remote-llm")]
 #[derive(Debug, Serialize)]
 struct RemoteLlmRequest {
     prompt: String,
@@ -145,6 +150,7 @@ struct RemoteLlmRequest {
 }
 
 /// Response from remote LLM API
+#[cfg(feature = "remote-llm")]
 #[derive(Debug, Deserialize)]
 struct RemoteLlmResponse {
     #[serde(default)]
@@ -153,6 +159,7 @@ struct RemoteLlmResponse {
     choices: Vec<RemoteLlmChoice>,
 }
 
+#[cfg(feature = "remote-llm")]
 #[derive(Debug, Deserialize)]
 struct RemoteLlmChoice {
     #[serde(default)]
@@ -161,20 +168,44 @@ struct RemoteLlmChoice {
     message: Option<RemoteLlmMessage>,
 }
 
+#[cfg(feature = "remote-llm")]
 #[derive(Debug, Deserialize)]
 struct RemoteLlmMessage {
     #[serde(default)]
     content: String,
 }
 
+#[cfg(feature = "remote-llm")]
 impl RemoteLlmBackend {
     /// Create a new remote LLM backend
-    pub fn new(api_endpoint: String, api_key: Option<String>) -> Self {
-        Self {
-            api_endpoint,
-            api_key,
-            config: LocalLlmConfig::default(),
-            client: reqwest::Client::new(),
+    ///
+    /// # Security
+    ///
+    /// In release builds, this will reject any remote endpoint configuration
+    /// to enforce zero-egress policy. Remote endpoints are only allowed in
+    /// debug builds for development and testing purposes.
+    pub fn new(api_endpoint: String, api_key: Option<String>) -> Result<Self> {
+        // In release builds, reject remote endpoints to enforce zero-egress
+        #[cfg(not(debug_assertions))]
+        {
+            return Err(AosError::EgressViolation(format!(
+                "Remote LLM backend is disabled in release builds (endpoint: {}). Zero-egress policy prevents network access to external LLM services",
+                api_endpoint
+            )));
+        }
+
+        #[cfg(debug_assertions)]
+        {
+            debug!(
+                "Creating remote LLM backend for endpoint: {} (debug build only)",
+                api_endpoint
+            );
+            Ok(Self {
+                api_endpoint,
+                api_key,
+                config: LocalLlmConfig::default(),
+                client: reqwest::Client::new(),
+            })
         }
     }
 
@@ -254,6 +285,7 @@ impl RemoteLlmBackend {
     }
 }
 
+#[cfg(feature = "remote-llm")]
 #[async_trait]
 impl LlmBackend for RemoteLlmBackend {
     async fn generate_patch(&self, context: &PatchContext) -> Result<String> {
@@ -316,8 +348,23 @@ pub fn create_llm_backend(backend_type: LlmBackendType) -> Result<Box<dyn LlmBac
             Ok(Box::new(backend))
         }
         LlmBackendType::Remote { endpoint, api_key } => {
-            let backend = RemoteLlmBackend::new(endpoint, api_key);
-            Ok(Box::new(backend))
+            #[cfg(feature = "remote-llm")]
+            {
+                let backend = RemoteLlmBackend::new(endpoint, api_key)?;
+                return Ok(Box::new(backend));
+            }
+            #[cfg(not(feature = "remote-llm"))]
+            {
+                let _ = (endpoint, api_key);
+                return Err(AosError::FeatureDisabled {
+                    feature: "Remote LLM backend".to_string(),
+                    reason: "Zero-egress mode: remote-llm feature is disabled".to_string(),
+                    alternative: Some(
+                        "Use local backend or enable 'remote-llm' feature if egress is permitted"
+                            .to_string(),
+                    ),
+                });
+            }
         }
         LlmBackendType::Mock => {
             use crate::patch_generator::MockLlmBackend;
@@ -361,8 +408,23 @@ pub fn create_llm_backend_with_config(
             Ok(Box::new(backend))
         }
         LlmBackendType::Remote { endpoint, api_key } => {
-            let backend = RemoteLlmBackend::new(endpoint, api_key);
-            Ok(Box::new(backend))
+            #[cfg(feature = "remote-llm")]
+            {
+                let backend = RemoteLlmBackend::new(endpoint, api_key)?;
+                return Ok(Box::new(backend));
+            }
+            #[cfg(not(feature = "remote-llm"))]
+            {
+                let _ = (endpoint, api_key);
+                return Err(AosError::FeatureDisabled {
+                    feature: "Remote LLM backend".to_string(),
+                    reason: "Zero-egress mode: remote-llm feature is disabled".to_string(),
+                    alternative: Some(
+                        "Use local backend or enable 'remote-llm' feature if egress is permitted"
+                            .to_string(),
+                    ),
+                });
+            }
         }
         LlmBackendType::Mock => {
             use crate::patch_generator::MockLlmBackend;
@@ -434,4 +496,185 @@ mod tests {
         assert!(rationale.contains("error handling"));
         assert!(patch.contains("--- a/src/main.rs"));
     }
+
+    /// Test that remote backend creation fails when feature is disabled
+    #[test]
+    #[cfg(not(feature = "remote-llm"))]
+    fn test_remote_backend_rejected_without_feature() {
+        let result = create_llm_backend(LlmBackendType::Remote {
+            endpoint: "https://api.example.com/v1/completions".to_string(),
+            api_key: Some("test-key".to_string()),
+        });
+
+        let Err(err) = result else {
+            panic!("Remote backend should be rejected without remote-llm feature");
+        };
+
+        match err {
+            AosError::FeatureDisabled {
+                feature, reason, ..
+            } => {
+                assert!(feature.contains("Remote"), "Error should mention remote");
+                assert!(
+                    reason.contains("remote-llm"),
+                    "Error should mention the feature flag"
+                );
+            }
+            other => panic!("Expected FeatureDisabled error, got: {:?}", other),
+        }
+    }
+
+    /// Test that remote backend with config creation fails when feature is disabled
+    #[test]
+    #[cfg(not(feature = "remote-llm"))]
+    fn test_remote_backend_with_config_rejected_without_feature() {
+        let result = create_llm_backend_with_config(
+            LlmBackendType::Remote {
+                endpoint: "https://api.example.com/v1/completions".to_string(),
+                api_key: None,
+            },
+            None,
+        );
+
+        let Err(err) = result else {
+            panic!("Remote backend should be rejected without remote-llm feature");
+        };
+
+        match err {
+            AosError::FeatureDisabled { .. } => { /* expected */ }
+            other => panic!("Expected FeatureDisabled error, got: {:?}", other),
+        }
+    }
+
+    /// Test that remote backend creation succeeds when feature is enabled
+    #[test]
+    #[cfg(feature = "remote-llm")]
+    fn test_remote_backend_creation_with_feature() {
+        let result = create_llm_backend(LlmBackendType::Remote {
+            endpoint: "https://api.example.com/v1/completions".to_string(),
+            api_key: Some("test-key".to_string()),
+        });
+
+        assert!(
+            result.is_ok(),
+            "Remote backend should succeed with remote-llm feature"
+        );
+    }
+
+    /// Test that remote backends are rejected in release builds
+    ///
+    /// This test enforces zero-egress policy by ensuring that even with the
+    /// remote-llm feature enabled, remote backends cannot be created in release
+    /// builds (when debug_assertions are disabled).
+    #[test]
+    #[cfg(all(feature = "remote-llm", not(debug_assertions)))]
+    fn test_remote_backend_rejected_in_release_builds() {
+        // Attempt to create a remote backend
+        let result = RemoteLlmBackend::new(
+            "https://api.openai.com/v1/completions".to_string(),
+            Some("sk-test-key".to_string()),
+        );
+
+        // Should fail in release builds
+        let Err(err) = result else {
+            panic!(
+                "Remote backend should be rejected in release builds, but creation succeeded"
+            );
+        };
+
+        // Verify it's an EgressViolation error
+        match err {
+            AosError::EgressViolation(msg) => {
+                assert!(
+                    msg.contains("release builds"),
+                    "Error should mention release builds: {}",
+                    msg
+                );
+                assert!(
+                    msg.contains("Zero-egress"),
+                    "Error should mention zero-egress policy: {}",
+                    msg
+                );
+            }
+            other => panic!("Expected EgressViolation error, got: {:?}", other),
+        }
+    }
+
+    /// Test that remote backends work in debug builds
+    ///
+    /// This test verifies that remote backends can be created in debug builds
+    /// when the feature is enabled, allowing for development and testing.
+    #[test]
+    #[cfg(all(feature = "remote-llm", debug_assertions))]
+    fn test_remote_backend_allowed_in_debug_builds() {
+        // Attempt to create a remote backend
+        let result = RemoteLlmBackend::new(
+            "https://api.example.com/v1/completions".to_string(),
+            Some("test-key".to_string()),
+        );
+
+        // Should succeed in debug builds
+        assert!(
+            result.is_ok(),
+            "Remote backend should be allowed in debug builds with remote-llm feature"
+        );
+
+        let backend = result.unwrap();
+        assert_eq!(
+            backend.api_endpoint,
+            "https://api.example.com/v1/completions"
+        );
+    }
+
+    /// Test that create_llm_backend enforces release build restrictions
+    #[test]
+    #[cfg(all(feature = "remote-llm", not(debug_assertions)))]
+    fn test_create_llm_backend_rejects_remote_in_release() {
+        let result = create_llm_backend(LlmBackendType::Remote {
+            endpoint: "https://api.example.com/v1/completions".to_string(),
+            api_key: Some("test-key".to_string()),
+        });
+
+        // Should fail in release builds
+        assert!(
+            result.is_err(),
+            "create_llm_backend should reject remote backends in release builds"
+        );
+
+        match result.unwrap_err() {
+            AosError::EgressViolation(_) => { /* expected */ }
+            other => panic!(
+                "Expected EgressViolation error from create_llm_backend, got: {:?}",
+                other
+            ),
+        }
+    }
+
+    /// Test that create_llm_backend_with_config enforces release build restrictions
+    #[test]
+    #[cfg(all(feature = "remote-llm", not(debug_assertions)))]
+    fn test_create_llm_backend_with_config_rejects_remote_in_release() {
+        let result = create_llm_backend_with_config(
+            LlmBackendType::Remote {
+                endpoint: "https://api.example.com/v1/completions".to_string(),
+                api_key: None,
+            },
+            None,
+        );
+
+        // Should fail in release builds
+        assert!(
+            result.is_err(),
+            "create_llm_backend_with_config should reject remote backends in release builds"
+        );
+
+        match result.unwrap_err() {
+            AosError::EgressViolation(_) => { /* expected */ }
+            other => panic!(
+                "Expected EgressViolation error from create_llm_backend_with_config, got: {:?}",
+                other
+            ),
+        }
+    }
 }
+

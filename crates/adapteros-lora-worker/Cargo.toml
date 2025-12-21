@@ -22,8 +22,14 @@ telemetry-sysinfo = ["dep:sysinfo"]
 #   - Adds adapteros-lora-mlx-ffi as dependency
 #   - For research/training workloads
 #
+# remote-llm: Enables remote LLM backend for external API services
+#   - Adds reqwest HTTP client dependency
+#   - Allows egress to remote LLM endpoints
+#   - SECURITY: Only enable if egress is intentionally permitted
+#
 coreml-backend = ["dep:adapteros-lora-kernel-coreml"]
 multi-backend = ["dep:adapteros-lora-mlx-ffi", "mlx"]
+remote-llm = ["dep:reqwest"]
 
 # Alias for clarity
 mlx-backend = ["multi-backend"]
@@ -97,7 +103,7 @@ sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite"] }
 chrono = "0.4"
 smallvec = "1.13"
 sysinfo = { version = "0.30", optional = true }  # Telemetry + residency harness
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.12", features = ["json"], optional = true }
 ureq = "3.0"  # PRD-09: Blocking HTTP client for panic hook
 
 clap = { workspace = true }
