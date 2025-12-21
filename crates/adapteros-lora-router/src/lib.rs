@@ -1232,29 +1232,42 @@ impl Router {
         // 1. **Primary**: Score descending (highest score first)
         // 2. **Secondary**: Either adaptive (seeded RNG) or index-based (deterministic)
         //
-        // When `adaptive_routing` is enabled AND scores are within f32::EPSILON (~1.19e-7),
+        // When `adaptive_routing` is enabled AND scores are within a relative epsilon,
         // we use seeded ChaCha20 RNG for tie-breaking. This allows controlled randomization
         // while maintaining reproducibility via `router_tiebreak_seed`.
         //
         // When disabled, we use adapter index ascending (a.0.cmp(&b.0)) for pure determinism.
         //
-        // # Note on Epsilon
-        // f32::EPSILON is quite tight (~1.19e-7). In practice, scores rarely differ by less
-        // than this unless they're truly identical. If floating-point drift causes issues,
-        // consider using a relative epsilon like `(a.1 - b.1).abs() <= a.1.abs() * 1e-6`.
+        // # Relative Epsilon for Tie Detection
+        // We use a relative epsilon (1e-6 * max(|a|, |b|)) plus a small absolute floor
+        // (f32::EPSILON) to handle near-zero scores. This catches practical ties caused
+        // by floating-point drift that `partial_cmp` would otherwise order arbitrarily.
+        // Note: We check the epsilon BEFORE falling back to partial_cmp, so that
+        // near-equal values are treated as ties even if not bit-identical.
+        const RELATIVE_EPSILON: f32 = 1e-6;
         scores.sort_by(|a, b| {
-            b.1.partial_cmp(&a.1)
-                .unwrap_or(std::cmp::Ordering::Equal)
-                .then_with(|| {
-                    if self.adaptive_routing && (a.1 - b.1).abs() <= f32::EPSILON {
-                        tie_breakers
-                            .get(b.0)
-                            .unwrap_or(&0)
-                            .cmp(tie_breakers.get(a.0).unwrap_or(&0))
-                    } else {
-                        a.0.cmp(&b.0)
-                    }
-                })
+            let diff = b.1 - a.1; // Positive when b > a (descending order)
+            let max_abs = a.1.abs().max(b.1.abs());
+            let tie_threshold = max_abs * RELATIVE_EPSILON + f32::EPSILON;
+
+            if diff.abs() <= tie_threshold {
+                // Scores are within tolerance - treat as tie, use tie-breaker
+                if self.adaptive_routing {
+                    tie_breakers
+                        .get(b.0)
+                        .unwrap_or(&0)
+                        .cmp(tie_breakers.get(a.0).unwrap_or(&0))
+                } else {
+                    a.0.cmp(&b.0)
+                }
+            } else if diff.is_nan() {
+                // Handle NaN: treat as equal, fall back to index
+                a.0.cmp(&b.0)
+            } else if diff > 0.0 {
+                std::cmp::Ordering::Greater
+            } else {
+                std::cmp::Ordering::Less
+            }
         });
 
         // Take top K
