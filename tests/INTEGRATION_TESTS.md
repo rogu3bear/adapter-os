@@ -12,6 +12,24 @@ The integration test suite validates end-to-end functionality of key AdapterOS s
 
 ---
 
+## Blocking vs Ignored Suites
+
+Blocking suites are the stability gate. For integration tests, "blocking" means any
+test that is not marked `#[ignore]` (or `cfg_attr(..., ignore = "...")`) and is run
+by default in `make test` / `make stability-check`.
+
+| Suite | Status | Command |
+| --- | --- | --- |
+| Rust integration tests (non-ignored) | Blocking | `cargo test --workspace --exclude adapteros-lora-mlx-ffi --tests` |
+| Rust ignored tests | Non-blocking | `make test-ignored` |
+| Hardware-dependent tests (Metal/VRAM/residency) | Non-blocking | `make test-hw` |
+
+**Tracking requirement:** any test that remains ignored must include a tracking tag
+in the ignore reason, e.g. `[tracking: STAB-IGN-001]`. Replace with a specific issue
+ID when one is filed so stabilization doesn't silently skip it.
+
+---
+
 ## Test Files
 
 ### 1. kernel_workflow_integration.rs
@@ -191,6 +209,12 @@ cargo test --tests
 
 # Run all integration tests including ignored tests
 cargo test --tests -- --ignored
+
+# Run ignored Rust tests (unit + integration) across the workspace
+make test-ignored
+
+# Run hardware-dependent test suites (Metal/VRAM/residency)
+make test-hw
 
 # Run all tests (unit + integration)
 cargo test --all
