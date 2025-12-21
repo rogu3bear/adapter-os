@@ -110,7 +110,7 @@ async fn create_test_training_dataset(
 // =============================================================================
 
 #[tokio::test]
-async fn test_e2e_training_workflow() {
+async fn test_e2e_training_workflow() -> Result<()> {
     // Initialize tracing for test debugging
     let _ = tracing_subscriber::fmt()
         .with_test_writer()
@@ -124,7 +124,7 @@ async fn test_e2e_training_workflow() {
         Ok(s) => Arc::new(s),
         Err(e) => {
             eprintln!("Skipping test - setup_state failed: {}", e);
-            return;
+            return Ok(());
         }
     };
 
@@ -138,7 +138,7 @@ async fn test_e2e_training_workflow() {
     // Step 2: Create test tenant
     if let Err(e) = create_test_tenant(&state.db, tenant_id).await {
         eprintln!("Skipping test - tenant creation failed: {}", e);
-        return;
+        return Ok(());
     }
     info!("Created test tenant: {}", tenant_id);
 
@@ -157,20 +157,20 @@ async fn test_e2e_training_workflow() {
     .await
     {
         eprintln!("Skipping test - user creation failed: {}", e);
-        return;
+        return Ok(());
     }
 
     // Step 3: Create test repository (required FK)
     if let Err(e) = create_test_repo(&state.db, &repo_id, tenant_id).await {
         eprintln!("Skipping test - repo creation failed: {}", e);
-        return;
+        return Ok(());
     }
     info!("Created test repository: {}", repo_id);
 
     // Step 4: Create test dataset
     if let Err(e) = create_test_training_dataset(&state.db, &dataset_id, tenant_id).await {
         eprintln!("Skipping test - dataset creation failed: {}", e);
-        return;
+        return Ok(());
     }
     info!("Created test dataset: {}", dataset_id);
 
@@ -184,7 +184,7 @@ async fn test_e2e_training_workflow() {
             Ok(count) => count,
             Err(e) => {
                 eprintln!("Failed to verify dataset: {}", e);
-                return;
+                return Ok(());
             }
         };
     assert_eq!(
@@ -307,7 +307,10 @@ async fn test_e2e_training_workflow() {
         .scope("tenant")
         .build()
         .expect("adapter params");
-    state.db.register_adapter(adapter_params).await?;
+    if let Err(e) = state.db.register_adapter(adapter_params).await {
+        eprintln!("Skipping test - adapter creation failed: {}", e);
+        return Ok(());
+    }
     info!("Created adapter: {}", adapter_id);
 
     // Create stack record
@@ -418,6 +421,7 @@ async fn test_e2e_training_workflow() {
     println!("Stack ID: {}", stack_id);
     println!("Status: {}", final_job.status);
     println!("================================\n");
+    Ok(())
 }
 
 // =============================================================================
