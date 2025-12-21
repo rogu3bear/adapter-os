@@ -1572,6 +1572,302 @@ async fn trigger_allows_pinned_adapter_same_tenant() {
 }
 
 // ----------------------------------------------------------------------------
+// Tests for adapter training_job_id, dataset_adapter_links, evidence_entries,
+// and adapter_version_history tenant guards
+// ----------------------------------------------------------------------------
+
+#[tokio::test]
+async fn trigger_rejects_adapter_cross_tenant_training_job() {
+    std::env::set_var("AOS_SKIP_MIGRATION_SIGNATURES", "1");
+    let db = Db::new_in_memory().await.expect("db");
+    let (tenant_a, tenant_b) = setup_tenants(&db).await;
+
+    let repo_b = "git-repo-b";
+    let dataset_b = create_test_dataset(&db, &tenant_b, "Dataset B").await;
+    let job_b = create_test_training_job(&db, &tenant_b, repo_b, &dataset_b)
+        .await
+        .expect("create training job");
+
+    let adapter_a = create_test_adapter(&db, &tenant_a, "Adapter A").await;
+
+    let result = sqlx::query("UPDATE adapters SET training_job_id = ? WHERE id = ?")
+        .bind(&job_b)
+        .bind(&adapter_a)
+        .execute(db.pool())
+        .await;
+
+    assert!(
+        result.is_err(),
+        "Cross-tenant training_job_id update should be rejected by trigger"
+    );
+}
+
+#[tokio::test]
+async fn trigger_allows_adapter_same_tenant_training_job() {
+    std::env::set_var("AOS_SKIP_MIGRATION_SIGNATURES", "1");
+    let db = Db::new_in_memory().await.expect("db");
+    let (tenant_a, _) = setup_tenants(&db).await;
+
+    let repo_a = "git-repo-a";
+    let dataset_a = create_test_dataset(&db, &tenant_a, "Dataset A").await;
+    let job_a = create_test_training_job(&db, &tenant_a, repo_a, &dataset_a)
+        .await
+        .expect("create training job");
+
+    let adapter_a = create_test_adapter(&db, &tenant_a, "Adapter A").await;
+
+    let result = sqlx::query("UPDATE adapters SET training_job_id = ? WHERE id = ?")
+        .bind(&job_a)
+        .bind(&adapter_a)
+        .execute(db.pool())
+        .await;
+
+    assert!(
+        result.is_ok(),
+        "Same-tenant training_job_id update should succeed: {:?}",
+        result.err()
+    );
+}
+
+#[tokio::test]
+async fn trigger_rejects_dataset_adapter_links_cross_tenant_insert() {
+    std::env::set_var("AOS_SKIP_MIGRATION_SIGNATURES", "1");
+    let db = Db::new_in_memory().await.expect("db");
+    let (tenant_a, tenant_b) = setup_tenants(&db).await;
+
+    let dataset_a = create_test_dataset(&db, &tenant_a, "Dataset A").await;
+    let adapter_b = create_test_adapter(&db, &tenant_b, "Adapter B").await;
+
+    let link_id = format!("link-{}", uuid::Uuid::new_v4());
+    let result = sqlx::query(
+        "INSERT INTO dataset_adapter_links (id, dataset_id, adapter_id, link_type, tenant_id) VALUES (?, ?, ?, ?, ?)",
+    )
+    .bind(&link_id)
+    .bind(&dataset_a)
+    .bind(&adapter_b)
+    .bind("training")
+    .bind(&tenant_a)
+    .execute(db.pool())
+    .await;
+
+    assert!(
+        result.is_err(),
+        "Cross-tenant dataset_adapter_links insert should be rejected by trigger"
+    );
+}
+
+#[tokio::test]
+async fn trigger_allows_dataset_adapter_links_same_tenant_insert() {
+    std::env::set_var("AOS_SKIP_MIGRATION_SIGNATURES", "1");
+    let db = Db::new_in_memory().await.expect("db");
+    let (tenant_a, _) = setup_tenants(&db).await;
+
+    let dataset_a = create_test_dataset(&db, &tenant_a, "Dataset A").await;
+    let adapter_a = create_test_adapter(&db, &tenant_a, "Adapter A").await;
+
+    let link_id = format!("link-{}", uuid::Uuid::new_v4());
+    let result = sqlx::query(
+        "INSERT INTO dataset_adapter_links (id, dataset_id, adapter_id, link_type, tenant_id) VALUES (?, ?, ?, ?, ?)",
+    )
+    .bind(&link_id)
+    .bind(&dataset_a)
+    .bind(&adapter_a)
+    .bind("training")
+    .bind(&tenant_a)
+    .execute(db.pool())
+    .await;
+
+    assert!(
+        result.is_ok(),
+        "Same-tenant dataset_adapter_links insert should succeed: {:?}",
+        result.err()
+    );
+}
+
+#[tokio::test]
+async fn trigger_rejects_dataset_adapter_links_cross_tenant_update() {
+    std::env::set_var("AOS_SKIP_MIGRATION_SIGNATURES", "1");
+    let db = Db::new_in_memory().await.expect("db");
+    let (tenant_a, tenant_b) = setup_tenants(&db).await;
+
+    let dataset_a = create_test_dataset(&db, &tenant_a, "Dataset A").await;
+    let adapter_a = create_test_adapter(&db, &tenant_a, "Adapter A").await;
+    let adapter_b = create_test_adapter(&db, &tenant_b, "Adapter B").await;
+
+    let link_id = format!("link-{}", uuid::Uuid::new_v4());
+    sqlx::query(
+        "INSERT INTO dataset_adapter_links (id, dataset_id, adapter_id, link_type, tenant_id) VALUES (?, ?, ?, ?, ?)",
+    )
+    .bind(&link_id)
+    .bind(&dataset_a)
+    .bind(&adapter_a)
+    .bind("training")
+    .bind(&tenant_a)
+    .execute(db.pool())
+    .await
+    .expect("insert link");
+
+    let result = sqlx::query("UPDATE dataset_adapter_links SET adapter_id = ? WHERE id = ?")
+        .bind(&adapter_b)
+        .bind(&link_id)
+        .execute(db.pool())
+        .await;
+
+    assert!(
+        result.is_err(),
+        "Cross-tenant dataset_adapter_links update should be rejected by trigger"
+    );
+}
+
+#[tokio::test]
+async fn trigger_rejects_evidence_entries_cross_tenant_adapter_insert() {
+    std::env::set_var("AOS_SKIP_MIGRATION_SIGNATURES", "1");
+    let db = Db::new_in_memory().await.expect("db");
+    let (tenant_a, tenant_b) = setup_tenants(&db).await;
+
+    let adapter_b = create_test_adapter(&db, &tenant_b, "Adapter B").await;
+
+    let entry_id = format!("evidence-{}", uuid::Uuid::new_v4());
+    let result = sqlx::query(
+        "INSERT INTO evidence_entries (id, adapter_id, evidence_type, reference, tenant_id) VALUES (?, ?, ?, ?, ?)",
+    )
+    .bind(&entry_id)
+    .bind(&adapter_b)
+    .bind("doc")
+    .bind("ref")
+    .bind(&tenant_a)
+    .execute(db.pool())
+    .await;
+
+    assert!(
+        result.is_err(),
+        "Cross-tenant evidence_entries insert should be rejected by trigger"
+    );
+}
+
+#[tokio::test]
+async fn trigger_allows_evidence_entries_same_tenant_adapter_insert() {
+    std::env::set_var("AOS_SKIP_MIGRATION_SIGNATURES", "1");
+    let db = Db::new_in_memory().await.expect("db");
+    let (tenant_a, _) = setup_tenants(&db).await;
+
+    let adapter_a = create_test_adapter(&db, &tenant_a, "Adapter A").await;
+
+    let entry_id = format!("evidence-{}", uuid::Uuid::new_v4());
+    let result = sqlx::query(
+        "INSERT INTO evidence_entries (id, adapter_id, evidence_type, reference, tenant_id) VALUES (?, ?, ?, ?, ?)",
+    )
+    .bind(&entry_id)
+    .bind(&adapter_a)
+    .bind("doc")
+    .bind("ref")
+    .bind(&tenant_a)
+    .execute(db.pool())
+    .await;
+
+    assert!(
+        result.is_ok(),
+        "Same-tenant evidence_entries insert should succeed: {:?}",
+        result.err()
+    );
+}
+
+#[tokio::test]
+async fn trigger_rejects_evidence_entries_cross_tenant_adapter_update() {
+    std::env::set_var("AOS_SKIP_MIGRATION_SIGNATURES", "1");
+    let db = Db::new_in_memory().await.expect("db");
+    let (tenant_a, tenant_b) = setup_tenants(&db).await;
+
+    let adapter_a = create_test_adapter(&db, &tenant_a, "Adapter A").await;
+    let adapter_b = create_test_adapter(&db, &tenant_b, "Adapter B").await;
+
+    let entry_id = format!("evidence-{}", uuid::Uuid::new_v4());
+    sqlx::query(
+        "INSERT INTO evidence_entries (id, adapter_id, evidence_type, reference, tenant_id) VALUES (?, ?, ?, ?, ?)",
+    )
+    .bind(&entry_id)
+    .bind(&adapter_a)
+    .bind("doc")
+    .bind("ref")
+    .bind(&tenant_a)
+    .execute(db.pool())
+    .await
+    .expect("insert evidence entry");
+
+    let result = sqlx::query("UPDATE evidence_entries SET adapter_id = ? WHERE id = ?")
+        .bind(&adapter_b)
+        .bind(&entry_id)
+        .execute(db.pool())
+        .await;
+
+    assert!(
+        result.is_err(),
+        "Cross-tenant evidence_entries update should be rejected by trigger"
+    );
+}
+
+#[tokio::test]
+async fn trigger_rejects_adapter_version_history_cross_tenant_insert() {
+    std::env::set_var("AOS_SKIP_MIGRATION_SIGNATURES", "1");
+    let db = Db::new_in_memory().await.expect("db");
+    let (tenant_a, tenant_b) = setup_tenants(&db).await;
+
+    let repo_a = create_test_repo(&db, &tenant_a, "Repo A").await;
+    let version_id = create_test_version(&db, &repo_a, &tenant_a, "1.0.0")
+        .await
+        .expect("create version");
+
+    let history_id = format!("hist-{}", uuid::Uuid::new_v4());
+    let result = sqlx::query(
+        "INSERT INTO adapter_version_history (id, repo_id, tenant_id, version_id, branch, new_state) VALUES (?, ?, ?, ?, ?, ?)",
+    )
+    .bind(&history_id)
+    .bind(&repo_a)
+    .bind(&tenant_b)
+    .bind(&version_id)
+    .bind("main")
+    .bind("draft")
+    .execute(db.pool())
+    .await;
+
+    assert!(
+        result.is_err(),
+        "Cross-tenant adapter_version_history insert should be rejected by trigger"
+    );
+}
+
+#[tokio::test]
+async fn trigger_allows_adapter_version_history_same_tenant_insert() {
+    std::env::set_var("AOS_SKIP_MIGRATION_SIGNATURES", "1");
+    let db = Db::new_in_memory().await.expect("db");
+    let (tenant_a, _) = setup_tenants(&db).await;
+
+    let repo_a = create_test_repo(&db, &tenant_a, "Repo A").await;
+    let version_id = create_test_version(&db, &repo_a, &tenant_a, "1.0.0")
+        .await
+        .expect("create version");
+
+    let history_id = format!("hist-{}", uuid::Uuid::new_v4());
+    let result = sqlx::query(
+        "INSERT INTO adapter_version_history (id, repo_id, tenant_id, version_id, branch, new_state) VALUES (?, ?, ?, ?, ?, ?)",
+    )
+    .bind(&history_id)
+    .bind(&repo_a)
+    .bind(&tenant_a)
+    .bind(&version_id)
+    .bind("main")
+    .bind("draft")
+    .execute(db.pool())
+    .await;
+
+    assert!(
+        result.is_ok(),
+        "Same-tenant adapter_version_history insert should succeed: {:?}",
+        result.err()
+    );
+}
+
+// ----------------------------------------------------------------------------
 // Non-Vacuity Test: Verify all 0131 triggers exist
 // ----------------------------------------------------------------------------
 
