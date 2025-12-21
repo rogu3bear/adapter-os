@@ -105,7 +105,9 @@ struct RegistrationParams<'a> {
 ///
 /// Returns registration result on success.
 /// Returns error message on rejection or communication failure.
-fn register_with_cp(params: &RegistrationParams) -> std::result::Result<RegistrationResult, String> {
+fn register_with_cp(
+    params: &RegistrationParams,
+) -> std::result::Result<RegistrationResult, String> {
     let registration = serde_json::json!({
         "worker_id": params.worker_id,
         "tenant_id": params.tenant_id,

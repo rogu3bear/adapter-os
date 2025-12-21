@@ -239,8 +239,7 @@ impl TrainingService for DefaultTrainingService {
                         return Ok(TrainingValidationResult {
                             is_valid: false,
                             error_message: Some(
-                                "Access denied: collection belongs to different tenant"
-                                    .to_string(),
+                                "Access denied: collection belongs to different tenant".to_string(),
                             ),
                             error_code: Some("TENANT_ISOLATION_ERROR".to_string()),
                         });

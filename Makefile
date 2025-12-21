@@ -55,17 +55,25 @@ test-ui: ## Run UI lint + unit/integration tests only
 test-e2e: ## Run UI end-to-end tests (optional, starts dev stack)
 	bash scripts/test/all.sh e2e
 
+IGNORED_EXCLUDE ?=
+IGNORED_EXCLUDE_ARGS := $(foreach ex,$(IGNORED_EXCLUDE),--exclude $(ex))
+IGNORED_FEATURES ?= extended-tests
+IGNORED_FEATURES_ARGS := $(if $(strip $(IGNORED_FEATURES)),--features $(IGNORED_FEATURES),)
 test-ignored: ## Run ignored Rust tests (unit + integration) across the workspace
-	cargo test --workspace --exclude adapteros-lora-mlx-ffi --lib --bins --examples -- --ignored
-	cargo test --workspace --exclude adapteros-lora-mlx-ffi --tests -- --ignored
+	cargo test --workspace $(IGNORED_EXCLUDE_ARGS) $(IGNORED_FEATURES_ARGS) --lib --bins --examples -- --ignored
+	cargo test --workspace $(IGNORED_EXCLUDE_ARGS) $(IGNORED_FEATURES_ARGS) --tests -- --ignored
 
 HW_PROFILE ?= release
+HW_ROOT_FEATURES ?= hardware-residency
+HW_WORKER_FEATURES ?= hardware-residency,ci-residency
 test-hw: ## Run hardware-dependent Rust tests (Metal/VRAM/residency)
 	cargo test --test lora_buffer_population_integration --features extended-tests --profile $(HW_PROFILE) -- --ignored --nocapture
-	cargo test --test kv_residency_quota_integration --features hardware-residency
-	cargo test -p adapteros-lora-worker --features hardware-residency --test worker_enforcement_tests
-	cargo test -p adapteros-lora-worker --features hardware-residency --test residency_probe
+	cargo test --test kv_residency_quota_integration --features $(HW_ROOT_FEATURES)
+	cargo test -p adapteros-lora-worker --features $(HW_WORKER_FEATURES) --test worker_enforcement_tests
+	cargo test -p adapteros-lora-worker --features $(HW_WORKER_FEATURES) --test residency_probe
+	cargo test -p adapteros-lora-kernel-coreml --test integration_tests -- --ignored
 	cargo test -p adapteros-memory --test metal_heap_tests --profile $(HW_PROFILE) -- --ignored
+	cargo test -p adapteros-memory --lib --profile $(HW_PROFILE) -- --ignored
 
 clean: ## Clean build artifacts
 	cargo clean

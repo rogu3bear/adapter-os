@@ -147,8 +147,14 @@ mod tests {
 
     #[test]
     fn normalizes_ready_and_legacy_loaded() {
-        assert_eq!(ModelLoadStatus::Ready, ModelLoadStatus::parse_status("ready"));
-        assert_eq!(ModelLoadStatus::Ready, ModelLoadStatus::parse_status("loaded"));
+        assert_eq!(
+            ModelLoadStatus::Ready,
+            ModelLoadStatus::parse_status("ready")
+        );
+        assert_eq!(
+            ModelLoadStatus::Ready,
+            ModelLoadStatus::parse_status("loaded")
+        );
     }
 
     #[test]

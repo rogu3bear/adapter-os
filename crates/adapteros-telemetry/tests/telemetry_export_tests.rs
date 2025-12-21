@@ -406,8 +406,8 @@ mod bundle_creation_tests {
         let temp_dir = new_test_tempdir();
         let output_dir = temp_dir.path().join("bundles");
 
-        let mut writer = BundleWriter::new(&output_dir, 10, 1024 * 1024)
-            .expect("Failed to create BundleWriter");
+        let mut writer =
+            BundleWriter::new(&output_dir, 10, 1024 * 1024).expect("Failed to create BundleWriter");
 
         // Write test events
         for i in 0..5 {
@@ -658,7 +658,9 @@ mod bundle_store_tests {
         assert_eq!(retrieved_data, bundle_data);
 
         // Verify metadata
-        let retrieved_metadata = store.get_metadata(&bundle_hash).expect("Metadata not found");
+        let retrieved_metadata = store
+            .get_metadata(&bundle_hash)
+            .expect("Metadata not found");
         assert_eq!(retrieved_metadata.event_count, 2);
         assert_eq!(retrieved_metadata.cpid, Some("test-cpid".to_string()));
         assert_eq!(retrieved_metadata.tenant_id, Some("tenant-123".to_string()));
@@ -859,8 +861,7 @@ mod uds_exporter_tests {
         let temp_dir = new_test_tempdir();
         let socket_path = temp_dir.path().join("metrics.sock");
 
-        let mut exporter =
-            UdsMetricsExporter::new(socket_path).expect("Failed to create exporter");
+        let mut exporter = UdsMetricsExporter::new(socket_path).expect("Failed to create exporter");
         exporter.bind().await.expect("Failed to bind");
 
         // Register a counter metric
@@ -905,8 +906,7 @@ mod uds_exporter_tests {
         let temp_dir = new_test_tempdir();
         let socket_path = temp_dir.path().join("metrics.sock");
 
-        let mut exporter =
-            UdsMetricsExporter::new(socket_path).expect("Failed to create exporter");
+        let mut exporter = UdsMetricsExporter::new(socket_path).expect("Failed to create exporter");
         exporter.bind().await.expect("Failed to bind");
 
         // Register metric with labels

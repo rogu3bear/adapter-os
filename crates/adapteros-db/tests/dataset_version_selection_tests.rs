@@ -38,8 +38,14 @@ async fn latest_trusted_version_skips_blocked_head() -> Result<()> {
         .await?;
     db.update_dataset_version_structural_validation(&v1, "valid", None)
         .await?;
-    db.update_dataset_version_safety_status(&v1, Some("none"), Some("none"), Some("none"), Some("none"))
-        .await?;
+    db.update_dataset_version_safety_status(
+        &v1,
+        Some("none"),
+        Some("none"),
+        Some("none"),
+        Some("none"),
+    )
+    .await?;
 
     // v2 is newer but invalid -> trust_state should be blocked
     let v2 = db

@@ -95,9 +95,14 @@ pub async fn create_tenant(
     let tenant = tenant.ok_or_else(|| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new("tenant not found after creation")
-                .with_code("NOT_FOUND")
-                .with_string_details(format!("Tenant '{}' was created but could not be retrieved", id))),
+            Json(
+                ErrorResponse::new("tenant not found after creation")
+                    .with_code("NOT_FOUND")
+                    .with_string_details(format!(
+                        "Tenant '{}' was created but could not be retrieved",
+                        id
+                    )),
+            ),
         )
     })?;
 
@@ -161,9 +166,14 @@ pub async fn get_default_stack(
     let stack_id = stack_id.ok_or_else(|| {
         (
             StatusCode::NOT_FOUND,
-            Json(ErrorResponse::new("No default stack set for tenant")
-                .with_code("NOT_FOUND")
-                .with_string_details(format!("Tenant '{}' does not have a default stack configured", tenant_id))),
+            Json(
+                ErrorResponse::new("No default stack set for tenant")
+                    .with_code("NOT_FOUND")
+                    .with_string_details(format!(
+                        "Tenant '{}' does not have a default stack configured",
+                        tenant_id
+                    )),
+            ),
         )
     })?;
 
@@ -207,9 +217,14 @@ pub async fn set_default_stack(
             if error_str.contains("not found") {
                 (
                     StatusCode::NOT_FOUND,
-                    Json(ErrorResponse::new("Stack not found for tenant")
-                        .with_code("NOT_FOUND")
-                        .with_string_details(format!("Stack '{}' does not exist for tenant '{}'", req.stack_id, tenant_id))),
+                    Json(
+                        ErrorResponse::new("Stack not found for tenant")
+                            .with_code("NOT_FOUND")
+                            .with_string_details(format!(
+                                "Stack '{}' does not exist for tenant '{}'",
+                                req.stack_id, tenant_id
+                            )),
+                    ),
                 )
             } else {
                 db_error_with_details(error_str)

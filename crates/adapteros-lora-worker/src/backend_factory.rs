@@ -11,7 +11,9 @@
 
 use crate::model_handle_cache::{ModelHandle, ModelHandleCache};
 use crate::model_key::{ModelCacheIdentity, ModelKey};
-use adapteros_config::{model, BackendPreference, ConfigLoader, ModelConfig};
+use adapteros_config::{
+    model, reject_tmp_persistent_path, BackendPreference, ConfigLoader, ModelConfig,
+};
 use adapteros_core::{
     backend::BackendKind, constants::BYTES_PER_MB, AosError, B3Hash, ExecutionProfile, Result,
 };
@@ -45,6 +47,23 @@ struct SafeTensorsIndex {
 /// Shared kernel object type with Send + Sync for use across async boundaries
 pub type KernelBox = Box<dyn FusedKernels + Send + Sync>;
 
+fn resolve_config_toml_path() -> Result<Option<String>> {
+    if let Ok(val) = std::env::var("AOS_CONFIG_TOML") {
+        if !val.is_empty() {
+            reject_tmp_persistent_path(Path::new(&val), "config-toml")?;
+            return Ok(Some(val));
+        }
+    }
+
+    let default_path = Path::new("configs/cp.toml");
+    if default_path.exists() {
+        reject_tmp_persistent_path(default_path, "config-toml")?;
+        return Ok(Some(default_path.to_string_lossy().to_string()));
+    }
+
+    Ok(None)
+}
+
 /// Resolve model cache budget in bytes (env overrides config).
 fn resolve_model_cache_budget_bytes() -> Result<u64> {
     // 1) Environment override
@@ -64,16 +83,7 @@ fn resolve_model_cache_budget_bytes() -> Result<u64> {
     }
 
     // 2) Config file (env + TOML via ConfigLoader). Prefer explicit path override if provided.
-    let explicit_toml_path = std::env::var("AOS_CONFIG_TOML").ok();
-    let default_toml_path = {
-        let default_path = Path::new("configs/cp.toml");
-        if default_path.exists() {
-            Some(default_path.to_string_lossy().to_string())
-        } else {
-            None
-        }
-    };
-    let toml_path = explicit_toml_path.or(default_toml_path);
+    let toml_path = resolve_config_toml_path()?;
 
     let config = ConfigLoader::new()
         .load(Vec::new(), toml_path.clone())
@@ -154,23 +164,11 @@ pub fn validate_model_cache_budget() -> Result<u64> {
     let env_value = std::env::var("AOS_MODEL_CACHE_MAX_MB").ok();
 
     // Check config file
-    let config_value = {
-        let explicit_toml_path = std::env::var("AOS_CONFIG_TOML").ok();
-        let default_toml_path = {
-            let default_path = Path::new("configs/cp.toml");
-            if default_path.exists() {
-                Some(default_path.to_string_lossy().to_string())
-            } else {
-                None
-            }
-        };
-        let toml_path = explicit_toml_path.or(default_toml_path);
-
-        ConfigLoader::new()
-            .load(Vec::new(), toml_path.clone())
-            .ok()
-            .and_then(|cfg| cfg.get("model.cache.max.mb").map(String::from))
-    };
+    let toml_path = resolve_config_toml_path()?;
+    let config_value = ConfigLoader::new()
+        .load(Vec::new(), toml_path.clone())
+        .ok()
+        .and_then(|cfg| cfg.get("model.cache.max.mb").map(String::from));
 
     debug!(
         env_var = ?env_value,
@@ -1405,7 +1403,7 @@ fn validate_mlx_model_dir(model_path: &Path) -> Result<PathBuf> {
     })?;
 
     // SECURITY: Reject /tmp paths for model storage (data persistence requirement)
-    adapteros_core::reject_forbidden_tmp_path(&canonical_path, "model-path")?;
+    reject_tmp_persistent_path(&canonical_path, "model-path")?;
 
     let config_path = canonical_path.join("config.json");
     if !config_path.exists() {

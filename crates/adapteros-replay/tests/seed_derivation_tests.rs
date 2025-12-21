@@ -4,14 +4,12 @@
 //! replay sessions, ensuring exact reproducibility.
 
 use adapteros_core::B3Hash;
-use adapteros_telemetry::replay::RngCheckpoint;
 use adapteros_replay::ReplaySession;
+use adapteros_telemetry::replay::RngCheckpoint;
 use tempfile::tempdir;
 
 mod test_helpers;
 use test_helpers::create_trace_bundle_with_seed;
-
-
 
 #[test]
 fn test_global_seed_deterministic() {
@@ -43,10 +41,8 @@ async fn test_replay_session_global_seed_consistency() {
     adapteros_trace::writer::write_trace_bundle(&trace_path, bundle).unwrap();
 
     // Create multiple sessions from the same trace
-    let session1 =
-        ReplaySession::from_log(&trace_path).expect("Failed to create replay session 1");
-    let session2 =
-        ReplaySession::from_log(&trace_path).expect("Failed to create replay session 2");
+    let session1 = ReplaySession::from_log(&trace_path).expect("Failed to create replay session 1");
+    let session2 = ReplaySession::from_log(&trace_path).expect("Failed to create replay session 2");
 
     // Both sessions should have the same global seed
     let bundle1 = session1.trace_bundle();
@@ -144,7 +140,11 @@ async fn test_verify_rng_states_identical() {
 
     // Verifying identical states should succeed
     let result = session.verify_rng_states(&checkpoints, &checkpoints);
-    assert!(result.is_ok(), "RNG state verification failed: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "RNG state verification failed: {:?}",
+        result
+    );
 }
 
 #[tokio::test]
@@ -234,10 +234,7 @@ async fn test_verify_rng_states_different_step_count() {
     }];
 
     let result = session.verify_rng_states(&expected, &actual);
-    assert!(
-        result.is_err(),
-        "Expected RNG step count mismatch to fail"
-    );
+    assert!(result.is_err(), "Expected RNG step count mismatch to fail");
 }
 
 #[tokio::test]
@@ -306,7 +303,10 @@ async fn test_verify_rng_states_length_mismatch() {
     }];
 
     let result = session.verify_rng_states(&expected, &actual);
-    assert!(result.is_err(), "Expected checkpoint count mismatch to fail");
+    assert!(
+        result.is_err(),
+        "Expected checkpoint count mismatch to fail"
+    );
 }
 
 #[tokio::test]

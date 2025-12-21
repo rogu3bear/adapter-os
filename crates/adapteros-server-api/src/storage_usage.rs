@@ -60,4 +60,3 @@ pub async fn compute_tenant_storage_usage(
         adapter_versions,
     })
 }
-

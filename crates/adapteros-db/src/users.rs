@@ -768,11 +768,7 @@ impl Db {
     }
 
     /// Update last login timestamp for a user.
-    pub async fn update_user_last_login(
-        &self,
-        user_id: &str,
-        login_at: &str,
-    ) -> Result<()> {
+    pub async fn update_user_last_login(&self, user_id: &str, login_at: &str) -> Result<()> {
         if self.storage_mode().write_to_sql() {
             if let Some(pool) = self.pool_opt() {
                 let result = sqlx::query("UPDATE users SET last_login_at = ? WHERE id = ?")
@@ -802,11 +798,7 @@ impl Db {
     }
 
     /// Update token rotation timestamp for a user.
-    pub async fn update_user_token_rotated(
-        &self,
-        user_id: &str,
-        rotated_at: &str,
-    ) -> Result<()> {
+    pub async fn update_user_token_rotated(&self, user_id: &str, rotated_at: &str) -> Result<()> {
         if self.storage_mode().write_to_sql() {
             if let Some(pool) = self.pool_opt() {
                 let result = sqlx::query("UPDATE users SET token_rotated_at = ? WHERE id = ?")

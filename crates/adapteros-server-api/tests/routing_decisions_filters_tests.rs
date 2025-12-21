@@ -165,10 +165,9 @@ async fn routing_history_uses_q15_denominator_32767() {
         .expect("insert decision");
 
     let query = RoutingHistoryQuery { limit: Some(1) };
-    let result =
-        get_routing_history(State(state), Extension(claims), Query(query))
-            .await
-            .expect("routing history");
+    let result = get_routing_history(State(state), Extension(claims), Query(query))
+        .await
+        .expect("routing history");
 
     assert_eq!(result.0.len(), 1);
     assert_eq!(result.0[0].adapter_scores.len(), 1);

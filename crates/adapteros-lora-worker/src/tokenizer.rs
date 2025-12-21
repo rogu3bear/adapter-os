@@ -97,7 +97,7 @@ mod tests {
     use adapteros_config::{DEFAULT_BASE_MODEL_ID, DEFAULT_MODEL_CACHE_ROOT};
 
     #[test]
-    #[ignore = "Requires tokenizer model files - run with: cargo test --release -- --ignored [tracking: STAB-IGN-001]"]
+    #[ignore = "Requires tokenizer model files - run with: cargo test --release -- --ignored [tracking: STAB-IGN-0044]"]
     fn test_tokenizer_round_trip() {
         let tokenizer_path = std::env::var("AOS_TOKENIZER_PATH")
             .or_else(|_| std::env::var("AOS_MODEL_PATH").map(|p| format!("{}/tokenizer.json", p)))

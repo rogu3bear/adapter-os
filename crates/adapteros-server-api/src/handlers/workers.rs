@@ -6,7 +6,8 @@ use crate::types::*;
 use adapteros_api_types::workers::{
     WorkerRegistrationRequest, WorkerRegistrationResponse, WorkerStatusNotification,
 };
-use adapteros_core::{identity::IdentityEnvelope, reject_forbidden_tmp_path, version::API_SCHEMA_VERSION, WorkerStatus};
+use adapteros_config::{reject_tmp_persistent_path, reject_tmp_socket};
+use adapteros_core::{identity::IdentityEnvelope, version::API_SCHEMA_VERSION, WorkerStatus};
 use adapteros_db::users::Role;
 use adapteros_db::workers::{is_schema_compatible, WorkerRegistrationParams};
 use adapteros_telemetry::{build_health_event, make_health_payload, HealthEventKind};
@@ -89,6 +90,8 @@ pub async fn worker_spawn(
 
     // Include config TOML path if provided
     if let Some(config_path) = &req.config_toml_path {
+        reject_tmp_persistent_path(std::path::Path::new(config_path), "config-toml")
+            .map_err(|e| internal_error_msg("config TOML path validation failed", e))?;
         spawn_req["config_toml_path"] = serde_json::json!(config_path);
     }
 
@@ -161,7 +164,7 @@ pub async fn worker_spawn(
 
     // SECURITY: Validate constructed path is safe
     let uds_path_buf = std::path::PathBuf::from(&uds_path);
-    reject_forbidden_tmp_path(&uds_path_buf, "worker-socket")
+    reject_tmp_socket(&uds_path_buf, "worker-socket")
         .map_err(|e| internal_error_msg("worker socket path validation failed", e))?;
 
     // Register worker using Db trait method

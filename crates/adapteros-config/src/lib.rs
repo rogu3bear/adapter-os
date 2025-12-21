@@ -66,16 +66,16 @@ pub use model::{
     resolve_tokenizer_path, BackendPreference, ModelConfig,
 };
 pub use path_resolver::{
-    prepare_socket_path, reject_tmp_persistent_path, resolve_adapters_root,
+    prepare_socket_path, reject_tmp_persistent_path, reject_tmp_socket, resolve_adapters_root,
     resolve_base_model_location, resolve_database_url, resolve_embedding_model_path,
     resolve_embedding_model_path_with_override, resolve_index_root, resolve_manifest_cache_dir,
     resolve_manifest_path, resolve_model_path, resolve_qwen_int4_manifest_dir, resolve_status_path,
     resolve_telemetry_dir, resolve_worker_socket_for_cp, resolve_worker_socket_for_worker,
     BaseModelLocation, PathSource, ResolvedPath, DEFAULT_ADAPTERS_ROOT, DEFAULT_BASE_MODEL_ID,
-    DEFAULT_CP_WORKER_SOCKET, DEFAULT_DB_PATH, DEFAULT_EMBEDDING_MODEL_PATH,
-    DEFAULT_INDEX_ROOT, DEFAULT_MANIFEST_CACHE_DIR, DEFAULT_MODEL_CACHE_ROOT,
-    DEFAULT_QWEN_INT4_MANIFEST_DIR, DEFAULT_STATUS_PATH, DEFAULT_TELEMETRY_DIR,
-    DEFAULT_WORKER_SOCKET_DEV, DEFAULT_WORKER_SOCKET_PROD_ROOT, DEV_MANIFEST_PATH, DEV_MODEL_PATH,
+    DEFAULT_CP_WORKER_SOCKET, DEFAULT_DB_PATH, DEFAULT_EMBEDDING_MODEL_PATH, DEFAULT_INDEX_ROOT,
+    DEFAULT_MANIFEST_CACHE_DIR, DEFAULT_MODEL_CACHE_ROOT, DEFAULT_QWEN_INT4_MANIFEST_DIR,
+    DEFAULT_STATUS_PATH, DEFAULT_TELEMETRY_DIR, DEFAULT_WORKER_SOCKET_DEV,
+    DEFAULT_WORKER_SOCKET_PROD_ROOT, DEV_MANIFEST_PATH, DEV_MODEL_PATH,
 };
 pub use placement::{PlacementConfig, PlacementMode, PlacementWeights};
 pub use precedence::DeterministicConfig;

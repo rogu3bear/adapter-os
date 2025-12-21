@@ -103,8 +103,8 @@ pub mod testkit;
 pub mod training;
 pub mod training_datasets;
 pub mod tutorials;
-pub mod validation;
 pub mod utils;
+pub mod validation;
 pub mod worker_detail;
 pub mod worker_manifests;
 pub mod workers;
@@ -144,11 +144,22 @@ pub use tenant_policies::{
 
 // Re-export policy handlers from policies module (consolidates duplicates)
 pub use policies::{
-    apply_policy, assign_policy, assign_tenant_policies, compare_policy_versions, export_policy,
-    get_policy, list_policies, list_policy_assignments, list_violations, sign_policy,
-    validate_policy, verify_policy_signature,
     // utoipa path macros
-    __path_assign_policy, __path_list_policy_assignments, __path_list_violations,
+    __path_assign_policy,
+    __path_list_policy_assignments,
+    __path_list_violations,
+    apply_policy,
+    assign_policy,
+    assign_tenant_policies,
+    compare_policy_versions,
+    export_policy,
+    get_policy,
+    list_policies,
+    list_policy_assignments,
+    list_violations,
+    sign_policy,
+    validate_policy,
+    verify_policy_signature,
 };
 
 // Re-export auth handlers (including utoipa path types)
@@ -1226,8 +1237,7 @@ async fn apply_event<'a>(
                 .iter()
                 .filter_map(|vi| vi.as_str().map(|s| s.to_string()))
                 .collect();
-            let rules_json =
-                serde_json::to_string(&rules).map_err(AosError::Serialization)?;
+            let rules_json = serde_json::to_string(&rules).map_err(AosError::Serialization)?;
 
             sqlx::query(
                 r#"
@@ -4626,8 +4636,7 @@ pub async fn list_adapters(
     for adapter in adapters {
         // Enforce tenant isolation: skip adapters not belonging to user's tenant
         // (admin users can see all adapters)
-        if claims.role != "admin"
-            && validate_tenant_isolation(&claims, &adapter.tenant_id).is_err()
+        if claims.role != "admin" && validate_tenant_isolation(&claims, &adapter.tenant_id).is_err()
         {
             continue; // Skip this adapter
         }

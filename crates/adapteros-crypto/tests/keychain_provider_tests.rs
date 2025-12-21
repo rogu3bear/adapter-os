@@ -7,10 +7,10 @@
 //! - Password fallback mode
 //! - Error handling
 
+use adapteros_crypto::key_provider::KeyProviderConfig;
 use adapteros_crypto::{
     KeyAlgorithm, KeyManager, KeyManagerConfig, KeyProviderMode, KeychainProvider,
 };
-use adapteros_crypto::key_provider::KeyProviderConfig;
 use tempfile::TempDir;
 
 fn new_test_tempdir() -> TempDir {
@@ -37,10 +37,7 @@ async fn test_keychain_provider_creation_macos() {
 
     // On macOS, backend should be MacOS
     use adapteros_crypto::providers::keychain::KeychainBackend;
-    assert!(matches!(
-        provider.backend(),
-        KeychainBackend::MacOS
-    ));
+    assert!(matches!(provider.backend(), KeychainBackend::MacOS));
 }
 
 #[tokio::test]
@@ -150,10 +147,7 @@ async fn test_password_fallback_rejects_short_password() {
     if let Ok(p) = provider {
         use adapteros_crypto::providers::keychain::KeychainBackend;
         // Should NOT be PasswordFallback
-        assert!(!matches!(
-            p.backend(),
-            KeychainBackend::PasswordFallback
-        ));
+        assert!(!matches!(p.backend(), KeychainBackend::PasswordFallback));
     }
 
     std::env::remove_var("ADAPTEROS_KEYCHAIN_FALLBACK");
@@ -178,10 +172,7 @@ async fn test_password_fallback_invalid_format() {
     // Should fall back to platform keychain
     if let Ok(p) = provider {
         use adapteros_crypto::providers::keychain::KeychainBackend;
-        assert!(!matches!(
-            p.backend(),
-            KeychainBackend::PasswordFallback
-        ));
+        assert!(!matches!(p.backend(), KeychainBackend::PasswordFallback));
     }
 
     std::env::remove_var("ADAPTEROS_KEYCHAIN_FALLBACK");
@@ -252,10 +243,12 @@ async fn test_keychain_key_generation_and_signing() {
         // Try to generate a key
         use adapteros_crypto::key_provider::KeyProvider;
 
-        let handle_result = provider.generate("test-mac-key", KeyAlgorithm::Ed25519).await;
+        let handle_result = provider
+            .generate("test-mac-key", KeyAlgorithm::Ed25519)
+            .await;
 
         if let Ok(handle) = handle_result {
-            assert_eq!(handle.key_id, "test-mac-key");
+            assert_eq!(handle.provider_id, "test-mac-key");
 
             // Try to sign with the key
             let test_data = b"test message";
@@ -330,8 +323,12 @@ async fn test_keychain_vs_file_provider_comparison() {
             assert_eq!(keychain_manager.mode(), &KeyProviderMode::Keychain);
 
             // Both should support key generation
-            let _ = file_manager.generate_key("file-key", KeyAlgorithm::Ed25519).await;
-            let _ = keychain_manager.generate_key("keychain-key", KeyAlgorithm::Ed25519).await;
+            let _ = file_manager
+                .generate_key("file-key", KeyAlgorithm::Ed25519)
+                .await;
+            let _ = keychain_manager
+                .generate_key("keychain-key", KeyAlgorithm::Ed25519)
+                .await;
         }
         Err(_) => {
             // Keychain not available on this platform
@@ -376,7 +373,10 @@ async fn test_keychain_fallback_integration() {
         assert!(matches!(normal.backend(), KeychainBackend::MacOS));
 
         // Fallback should be PasswordFallback backend
-        assert!(matches!(fallback.backend(), KeychainBackend::PasswordFallback));
+        assert!(matches!(
+            fallback.backend(),
+            KeychainBackend::PasswordFallback
+        ));
     }
 
     std::env::remove_var("ADAPTEROS_KEYCHAIN_FALLBACK");

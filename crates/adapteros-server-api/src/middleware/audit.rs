@@ -175,8 +175,7 @@ pub async fn audit_middleware(
                         "Audit: operation succeeded"
                     );
                 }
-            } else if (status.is_client_error() || status.is_server_error())
-                && config.audit_failure
+            } else if (status.is_client_error() || status.is_server_error()) && config.audit_failure
             {
                 let error_reason = format!("HTTP {}", status.as_u16());
                 if let Err(e) = audit_helper::log_failure(

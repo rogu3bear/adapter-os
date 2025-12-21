@@ -76,8 +76,12 @@ fn test_router_ordering_and_q15_gates_are_stable() {
         let ids: Vec<String> = adapter_info.iter().map(|a| a.id.clone()).collect();
         PolicyMask::allow_all(&ids, None)
     };
-    let decision1 = router1.route_with_adapter_info(&features, &priors, &adapter_info, &mask);
-    let decision2 = router2.route_with_adapter_info(&features, &priors, &adapter_info, &mask);
+    let decision1 = router1
+        .route_with_adapter_info(&features, &priors, &adapter_info, &mask)
+        .expect("router decision");
+    let decision2 = router2
+        .route_with_adapter_info(&features, &priors, &adapter_info, &mask)
+        .expect("router decision");
 
     assert_eq!(
         decision1.indices, decision2.indices,
@@ -156,6 +160,7 @@ async fn test_replay_metadata_round_trip() {
         coreml_hash_mismatch: None,
         sampling_algorithm_version: Some("v1.0.0-test".to_string()),
         rag_snapshot_hash: Some("rag-snapshot-xyz".to_string()),
+        dataset_version_id: None,
         adapter_ids: Some(adapter_ids.clone()),
         base_only: None,
         prompt_text: "prompt determinism".to_string(),

@@ -361,10 +361,7 @@ impl PolicyAuditKvRepository {
                 .is_none_or(|v| &d.policy_pack_id == v))
                 && (filters.hook.as_ref().is_none_or(|v| &d.hook == v))
                 && (filters.decision.as_ref().is_none_or(|v| &d.decision == v))
-                && (filters
-                    .from_time
-                    .as_ref()
-                    .is_none_or(|v| &d.timestamp >= v))
+                && (filters.from_time.as_ref().is_none_or(|v| &d.timestamp >= v))
                 && (filters.to_time.as_ref().is_none_or(|v| &d.timestamp <= v))
         });
 

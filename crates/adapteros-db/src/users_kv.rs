@@ -148,18 +148,10 @@ pub trait UserKvOps {
     ) -> Result<()>;
 
     /// Update last login timestamp
-    async fn update_user_last_login_kv(
-        &self,
-        id: &str,
-        login_at: &str,
-    ) -> Result<()>;
+    async fn update_user_last_login_kv(&self, id: &str, login_at: &str) -> Result<()>;
 
     /// Update token rotation timestamp
-    async fn update_user_token_rotated_kv(
-        &self,
-        id: &str,
-        rotated_at: &str,
-    ) -> Result<()>;
+    async fn update_user_token_rotated_kv(&self, id: &str, rotated_at: &str) -> Result<()>;
 
     /// Delete user (with cascade cleanup of indexes)
     async fn delete_user_kv(&self, id: &str) -> Result<bool>;
@@ -679,11 +671,7 @@ impl<B: KvBackend> UserKvOps for UserKvRepository<B> {
         self.save_user(&user).await
     }
 
-    async fn update_user_last_login_kv(
-        &self,
-        id: &str,
-        login_at: &str,
-    ) -> Result<()> {
+    async fn update_user_last_login_kv(&self, id: &str, login_at: &str) -> Result<()> {
         let mut user = self
             .get_user_with_pw_hash(id)
             .await?
@@ -696,11 +684,7 @@ impl<B: KvBackend> UserKvOps for UserKvRepository<B> {
         self.save_user(&user).await
     }
 
-    async fn update_user_token_rotated_kv(
-        &self,
-        id: &str,
-        rotated_at: &str,
-    ) -> Result<()> {
+    async fn update_user_token_rotated_kv(&self, id: &str, rotated_at: &str) -> Result<()> {
         let mut user = self
             .get_user_with_pw_hash(id)
             .await?
@@ -829,7 +813,10 @@ pub fn kv_to_user(kv_user: &UserKv) -> User {
             .mfa_recovery_last_used_at
             .as_ref()
             .map(|ts| ts.to_rfc3339()),
-        password_rotated_at: kv_user.password_rotated_at.as_ref().map(|ts| ts.to_rfc3339()),
+        password_rotated_at: kv_user
+            .password_rotated_at
+            .as_ref()
+            .map(|ts| ts.to_rfc3339()),
         token_rotated_at: kv_user.token_rotated_at.as_ref().map(|ts| ts.to_rfc3339()),
         last_login_at: kv_user.last_login_at.as_ref().map(|ts| ts.to_rfc3339()),
     }

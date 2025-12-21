@@ -1159,6 +1159,6 @@ mod e2e_workflow_tests {
 mod e2e_workflow_stub {
     /// Stub marker so CI sees this suite but does not attempt to run it without MLX.
     #[test]
-    #[ignore = "requires --features mlx to run real MLX e2e workflows [tracking: STAB-IGN-001]"]
+    #[ignore = "requires --features mlx to run real MLX e2e workflows [tracking: STAB-IGN-0038]"]
     fn e2e_workflows_require_real_mlx() {}
 }

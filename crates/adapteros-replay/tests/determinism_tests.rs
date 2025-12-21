@@ -13,8 +13,6 @@ use tempfile::tempdir;
 mod test_helpers;
 use test_helpers::{create_deterministic_event, create_trace_bundle_with_values};
 
-
-
 #[test]
 fn test_hash_verifier_strict_identical() {
     let hash1 = B3Hash::hash(b"test_data");
@@ -41,14 +39,8 @@ fn test_tolerant_verifier_floating_point_exact() {
 #[test]
 fn test_tolerant_verifier_floating_point_epsilon() {
     // Values within epsilon should match
-    assert!(TolerantVerifier::compare_floating_point(
-        1.0,
-        1.0 + 1e-10
-    ));
-    assert!(TolerantVerifier::compare_floating_point(
-        1.0,
-        1.0 - 1e-10
-    ));
+    assert!(TolerantVerifier::compare_floating_point(1.0, 1.0 + 1e-10));
+    assert!(TolerantVerifier::compare_floating_point(1.0, 1.0 - 1e-10));
 
     // Values outside epsilon should not match
     assert!(!TolerantVerifier::compare_floating_point(1.0, 1.01));
@@ -58,10 +50,7 @@ fn test_tolerant_verifier_floating_point_epsilon() {
 #[test]
 fn test_tolerant_verifier_floating_point_special_values() {
     // NaN cases
-    assert!(TolerantVerifier::compare_floating_point(
-        f64::NAN,
-        f64::NAN
-    ));
+    assert!(TolerantVerifier::compare_floating_point(f64::NAN, f64::NAN));
     assert!(!TolerantVerifier::compare_floating_point(f64::NAN, 1.0));
     assert!(!TolerantVerifier::compare_floating_point(1.0, f64::NAN));
 
@@ -83,10 +72,7 @@ fn test_tolerant_verifier_floating_point_special_values() {
 #[test]
 fn test_tolerant_verifier_f32() {
     assert!(TolerantVerifier::compare_f32(1.0f32, 1.0f32));
-    assert!(TolerantVerifier::compare_f32(
-        1.0f32,
-        1.0f32 + 1e-9f32
-    ));
+    assert!(TolerantVerifier::compare_f32(1.0f32, 1.0f32 + 1e-9f32));
     assert!(!TolerantVerifier::compare_f32(1.0f32, 1.1f32));
 }
 
@@ -208,7 +194,10 @@ async fn test_compare_traces_identical() {
     match result {
         ComparisonResult::Identical => (),
         ComparisonResult::Divergent { reason, step } => {
-            panic!("Expected identical traces, got divergent: {} at step {}", reason, step);
+            panic!(
+                "Expected identical traces, got divergent: {} at step {}",
+                reason, step
+            );
         }
     }
 }
@@ -329,9 +318,8 @@ async fn test_replay_verification_mode_strict() {
     let bundle = create_trace_bundle_with_values(vec![1, 2, 3]);
     adapteros_trace::writer::write_trace_bundle(&trace_path, bundle).unwrap();
 
-    let mut session =
-        ReplaySession::from_log_with_mode(&trace_path, VerificationMode::Strict)
-            .expect("Failed to create strict session");
+    let mut session = ReplaySession::from_log_with_mode(&trace_path, VerificationMode::Strict)
+        .expect("Failed to create strict session");
 
     let result = session.run().await;
     assert!(result.is_ok(), "Strict verification failed: {:?}", result);
@@ -349,9 +337,8 @@ async fn test_replay_verification_mode_hash_only() {
     let bundle = create_trace_bundle_with_values(vec![1, 2, 3]);
     adapteros_trace::writer::write_trace_bundle(&trace_path, bundle).unwrap();
 
-    let mut session =
-        ReplaySession::from_log_with_mode(&trace_path, VerificationMode::HashOnly)
-            .expect("Failed to create hash-only session");
+    let mut session = ReplaySession::from_log_with_mode(&trace_path, VerificationMode::HashOnly)
+        .expect("Failed to create hash-only session");
 
     let result = session.run().await;
     assert!(

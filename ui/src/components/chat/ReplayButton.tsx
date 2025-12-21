@@ -218,6 +218,10 @@ export function ReplayButton({
         return <AlertCircle className="h-3 w-3 text-yellow-600" />;
       case 'degraded':
         return <AlertTriangle className="h-3 w-3 text-orange-600" />;
+      case 'failed_inference':
+        return <XCircle className="h-3 w-3 text-red-600" />;
+      case 'failed_capture':
+        return <AlertTriangle className="h-3 w-3 text-red-600" />;
       case 'unavailable':
         return <XCircle className="h-3 w-3 text-gray-400" />;
       default:
@@ -235,10 +239,10 @@ export function ReplayButton({
 
     const { status, unavailable_reasons, approximation_warnings } = availability;
 
-    if (status === 'unavailable') {
+    if (status === 'unavailable' || status === 'failed_inference' || status === 'failed_capture') {
       return (
         <div className="space-y-1">
-          <div className="font-semibold">Replay Unavailable</div>
+          <div className="font-semibold">{getReplayStatusLabel(status)}</div>
           {unavailable_reasons.length > 0 && (
             <ul className="text-xs list-disc pl-4 space-y-0.5">
               {unavailable_reasons.map((reason, idx) => (
@@ -269,7 +273,12 @@ export function ReplayButton({
     return 'Exact replay available - click to execute';
   };
 
-  const isDisabled = !availability || availability.status === 'unavailable' || isReplaying;
+  const isDisabled =
+    !availability
+    || availability.status === 'unavailable'
+    || availability.status === 'failed_inference'
+    || availability.status === 'failed_capture'
+    || isReplaying;
 
   return (
     <TooltipProvider>

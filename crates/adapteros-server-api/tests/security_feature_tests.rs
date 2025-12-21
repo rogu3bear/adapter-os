@@ -18,16 +18,14 @@
 use adapteros_crypto::Keypair;
 use adapteros_db::Db;
 use adapteros_server_api::auth::{
-    generate_token_ed25519, validate_token_ed25519,
-    encode_ed25519_public_key_pem, derive_kid_from_str, Claims, AuthMode, PrincipalType, JWT_ISSUER,
+    derive_kid_from_str, encode_ed25519_public_key_pem, generate_token_ed25519,
+    validate_token_ed25519, AuthMode, Claims, PrincipalType, JWT_ISSUER,
 };
 use adapteros_server_api::security::{
-    check_ip_access, add_ip_rule, remove_ip_rule, cleanup_expired_ip_rules,
-    check_rate_limit, update_rate_limit, reset_rate_limit,
-    revoke_token, is_token_revoked, revoke_all_user_tokens, cleanup_expired_revocations,
-    track_auth_attempt, is_account_locked, check_login_lockout,
-    validate_tenant_isolation, create_session,
-    AccessDecision,
+    add_ip_rule, check_ip_access, check_login_lockout, check_rate_limit, cleanup_expired_ip_rules,
+    cleanup_expired_revocations, create_session, is_account_locked, is_token_revoked,
+    remove_ip_rule, reset_rate_limit, revoke_all_user_tokens, revoke_token, track_auth_attempt,
+    update_rate_limit, validate_tenant_isolation, AccessDecision,
 };
 use chrono::{Duration, Utc};
 
@@ -153,7 +151,8 @@ mod jwt_validation_edge_cases {
 
         let public_pem = encode_ed25519_public_key_pem(&keypair.public_key().to_bytes());
         let kid = derive_kid_from_str(&public_pem);
-        let result = validate_token_ed25519(malformed_token, &[(kid, public_pem.clone())], &public_pem);
+        let result =
+            validate_token_ed25519(malformed_token, &[(kid, public_pem.clone())], &public_pem);
 
         assert!(result.is_err(), "Malformed token should be rejected");
     }
@@ -191,7 +190,10 @@ mod jwt_validation_edge_cases {
         let kid = derive_kid_from_str(&public_pem);
         let result = validate_token_ed25519(&token, &[(kid, public_pem.clone())], &public_pem);
 
-        assert!(result.is_err(), "Token with wrong signature should be rejected");
+        assert!(
+            result.is_err(),
+            "Token with wrong signature should be rejected"
+        );
     }
 
     #[test]
@@ -337,13 +339,29 @@ mod token_revocation_tests {
         let expires_at = (Utc::now() + Duration::hours(8)).to_rfc3339();
 
         // Revoke once
-        revoke_token(&db, jti, user_id, tenant_id, &expires_at, Some("admin"), Some("logout"))
-            .await
-            .expect("First revocation failed");
+        revoke_token(
+            &db,
+            jti,
+            user_id,
+            tenant_id,
+            &expires_at,
+            Some("admin"),
+            Some("logout"),
+        )
+        .await
+        .expect("First revocation failed");
 
         // Revoke again (should be idempotent due to ON CONFLICT DO NOTHING)
-        let result = revoke_token(&db, jti, user_id, tenant_id, &expires_at, Some("admin"), Some("logout"))
-            .await;
+        let result = revoke_token(
+            &db,
+            jti,
+            user_id,
+            tenant_id,
+            &expires_at,
+            Some("admin"),
+            Some("logout"),
+        )
+        .await;
         assert!(result.is_ok(), "Duplicate revocation should be idempotent");
 
         // Still revoked
@@ -574,20 +592,42 @@ mod ip_access_control_tests {
         let ip = "10.0.0.5";
 
         // Add to allowlist
-        add_ip_rule(&db, ip, None, "allow", Some("tenant-c"), "admin", Some("office"), None)
-            .await
-            .expect("Failed to add to allowlist");
+        add_ip_rule(
+            &db,
+            ip,
+            None,
+            "allow",
+            Some("tenant-c"),
+            "admin",
+            Some("office"),
+            None,
+        )
+        .await
+        .expect("Failed to add to allowlist");
 
         // Also add to denylist
-        add_ip_rule(&db, ip, None, "deny", Some("tenant-c"), "admin", Some("blocked"), None)
-            .await
-            .expect("Failed to add to denylist");
+        add_ip_rule(
+            &db,
+            ip,
+            None,
+            "deny",
+            Some("tenant-c"),
+            "admin",
+            Some("blocked"),
+            None,
+        )
+        .await
+        .expect("Failed to add to denylist");
 
         // Denylist should win
         let decision = check_ip_access(&db, ip, Some("tenant-c"))
             .await
             .expect("Failed to check IP access");
-        assert_eq!(decision, AccessDecision::Deny, "Denylist should override allowlist");
+        assert_eq!(
+            decision,
+            AccessDecision::Deny,
+            "Denylist should override allowlist"
+        );
     }
 
     #[tokio::test]
@@ -670,13 +710,21 @@ mod ip_access_control_tests {
         let decision = check_ip_access(&db, "192.168.2.1", Some("tenant-e"))
             .await
             .expect("Failed to check IP");
-        assert_eq!(decision, AccessDecision::Allow, "Expired rule should be removed");
+        assert_eq!(
+            decision,
+            AccessDecision::Allow,
+            "Expired rule should be removed"
+        );
 
         // Verify valid rule still active
         let decision = check_ip_access(&db, "192.168.2.2", Some("tenant-e"))
             .await
             .expect("Failed to check IP");
-        assert_eq!(decision, AccessDecision::Deny, "Valid rule should still be active");
+        assert_eq!(
+            decision,
+            AccessDecision::Deny,
+            "Valid rule should still be active"
+        );
     }
 }
 
@@ -695,7 +743,10 @@ mod auth_attempt_tracking_tests {
         let locked = is_account_locked(&db, "user@example.com", "192.168.1.1")
             .await
             .expect("Failed to check lock status");
-        assert!(!locked, "Account should not be locked after successful login");
+        assert!(
+            !locked,
+            "Account should not be locked after successful login"
+        );
     }
 
     #[tokio::test]
@@ -705,7 +756,7 @@ mod auth_attempt_tracking_tests {
         // Insert user first
         sqlx::query(
             "INSERT INTO users (id, email, display_name, pw_hash, role, tenant_id)
-             VALUES (?, ?, ?, ?, ?, ?)"
+             VALUES (?, ?, ?, ?, ?, ?)",
         )
         .bind("user-lockout")
         .bind("lockout@example.com")
@@ -742,7 +793,10 @@ mod auth_attempt_tracking_tests {
             .expect("Failed to check lockout state")
             .expect("Lockout state should exist");
 
-        assert!(lockout_state.until > Utc::now(), "Lockout should be in effect");
+        assert!(
+            lockout_state.until > Utc::now(),
+            "Lockout should be in effect"
+        );
     }
 
     #[tokio::test]
@@ -752,7 +806,7 @@ mod auth_attempt_tracking_tests {
         // Insert user
         sqlx::query(
             "INSERT INTO users (id, email, display_name, pw_hash, role, tenant_id)
-             VALUES (?, ?, ?, ?, ?, ?)"
+             VALUES (?, ?, ?, ?, ?, ?)",
         )
         .bind("user-reset")
         .bind("reset@example.com")
@@ -766,9 +820,15 @@ mod auth_attempt_tracking_tests {
 
         // Make 3 failed attempts
         for _ in 0..3 {
-            track_auth_attempt(&db, "reset@example.com", "192.168.1.3", false, Some("bad password"))
-                .await
-                .expect("Failed to track failed attempt");
+            track_auth_attempt(
+                &db,
+                "reset@example.com",
+                "192.168.1.3",
+                false,
+                Some("bad password"),
+            )
+            .await
+            .expect("Failed to track failed attempt");
         }
 
         // Successful login
@@ -780,7 +840,10 @@ mod auth_attempt_tracking_tests {
         let locked = is_account_locked(&db, "reset@example.com", "192.168.1.3")
             .await
             .expect("Failed to check lock status");
-        assert!(!locked, "Account should not be locked after successful login");
+        assert!(
+            !locked,
+            "Account should not be locked after successful login"
+        );
     }
 }
 
@@ -869,7 +932,10 @@ mod tenant_isolation_validation_tests {
         };
 
         let result = validate_tenant_isolation(&claims, "tenant-a");
-        assert!(result.is_ok(), "Admin with explicit access should be allowed");
+        assert!(
+            result.is_ok(),
+            "Admin with explicit access should be allowed"
+        );
     }
 
     #[test]
@@ -895,7 +961,10 @@ mod tenant_isolation_validation_tests {
         };
 
         let result = validate_tenant_isolation(&claims, "tenant-c");
-        assert!(result.is_err(), "Admin without explicit access should be denied");
+        assert!(
+            result.is_err(),
+            "Admin without explicit access should be denied"
+        );
     }
 }
 
@@ -928,7 +997,11 @@ mod http_status_code_tests {
 
         match validate_tenant_isolation(&claims, "tenant-b") {
             Err((status, _)) => {
-                assert_eq!(status, StatusCode::FORBIDDEN, "Should return 403 Forbidden for tenant isolation violation");
+                assert_eq!(
+                    status,
+                    StatusCode::FORBIDDEN,
+                    "Should return 403 Forbidden for tenant isolation violation"
+                );
             }
             Ok(_) => panic!("Expected tenant isolation error"),
         }
@@ -941,8 +1014,12 @@ mod http_status_code_tests {
 
         let public_pem = encode_ed25519_public_key_pem(&keypair.public_key().to_bytes());
         let kid = derive_kid_from_str(&public_pem);
-        let result = validate_token_ed25519(malformed_token, &[(kid, public_pem.clone())], &public_pem);
+        let result =
+            validate_token_ed25519(malformed_token, &[(kid, public_pem.clone())], &public_pem);
 
-        assert!(result.is_err(), "Invalid token should return error (401 in middleware)");
+        assert!(
+            result.is_err(),
+            "Invalid token should return error (401 in middleware)"
+        );
     }
 }

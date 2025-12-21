@@ -1,11 +1,11 @@
 ---
 source: crates/adapteros-server-api/tests/contract_snapshots.rs
-assertion_line: 332
 expression: "json!({\n    \"status\": evidence_create_status.as_u16(), \"body\": evidence_create_body\n})"
 ---
 {
   "body": {
     "code": "NOT_FOUND",
+    "hint": "Check server logs using `request_id` and retry",
     "message": "Not Found",
     "request_id": "<redacted>"
   },

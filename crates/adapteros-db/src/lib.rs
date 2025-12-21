@@ -95,8 +95,8 @@ pub use tenant_policy_bindings::{TenantPolicyBinding, ALL_POLICIES, CORE_POLICIE
 
 // Re-export query performance monitoring types
 pub use query_performance::{
-    QueryMetrics, QueryPerformanceMonitor, QueryStats,
-    ThresholdViolation, ViolationType, ViolationSeverity, MultiTenantConfig, ConcurrencyConfig,
+    ConcurrencyConfig, MultiTenantConfig, QueryMetrics, QueryPerformanceMonitor, QueryStats,
+    ThresholdViolation, ViolationSeverity, ViolationType,
 };
 
 // API keys
@@ -1920,12 +1920,16 @@ impl Db {
 
     /// Set global query timeout in milliseconds
     pub fn set_query_timeout(&self, timeout_ms: u64) {
-        self.query_timeout_ms.store(timeout_ms, std::sync::atomic::Ordering::Relaxed);
+        self.query_timeout_ms
+            .store(timeout_ms, std::sync::atomic::Ordering::Relaxed);
     }
 
     /// Get current query timeout
     pub fn get_query_timeout(&self) -> std::time::Duration {
-        std::time::Duration::from_millis(self.query_timeout_ms.load(std::sync::atomic::Ordering::Relaxed))
+        std::time::Duration::from_millis(
+            self.query_timeout_ms
+                .load(std::sync::atomic::Ordering::Relaxed),
+        )
     }
 
     /// Check rate limit for tenant
@@ -1951,7 +1955,10 @@ impl Db {
 
     /// Cache query plan
     pub fn cache_query_plan(&self, query_key: &str, plan: &str) {
-        self.plan_cache.write().unwrap().insert(query_key.to_string(), plan.to_string());
+        self.plan_cache
+            .write()
+            .unwrap()
+            .insert(query_key.to_string(), plan.to_string());
     }
 
     /// Prevent entering KV-only mode when unsupported domains remain.
@@ -2196,10 +2203,10 @@ impl Db {
     pub async fn list_adapters_by_tenant(&self, tenant_id: &str) -> Result<Vec<AdapterRecord>> {
         // Phase 2: Rate Limiting
         if !self.check_rate_limit(tenant_id) {
-             return Err(AosError::QuotaExceeded {
-                 resource: "adapter_listings".to_string(),
-                 failure_code: Some("RATE_LIMIT_EXCEEDED".to_string())
-             });
+            return Err(AosError::QuotaExceeded {
+                resource: "adapter_listings".to_string(),
+                failure_code: Some("RATE_LIMIT_EXCEEDED".to_string()),
+            });
         }
         self.increment_rate_limit(tenant_id);
 

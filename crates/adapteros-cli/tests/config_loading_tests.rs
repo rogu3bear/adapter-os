@@ -262,7 +262,7 @@ mod config_loading {
         assert!(matches!(config.backend, BackendPreference::Metal));
 
         // And flags should still be set
-        assert!(cli.json);
-        assert!(cli.verbose);
+        assert!(cli.is_json());
+        assert!(cli.is_verbose());
     }
 }

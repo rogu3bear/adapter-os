@@ -183,6 +183,46 @@ pub async fn check_availability(
         ));
     }
 
+    // Parse stored data (used for both failure and availability checks)
+    let sampling_params: SamplingParams =
+        serde_json::from_str(&metadata.sampling_params_json).unwrap_or_default();
+
+    let failure_status = match metadata.replay_status.as_str() {
+        "failed_inference" => Some(ReplayStatus::FailedInference),
+        "failed_capture" => Some(ReplayStatus::FailedCapture),
+        _ => None,
+    };
+
+    if let Some(status) = failure_status {
+        let mut unavailable_reasons = Vec::new();
+        match status {
+            ReplayStatus::FailedInference => {
+                unavailable_reasons
+                    .push("Original inference failed; no replayable output captured".to_string());
+            }
+            ReplayStatus::FailedCapture => {
+                unavailable_reasons
+                    .push("Replay metadata capture failed; replay key incomplete".to_string());
+            }
+            _ => {}
+        }
+
+        if let Some(code) = sampling_params.error_code.as_deref() {
+            unavailable_reasons.push(format!("Original error code: {}", code));
+        }
+
+        return Ok(Json(ReplayAvailabilityResponse {
+            inference_id,
+            status,
+            can_replay_exact: false,
+            can_replay_approximate: false,
+            unavailable_reasons,
+            approximation_warnings: vec![],
+            version_consistency_warning: None,
+            replay_key: None,
+        }));
+    }
+
     // PRD-02: Check manifest/backend compatibility with available workers
     let workers = state.db.list_healthy_workers().await.unwrap_or_default();
 
@@ -195,10 +235,6 @@ pub async fn check_availability(
     });
 
     let has_compatible_worker = compatible_worker.is_some();
-
-    // Parse stored data
-    let sampling_params: SamplingParams =
-        serde_json::from_str(&metadata.sampling_params_json).unwrap_or_default();
 
     let adapter_ids: Option<Vec<String>> = metadata
         .adapter_ids_json

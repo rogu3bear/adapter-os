@@ -1469,7 +1469,10 @@ pub async fn promote_version(
                 Json(
                     ErrorResponse::new("Failed to load adapter version")
                         .with_code("DATABASE_ERROR")
-                        .with_string_details(format!("Database error loading version '{}': {}", version_id, e)),
+                        .with_string_details(format!(
+                            "Database error loading version '{}': {}",
+                            version_id, e
+                        )),
                 ),
             )
         })?
@@ -1479,7 +1482,10 @@ pub async fn promote_version(
                 Json(
                     ErrorResponse::new("Adapter version not found")
                         .with_code("NOT_FOUND")
-                        .with_string_details(format!("Adapter version '{}' does not exist for tenant '{}'", version_id, claims.tenant_id)),
+                        .with_string_details(format!(
+                            "Adapter version '{}' does not exist for tenant '{}'",
+                            version_id, claims.tenant_id
+                        )),
                 ),
             )
         })?;
@@ -1490,7 +1496,10 @@ pub async fn promote_version(
             Json(
                 ErrorResponse::new("Version does not belong to repository")
                     .with_code("VALIDATION_ERROR")
-                    .with_string_details(format!("Version '{}' belongs to repository '{}', not '{}'", version_id, version.repo_id, repo_id)),
+                    .with_string_details(format!(
+                        "Version '{}' belongs to repository '{}', not '{}'",
+                        version_id, version.repo_id, repo_id
+                    )),
             ),
         ));
     }

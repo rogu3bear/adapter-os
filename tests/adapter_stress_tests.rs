@@ -151,7 +151,9 @@ async fn test_concurrent_load_different_adapters() -> Result<()> {
     // Verify database consistency
     let warm_adapters = db.list_adapters_by_state("default-tenant", "warm").await?;
     let cold_adapters = db.list_adapters_by_state("default-tenant", "cold").await?;
-    let loading_adapters = db.list_adapters_by_state("default-tenant", "loading").await?;
+    let loading_adapters = db
+        .list_adapters_by_state("default-tenant", "loading")
+        .await?;
 
     // All adapters should be in a consistent state (not stuck in "loading")
     assert_eq!(
@@ -464,7 +466,9 @@ async fn test_memory_pressure_concurrent_loads() -> Result<()> {
     // Verify database consistency
     let warm_adapters = db.list_adapters_by_state("default-tenant", "warm").await?;
     let cold_adapters = db.list_adapters_by_state("default-tenant", "cold").await?;
-    let loading_adapters = db.list_adapters_by_state("default-tenant", "loading").await?;
+    let loading_adapters = db
+        .list_adapters_by_state("default-tenant", "loading")
+        .await?;
 
     assert_eq!(
         loading_adapters.len(),

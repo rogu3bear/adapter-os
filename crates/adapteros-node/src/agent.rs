@@ -10,11 +10,11 @@ use tokio::sync::RwLock;
 use tracing::{error, info, warn};
 
 #[cfg(unix)]
+use nix::unistd::{close, Gid, Uid};
+#[cfg(unix)]
 use std::os::unix::io::AsRawFd;
 #[cfg(unix)]
 use std::os::unix::net::UnixStream;
-#[cfg(unix)]
-use nix::unistd::{close, Gid, Uid};
 
 #[derive(Debug, Clone)]
 pub struct WorkerInfo {

@@ -165,10 +165,8 @@ pub async fn context_middleware(req: Request<Body>, next: Next) -> Response {
 
     // Reconstruct request and continue
     let req = Request::from_parts(parts, body);
-    let mut response = adapteros_db::adapters::with_tenant_scope(|| async move {
-        next.run(req).await
-    })
-    .await;
+    let mut response =
+        adapteros_db::adapters::with_tenant_scope(|| async move { next.run(req).await }).await;
     // #region agent log
     if let Ok(mut file) = OpenOptions::new()
         .create(true)

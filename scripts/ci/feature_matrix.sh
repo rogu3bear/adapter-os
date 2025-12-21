@@ -7,6 +7,13 @@ cd "$ROOT_DIR"
 
 PROFILE="${PROFILE:-debug}"
 CARGO_ARGS=(--workspace --no-run --locked)
+CARGO_CMD=(cargo)
+
+if command -v rustup >/dev/null 2>&1; then
+  if rustup run nightly cargo --version >/dev/null 2>&1; then
+    CARGO_CMD=(rustup run nightly cargo)
+  fi
+fi
 
 if [[ "$PROFILE" == "release" ]]; then
   CARGO_ARGS+=(--release)
@@ -24,5 +31,5 @@ run() {
   "${cmd[@]}"
 }
 
-run "Default features (Cargo.toml defaults)" cargo test "${CARGO_ARGS[@]}"
-run "All features (drift check)" cargo test "${CARGO_ARGS[@]}" --all-features
+run "Default features (Cargo.toml defaults)" "${CARGO_CMD[@]}" test "${CARGO_ARGS[@]}"
+run "All features (drift check)" "${CARGO_CMD[@]}" test "${CARGO_ARGS[@]}" --all-features

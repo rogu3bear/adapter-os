@@ -74,7 +74,7 @@ async fn test_gpu_training_with_optional_backend() {
 }
 
 #[tokio::test]
-#[ignore = "select_optimal_backend is a private method - requires refactoring to expose or test differently [tracking: STAB-IGN-001]"]
+#[ignore = "select_optimal_backend is a private method - requires refactoring to expose or test differently [tracking: STAB-IGN-0047]"]
 async fn test_gpu_backend_selection() {
     // Test automatic GPU backend selection
     // NOTE: This test requires access to private method select_optimal_backend
@@ -153,7 +153,7 @@ fn test_training_config_builder_pattern() {
 }
 
 #[test]
-#[ignore = "detect_available_backends is a private method - requires refactoring to expose or test differently [tracking: STAB-IGN-001]"]
+#[ignore = "detect_available_backends is a private method - requires refactoring to expose or test differently [tracking: STAB-IGN-0048]"]
 fn test_available_backends_always_includes_cpu() {
     // CPU fallback should always be available
     // NOTE: This test requires access to private method detect_available_backends

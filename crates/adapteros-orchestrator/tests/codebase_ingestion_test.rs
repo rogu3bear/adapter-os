@@ -26,7 +26,7 @@ fn canonical_tokenizer_path() -> PathBuf {
 /// Test end-to-end codebase ingestion pipeline
 /// TODO: Requires tokenizer and model files, skipped in CI
 #[tokio::test]
-#[ignore = "Requires tokenizer and model files not available in CI [tracking: STAB-IGN-001]"]
+#[ignore = "Requires tokenizer and model files not available in CI [tracking: STAB-IGN-0060]"]
 async fn test_codebase_ingestion_end_to_end() {
     // Skip if tokenizer is not available
     let tokenizer_path = canonical_tokenizer_path();
@@ -142,7 +142,7 @@ It contains basic math utilities.
 /// Test determinism: same codebase should produce same hash
 /// TODO: Requires tokenizer and model files, skipped in CI
 #[tokio::test]
-#[ignore = "Requires tokenizer and model files not available in CI [tracking: STAB-IGN-001]"]
+#[ignore = "Requires tokenizer and model files not available in CI [tracking: STAB-IGN-0061]"]
 async fn test_determinism() {
     // Skip if tokenizer is not available
     let tokenizer_path = canonical_tokenizer_path();
@@ -231,7 +231,7 @@ pub fn square(n: i32) -> i32 {{
 /// Test that pipeline handles repositories with no documentation
 /// TODO: Requires tokenizer and model files, skipped in CI
 #[tokio::test]
-#[ignore = "Requires tokenizer and model files not available in CI [tracking: STAB-IGN-001]"]
+#[ignore = "Requires tokenizer and model files not available in CI [tracking: STAB-IGN-0062]"]
 async fn test_no_documentation() {
     let tokenizer_path = canonical_tokenizer_path();
     if !tokenizer_path.exists() {

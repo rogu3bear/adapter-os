@@ -5,7 +5,7 @@
 //! Also requires safetensors crate in dev-dependencies.
 
 #[tokio::test]
-#[ignore = "Pending CLI refactoring - commands module not exported [tracking: STAB-IGN-001]"]
+#[ignore = "Pending CLI refactoring - commands module not exported [tracking: STAB-IGN-0016]"]
 async fn quantize_qwen_processes_safetensors_file() {
     // TODO: Update imports once commands module is exported and safetensors added to dev-deps
 }

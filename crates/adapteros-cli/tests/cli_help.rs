@@ -12,7 +12,7 @@ mod tests {
     use std::process::Command;
 
     #[test]
-    #[ignore = "telemetry verify help not wired in aosctl binary [tracking: STAB-IGN-001]"]
+    #[ignore = "telemetry verify help not wired in aosctl binary [tracking: STAB-IGN-0005]"]
     fn help_contains_examples() {
         // Test the new git-style subcommand: `telemetry verify`
         let output = Command::new("cargo")
@@ -112,7 +112,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "manual subcommand not exposed in current aosctl binary [tracking: STAB-IGN-001]"]
+    #[ignore = "manual subcommand not exposed in current aosctl binary [tracking: STAB-IGN-0006]"]
     fn manual_command_exists() {
         let output = Command::new("cargo")
             .args(["run", "--bin", "aosctl", "--", "manual", "--help"])
@@ -123,7 +123,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "infer help output lacks Examples section in current build [tracking: STAB-IGN-001]"]
+    #[ignore = "infer help output lacks Examples section in current build [tracking: STAB-IGN-0007]"]
     fn help_contains_examples_infer() {
         let output = Command::new("cargo")
             .args(["run", "--bin", "aosctl", "--", "infer", "--help"])

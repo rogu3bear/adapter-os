@@ -206,8 +206,7 @@ async fn test_global_models_visible_to_all_tenants() -> Result<()> {
     create_test_tenant(&db, "tenant-b").await?;
 
     // Create a global model (tenant_id = NULL)
-    let global_model_id =
-        create_test_model(&db, "global-model", "Global Model", None).await?;
+    let global_model_id = create_test_model(&db, "global-model", "Global Model", None).await?;
 
     // Set import_status to 'available' so it can be found by name
     sqlx::query("UPDATE models SET import_status = 'available' WHERE id = ?")
@@ -216,7 +215,9 @@ async fn test_global_models_visible_to_all_tenants() -> Result<()> {
         .await?;
 
     // Tenant A should see the global model
-    let model_a = db.get_model_for_tenant("tenant-a", &global_model_id).await?;
+    let model_a = db
+        .get_model_for_tenant("tenant-a", &global_model_id)
+        .await?;
     assert!(model_a.is_some(), "tenant-a should see global model");
     assert_eq!(
         model_a.unwrap().tenant_id,
@@ -225,7 +226,9 @@ async fn test_global_models_visible_to_all_tenants() -> Result<()> {
     );
 
     // Tenant B should also see the global model
-    let model_b = db.get_model_for_tenant("tenant-b", &global_model_id).await?;
+    let model_b = db
+        .get_model_for_tenant("tenant-b", &global_model_id)
+        .await?;
     assert!(model_b.is_some(), "tenant-b should see global model");
     assert_eq!(
         model_b.unwrap().tenant_id,
@@ -265,14 +268,15 @@ async fn test_load_model_denies_cross_tenant_access() -> Result<()> {
     create_test_tenant(&state.db, "tenant-b").await?;
 
     // Create model for tenant-a
-    let model_a_id =
-        create_test_model(&state.db, "model-a", "Model A", Some("tenant-a")).await?;
+    let model_a_id = create_test_model(&state.db, "model-a", "Model A", Some("tenant-a")).await?;
 
     // Set model_path so validation passes
-    sqlx::query("UPDATE models SET model_path = '/tmp/dummy', import_status = 'available' WHERE id = ?")
-        .bind(&model_a_id)
-        .execute(state.db.pool())
-        .await?;
+    sqlx::query(
+        "UPDATE models SET model_path = '/tmp/dummy', import_status = 'available' WHERE id = ?",
+    )
+    .bind(&model_a_id)
+    .execute(state.db.pool())
+    .await?;
 
     // Tenant B tries to load tenant A's model
     let claims_b = create_test_claims("user-b", "user-b@tenant-b.com", "operator", "tenant-b");
@@ -307,8 +311,7 @@ async fn test_unload_model_denies_cross_tenant_access() -> Result<()> {
     create_test_tenant(&state.db, "tenant-b").await?;
 
     // Create model for tenant-a
-    let model_a_id =
-        create_test_model(&state.db, "model-a", "Model A", Some("tenant-a")).await?;
+    let model_a_id = create_test_model(&state.db, "model-a", "Model A", Some("tenant-a")).await?;
 
     // Tenant B tries to unload tenant A's model
     let claims_b = create_test_claims("user-b", "user-b@tenant-b.com", "operator", "tenant-b");
@@ -343,8 +346,7 @@ async fn test_get_model_status_denies_cross_tenant_access() -> Result<()> {
     create_test_tenant(&state.db, "tenant-b").await?;
 
     // Create model for tenant-a
-    let model_a_id =
-        create_test_model(&state.db, "model-a", "Model A", Some("tenant-a")).await?;
+    let model_a_id = create_test_model(&state.db, "model-a", "Model A", Some("tenant-a")).await?;
 
     // Tenant B tries to get status of tenant A's model
     let claims_b = create_test_claims("user-b", "user-b@tenant-b.com", "viewer", "tenant-b");
@@ -379,8 +381,7 @@ async fn test_validate_model_denies_cross_tenant_access() -> Result<()> {
     create_test_tenant(&state.db, "tenant-b").await?;
 
     // Create model for tenant-a
-    let model_a_id =
-        create_test_model(&state.db, "model-a", "Model A", Some("tenant-a")).await?;
+    let model_a_id = create_test_model(&state.db, "model-a", "Model A", Some("tenant-a")).await?;
 
     // Tenant B tries to validate tenant A's model
     let claims_b = create_test_claims("user-b", "user-b@tenant-b.com", "viewer", "tenant-b");
@@ -486,9 +487,7 @@ async fn test_list_models_respects_tenant_boundaries() -> Result<()> {
     let tenant_a_models: Vec<_> = result_a
         .models
         .iter()
-        .filter(|m| {
-            m.tenant_id.as_deref() == Some("tenant-a") || m.tenant_id.is_none()
-        })
+        .filter(|m| m.tenant_id.as_deref() == Some("tenant-a") || m.tenant_id.is_none())
         .collect();
 
     // Should see 2 own models + 1 global
@@ -539,8 +538,7 @@ async fn test_global_model_accessible_to_all_tenants_via_handlers() -> Result<()
     create_test_tenant(&state.db, "tenant-b").await?;
 
     // Create a global model (tenant_id = NULL)
-    let global_model_id =
-        create_test_model(&state.db, "global", "Global Model", None).await?;
+    let global_model_id = create_test_model(&state.db, "global", "Global Model", None).await?;
 
     // Tenant A can get status of global model
     let claims_a = create_test_claims("user-a", "user-a@tenant-a.com", "viewer", "tenant-a");
@@ -584,12 +582,9 @@ async fn test_tenants_can_have_models_with_same_name() -> Result<()> {
     create_test_tenant(&db, "tenant-c").await?;
 
     // Create models with same name across tenants
-    let model_a_id =
-        create_test_model(&db, "model-a", "common-model", Some("tenant-a")).await?;
-    let model_b_id =
-        create_test_model(&db, "model-b", "common-model", Some("tenant-b")).await?;
-    let model_c_id =
-        create_test_model(&db, "model-c", "common-model", Some("tenant-c")).await?;
+    let model_a_id = create_test_model(&db, "model-a", "common-model", Some("tenant-a")).await?;
+    let model_b_id = create_test_model(&db, "model-b", "common-model", Some("tenant-b")).await?;
+    let model_c_id = create_test_model(&db, "model-c", "common-model", Some("tenant-c")).await?;
 
     // Set all to available
     sqlx::query("UPDATE models SET import_status = 'available'")
@@ -640,14 +635,11 @@ async fn test_admin_with_wildcard_can_access_any_tenant_model() -> Result<()> {
     create_test_tenant(&state.db, "tenant-b").await?;
 
     // Create models for different tenants
-    let model_a_id =
-        create_test_model(&state.db, "model-a", "Model A", Some("tenant-a")).await?;
-    let model_b_id =
-        create_test_model(&state.db, "model-b", "Model B", Some("tenant-b")).await?;
+    let model_a_id = create_test_model(&state.db, "model-a", "Model A", Some("tenant-a")).await?;
+    let model_b_id = create_test_model(&state.db, "model-b", "Model B", Some("tenant-b")).await?;
 
     // Admin with wildcard access
-    let mut admin_claims =
-        create_test_claims("admin", "admin@system.com", "admin", "system");
+    let mut admin_claims = create_test_claims("admin", "admin@system.com", "admin", "system");
     admin_claims.admin_tenants = vec!["*".to_string()];
 
     // Admin can list all models
@@ -735,20 +727,13 @@ async fn test_model_with_null_tenant_id_treated_as_global() -> Result<()> {
 
     // Verify tenant_id is NULL
     let model = db.get_model(&null_model_id).await?.unwrap();
-    assert_eq!(
-        model.tenant_id, None,
-        "Model should have NULL tenant_id"
-    );
+    assert_eq!(model.tenant_id, None, "Model should have NULL tenant_id");
 
     // Both tenants should see this model
-    let seen_by_a = db
-        .get_model_for_tenant("tenant-a", &null_model_id)
-        .await?;
+    let seen_by_a = db.get_model_for_tenant("tenant-a", &null_model_id).await?;
     assert!(seen_by_a.is_some(), "tenant-a should see NULL-tenant model");
 
-    let seen_by_b = db
-        .get_model_for_tenant("tenant-b", &null_model_id)
-        .await?;
+    let seen_by_b = db.get_model_for_tenant("tenant-b", &null_model_id).await?;
     assert!(seen_by_b.is_some(), "tenant-b should see NULL-tenant model");
 
     Ok(())
@@ -769,12 +754,7 @@ async fn test_viewer_cannot_load_model() -> Result<()> {
     // Viewer tries to load model
     let claims = create_test_claims("viewer", "viewer@tenant-a.com", "viewer", "tenant-a");
 
-    let result = load_model(
-        State(state.clone()),
-        Extension(claims),
-        Path(model_id),
-    )
-    .await;
+    let result = load_model(State(state.clone()), Extension(claims), Path(model_id)).await;
 
     // Should return 403 FORBIDDEN (no permission)
     match result {

@@ -557,7 +557,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "Blocked: dequantization logic needs to match quantization - roundtrip fails with error > 0.1 [tracking: STAB-IGN-001]"]
+    #[ignore = "Blocked: dequantization logic needs to match quantization - roundtrip fails with error > 0.1 [tracking: STAB-IGN-0034]"]
     fn test_dequantize_int8_roundtrip() {
         let original = vec![0.5, -0.3, 0.8, -0.1];
         let quantized = MLXQuantizer::quantize_int8(&original, 2, &[4]).unwrap();
@@ -581,7 +581,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "Blocked: dequantization logic needs to match quantization - roundtrip fails with error > 0.1 [tracking: STAB-IGN-001]"]
+    #[ignore = "Blocked: dequantization logic needs to match quantization - roundtrip fails with error > 0.1 [tracking: STAB-IGN-0035]"]
     fn test_dequantize_int4_roundtrip() {
         let original = vec![0.5, -0.3, 0.8, -0.1];
         let quantized = MLXQuantizer::quantize_int4(&original, 2, &[4]).unwrap();

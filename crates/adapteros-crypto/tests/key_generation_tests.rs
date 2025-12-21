@@ -7,9 +7,7 @@
 //! - Provider-specific behaviors
 //! - Error handling
 
-use adapteros_crypto::{
-    KeyAlgorithm, KeyManager, KeyManagerConfig, KeyProviderMode,
-};
+use adapteros_crypto::{KeyAlgorithm, KeyManager, KeyManagerConfig, KeyProviderMode};
 use tempfile::TempDir;
 
 fn new_test_tempdir() -> TempDir {
@@ -39,7 +37,7 @@ async fn test_ed25519_key_generation() {
         .await
         .unwrap();
 
-    assert_eq!(handle.key_id, "test-ed25519");
+    assert_eq!(handle.provider_id, "test-ed25519");
     assert!(matches!(handle.algorithm, KeyAlgorithm::Ed25519));
 }
 
@@ -64,7 +62,7 @@ async fn test_aes256_key_generation() {
         .await
         .unwrap();
 
-    assert_eq!(handle.key_id, "test-aes");
+    assert_eq!(handle.provider_id, "test-aes");
     assert!(matches!(handle.algorithm, KeyAlgorithm::Aes256Gcm));
 }
 
@@ -97,9 +95,9 @@ async fn test_multiple_key_generation() {
         .await
         .unwrap();
 
-    assert_eq!(handle1.key_id, "key-1");
-    assert_eq!(handle2.key_id, "key-2");
-    assert_eq!(handle3.key_id, "key-3");
+    assert_eq!(handle1.provider_id, "key-1");
+    assert_eq!(handle2.provider_id, "key-2");
+    assert_eq!(handle3.provider_id, "key-3");
 }
 
 #[tokio::test]
@@ -206,9 +204,15 @@ async fn test_key_rotation_receipt() {
     assert_eq!(receipt.key_id, "receipt-test");
     assert!(receipt.timestamp > 0);
     assert!(!receipt.signature.is_empty());
-    assert!(receipt.old_key_fingerprint.len() > 0);
-    assert!(receipt.new_key_fingerprint.len() > 0);
-    assert_ne!(receipt.old_key_fingerprint, receipt.new_key_fingerprint);
+    assert_eq!(receipt.previous_key.provider_id, "receipt-test");
+    assert_eq!(receipt.new_key.provider_id, "receipt-test");
+    let previous_public = receipt
+        .previous_key
+        .public_key
+        .as_ref()
+        .expect("previous public key");
+    let new_public = receipt.new_key.public_key.as_ref().expect("new public key");
+    assert_ne!(previous_public, new_public);
 }
 
 #[tokio::test]
@@ -415,5 +419,5 @@ async fn test_attestation() {
 
     assert!(!attestation.fingerprint.is_empty());
     assert!(attestation.timestamp > 0);
-    assert!(matches!(attestation.mode, KeyProviderMode::File));
+    assert!(matches!(attestation.provider_type.as_str(), "file" | "env"));
 }

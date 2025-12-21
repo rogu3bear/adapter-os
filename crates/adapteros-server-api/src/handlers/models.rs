@@ -1044,8 +1044,7 @@ pub async fn validate_model(
     // Validate optional license hash if present
     if let Some(license_hash) = &model.license_hash_b3 {
         if !license_hash.is_empty()
-            && (license_hash.len() != 64
-                || !license_hash.chars().all(|c| c.is_ascii_hexdigit()))
+            && (license_hash.len() != 64 || !license_hash.chars().all(|c| c.is_ascii_hexdigit()))
         {
             errors.push(format!(
                 "Invalid license hash format: expected 64-char hex, got {}",
@@ -1390,17 +1389,21 @@ pub async fn list_models_with_stats(
 ) -> Result<Json<ModelListResponse>, (StatusCode, Json<ErrorResponse>)> {
     use tracing::error;
 
-    let models_with_stats = state.db.list_models_with_stats(&claims.tenant_id).await.map_err(|e| {
-        error!("Failed to list models with stats: {}", e);
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("database error")
-                    .with_code("DATABASE_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
+    let models_with_stats = state
+        .db
+        .list_models_with_stats(&claims.tenant_id)
+        .await
+        .map_err(|e| {
+            error!("Failed to list models with stats: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("database error")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
 
     let total = models_with_stats.len();
     let models = models_with_stats

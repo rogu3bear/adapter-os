@@ -32,6 +32,7 @@ pub mod circuit_breaker;
 pub mod constants;
 pub mod context_hash;
 pub mod context_manifest;
+pub mod defaults;
 pub mod determinism;
 pub mod determinism_mode;
 pub mod error;

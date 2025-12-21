@@ -857,7 +857,7 @@ fn test_effective_adapter_ids_serializes_correctly() {
 #[tokio::test]
 #[cfg_attr(
     not(feature = "hardware-residency"),
-    ignore = "Requires hardware-residency feature and real worker [tracking: STAB-IGN-001]"
+    ignore = "Requires hardware-residency feature and real worker [tracking: STAB-IGN-0222]"
 )]
 async fn test_worker_rejects_invalid_pinned_adapter() {
     // This test would require a full Worker instance
@@ -876,7 +876,7 @@ async fn test_worker_rejects_invalid_pinned_adapter() {
 #[tokio::test]
 #[cfg_attr(
     not(feature = "hardware-residency"),
-    ignore = "Requires hardware-residency feature and real worker [tracking: STAB-IGN-001]"
+    ignore = "Requires hardware-residency feature and real worker [tracking: STAB-IGN-0223]"
 )]
 async fn test_worker_strict_mode_no_fallback() {
     // This test would verify that strict_mode prevents fallback
@@ -894,7 +894,7 @@ async fn test_worker_strict_mode_no_fallback() {
 #[tokio::test]
 #[cfg_attr(
     not(feature = "hardware-residency"),
-    ignore = "Requires hardware-residency feature and real worker [tracking: STAB-IGN-001]"
+    ignore = "Requires hardware-residency feature and real worker [tracking: STAB-IGN-0224]"
 )]
 async fn test_worker_non_strict_mode_fallback_triggers() {
     // This test would verify that non-strict mode allows fallback
@@ -914,7 +914,7 @@ async fn test_worker_non_strict_mode_fallback_triggers() {
 #[tokio::test]
 #[cfg_attr(
     not(feature = "hardware-residency"),
-    ignore = "Requires hardware-residency feature and real worker [tracking: STAB-IGN-001]"
+    ignore = "Requires hardware-residency feature and real worker [tracking: STAB-IGN-0225]"
 )]
 async fn test_response_surfaces_fallback_triggered() {
     // Verify that InferenceResponse correctly surfaces fallback_triggered field
@@ -931,7 +931,7 @@ async fn test_response_surfaces_fallback_triggered() {
 #[tokio::test]
 #[cfg_attr(
     not(feature = "hardware-residency"),
-    ignore = "Requires hardware-residency feature [tracking: STAB-IGN-001]"
+    ignore = "Requires hardware-residency feature [tracking: STAB-IGN-0226]"
 )]
 async fn test_telemetry_emits_effective_adapter_ids() {
     // Verify that telemetry correctly captures effective_adapter_ids

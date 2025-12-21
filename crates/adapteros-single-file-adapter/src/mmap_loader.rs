@@ -677,7 +677,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "FIXME: This test hangs indefinitely - investigate ZIP parsing performance issue [tracking: STAB-IGN-001]"]
+    #[ignore = "FIXME: This test hangs indefinitely - investigate ZIP parsing performance issue [tracking: STAB-IGN-0156]"]
     async fn test_mmap_vs_standard_manifest() {
         let temp_dir = new_test_tempdir();
         let aos_path = temp_dir.path().join("mmap_manifest_test.aos");

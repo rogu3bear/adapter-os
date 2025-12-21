@@ -595,6 +595,12 @@ impl<'a> InferenceCore<'a> {
 
         let _inference_span_guard = inference_span.enter();
 
+        let should_capture = match &replay_context {
+            None => true,
+            Some(ctx) => !ctx.skip_metadata_capture,
+        };
+
+        let result = async {
         if let Some(ref ctx) = replay_context {
             info!(
                 request_id = %request.request_id,
@@ -1163,11 +1169,6 @@ impl<'a> InferenceCore<'a> {
         // │ This enables full audit trail regardless of pipeline path used. │
         // └─────────────────────────────────────────────────────────────────┘
         // Skip for replay-of-replay to avoid recursive metadata creation
-        let should_capture = match &replay_context {
-            None => true,
-            Some(ctx) => !ctx.skip_metadata_capture,
-        };
-
         if should_capture {
             self.capture_replay_metadata(
                 &request,
@@ -1441,7 +1442,7 @@ impl<'a> InferenceCore<'a> {
             rag_evidence,
             citations,
             latency_ms,
-            request_id: request.request_id,
+            request_id: request.request_id.clone(),
             unavailable_pinned_adapters: unavailable_pinned,
             pinned_routing_fallback,
             effective_adapter_ids: request.effective_adapter_ids.clone(),
@@ -1460,6 +1461,23 @@ impl<'a> InferenceCore<'a> {
             stop_reason_token_index: worker_response.stop_reason_token_index,
             stop_policy_digest_b3: worker_response.stop_policy_digest_b3.clone(),
         })
+        }
+        .await;
+
+        if let Err(err) = &result {
+            if should_capture {
+                let latency_ms = start_time.elapsed().as_millis() as u64;
+                self.capture_failed_replay_metadata(&request, err, latency_ms)
+                    .await;
+            } else {
+                debug!(
+                    request_id = %request.request_id,
+                    "Skipping replay metadata capture on error (skip_metadata_capture=true)"
+                );
+            }
+        }
+
+        result
     }
 
     /// Execute inference replay through the unified pipeline
@@ -2478,6 +2496,184 @@ impl<'a> InferenceCore<'a> {
         }
     }
 
+    fn build_minimal_replay_metadata_params(
+        &self,
+        request: &InferenceRequestInternal,
+        latency_ms: Option<u64>,
+        replay_status: &str,
+        error_code: Option<&str>,
+    ) -> CreateReplayMetadataParams {
+        let manifest_hash = self
+            .state
+            .manifest_hash
+            .as_deref()
+            .unwrap_or("unknown")
+            .to_string();
+        let backend = self
+            .state
+            .backend_name
+            .clone()
+            .unwrap_or_else(|| "unknown".to_string());
+
+        let cfg = PlacementConfig::from_env();
+        let mode_str = match cfg.mode {
+            adapteros_config::PlacementMode::Balanced => "balanced",
+            adapteros_config::PlacementMode::Latency => "latency",
+            adapteros_config::PlacementMode::Energy => "energy",
+            adapteros_config::PlacementMode::Thermal => "thermal",
+            adapteros_config::PlacementMode::Off => "off",
+        };
+
+        let sampling_params = SamplingParams {
+            temperature: request.temperature,
+            top_k: request.top_k,
+            top_p: request.top_p,
+            max_tokens: request.max_tokens,
+            seed: request.seed,
+            error_code: error_code.map(|code| code.to_string()),
+            seed_mode: request.seed_mode,
+            backend_profile: request.backend_profile,
+            request_seed_hex: request.request_seed.as_ref().map(hex::encode),
+            placement: Some(PlacementReplay {
+                mode: mode_str.to_string(),
+                weights: cfg.weights.into(),
+                trace: Vec::new(),
+            }),
+        };
+        let sampling_params_json = serde_json::to_string(&sampling_params).unwrap_or_default();
+
+        let prompt_truncated = request.prompt.len() > MAX_REPLAY_TEXT_SIZE;
+        let prompt_text = if prompt_truncated {
+            request.prompt.chars().take(MAX_REPLAY_TEXT_SIZE).collect()
+        } else {
+            request.prompt.clone()
+        };
+
+        let adapter_ids = request
+            .effective_adapter_ids
+            .clone()
+            .or_else(|| request.adapters.clone());
+        let base_only = matches!(
+            request.effective_adapter_ids.as_ref(),
+            Some(ids) if ids.is_empty()
+        );
+
+        let stop_policy_json = request
+            .stop_policy
+            .as_ref()
+            .and_then(|sp| serde_json::to_string(sp).ok());
+
+        CreateReplayMetadataParams {
+            inference_id: request.request_id.clone(),
+            tenant_id: request.cpid.clone(),
+            manifest_hash,
+            base_model_id: request.model.clone(),
+            router_seed: request.router_seed.clone(),
+            sampling_params_json,
+            backend,
+            backend_version: None,
+            coreml_package_hash: None,
+            coreml_expected_package_hash: None,
+            coreml_hash_mismatch: None,
+            sampling_algorithm_version: Some(SAMPLING_ALGORITHM_VERSION.to_string()),
+            rag_snapshot_hash: None,
+            dataset_version_id: request.dataset_version_id.clone(),
+            adapter_ids,
+            base_only: if base_only { Some(true) } else { None },
+            prompt_text,
+            prompt_truncated,
+            response_text: None,
+            response_truncated: false,
+            rag_doc_ids: None,
+            chat_context_hash: request.chat_context_hash.clone(),
+            replay_status: Some(replay_status.to_string()),
+            latency_ms: latency_ms.map(|ms| ms as i32),
+            tokens_generated: None,
+            determinism_mode: request.determinism_mode.clone(),
+            fallback_triggered: false,
+            coreml_compute_preference: None,
+            coreml_compute_units: None,
+            coreml_gpu_used: None,
+            fallback_backend: None,
+            replay_guarantee: Some("none".to_string()),
+            execution_policy_id: None,
+            execution_policy_version: None,
+            stop_policy_json,
+        }
+    }
+
+    async fn capture_failed_replay_metadata(
+        &self,
+        request: &InferenceRequestInternal,
+        error: &InferenceError,
+        latency_ms: u64,
+    ) {
+        let params = self.build_minimal_replay_metadata_params(
+            request,
+            Some(latency_ms),
+            "failed_inference",
+            Some(error.error_code()),
+        );
+
+        if let Err(e) = self.state.db.create_replay_metadata(params).await {
+            warn!(
+                request_id = %request.request_id,
+                error = %e,
+                "Failed to capture replay metadata for failed inference"
+            );
+            self.record_failed_capture(request, Some(latency_ms), Some(error.error_code()))
+                .await;
+        } else {
+            debug!(
+                request_id = %request.request_id,
+                error_code = %error.error_code(),
+                "Captured replay metadata for failed inference"
+            );
+        }
+    }
+
+    async fn record_failed_capture(
+        &self,
+        request: &InferenceRequestInternal,
+        latency_ms: Option<u64>,
+        error_code: Option<&str>,
+    ) {
+        let params = self.build_minimal_replay_metadata_params(
+            request,
+            latency_ms,
+            "failed_capture",
+            error_code,
+        );
+
+        match self.state.db.create_replay_metadata(params).await {
+            Ok(_) => {
+                debug!(
+                    request_id = %request.request_id,
+                    "Recorded failed_capture replay metadata"
+                );
+            }
+            Err(e) => {
+                warn!(
+                    request_id = %request.request_id,
+                    error = %e,
+                    "Failed to record failed_capture replay metadata"
+                );
+                if let Err(update_err) = self
+                    .state
+                    .db
+                    .update_replay_status(&request.request_id, "failed_capture")
+                    .await
+                {
+                    warn!(
+                        request_id = %request.request_id,
+                        error = %update_err,
+                        "Failed to update replay status to failed_capture"
+                    );
+                }
+            }
+        }
+    }
+
     /// Capture replay metadata for deterministic replay
     ///
     /// Stores all parameters needed to replay this inference exactly:
@@ -2566,6 +2762,7 @@ impl<'a> InferenceCore<'a> {
             top_p: request.top_p,
             max_tokens: request.max_tokens,
             seed: request.seed,
+            error_code: None,
             seed_mode: request.seed_mode,
             backend_profile: request.backend_profile,
             request_seed_hex: request.request_seed.as_ref().map(hex::encode),
@@ -2699,6 +2896,8 @@ impl<'a> InferenceCore<'a> {
                 error = %e,
                 "Failed to capture replay metadata"
             );
+            self.record_failed_capture(request, Some(latency_ms), None)
+                .await;
         } else {
             debug!(
                 request_id = %request.request_id,
@@ -2948,6 +3147,7 @@ mod tests {
             top_p: Some(0.9),
             max_tokens: 100,
             seed: Some(42),
+            error_code: None,
             seed_mode: None,
             backend_profile: None,
             request_seed_hex: None,
@@ -2978,6 +3178,7 @@ mod tests {
             top_p: None,
             max_tokens: 256,
             seed: None,
+            error_code: None,
             seed_mode: None,
             backend_profile: None,
             request_seed_hex: None,
@@ -3001,6 +3202,7 @@ mod tests {
             top_p: None,
             max_tokens: 100,
             seed: Some(0), // Seed still matters for tie-breaking
+            error_code: None,
             seed_mode: None,
             backend_profile: None,
             request_seed_hex: None,

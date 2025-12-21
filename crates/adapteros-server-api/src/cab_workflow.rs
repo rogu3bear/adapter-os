@@ -452,7 +452,7 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    #[ignore = "Requires SQLite test database - run with: cargo test --release -- --ignored [tracking: STAB-IGN-001]"]
+    #[ignore = "Requires SQLite test database - run with: cargo test --release -- --ignored [tracking: STAB-IGN-0065]"]
     async fn test_cab_workflow_promotion() {
         // Note: This test requires a test database with proper schema
         // Run with: cargo test --package adapteros-server-api test_cab_workflow_promotion -- --ignored

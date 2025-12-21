@@ -220,10 +220,7 @@ fn test_replay_bundle_signature_file_location() {
     let sig_path = bundle.signature_path();
 
     // Signature path should be bundle path with .sig extension
-    assert_eq!(
-        sig_path,
-        temp_dir.path().join("my_bundle.ndjson.sig")
-    );
+    assert_eq!(sig_path, temp_dir.path().join("my_bundle.ndjson.sig"));
 }
 
 #[test]

@@ -3423,6 +3423,9 @@ pub struct SamplingParams {
     /// Random seed for reproducibility (None for non-deterministic)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub seed: Option<u64>,
+    /// Error code captured for failed inference metadata (if any)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_code: Option<String>,
     /// Seed mode applied for request seed derivation
     #[serde(skip_serializing_if = "Option::is_none")]
     pub seed_mode: Option<SeedMode>,
@@ -3445,6 +3448,7 @@ impl Default for SamplingParams {
             top_p: Some(0.95),
             max_tokens: 512,
             seed: None,
+            error_code: None,
             seed_mode: None,
             backend_profile: None,
             request_seed_hex: None,
@@ -3497,6 +3501,10 @@ pub enum ReplayStatus {
     Approximate,
     /// Some RAG documents are missing
     Degraded,
+    /// Original inference failed (no replayable output)
+    FailedInference,
+    /// Replay metadata capture failed (record incomplete)
+    FailedCapture,
     /// Critical components missing (manifest, backend)
     Unavailable,
 }
@@ -3507,6 +3515,8 @@ impl std::fmt::Display for ReplayStatus {
             Self::Available => write!(f, "available"),
             Self::Approximate => write!(f, "approximate"),
             Self::Degraded => write!(f, "degraded"),
+            Self::FailedInference => write!(f, "failed_inference"),
+            Self::FailedCapture => write!(f, "failed_capture"),
             Self::Unavailable => write!(f, "unavailable"),
         }
     }

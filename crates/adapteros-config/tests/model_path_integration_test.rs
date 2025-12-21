@@ -16,8 +16,8 @@ use adapteros_config::{
 };
 mod test_env;
 use std::path::PathBuf;
-use test_env::TestEnvGuard;
 use tempfile::TempDir;
+use test_env::TestEnvGuard;
 
 fn new_test_tempdir() -> TempDir {
     let root = PathBuf::from("var").join("tmp");

@@ -67,11 +67,7 @@ fn test_all_policies_have_metadata() {
         let description = policy_id.description();
         let enforcement_point = policy_id.enforcement_point();
 
-        assert!(
-            !name.is_empty(),
-            "Policy {:?} must have a name",
-            policy_id
-        );
+        assert!(!name.is_empty(), "Policy {:?} must have a name", policy_id);
         assert!(
             !description.is_empty(),
             "Policy {:?} must have a description",
@@ -137,7 +133,10 @@ fn test_egress_policy_validation() {
         "TCP connections should be blocked in prod mode"
     );
     assert!(
-        result.violations.iter().any(|v| v.policy_pack == "Egress Ruleset"),
+        result
+            .violations
+            .iter()
+            .any(|v| v.policy_pack == "Egress Ruleset"),
         "Should have Egress policy violation"
     );
 }
@@ -169,7 +168,10 @@ fn test_determinism_policy_validation() {
         "Runtime kernel compilation should be blocked"
     );
     assert!(
-        result.violations.iter().any(|v| v.policy_pack == "Determinism Ruleset"),
+        result
+            .violations
+            .iter()
+            .any(|v| v.policy_pack == "Determinism Ruleset"),
         "Should have Determinism policy violation"
     );
 }
@@ -198,7 +200,10 @@ fn test_router_policy_validation() {
     let result = manager.validate_request(&request).unwrap();
     assert!(!result.valid, "K-sparse > 4 should be blocked");
     assert!(
-        result.violations.iter().any(|v| v.policy_pack == "Router Ruleset"),
+        result
+            .violations
+            .iter()
+            .any(|v| v.policy_pack == "Router Ruleset"),
         "Should have Router policy violation"
     );
 }
@@ -227,7 +232,10 @@ fn test_evidence_policy_validation() {
     let result = manager.validate_request(&request).unwrap();
     assert!(!result.valid, "Missing evidence spans should be blocked");
     assert!(
-        result.violations.iter().any(|v| v.policy_pack == "Evidence Ruleset"),
+        result
+            .violations
+            .iter()
+            .any(|v| v.policy_pack == "Evidence Ruleset"),
         "Should have Evidence policy violation"
     );
 }
@@ -256,7 +264,10 @@ fn test_refusal_policy_validation() {
     let result = manager.validate_request(&request).unwrap();
     // Note: Refusal violations are Medium severity and don't block with Error enforcement
     assert!(
-        result.violations.iter().any(|v| v.policy_pack == "Refusal Ruleset"),
+        result
+            .violations
+            .iter()
+            .any(|v| v.policy_pack == "Refusal Ruleset"),
         "Should have Refusal policy violation"
     );
 }
@@ -285,9 +296,15 @@ fn test_numeric_policy_validation() {
     };
 
     let result = manager.validate_request(&request).unwrap();
-    assert!(!result.valid, "Numeric values without units should be blocked");
     assert!(
-        result.violations.iter().any(|v| v.policy_pack == "Numeric & Units Ruleset"),
+        !result.valid,
+        "Numeric values without units should be blocked"
+    );
+    assert!(
+        result
+            .violations
+            .iter()
+            .any(|v| v.policy_pack == "Numeric & Units Ruleset"),
         "Should have Numeric policy violation"
     );
 }
@@ -317,7 +334,10 @@ fn test_rag_policy_validation() {
     let result = manager.validate_request(&request).unwrap();
     assert!(!result.valid, "Cross-tenant access should be blocked");
     assert!(
-        result.violations.iter().any(|v| v.policy_pack == "RAG Index Ruleset"),
+        result
+            .violations
+            .iter()
+            .any(|v| v.policy_pack == "RAG Index Ruleset"),
         "Should have RAG policy violation"
     );
 }
@@ -346,7 +366,10 @@ fn test_isolation_policy_validation() {
     let result = manager.validate_request(&request).unwrap();
     assert!(!result.valid, "Shared memory usage should be blocked");
     assert!(
-        result.violations.iter().any(|v| v.policy_pack == "Isolation Ruleset"),
+        result
+            .violations
+            .iter()
+            .any(|v| v.policy_pack == "Isolation Ruleset"),
         "Should have Isolation policy violation"
     );
 }
@@ -392,7 +415,10 @@ fn test_router_customization_invalid_gate_quant() {
 
     let result = validate_customization("router", invalid_json).unwrap();
     assert!(!result.valid, "Invalid gate quantization should fail");
-    assert!(result.errors.iter().any(|e| e.contains("not in allowed values")));
+    assert!(result
+        .errors
+        .iter()
+        .any(|e| e.contains("not in allowed values")));
 }
 
 #[test]
@@ -417,8 +443,14 @@ fn test_memory_customization_safety_constraint() {
     }"#;
 
     let result = validate_customization("memory", unsafe_json).unwrap();
-    assert!(!result.valid, "Unsafe headroom should fail safety constraint");
-    assert!(result.errors.iter().any(|e| e.contains("safety constraint")));
+    assert!(
+        !result.valid,
+        "Unsafe headroom should fail safety constraint"
+    );
+    assert!(result
+        .errors
+        .iter()
+        .any(|e| e.contains("safety constraint")));
 }
 
 #[test]
@@ -474,7 +506,10 @@ fn test_egress_customization_invalid_mode() {
 
     let result = validate_customization("egress", invalid_json).unwrap();
     assert!(!result.valid, "Invalid mode should fail");
-    assert!(result.errors.iter().any(|e| e.contains("not in allowed values")));
+    assert!(result
+        .errors
+        .iter()
+        .any(|e| e.contains("not in allowed values")));
 }
 
 #[test]
@@ -502,7 +537,10 @@ fn test_determinism_customization_invalid_rng() {
 
     let result = validate_customization("determinism", invalid_json).unwrap();
     assert!(!result.valid, "Invalid RNG type should fail");
-    assert!(result.errors.iter().any(|e| e.contains("not in allowed values")));
+    assert!(result
+        .errors
+        .iter()
+        .any(|e| e.contains("not in allowed values")));
 }
 
 #[test]
@@ -622,7 +660,10 @@ fn test_isolation_customization_invalid_process_model() {
 
     let result = validate_customization("isolation", invalid_json).unwrap();
     assert!(!result.valid, "Invalid process model should fail");
-    assert!(result.errors.iter().any(|e| e.contains("not in allowed values")));
+    assert!(result
+        .errors
+        .iter()
+        .any(|e| e.contains("not in allowed values")));
 }
 
 #[test]
@@ -676,7 +717,10 @@ fn test_secrets_customization_invalid_keystore() {
 
     let result = validate_customization("secrets", invalid_json).unwrap();
     assert!(!result.valid, "Invalid keystore should fail");
-    assert!(result.errors.iter().any(|e| e.contains("not in allowed values")));
+    assert!(result
+        .errors
+        .iter()
+        .any(|e| e.contains("not in allowed values")));
 }
 
 #[test]
@@ -702,7 +746,10 @@ fn test_output_customization_invalid_format() {
 
     let result = validate_customization("output", invalid_json).unwrap();
     assert!(!result.valid, "Invalid format should fail");
-    assert!(result.errors.iter().any(|e| e.contains("not in allowed values")));
+    assert!(result
+        .errors
+        .iter()
+        .any(|e| e.contains("not in allowed values")));
 }
 
 #[test]
@@ -739,7 +786,10 @@ fn test_customization_missing_required_fields() {
 
     let result = validate_customization("router", incomplete_json).unwrap();
     assert!(!result.valid, "Missing required fields should fail");
-    assert!(result.errors.iter().any(|e| e.contains("Missing required field")));
+    assert!(result
+        .errors
+        .iter()
+        .any(|e| e.contains("Missing required field")));
 }
 
 #[test]
@@ -768,7 +818,10 @@ fn test_customization_unknown_fields_warning() {
 
     let result = validate_customization("router", json_with_unknown).unwrap();
     assert!(result.valid, "Unknown fields should not block validation");
-    assert!(!result.warnings.is_empty(), "Should have warning for unknown field");
+    assert!(
+        !result.warnings.is_empty(),
+        "Should have warning for unknown field"
+    );
 }
 
 #[test]
@@ -812,7 +865,10 @@ fn test_boundary_enforcement_enum_values() {
 
     let result = validate_customization("egress", invalid_enum).unwrap();
     assert!(!result.valid, "Invalid enum value should fail");
-    assert!(result.errors.iter().any(|e| e.contains("not in allowed values")));
+    assert!(result
+        .errors
+        .iter()
+        .any(|e| e.contains("not in allowed values")));
 }
 
 #[test]
@@ -866,7 +922,10 @@ fn test_enforcement_level_blocking() {
     let result = manager.validate_request(&request).unwrap();
 
     // With Error enforcement level and Critical/High violations, should block
-    assert!(!result.valid, "High severity violations should block at Error level");
+    assert!(
+        !result.valid,
+        "High severity violations should block at Error level"
+    );
 }
 
 // ========== Test 4: Invalid Policy Rejection ==========
@@ -896,7 +955,10 @@ fn test_non_object_json_rejection() {
 
     let result = validate_customization("router", array_json).unwrap();
     assert!(!result.valid, "Non-object JSON should be rejected");
-    assert!(result.errors.iter().any(|e| e.contains("must be a JSON object")));
+    assert!(result
+        .errors
+        .iter()
+        .any(|e| e.contains("must be a JSON object")));
 }
 
 #[test]

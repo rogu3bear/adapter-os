@@ -14,10 +14,7 @@ fn env_lock() -> MutexGuard<'static, ()> {
 fn clear_test_env_vars() {
     let keys: Vec<String> = std::env::vars().map(|(key, _)| key).collect();
     for key in keys {
-        if key.starts_with("AOS_")
-            || key.starts_with("ADAPTEROS_")
-            || key == "DATABASE_URL"
-        {
+        if key.starts_with("AOS_") || key.starts_with("ADAPTEROS_") || key == "DATABASE_URL" {
             std::env::remove_var(key);
         }
     }

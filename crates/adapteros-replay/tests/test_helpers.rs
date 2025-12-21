@@ -51,7 +51,13 @@ pub fn create_test_event(tick_id: u64, event_type: &str) -> Event {
         custom: HashMap::new(),
     };
 
-    build_event(tick_id, event_type, HashMap::new(), HashMap::new(), metadata)
+    build_event(
+        tick_id,
+        event_type,
+        HashMap::new(),
+        HashMap::new(),
+        metadata,
+    )
 }
 
 /// Create a test event with custom values

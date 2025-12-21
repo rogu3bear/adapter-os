@@ -271,7 +271,7 @@ jsonwebtoken = "9.2"
 
 # API
 utoipa = { version = "5.4", features = ["axum_extras", "uuid"] }
-utoipa-swagger-ui = { version = "9.0", features = ["axum"] }
+utoipa-swagger-ui = { version = "9.0", features = ["axum", "vendored"] }
 
 # Observability
 tracing = "0.1"
@@ -364,6 +364,8 @@ adapteros-chat = { path = "crates/adapteros-chat" }
 adapteros-lora-plan = { path = "crates/adapteros-lora-plan" }
 adapteros-lora-worker = { path = "crates/adapteros-lora-worker" }
 adapteros-aos = { path = "crates/adapteros-aos" }
+adapteros-base-llm = { path = "crates/adapteros-base-llm" }
+adapteros-single-file-adapter = { path = "crates/adapteros-single-file-adapter" }
 adapteros-telemetry = { path = "crates/adapteros-telemetry", version = "0.11.0" }
 adapteros-policy = { path = "crates/adapteros-policy" }
 adapteros-lora-router = { path = "crates/adapteros-lora-router" }

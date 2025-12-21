@@ -217,10 +217,7 @@ impl Db {
             q = q.bind(param);
         }
 
-        let logs = q
-            .fetch_all(self.pool())
-            .await
-            .db_err("query audit logs")?;
+        let logs = q.fetch_all(self.pool()).await.db_err("query audit logs")?;
         Ok(logs)
     }
 
@@ -1276,31 +1273,13 @@ mod tests {
 
         // Create initial entries
         db.log_audit(
-            "user-1",
-            "admin",
-            "tenant-a",
-            "action-1",
-            "adapter",
-            None,
-            "success",
-            None,
-            None,
-            None,
+            "user-1", "admin", "tenant-a", "action-1", "adapter", None, "success", None, None, None,
         )
         .await
         .unwrap();
 
         db.log_audit(
-            "user-1",
-            "admin",
-            "tenant-a",
-            "action-2",
-            "adapter",
-            None,
-            "success",
-            None,
-            None,
-            None,
+            "user-1", "admin", "tenant-a", "action-2", "adapter", None, "success", None, None, None,
         )
         .await
         .unwrap();

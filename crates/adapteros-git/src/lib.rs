@@ -44,7 +44,11 @@ impl Plugin for GitSubsystem {
         );
         let git_cfg: GitConfig = serde_json::from_value(config_value)?;
         // For now, log or update if needed
-        info!(plugin = "git", enabled = git_cfg.enabled, "Loaded GitConfig from plugin");
+        info!(
+            plugin = "git",
+            enabled = git_cfg.enabled,
+            "Loaded GitConfig from plugin"
+        );
         Ok(())
     }
 
@@ -97,7 +101,10 @@ impl Plugin for GitSubsystem {
             self.start_polling().await?;
         }
 
-        info!(plugin = "git", "Git plugin configuration reloaded successfully");
+        info!(
+            plugin = "git",
+            "Git plugin configuration reloaded successfully"
+        );
         Ok(())
     }
 

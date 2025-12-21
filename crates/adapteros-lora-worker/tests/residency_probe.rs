@@ -344,7 +344,7 @@ async fn cache_lifecycle_invariants() {
 #[tokio::test]
 #[cfg_attr(
     not(feature = "ci-residency"),
-    ignore = "Requires ci-residency feature [tracking: STAB-IGN-001]"
+    ignore = "Requires ci-residency feature [tracking: STAB-IGN-0218]"
 )]
 async fn residency_probe_standard() {
     let temp_dir = new_test_base_dir("aos_residency_standard_");
@@ -416,7 +416,7 @@ async fn residency_probe_standard() {
 #[tokio::test]
 #[cfg_attr(
     not(feature = "hardware-residency"),
-    ignore = "Requires hardware-residency feature and real models [tracking: STAB-IGN-001]"
+    ignore = "Requires hardware-residency feature and real models [tracking: STAB-IGN-0219]"
 )]
 async fn residency_probe_extended() {
     let temp_dir = new_test_base_dir("aos_residency_extended_");
@@ -489,7 +489,7 @@ async fn residency_probe_extended() {
 #[tokio::test]
 #[cfg_attr(
     not(feature = "hardware-residency"),
-    ignore = "Requires hardware-residency feature for meaningful golden run [tracking: STAB-IGN-001]"
+    ignore = "Requires hardware-residency feature for meaningful golden run [tracking: STAB-IGN-0220]"
 )]
 async fn golden_run_before_after_swap_loop() {
     // Placeholder thresholds - to be calibrated from real hardware
@@ -603,7 +603,7 @@ pub struct MemoryTelemetryResult {
 #[tokio::test]
 #[cfg_attr(
     not(feature = "hardware-residency"),
-    ignore = "Requires hardware-residency feature [tracking: STAB-IGN-001]"
+    ignore = "Requires hardware-residency feature [tracking: STAB-IGN-0221]"
 )]
 async fn residency_probe_with_telemetry() {
     let temp_dir = new_test_base_dir("aos_telemetry_probe_");
@@ -699,7 +699,7 @@ async fn residency_probe_with_telemetry() {
 // ============================================================================
 
 #[tokio::test]
-#[ignore = "Superseded by residency_probe_standard; run manually if needed [tracking: STAB-IGN-001]"]
+#[ignore = "Superseded by residency_probe_standard; run manually if needed [tracking: STAB-IGN-0049]"]
 async fn residency_probe_rss_stability() {
     let temp_dir = new_test_base_dir("aos_residency_probe_legacy_");
     let base_dir = temp_dir.path().to_path_buf();

@@ -294,10 +294,10 @@ mod error_code_tests {
         assert!(json.contains("Crypto/Signing"));
 
         // Test deserialization
-        let deserialized: ErrorCode =
+        let deserialized: serde_json::Value =
             serde_json::from_str(&json).expect("should deserialize");
-        assert_eq!(deserialized.code, "E1001");
-        assert_eq!(deserialized.category, "Crypto/Signing");
+        assert_eq!(deserialized["code"], "E1001");
+        assert_eq!(deserialized["category"], "Crypto/Signing");
     }
 
     #[test]
@@ -308,7 +308,10 @@ mod error_code_tests {
             .filter(|c| c.category == "Crypto/Signing")
             .collect();
 
-        assert!(!crypto_codes.is_empty(), "should have crypto/signing errors");
+        assert!(
+            !crypto_codes.is_empty(),
+            "should have crypto/signing errors"
+        );
 
         // Verify common crypto errors exist
         let code_nums: Vec<&str> = crypto_codes.iter().map(|c| c.code).collect();

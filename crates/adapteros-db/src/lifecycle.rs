@@ -60,11 +60,7 @@ impl Db {
         initiated_by: &str,
     ) -> Result<String> {
         let new_state_enum = LifecycleState::from_str(new_state).map_err(|e| {
-            AosError::Validation(format!(
-                "Invalid lifecycle state '{}': {}",
-                new_state,
-                e
-            ))
+            AosError::Validation(format!("Invalid lifecycle state '{}': {}", new_state, e))
         })?;
 
         // Use transaction to ensure atomicity of read-modify-write

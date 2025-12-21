@@ -157,14 +157,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         confidence_score: validation_result.confidence,
         violations: validation_result
             .violations
-            .into_iter()
+            .iter()
             .map(
                 |v| adapteros_lora_worker::patch_telemetry::ViolationMetric {
                     violation_type: format!("{:?}", v.violation_type),
                     severity: format!("{:?}", v.severity),
-                    file_path: v.file_path,
+                    file_path: v.file_path.clone(),
                     line_number: v.line_number,
-                    description: v.description,
+                    description: v.description.clone(),
                 },
             )
             .collect(),

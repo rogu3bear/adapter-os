@@ -7,8 +7,7 @@
 //! - Error handling and edge cases
 
 use adapteros_crypto::{
-    decrypt_envelope, encrypt_envelope, KeyAlgorithm, KeyManager, KeyManagerConfig,
-    KeyProviderMode,
+    decrypt_envelope, encrypt_envelope, KeyAlgorithm, KeyManager, KeyManagerConfig, KeyProviderMode,
 };
 use tempfile::TempDir;
 

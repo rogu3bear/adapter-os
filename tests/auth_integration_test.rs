@@ -37,7 +37,7 @@ use jsonwebtoken::{encode, EncodingKey, Header};
 use tower::ServiceExt;
 
 #[test]
-#[ignore = "requires database and server setup [tracking: STAB-IGN-001]"]
+#[ignore = "requires database and server setup [tracking: STAB-IGN-0160]"]
 fn test_development_mode_auth() {
     // Test that development mode accepts dev tokens
     let auth_config = AuthConfig {
@@ -54,7 +54,7 @@ fn test_development_mode_auth() {
 }
 
 #[test]
-#[ignore = "requires database and server setup [tracking: STAB-IGN-001]"]
+#[ignore = "requires database and server setup [tracking: STAB-IGN-0161]"]
 fn test_production_mode_auth() {
     // Test that production mode does not have dev tokens
     let auth_config = AuthConfig {
@@ -70,7 +70,7 @@ fn test_production_mode_auth() {
 }
 
 #[test]
-#[ignore = "requires database and server setup [tracking: STAB-IGN-001]"]
+#[ignore = "requires database and server setup [tracking: STAB-IGN-0162]"]
 fn test_mixed_mode_auth() {
     // Test that mixed mode can have optional dev tokens
     let auth_config = AuthConfig {
@@ -105,7 +105,7 @@ fn test_security_config_defaults() {
 }
 
 #[test]
-#[ignore = "requires database and server setup [tracking: STAB-IGN-001]"]
+#[ignore = "requires database and server setup [tracking: STAB-IGN-0163]"]
 fn test_app_state_with_auth_config() {
     // This would require actual database setup
     // Placeholder test structure

@@ -1036,6 +1036,7 @@ async fn resolve_adapter_id(
 mod tests {
     use super::*;
     use crate::output::{OutputMode, OutputWriter};
+    use adapteros_api_types::adapters::AdapterDatasetHealth;
     use std::sync::{Arc, Mutex};
 
     #[test]

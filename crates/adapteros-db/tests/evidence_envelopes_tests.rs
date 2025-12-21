@@ -829,11 +829,8 @@ async fn test_envelope_serialization_json_roundtrip() {
     insert_test_tenant(&db, "tenant-1").await;
 
     // Seed the chain so we can exercise previous_root linkage
-    let seed = EvidenceEnvelopeV1::new_inference(
-        "tenant-1".to_string(),
-        sample_inference_ref(41),
-        None,
-    );
+    let seed =
+        EvidenceEnvelopeV1::new_inference("tenant-1".to_string(), sample_inference_ref(41), None);
     db.store_evidence_envelope(&seed).await.unwrap();
 
     // Create an inference envelope with all fields populated

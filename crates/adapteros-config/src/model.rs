@@ -840,8 +840,8 @@ mod tests {
     // ========================================================================
 
     mod tokenizer_tests {
-        use super::*;
         use super::TestEnvGuard;
+        use super::*;
         use std::fs;
         use tempfile::TempDir;
 

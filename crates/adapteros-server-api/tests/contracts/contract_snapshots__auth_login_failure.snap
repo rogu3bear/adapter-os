@@ -1,11 +1,12 @@
 ---
 source: crates/adapteros-server-api/tests/contract_snapshots.rs
-assertion_line: 265
+assertion_line: 256
 expression: "json!({ \"status\": login_fail_status.as_u16(), \"body\": login_fail_body })"
 ---
 {
   "body": {
     "code": "INVALID_CREDENTIALS",
+    "hint": "Check server logs using `request_id` and retry",
     "message": "Unauthorized",
     "request_id": "<redacted>"
   },

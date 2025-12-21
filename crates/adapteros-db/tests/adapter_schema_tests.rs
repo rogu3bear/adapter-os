@@ -276,13 +276,19 @@ async fn test_filtered_queries_with_new_schema() {
     db.register_adapter(params2).await.unwrap();
 
     // Test category filtering
-    let code_adapters = db.list_adapters_by_category("default-tenant", "code").await.unwrap();
+    let code_adapters = db
+        .list_adapters_by_category("default-tenant", "code")
+        .await
+        .unwrap();
     assert_eq!(code_adapters.len(), 1);
     assert_eq!(code_adapters[0].adapter_id.as_deref(), Some("nlp-adapter"));
     assert_eq!(code_adapters[0].load_state, "cold");
 
     // Test scope filtering
-    let global_adapters = db.list_adapters_by_scope("default-tenant", "global").await.unwrap();
+    let global_adapters = db
+        .list_adapters_by_scope("default-tenant", "global")
+        .await
+        .unwrap();
     assert_eq!(global_adapters.len(), 1);
     assert_eq!(
         global_adapters[0].adapter_id.as_deref(),
@@ -291,7 +297,10 @@ async fn test_filtered_queries_with_new_schema() {
     assert_eq!(global_adapters[0].load_state, "cold");
 
     // Test state filtering
-    let unloaded_adapters = db.list_adapters_by_state("default-tenant", "unloaded").await.unwrap();
+    let unloaded_adapters = db
+        .list_adapters_by_state("default-tenant", "unloaded")
+        .await
+        .unwrap();
     assert_eq!(unloaded_adapters.len(), 2);
     for adapter in &unloaded_adapters {
         assert_eq!(adapter.load_state, "cold");

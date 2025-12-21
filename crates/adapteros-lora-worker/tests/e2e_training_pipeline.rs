@@ -29,6 +29,12 @@ fn create_examples(n: usize) -> Vec<TrainingExample> {
         .collect()
 }
 
+fn synthetic_metadata() -> HashMap<String, String> {
+    let mut metadata = HashMap::new();
+    metadata.insert("synthetic_mode".to_string(), "true".to_string());
+    metadata
+}
+
 /// Test that minimal training executes and produces valid results
 #[tokio::test]
 async fn test_e2e_minimal_training() {
@@ -102,7 +108,14 @@ async fn test_e2e_full_pipeline() {
     // Step 3: Package
     let packager = AdapterPackager::new(temp.path());
     let packaged = packager
-        .package_aos_for_tenant("default", "e2e_test", &quantized, &config, "base-model")
+        .package_aos_with_metadata(
+            "default",
+            "e2e_test",
+            &quantized,
+            &config,
+            "base-model",
+            synthetic_metadata(),
+        )
         .await
         .expect("packaging should succeed");
 

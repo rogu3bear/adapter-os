@@ -285,6 +285,23 @@ async fn audit_count_by_action(db: &adapteros_db::Db, action: &str) -> i64 {
         .unwrap_or(0)
 }
 
+async fn audit_count_by_action_and_error(
+    db: &adapteros_db::Db,
+    action: &str,
+    error_code: &str,
+) -> i64 {
+    let pattern = format!("%\"error_code\":\"{}\"%", error_code);
+    let count: (i64,) = adapteros_db::sqlx::query_as(
+        "SELECT COUNT(*) FROM audit_logs WHERE action = ? AND metadata_json LIKE ?",
+    )
+    .bind(action)
+    .bind(pattern)
+    .fetch_one(db.pool())
+    .await
+    .expect("audit count by action and error");
+    count.0
+}
+
 #[tokio::test]
 async fn refresh_reuse_logs_audit_event() -> anyhow::Result<()> {
     let state = setup_state(None).await?;
@@ -340,7 +357,9 @@ async fn refresh_reuse_logs_audit_event() -> anyhow::Result<()> {
             .expect("initial refresh should succeed");
 
     // Reuse old refresh token should now trigger rotation mismatch and audit log
-    let before = audit_count_by_action(&state.db, "auth.refresh_reuse_detected").await;
+    let before =
+        audit_count_by_action_and_error(&state.db, "auth.refresh_failed", "ROTATION_MISMATCH")
+            .await;
     let mut reuse_headers = HeaderMap::new();
     reuse_headers.insert(
         header::COOKIE,
@@ -349,7 +368,9 @@ async fn refresh_reuse_logs_audit_event() -> anyhow::Result<()> {
     let reuse_resp =
         refresh_token_handler(axum::extract::State(state.clone()), reuse_headers).await;
     assert!(reuse_resp.is_err(), "reuse should be rejected");
-    let after = audit_count_by_action(&state.db, "auth.refresh_reuse_detected").await;
+    let after =
+        audit_count_by_action_and_error(&state.db, "auth.refresh_failed", "ROTATION_MISMATCH")
+            .await;
     assert_eq!(after, before + 1, "reuse should emit audit log");
 
     Ok(())

@@ -1,5 +1,6 @@
 use adapteros_db::adapters::AdapterRegistrationBuilder;
 use adapteros_db::sqlx;
+use adapteros_db::{CreateRepositoryParams, CreateVersionParams};
 use adapteros_server_api::handlers::get_adapter_health;
 use axum::{extract::Path, extract::State, http::StatusCode, Extension};
 use tokio::time::Duration;
@@ -60,7 +61,7 @@ async fn corrupt_storage_emits_corrupt_metric() {
     .await
     .expect("insert issue");
 
-    get_adapter_health(
+    let _ = get_adapter_health(
         State(state.clone()),
         Extension(claims),
         Path(adapter_id.to_string()),
@@ -82,14 +83,6 @@ async fn corrupt_storage_emits_corrupt_metric() {
 async fn blocked_trust_emits_unsafe_metric() {
     let state = setup_state(None).await.expect("state");
     let claims = test_admin_claims();
-    let adapter_id = "adapter-health-unsafe";
-    let params = base_adapter_params(&claims.tenant_id, adapter_id);
-    let version_id = state
-        .db
-        .register_adapter(params)
-        .await
-        .expect("register adapter");
-
     // Create a blocked dataset version and link it to the adapter version.
     let dataset_id = "ds-unsafe";
     let dataset_version_id = "dsv-unsafe";
@@ -106,6 +99,12 @@ async fn blocked_trust_emits_unsafe_metric() {
         )
         .await
         .expect("dataset");
+    sqlx::query("UPDATE training_datasets SET tenant_id = ? WHERE id = ?")
+        .bind(&claims.tenant_id)
+        .bind(dataset_id)
+        .execute(state.db.pool())
+        .await
+        .expect("dataset tenant");
     state
         .db
         .create_training_dataset_version_with_id(
@@ -129,18 +128,57 @@ async fn blocked_trust_emits_unsafe_metric() {
     .await
     .expect("mark blocked");
 
-    sqlx::query(
-        "INSERT INTO adapter_version_dataset_versions (adapter_version_id, dataset_version_id, tenant_id, trust_at_training_time) VALUES (?, ?, ?, ?)",
-    )
-    .bind(&version_id)
-    .bind(dataset_version_id)
-    .bind(&claims.tenant_id)
-    .bind("blocked")
-    .execute(state.db.pool())
-    .await
-    .expect("link dataset");
+    let repo_id = state
+        .db
+        .create_adapter_repository(CreateRepositoryParams {
+            tenant_id: &claims.tenant_id,
+            name: "adapter-health-unsafe",
+            base_model_id: None,
+            default_branch: Some("main"),
+            created_by: Some(&claims.sub),
+            description: None,
+        })
+        .await
+        .expect("create repo");
+    let dataset_version_ids = vec![dataset_version_id.to_string()];
+    let adapter_version_id = state
+        .db
+        .create_adapter_version(CreateVersionParams {
+            repo_id: &repo_id,
+            tenant_id: &claims.tenant_id,
+            version: "v1",
+            branch: "main",
+            branch_classification: "sandbox",
+            aos_path: None,
+            aos_hash: None,
+            manifest_schema_version: None,
+            parent_version_id: None,
+            code_commit_sha: None,
+            data_spec_hash: None,
+            training_backend: None,
+            coreml_used: None,
+            coreml_device_type: None,
+            dataset_version_ids: Some(&dataset_version_ids),
+            release_state: "draft",
+            metrics_snapshot_id: None,
+            evaluation_summary: None,
+            allow_archived: false,
+            actor: Some(&claims.sub),
+            reason: Some("adapter health test"),
+            train_job_id: None,
+        })
+        .await
+        .expect("create adapter version");
 
-    get_adapter_health(
+    let adapter_id = adapter_version_id.clone();
+    let params = base_adapter_params(&claims.tenant_id, &adapter_id);
+    state
+        .db
+        .register_adapter(params)
+        .await
+        .expect("register adapter");
+
+    let _ = get_adapter_health(
         State(state.clone()),
         Extension(claims),
         Path(adapter_id.to_string()),

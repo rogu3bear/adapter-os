@@ -1295,7 +1295,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "Pending API updates - prometheus Registry metric_count method not available [tracking: STAB-IGN-001]"]
+    #[ignore = "Pending API updates - prometheus Registry metric_count method not available [tracking: STAB-IGN-0068]"]
     fn test_metrics_registry_creation() {}
 
     #[test]

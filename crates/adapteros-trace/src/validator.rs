@@ -151,9 +151,8 @@ fn open_trace_reader(path: &Path) -> Result<BufReader<Box<dyn Read>>> {
 
     let reader: Box<dyn Read> = match path.extension().and_then(|ext| ext.to_str()) {
         Some("zst") => {
-            let decoder = Decoder::new(file).map_err(|e| {
-                AosError::Telemetry(format!("Failed to open zstd decoder: {}", e))
-            })?;
+            let decoder = Decoder::new(file)
+                .map_err(|e| AosError::Telemetry(format!("Failed to open zstd decoder: {}", e)))?;
             Box::new(decoder)
         }
         _ => Box::new(file),

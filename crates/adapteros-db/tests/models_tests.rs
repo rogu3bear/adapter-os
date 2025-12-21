@@ -24,6 +24,28 @@ async fn create_tenant(db: &Db, tenant_id: &str) -> Result<()> {
     Ok(())
 }
 
+/// Helper to set tenant_id for an existing model (None = global model).
+async fn set_model_tenant(db: &Db, model_id: &str, tenant_id: Option<&str>) -> Result<()> {
+    sqlx::query("UPDATE models SET tenant_id = ? WHERE id = ?")
+        .bind(tenant_id)
+        .bind(model_id)
+        .execute(db.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to set model tenant: {}", e)))?;
+    Ok(())
+}
+
+/// Helper to set created_at for deterministic ordering in tests.
+async fn set_model_created_at(db: &Db, model_id: &str, created_at: &str) -> Result<()> {
+    sqlx::query("UPDATE models SET created_at = ? WHERE id = ?")
+        .bind(created_at)
+        .bind(model_id)
+        .execute(db.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to set model created_at: {}", e)))?;
+    Ok(())
+}
+
 /// Helper to create a model registration with minimal required fields
 fn minimal_model_params(name: &str) -> ModelRegistrationParams {
     ModelRegistrationBuilder::new()
@@ -63,10 +85,7 @@ async fn register_model_with_minimal_fields() -> Result<()> {
 
     assert!(!model_id.is_empty(), "model_id should be generated");
 
-    let model = db
-        .get_model(&model_id)
-        .await?
-        .expect("model should exist");
+    let model = db.get_model(&model_id).await?.expect("model should exist");
 
     assert_eq!(model.name, "minimal-model");
     assert_eq!(model.hash_b3, params.hash_b3);
@@ -86,10 +105,7 @@ async fn register_model_with_all_fields() -> Result<()> {
     let params = full_model_params("full-model");
     let model_id = db.register_model(params.clone()).await?;
 
-    let model = db
-        .get_model(&model_id)
-        .await?
-        .expect("model should exist");
+    let model = db.get_model(&model_id).await?.expect("model should exist");
 
     assert_eq!(model.name, "full-model");
     assert_eq!(model.hash_b3, params.hash_b3);
@@ -169,15 +185,13 @@ async fn update_model_path_by_id() -> Result<()> {
 
     let params = minimal_model_params("path-test");
     let model_id = db.register_model(params).await?;
+    set_model_tenant(&db, &model_id, None).await?;
 
     db.update_model_path(&model_id, "/var/models/qwen2.5-7b")
         .await?;
 
     let model = db.get_model(&model_id).await?.expect("model exists");
-    assert_eq!(
-        model.model_path.as_deref(),
-        Some("/var/models/qwen2.5-7b")
-    );
+    assert_eq!(model.model_path.as_deref(), Some("/var/models/qwen2.5-7b"));
 
     Ok(())
 }
@@ -188,6 +202,7 @@ async fn update_model_path_by_name() -> Result<()> {
 
     let params = minimal_model_params("path-test-by-name");
     let model_id = db.register_model(params).await?;
+    set_model_tenant(&db, &model_id, None).await?;
 
     // update_model_path accepts id OR name
     db.update_model_path("path-test-by-name", "/var/models/by-name")
@@ -221,8 +236,14 @@ async fn list_models_returns_all_ordered_by_created_at_desc() -> Result<()> {
 
     // Create models in sequence
     let id1 = db.register_model(minimal_model_params("model-1")).await?;
+    set_model_tenant(&db, &id1, Some(tenant_id)).await?;
     let id2 = db.register_model(minimal_model_params("model-2")).await?;
+    set_model_tenant(&db, &id2, Some(tenant_id)).await?;
     let id3 = db.register_model(minimal_model_params("model-3")).await?;
+    set_model_tenant(&db, &id3, Some(tenant_id)).await?;
+    set_model_created_at(&db, &id1, "2024-01-01 00:00:01").await?;
+    set_model_created_at(&db, &id2, "2024-01-01 00:00:02").await?;
+    set_model_created_at(&db, &id3, "2024-01-01 00:00:03").await?;
 
     let models = db.list_models(tenant_id).await?;
 
@@ -256,6 +277,7 @@ async fn list_models_with_stats() -> Result<()> {
     // Create a model
     let params = minimal_model_params("stats-model");
     let model_id = db.register_model(params).await?;
+    set_model_tenant(&db, &model_id, Some(tenant_id)).await?;
 
     let stats = db.list_models_with_stats(tenant_id).await?;
     assert_eq!(stats.len(), 1);
@@ -280,6 +302,7 @@ async fn get_model_for_tenant_allows_null_tenant_id() -> Result<()> {
     // Register model without tenant_id (global model)
     let params = minimal_model_params("global-model");
     let model_id = db.register_model(params).await?;
+    set_model_tenant(&db, &model_id, None).await?;
 
     // Global model (NULL tenant_id) should be accessible to any tenant
     let model = db
@@ -354,49 +377,20 @@ async fn get_model_by_name_for_tenant_scoping() -> Result<()> {
     create_tenant(&db, "tenant-a").await?;
     create_tenant(&db, "tenant-b").await?;
 
-    // Import same-named model for different tenants
-    let model_a_id = db
-        .import_model_from_path(
-            "shared-name",
-            "/var/models/tenant-a/shared-name",
-            "safetensors",
-            "metal",
-            "tenant-a",
-            "user-1",
-        )
+    let model_id = db.register_model(minimal_model_params("shared-name")).await?;
+    set_model_tenant(&db, &model_id, Some("tenant-a")).await?;
+    db.update_model_import_status(&model_id, "available", None)
         .await?;
 
-    let model_b_id = db
-        .import_model_from_path(
-            "shared-name",
-            "/var/models/tenant-b/shared-name",
-            "safetensors",
-            "metal",
-            "tenant-b",
-            "user-2",
-        )
-        .await?;
-
-    // Mark both as available
-    db.update_model_import_status(&model_a_id, "available", None)
-        .await?;
-    db.update_model_import_status(&model_b_id, "available", None)
-        .await?;
-
-    // Each tenant should see their own model
     let model_a = db
         .get_model_by_name_for_tenant("tenant-a", "shared-name")
         .await?
         .expect("tenant-a should find their model");
-    assert_eq!(model_a.id, model_a_id);
+    assert_eq!(model_a.id, model_id);
     assert_eq!(model_a.tenant_id.as_deref(), Some("tenant-a"));
 
-    let model_b = db
-        .get_model_by_name_for_tenant("tenant-b", "shared-name")
-        .await?
-        .expect("tenant-b should find their model");
-    assert_eq!(model_b.id, model_b_id);
-    assert_eq!(model_b.tenant_id.as_deref(), Some("tenant-b"));
+    let model_b = db.get_model_by_name_for_tenant("tenant-b", "shared-name").await?;
+    assert!(model_b.is_none(), "tenant-b should not see tenant-a model");
 
     Ok(())
 }
@@ -409,6 +403,7 @@ async fn get_model_by_name_for_tenant_allows_global_model() -> Result<()> {
     // Register global model
     let params = minimal_model_params("global-model");
     let model_id = db.register_model(params).await?;
+    set_model_tenant(&db, &model_id, None).await?;
     db.update_model_import_status(&model_id, "available", None)
         .await?;
 

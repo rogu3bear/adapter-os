@@ -11,6 +11,7 @@ Use this checklist before stabilization runs or release candidates.
 
 ## Blocking Suites (Stability Gate)
 
+- [ ] Run `./scripts/check_inference_bypass.sh` to ensure inference routes through `InferenceCore` (UDS client allowed).
 - [ ] `make stability-check` (runs `make check` + `make determinism-check`).
 - [ ] `make check` includes formatter, clippy, Rust unit/integration tests, and UI tests.
 - [ ] Rust integration tests are blocking unless marked `#[ignore]` (or `cfg_attr(..., ignore = "...")`).
@@ -19,7 +20,8 @@ Use this checklist before stabilization runs or release candidates.
 
 - [ ] `make test-ignored` to run all ignored Rust tests (unit + integration).
 - [ ] `make test-hw` to run hardware-dependent suites (Metal/VRAM/residency).
-- [ ] Ensure ignored tests include a tracking tag in the ignore reason, e.g. `[tracking: STAB-IGN-001]`.
+- [ ] Review the `Ignored Test Sweep (Non-blocking)` CI job for ignored-test failures.
+- [ ] Ensure ignored tests include a tracking tag in the ignore reason (e.g. `[tracking: STAB-IGN-0001]`) and are listed in `docs/stability/IGNORED_TESTS.md`.
 
 ## Notes
 

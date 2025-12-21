@@ -46,6 +46,18 @@ pub struct Cli {
 }
 
 impl Cli {
+    pub fn is_json(&self) -> bool {
+        self.json
+    }
+
+    pub fn is_quiet(&self) -> bool {
+        self.quiet
+    }
+
+    pub fn is_verbose(&self) -> bool {
+        self.verbose
+    }
+
     /// Build a ModelConfig from CLI arguments with precedence: CLI > ENV > defaults
     pub fn get_model_config(&self) -> Result<ModelConfig> {
         // Start with environment-based config (or defaults)
@@ -1810,9 +1822,7 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
         }
         #[cfg(not(feature = "tui"))]
         Commands::Tui { .. } => {
-            anyhow::bail!(
-                "TUI feature not enabled. Rebuild with: cargo build --features tui"
-            );
+            anyhow::bail!("TUI feature not enabled. Rebuild with: cargo build --features tui");
         }
 
         Commands::Manual { args } => {

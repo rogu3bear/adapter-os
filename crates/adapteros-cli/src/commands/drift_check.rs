@@ -432,7 +432,7 @@ fn merge_decision(left: DriftDecision, right: DriftDecision) -> DriftDecision {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use adapteros_lora_worker::training::LoRAWeights;
+    use adapteros_lora_worker::training::{LoRAWeights, TrainingResult};
 
     #[test]
     fn test_deterministic_slice_stable() {

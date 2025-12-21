@@ -191,9 +191,11 @@ pub async fn create_chat_session(
     if req.name.trim().is_empty() {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(ErrorResponse::new("Session name cannot be empty")
-                .with_code("VALIDATION_ERROR")
-                .with_string_details("Provide a non-empty name for the chat session")),
+            Json(
+                ErrorResponse::new("Session name cannot be empty")
+                    .with_code("VALIDATION_ERROR")
+                    .with_string_details("Provide a non-empty name for the chat session"),
+            ),
         ));
     }
 
@@ -215,9 +217,14 @@ pub async fn create_chat_session(
     if !allowed_sources.contains(&source_type.as_str()) {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(ErrorResponse::new("Invalid source_type")
-                .with_code("VALIDATION_ERROR")
-                .with_string_details(format!("source_type '{}' is not valid. Allowed values: {:?}", source_type, allowed_sources))),
+            Json(
+                ErrorResponse::new("Invalid source_type")
+                    .with_code("VALIDATION_ERROR")
+                    .with_string_details(format!(
+                        "source_type '{}' is not valid. Allowed values: {:?}",
+                        source_type, allowed_sources
+                    )),
+            ),
         ));
     }
 
@@ -252,7 +259,10 @@ pub async fn create_chat_session(
                     Json(
                         ErrorResponse::new("Failed to validate collection")
                             .with_code("DATABASE_ERROR")
-                            .with_string_details(format!("Database error while validating collection '{}': {}", collection_id, e)),
+                            .with_string_details(format!(
+                                "Database error while validating collection '{}': {}",
+                                collection_id, e
+                            )),
                     ),
                 )
             })?;
@@ -262,7 +272,10 @@ pub async fn create_chat_session(
                 Json(
                     ErrorResponse::new("collection_id not found for tenant")
                         .with_code("VALIDATION_ERROR")
-                        .with_string_details(format!("Collection '{}' does not exist for tenant '{}'", collection_id, target_tenant)),
+                        .with_string_details(format!(
+                            "Collection '{}' does not exist for tenant '{}'",
+                            collection_id, target_tenant
+                        )),
                 ),
             ));
         }
@@ -279,7 +292,10 @@ pub async fn create_chat_session(
                     Json(
                         ErrorResponse::new("Failed to validate document")
                             .with_code("DATABASE_ERROR")
-                            .with_string_details(format!("Database error while validating document '{}': {}", document_id, e)),
+                            .with_string_details(format!(
+                                "Database error while validating document '{}': {}",
+                                document_id, e
+                            )),
                     ),
                 )
             })?;
@@ -289,7 +305,10 @@ pub async fn create_chat_session(
                 Json(
                     ErrorResponse::new("document_id not found for tenant")
                         .with_code("VALIDATION_ERROR")
-                        .with_string_details(format!("Document '{}' does not exist for tenant '{}'", document_id, target_tenant)),
+                        .with_string_details(format!(
+                            "Document '{}' does not exist for tenant '{}'",
+                            document_id, target_tenant
+                        )),
                 ),
             ));
         }
@@ -315,7 +334,10 @@ pub async fn create_chat_session(
                     Json(
                         ErrorResponse::new("document_id is not in the provided collection")
                             .with_code("VALIDATION_ERROR")
-                            .with_string_details(format!("Document '{}' is not in collection '{}'", document_id, collection_id)),
+                            .with_string_details(format!(
+                                "Document '{}' is not in collection '{}'",
+                                document_id, collection_id
+                            )),
                     ),
                 ));
             }
@@ -381,7 +403,10 @@ pub async fn create_chat_session(
                 Json(
                     ErrorResponse::new("Failed to retrieve session")
                         .with_code("DATABASE_ERROR")
-                        .with_string_details(format!("Database error retrieving session '{}': {}", session_id, e)),
+                        .with_string_details(format!(
+                            "Database error retrieving session '{}': {}",
+                            session_id, e
+                        )),
                 ),
             )
         })?
@@ -391,7 +416,10 @@ pub async fn create_chat_session(
                 Json(
                     ErrorResponse::new("Session not found after creation")
                         .with_code("INTERNAL_ERROR")
-                        .with_string_details(format!("Session '{}' was created but could not be retrieved", session_id)),
+                        .with_string_details(format!(
+                            "Session '{}' was created but could not be retrieved",
+                            session_id
+                        )),
                 ),
             )
         })?;
@@ -468,16 +496,24 @@ pub async fn update_chat_session(
                 Json(
                     ErrorResponse::new("Failed to get session")
                         .with_code("DATABASE_ERROR")
-                        .with_string_details(format!("Database error retrieving session '{}': {}", session_id, e)),
+                        .with_string_details(format!(
+                            "Database error retrieving session '{}': {}",
+                            session_id, e
+                        )),
                 ),
             )
         })?
         .ok_or_else(|| {
             (
                 StatusCode::NOT_FOUND,
-                Json(ErrorResponse::new("Session not found")
-                    .with_code("NOT_FOUND")
-                    .with_string_details(format!("Chat session '{}' does not exist", session_id))),
+                Json(
+                    ErrorResponse::new("Session not found")
+                        .with_code("NOT_FOUND")
+                        .with_string_details(format!(
+                            "Chat session '{}' does not exist",
+                            session_id
+                        )),
+                ),
             )
         })?;
 
@@ -1374,7 +1410,10 @@ pub async fn get_chat_provenance(
                                             entity_id: dataset.id.clone(),
                                             entity_name: dataset.name.clone(),
                                             timestamp: dataset.created_at.clone(),
-                                            description: format!("Dataset '{}' created", dataset.name),
+                                            description: format!(
+                                                "Dataset '{}' created",
+                                                dataset.name
+                                            ),
                                         });
                                     }
                                 }

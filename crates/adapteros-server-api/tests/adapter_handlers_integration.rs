@@ -5,7 +5,9 @@
 
 use adapteros_core::Result;
 use adapteros_db::adapters::AdapterRegistrationBuilder;
-use adapteros_server_api::handlers::adapters::{update_adapter_strength, UpdateAdapterStrengthRequest};
+use adapteros_server_api::handlers::adapters::{
+    update_adapter_strength, UpdateAdapterStrengthRequest,
+};
 use adapteros_server_api::handlers::{delete_adapter, get_adapter, list_adapters};
 use adapteros_server_api::types::ListAdaptersQuery;
 use axum::extract::{Path, Query, State};
@@ -13,9 +15,7 @@ use axum::http::StatusCode;
 use axum::Extension;
 
 mod common;
-use common::{
-    create_test_adapter_default, setup_state, test_admin_claims, test_viewer_claims,
-};
+use common::{create_test_adapter_default, setup_state, test_admin_claims, test_viewer_claims};
 
 /// Test listing adapters returns only tenant-scoped results
 #[tokio::test]

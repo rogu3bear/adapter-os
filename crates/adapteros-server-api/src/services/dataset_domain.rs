@@ -418,9 +418,7 @@ impl DatasetDomainService {
     }
 
     fn accumulate_split(map: &mut HashMap<String, SplitAccumulator>, row: &CanonicalRow) {
-        let entry = map
-            .entry(row.split.clone())
-            .or_default();
+        let entry = map.entry(row.split.clone()).or_default();
         entry.rows += 1;
         entry.prompt_chars += row.prompt.len() as u64;
         entry.response_chars += row.response.len() as u64;

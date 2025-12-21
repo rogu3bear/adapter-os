@@ -133,9 +133,14 @@ pub async fn promote_adapter_lifecycle(
             match e {
                 adapteros_core::error::AosError::NotFound(_) => (
                     StatusCode::NOT_FOUND,
-                    Json(ErrorResponse::new("adapter not found")
-                        .with_code("NOT_FOUND")
-                        .with_string_details(format!("Adapter '{}' does not exist for tenant '{}'", adapter_id, claims.tenant_id))),
+                    Json(
+                        ErrorResponse::new("adapter not found")
+                            .with_code("NOT_FOUND")
+                            .with_string_details(format!(
+                                "Adapter '{}' does not exist for tenant '{}'",
+                                adapter_id, claims.tenant_id
+                            )),
+                    ),
                 ),
                 adapteros_core::error::AosError::Validation(msg) => (
                     StatusCode::BAD_REQUEST,
@@ -231,9 +236,14 @@ pub async fn demote_adapter_lifecycle(
             match e {
                 adapteros_core::error::AosError::NotFound(_) => (
                     StatusCode::NOT_FOUND,
-                    Json(ErrorResponse::new("adapter not found")
-                        .with_code("NOT_FOUND")
-                        .with_string_details(format!("Adapter '{}' does not exist for tenant '{}'", adapter_id, claims.tenant_id))),
+                    Json(
+                        ErrorResponse::new("adapter not found")
+                            .with_code("NOT_FOUND")
+                            .with_string_details(format!(
+                                "Adapter '{}' does not exist for tenant '{}'",
+                                adapter_id, claims.tenant_id
+                            )),
+                    ),
                 ),
                 adapteros_core::error::AosError::Validation(msg) => (
                     StatusCode::BAD_REQUEST,
@@ -373,7 +383,10 @@ pub async fn get_adapter_lineage(
                 Json(
                     ErrorResponse::new("database error")
                         .with_code("DATABASE_ERROR")
-                        .with_string_details(format!("Database error fetching adapter '{}': {}", adapter_id, e)),
+                        .with_string_details(format!(
+                            "Database error fetching adapter '{}': {}",
+                            adapter_id, e
+                        )),
                 ),
             )
         })?
@@ -381,9 +394,14 @@ pub async fn get_adapter_lineage(
             warn!(adapter_id = %adapter_id, "Adapter not found");
             (
                 StatusCode::NOT_FOUND,
-                Json(ErrorResponse::new("adapter not found")
-                    .with_code("NOT_FOUND")
-                    .with_string_details(format!("Adapter '{}' does not exist for tenant '{}'", adapter_id, claims.tenant_id))),
+                Json(
+                    ErrorResponse::new("adapter not found")
+                        .with_code("NOT_FOUND")
+                        .with_string_details(format!(
+                            "Adapter '{}' does not exist for tenant '{}'",
+                            adapter_id, claims.tenant_id
+                        )),
+                ),
             )
         })?;
 
@@ -2988,7 +3006,8 @@ pub async fn export_training_provenance(
             if job.tenant_id.as_ref() == Some(&adapter.tenant_id) {
                 // Parse training config JSON
                 let config_value: serde_json::Value =
-                    serde_json::from_str(&job.training_config_json).unwrap_or(serde_json::json!({}));
+                    serde_json::from_str(&job.training_config_json)
+                        .unwrap_or(serde_json::json!({}));
                 training_config = Some(config_value.clone());
 
                 training_jobs.push(TrainingExportJob {

@@ -55,6 +55,7 @@
 //! ```
 
 use crate::backend::BackendKind;
+use crate::defaults::DEFAULT_SEED_MODE;
 use crate::hash::B3Hash;
 use crate::{AosError, Result};
 use hkdf::Hkdf;
@@ -80,14 +81,13 @@ pub enum SeedLabel {
 }
 
 /// Execution seed strategy for per-request derivation
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum SeedMode {
     /// Requires manifest hash; fails if missing
     Strict,
     /// Uses manifest hash when present; otherwise uses a scoped fallback hash
-    #[default]
     BestEffort,
     /// Dev-only random seed (non-replayable)
     NonDeterministic,
@@ -100,6 +100,12 @@ impl SeedMode {
             SeedMode::BestEffort => "best_effort",
             SeedMode::NonDeterministic => "non_deterministic",
         }
+    }
+}
+
+impl Default for SeedMode {
+    fn default() -> Self {
+        DEFAULT_SEED_MODE
     }
 }
 
@@ -140,7 +146,7 @@ pub struct ExecutionProfile {
 impl Default for ExecutionProfile {
     fn default() -> Self {
         Self {
-            seed_mode: SeedMode::BestEffort,
+            seed_mode: DEFAULT_SEED_MODE,
             backend_profile: BackendKind::default_inference_backend(),
         }
     }
@@ -361,6 +367,17 @@ pub fn clear_seed_registry() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn seed_mode_default_matches_central_default() {
+        assert_eq!(SeedMode::default(), crate::defaults::DEFAULT_SEED_MODE);
+    }
+
+    #[test]
+    fn execution_profile_default_uses_central_seed_mode() {
+        let profile = ExecutionProfile::default();
+        assert_eq!(profile.seed_mode, crate::defaults::DEFAULT_SEED_MODE);
+    }
 
     #[test]
     fn test_seed_deterministic() {

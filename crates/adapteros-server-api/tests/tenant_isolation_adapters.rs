@@ -15,8 +15,8 @@ use adapteros_db::workers::WorkerRegistrationParams;
 use adapteros_db::Db;
 use adapteros_server_api::auth::{AuthMode, Claims, PrincipalType};
 use adapteros_server_api::handlers::adapters::{
-    demote_adapter_lifecycle, get_adapter_stats, promote_adapter_lifecycle, update_adapter_strength,
-    LifecycleTransitionRequest, UpdateAdapterStrengthRequest,
+    demote_adapter_lifecycle, get_adapter_stats, promote_adapter_lifecycle,
+    update_adapter_strength, LifecycleTransitionRequest, UpdateAdapterStrengthRequest,
 };
 use adapteros_server_api::handlers::adapters_read::{get_adapter_repository, list_adapters};
 use adapteros_server_api::handlers::{delete_adapter, get_adapter, get_adapter_activations};
@@ -43,7 +43,9 @@ async fn create_test_tenant(db: &Db, tenant_id: &str) -> Result<()> {
         .bind(tenant_id)
         .execute(db.pool())
         .await
-        .map_err(|e| adapteros_core::AosError::Database(format!("Failed to create tenant: {}", e)))?;
+        .map_err(|e| {
+            adapteros_core::AosError::Database(format!("Failed to create tenant: {}", e))
+        })?;
     Ok(())
 }
 
@@ -129,7 +131,9 @@ async fn create_test_adapter(
         .scope(scope)
         .tenant_id(tenant_id)
         .build()
-        .map_err(|e| adapteros_core::AosError::Validation(format!("Failed to build adapter params: {}", e)))?;
+        .map_err(|e| {
+            adapteros_core::AosError::Validation(format!("Failed to build adapter params: {}", e))
+        })?;
 
     let id = db.register_adapter(params).await?;
 
@@ -139,7 +143,9 @@ async fn create_test_adapter(
         .bind(&id)
         .execute(db.pool())
         .await
-        .map_err(|e| adapteros_core::AosError::Database(format!("Failed to set adapter state: {}", e)))?;
+        .map_err(|e| {
+            adapteros_core::AosError::Database(format!("Failed to set adapter state: {}", e))
+        })?;
 
     Ok(id)
 }
@@ -483,11 +489,7 @@ async fn test_list_adapters_respects_tenant_boundaries() -> Result<()> {
     .await
     .unwrap();
 
-    assert_eq!(
-        adapters_b.len(),
-        1,
-        "Tenant B should see exactly 1 adapter"
-    );
+    assert_eq!(adapters_b.len(), 1, "Tenant B should see exactly 1 adapter");
     assert_eq!(adapters_b[0].adapter_id, "adapter-b-1");
     assert!(
         !adapters_b
@@ -570,9 +572,7 @@ async fn test_update_adapter_strength_blocks_cross_tenant() -> Result<()> {
         State(state.clone()),
         Extension(claims_b),
         Path("adapter-a-1".to_string()),
-        Json(UpdateAdapterStrengthRequest {
-            lora_strength: 1.5,
-        }),
+        Json(UpdateAdapterStrengthRequest { lora_strength: 1.5 }),
     )
     .await;
 

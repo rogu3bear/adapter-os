@@ -2,5 +2,5 @@
 //! NOTE: Stubbed pending API updates
 
 #[test]
-#[ignore = "Pending API updates - dashboard types not exported [tracking: STAB-IGN-001]"]
+#[ignore = "Pending API updates - dashboard types not exported [tracking: STAB-IGN-0100]"]
 fn test_dashboard_integration_stub() {}

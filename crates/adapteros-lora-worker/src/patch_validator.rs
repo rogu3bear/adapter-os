@@ -1426,7 +1426,6 @@ impl PatchValidator {
 
         // Extract evidence spans from patches by parsing citation comments
         for patch in patches {
-
             for hunk in &patch.hunks {
                 for line in &hunk.context_lines {
                     if let Some(caps) = citation_pattern.captures(line) {

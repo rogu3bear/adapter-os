@@ -441,8 +441,8 @@ async fn test_repository_list_filtered_by_tenant() -> Result<()> {
             limit: None,
         }),
     )
-        .await
-        .unwrap();
+    .await
+    .unwrap();
     let ids_a: Vec<String> = list_a.repos.into_iter().map(|r| r.repo_id).collect();
     assert!(ids_a.contains(&repo_a), "Tenant A should see its own repo");
     assert!(
@@ -460,8 +460,8 @@ async fn test_repository_list_filtered_by_tenant() -> Result<()> {
             limit: None,
         }),
     )
-        .await
-        .unwrap();
+    .await
+    .unwrap();
     let ids_b: Vec<String> = list_b.repos.into_iter().map(|r| r.repo_id).collect();
     assert!(ids_b.contains(&repo_b), "Tenant B should see its own repo");
     assert!(

@@ -36,10 +36,7 @@ pub fn validate_description(description: &str) -> Result<(), (StatusCode, Json<E
     if description.trim().is_empty() {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(
-                ErrorResponse::new("Description cannot be empty")
-                    .with_code("VALIDATION_ERROR"),
-            ),
+            Json(ErrorResponse::new("Description cannot be empty").with_code("VALIDATION_ERROR")),
         ));
     }
     if description.len() > 10000 {

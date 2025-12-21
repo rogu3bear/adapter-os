@@ -1222,13 +1222,13 @@ pub async fn validate_dataset(
             Some(file.file_name.clone()),
             if total_files > 0.0 {
                 (processed_files as f32 / total_files) * 100.0
-                } else {
-                    0.0
-                },
-                format!("Validated {}", file.file_name),
-                Some(files.len() as i32),
-                Some(processed_files),
-            );
+            } else {
+                0.0
+            },
+            format!("Validated {}", file.file_name),
+            Some(files.len() as i32),
+            Some(processed_files),
+        );
     }
 
     // Update validation status in database - set to "invalid" if validation failed

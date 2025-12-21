@@ -11,7 +11,6 @@
 
 use adapteros_config::ModelConfig as UnifiedModelConfig;
 use adapteros_core::{AosError, Result};
-use std::sync::Arc;
 use adapteros_memory::{ModelCache, ModelCacheConfig};
 use adapteros_secure_fs::{
     content::{validate_and_parse_json, validate_model_config_json},
@@ -22,6 +21,7 @@ use safetensors::SafeTensors;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::path::Path;
+use std::sync::Arc;
 
 /// Qwen model structure loaded from SafeTensors
 #[derive(Debug, Clone)]
