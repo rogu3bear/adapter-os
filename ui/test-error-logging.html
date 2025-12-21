@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Test Error Logging</title>
+</head>
+<body>
+  <div id="root"></div>
+  <div id="output"></div>
+  <script>
+    console.log("Starting error logging test");
+    
+    // Override console methods to capture output
+    const originalLog = console.log;
+    const originalError = console.error;
+    const output = document.getElementById("output");
+    
+    function addOutput(message, type = 'log') {
+      const div = document.createElement('div');
+      div.style.padding = '5px';
+      div.style.borderBottom = '1px solid #ccc';
+      div.style.color = type === 'error' ? 'red' : 'black';
+      div.textContent = `[${type.toUpperCase()}] ${message}`;
+      output.appendChild(div);
+    }
+    
+    console.log = function(...args) {
+      originalLog.apply(console, args);
+      addOutput(args.join(' '), 'log');
+    };
+    
+    console.error = function(...args) {
+      originalError.apply(console, args);
+      addOutput(args.join(' '), 'error');
+    };
+    
+    // Test basic functionality
+    console.log("Basic logging works");
+    
+    // Test DOM manipulation
+    const rootElement = document.getElementById("root");
+    console.log("Root element found:", !!rootElement);
+    
+    if (rootElement) {
+      rootElement.innerHTML = '<div style="padding: 20px; font-size: 24px; color: green;">Error Logging Test - DOM Works</div>';
+      console.log("DOM manipulation successful");
+    }
+    
+    // Test React import
+    import('/node_modules/.vite/deps/react.js?v=8820e67f')
+      .then(React => {
+        console.log("React import successful:", !!React.default);
+        return import('/node_modules/.vite/deps/react-dom_client.js?v=8820e67f');
+      })
+      .then(ReactDOM => {
+        console.log("ReactDOM import successful:", !!ReactDOM.createRoot);
+        
+        // Test React rendering
+        const root = ReactDOM.createRoot(rootElement);
+        const element = React.default.createElement('div', {
+          style: { padding: '20px', fontSize: '24px', color: 'blue' }
+        }, 'React Test - Import Works');
+        
+        root.render(element);
+        console.log("React rendering successful");
+      })
+      .catch(error => {
+        console.error("Import error:", error.message);
+      });
+  </script>
+</body>
+</html>

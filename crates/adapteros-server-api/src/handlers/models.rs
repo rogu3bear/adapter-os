@@ -1,0 +1,1874 @@
+//! Minimal model management handlers (stubs for unwired routes)
+//!
+//! These handlers provide basic API endpoints for model operations.
+//! Full implementation details are in the original models.rs file.
+
+use crate::audit_helper::{log_failure, log_success};
+use crate::auth::Claims;
+use crate::middleware::require_any_role;
+use crate::model_status::aggregate_status;
+use crate::state::AppState;
+use crate::types::ErrorResponse;
+use crate::uds_client::UdsClient;
+use adapteros_api_types::ModelLoadStatus;
+use adapteros_config::{
+    resolve_base_model_location, resolve_worker_socket_for_cp, DEFAULT_MODEL_CACHE_ROOT,
+};
+use adapteros_db::users::Role;
+use std::path::{Path as StdPath, PathBuf};
+use std::time::Duration;
+use tracing::{error, warn};
+
+/// Resource type for model audit logs
+const RESOURCE_MODEL: &str = "model";
+
+/// Audit action: model load
+const ACTION_MODEL_LOAD: &str = "model.load";
+
+/// Audit action: model unload
+const ACTION_MODEL_UNLOAD: &str = "model.unload";
+
+/// Audit action: model import
+const ACTION_MODEL_IMPORT: &str = "model.import";
+use axum::{
+    extract::{Extension, Path, Query, State},
+    http::StatusCode,
+    Json,
+};
+use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AllModelsStatusResponse {
+    #[serde(rename = "schema_version")]
+    pub schema_version: String,
+    pub models: Vec<crate::types::BaseModelStatusResponse>,
+    pub total_memory_mb: i64,
+    pub available_memory_mb: Option<i64>,
+    pub active_model_count: i64,
+}
+
+#[derive(Deserialize, ToSchema)]
+pub struct ImportModelRequest {
+    pub model_name: String,
+    pub model_path: String,
+    pub format: String,  // "mlx", "safetensors", "pytorch", "gguf"
+    pub backend: String, // "mlx", "mlx-ffi", "metal"
+    pub capabilities: Option<Vec<String>>, // ["chat", "completion", "embeddings"]
+    pub metadata: Option<serde_json::Value>,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct ImportModelResponse {
+    pub import_id: String,
+    pub status: String,
+    pub message: String,
+    pub progress: Option<i32>,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct ModelStatusResponse {
+    pub model_id: String,
+    pub model_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_path: Option<String>,
+    pub status: ModelLoadStatus,
+    pub loaded_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_message: Option<String>,
+    pub memory_usage_mb: Option<i32>,
+    pub is_loaded: bool,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct ValidationIssue {
+    #[serde(rename = "type")]
+    pub issue_type: String,
+    pub message: String,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct ModelValidationResponse {
+    pub model_id: String,
+    pub status: String, // "ready", "needs_setup", "invalid"
+    pub valid: bool,
+    pub can_load: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    pub issues: Vec<ValidationIssue>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub errors: Vec<String>, // Legacy field for backwards compatibility
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct ModelRuntimeHealthResponse {
+    pub model_id: String,
+    pub health_status: String,
+    pub memory_usage_mb: Option<i32>,
+    pub last_accessed: Option<String>,
+}
+
+/// Load a base model into memory
+///
+/// # Endpoint
+/// POST /v1/models/{model_id}/load
+///
+/// # Authentication
+/// Required
+///
+/// # Permissions
+/// Requires one of: Admin, Operator
+///
+/// # Response
+/// Returns current model load status including memory usage and load timestamp.
+/// If model is already loaded, returns success with current status.
+///
+/// # Errors
+/// - `FORBIDDEN` (403): User lacks required role
+/// - `NOT_FOUND` (404): Model does not exist in database
+/// - `WORKER_UNAVAILABLE` (503): No worker available to load the model
+/// - `WORKER_ERROR` (500): Worker failed to load model
+/// - `INTERNAL_ERROR` (500): Database error, memory pressure, load failure
+///
+/// # Example
+/// ```
+/// POST /v1/models/qwen-7b/load
+/// ```
+#[utoipa::path(
+    post,
+    path = "/v1/models/{model_id}/load",
+    params(
+        ("model_id" = String, Path, description = "Model ID to load")
+    ),
+    responses(
+        (status = 200, description = "Model loaded", body = ModelStatusResponse),
+        (status = 404, description = "Model not found"),
+        (status = 400, description = "Already loaded"),
+        (status = 500, description = "Load failed")
+    ),
+    tag = "models"
+)]
+pub async fn load_model(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(model_id): Path<String>,
+) -> Result<Json<ModelStatusResponse>, (StatusCode, Json<ErrorResponse>)> {
+    use tracing::{debug, error, info, warn};
+
+    let request_id = crate::request_id::get_request_id().unwrap_or_else(|| "unknown".to_string());
+
+    require_any_role(&claims, &[Role::Admin, Role::Operator]).map_err(|_| {
+        (
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse::new("access denied").with_code("FORBIDDEN")),
+        )
+    })?;
+
+    let tenant_id = &claims.tenant_id;
+    let now = chrono::Utc::now().to_rfc3339();
+
+    // Check if model exists in database
+    let model = state
+        .db
+        .get_model_for_tenant(tenant_id, &model_id)
+        .await
+        .map_err(|e| {
+            error!("Failed to fetch model {}: {}", model_id, e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("database error")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?
+        .ok_or_else(|| {
+            warn!("Model not found: {}", model_id);
+            (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse::new("model not found").with_code("NOT_FOUND")),
+            )
+        })?;
+
+    // Aggregate current status across tenants/nodes for this model
+    let all_statuses = state.db.list_base_model_statuses().await.map_err(|e| {
+        error!("Failed to fetch model statuses: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("database error")
+                    .with_code("DATABASE_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+    let matching: Vec<_> = all_statuses
+        .iter()
+        .filter(|s| s.model_id == model_id)
+        .collect();
+    let aggregated = aggregate_status(matching.iter().copied());
+    let state_before = aggregated.status;
+
+    debug!(
+        request_id = %request_id,
+        model_id = %model_id,
+        tenant_id = %tenant_id,
+        state_before = %state_before.as_str(),
+        "model_load_request"
+    );
+
+    if matches!(
+        state_before,
+        ModelLoadStatus::Ready | ModelLoadStatus::Loading
+    ) {
+        let latest = aggregated.latest;
+        state.metrics_exporter.set_model_loaded_gauge(
+            &model_id,
+            tenant_id,
+            state_before.is_ready(),
+        );
+        return Ok(Json(ModelStatusResponse {
+            model_id,
+            model_name: model.name,
+            model_path: model.model_path,
+            status: state_before,
+            loaded_at: latest.and_then(|s| s.loaded_at.clone()),
+            error_message: latest.and_then(|s| s.error_message.clone()),
+            memory_usage_mb: latest.and_then(|s| s.memory_usage_mb),
+            is_loaded: state_before.is_ready(),
+        }));
+    }
+
+    // Update status to "loading" first (idempotent ensure)
+    state
+        .db
+        .update_base_model_status(
+            tenant_id,
+            &model_id,
+            ModelLoadStatus::Loading.as_str(),
+            None,
+            None,
+        )
+        .await
+        .map_err(|e| {
+            error!("Failed to update model status to loading: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to update model status")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+    state
+        .metrics_exporter
+        .set_model_loaded_gauge(&model_id, tenant_id, false);
+
+    // Log operation
+    let op_id = state
+        .db
+        .log_model_operation(
+            tenant_id,
+            &model_id,
+            "load",
+            &claims.sub,
+            "in_progress",
+            None,
+            &now,
+            None,
+            None,
+        )
+        .await
+        .map_err(|e| {
+            error!("Failed to log model operation: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to log operation")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    // Get worker socket path - try from workers table first, then env var fallback
+    let uds_path = get_worker_socket_path(&state, tenant_id)
+        .await
+        .ok_or_else(|| {
+            error!("No worker available for model loading");
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(
+                    ErrorResponse::new("no worker available")
+                        .with_code("WORKER_UNAVAILABLE")
+                        .with_string_details(
+                            "No worker is available to load the model".to_string(),
+                        ),
+                ),
+            )
+        })?;
+
+    // Get model path from database; fall back to canonical resolver
+    let model_path = model.model_path.clone().unwrap_or_else(|| {
+        resolve_base_model_location(Some(&model_id), None, false)
+            .map(|loc| loc.full_path.display().to_string())
+            .unwrap_or_else(|_| {
+                PathBuf::from(DEFAULT_MODEL_CACHE_ROOT)
+                    .join(&model_id)
+                    .display()
+                    .to_string()
+            })
+    });
+
+    // Validate model path exists before invoking the worker
+    if !StdPath::new(&model_path).exists() {
+        let err_msg = format!(
+            "model path does not exist: {}. Configure AOS_MODEL_CACHE_DIR/AOS_BASE_MODEL_ID or set model.model_path.",
+            model_path
+        );
+
+        // Persist error status but do not fail hard if the DB update itself fails
+        let _ = state
+            .db
+            .update_base_model_status(
+                tenant_id,
+                &model_id,
+                ModelLoadStatus::Error.as_str(),
+                Some(&err_msg),
+                None,
+            )
+            .await;
+        let _ = state
+            .db
+            .update_model_operation(&op_id, "failed", Some(&err_msg), Some(&now), None)
+            .await;
+        let _ = log_failure(
+            &state.db,
+            &claims,
+            ACTION_MODEL_LOAD,
+            RESOURCE_MODEL,
+            Some(&model_id),
+            &err_msg,
+        )
+        .await;
+
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(
+                ErrorResponse::new("model path does not exist")
+                    .with_code("MODEL_PATH_MISSING")
+                    .with_string_details(err_msg),
+            ),
+        ));
+    }
+
+    // Call worker via UDS to actually load the model
+    let uds_client = UdsClient::new(Duration::from_secs(120)); // Model loading can take time
+    let load_result = uds_client
+        .load_model(&uds_path, &model_id, &model_path)
+        .await;
+
+    let (final_status, memory_mb, load_error) = match load_result {
+        Ok(response) => {
+            if response.status == "loaded" || response.status == "already_loaded" {
+                info!(
+                    model_id = %model_id,
+                    memory_mb = ?response.memory_usage_mb,
+                    "Worker confirmed model is loaded"
+                );
+                (ModelLoadStatus::Ready, response.memory_usage_mb, None)
+            } else {
+                warn!(
+                    model_id = %model_id,
+                    status = %response.status,
+                    error = ?response.error,
+                    "Worker returned non-loaded status"
+                );
+                (ModelLoadStatus::Error, None, response.error)
+            }
+        }
+        Err(e) => {
+            // UDS call failed - worker is down or not responding
+            // Report this as a real error instead of silently succeeding
+            error!(
+                model_id = %model_id,
+                error = %e,
+                "Failed to communicate with worker for model loading"
+            );
+            (
+                ModelLoadStatus::Error,
+                None,
+                Some(format!("Worker communication failed: {}", e)),
+            )
+        }
+    };
+
+    let estimated_memory_mb = memory_mb.unwrap_or(4096);
+
+    // Update status based on worker response
+    if let Err(e) = state
+        .db
+        .update_base_model_status(
+            tenant_id,
+            &model_id,
+            final_status.as_str(),
+            load_error.as_deref(),
+            Some(estimated_memory_mb),
+        )
+        .await
+    {
+        error!(
+            model_id = %model_id,
+            request_id = %request_id,
+            error = %e,
+            "Failed to update model status after worker response"
+        );
+        // Log operation failure
+        let _ = state
+            .db
+            .update_model_operation(&op_id, "failed", Some(&e.to_string()), Some(&now), None)
+            .await;
+        // Audit log: model load failure
+        let _ = log_failure(
+            &state.db,
+            &claims,
+            ACTION_MODEL_LOAD,
+            RESOURCE_MODEL,
+            Some(&model_id),
+            &format!("Failed to load model: {}", e),
+        )
+        .await;
+        state
+            .metrics_exporter
+            .record_model_load(&model_id, tenant_id, false);
+        return Ok(Json(ModelStatusResponse {
+            model_id,
+            model_name: model.name,
+            model_path: model.model_path,
+            status: ModelLoadStatus::Error,
+            loaded_at: None,
+            error_message: Some(e.to_string()),
+            memory_usage_mb: Some(estimated_memory_mb),
+            is_loaded: false,
+        }));
+    }
+
+    // If worker returned an error, report it
+    if let Some(error_msg) = load_error {
+        let _ = state
+            .db
+            .update_model_operation(&op_id, "failed", Some(&error_msg), Some(&now), None)
+            .await;
+        let _ = log_failure(
+            &state.db,
+            &claims,
+            ACTION_MODEL_LOAD,
+            RESOURCE_MODEL,
+            Some(&model_id),
+            &format!("Worker failed to load model: {}", error_msg),
+        )
+        .await;
+        state
+            .metrics_exporter
+            .record_model_load(&model_id, tenant_id, false);
+        return Ok(Json(ModelStatusResponse {
+            model_id,
+            model_name: model.name,
+            model_path: model.model_path,
+            status: ModelLoadStatus::Error,
+            loaded_at: None,
+            error_message: Some(error_msg),
+            memory_usage_mb: Some(estimated_memory_mb),
+            is_loaded: false,
+        }));
+    }
+
+    // Log successful operation
+    let completion_time = chrono::Utc::now().to_rfc3339();
+    let _ = state
+        .db
+        .update_model_operation(&op_id, "completed", None, Some(&completion_time), Some(100))
+        .await;
+
+    // Audit log: model load success
+    let _ = log_success(
+        &state.db,
+        &claims,
+        ACTION_MODEL_LOAD,
+        RESOURCE_MODEL,
+        Some(&model_id),
+    )
+    .await;
+
+    info!(
+        model_id = %model_id,
+        tenant_id = %tenant_id,
+        request_id = %request_id,
+        memory_usage_mb = estimated_memory_mb,
+        "Model loaded successfully"
+    );
+
+    state
+        .metrics_exporter
+        .record_model_load(&model_id, tenant_id, true);
+
+    Ok(Json(ModelStatusResponse {
+        model_id,
+        model_name: model.name,
+        model_path: model.model_path,
+        status: ModelLoadStatus::Ready,
+        loaded_at: Some(chrono::Utc::now().to_rfc3339()),
+        error_message: None,
+        memory_usage_mb: Some(estimated_memory_mb),
+        is_loaded: true,
+    }))
+}
+
+/// Unload a base model from memory
+///
+/// # Endpoint
+/// POST /v1/models/{model_id}/unload
+///
+/// # Authentication
+/// Required
+///
+/// # Permissions
+/// Requires one of: Admin, Operator
+///
+/// # Response
+/// Returns updated model status confirming the model is unloaded. Frees GPU/memory resources.
+///
+/// # Errors
+/// - `FORBIDDEN` (403): User lacks required role
+/// - `NOT_FOUND` (404): Model does not exist in database
+/// - `BAD_REQUEST` (400): Model not currently loaded
+/// - `INTERNAL_ERROR` (500): Database error, unload failure
+///
+/// # Example
+/// ```
+/// POST /v1/models/qwen-7b/unload
+/// ```
+#[utoipa::path(
+    post,
+    path = "/v1/models/{model_id}/unload",
+    params(
+        ("model_id" = String, Path, description = "Model ID to unload")
+    ),
+    responses(
+        (status = 200, description = "Model unloaded", body = ModelStatusResponse),
+        (status = 404, description = "Model not found"),
+        (status = 400, description = "Model not loaded"),
+        (status = 500, description = "Unload failed")
+    ),
+    tag = "models"
+)]
+pub async fn unload_model(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(model_id): Path<String>,
+) -> Result<Json<ModelStatusResponse>, (StatusCode, Json<ErrorResponse>)> {
+    use tracing::{debug, error, info, warn};
+
+    let request_id = crate::request_id::get_request_id().unwrap_or_else(|| "unknown".to_string());
+
+    require_any_role(&claims, &[Role::Admin, Role::Operator]).map_err(|_| {
+        (
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse::new("access denied").with_code("FORBIDDEN")),
+        )
+    })?;
+
+    let tenant_id = &claims.tenant_id;
+    let now = chrono::Utc::now().to_rfc3339();
+
+    // Check if model exists in database
+    let model = state
+        .db
+        .get_model_for_tenant(tenant_id, &model_id)
+        .await
+        .map_err(|e| {
+            error!("Failed to fetch model {}: {}", model_id, e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("database error")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?
+        .ok_or_else(|| {
+            warn!("Model not found: {}", model_id);
+            (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse::new("model not found").with_code("NOT_FOUND")),
+            )
+        })?;
+
+    // Aggregate current status across tenants/nodes for this model
+    let all_statuses = state.db.list_base_model_statuses().await.map_err(|e| {
+        error!("Failed to fetch model statuses: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("database error")
+                    .with_code("DATABASE_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+    let matching: Vec<_> = all_statuses
+        .iter()
+        .filter(|s| s.model_id == model_id)
+        .collect();
+    let aggregated = aggregate_status(matching.iter().copied());
+    let state_before = aggregated.status;
+
+    debug!(
+        request_id = %request_id,
+        model_id = %model_id,
+        tenant_id = %tenant_id,
+        state_before = %state_before.as_str(),
+        "model_unload_request"
+    );
+
+    // Idempotent no-op for non-ready states
+    if !matches!(state_before, ModelLoadStatus::Ready) {
+        let latest = aggregated.latest;
+        state.metrics_exporter.set_model_loaded_gauge(
+            &model_id,
+            tenant_id,
+            state_before.is_ready(),
+        );
+        return Ok(Json(ModelStatusResponse {
+            model_id,
+            model_name: model.name,
+            model_path: model.model_path,
+            status: state_before,
+            loaded_at: latest.and_then(|s| s.loaded_at.clone()),
+            error_message: latest.and_then(|s| s.error_message.clone()),
+            memory_usage_mb: latest.and_then(|s| s.memory_usage_mb),
+            is_loaded: state_before.is_ready(),
+        }));
+    }
+
+    // Log operation
+    let op_id = state
+        .db
+        .log_model_operation(
+            tenant_id,
+            &model_id,
+            "unload",
+            &claims.sub,
+            "in_progress",
+            None,
+            &now,
+            None,
+            None,
+        )
+        .await
+        .map_err(|e| {
+            error!("Failed to log model operation: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to log operation")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    // Transition to unloading then no-model
+    if let Err(e) = state
+        .db
+        .update_base_model_status(
+            tenant_id,
+            &model_id,
+            ModelLoadStatus::Unloading.as_str(),
+            None,
+            None,
+        )
+        .await
+    {
+        error!("Failed to update model status to unloading: {}", e);
+        let _ = state
+            .db
+            .update_model_operation(&op_id, "failed", Some(&e.to_string()), Some(&now), None)
+            .await;
+        let _ = log_failure(
+            &state.db,
+            &claims,
+            ACTION_MODEL_UNLOAD,
+            RESOURCE_MODEL,
+            Some(&model_id),
+            &format!("Failed to set unloading status: {}", e),
+        )
+        .await;
+        state
+            .metrics_exporter
+            .record_model_unload(&model_id, tenant_id, false);
+        return Ok(Json(ModelStatusResponse {
+            model_id,
+            model_name: model.name,
+            model_path: model.model_path,
+            status: ModelLoadStatus::Error,
+            loaded_at: None,
+            error_message: Some(e.to_string()),
+            memory_usage_mb: None,
+            is_loaded: false,
+        }));
+    }
+
+    if let Err(e) = state
+        .db
+        .update_base_model_status(
+            tenant_id,
+            &model_id,
+            ModelLoadStatus::NoModel.as_str(),
+            None,
+            None,
+        )
+        .await
+    {
+        error!("Failed to update model status to no-model: {}", e);
+        // Log operation failure
+        let _ = state
+            .db
+            .update_model_operation(&op_id, "failed", Some(&e.to_string()), Some(&now), None)
+            .await;
+        // Audit log: model unload failure
+        let _ = log_failure(
+            &state.db,
+            &claims,
+            ACTION_MODEL_UNLOAD,
+            RESOURCE_MODEL,
+            Some(&model_id),
+            &format!("Failed to unload model: {}", e),
+        )
+        .await;
+        state
+            .metrics_exporter
+            .record_model_unload(&model_id, tenant_id, false);
+        return Ok(Json(ModelStatusResponse {
+            model_id,
+            model_name: model.name,
+            model_path: model.model_path,
+            status: ModelLoadStatus::Error,
+            loaded_at: None,
+            error_message: Some(e.to_string()),
+            memory_usage_mb: None,
+            is_loaded: false,
+        }));
+    }
+
+    // Log successful operation
+    let completion_time = chrono::Utc::now().to_rfc3339();
+    let _ = state
+        .db
+        .update_model_operation(&op_id, "completed", None, Some(&completion_time), Some(100))
+        .await;
+
+    // Audit log: model unload success
+    let _ = log_success(
+        &state.db,
+        &claims,
+        ACTION_MODEL_UNLOAD,
+        RESOURCE_MODEL,
+        Some(&model_id),
+    )
+    .await;
+
+    info!(
+        model_id = %model_id,
+        tenant_id = %tenant_id,
+        request_id = %request_id,
+        "Model unloaded successfully"
+    );
+
+    state
+        .metrics_exporter
+        .record_model_unload(&model_id, tenant_id, true);
+
+    Ok(Json(ModelStatusResponse {
+        model_id,
+        model_name: model.name,
+        model_path: model.model_path,
+        status: ModelLoadStatus::NoModel,
+        loaded_at: None,
+        error_message: None,
+        memory_usage_mb: None,
+        is_loaded: false,
+    }))
+}
+
+/// Get model status
+///
+/// # Endpoint
+/// GET /v1/models/{model_id}/status
+///
+/// # Authentication
+/// Required
+///
+/// # Permissions
+/// All authenticated users
+///
+/// # Response
+/// Returns the current load status of a model, including:
+/// - `model_id`: Model identifier
+/// - `model_name`: Human-readable model name
+/// - `model_path`: Filesystem path to model files
+/// - `status`: Load status (loaded, unloaded, loading, error)
+/// - `loaded_at`: Timestamp when model was loaded (if loaded)
+/// - `memory_usage_mb`: Memory consumption in MB (if loaded)
+/// - `is_loaded`: Boolean flag indicating if model is currently in memory
+///
+/// # Errors
+/// - `NOT_FOUND` (404): Model does not exist in database
+/// - `INTERNAL_ERROR` (500): Database query failure
+///
+/// # Example
+/// ```
+/// GET /v1/models/qwen-7b/status
+/// ```
+#[utoipa::path(
+    get,
+    path = "/v1/models/{model_id}/status",
+    params(
+        ("model_id" = String, Path, description = "Model ID")
+    ),
+    responses(
+        (status = 200, description = "Model status", body = ModelStatusResponse),
+        (status = 404, description = "Model not found"),
+        (status = 500, description = "Database error")
+    ),
+    tag = "models"
+)]
+pub async fn get_model_status(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(model_id): Path<String>,
+) -> Result<Json<ModelStatusResponse>, (StatusCode, Json<ErrorResponse>)> {
+    use tracing::{error, warn};
+
+    let tenant_id = &claims.tenant_id;
+
+    // Check if model exists in database
+    let model = state
+        .db
+        .get_model_for_tenant(tenant_id, &model_id)
+        .await
+        .map_err(|e| {
+            error!("Failed to fetch model {}: {}", model_id, e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("database error")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?
+        .ok_or_else(|| {
+            warn!("Model not found: {}", model_id);
+            (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse::new("model not found").with_code("NOT_FOUND")),
+            )
+        })?;
+
+    // Query base_model_status to get current load state
+    let all_statuses = state.db.list_base_model_statuses().await.map_err(|e| {
+        error!("Failed to fetch model statuses: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("database error")
+                    .with_code("DATABASE_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+
+    // Find the status record for this model (most recent)
+    let status = all_statuses
+        .iter()
+        .filter(|s| s.model_id == model_id)
+        .collect::<Vec<_>>();
+
+    let aggregated = aggregate_status(status.iter().copied());
+    let latest = aggregated.latest;
+
+    Ok(Json(ModelStatusResponse {
+        model_id,
+        model_name: model.name,
+        model_path: model.model_path,
+        status: aggregated.status,
+        loaded_at: latest.and_then(|s| s.loaded_at.clone()),
+        error_message: latest.and_then(|s| s.error_message.clone()),
+        memory_usage_mb: latest.and_then(|s| s.memory_usage_mb),
+        is_loaded: aggregated.status.is_ready(),
+    }))
+}
+
+/// Validate a model
+///
+/// # Endpoint
+/// GET /v1/models/{model_id}/validate
+///
+/// # Authentication
+/// Required
+///
+/// # Permissions
+/// All authenticated users
+///
+/// # Response
+/// Validates model integrity by checking stored BLAKE3 hashes. Returns:
+/// - `model_id`: Model identifier
+/// - `status`: Validation status (ready, invalid)
+/// - `valid`: Boolean indicating if all hashes are valid
+/// - `can_load`: Boolean indicating if model can be loaded
+/// - `reason`: Description of validation failure (if any)
+/// - `issues`: List of validation issues with type and message
+/// - `errors`: Legacy field for backwards compatibility
+///
+/// Validates:
+/// - Model weights file hash (BLAKE3)
+/// - Config file hash (BLAKE3)
+/// - Tokenizer files hashes (BLAKE3)
+/// - Metadata JSON format
+///
+/// This is a logical validation (hash comparison) and does not require actual file access.
+///
+/// # Errors
+/// - `NOT_FOUND` (404): Model does not exist in database
+/// - `INTERNAL_ERROR` (500): Database query failure
+///
+/// # Example
+/// ```
+/// GET /v1/models/qwen-7b/validate
+/// ```
+#[utoipa::path(
+    get,
+    path = "/v1/models/{model_id}/validate",
+    params(
+        ("model_id" = String, Path, description = "Model ID to validate")
+    ),
+    responses(
+        (status = 200, description = "Validation result", body = ModelValidationResponse),
+        (status = 404, description = "Model not found"),
+        (status = 500, description = "Validation error")
+    ),
+    tag = "models"
+)]
+pub async fn validate_model(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(model_id): Path<String>,
+) -> Result<Json<ModelValidationResponse>, (StatusCode, Json<ErrorResponse>)> {
+    use tracing::{error, warn};
+
+    let tenant_id = &claims.tenant_id;
+
+    // Check if model exists in database
+    let model = state
+        .db
+        .get_model_for_tenant(tenant_id, &model_id)
+        .await
+        .map_err(|e| {
+            error!("Failed to fetch model {}: {}", model_id, e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("database error")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?
+        .ok_or_else(|| {
+            warn!("Model not found: {}", model_id);
+            (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse::new("model not found").with_code("NOT_FOUND")),
+            )
+        })?;
+
+    let mut errors = vec![];
+    let mut is_valid = true;
+
+    // Validate that all required hashes are present
+    if model.hash_b3.is_empty() {
+        errors.push("Model weights hash is missing".to_string());
+        is_valid = false;
+    }
+
+    if model.config_hash_b3.is_empty() {
+        errors.push("Config hash is missing".to_string());
+        is_valid = false;
+    }
+
+    if model.tokenizer_hash_b3.is_empty() {
+        errors.push("Tokenizer hash is missing".to_string());
+        is_valid = false;
+    }
+
+    if model.tokenizer_cfg_hash_b3.is_empty() {
+        errors.push("Tokenizer config hash is missing".to_string());
+        is_valid = false;
+    }
+
+    // Validate hash format (BLAKE3 hashes are 64-character hex strings)
+    let hashes_to_check = vec![
+        ("weights", &model.hash_b3),
+        ("config", &model.config_hash_b3),
+        ("tokenizer", &model.tokenizer_hash_b3),
+        ("tokenizer_config", &model.tokenizer_cfg_hash_b3),
+    ];
+
+    for (hash_type, hash_val) in hashes_to_check {
+        if !hash_val.is_empty() {
+            // BLAKE3 produces 64-character hex strings
+            if hash_val.len() != 64 || !hash_val.chars().all(|c| c.is_ascii_hexdigit()) {
+                errors.push(format!(
+                    "Invalid {} hash format: expected 64-char hex, got {}",
+                    hash_type, hash_val
+                ));
+                is_valid = false;
+            }
+        }
+    }
+
+    // Validate optional license hash if present
+    if let Some(license_hash) = &model.license_hash_b3 {
+        if !license_hash.is_empty()
+            && (license_hash.len() != 64
+                || !license_hash.chars().all(|c| c.is_ascii_hexdigit()))
+        {
+            errors.push(format!(
+                "Invalid license hash format: expected 64-char hex, got {}",
+                license_hash
+            ));
+            is_valid = false;
+        }
+    }
+
+    // Validate metadata JSON if present
+    if let Some(metadata) = &model.metadata_json {
+        if !metadata.is_empty() {
+            match serde_json::from_str::<serde_json::Value>(metadata) {
+                Ok(_) => {
+                    // Metadata is valid JSON
+                }
+                Err(e) => {
+                    errors.push(format!("Invalid metadata JSON: {}", e));
+                    is_valid = false;
+                }
+            }
+        }
+    }
+
+    // Log validation result
+    let status = if is_valid { "valid" } else { "invalid" };
+    if is_valid {
+        tracing::info!(
+            model_id = %model_id,
+            "Model validation successful"
+        );
+    } else {
+        tracing::warn!(
+            model_id = %model_id,
+            error_count = errors.len(),
+            "Model validation failed"
+        );
+    }
+
+    let reason = if !is_valid {
+        Some(
+            errors
+                .first()
+                .cloned()
+                .unwrap_or_else(|| "Model validation failed".to_string()),
+        )
+    } else {
+        None
+    };
+
+    // Convert errors to issues for frontend compatibility
+    let issues: Vec<ValidationIssue> = errors
+        .iter()
+        .map(|e| ValidationIssue {
+            issue_type: "validation_error".to_string(),
+            message: e.clone(),
+        })
+        .collect();
+
+    // Use frontend-compatible status values
+    let status = if is_valid { "ready" } else { "invalid" };
+
+    Ok(Json(ModelValidationResponse {
+        model_id,
+        status: status.to_string(),
+        valid: is_valid,
+        can_load: is_valid,
+        reason,
+        issues,
+        errors,
+    }))
+}
+
+/// Import a model from a path on disk
+///
+/// # Endpoint
+/// POST /v1/models/import
+///
+/// # Authentication
+/// Required
+///
+/// # Permissions
+/// Requires one of: Admin, Operator
+///
+/// # Request Body
+/// - `model_name`: Name for the imported model
+/// - `model_path`: Filesystem path to model directory
+/// - `format`: Model format (mlx, safetensors, pytorch, gguf)
+/// - `backend`: Backend to use (mlx-ffi, metal)
+/// - `capabilities`: Optional list of capabilities (chat, completion, embeddings)
+/// - `metadata`: Optional JSON metadata
+///
+/// # Response
+/// Returns import status with:
+/// - `import_id`: Unique identifier for the imported model
+/// - `status`: Import status (available, in_progress, failed)
+/// - `message`: Human-readable status message
+/// - `progress`: Import progress percentage (0-100)
+///
+/// The import process:
+/// 1. Validates path exists and format is supported
+/// 2. Scans directory and computes BLAKE3 hashes for all files
+/// 3. Detects model structure and configuration
+/// 4. Registers model in database with metadata
+///
+/// # Errors
+/// - `FORBIDDEN` (403): User lacks required role
+/// - `BAD_REQUEST` (400): Invalid path, unsupported format, or unsupported backend
+/// - `INTERNAL_ERROR` (500): Import failure, database error
+///
+/// # Example
+/// ```
+/// POST /v1/models/import
+/// {
+///   "model_name": "qwen-7b",
+///   "model_path": "/var/model-cache/models/qwen2.5-7b-instruct-bf16",
+///   "format": "mlx",
+///   "backend": "mlx-ffi",
+///   "capabilities": ["chat", "completion"]
+/// }
+/// ```
+#[utoipa::path(
+    post,
+    path = "/v1/models/import",
+    request_body = ImportModelRequest,
+    responses(
+        (status = 200, description = "Import started", body = ImportModelResponse),
+        (status = 400, description = "Invalid request"),
+        (status = 500, description = "Import failed")
+    ),
+    tag = "models"
+)]
+pub async fn import_model(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Json(req): Json<ImportModelRequest>,
+) -> Result<Json<ImportModelResponse>, (StatusCode, Json<ErrorResponse>)> {
+    use tracing::{error, info, warn};
+
+    require_any_role(&claims, &[Role::Admin, Role::Operator]).map_err(|_| {
+        (
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse::new("access denied").with_code("FORBIDDEN")),
+        )
+    })?;
+
+    let tenant_id = &claims.tenant_id;
+
+    // Validate path exists
+    if !StdPath::new(&req.model_path).exists() {
+        warn!("Model path does not exist: {}", req.model_path);
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse::new("model path does not exist").with_code("BAD_REQUEST")),
+        ));
+    }
+
+    // Validate format
+    let valid_formats = ["mlx", "safetensors", "pytorch", "gguf"];
+    if !valid_formats.contains(&req.format.as_str()) {
+        warn!("Invalid model format: {}", req.format);
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse::new("invalid model format").with_code("BAD_REQUEST")),
+        ));
+    }
+
+    // Validate backend
+    let valid_backends = ["mlx", "mlx-ffi", "metal"];
+    if !valid_backends.contains(&req.backend.as_str()) {
+        warn!("Invalid backend: {}", req.backend);
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse::new("invalid backend").with_code("BAD_REQUEST")),
+        ));
+    }
+
+    // Start import
+    let model_id = match state
+        .db
+        .import_model_from_path(
+            &req.model_name,
+            &req.model_path,
+            &req.format,
+            &req.backend,
+            tenant_id,
+            &claims.sub,
+        )
+        .await
+    {
+        Ok(id) => id,
+        Err(e) => {
+            error!("Failed to start model import: {}", e);
+            // Audit log: model import failure
+            let _ = log_failure(
+                &state.db,
+                &claims,
+                ACTION_MODEL_IMPORT,
+                RESOURCE_MODEL,
+                None,
+                &format!("Failed to import model {}: {}", req.model_name, e),
+            )
+            .await;
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to start import")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            ));
+        }
+    };
+
+    // Update status to available (in real implementation, this would be async)
+    if let Err(e) = state
+        .db
+        .update_model_import_status(&model_id, "available", None)
+        .await
+    {
+        error!("Failed to update import status: {}", e);
+    }
+
+    // Audit log: model import success
+    let _ = log_success(
+        &state.db,
+        &claims,
+        ACTION_MODEL_IMPORT,
+        RESOURCE_MODEL,
+        Some(&model_id),
+    )
+    .await;
+
+    info!(
+        model_id = %model_id,
+        model_name = %req.model_name,
+        model_path = %req.model_path,
+        format = %req.format,
+        backend = %req.backend,
+        tenant_id = %tenant_id,
+        "Model import completed"
+    );
+
+    Ok(Json(ImportModelResponse {
+        import_id: model_id,
+        status: "available".to_string(),
+        message: "Model import completed".to_string(),
+        progress: Some(100),
+    }))
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct ModelListResponse {
+    pub models: Vec<ModelWithStatsResponse>,
+    pub total: usize,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct ModelArchitectureSummary {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub architecture: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub num_layers: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hidden_size: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vocab_size: Option<usize>,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct ModelWithStatsResponse {
+    pub id: String,
+    pub name: String,
+    pub hash_b3: String,
+    pub config_hash_b3: String,
+    pub tokenizer_hash_b3: String,
+    pub format: Option<String>,
+    pub backend: Option<String>,
+    pub size_bytes: Option<i64>,
+    pub import_status: Option<String>,
+    pub model_path: Option<String>,
+    pub capabilities: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quantization: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tenant_id: Option<String>,
+    pub adapter_count: i64,
+    pub training_job_count: i64,
+    pub imported_at: Option<String>,
+    pub updated_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub architecture: Option<ModelArchitectureSummary>,
+}
+
+/// List all models with statistics
+///
+/// # Endpoint
+/// GET /v1/models
+///
+/// # Authentication
+/// Required
+///
+/// # Permissions
+/// All authenticated users
+///
+/// # Response
+/// Returns a list of all models with associated statistics:
+/// - `models`: Array of model records with:
+///   - `id`: Unique model identifier
+///   - `name`: Model name
+///   - `format`: Model format (mlx, safetensors, pytorch, gguf)
+///   - `backend`: Backend type (mlx-ffi, metal)
+///   - `size_bytes`: Total size of model files
+///   - `import_status`: Import status (available, in_progress, failed)
+///   - `model_path`: Filesystem path to model files
+///   - `capabilities`: List of supported capabilities
+///   - `adapter_count`: Number of adapters using this model
+///   - `training_job_count`: Number of training jobs for this model
+///   - `imported_at`: Import timestamp
+///   - `updated_at`: Last update timestamp
+/// - `total`: Total number of models
+///
+/// # Errors
+/// - `INTERNAL_ERROR` (500): Database query failure
+///
+/// # Example
+/// ```
+/// GET /v1/models
+/// ```
+#[utoipa::path(
+    get,
+    path = "/v1/models",
+    responses(
+        (status = 200, description = "List of models", body = ModelListResponse),
+        (status = 500, description = "Database error")
+    ),
+    tag = "models"
+)]
+pub async fn list_models_with_stats(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+) -> Result<Json<ModelListResponse>, (StatusCode, Json<ErrorResponse>)> {
+    use tracing::error;
+
+    let models_with_stats = state.db.list_models_with_stats(&claims.tenant_id).await.map_err(|e| {
+        error!("Failed to list models with stats: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("database error")
+                    .with_code("DATABASE_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+
+    let total = models_with_stats.len();
+    let models = models_with_stats
+        .into_iter()
+        .map(|m| {
+            let model = &m.model;
+            let capabilities = model
+                .capabilities
+                .as_ref()
+                .and_then(|c| serde_json::from_str::<Vec<String>>(c).ok());
+
+            ModelWithStatsResponse {
+                id: model.id.clone(),
+                name: model.name.clone(),
+                hash_b3: model.hash_b3.clone(),
+                config_hash_b3: model.config_hash_b3.clone(),
+                tokenizer_hash_b3: model.tokenizer_hash_b3.clone(),
+                format: model.format.clone(),
+                backend: model.backend.clone(),
+                size_bytes: model.size_bytes,
+                import_status: model.import_status.clone(),
+                model_path: model.model_path.clone(),
+                capabilities,
+                quantization: model.quantization.clone(),
+                tenant_id: model.tenant_id.clone(),
+                adapter_count: m.adapter_count,
+                training_job_count: m.training_job_count,
+                imported_at: model.imported_at.clone(),
+                updated_at: model.updated_at.clone(),
+                architecture: parse_architecture_summary(model),
+            }
+        })
+        .collect();
+
+    Ok(Json(ModelListResponse { models, total }))
+}
+
+fn parse_architecture_summary(
+    model: &adapteros_db::models::Model,
+) -> Option<ModelArchitectureSummary> {
+    let mut summary = ModelArchitectureSummary {
+        architecture: model.model_type.clone(),
+        num_layers: None,
+        hidden_size: None,
+        vocab_size: None,
+    };
+
+    if let Some(raw) = &model.metadata_json {
+        if let Ok(value) = serde_json::from_str::<serde_json::Value>(raw) {
+            summary.num_layers = value
+                .get("num_hidden_layers")
+                .and_then(|v| v.as_u64())
+                .map(|v| v as usize);
+            summary.hidden_size = value
+                .get("hidden_size")
+                .and_then(|v| v.as_u64())
+                .map(|v| v as usize);
+            summary.vocab_size = value
+                .get("vocab_size")
+                .and_then(|v| v.as_u64())
+                .map(|v| v as usize);
+
+            if summary.architecture.is_none() {
+                summary.architecture = value
+                    .get("architecture")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+                    .or_else(|| {
+                        value
+                            .get("model_type")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string())
+                    })
+                    .or_else(|| {
+                        value
+                            .get("architectures")
+                            .and_then(|v| v.as_array())
+                            .and_then(|arr| arr.first())
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string())
+                    });
+            }
+        }
+    }
+
+    // Fallback: parse config.json from model_path when metadata is missing/incomplete
+    if (summary.architecture.is_none()
+        || summary.num_layers.is_none()
+        || summary.hidden_size.is_none()
+        || summary.vocab_size.is_none())
+        && model.model_path.is_some()
+    {
+        if let Some(path_str) = &model.model_path {
+            let path = StdPath::new(path_str);
+            let config_path = if path.is_dir() {
+                path.join("config.json")
+            } else {
+                path.to_path_buf()
+            };
+
+            if config_path.exists() {
+                if let Ok(contents) = std::fs::read_to_string(&config_path) {
+                    if let Ok(value) = serde_json::from_str::<serde_json::Value>(&contents) {
+                        if summary.num_layers.is_none() {
+                            summary.num_layers = value
+                                .get("num_hidden_layers")
+                                .and_then(|v| v.as_u64())
+                                .map(|v| v as usize);
+                        }
+                        if summary.hidden_size.is_none() {
+                            summary.hidden_size = value
+                                .get("hidden_size")
+                                .and_then(|v| v.as_u64())
+                                .map(|v| v as usize);
+                        }
+                        if summary.vocab_size.is_none() {
+                            summary.vocab_size = value
+                                .get("vocab_size")
+                                .and_then(|v| v.as_u64())
+                                .map(|v| v as usize);
+                        }
+                        if summary.architecture.is_none() {
+                            summary.architecture = value
+                                .get("model_type")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string())
+                                .or_else(|| {
+                                    value
+                                        .get("architectures")
+                                        .and_then(|v| v.as_array())
+                                        .and_then(|arr| arr.first())
+                                        .and_then(|v| v.as_str())
+                                        .map(|s| s.to_string())
+                                });
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if summary.architecture.is_none()
+        && summary.num_layers.is_none()
+        && summary.hidden_size.is_none()
+        && summary.vocab_size.is_none()
+    {
+        None
+    } else {
+        Some(summary)
+    }
+}
+
+/// Get all models status
+///
+/// # Endpoint
+/// GET /v1/models/status/all
+///
+/// # Authentication
+/// Required
+///
+/// # Permissions
+/// Requires one of: Operator, Admin, Compliance
+///
+/// # Query Parameters
+/// - `tenant_id`: Optional tenant filter to show only models for specific tenant
+///
+/// # Response
+/// Returns aggregated status for all base models:
+/// - `schema_version`: API schema version
+/// - `models`: Array of model status records with:
+///   - `model_id`: Model identifier
+///   - `model_name`: Model name
+///   - `model_path`: Filesystem path
+///   - `status`: Load status (loaded, unloaded, loading, error)
+///   - `loaded_at`: Load timestamp
+///   - `unloaded_at`: Unload timestamp
+///   - `error_message`: Error message if status is error
+///   - `memory_usage_mb`: Memory consumption in MB
+///   - `is_loaded`: Boolean flag
+///   - `updated_at`: Last status update
+/// - `total_memory_mb`: Total memory used by all loaded models
+/// - `available_memory_mb`: Available memory (currently null)
+/// - `active_model_count`: Number of currently loaded models
+///
+/// # Errors
+/// - `FORBIDDEN` (403): User lacks required role
+/// - `INTERNAL_ERROR` (500): Database query failure
+///
+/// # Example
+/// ```
+/// GET /v1/models/status/all?tenant_id=default
+/// ```
+#[utoipa::path(
+    get,
+    path = "/v1/models/status/all",
+    params(
+        ("tenant_id" = Option<String>, Query, description = "Optional tenant filter")
+    ),
+    responses(
+        (status = 200, description = "All models status", body = AllModelsStatusResponse),
+        (status = 500, description = "Database error")
+    ),
+    tag = "models"
+)]
+pub async fn get_all_models_status(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Query(query): Query<std::collections::HashMap<String, String>>,
+) -> Result<Json<AllModelsStatusResponse>, (StatusCode, Json<ErrorResponse>)> {
+    use tracing::error;
+
+    require_any_role(&claims, &[Role::Operator, Role::Admin, Role::Compliance])?;
+
+    // Get all base model statuses
+    let statuses = state.db.list_base_model_statuses().await.map_err(|e| {
+        error!("Failed to list base model statuses: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("database error")
+                    .with_code("DATABASE_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+
+    // Filter by tenant if provided
+    let tenant_filter = query.get("tenant_id");
+    let statuses: Vec<_> = if let Some(tenant_id) = tenant_filter {
+        statuses
+            .into_iter()
+            .filter(|s| s.tenant_id == *tenant_id)
+            .collect()
+    } else {
+        statuses
+    };
+
+    // Convert to response format and get model details
+    let mut model_responses = Vec::new();
+    let mut total_memory_mb = 0;
+    let mut active_model_count = 0;
+
+    let mut grouped: std::collections::HashMap<String, Vec<adapteros_db::models::BaseModelStatus>> =
+        std::collections::HashMap::new();
+    for status in statuses {
+        grouped
+            .entry(status.model_id.clone())
+            .or_default()
+            .push(status);
+    }
+
+    for (model_id, records) in grouped {
+        let aggregated = aggregate_status(records.iter());
+        let latest = aggregated.latest;
+
+        // Get model details
+        let model = match if let Some(tenant_id) = tenant_filter {
+            state.db.get_model_for_tenant(tenant_id, &model_id).await
+        } else {
+            state.db.get_model(&model_id).await
+        } {
+            Ok(Some(m)) => m,
+            Ok(None) => {
+                error!("Model not found: {}", model_id);
+                continue;
+            }
+            Err(e) => {
+                error!("Failed to get model {}: {}", model_id, e);
+                continue;
+            }
+        };
+
+        let is_loaded = aggregated.status.is_ready();
+        if is_loaded {
+            active_model_count += 1;
+        }
+
+        if let Some(memory) = latest.and_then(|s| s.memory_usage_mb) {
+            total_memory_mb += memory as i64;
+        }
+
+        let gauge_tenant = latest.map(|s| s.tenant_id.as_str()).unwrap_or("unknown");
+        state.metrics_exporter.set_model_loaded_gauge(
+            &model_id,
+            gauge_tenant,
+            aggregated.status.is_ready(),
+        );
+
+        model_responses.push(crate::types::BaseModelStatusResponse {
+            model_id,
+            model_name: model.name,
+            model_path: model.model_path,
+            status: aggregated.status,
+            loaded_at: latest.and_then(|s| s.loaded_at.clone()),
+            unloaded_at: latest.and_then(|s| s.unloaded_at.clone()),
+            error_message: latest.and_then(|s| s.error_message.clone()),
+            memory_usage_mb: latest.and_then(|s| s.memory_usage_mb),
+            is_loaded,
+            updated_at: latest
+                .map(|s| s.updated_at.clone())
+                .unwrap_or_else(|| chrono::Utc::now().to_rfc3339()),
+        });
+    }
+
+    Ok(Json(AllModelsStatusResponse {
+        schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
+        models: model_responses,
+        total_memory_mb,
+        available_memory_mb: None, // Not available from current data
+        active_model_count,
+    }))
+}
+
+/// Helper function to get the worker socket path
+///
+/// Tries to get the socket path from:
+/// 1. Workers table in database (production path)
+/// 2. AOS_WORKER_SOCKET environment variable (development fallback)
+/// 3. Default path var/run/worker.sock (local development)
+async fn get_worker_socket_path(state: &AppState, _tenant_id: &str) -> Option<PathBuf> {
+    // Try to get from workers table first
+    if let Ok(workers) = state.db.list_all_workers().await {
+        if let Some(worker) = workers.first() {
+            return Some(PathBuf::from(&worker.uds_path));
+        }
+    }
+
+    match resolve_worker_socket_for_cp() {
+        Ok(resolved) => {
+            if resolved.path.exists() {
+                return Some(resolved.path);
+            }
+            warn!(
+                path = %resolved.path.display(),
+                source = %resolved.source,
+                "Resolved worker socket path does not exist for models helper"
+            );
+        }
+        Err(e) => {
+            error!(error = %e, "Failed to resolve worker socket for models helper");
+        }
+    }
+
+    None
+}
+
+// ============================================================================
+// Download Progress Endpoint
+// ============================================================================
+
+/// Progress information for a single model download/import
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct ModelDownloadProgress {
+    pub model_id: String,
+    pub operation_id: String,
+    pub operation: String,
+    pub status: String,
+    pub started_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub progress_pct: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub speed_mbps: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub eta_seconds: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_message: Option<String>,
+}
+
+/// Response for GET /v1/models/download-progress
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct DownloadProgressResponse {
+    pub schema_version: String,
+    pub imports: Vec<ModelDownloadProgress>,
+    pub total_active: usize,
+}
+
+/// Get download/import progress for all active model operations
+///
+/// Returns progress information for all currently in-progress model downloads
+/// and imports for the tenant.
+#[utoipa::path(
+    get,
+    path = "/v1/models/download-progress",
+    responses(
+        (status = 200, description = "Download progress for active imports", body = DownloadProgressResponse),
+        (status = 500, description = "Database error")
+    ),
+    tag = "models"
+)]
+pub async fn get_download_progress(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+) -> Result<Json<DownloadProgressResponse>, (StatusCode, Json<ErrorResponse>)> {
+    // Require at least Operator role to view model import progress
+    require_any_role(&claims, &[Role::Admin, Role::Operator, Role::Viewer]).map_err(|_| {
+        (
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse::new("Permission denied").with_code("PERMISSION_DENIED")),
+        )
+    })?;
+
+    let tenant_id = &claims.tenant_id;
+
+    // Get all active import/download operations for the tenant
+    let operations = state.db.get_active_imports(tenant_id).await.map_err(|e| {
+        error!("Failed to get active imports: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("database error")
+                    .with_code("DATABASE_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+
+    // Convert to progress response
+    let imports: Vec<ModelDownloadProgress> = operations
+        .into_iter()
+        .map(|op| {
+            // Estimate progress based on elapsed time (basic heuristic)
+            // In a real implementation, we'd track actual bytes downloaded
+            let progress_pct = estimate_progress(&op);
+
+            ModelDownloadProgress {
+                model_id: op.model_id,
+                operation_id: op.id,
+                operation: op.operation,
+                status: op.status,
+                started_at: op.started_at,
+                progress_pct,
+                speed_mbps: None,  // Would need actual download tracking
+                eta_seconds: None, // Would need actual download tracking
+                error_message: op.error_message,
+            }
+        })
+        .collect();
+
+    let total_active = imports.len();
+
+    Ok(Json(DownloadProgressResponse {
+        schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
+        imports,
+        total_active,
+    }))
+}
+
+/// Estimate progress based on elapsed time
+/// This is a placeholder - real progress tracking would use actual download bytes
+fn estimate_progress(op: &adapteros_db::model_operations::ModelOperation) -> Option<i32> {
+    // Parse started_at and calculate elapsed time
+    if let Ok(started) = chrono::DateTime::parse_from_rfc3339(&op.started_at) {
+        let elapsed = chrono::Utc::now().signed_duration_since(started.with_timezone(&chrono::Utc));
+        let elapsed_secs = elapsed.num_seconds();
+
+        // Assume average model import takes ~60 seconds
+        // This is a rough estimate for UI feedback
+        let estimated_total_secs = 60;
+        let progress =
+            ((elapsed_secs as f64 / estimated_total_secs as f64) * 100.0).min(95.0) as i32;
+
+        Some(progress)
+    } else {
+        None
+    }
+}
+
+// Re-export model handlers from parent module for routes.rs
+pub use super::{__path_get_base_model_status, get_base_model_status};

@@ -1,0 +1,9 @@
+---
+source: crates/adapteros-server-api/tests/contract_snapshots.rs
+assertion_line: 304
+expression: "json!({ \"status\": evidence_list_status.as_u16(), \"body\": evidence_list_body })"
+---
+{
+  "body": [],
+  "status": 200
+}

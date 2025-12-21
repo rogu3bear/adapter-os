@@ -1,0 +1,6 @@
+Doc Chat Synthetic Document
+This tiny document is used for the doc-chat scenario golden flow.
+It should yield a deterministic one-line summary when queried.
+
+MLNavigator Inc Dec 7, 2025.
+

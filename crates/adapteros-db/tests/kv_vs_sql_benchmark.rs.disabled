@@ -1,0 +1,372 @@
+//! Simple timing-based benchmark comparing KV vs SQL adapter operations
+//!
+//! This test module provides a lightweight alternative to criterion benchmarks
+//! for comparing performance between SQL and KV storage backends.
+//!
+//! Tests measure:
+//! 1. get_adapter - Single adapter retrieval by ID
+//! 2. list_adapters - Listing all adapters for a tenant
+//! 3. register_adapter - Creating a new adapter (write operation)
+//! 4. update_adapter_state - Updating adapter state (write operation)
+//!
+//! Results are reported to stdout with timing comparisons.
+//!
+//! Usage:
+//! ```bash
+//! cargo test --package adapteros-db kv_vs_sql_benchmark -- --nocapture --ignored
+//! ```
+//!
+//! Citation: AGENTS.md - Storage migration path validation
+//! Copyright JKCA | 2025 James KC Auchterlonie
+
+use adapteros_db::adapters::AdapterRegistrationBuilder;
+use adapteros_db::Db;
+use std::time::Instant;
+use tempfile::TempDir;
+
+fn new_test_tempdir() -> TempDir {
+    let root = std::path::PathBuf::from("var").join("tmp");
+    std::fs::create_dir_all(&root).expect("create var/tmp");
+    TempDir::new_in(&root).expect("tempdir")
+}
+
+/// Helper to create a test database with KV backend
+async fn create_test_db_with_kv() -> (Db, TempDir, TempDir) {
+    let temp_sql_dir = new_test_tempdir();
+    let temp_kv_dir = new_test_tempdir();
+
+    let db_path = temp_sql_dir.path().join("test.db");
+    let kv_path = temp_kv_dir.path().join("test.redb");
+
+    let mut db = Db::connect(db_path.to_str().unwrap()).await.unwrap();
+    db.migrate().await.unwrap();
+
+    // Initialize KV backend
+    db.init_kv_backend(&kv_path).unwrap();
+
+    // Create default tenant
+    sqlx::query("INSERT INTO tenants (id, name) VALUES ('default-tenant', 'Default Test Tenant')")
+        .execute(db.pool())
+        .await
+        .unwrap();
+
+    (db, temp_sql_dir, temp_kv_dir)
+}
+
+/// Helper to create test adapters
+async fn create_test_adapters(db: &Db, count: usize, prefix: &str) -> Vec<String> {
+    let mut adapter_ids = Vec::new();
+
+    for i in 0..count {
+        let adapter_id = format!("{}-adapter-{}", prefix, i);
+        let params = AdapterRegistrationBuilder::new()
+            .adapter_id(&adapter_id)
+            .name(format!("Test Adapter {}", i))
+            .hash_b3(format!("b3:{}_hash_{}", prefix, i))
+            .rank(16)
+            .tier("warm")
+            .category("code")
+            .scope("global")
+            .build()
+            .unwrap();
+
+        db.register_adapter(params).await.unwrap();
+        adapter_ids.push(adapter_id);
+    }
+
+    adapter_ids
+}
+
+#[tokio::test]
+#[ignore] // Run with --ignored flag
+async fn benchmark_get_adapter() {
+    println!("\n=== Benchmark: get_adapter ===\n");
+
+    let (mut db, _sql_dir, _kv_dir) = create_test_db_with_kv().await;
+
+    // Create 100 test adapters
+    let adapter_ids = create_test_adapters(&db, 100, "bench").await;
+    let test_id = &adapter_ids[50]; // Use middle adapter
+
+    // Warmup
+    for _ in 0..10 {
+        db.get_adapter(test_id).await.unwrap();
+    }
+
+    // Benchmark SQL mode
+    db.set_storage_mode(adapteros_db::StorageMode::SqlOnly);
+    let sql_start = Instant::now();
+    for _ in 0..1000 {
+        db.get_adapter(test_id).await.unwrap();
+    }
+    let sql_duration = sql_start.elapsed();
+
+    // Benchmark KV mode
+    db.set_storage_mode(adapteros_db::StorageMode::KvOnly);
+    let kv_start = Instant::now();
+    for _ in 0..1000 {
+        db.get_adapter(test_id).await.unwrap();
+    }
+    let kv_duration = kv_start.elapsed();
+
+    // Benchmark DualWrite mode
+    db.set_storage_mode(adapteros_db::StorageMode::DualWrite);
+    let dual_start = Instant::now();
+    for _ in 0..1000 {
+        db.get_adapter(test_id).await.unwrap();
+    }
+    let dual_duration = dual_start.elapsed();
+
+    // Benchmark KvPrimary mode
+    db.set_storage_mode(adapteros_db::StorageMode::KvPrimary);
+    let kvp_start = Instant::now();
+    for _ in 0..1000 {
+        db.get_adapter(test_id).await.unwrap();
+    }
+    let kvp_duration = kvp_start.elapsed();
+
+    println!("get_adapter (1000 iterations):");
+    println!("  SQL-only:   {:?} ({:.2} µs/op)", sql_duration, sql_duration.as_micros() as f64 / 1000.0);
+    println!("  KV-only:    {:?} ({:.2} µs/op)", kv_duration, kv_duration.as_micros() as f64 / 1000.0);
+    println!("  DualWrite:  {:?} ({:.2} µs/op)", dual_duration, dual_duration.as_micros() as f64 / 1000.0);
+    println!("  KvPrimary:  {:?} ({:.2} µs/op)", kvp_duration, kvp_duration.as_micros() as f64 / 1000.0);
+
+    let speedup = sql_duration.as_micros() as f64 / kv_duration.as_micros() as f64;
+    println!("\n  KV speedup: {:.2}x", speedup);
+}
+
+#[tokio::test]
+#[ignore] // Run with --ignored flag
+async fn benchmark_list_adapters() {
+    println!("\n=== Benchmark: list_adapters ===\n");
+
+    for count in [10, 50, 100] {
+        println!("Testing with {} adapters:", count);
+
+        let (mut db, _sql_dir, _kv_dir) = create_test_db_with_kv().await;
+
+        // Create test adapters
+        create_test_adapters(&db, count, &format!("list{}", count)).await;
+
+        // Warmup
+        for _ in 0..5 {
+            db.list_adapters_for_tenant("default-tenant").await.unwrap();
+        }
+
+        // Benchmark SQL mode
+        db.set_storage_mode(adapteros_db::StorageMode::SqlOnly);
+        let sql_start = Instant::now();
+        for _ in 0..100 {
+            db.list_adapters_for_tenant("default-tenant").await.unwrap();
+        }
+        let sql_duration = sql_start.elapsed();
+
+        // Benchmark KV mode
+        db.set_storage_mode(adapteros_db::StorageMode::KvOnly);
+        let kv_start = Instant::now();
+        for _ in 0..100 {
+            db.list_adapters_for_tenant("default-tenant").await.unwrap();
+        }
+        let kv_duration = kv_start.elapsed();
+
+        // Benchmark DualWrite mode
+        db.set_storage_mode(adapteros_db::StorageMode::DualWrite);
+        let dual_start = Instant::now();
+        for _ in 0..100 {
+            db.list_adapters_for_tenant("default-tenant").await.unwrap();
+        }
+        let dual_duration = dual_start.elapsed();
+
+        // Benchmark KvPrimary mode
+        db.set_storage_mode(adapteros_db::StorageMode::KvPrimary);
+        let kvp_start = Instant::now();
+        for _ in 0..100 {
+            db.list_adapters_for_tenant("default-tenant").await.unwrap();
+        }
+        let kvp_duration = kvp_start.elapsed();
+
+        println!("  SQL-only:   {:?} ({:.2} µs/op)", sql_duration, sql_duration.as_micros() as f64 / 100.0);
+        println!("  KV-only:    {:?} ({:.2} µs/op)", kv_duration, kv_duration.as_micros() as f64 / 100.0);
+        println!("  DualWrite:  {:?} ({:.2} µs/op)", dual_duration, dual_duration.as_micros() as f64 / 100.0);
+        println!("  KvPrimary:  {:?} ({:.2} µs/op)", kvp_duration, kvp_duration.as_micros() as f64 / 100.0);
+
+        let speedup = sql_duration.as_micros() as f64 / kv_duration.as_micros() as f64;
+        println!("  KV speedup: {:.2}x\n", speedup);
+    }
+}
+
+#[tokio::test]
+#[ignore] // Run with --ignored flag
+async fn benchmark_register_adapter() {
+    println!("\n=== Benchmark: register_adapter ===\n");
+
+    // Test write performance
+    let iterations = 50;
+
+    // SQL-only mode
+    {
+        let (mut db, _sql_dir, _kv_dir) = create_test_db_with_kv().await;
+        db.set_storage_mode(adapteros_db::StorageMode::SqlOnly);
+
+        let start = Instant::now();
+        for i in 0..iterations {
+            let params = AdapterRegistrationBuilder::new()
+                .adapter_id(&format!("write-sql-{}", i))
+                .name("Write Test Adapter")
+                .hash_b3(&format!("b3:write_sql_{}", i))
+                .rank(16)
+                .tier("warm")
+                .category("code")
+                .scope("global")
+                .build()
+                .unwrap();
+
+            db.register_adapter(params).await.unwrap();
+        }
+        let sql_duration = start.elapsed();
+        println!("SQL-only:   {:?} ({:.2} ms/op)", sql_duration, sql_duration.as_millis() as f64 / iterations as f64);
+    }
+
+    // KV-only mode
+    {
+        let (mut db, _sql_dir, _kv_dir) = create_test_db_with_kv().await;
+        db.set_storage_mode(adapteros_db::StorageMode::KvOnly);
+
+        let start = Instant::now();
+        for i in 0..iterations {
+            let params = AdapterRegistrationBuilder::new()
+                .adapter_id(&format!("write-kv-{}", i))
+                .name("Write Test Adapter")
+                .hash_b3(&format!("b3:write_kv_{}", i))
+                .rank(16)
+                .tier("warm")
+                .category("code")
+                .scope("global")
+                .build()
+                .unwrap();
+
+            db.register_adapter(params).await.unwrap();
+        }
+        let kv_duration = start.elapsed();
+        println!("KV-only:    {:?} ({:.2} ms/op)", kv_duration, kv_duration.as_millis() as f64 / iterations as f64);
+    }
+
+    // DualWrite mode
+    {
+        let (mut db, _sql_dir, _kv_dir) = create_test_db_with_kv().await;
+        db.set_storage_mode(adapteros_db::StorageMode::DualWrite);
+
+        let start = Instant::now();
+        for i in 0..iterations {
+            let params = AdapterRegistrationBuilder::new()
+                .adapter_id(&format!("write-dual-{}", i))
+                .name("Write Test Adapter")
+                .hash_b3(&format!("b3:write_dual_{}", i))
+                .rank(16)
+                .tier("warm")
+                .category("code")
+                .scope("global")
+                .build()
+                .unwrap();
+
+            db.register_adapter(params).await.unwrap();
+        }
+        let dual_duration = start.elapsed();
+        println!("DualWrite:  {:?} ({:.2} ms/op)", dual_duration, dual_duration.as_millis() as f64 / iterations as f64);
+    }
+
+    // KvPrimary mode
+    {
+        let (mut db, _sql_dir, _kv_dir) = create_test_db_with_kv().await;
+        db.set_storage_mode(adapteros_db::StorageMode::KvPrimary);
+
+        let start = Instant::now();
+        for i in 0..iterations {
+            let params = AdapterRegistrationBuilder::new()
+                .adapter_id(&format!("write-kvp-{}", i))
+                .name("Write Test Adapter")
+                .hash_b3(&format!("b3:write_kvp_{}", i))
+                .rank(16)
+                .tier("warm")
+                .category("code")
+                .scope("global")
+                .build()
+                .unwrap();
+
+            db.register_adapter(params).await.unwrap();
+        }
+        let kvp_duration = start.elapsed();
+        println!("KvPrimary:  {:?} ({:.2} ms/op)", kvp_duration, kvp_duration.as_millis() as f64 / iterations as f64);
+    }
+}
+
+#[tokio::test]
+#[ignore] // Run with --ignored flag
+async fn benchmark_update_adapter_state() {
+    println!("\n=== Benchmark: update_adapter_state ===\n");
+
+    let (mut db, _sql_dir, _kv_dir) = create_test_db_with_kv().await;
+
+    // Create test adapter
+    let adapter_ids = create_test_adapters(&db, 1, "update").await;
+    let test_id = &adapter_ids[0];
+
+    let iterations = 500;
+
+    // Warmup
+    for _ in 0..10 {
+        db.update_adapter_state_tx(test_id, "warm", "warmup").await.unwrap();
+    }
+
+    // Benchmark SQL mode
+    db.set_storage_mode(adapteros_db::StorageMode::SqlOnly);
+    let sql_start = Instant::now();
+    for _ in 0..iterations {
+        db.update_adapter_state_tx(test_id, "warm", "benchmark").await.unwrap();
+    }
+    let sql_duration = sql_start.elapsed();
+
+    // Benchmark KV mode
+    db.set_storage_mode(adapteros_db::StorageMode::KvOnly);
+    let kv_start = Instant::now();
+    for _ in 0..iterations {
+        db.update_adapter_state_tx(test_id, "warm", "benchmark").await.unwrap();
+    }
+    let kv_duration = kv_start.elapsed();
+
+    // Benchmark DualWrite mode
+    db.set_storage_mode(adapteros_db::StorageMode::DualWrite);
+    let dual_start = Instant::now();
+    for _ in 0..iterations {
+        db.update_adapter_state_tx(test_id, "warm", "benchmark").await.unwrap();
+    }
+    let dual_duration = dual_start.elapsed();
+
+    // Benchmark KvPrimary mode
+    db.set_storage_mode(adapteros_db::StorageMode::KvPrimary);
+    let kvp_start = Instant::now();
+    for _ in 0..iterations {
+        db.update_adapter_state_tx(test_id, "warm", "benchmark").await.unwrap();
+    }
+    let kvp_duration = kvp_start.elapsed();
+
+    println!("update_adapter_state ({} iterations):", iterations);
+    println!("  SQL-only:   {:?} ({:.2} µs/op)", sql_duration, sql_duration.as_micros() as f64 / iterations as f64);
+    println!("  KV-only:    {:?} ({:.2} µs/op)", kv_duration, kv_duration.as_micros() as f64 / iterations as f64);
+    println!("  DualWrite:  {:?} ({:.2} µs/op)", dual_duration, dual_duration.as_micros() as f64 / iterations as f64);
+    println!("  KvPrimary:  {:?} ({:.2} µs/op)", kvp_duration, kvp_duration.as_micros() as f64 / iterations as f64);
+
+    let speedup = sql_duration.as_micros() as f64 / kv_duration.as_micros() as f64;
+    println!("\n  KV speedup: {:.2}x", speedup);
+}
+
+// Note: To run all benchmarks, use:
+// cargo test --package adapteros-db --test kv_vs_sql_benchmark -- --nocapture --ignored
+//
+// This will execute all four benchmark tests sequentially:
+// - benchmark_get_adapter
+// - benchmark_list_adapters
+// - benchmark_register_adapter
+// - benchmark_update_adapter_state
+//
+// For detailed output and timing analysis, always include --nocapture flag.

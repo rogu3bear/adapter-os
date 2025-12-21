@@ -1,0 +1,7 @@
+[toolchain]
+channel = "nightly"
+components = ["rustfmt", "clippy"]
+targets = ["aarch64-apple-darwin"]
+
+# Use nightly toolchain for macOS Sequoia compatibility
+# Nightly builds may have fixes for LC_UUID load command issues

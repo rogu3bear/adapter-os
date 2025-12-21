@@ -1,0 +1,227 @@
+# MetricsComparison Component Structure
+
+## Component Hierarchy
+
+MetricsComparison (Root)
+├── Header Section
+│   ├── Title & Description
+│   └── Control Switches
+│       ├── Smoothing Toggle
+│       ├── Log Scale Toggle
+│       └── Validation Toggle
+│
+├── Job Legend (Interactive)
+│   └── Badge[] (click to show/hide)
+│       └── Eye/EyeOff Icon
+│
+├── Summary Statistics
+│   ├── Job Card 1
+│   │   ├── Best Loss
+│   │   ├── Convergence Rate
+│   │   └── Avg Throughput
+│   ├── Job Card 2
+│   └── Job Card 3
+│
+├── Loss Curve Chart (Main)
+│   ├── LineChart (Recharts)
+│   ├── CartesianGrid
+│   ├── XAxis (Epochs)
+│   ├── YAxis (Loss, log/linear)
+│   ├── Tooltip (Custom)
+│   ├── Legend
+│   ├── Line[] (Training Loss per job)
+│   ├── Line[] (Validation Loss per job, dashed)
+│   └── ReferenceLine (Best Epoch)
+│
+├── Performance Chart
+│   ├── AreaChart (Recharts)
+│   ├── CartesianGrid
+│   ├── XAxis (Epochs)
+│   ├── YAxis (Tokens/Second)
+│   ├── Tooltip (Custom)
+│   ├── Legend
+│   └── Area[] (per job, filled)
+│
+├── Resource Usage (2-column grid)
+│   ├── GPU Utilization Chart
+│   │   ├── LineChart (Recharts)
+│   │   ├── YAxis (0-100%)
+│   │   └── Line[] (per job)
+│   │
+│   └── Memory Usage Chart
+│       ├── LineChart (Recharts)
+│       ├── YAxis (GB)
+│       └── Line[] (per job)
+│
+└── Convergence Analysis
+    ├── BarChart (Recharts)
+    ├── XAxis (Job Names)
+    ├── YAxis (Loss Reduction/Epoch)
+    └── Bar[] (per job, color-coded)
+
+## Data Flow
+
+1. Props Input
+   jobs: TrainingJob[]
+   metricsHistory: Map<string, TrainingMetrics[]>
+   
+2. State Management
+   visibleJobs: Set<string>
+   logScale: boolean
+   smoothing: boolean
+   showValidation: boolean
+   
+3. Derived Data (useMemo)
+   lossData: ChartDataPoint[]
+   performanceData: ChartDataPoint[]
+   resourceData: ChartDataPoint[]
+   statistics: JobStatistics[]
+   bestJob: JobStatistics | null
+   
+4. Rendering
+   → Charts
+   → Statistics Cards
+   → Interactive Controls
+
+## Chart Data Structure
+
+ChartDataPoint {
+  epoch: number
+  [jobId_loss]: number
+  [jobId_val_loss]?: number
+  [jobId_tokens_per_second]: number
+  [jobId_gpu]: number
+  [jobId_memory]: number
+}
+
+Example:
+{
+  epoch: 5,
+  job1_loss: 0.245,
+  job1_val_loss: 0.289,
+  job2_loss: 0.312,
+  job2_val_loss: 0.350,
+  job1_tokens_per_second: 1250,
+  job2_tokens_per_second: 980,
+  job1_gpu: 87,
+  job2_gpu: 92,
+  job1_memory: 14.2,
+  job2_memory: 18.5
+}
+
+## Interactive Features
+
+1. Job Visibility Toggle
+   Badge onClick → toggleJob(jobId)
+   → Update visibleJobs Set
+   → Charts re-render with filtered data
+
+2. Scale Toggle
+   Switch onChange → setLogScale(!logScale)
+   → YAxis scale prop updates
+   → Chart re-renders
+
+3. Smoothing Toggle
+   Switch onChange → setSmoothing(!smoothing)
+   → Data processed through smoothData()
+   → Charts re-render with smoothed curves
+
+4. Validation Toggle
+   Switch onChange → setShowValidation(!showValidation)
+   → Validation Line components conditionally render
+   → Chart re-renders
+
+5. Hover Tooltips
+   Chart onMouseMove → Recharts Tooltip
+   → CustomTooltip component renders
+   → Shows exact values for all visible jobs
+
+## Color Palette (Tol Bright)
+
+Job 1: #4477AA (Blue)
+Job 2: #EE6677 (Red)
+Job 3: #228833 (Green)
+Job 4: #CCBB44 (Yellow)
+Job 5: #66CCEE (Cyan)
+Job 6: #AA3377 (Purple)
+Job 7: #BBBBBB (Grey)
+Job 8+: Cycles back to Job 1 color
+
+## Performance Optimizations
+
+1. Memoization
+   - useMemo for lossData
+   - useMemo for performanceData
+   - useMemo for resourceData
+   - useMemo for statistics
+   - useMemo for bestJob
+
+2. Conditional Rendering
+   - Only visible jobs rendered in charts
+   - Validation lines only when enabled
+   - Charts only render when data present
+
+3. Efficient Data Structures
+   - Map for metrics history (O(1) lookup)
+   - Set for visible jobs (O(1) check)
+
+4. Debouncing
+   - Toggle controls use React state (batched updates)
+   - No manual debouncing needed (React handles)
+
+## File Structure
+
+MetricsComparison.tsx (673 lines)
+├── Imports (lines 1-30)
+├── Types & Interfaces (31-60)
+├── Helper Functions (61-90)
+│   └── smoothData()
+├── Main Component (91-673)
+│   ├── State (91-120)
+│   ├── Data Processing (121-250)
+│   ├── Statistics (251-300)
+│   ├── Helper Functions (301-350)
+│   └── Render (351-673)
+│       ├── Header (351-380)
+│       ├── Legend (381-420)
+│       ├── Statistics (421-470)
+│       ├── Loss Chart (471-540)
+│       ├── Performance Chart (541-580)
+│       ├── Resource Charts (581-640)
+│       └── Convergence Chart (641-673)
+
+MetricsComparisonExample.tsx (329 lines)
+├── Imports (1-20)
+├── Data Generation (21-150)
+│   ├── generateExampleJobs()
+│   └── generateMetricsHistory()
+├── Component (151-329)
+│   ├── State (151-180)
+│   ├── Header (181-220)
+│   ├── Info Cards (221-260)
+│   ├── Main Component (261-280)
+│   └── Usage Guide (281-329)
+
+## Dependencies
+
+External:
+- recharts@^2.15.2
+- react@^18
+- lucide-react
+
+Internal (shadcn/ui):
+- Card, CardContent, CardHeader, CardTitle, CardDescription
+- Button
+- Badge
+- Switch
+- Label
+
+## Export Structure
+
+index.ts
+├── export { MetricsComparison }
+└── export { MetricsComparisonExample }
+
+Usage:
+import { MetricsComparison } from '@/components/training';
+import { MetricsComparisonExample } from '@/components/training';

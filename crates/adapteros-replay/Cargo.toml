@@ -1,0 +1,37 @@
+[package]
+name = "adapteros-replay"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# Core dependencies
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+
+# AdapterOS dependencies
+adapteros-core = { path = "../adapteros-core" }
+adapteros-crypto = { path = "../adapteros-crypto" }
+adapteros-telemetry = { path = "../adapteros-telemetry" }
+adapteros-deterministic-exec = { path = "../adapteros-deterministic-exec" }
+adapteros-graph = { path = "../adapteros-graph" }
+adapteros-trace = { path = "../adapteros-trace" }
+adapteros-verify = { path = "../adapteros-verify" }
+
+# Async runtime
+tokio = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+
+# Serialization
+hex = { workspace = true }
+
+# Filesystem
+tempfile = { workspace = true }

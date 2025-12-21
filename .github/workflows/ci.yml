@@ -1,0 +1,414 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  format:
+    name: Format Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Check format
+        run: cargo fmt --all -- --check
+
+  feature-matrix:
+    name: Feature Matrix Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run feature matrix checks
+        run: cargo xtask check-all --verbose
+
+  clippy:
+    name: Clippy Lints
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - name: Run clippy
+        run: cargo clippy --workspace --all-targets --exclude adapteros-lora-mlx-ffi -- -D warnings
+
+  test:
+    name: Test Suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Guard legacy AOS flag in CI
+        run: |
+          case "${AOS_ALLOW_LEGACY_AOS:-0}" in
+            1|true|TRUE|yes|YES)
+              echo "::error::AOS_ALLOW_LEGACY_AOS must remain disabled in CI tests"
+              exit 1
+              ;;
+            *)
+              echo "Legacy AOS flag is not enabled (expected)"
+              ;;
+          esac
+      - name: Run tests
+        run: cargo test --workspace --all-targets --exclude adapteros-lora-mlx-ffi
+
+  extended-tenant-isolation-tests:
+    name: Extended Tenant Isolation Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Guard legacy AOS flag in CI
+        run: |
+          case "${AOS_ALLOW_LEGACY_AOS:-0}" in
+            1|true|TRUE|yes|YES)
+              echo "::error::AOS_ALLOW_LEGACY_AOS must remain disabled in CI tests"
+              exit 1
+              ;;
+            *)
+              echo "Legacy AOS flag is not enabled (expected)"
+              ;;
+          esac
+      - name: Run extended tenant isolation tests
+        run: cargo test --test integration --features extended-tests tenant_isolation -- --nocapture
+
+  test-macos:
+    name: Test Suite (macOS, full workspace)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Guard legacy AOS flag in CI
+        run: |
+          case "${AOS_ALLOW_LEGACY_AOS:-0}" in
+            1|true|TRUE|yes|YES)
+              echo "::error::AOS_ALLOW_LEGACY_AOS must remain disabled in CI tests"
+              exit 1
+              ;;
+            *)
+              echo "Legacy AOS flag is not enabled (expected)"
+              ;;
+          esac
+      - name: Run tests
+        run: cargo test --workspace --all-targets
+
+  kv-primary:
+    name: KV Primary Mode
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Prepare KV path
+        run: mkdir -p /tmp/aos-kv
+      - name: Guard legacy AOS flag in CI
+        run: |
+          case "${AOS_ALLOW_LEGACY_AOS:-0}" in
+            1|true|TRUE|yes|YES)
+              echo "::error::AOS_ALLOW_LEGACY_AOS must remain disabled in CI tests"
+              exit 1
+              ;;
+            *)
+              echo "Legacy AOS flag is not enabled (expected)"
+              ;;
+          esac
+      - name: Detect KV-only coverage readiness
+        id: coverage
+        run: |
+          python - <<'PY'
+          import os, re, pathlib
+
+          content = pathlib.Path("crates/adapteros-db/src/lib.rs").read_text()
+          match = re.search(r"const UNSUPPORTED: &[^\[]*\[(.*?)\];", content, re.S)
+          entries = []
+          if match:
+              for line in match.group(1).splitlines():
+                  line = line.strip().strip(",")
+                  if not line or line in ('""', "''"):
+                      continue
+                  entries.append(line.strip().strip('"'))
+
+          ready = len(entries) == 0
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+              fh.write(f"coverage_ready={'true' if ready else 'false'}\n")
+              fh.write(f"unsupported_domains={','.join(entries)}\n")
+
+          if ready:
+              print("KV-only coverage ready; enabling kv_only smoke")
+          else:
+              print(f"KV-only coverage incomplete; unsupported domains: {entries}")
+          PY
+      - name: Run KV-primary smoke suite
+        env:
+          AOS_STORAGE_BACKEND: kv_primary
+          AOS_KV_PATH: /tmp/aos-kv/aos-kv.redb
+        run: |
+          cargo test -p adapteros-db -- --nocapture
+          cargo test -p adapteros-server-api -- --nocapture
+      - name: Run KV-only smoke (gated)
+        if: steps.coverage.outputs.coverage_ready == 'true'
+        env:
+          AOS_STORAGE_BACKEND: kv_only
+          AOS_KV_PATH: /tmp/aos-kv/aos-kv.redb
+        run: cargo test -p adapteros-db --test kv_only_paths -- --nocapture
+      - name: Skip KV-only smoke (coverage incomplete)
+        if: steps.coverage.outputs.coverage_ready != 'true'
+        run: 'echo "KV-only smoke skipped; unsupported domains: ${{ steps.coverage.outputs.unsupported_domains }}"'
+
+  kv-verify:
+    name: KV Drift Verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run SQL↔KV verify gate
+        env:
+          KV_VERIFY_DB: /tmp/aos-ci.sqlite3
+          KV_VERIFY_KV: /tmp/aos-kv.redb
+          KV_VERIFY_OUT: kv-verify.json
+        run: |
+          set -euo pipefail
+          make kv-verify KV_VERIFY_DB=$KV_VERIFY_DB KV_VERIFY_KV=$KV_VERIFY_KV KV_VERIFY_OUT=$KV_VERIFY_OUT
+          cat kv-verify.json
+          jq -e '(.drift == 0) and (.fallback == 0) and (.errors == 0) and (.degraded == false)' kv-verify.json
+
+  determinism:
+    name: Determinism Suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Determinism smoke fixtures
+        run: cargo test --test determinism_smoke -- --nocapture
+      - name: Run determinism check
+        run: make determinism-check
+
+  cli-models-seed:
+    name: CLI Models Seed
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build CLI
+        run: cargo build -p adapteros-cli
+      - name: Setup test environment
+        run: |
+          mkdir -p var/test-model
+          # Create a minimal mock model for testing (config.json required)
+          echo '{"model_type":"llama","hidden_size":256}' > var/test-model/config.json
+          echo '{}' > var/test-model/tokenizer.json
+          echo '{}' > var/test-model/tokenizer_config.json
+      - name: Run migrations
+        run: |
+          DATABASE_URL="sqlite://./var/test-cli.sqlite3" \
+            AOS_SKIP_MIGRATION_SIGNATURES=1 \
+            cargo sqlx migrate run
+      - name: Test models seed command
+        run: |
+          DATABASE_URL="sqlite://./var/test-cli.sqlite3" \
+            ./target/debug/aosctl models seed --model-path var/test-model
+      - name: Test models list command
+        run: |
+          DATABASE_URL="sqlite://./var/test-cli.sqlite3" \
+            ./target/debug/aosctl models list
+      - name: Verify model was seeded
+        run: |
+          DATABASE_URL="sqlite://./var/test-cli.sqlite3" \
+            ./target/debug/aosctl models list --json | jq -e '.count >= 1'
+
+  security-audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install cargo-audit
+        run: cargo install cargo-audit
+      - name: Run security audit
+        run: cargo audit --ignore RUSTSEC-2021-0139
+      - name: Generate SBOM
+        run: |
+          # Install cargo-sbom if available, or use basic dependency listing
+          cargo tree > sbom.txt || echo "cargo tree fallback used"
+          echo "Software Bill of Materials generated" >> sbom.txt
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v3
+        with:
+          name: sbom
+          path: sbom.txt
+
+  license-check:
+    name: License Compliance
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install cargo-license
+        run: cargo install cargo-license
+      - name: Check licenses
+        run: |
+          cargo license --json > licenses.json
+          # Check for unacceptable licenses
+          if jq -r '.[] | select(.license | test("^(GPL|LGPL|CDDL|CECILL|MPL)")) | .name' licenses.json | grep -q .; then
+            echo "::error::Unacceptable license found in dependencies"
+            jq -r '.[] | select(.license | test("^(GPL|LGPL|CDDL|CECILL|MPL)")) | "\(.name): \(.license)"' licenses.json
+            exit 1
+          else
+            echo "✅ All dependency licenses are acceptable"
+          fi
+      - name: Upload license report
+        uses: actions/upload-artifact@v3
+        with:
+          name: license-report
+          path: licenses.json
+
+  build:
+    name: Release Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build release
+        run: cargo build --release --workspace --exclude adapteros-lora-mlx-ffi
+      - name: Install b3sum for provenance hashing
+        run: cargo install b3sum --locked
+      - name: Generate signed SBOM and provenance bundle
+        if: github.event_name != 'pull_request'
+        env:
+          RELEASE_SIGNING_KEY_PEM: ${{ secrets.RELEASE_SIGNING_KEY_PEM }}
+          RELEASE_SIGNING_PUBKEY_HEX: ${{ secrets.RELEASE_SIGNING_PUBKEY_HEX }}
+        run: bash scripts/release/sbom.sh
+      - name: Upload release provenance bundle
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-provenance
+          path: target/release-bundle
+
+  api-types-drift:
+    name: API Types Drift Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 9
+
+      - name: Install dependencies
+        run: cd ui && pnpm install --frozen-lockfile
+
+      - name: Build Rust project
+        run: cargo build -p adapteros-server-api
+
+      - name: Generate OpenAPI spec from Rust backend
+        run: cargo run -p adapteros-server-api --bin export-openapi -- target/codegen/openapi.json
+
+      - name: Generate TypeScript types from OpenAPI spec
+        run: |
+          cd ui
+          # Generate types to temporary file for comparison
+          pnpm exec openapi-typescript ../target/codegen/openapi.json \
+            --output src/api/generated.check.ts \
+            --export-type \
+            --enum \
+            --alphabetize \
+            --empty-objects-unknown \
+            --path-params-as-types \
+            --default-non-nullable=false
+
+      - name: Check for drift in generated types
+        run: |
+          cd ui
+          # Compare generated types with committed version
+          if ! diff -u src/api/generated.ts src/api/generated.check.ts > /tmp/types-drift.diff; then
+            echo "::error::Generated TypeScript types are out of sync with OpenAPI spec!"
+            echo ""
+            echo "The following differences were found:"
+            cat /tmp/types-drift.diff
+            echo ""
+            echo "To fix this, run locally:"
+            echo "  cd ui && pnpm run gen:types"
+            echo "Or:"
+            echo "  ./scripts/generate-sdks.sh --typescript"
+            echo ""
+            echo "Then commit the updated src/api/generated.ts file."
+            exit 1
+          else
+            echo "✓ Generated types are in sync"
+          fi
+
+      - name: TypeScript type check
+        run: cd ui && pnpm exec tsc --noEmit
+
+      - name: Run transformer tests
+        run: cd ui && pnpm test src/api/__tests__/transformers.test.ts
+
+      - name: Verify OpenAPI spec quality
+        run: |
+          # Check that spec has expected structure
+          if ! jq -e '.paths | length > 0' target/codegen/openapi.json > /dev/null; then
+            echo "::error::OpenAPI spec has no paths defined"
+            exit 1
+          fi
+          if ! jq -e '.components.schemas | length > 0' target/codegen/openapi.json > /dev/null; then
+            echo "::error::OpenAPI spec has no schemas defined"
+            exit 1
+          fi
+          echo "✓ OpenAPI spec structure is valid"
+          echo "  Paths: $(jq '.paths | length' target/codegen/openapi.json)"
+          echo "  Schemas: $(jq '.components.schemas | length' target/codegen/openapi.json)"
+
+  type-safety:
+    name: Type Safety Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 9
+      - name: Install dependencies
+        run: cd ui && pnpm install --frozen-lockfile
+      - name: Strict type check
+        run: cd ui && pnpm exec tsc --noEmit --strict
+      - name: Check for any types
+        run: |
+          if grep -r ":\s*any" ui/src/api/*.ts; then
+            echo "::warning::Found 'any' types in API layer"
+          fi
+
+  fuzz:
+    name: Fuzz Smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz
+      - name: Seed corpora
+        run: |
+          mkdir -p fuzz/corpus/router_inputs fuzz/corpus/trace_encoding fuzz/corpus/receipt_verification
+          cp -r crates/adapteros-lora-router/fuzz/corpus/router_inputs/. fuzz/corpus/router_inputs/ || true
+          cp -r crates/adapteros-lora-router/fuzz/corpus/trace_encoding/. fuzz/corpus/trace_encoding/ || true
+          cp -r crates/adapteros-lora-router/fuzz/corpus/receipt_verification/. fuzz/corpus/receipt_verification/ || true
+      - name: Run router_inputs fuzz (60s cap)
+        run: cargo fuzz run router_inputs -- -max_total_time=60
+      - name: Run trace_encoding fuzz (60s cap)
+        run: cargo fuzz run trace_encoding -- -max_total_time=60
+      - name: Run receipt_verification fuzz (60s cap)
+        run: cargo fuzz run receipt_verification -- -max_total_time=60

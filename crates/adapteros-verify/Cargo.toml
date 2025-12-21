@@ -1,0 +1,36 @@
+[package]
+name = "adapteros-verify"
+version.workspace = true
+edition = "2021"
+
+[features]
+clap = ["dep:clap"]
+
+[dependencies]
+clap = { workspace = true, optional = true }
+adapteros-core = { path = "../adapteros-core" }
+adapteros-crypto = { path = "../adapteros-crypto" }
+adapteros-telemetry = { path = "../adapteros-telemetry" }
+adapteros-numerics = { path = "../adapteros-numerics" }
+adapteros-secd = { path = "../adapteros-secd" }
+adapteros-federation = { path = "../adapteros-federation" }
+adapteros-db = { path = "../adapteros-db" }
+
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+anyhow = { workspace = true }
+blake3 = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+hex = { workspace = true }
+sysinfo = "0.31"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+metal = "0.30"
+
+[dev-dependencies]
+tempfile = { workspace = true }
+tokio = { workspace = true }
+

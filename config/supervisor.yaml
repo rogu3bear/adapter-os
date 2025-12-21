@@ -1,0 +1,298 @@
+# AdapterOS Service Supervisor Configuration
+# Manages all core services, workers, and monitoring infrastructure
+# Citation: Complete service control system implementation
+
+server:
+  host: "127.0.0.1"
+  port: 3301
+  workers: 4
+  max_connections: 1000
+  timeout_seconds: 30
+  cors_allowed_origins:
+    - "http://localhost:3200"
+    - "http://localhost:3300"
+
+services:
+  service-panel:
+    name: "Service Panel"
+    description: "Rust-based service supervisor API"
+    command: "target/release/adapteros-service-supervisor"
+    args: []
+    environment: {}
+    port: 3301
+    category: "management"
+    essential: true
+    dependencies: []
+    startup_order: 0
+    resource_limits:
+      max_memory_mb: null
+      max_cpu_percent: null
+    health_check:
+      enabled: true
+      check_type: "http"
+      endpoint: "http://localhost:3301/health"
+      interval_seconds: 30
+      timeout_seconds: 10
+      max_failures: 3
+      initial_delay_seconds: 5
+    restart_policy:
+      policy: "always"
+      max_attempts: 5
+      backoff_base_seconds: 1
+      backoff_max_seconds: 300
+      window_seconds: 300
+
+  backend-server:
+    name: "Backend Server"
+    description: "AdapterOS inference server"
+    command: "cargo"
+    args: ["run", "-p", "adapteros-server", "--bin", "adapteros-server", "--", "--config", "configs/cp.toml", "--skip-pf-check", "--single-writer"]
+    working_directory: "/Users/star/Dev/adapter-os"
+    environment: {}
+    port: 3300
+    category: "core"
+    essential: true
+    dependencies: []
+    startup_order: 1
+    resource_limits:
+      max_memory_mb: 4096
+      max_cpu_percent: 80.0
+    health_check:
+      enabled: true
+      check_type: "http"
+      endpoint: "http://localhost:3300/healthz"
+      interval_seconds: 30
+      timeout_seconds: 10
+      max_failures: 3
+      initial_delay_seconds: 5
+    restart_policy:
+      policy: "on_failure"
+      max_attempts: 5
+      backoff_base_seconds: 5
+      backoff_max_seconds: 300
+      window_seconds: 300
+
+  ui-frontend:
+    name: "UI Frontend"
+    description: "React dashboard application"
+    command: "pnpm"
+    args: ["dev", "--host", "0.0.0.0", "--port", "3200"]
+    working_directory: "/Users/star/Dev/adapter-os/ui"
+    environment: {}
+    port: 3200
+    category: "core"
+    essential: false
+    dependencies: []
+    startup_order: 2
+    resource_limits:
+      max_memory_mb: 1024
+      max_cpu_percent: 50.0
+    health_check:
+      enabled: true
+      check_type: "http"
+      endpoint: "http://localhost:3200"
+      interval_seconds: 30
+      timeout_seconds: 10
+      max_failures: 3
+      initial_delay_seconds: 5
+    restart_policy:
+      policy: "on_failure"
+      max_attempts: 3
+      backoff_base_seconds: 10
+      backoff_max_seconds: 120
+      window_seconds: 300
+
+  supervisor:
+    name: "Process Supervisor"
+    description: "Legacy supervisor process (for compatibility)"
+    command: "aos-supervisor"
+    args: ["--config", "scripts/supervisor.toml"]
+    working_directory: "/Users/star/Dev/adapter-os"
+    environment: {}
+    category: "core"
+    essential: false
+    dependencies: ["backend-server"]
+    startup_order: 3
+    resource_limits:
+      max_memory_mb: 512
+      max_cpu_percent: 20.0
+    health_check:
+      enabled: true
+      check_type: "process"
+      interval_seconds: 60
+      timeout_seconds: 5
+      max_failures: 5
+      initial_delay_seconds: 10
+    restart_policy:
+      policy: "never"
+      max_attempts: 1
+      backoff_base_seconds: 1
+      backoff_max_seconds: 1
+      window_seconds: 300
+
+  # Training & Orchestration Services
+  training-orchestrator:
+    name: "Training Orchestrator"
+    description: "Manages training job scheduling and execution"
+    command: "cargo"
+    args: ["run", "-p", "adapteros-orchestrator"]
+    working_directory: "/Users/star/Dev/adapter-os"
+    environment:
+      RUST_LOG: "adapteros_orchestrator=info"
+    port: 3302
+    category: "core"
+    essential: true
+    dependencies: ["backend-server"]
+    startup_order: 4
+    resource_limits:
+      max_memory_mb: 2048
+      max_cpu_percent: 60.0
+    health_check:
+      enabled: true
+      check_type: "http"
+      endpoint: "http://localhost:3302/health"
+      interval_seconds: 30
+      timeout_seconds: 10
+      max_failures: 3
+      initial_delay_seconds: 10
+    restart_policy:
+      policy: "on_failure"
+      max_attempts: 3
+      backoff_base_seconds: 5
+      backoff_max_seconds: 120
+      window_seconds: 300
+
+  lora-worker-1:
+    name: "LoRA Training Worker 1"
+    description: "GPU worker for LoRA fine-tuning"
+    command: "cargo"
+    args: ["run", "-p", "adapteros-lora-worker", "--", "--worker-id", "worker-1"]
+    working_directory: "/Users/star/Dev/adapter-os"
+    environment:
+      RUST_LOG: "adapteros_lora_worker=info"
+      GPU_DEVICE: "0"
+    category: "worker"
+    essential: false
+    dependencies: ["training-orchestrator"]
+    startup_order: 5
+    resource_limits:
+      max_memory_mb: 8192
+      max_cpu_percent: 80.0
+    health_check:
+      enabled: true
+      check_type: "process"
+      interval_seconds: 60
+      timeout_seconds: 10
+      max_failures: 5
+      initial_delay_seconds: 15
+    restart_policy:
+      policy: "on_failure"
+      max_attempts: 5
+      backoff_base_seconds: 10
+      backoff_max_seconds: 300
+      window_seconds: 600
+
+  # Monitoring & Metrics Services
+  metrics-collector:
+    name: "Metrics Collector"
+    description: "Collects system and application metrics"
+    command: "cargo"
+    args: ["run", "-p", "adapteros-metrics-collector"]
+    working_directory: "/Users/star/Dev/adapter-os"
+    environment:
+      RUST_LOG: "adapteros_metrics_collector=info"
+    port: 9090
+    category: "monitoring"
+    essential: false
+    dependencies: []
+    startup_order: 6
+    resource_limits:
+      max_memory_mb: 512
+      max_cpu_percent: 20.0
+    health_check:
+      enabled: true
+      check_type: "tcp"
+      endpoint: "localhost:9090"
+      interval_seconds: 30
+      timeout_seconds: 5
+      max_failures: 3
+      initial_delay_seconds: 5
+    restart_policy:
+      policy: "always"
+      max_attempts: 10
+      backoff_base_seconds: 2
+      backoff_max_seconds: 60
+      window_seconds: 300
+
+  telemetry-aggregator:
+    name: "Telemetry Aggregator"
+    description: "Aggregates and processes telemetry events"
+    command: "cargo"
+    args: ["run", "-p", "adapteros-telemetry"]
+    working_directory: "/Users/star/Dev/adapter-os"
+    environment:
+      RUST_LOG: "adapteros_telemetry=info"
+    category: "monitoring"
+    essential: false
+    dependencies: ["backend-server"]
+    startup_order: 7
+    resource_limits:
+      max_memory_mb: 1024
+      max_cpu_percent: 30.0
+    health_check:
+      enabled: true
+      check_type: "process"
+      interval_seconds: 60
+      timeout_seconds: 10
+      max_failures: 3
+      initial_delay_seconds: 5
+    restart_policy:
+      policy: "on_failure"
+      max_attempts: 5
+      backoff_base_seconds: 3
+      backoff_max_seconds: 120
+      window_seconds: 300
+
+  # Node Management
+  adapteros-node:
+    name: "AdapterOS Node Agent"
+    description: "Distributed node agent for federation"
+    command: "cargo"
+    args: ["run", "-p", "adapteros-node"]
+    working_directory: "/Users/star/Dev/adapter-os"
+    environment:
+      RUST_LOG: "adapteros_node=info"
+    port: 3303
+    category: "management"
+    essential: false
+    dependencies: ["backend-server"]
+    startup_order: 8
+    resource_limits:
+      max_memory_mb: 1024
+      max_cpu_percent: 40.0
+    health_check:
+      enabled: true
+      check_type: "http"
+      endpoint: "http://localhost:3303/health"
+      interval_seconds: 30
+      timeout_seconds: 10
+      max_failures: 3
+      initial_delay_seconds: 10
+    restart_policy:
+      policy: "on_failure"
+      max_attempts: 3
+      backoff_base_seconds: 5
+      backoff_max_seconds: 120
+      window_seconds: 300
+
+auth:
+  token_ttl_hours: 8
+  refresh_grace_period_minutes: 60
+  max_login_attempts: 5
+  lockout_duration_minutes: 15
+
+monitoring:
+  metrics_enabled: true
+  health_check_interval_seconds: 30
+  log_level: "info"
+  prometheus_port: 9091

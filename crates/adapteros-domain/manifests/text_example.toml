@@ -1,0 +1,27 @@
+# Example Text Adapter Manifest
+#
+# This manifest configures a text domain adapter for deterministic
+# text processing with LoRA weight merging.
+
+[adapter]
+name = "text_adapter_v1"
+version = "1.0.0"
+model = "mlx_lora_base_v1"
+hash = "b3d9c2a1e8f7d6b5a4938271605e4f3c2d1b0a9e8f7d6c5b4a3928170605"
+input_format = "UTF8 canonical"
+output_format = "BPE deterministic"
+epsilon_threshold = 1e-6
+deterministic = true
+
+[adapter.model_files]
+weights = "path/to/weights.safetensors"
+config = "path/to/config.json"
+tokenizer = "path/to/tokenizer.json"
+
+[adapter.parameters]
+vocab_size = 32000
+max_sequence_length = 2048
+hidden_size = 4096
+num_layers = 32
+num_attention_heads = 32
+

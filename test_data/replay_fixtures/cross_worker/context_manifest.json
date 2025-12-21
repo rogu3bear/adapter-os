@@ -1,0 +1,21 @@
+{
+  "request_id": "cross-worker",
+  "cpid": "cp-cross",
+  "plan_id": "plan-cross",
+  "worker_id": "worker-b",
+  "allow_cross_worker": true,
+  "base_model": {
+    "id": "qwen2.5-7b",
+    "hash": "1111111111111111111111111111111111111111111111111111111111111111"
+  },
+  "adapters": [
+    {
+      "id": "adapter-alpha",
+      "hash": "2222222222222222222222222222222222222222222222222222222222222222"
+    },
+    {
+      "id": "adapter-beta",
+      "hash": "3333333333333333333333333333333333333333333333333333333333333333"
+    }
+  ]
+}

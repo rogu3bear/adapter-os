@@ -1,0 +1,62 @@
+{
+  "trace_id": "trace_dev_sample_001",
+  "root_span_id": "span_root_001",
+  "spans": [
+    {
+      "span_id": "span_root_001",
+      "name": "inference.request",
+      "start_time": "2025-01-02T12:00:00.000Z",
+      "end_time": "2025-01-02T12:00:00.150Z",
+      "attributes": {
+        "tenant_id": "tenant_dev",
+        "stack_id": "stack_demo",
+        "router_seed": "9f2c0a1fd0bf4e439c0830b1f7c6d123",
+        "receipt_digest": "e7a8c4975a3f4dd497e1bafbeffc98b4"
+      },
+      "trace_id": "trace_dev_sample_001",
+      "parent_id": "",
+      "start_ns": 0,
+      "end_ns": 150000000,
+      "status": "ok"
+    },
+    {
+      "span_id": "span_router",
+      "name": "router.decision",
+      "start_time": "2025-01-02T12:00:00.010Z",
+      "end_time": "2025-01-02T12:00:00.040Z",
+      "attributes": {
+        "adapter_ids": [
+          "adapter.router.guardrails.v1",
+          "adapter.qwen.math.v1"
+        ],
+        "policy_mask_digest": "0fa1b0c9d6c54f73b3d4c3c00b922fdd",
+        "gates_q15": [
+          32767,
+          18724
+        ]
+      },
+      "trace_id": "trace_dev_sample_001",
+      "parent_id": "span_root_001",
+      "start_ns": 10000000,
+      "end_ns": 40000000,
+      "status": "ok"
+    },
+    {
+      "span_id": "span_infer",
+      "name": "inference.execute",
+      "start_time": "2025-01-02T12:00:00.040Z",
+      "end_time": "2025-01-02T12:00:00.150Z",
+      "attributes": {
+        "backend": "coreml",
+        "tokens_generated": 18,
+        "run_head_hash": "e4f6b8c4e6c24d7dbb3c5aa0c0114e28",
+        "output_digest": "c9bc3f5256d3492fa2280b74c7d6d388"
+      },
+      "trace_id": "trace_dev_sample_001",
+      "parent_id": "span_root_001",
+      "start_ns": 40000000,
+      "end_ns": 150000000,
+      "status": "ok"
+    }
+  ]
+}

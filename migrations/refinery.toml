@@ -1,0 +1,9 @@
+[main]
+db_type = "Sqlite"
+path = "../registry.db"
+
+# Migration integrity settings
+[integrity]
+enabled = true
+signing_key_path = "signing_key.pem"
+verification_mode = "strict"  # Options: none, warn, strict

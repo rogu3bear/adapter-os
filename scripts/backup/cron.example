@@ -1,0 +1,10 @@
+# Example cron entries for AdapterOS backups (update paths for your host)
+SHELL=/bin/bash
+PATH=/usr/local/bin:/usr/bin:/bin
+
+# Nightly encrypted backup (02:15 UTC)
+15 2 * * * root AOS_BACKUP_ROOT=/var/backups/aos AOS_BACKUP_KEY_PATH=/etc/aos/backup.key AOS_DATA_ROOT=/opt/adapteros/var AOS_CONFIG_PATH=/opt/adapteros/configs/cp.toml /opt/adapteros/scripts/backup/backup.sh >> /var/log/adapteros/backup.log 2>&1
+
+# Daily integrity verification (09:00 UTC)
+0 9 * * * root AOS_BACKUP_ROOT=/var/backups/aos AOS_BACKUP_KEY_PATH=/etc/aos/backup.key /opt/adapteros/scripts/backup/verify-backups.sh >> /var/log/adapteros/backup.log 2>&1
+

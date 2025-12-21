@@ -1,0 +1,45 @@
+[package]
+name = "adapteros-memory"
+version = "0.1.0"
+edition = "2021"
+description = "Unified Memory Watchdog for AdapterOS - monitors page-outs and OS memory tricks"
+
+[dependencies]
+adapteros-core = { path = "../adapteros-core" }
+adapteros-crypto = { path = "../adapteros-crypto" }
+adapteros-deterministic-exec = { path = "../adapteros-deterministic-exec" }
+adapteros-telemetry = { path = "../adapteros-telemetry" }
+adapteros-lora-kernel-mtl = { path = "../adapteros-lora-kernel-mtl" }
+
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+parking_lot = { workspace = true }
+uuid = { workspace = true }
+blake3 = { workspace = true }
+hex = { workspace = true }
+chrono = { workspace = true }
+futures = "0.3"
+lru = "0.12"
+tokio = { workspace = true }
+bytemuck = { workspace = true }
+half = { workspace = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+metal = "0.30"
+core-foundation = "0.9"
+core-graphics = "0.25"
+objc = "0.2"
+libc = "0.2"
+
+[build-dependencies]
+cc = "1.0"
+
+[dev-dependencies]
+criterion = "0.5"
+proptest = "1.0"
+
+[features]
+default = []
+iokit-cpp = []

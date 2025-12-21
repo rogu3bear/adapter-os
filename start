@@ -1,0 +1,1094 @@
+#!/bin/bash
+# AdapterOS Unified Boot Script
+# Single entry point for starting all AdapterOS services.
+#
+# Usage:
+#   ./start              Start all services (API + UI)
+#   ./start up           Same as above
+#   ./start down         Graceful shutdown
+#   ./start status       Show service status
+#   ./start backend      Start backend only (no UI)
+#   ./start preflight    Run system checks without starting
+#   ./start help         Show this help
+#
+# Behavior:
+#   - Freezes on port conflict (never auto-kills external processes)
+#   - Prompts [y/N] for AdapterOS processes (default: No)
+#   - Reports clear diagnostics for all edge cases
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
+# Source libraries
+source scripts/lib/freeze-guard.sh
+
+# Configuration (can be overridden via environment)
+: "${AOS_SERVER_PORT:=8080}"
+: "${AOS_UI_PORT:=3200}"
+: "${AOS_VAR_DIR:=var}"
+: "${SKIP_WORKER:=0}"
+: "${AOS_QUICK_BOOT:=0}"
+
+# Animation characters
+SPINNER_CHARS="⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+CHECK_MARK="✓"
+CROSS_MARK="✗"
+ARROW="→"
+
+# =============================================================================
+# Animation & Progress Helpers
+# =============================================================================
+
+# Print the AdapterOS banner
+print_banner() {
+    echo ""
+    printf "${FG_CYAN}"
+    cat << 'EOF'
+    ___       __            __            ____  _____
+   /   | ____/ /___ _____  / /____  _____/ __ \/ ___/
+  / /| |/ __  / __ `/ __ \/ __/ _ \/ ___/ / / /\__ \
+ / ___ / /_/ / /_/ / /_/ / /_/  __/ /  / /_/ /___/ /
+/_/  |_\__,_/\__,_/ .___/\__/\___/_/   \____//____/
+                 /_/
+EOF
+    printf "${FG_RESET}"
+    echo ""
+}
+
+# Spinner animation for background tasks
+# Usage: start_spinner "message" ; do_work ; stop_spinner
+SPINNER_PID=""
+start_spinner() {
+    local msg="$1"
+    (
+        local i=0
+        while true; do
+            printf "\r  ${FG_CYAN}${SPINNER_CHARS:$i:1}${FG_RESET} %s" "$msg"
+            i=$(( (i + 1) % ${#SPINNER_CHARS} ))
+            sleep 0.1
+        done
+    ) &
+    SPINNER_PID=$!
+    disown
+}
+
+stop_spinner() {
+    if [ -n "$SPINNER_PID" ]; then
+        kill "$SPINNER_PID" 2>/dev/null || true
+        wait "$SPINNER_PID" 2>/dev/null || true
+        SPINNER_PID=""
+        printf "\r"
+    fi
+}
+
+# Print a step with status
+print_step() {
+    local status="$1"  # pending, running, success, error
+    local msg="$2"
+
+    case "$status" in
+        pending)
+            echo -e "  ${FG_YELLOW}○${FG_RESET} $msg"
+            ;;
+        running)
+            echo -e "  ${FG_CYAN}◐${FG_RESET} $msg"
+            ;;
+        success)
+            echo -e "  ${FG_GREEN}${CHECK_MARK}${FG_RESET} $msg"
+            ;;
+        error)
+            echo -e "  ${FG_RED}${CROSS_MARK}${FG_RESET} $msg"
+            ;;
+    esac
+}
+
+# Update a step in place (moves cursor up)
+update_step() {
+    local status="$1"
+    local msg="$2"
+    printf "\033[1A\033[2K"  # Move up and clear line
+    print_step "$status" "$msg"
+}
+
+# Progress bar
+print_progress() {
+    local current="$1"
+    local total="$2"
+    local width=30
+    local pct=$((current * 100 / total))
+    local filled=$((current * width / total))
+    local empty=$((width - filled))
+
+    printf "\r  ["
+    printf "${FG_GREEN}%${filled}s${FG_RESET}" | tr ' ' '█'
+    printf "%${empty}s" | tr ' ' '░'
+    printf "] %3d%%" "$pct"
+}
+
+# Wait for service to be ready with animation
+wait_for_service() {
+    local name="$1"
+    local check_cmd="$2"
+    local timeout="${3:-30}"
+    local msg="$4"
+
+    print_step "running" "$msg"
+
+    local waited=0
+    while [ $waited -lt $timeout ]; do
+        if eval "$check_cmd" >/dev/null 2>&1; then
+            update_step "success" "$msg"
+            return 0
+        fi
+        sleep 1
+        ((waited++))
+    done
+
+    update_step "error" "$msg (timeout)"
+    return 1
+}
+
+# =============================================================================
+# aosctl Installation
+# =============================================================================
+
+AOSCTL_INSTALLED_FLAG="$AOS_VAR_DIR/.aosctl-path-offered"
+
+check_aosctl_installation() {
+    # Skip if we've already offered
+    if [ -f "$AOSCTL_INSTALLED_FLAG" ]; then
+        return 0
+    fi
+
+    # Skip if aosctl is already in PATH
+    if command -v aosctl >/dev/null 2>&1; then
+        touch "$AOSCTL_INSTALLED_FLAG"
+        return 0
+    fi
+
+    # Check if we have a built aosctl
+    local aosctl_bin=""
+    if [ -f "target/release/aosctl" ]; then
+        aosctl_bin="target/release/aosctl"
+    elif [ -f "target/debug/aosctl" ]; then
+        aosctl_bin="target/debug/aosctl"
+    else
+        # No binary to install
+        return 0
+    fi
+
+    echo ""
+    echo -e "${FG_CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${FG_RESET}"
+    echo ""
+    echo -e "  ${FG_YELLOW}aosctl${FG_RESET} is not in your PATH."
+    echo ""
+    echo "  The aosctl CLI provides commands for managing adapters, training,"
+    echo "  inference, and system administration."
+    echo ""
+    echo "  Options:"
+    echo -e "    ${FG_GREEN}1${FG_RESET}) Install to /usr/local/bin (requires sudo)"
+    echo -e "    ${FG_GREEN}2${FG_RESET}) Install to ~/bin (no sudo required)"
+    echo -e "    ${FG_GREEN}3${FG_RESET}) Add to PATH via shell config (~/.zshrc or ~/.bashrc)"
+    echo -e "    ${FG_GREEN}s${FG_RESET}) Skip (you can always use ./aosctl)"
+    echo ""
+
+    read -p "  Choose an option [1/2/3/s]: " -n 1 -r choice
+    echo ""
+
+    case "$choice" in
+        1)
+            echo ""
+            print_step "running" "Installing aosctl to /usr/local/bin..."
+            if sudo ln -sf "$(pwd)/$aosctl_bin" /usr/local/bin/aosctl 2>/dev/null; then
+                update_step "success" "Installed aosctl to /usr/local/bin"
+                echo ""
+                echo "  You can now run: ${FG_GREEN}aosctl --help${FG_RESET}"
+            else
+                update_step "error" "Failed to install (try option 2 or 3)"
+            fi
+            ;;
+        2)
+            echo ""
+            mkdir -p "$HOME/bin"
+            print_step "running" "Installing aosctl to ~/bin..."
+            ln -sf "$(pwd)/$aosctl_bin" "$HOME/bin/aosctl"
+            update_step "success" "Installed aosctl to ~/bin"
+
+            # Check if ~/bin is in PATH
+            if [[ ":$PATH:" != *":$HOME/bin:"* ]]; then
+                echo ""
+                echo -e "  ${FG_YELLOW}Note:${FG_RESET} ~/bin is not in your PATH."
+                echo "  Add this to your ~/.zshrc or ~/.bashrc:"
+                echo ""
+                echo -e "    ${FG_CYAN}export PATH=\"\$HOME/bin:\$PATH\"${FG_RESET}"
+                echo ""
+            else
+                echo ""
+                echo "  You can now run: ${FG_GREEN}aosctl --help${FG_RESET}"
+            fi
+            ;;
+        3)
+            echo ""
+            local shell_rc=""
+            if [ -n "$ZSH_VERSION" ] || [ -f "$HOME/.zshrc" ]; then
+                shell_rc="$HOME/.zshrc"
+            else
+                shell_rc="$HOME/.bashrc"
+            fi
+
+            local aos_path="export PATH=\"$(pwd):\$PATH\"  # AdapterOS"
+
+            if grep -q "AdapterOS" "$shell_rc" 2>/dev/null; then
+                print_step "success" "PATH already configured in $shell_rc"
+            else
+                print_step "running" "Adding to $shell_rc..."
+                echo "" >> "$shell_rc"
+                echo "# AdapterOS CLI" >> "$shell_rc"
+                echo "$aos_path" >> "$shell_rc"
+                update_step "success" "Added to $shell_rc"
+                echo ""
+                echo "  Run this to apply now: ${FG_CYAN}source $shell_rc${FG_RESET}"
+                echo "  Or start a new terminal."
+            fi
+            ;;
+        s|S|"")
+            echo ""
+            echo "  Skipped. You can use ${FG_CYAN}./aosctl${FG_RESET} from this directory."
+            ;;
+    esac
+
+    # Mark as offered
+    mkdir -p "$AOS_VAR_DIR"
+    touch "$AOSCTL_INSTALLED_FLAG"
+    echo ""
+    echo -e "${FG_CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${FG_RESET}"
+    echo ""
+}
+
+# =============================================================================
+# Core Functions
+# =============================================================================
+
+ensure_var_dirs() {
+    mkdir -p "$AOS_VAR_DIR/run"
+    mkdir -p "$AOS_VAR_DIR/logs"
+}
+
+show_help() {
+    print_banner
+    cat << 'EOF'
+Usage:
+  ./start [command]
+
+Commands:
+  up, start     Start all services (API + UI) [default]
+  down, stop    Graceful shutdown of all services
+  status        Show current service status
+  backend       Start backend API only (no UI)
+  preflight     Run system checks without starting
+  help          Show this help message
+
+Examples:
+  ./start                    # Start everything
+  ./start backend            # Start API only
+  ./start status             # Check what's running
+  ./start down               # Stop everything
+
+Environment:
+  AOS_SERVER_PORT   Backend API port (default: 8080)
+  AOS_UI_PORT       UI server port (default: 3200)
+  AOS_VAR_DIR       Runtime data directory (default: var)
+
+Worker options (flags or env):
+  --worker-backend <mlx|metal|coreml>   (or AOS_MODEL_BACKEND)
+  --worker-manifest <path>              (or AOS_WORKER_MANIFEST)
+  --worker-model <path>                 (or AOS_MODEL_PATH)
+  --worker-tokenizer <path>             (or AOS_TOKENIZER_PATH)
+  --skip-worker                         Skip worker startup
+
+EOF
+}
+
+show_status() {
+    echo ""
+    echo -e "${FG_CYAN}AdapterOS Service Status${FG_RESET}"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+
+    # Check backend
+    local backend_pid_file="$AOS_VAR_DIR/backend.pid"
+    local backend_status="stopped"
+    local backend_pid=""
+
+    if [ -f "$backend_pid_file" ]; then
+        backend_pid=$(cat "$backend_pid_file" 2>/dev/null)
+        if [ -n "$backend_pid" ] && kill -0 "$backend_pid" 2>/dev/null; then
+            backend_status="running"
+        fi
+    else
+        backend_pid=$(lsof -nP -i :"$AOS_SERVER_PORT" -sTCP:LISTEN -t 2>/dev/null | head -1)
+        if [ -n "$backend_pid" ]; then
+            backend_status="running"
+        fi
+    fi
+
+    if [ "$backend_status" = "running" ]; then
+        # Check if health endpoint responds
+        if curl -sf "http://localhost:$AOS_SERVER_PORT/healthz" >/dev/null 2>&1; then
+            print_step "success" "Backend API     ${FG_GREEN}HEALTHY${FG_RESET}  (PID $backend_pid, port $AOS_SERVER_PORT)"
+        else
+            print_step "running" "Backend API     ${FG_YELLOW}STARTING${FG_RESET} (PID $backend_pid, port $AOS_SERVER_PORT)"
+        fi
+    else
+        print_step "error" "Backend API     ${FG_RED}STOPPED${FG_RESET}"
+    fi
+
+    # Check UI
+    local ui_pid_file="$AOS_VAR_DIR/ui.pid"
+    local ui_status="stopped"
+    local ui_pid=""
+
+    if [ -f "$ui_pid_file" ]; then
+        ui_pid=$(cat "$ui_pid_file" 2>/dev/null)
+        if [ -n "$ui_pid" ] && kill -0 "$ui_pid" 2>/dev/null; then
+            ui_status="running"
+        fi
+    else
+        ui_pid=$(lsof -nP -i :"$AOS_UI_PORT" -sTCP:LISTEN -t 2>/dev/null | head -1)
+        if [ -n "$ui_pid" ]; then
+            ui_status="running"
+        fi
+    fi
+
+    if [ "$ui_status" = "running" ]; then
+        if curl -sf "http://localhost:$AOS_UI_PORT" >/dev/null 2>&1; then
+            print_step "success" "UI Server       ${FG_GREEN}HEALTHY${FG_RESET}  (PID $ui_pid, port $AOS_UI_PORT)"
+        else
+            print_step "running" "UI Server       ${FG_YELLOW}STARTING${FG_RESET} (PID $ui_pid, port $AOS_UI_PORT)"
+        fi
+    else
+        print_step "error" "UI Server       ${FG_RED}STOPPED${FG_RESET}"
+    fi
+
+    # Check worker
+    local worker_sock="$AOS_VAR_DIR/run/worker.sock"
+    local worker_pid_file="$AOS_VAR_DIR/worker.pid"
+    if [ -S "$worker_sock" ] && lsof "$worker_sock" >/dev/null 2>&1; then
+        local worker_pid
+        worker_pid=$(lsof -t "$worker_sock" 2>/dev/null | head -1)
+        if [ -n "$worker_pid" ] && kill -0 "$worker_pid" 2>/dev/null; then
+            print_step "success" "Worker          ${FG_GREEN}RUNNING${FG_RESET}  (PID $worker_pid, socket)"
+        else
+            print_step "error" "Worker          ${FG_RED}STALE${FG_RESET}    (socket exists but process dead)"
+        fi
+    elif [ -f "$worker_pid_file" ]; then
+        local worker_pid
+        worker_pid=$(cat "$worker_pid_file" 2>/dev/null)
+        if [ -n "$worker_pid" ] && kill -0 "$worker_pid" 2>/dev/null; then
+            print_step "running" "Worker          ${FG_YELLOW}STARTING${FG_RESET} (PID $worker_pid, socket pending)"
+        else
+            print_step "error" "Worker          ${FG_RED}STOPPED${FG_RESET}  (stale PID file)"
+        fi
+    else
+        print_step "pending" "Worker          ${FG_YELLOW}STOPPED${FG_RESET}  (optional)"
+    fi
+
+    echo ""
+
+    # Database info
+    local db_path="$AOS_VAR_DIR/aos-cp.sqlite3"
+    if [ -f "$db_path" ]; then
+        local size
+        size=$(du -h "$db_path" 2>/dev/null | cut -f1)
+        echo "  Database: $db_path ($size)"
+    else
+        echo "  Database: Not initialized"
+    fi
+
+    echo ""
+
+    # Show URLs if running
+    if [ "$backend_status" = "running" ] || [ "$ui_status" = "running" ]; then
+        echo -e "${FG_CYAN}Access URLs:${FG_RESET}"
+        if [ "$backend_status" = "running" ]; then
+            echo "  API:  http://localhost:$AOS_SERVER_PORT"
+        fi
+        if [ "$ui_status" = "running" ]; then
+            echo "  UI:   http://localhost:$AOS_UI_PORT"
+        fi
+        echo ""
+    fi
+}
+
+do_preflight() {
+    freeze_preflight "$AOS_SERVER_PORT" "$AOS_UI_PORT" "$AOS_VAR_DIR"
+}
+
+# Start backend with progress animation
+start_backend_animated() {
+    print_step "running" "Starting Backend API..."
+
+    ensure_var_dirs
+
+    # Run preflight silently
+    if ! freeze_check_port "$AOS_SERVER_PORT" "Backend API" 2>/dev/null; then
+        update_step "error" "Backend API - port $AOS_SERVER_PORT in use"
+        return 1
+    fi
+
+    # Delegate to service-manager
+    if [ -x scripts/service-manager.sh ]; then
+        if scripts/service-manager.sh start-backend >/dev/null 2>&1; then
+            # Wait for health check (configurable timeout)
+            local waited=0
+            local health_timeout="${AOS_HEALTH_TIMEOUT:-15}"
+            while [ $waited -lt "$health_timeout" ]; do
+                if curl -sf --max-time 2 "http://localhost:$AOS_SERVER_PORT/healthz" >/dev/null 2>&1; then
+                    local pid
+                    pid=$(cat "$AOS_VAR_DIR/backend.pid" 2>/dev/null)
+                    update_step "success" "Backend API     ${FG_GREEN}READY${FG_RESET}  (PID $pid, port $AOS_SERVER_PORT)"
+                    #region agent log
+                    BACKEND_PID="$pid" python - <<'PY'
+import json, os, time
+log_path = "/Users/mln-dev/Dev/adapter-os/.cursor/debug.log"
+os.makedirs(os.path.dirname(log_path), exist_ok=True)
+payload = {
+    "sessionId": "debug-session",
+    "runId": os.environ.get("AOS_DEBUG_RUN_ID", "pre-fix"),
+    "hypothesisId": "H1",
+    "location": "start_backend_animated:health",
+    "message": "backend ready",
+    "data": {
+        "pid": os.environ.get("BACKEND_PID"),
+        "manifest": os.environ.get("AOS_MANIFEST_PATH"),
+        "backend_port": os.environ.get("AOS_SERVER_PORT", "8080")
+    },
+    "timestamp": int(time.time() * 1000)
+}
+with open(log_path, "a") as f:
+    f.write(json.dumps(payload) + "\n")
+PY
+                    #endregion agent log
+                    return 0
+                fi
+                sleep 1
+                ((waited++))
+            done
+            # Health check timeout - this is a failure, not success
+            local pid
+            pid=$(cat "$AOS_VAR_DIR/backend.pid" 2>/dev/null)
+            local health_timeout="${AOS_HEALTH_TIMEOUT:-15}"
+            if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+                update_step "error" "Backend API     ${FG_RED}UNHEALTHY${FG_RESET} (PID $pid, healthz timeout after ${health_timeout}s)"
+            else
+                update_step "error" "Backend API     ${FG_RED}CRASHED${FG_RESET} (process not running)"
+            fi
+            [ "${AOS_BOOT_VERBOSE:-0}" = "1" ] && tail -20 "$AOS_VAR_DIR/logs/backend.log" 2>/dev/null
+            #region agent log
+            BACKEND_PID="$pid" python - <<'PY'
+import json, os, time
+log_path = "/Users/mln-dev/Dev/adapter-os/.cursor/debug.log"
+os.makedirs(os.path.dirname(log_path), exist_ok=True)
+payload = {
+    "sessionId": "debug-session",
+    "runId": os.environ.get("AOS_DEBUG_RUN_ID", "pre-fix"),
+    "hypothesisId": "H1",
+    "location": "start_backend_animated:health_timeout",
+    "message": "backend healthz timeout - treated as failure",
+    "data": {
+        "pid": os.environ.get("BACKEND_PID"),
+        "manifest": os.environ.get("AOS_MANIFEST_PATH"),
+        "backend_port": os.environ.get("AOS_SERVER_PORT", "8080")
+    },
+    "timestamp": int(time.time() * 1000)
+}
+with open(log_path, "a") as f:
+    f.write(json.dumps(payload) + "\n")
+PY
+            #endregion agent log
+            return 1
+        else
+            update_step "error" "Backend API - failed to start"
+            #region agent log
+            python - <<'PY'
+import json, os, time
+log_path = "/Users/mln-dev/Dev/adapter-os/.cursor/debug.log"
+os.makedirs(os.path.dirname(log_path), exist_ok=True)
+payload = {
+    "sessionId": "debug-session",
+    "runId": os.environ.get("AOS_DEBUG_RUN_ID", "pre-fix"),
+    "hypothesisId": "H1",
+    "location": "start_backend_animated:error",
+    "message": "backend start failed",
+    "data": {
+        "manifest": os.environ.get("AOS_MANIFEST_PATH"),
+        "backend_port": os.environ.get("AOS_SERVER_PORT", "8080")
+    },
+    "timestamp": int(time.time() * 1000)
+}
+with open(log_path, "a") as f:
+    f.write(json.dumps(payload) + "\n")
+PY
+            #endregion agent log
+            return 1
+        fi
+    else
+        update_step "error" "Backend API - service-manager.sh not found"
+        return 1
+    fi
+}
+
+# Start UI with progress animation
+start_ui_animated() {
+    print_step "running" "Starting UI Server..."
+
+    # Delegate to service-manager
+    if [ -x scripts/service-manager.sh ]; then
+        if scripts/service-manager.sh start ui >/dev/null 2>&1; then
+            # Wait for response
+            local waited=0
+            while [ $waited -lt 20 ]; do
+                if curl -sf "http://localhost:$AOS_UI_PORT" >/dev/null 2>&1; then
+                    local pid
+                    pid=$(cat "$AOS_VAR_DIR/ui.pid" 2>/dev/null)
+                    update_step "success" "UI Server       ${FG_GREEN}READY${FG_RESET}  (PID $pid, port $AOS_UI_PORT)"
+                    #region agent log
+                    UI_PID="$pid" python - <<'PY'
+import json, os, time
+log_path = "/Users/mln-dev/Dev/adapter-os/.cursor/debug.log"
+os.makedirs(os.path.dirname(log_path), exist_ok=True)
+payload = {
+    "sessionId": "debug-session",
+    "runId": os.environ.get("AOS_DEBUG_RUN_ID", "pre-fix"),
+    "hypothesisId": "H2",
+    "location": "start_ui_animated:ready",
+    "message": "ui ready",
+    "data": {
+        "pid": os.environ.get("UI_PID"),
+        "ui_port": os.environ.get("AOS_UI_PORT", "3200")
+    },
+    "timestamp": int(time.time() * 1000)
+}
+with open(log_path, "a") as f:
+    f.write(json.dumps(payload) + "\n")
+PY
+                    #endregion agent log
+                    return 0
+                fi
+                sleep 1
+                ((waited++))
+            done
+            # Started but not responding yet
+            local pid
+            pid=$(cat "$AOS_VAR_DIR/ui.pid" 2>/dev/null)
+            update_step "success" "UI Server       ${FG_YELLOW}STARTED${FG_RESET} (PID $pid, port $AOS_UI_PORT)"
+            #region agent log
+            UI_PID="$pid" python - <<'PY'
+import json, os, time
+log_path = "/Users/mln-dev/Dev/adapter-os/.cursor/debug.log"
+os.makedirs(os.path.dirname(log_path), exist_ok=True)
+payload = {
+    "sessionId": "debug-session",
+    "runId": os.environ.get("AOS_DEBUG_RUN_ID", "pre-fix"),
+    "hypothesisId": "H2",
+    "location": "start_ui_animated:started",
+    "message": "ui started without readiness",
+    "data": {
+        "pid": os.environ.get("UI_PID"),
+        "ui_port": os.environ.get("AOS_UI_PORT", "3200")
+    },
+    "timestamp": int(time.time() * 1000)
+}
+with open(log_path, "a") as f:
+    f.write(json.dumps(payload) + "\n")
+PY
+            #endregion agent log
+            return 0
+        else
+            update_step "error" "UI Server - failed to start"
+            #region agent log
+            python - <<'PY'
+import json, os, time
+log_path = "/Users/mln-dev/Dev/adapter-os/.cursor/debug.log"
+os.makedirs(os.path.dirname(log_path), exist_ok=True)
+payload = {
+    "sessionId": "debug-session",
+    "runId": os.environ.get("AOS_DEBUG_RUN_ID", "pre-fix"),
+    "hypothesisId": "H2",
+    "location": "start_ui_animated:error",
+    "message": "ui start failed",
+    "data": {
+        "ui_port": os.environ.get("AOS_UI_PORT", "3200")
+    },
+    "timestamp": int(time.time() * 1000)
+}
+with open(log_path, "a") as f:
+    f.write(json.dumps(payload) + "\n")
+PY
+            #endregion agent log
+            return 1
+        fi
+    else
+        update_step "error" "UI Server - service-manager.sh not found"
+        return 1
+    fi
+}
+
+start_backend() {
+    print_banner
+
+    echo -e "${FG_CYAN}Starting Backend${FG_RESET}"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+
+    ensure_var_dirs
+
+    # Preflight
+    print_step "running" "Running preflight checks..."
+    if ! freeze_check_port "$AOS_SERVER_PORT" "Backend API"; then
+        update_step "error" "Preflight failed"
+        return 1
+    fi
+    if ! freeze_check_pid_file "$AOS_VAR_DIR/backend.pid" "Backend"; then
+        update_step "error" "Preflight failed"
+        return 1
+    fi
+    update_step "success" "Preflight checks passed"
+
+    # Start
+    start_backend_animated
+
+    echo ""
+    echo -e "${FG_GREEN}Backend ready!${FG_RESET}"
+    echo ""
+    echo "  API: http://localhost:$AOS_SERVER_PORT"
+    echo ""
+
+    # Offer aosctl installation
+    check_aosctl_installation
+}
+
+start_all() {
+    print_banner
+
+    echo -e "${FG_CYAN}Starting AdapterOS${FG_RESET}"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+
+    ensure_var_dirs
+
+    #region agent log
+    python - <<'PY'
+import json, os, time
+log_path = "/Users/mln-dev/Dev/adapter-os/.cursor/debug.log"
+os.makedirs(os.path.dirname(log_path), exist_ok=True)
+payload = {
+    "sessionId": "debug-session",
+    "runId": os.environ.get("AOS_DEBUG_RUN_ID", "pre-fix"),
+    "hypothesisId": "H4",
+    "location": "start_all:env",
+    "message": "start_all entry",
+    "data": {
+        "AOS_SERVER_PORT": os.environ.get("AOS_SERVER_PORT", "8080"),
+        "AOS_UI_PORT": os.environ.get("AOS_UI_PORT", "3200"),
+        "AOS_MANIFEST_PATH": os.environ.get("AOS_MANIFEST_PATH"),
+        "AOS_MODEL_BACKEND": os.environ.get("AOS_MODEL_BACKEND"),
+        "SKIP_WORKER": os.environ.get("SKIP_WORKER", "0")
+    },
+    "timestamp": int(time.time() * 1000)
+}
+with open(log_path, "a") as f:
+    f.write(json.dumps(payload) + "\n")
+PY
+    #endregion agent log
+
+    # Preflight with animation
+    print_step "running" "Running preflight checks..."
+
+    local preflight_failed=0
+
+    # Port checks
+    if ! freeze_check_port "$AOS_SERVER_PORT" "Backend API"; then
+        preflight_failed=1
+    fi
+
+    if ! freeze_check_port "$AOS_UI_PORT" "UI Server"; then
+        preflight_failed=1
+    fi
+
+    #region agent log
+    PREFLIGHT_FAILED="$preflight_failed" python - <<'PY'
+import json, os, time
+log_path = "/Users/mln-dev/Dev/adapter-os/.cursor/debug.log"
+os.makedirs(os.path.dirname(log_path), exist_ok=True)
+payload = {
+    "sessionId": "debug-session",
+    "runId": os.environ.get("AOS_DEBUG_RUN_ID", "pre-fix"),
+    "hypothesisId": "H4",
+    "location": "start_all:preflight",
+    "message": "preflight complete",
+    "data": {
+        "preflight_failed": os.environ.get("PREFLIGHT_FAILED"),
+        "server_port": os.environ.get("AOS_SERVER_PORT", "8080"),
+        "ui_port": os.environ.get("AOS_UI_PORT", "3200")
+    },
+    "timestamp": int(time.time() * 1000)
+}
+with open(log_path, "a") as f:
+    f.write(json.dumps(payload) + "\n")
+PY
+    #endregion agent log
+
+    if [ $preflight_failed -eq 1 ]; then
+        update_step "error" "Preflight checks failed (see above)"
+        echo ""
+        echo "  Run ${FG_CYAN}./start preflight${FG_RESET} for details"
+        return 1
+    fi
+
+    update_step "success" "Preflight checks passed"
+    echo ""
+
+    # Start services
+    local backend_ok=0
+    local ui_ok=0
+    local worker_ok=0
+
+    start_backend_animated && backend_ok=1
+    start_ui_animated && ui_ok=1
+
+    # Seed model into database if AOS_MODEL_PATH is set
+    if [ $backend_ok -eq 1 ] && [ -n "${AOS_MODEL_PATH:-}" ]; then
+        print_step "running" "Seeding model into database..."
+        local aosctl_bin=""
+        if [ -f "./aosctl" ]; then
+            aosctl_bin="./aosctl"
+        elif [ -f "target/debug/aosctl" ]; then
+            aosctl_bin="target/debug/aosctl"
+        elif [ -f "target/release/aosctl" ]; then
+            aosctl_bin="target/release/aosctl"
+        fi
+
+        if [ -n "$aosctl_bin" ]; then
+            if "$aosctl_bin" models seed --model-path "$AOS_MODEL_PATH" >/dev/null 2>&1; then
+                update_step "success" "Model seeded"
+            else
+                update_step "pending" "Model seeding  ${FG_YELLOW}SKIPPED${FG_RESET}  (already exists or error)"
+            fi
+        else
+            update_step "pending" "Model seeding  ${FG_YELLOW}SKIPPED${FG_RESET}  (aosctl not found)"
+        fi
+    fi
+
+    # Start worker (required by default, use --skip-worker to opt out)
+    print_step "running" "Starting Inference Worker..."
+    if [ "${SKIP_WORKER:-0}" = "1" ]; then
+        update_step "pending" "Worker          ${FG_YELLOW}SKIPPED${FG_RESET}  (requested via --skip-worker)"
+    elif scripts/service-manager.sh start worker >/dev/null 2>&1; then
+        # Wait for socket
+        local waited=0
+        while [ $waited -lt 15 ]; do
+            if [ -S "$AOS_VAR_DIR/run/worker.sock" ]; then
+                update_step "success" "Worker          ${FG_GREEN}READY${FG_RESET}  (socket created)"
+                worker_ok=1
+                break
+            fi
+            sleep 1
+            ((waited++))
+        done
+        if [ $worker_ok -eq 0 ]; then
+            update_step "pending" "Worker          ${FG_YELLOW}STARTING${FG_RESET} (socket pending)"
+        fi
+    else
+        update_step "error" "Worker          ${FG_RED}FAILED${FG_RESET}  - inference not available"
+        echo ""
+        echo -e "  ${FG_RED}Worker startup failed.${FG_RESET} Possible causes:"
+        echo "    - Worker binary not built: cargo build -p adapteros-lora-worker"
+        echo "    - Manifest not found: set AOS_WORKER_MANIFEST"
+        echo "    - Model not found: set AOS_MODEL_PATH"
+        echo ""
+        echo -e "  To run without worker (UI-only mode): ${FG_CYAN}./start --skip-worker${FG_RESET}"
+        echo ""
+        return 1
+    fi
+
+    #region agent log
+WORKER_OK_STATE="$worker_ok" python - <<'PY'
+import json, os, time
+var_dir = os.environ.get("AOS_VAR_DIR", "var")
+socket_path = os.path.join(os.getcwd(), var_dir, "run", "worker.sock")
+log_path = "/Users/mln-dev/Dev/adapter-os/.cursor/debug.log"
+os.makedirs(os.path.dirname(log_path), exist_ok=True)
+payload = {
+    "sessionId": "debug-session",
+    "runId": os.environ.get("AOS_DEBUG_RUN_ID", "pre-fix"),
+    "hypothesisId": "H3",
+    "location": "start_all:worker",
+    "message": "worker start result",
+    "data": {
+        "skip_worker": os.environ.get("SKIP_WORKER", "0"),
+        "worker_socket_exists": os.path.exists(socket_path),
+        "worker_ok": bool(int(os.environ.get("WORKER_OK_STATE", "0")))
+    },
+    "timestamp": int(time.time() * 1000)
+}
+with open(log_path, "a") as f:
+    f.write(json.dumps(payload) + "\n")
+PY
+    #endregion agent log
+
+    # Final readiness check (unless --quick was used)
+    local inference_ready=0
+    if [ $backend_ok -eq 1 ] && [ $worker_ok -eq 1 ] && [ "${AOS_QUICK_BOOT:-0}" != "1" ]; then
+        print_step "running" "Checking inference readiness..."
+        local readyz_timeout="${AOS_READYZ_TIMEOUT:-30}"
+        local readyz_waited=0
+        while [ $readyz_waited -lt "$readyz_timeout" ]; do
+            if curl -sf --max-time 2 "http://localhost:$AOS_SERVER_PORT/readyz" >/dev/null 2>&1; then
+                update_step "success" "Inference       ${FG_GREEN}READY${FG_RESET}  (/readyz check passed)"
+                inference_ready=1
+                break
+            fi
+            sleep 1
+            ((readyz_waited++))
+        done
+        if [ $inference_ready -eq 0 ]; then
+            update_step "error" "Inference       ${FG_RED}NOT READY${FG_RESET} (/readyz timeout after ${readyz_timeout}s)"
+            echo ""
+            echo -e "  ${FG_RED}Inference readiness check failed.${FG_RESET} Common fixes:"
+            echo "    - Seed models: aosctl models seed --model-path \$AOS_MODEL_PATH"
+            echo "    - Check status: curl http://localhost:$AOS_SERVER_PORT/readyz | jq"
+            echo ""
+            return 1
+        fi
+    fi
+
+    echo ""
+
+    # Only show full success if inference is ready (or readiness check was skipped)
+    local show_full_success=0
+    if [ $inference_ready -eq 1 ]; then
+        show_full_success=1
+    elif [ "${AOS_QUICK_BOOT:-0}" = "1" ]; then
+        # Quick boot skips /readyz check, allow success message
+        show_full_success=1
+    elif [ $worker_ok -eq 0 ]; then
+        # Worker was skipped (--skip-worker), readiness check not applicable
+        show_full_success=1
+    fi
+
+    if [ $backend_ok -eq 1 ] && [ $ui_ok -eq 1 ] && [ $show_full_success -eq 1 ]; then
+        echo -e "${FG_GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${FG_RESET}"
+        echo ""
+        echo -e "  ${FG_GREEN}${CHECK_MARK} AdapterOS is ready!${FG_RESET}"
+        echo ""
+        echo "  API: http://localhost:$AOS_SERVER_PORT"
+        echo "  UI:  http://localhost:$AOS_UI_PORT"
+        if [ $worker_ok -eq 1 ]; then
+            echo "  Worker: ${FG_GREEN}Ready${FG_RESET} (socket: $AOS_VAR_DIR/run/worker.sock)"
+        else
+            echo "  Worker: ${FG_YELLOW}Optional${FG_RESET} (not started)"
+        fi
+        echo ""
+        echo -e "${FG_GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${FG_RESET}"
+    elif [ $backend_ok -eq 1 ]; then
+        echo -e "${FG_YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${FG_RESET}"
+        echo ""
+        echo -e "  ${FG_YELLOW}Backend started, UI failed${FG_RESET}"
+        echo ""
+        echo "  API: http://localhost:$AOS_SERVER_PORT"
+        echo ""
+        echo -e "${FG_YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${FG_RESET}"
+    else
+        echo -e "${FG_RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${FG_RESET}"
+        echo ""
+        echo -e "  ${FG_RED}${CROSS_MARK} Startup failed${FG_RESET}"
+        echo ""
+        echo "  Check logs: var/logs/"
+        echo ""
+        echo -e "${FG_RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${FG_RESET}"
+        return 1
+    fi
+
+    echo ""
+
+    # Offer aosctl installation
+    check_aosctl_installation
+}
+
+do_shutdown() {
+    print_banner
+
+    echo -e "${FG_CYAN}Stopping AdapterOS${FG_RESET}"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+
+    if [ -x scripts/service-manager.sh ]; then
+        # Get current PIDs before stopping
+        local backend_pid=""
+        local ui_pid=""
+
+        if [ -f "$AOS_VAR_DIR/backend.pid" ]; then
+            backend_pid=$(cat "$AOS_VAR_DIR/backend.pid" 2>/dev/null)
+        fi
+        if [ -f "$AOS_VAR_DIR/ui.pid" ]; then
+            ui_pid=$(cat "$AOS_VAR_DIR/ui.pid" 2>/dev/null)
+        fi
+
+        # Stop UI first
+        if [ -n "$ui_pid" ] && kill -0 "$ui_pid" 2>/dev/null; then
+            print_step "running" "Stopping UI Server (PID $ui_pid)..."
+            scripts/service-manager.sh stop ui >/dev/null 2>&1 || true
+
+            # Wait for stop
+            local waited=0
+            while kill -0 "$ui_pid" 2>/dev/null && [ $waited -lt 10 ]; do
+                sleep 1
+                ((waited++))
+            done
+
+            if ! kill -0 "$ui_pid" 2>/dev/null; then
+                update_step "success" "UI Server stopped"
+            else
+                update_step "error" "UI Server did not stop cleanly"
+            fi
+        else
+            print_step "pending" "UI Server       (not running)"
+        fi
+
+        # Stop backend
+        if [ -n "$backend_pid" ] && kill -0 "$backend_pid" 2>/dev/null; then
+            print_step "running" "Stopping Backend API (PID $backend_pid)..."
+            scripts/service-manager.sh stop backend >/dev/null 2>&1 || true
+
+            # Wait for stop
+            local waited=0
+            while kill -0 "$backend_pid" 2>/dev/null && [ $waited -lt 15 ]; do
+                sleep 1
+                ((waited++))
+            done
+
+            if ! kill -0 "$backend_pid" 2>/dev/null; then
+                update_step "success" "Backend API stopped"
+            else
+                update_step "error" "Backend API did not stop cleanly"
+            fi
+        else
+            print_step "pending" "Backend API     (not running)"
+        fi
+    else
+        fg_error "service-manager.sh not found"
+        return 1
+    fi
+
+    echo ""
+    echo -e "${FG_GREEN}${CHECK_MARK} Shutdown complete${FG_RESET}"
+    echo ""
+}
+
+# =============================================================================
+# Main
+# =============================================================================
+
+main() {
+    # Parse worker-related flags and strip them from positional args
+    local parsed_args=()
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --worker-backend)
+                if [ -n "${2:-}" ]; then
+                    export AOS_MODEL_BACKEND="$2"
+                    shift
+                fi
+                ;;
+            --worker-backend=*)
+                export AOS_MODEL_BACKEND="${1#*=}"
+                ;;
+            --worker-manifest)
+                if [ -n "${2:-}" ]; then
+                    export AOS_WORKER_MANIFEST="$2"
+                    shift
+                fi
+                ;;
+            --worker-manifest=*)
+                export AOS_WORKER_MANIFEST="${1#*=}"
+                ;;
+            --worker-model|--worker-model-path)
+                if [ -n "${2:-}" ]; then
+                    export AOS_MODEL_PATH="$2"
+                    shift
+                fi
+                ;;
+            --worker-model=*|--worker-model-path=*)
+                export AOS_MODEL_PATH="${1#*=}"
+                ;;
+            --worker-tokenizer)
+                if [ -n "${2:-}" ]; then
+                    export AOS_TOKENIZER_PATH="$2"
+                    shift
+                fi
+                ;;
+            --worker-tokenizer=*)
+                export AOS_TOKENIZER_PATH="${1#*=}"
+                ;;
+            --skip-worker|--no-worker)
+                SKIP_WORKER=1
+                ;;
+            --quick)
+                AOS_QUICK_BOOT=1
+                ;;
+            --)
+                shift
+                break
+                ;;
+            *)
+                parsed_args+=("$1")
+                ;;
+        esac
+        shift
+    done
+
+    while [ $# -gt 0 ]; do
+        parsed_args+=("$1")
+        shift
+    done
+
+    set -- "${parsed_args[@]}"
+
+    local cmd="${1:-up}"
+
+    case "$cmd" in
+        up|start|"")
+            start_all
+            ;;
+        down|stop)
+            do_shutdown
+            ;;
+        status)
+            show_status
+            ;;
+        backend)
+            start_backend
+            ;;
+        preflight|check)
+            print_banner
+            echo -e "${FG_CYAN}Preflight Checks${FG_RESET}"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo ""
+            do_preflight
+            ;;
+        help|--help|-h)
+            show_help
+            ;;
+        *)
+            fg_error "Unknown command: $cmd"
+            echo ""
+            show_help
+            exit 1
+            ;;
+    esac
+}
+
+main "$@"

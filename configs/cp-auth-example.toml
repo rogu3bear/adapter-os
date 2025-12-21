@@ -1,0 +1,187 @@
+# AdapterOS Control Plane Configuration Example
+# Authentication and Security Configuration
+#
+# Citations:
+# - crates/adapteros-server-api/src/state.rs L170-242: Configuration structures
+# - docs/AUTHENTICATION.md: Authentication architecture
+# - docs/DEPLOYMENT_AUTH.md: Deployment procedures
+
+[server]
+port = 8080
+bind = "127.0.0.1"
+# Enable memory-mapped adapter loading for faster cold-start
+enable_mmap_adapters = true
+# Maximum cache size for memory-mapped adapters (MB)
+mmap_cache_size_mb = 512
+# Enable hot-swap capabilities for dynamic adapter loading/unloading
+enable_hot_swap = true
+
+# Authentication Configuration
+[auth]
+# Authentication mode: "development", "production", or "mixed"
+# - development: Allows dev tokens, lenient validation
+# - production: Strict JWT validation only
+# - mixed: Supports both (for staging)
+mode = "development"
+
+# Development token for local testing (optional, only for development/mixed modes)
+# Remove or comment out in production!
+dev_token = "adapteros-local"
+
+# Token expiry in hours (default: 8)
+# Recommended: 8-12 hours for production, 24+ for development
+token_expiry_hours = 8
+
+# Maximum login attempts before account lockout (default: 5)
+max_login_attempts = 5
+
+# Lockout duration in minutes after max attempts reached (default: 15)
+lockout_duration_minutes = 15
+
+# JWT Configuration
+[jwt]
+# JWT mode: "hmac" or "eddsa"
+# - hmac: HMAC-SHA256 (simpler, shared secret)
+# - eddsa: Ed25519 (more secure, public/private keypair)
+# Recommended: eddsa for production
+mode = "hmac"
+
+# JWT secret file path (for HMAC mode)
+# Generate with: openssl rand -base64 32 > var/jwt_secret.key
+secret_file = "var/jwt_secret.key"
+
+# JWT private key file (for EdDSA mode)
+# Generate with: openssl genpkey -algorithm Ed25519 -out var/jwt_private.pem
+private_key_file = "var/jwt_private.pem"
+
+# JWT public key file (for EdDSA mode)
+# Generate with: openssl pkey -in var/jwt_private.pem -pubout -out var/jwt_public.pem
+public_key_file = "var/jwt_public.pem"
+
+# Security Configuration
+[security]
+# Require HTTPS for all connections (default: false)
+# MUST be true in production!
+require_https = false
+
+# Allowed CORS origins
+# Production: Restrict to your actual domains
+# Development: Include localhost variants
+cors_origins = [
+    "http://localhost:3200",
+    "http://localhost:3201",
+    "http://127.0.0.1:3200"
+]
+
+# Enable rate limiting (default: true)
+# Protects against brute force attacks
+enable_rate_limiting = true
+
+# Rate Limiting Configuration
+[security.rate_limiting]
+# Requests per minute per IP
+requests_per_minute = 60
+
+# Burst allowance
+burst = 10
+
+# Metrics Configuration
+[metrics]
+# Enable metrics endpoint
+enabled = true
+
+# Metrics bearer token for Prometheus scraping
+# Generate with: openssl rand -hex 32
+bearer_token = "dev-metrics-token-change-in-production"
+
+# Telemetry Configuration
+[telemetry]
+# Enable structured logging
+enabled = true
+
+# Log level: "trace", "debug", "info", "warn", "error"
+log_level = "info"
+
+# Log format: "json" or "pretty"
+# Recommended: json for production, pretty for development
+log_format = "pretty"
+
+# Database Configuration
+[database]
+# SQLite database path
+path = "var/aos-cp.sqlite3"
+
+# Enable WAL mode for better concurrency
+wal_mode = true
+
+# Bundles Configuration
+[bundles]
+# Root directory for replay bundles
+bundles_root = "var/bundles"
+
+# Example Production Configuration
+# Uncomment and modify for production deployment:
+
+# [auth]
+# mode = "production"
+# # NO dev_token in production!
+# token_expiry_hours = 8
+# max_login_attempts = 5
+# lockout_duration_minutes = 30
+#
+# [jwt]
+# mode = "eddsa"
+# private_key_file = "/etc/adapteros/jwt_private.pem"
+# public_key_file = "/etc/adapteros/jwt_public.pem"
+#
+# [security]
+# require_https = true
+# cors_origins = [
+#     "https://app.adapteros.example.com",
+#     "https://console.adapteros.example.com"
+# ]
+# enable_rate_limiting = true
+#
+# [security.rate_limiting]
+# requests_per_minute = 60
+# burst = 10
+#
+# [metrics]
+# enabled = true
+# bearer_token = "<generated-token-from-openssl-rand-hex-32>"
+#
+# [telemetry]
+# enabled = true
+# log_level = "info"
+# log_format = "json"
+#
+# [database]
+# path = "/var/lib/adapteros/aos-cp.sqlite3"
+# wal_mode = true
+
+# Example Staging Configuration
+# Uncomment and modify for staging environment:
+
+# [auth]
+# mode = "mixed"
+# dev_token = "adapteros-staging-key-different-from-dev"
+# token_expiry_hours = 8
+# max_login_attempts = 5
+# lockout_duration_minutes = 15
+#
+# [jwt]
+# mode = "eddsa"
+# private_key_file = "var/jwt_private_staging.pem"
+# public_key_file = "var/jwt_public_staging.pem"
+#
+# [security]
+# require_https = true
+# cors_origins = [
+#     "https://staging.adapteros.example.com"
+# ]
+# enable_rate_limiting = true
+#
+# [telemetry]
+# log_level = "debug"
+# log_format = "pretty"
+

@@ -1,0 +1,88 @@
+[package]
+name = "adapteros-benchmarks"
+version.workspace = true
+edition = "2021"
+description = "Comprehensive performance benchmarking suite for AdapterOS"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/adapteros/adapter-os"
+keywords = ["benchmarking", "performance", "deterministic", "metal", "inference"]
+categories = ["development-tools::testing"]
+
+[dependencies]
+# Core AdapterOS crates
+adapteros-core = { path = "../../crates/adapteros-core" }
+adapteros-lora-kernel-api = { path = "../../crates/adapteros-lora-kernel-api" }
+adapteros-lora-kernel-mtl = { path = "../../crates/adapteros-lora-kernel-mtl" }
+adapteros-memory = { path = "../../crates/adapteros-memory" }
+adapteros-system-metrics = { path = "../../crates/adapteros-system-metrics" }
+adapteros-telemetry = { path = "../../crates/adapteros-telemetry" }
+adapteros-policy = { path = "../../crates/adapteros-policy" }
+adapteros-deterministic-exec = { path = "../../crates/adapteros-deterministic-exec" }
+
+# Benchmarking framework
+criterion = { version = "0.5", features = ["html_reports"] }
+
+# Async runtime
+tokio = { version = "1.35", features = ["full"] }
+futures-util = "0.3"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Random number generation (for deterministic testing)
+rand = "0.8"
+rand_pcg = "0.3"
+
+# Time handling
+chrono = { version = "0.4", features = ["serde"] }
+
+# Metal (macOS)
+metal = "0.28"
+objc = "0.2"
+
+# Utilities
+anyhow = "1.0"
+thiserror = "1.0"
+uuid = { version = "1.6", features = ["v7", "serde"] }
+smallvec = "1.11"
+bytemuck = { version = "1.14", features = ["derive"] }
+
+# System monitoring
+sysinfo = "0.30"
+
+[[bench]]
+name = "kernel_performance"
+harness = false
+
+[[bench]]
+name = "memory_benchmarks"
+harness = false
+
+[[bench]]
+name = "throughput_benchmarks"
+harness = false
+
+[[bench]]
+name = "system_metrics"
+harness = false
+
+[[bench]]
+name = "isolation_benchmarks"
+harness = false
+
+[[bench]]
+name = "evidence_benchmarks"
+harness = false
+
+[features]
+default = []
+# Feature flags for optional components
+metal = []      # Metal kernel benchmarking (macOS only)
+gpu = []        # GPU-specific benchmarking
+deterministic = []  # Deterministic execution benchmarks
+full = ["metal", "gpu", "deterministic"]  # All features
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

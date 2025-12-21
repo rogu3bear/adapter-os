@@ -1,0 +1,45 @@
+{
+  "name": "advanced_testing_patterns_v1",
+  "description": "Advanced testing methodologies including property-based testing, integration testing patterns, chaos engineering, test automation frameworks, and quality assurance practices for robust software testing strategies",
+  "version": "1.0.0",
+  "category": "codebase",
+  "scope": "global",
+  "tier": "persistent",
+  "rank": 8,
+  "alpha": 16.0,
+  "target_modules": ["gate_proj", "up_proj", "down_proj"],
+  "entries": [
+    {
+      "path": "advanced_testing-positive-examples.positive.jsonl",
+      "format": "jsonl",
+      "weight": 1.0,
+      "role": "positive",
+      "notes": "Advanced testing patterns: property-based testing, integration testing, chaos engineering, test automation"
+    },
+    {
+      "path": "advanced_testing-negative-examples.negative.jsonl",
+      "format": "jsonl",
+      "weight": -1.0,
+      "role": "negative",
+      "notes": "Testing anti-patterns: insufficient coverage, flaky tests, manual testing reliance, poor test design"
+    }
+  ],
+  "provenance": {
+    "masterplan_sections": [
+      "docs/architecture/MasterPlan.md#adapteros-runtime-layer",
+      "docs/architecture/MasterPlan.md#five-tier-adapter-hierarchy"
+    ],
+    "created_by": "advanced-testing-patterns-dataset",
+    "created_at": "2025-11-15T00:00:00Z",
+    "last_reviewed_at": "2025-11-15T00:00:00Z",
+    "review_notes": "Advanced testing patterns applicable to comprehensive quality assurance across all software development domains"
+  },
+  "evaluation_gates": [
+    "Test automation coverage ≥ 90%",
+    "Property-based testing adoption ≥ 80%",
+    "Integration testing patterns ≥ 95%",
+    "Chaos engineering implementation ≥ 70%",
+    "Test quality assurance ≥ 85%"
+  ],
+  "intent": "Teach developers advanced testing techniques and quality assurance practices to build reliable, well-tested software systems with comprehensive test coverage and robust validation"
+}

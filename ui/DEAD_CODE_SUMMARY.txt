@@ -1,0 +1,111 @@
+================================================================================
+DEAD CODE ANALYSIS SUMMARY - AdapterOS UI
+Analysis Date: 2025-12-13
+================================================================================
+
+QUICK STATS:
+- Total TypeScript files analyzed: 1,053
+- Total exports found: ~2,923
+- Potentially unused exports: ~968 (33%)
+- High-confidence dead code: ~30 files + 8 utility functions
+
+================================================================================
+HIGH CONFIDENCE DEAD CODE (Safe to Delete)
+================================================================================
+
+COMPONENTS (20 files):
+✗ components/ui/menu-indicators.tsx
+✗ components/ui/undo-redo-toolbar.tsx
+✗ components/ui/page-headers/DashboardPageHeader.tsx
+✗ components/ui/content-section.tsx
+✗ components/ui/role-guard.tsx
+✗ components/ui/carousel.tsx
+✗ components/MessageThread.tsx
+✗ components/MobileNavigation.tsx
+✗ components/chat/SimplifiedChatWidget.tsx
+✗ components/Icon.tsx
+✗ components/ExportButton.tsx
+✗ components/ContextualHelp.tsx
+✗ components/FavoritesPanel.tsx
+✗ components/Footer.tsx
+✗ components/ITAdminDashboard.tsx
+✗ components/training/TrainingComparisonExample.tsx
+✗ components/training/DatasetBuilderExample.tsx
+✗ components/golden/LayerComparisonTable.tsx
+✗ components/workflows/TemplateCustomizer.tsx
+✗ components/dashboard/ReportingSummaryWidget.tsx
+
+UTILITIES (8 functions):
+✗ utils/adapters/categoryHelpers.ts: getCategoryLabel
+✗ utils/adapters/stateHelpers.ts: getAdapterStateIcon
+✗ utils/adapters/stateHelpers.ts: getAdapterStateColor
+✗ utils/lifecycle.ts: getLifecycleDescription
+✗ utils/lifecycle.ts: isHealthyLifecycleState
+✗ utils/memoryEstimation.ts: estimateAdapterMemory
+✗ utils/errorMessages.ts: getUserFriendlyError
+✗ utils/visual-hierarchy.ts: getVisualHierarchyClasses
+
+EXAMPLE FILES (5 files - should be moved to /examples):
+→ components/chat/ReplayResultDialog.example.tsx
+→ components/chat/ChatShareDialog.example.tsx
+→ components/PolicyPreflightDialog.example.tsx
+→ hooks/useDialogManager.example.tsx
+→ hooks/chat/useChatStreaming.example.tsx
+
+HOOKS (2 - possibly unused):
+? hooks/async/useAsyncOperation.ts
+? hooks/async/useRetry.ts
+
+================================================================================
+MEDIUM CONFIDENCE (Verify Before Deleting)
+================================================================================
+
+PAGES (7 - may be lazy-loaded):
+? pages/HelpCenterPage.tsx
+? pages/Contacts/ContactsPage.tsx
+? pages/Discovery/DiscoveryStreamPage.tsx
+? pages/TelemetryTraceViewerPage.tsx
+? pages/AdvancedMetricsPage.tsx
+? pages/CodeIntelligencePage.tsx
+? pages/Training/TrainingStreamPage.tsx
+
+================================================================================
+LOW PRIORITY (API Types, Schemas - Audit Later)
+================================================================================
+
+API TYPES (~50):
+- Various adapter types, streaming types, system state types
+- May be used for runtime validation or API contracts
+- See DEAD_CODE_REPORT.md sections 8-10 for full list
+
+SCHEMAS (~20):
+- Zod schemas in api/schemas/*.zod.ts
+- Form validation schemas
+- May be used for runtime validation
+
+TABLE CONFIGS:
+- ADAPTER_COLUMNS, AUDIT_COLUMNS, COLUMN_HEADERS
+
+================================================================================
+ESTIMATED IMPACT OF CLEANUP
+================================================================================
+
+Files to delete: 25-30
+Lines of code: ~2,700-4,200 LOC
+Bundle size reduction: ~5-10% (estimated)
+
+================================================================================
+NEXT STEPS
+================================================================================
+
+1. Review VERIFIED_DEAD_CODE.md for detailed file paths
+2. Run verification commands before deleting
+3. Delete in phases (examples → UI components → utilities → hooks)
+4. Create git branch for cleanup work
+5. Test build after each phase
+
+See detailed reports:
+- DEAD_CODE_REPORT.md (comprehensive analysis)
+- VERIFIED_DEAD_CODE.md (high-confidence deletions only)
+
+================================================================================

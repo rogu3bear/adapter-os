@@ -1,0 +1,21 @@
+{
+  "feature": "Platform-Specific Stubs",
+  "severity": "low",
+  "base_commit": "ccae80f07f628621d6c605cd4ba1c637463a055d",
+  "files": [
+    {"path": "crates/adapteros-secure-fs/src/permissions.rs", "lines": "54,78,116", "type": "not_implemented", "note": "Windows permissions"},
+    {"path": "crates/adapteros-storage/src/lib.rs", "lines": "156", "type": "not_implemented", "note": "KMS provider"},
+    {"path": "crates/adapteros-lora-kernel-mtl/src/mplora.rs", "lines": "179", "type": "not_implemented"},
+    {"path": "crates/adapteros-lora-worker/src/deadlock.rs", "lines": "135,162", "type": "not_implemented"},
+    {"path": "crates/adapteros-lora-worker/src/embeddings.rs", "lines": "139", "type": "not_implemented"},
+    {"path": "crates/adapteros-service-supervisor/src/supervisor.rs", "lines": "44", "type": "not_implemented", "note": "PEM loading"},
+    {"path": "crates/adapteros-core/src/circuit_breaker.rs", "lines": "159", "type": "not_implemented"},
+    {"path": "crates/adapteros-storage/src/policy.rs", "lines": "332,372", "type": "not_implemented"},
+    {"path": "crates/adapteros-secd/src/enclave/stub.rs", "lines": "1-65", "type": "platform_stub"},
+    {"path": "crates/adapteros-system-metrics/src/persistence.rs", "lines": "325-342", "type": "placeholder"},
+    {"path": "crates/adapteros-telemetry/src/metrics.rs", "lines": "584", "type": "placeholder"},
+    {"path": "crates/adapteros-system-metrics/src/notifications.rs", "lines": "291", "type": "placeholder", "note": "Email SMTP"}
+  ],
+  "description": "Low-severity platform stubs: Windows perms, deadlock recovery, embeddings, PEM loading, circuit breaker, etc.",
+  "created": "2025-11-21"
+}

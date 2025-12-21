@@ -1,0 +1,17 @@
+[package]
+name = "adapteros-concurrent-fs"
+version.workspace = true
+edition = "2021"
+authors = ["AdapterOS Team"]
+description = "Concurrent filesystem operations with locking and conflict resolution for AdapterOS"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+adapteros-core = { path = "../adapteros-core" }
+tokio = { version = "1.0", features = ["fs", "time", "sync", "macros", "rt-multi-thread"] }
+serde = { version = "1.0", features = ["derive"] }
+tracing = { workspace = true }
+tempfile = "3.8"
+
+[dev-dependencies]
+tokio-test = "0.4"

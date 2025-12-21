@@ -1,0 +1,69 @@
+[package]
+name = "adapteros-db"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+# Internal crates
+adapteros-core = { path = "../adapteros-core", features = ["sqlx"] }
+adapteros-config = { path = "../adapteros-config" }
+adapteros-telemetry = { path = "../adapteros-telemetry" }
+adapteros-crypto = { path = "../adapteros-crypto" }
+adapteros-storage = { path = "../adapteros-storage" }
+adapteros-api-types = { path = "../adapteros-api-types" }
+adapteros-types = { path = "../adapteros-types" }
+adapteros-artifacts = { path = "../adapteros-artifacts" }
+
+# Workspace dependencies
+anyhow.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+
+# Version parsing for semver ordering
+semver = "1.0"
+
+# Database
+sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "macros", "migrate", "chrono", "uuid"] }
+uuid = { version = "1.6", features = ["v7", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+
+# Additional
+tracing = { workspace = true }
+argon2 = "0.5"
+bincode = "1.3"
+rand = "0.8"
+rand_chacha = "0.3"  # For deterministic RNG per Determinism Policy
+async-trait = "0.1"
+walkdir = "2.4"  # For directory traversal in model import
+once_cell = "1.19"  # For global KV metrics singleton
+
+# Cryptography for migration verification
+blake3 = { workspace = true }
+hex = { workspace = true }
+base64 = { workspace = true }
+sha2 = { workspace = true }
+ed25519-dalek = { version = "2.1", features = ["pkcs8"] }
+chacha20poly1305 = "0.10"
+
+# OpenAPI schema generation
+utoipa = { workspace = true, optional = true }
+
+[features]
+utoipa = ["dep:utoipa"]
+
+[dev-dependencies]
+tempfile = { workspace = true }
+criterion = { workspace = true }
+toml = { workspace = true }
+
+[[bench]]
+name = "kv_vs_sql"
+harness = false

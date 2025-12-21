@@ -1,0 +1,17 @@
+# AdapterOS Automated Backup Configuration
+# Install with: sudo cp config/cron/adapteros-backup /etc/cron.d/
+
+# Daily full backup at 2 AM
+0 2 * * * adapteros /opt/adapteros/scripts/backup.sh full >> /var/log/adapteros/backup.log 2>&1
+
+# Database backup every 6 hours
+0 */6 * * * adapteros /opt/adapteros/scripts/backup.sh database >> /var/log/adapteros/backup.log 2>&1
+
+# Model backup daily at 4 AM (separate from full backup for efficiency)
+0 4 * * * adapteros /opt/adapteros/scripts/backup.sh models >> /var/log/adapteros/backup.log 2>&1
+
+# Configuration backup weekly on Sundays at 3 AM
+0 3 * * 0 adapteros /opt/adapteros/scripts/backup.sh config >> /var/log/adapteros/backup.log 2>&1
+
+# Cleanup old backups weekly on Sundays at 5 AM
+0 5 * * 0 adapteros find /backup -name "20*" -type d -mtime +30 -exec rm -rf {} \; 2>/dev/null || true

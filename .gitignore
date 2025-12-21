@@ -1,0 +1,324 @@
+# Rust
+**/target/
+**/*.rs.bk
+*.pdb
+Cargo.lock
+
+# Swift build artifacts
+**/.build/
+**/DerivedData/
+**/*.xcodeproj/xcuserdata/
+**/*.xcodeproj/project.xcworkspace/xcuserdata/
+**/*.xcworkspace/xcuserdata/
+**/.swiftpm/
+**/*.xcodeproj/*.pbxuser
+**/*.xcodeproj/*.mode1v3
+**/*.xcodeproj/*.mode2v3
+**/*.xcodeproj/*.perspectivev3
+
+# IDE
+.vscode/
+.idea/
+.cursor/   # Exclude Cursor IDE files
+!.cursor/rules/  # Include Cursor rules (enforce AGENTS.md consultation)
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Environment
+.env
+.env.local
+/.env.local
+.envrc
+.direnv/
+
+# SSH Keys (never commit these!)
+id_ed25519
+id_ed25519.pub
+
+# Artifacts
+/artifacts
+/bundles
+*.metallib
+*.air
+
+# Verification artifacts (generated outputs)
+target/verify/
+
+# Database and runtime data (contains sensitive data)
+**/var/
+*.db
+*.db-shm
+*.db-wal
+*.pid
+*.sqlite
+*.sqlite3
+registry.db
+
+# Model files (too large for git)
+# Large downloaded binaries
+prometheus-*.tar.gz
+grafana-*.tar.gz
+prometheus-*/
+grafana-*/
+/models/
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.onnx
+
+# UI build artifacts
+/ui/dist/
+/ui/.env.local
+/ui/.env.development.local
+/ui/.env.production.local
+/ui/build/
+/ui/node_modules/
+ui/.turbo/
+ui/.eslintcache
+
+# Server static assets (generated from UI build)
+/crates/adapteros-server/static/
+
+# Test outputs
+/test-results
+**/test-results/
+**/.last-run.json
+*.repro
+
+# Logs
+*.log
+build.log
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Node
+node_modules/
+/ui/node_modules/
+pnpm-lock.yaml
+package-lock.json
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.turbo/
+.eslintcache
+
+# Temporary
+tmp/
+temp/
+*.tmp
+*.tmp.*
+
+# Xcode / SwiftUI Installer
+installer/build/
+installer/DerivedData/
+installer/*.xcodeproj/xcuserdata/
+installer/*.xcodeproj/project.xcworkspace/xcuserdata/
+installer/*.xcworkspace/xcuserdata/
+installer/.swiftpm/
+installer/*.xcodeproj/*.pbxuser
+installer/*.xcodeproj/*.mode1v3
+installer/*.xcodeproj/*.mode2v3
+installer/*.xcodeproj/*.perspectivev3
+*.dSYM
+
+# Cursor IDE
+.cursor/
+
+# SQLx
+.sqlx/
+!crates/adapteros-cli/.sqlx/
+!crates/adapteros-cli/.sqlx/**
+!crates/adapteros-db/.sqlx/
+!crates/adapteros-db/.sqlx/**
+
+# Metal compilation artifacts
+metal/*.metallib
+metal/*.air
+metal/build_metadata.json
+
+# Screenshots and UI assets (optional - comment out if you want to include)
+screenshots/
+ui/src/components/ui/empty-state.tsx.backup
+
+# Archive directories (local development only)
+archive/
+
+# Training datasets (local development only - can be large)
+# Allow structure (README.md, .gitkeep) but ignore data files
+training/datasets/**/*.jsonl
+training/datasets/**/*.json
+!training/datasets/**/manifest.json
+!training/datasets/README.md
+!training/datasets/MIGRATION.md
+!training/datasets/**/README.md
+!training/datasets/**/.gitkeep
+training/data/
+training/*.jsonl
+training/*.json
+
+# Import matrix analysis (generated files)
+import_matrix.json
+import_matrix_heatmap.png
+import_network_diagram.png
+import_summary_stats.png
+
+# Implementation reports (generated files - local development only)
+*_IMPLEMENTATION_*.md
+*_EXECUTION_*.md
+*_COMPLETE*.md
+*_SUMMARY*.md
+# Keep branch reconciliation report (important documentation)
+!BRANCH_RECONCILIATION_REPORT.md
+*_REPORT*.md
+COMPILATION_FIX_SUMMARY.md
+DOCUMENTATION_CLEANUP_EXECUTION_REPORT.md
+EXECUTION_COMPLETE.md
+FINAL_IMPLEMENTATION_REPORT.md
+IMPLEMENTATION_STATUS.md
+IMPLEMENTATION_SUMMARY.md
+P3_*.md
+README_P3_FEATURES.md
+
+# Verification scripts (local development only)
+verify_*.sh
+
+# Backup files
+*.backup
+*.bak
+Cargo.toml.*.backup
+Cargo.toml.temp
+Cargo.toml.test
+temp_*.toml
+
+# Alpha development artifacts
+test-config-precedence/
+*_IMPLEMENTATION_*.md
+*_EXECUTION_*.md
+*_COMPLETE*.md
+*_SUMMARY*.md
+*_REPORT*.md
+
+# DVC (Data Version Control)
+.dvc/
+.dvcignore
+
+# Generated documentation
+docs/_build/
+docs/.doctrees/
+
+# Generated files
+coverage.json
+freeze.json
+libintegration_tests.rlib
+openapi_new.json
+
+# AI slop detector reports
+ai_slop_reports/
+
+# Analysis reports (generated during development)
+*_ANALYSIS.md
+
+# Vercel deployment
+.vercel/
+
+# Next.js (if used in UI)
+ui/.next/
+
+# Coverage reports
+coverage/
+*.profraw
+*.lcov
+
+# Test artifacts
+test_output/
+**/test-dbs/
+*.test
+*_test
+
+# Rust specific
+*.rlib
+rustc-ice-*.txt
+
+# Additional OS files
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Temporary files
+*.swp
+*.swo
+*~
+.nfs*
+
+# Lock files (keep specific ones)
+*.lock
+!pnpm-lock.yaml
+!Cargo.lock
+scripts/**/Cargo.lock
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+adapters/*.safetensors
+trained_adapter*/
+adapters/demo_adapter*/**
+*.patch
+server.pid
+aos
+aos-launch
+LAUNCH_*.md
+MODEL_VALIDATION_*.md
+QA_*.md
+*_STATUS.md
+SERVICES_*.md
+aos2_implementation.rs
+aos_format_design.md
+training_data.json
+Cargo.toml.aos
+create_aos.rs
+launch.sh
+libdeterminism_guardrail_suite.rlib
+libreplay_path_verification.rlib
+aosctl
+
+# Alternate target directories (clippy, etc.)
+target-clippy/
+
+# Clang module cache (build artifacts)
+**/.cache/clang/
+
+# Generated/temporary directories
+training_data/
+ui-test-screenshots/
+.venv-coreml/
+rust_out

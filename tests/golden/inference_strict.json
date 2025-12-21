@@ -1,0 +1,46 @@
+{
+  "kind": "inference",
+  "name": "inference_strict",
+  "reason_code": "strict_inference_output_receipt",
+  "context_digest": "e934bcb268c2471e715397f2cbf1962d0f50907cff8a42d600e0fe47fa9d485b",
+  "tokens": [
+    {
+      "token_index": 0,
+      "adapter_ids": ["router-alpha"],
+      "gates_q15": [1200],
+      "policy_mask_digest": null,
+      "allowed_mask": null,
+      "policy_overrides_applied": null,
+      "backend_id": "coreml",
+      "kernel_version_id": "k1"
+    },
+    {
+      "token_index": 1,
+      "adapter_ids": ["router-beta", "router-gamma"],
+      "gates_q15": [2100, 9000],
+      "policy_mask_digest": "d6b4c03bcb13946436d72b590d0a1755eeef43a208844ed1f93f2099e211c3e2",
+      "allowed_mask": [true, false],
+      "policy_overrides_applied": {
+        "allow_list": true,
+        "deny_list": false,
+        "trust_state": true
+      },
+      "backend_id": "coreml",
+      "kernel_version_id": "k1"
+    }
+  ],
+  "output_tokens": [7, 11],
+  "expected": {
+    "run_head": "1dadfcd6b8063a1787e5c056e98a4b654e116b8597d6f10cf4d190ca439c40ab",
+    "output_digest": "43fee4c248c11153279587030f0a7e84a5f90b6679f0436beec84b163fa61382",
+    "receipt_digest": "d0588eb25aca9dc6c66f1dc55049bdfcc5a453f9435313a299bdd0cf83d725f9",
+    "merkle_root": "1dadfcd6b8063a1787e5c056e98a4b654e116b8597d6f10cf4d190ca439c40ab"
+  },
+  "assert_output_count_matches_tokens": true
+}
+
+
+
+
+
+

@@ -1,0 +1,19 @@
+{
+  "id": "replay-123",
+  "cpid": "cp-abc",
+  "plan_id": "plan-xyz",
+  "manifest_hash_b3": "b3-manifest",
+  "policy_hash_b3": "b3-policy",
+  "kernel_hash_b3": "b3-kernel",
+  "telemetry_bundle_ids": ["bundle-a", "bundle-b"],
+  "config": {
+    "max_tokens": 256,
+    "temperature": 0.7,
+    "top_k": 50,
+    "top_p": 0.95,
+    "seed": 12345,
+    "require_evidence": true
+  }
+}
+
+

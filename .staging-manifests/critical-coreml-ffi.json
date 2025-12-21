@@ -1,0 +1,16 @@
+{
+  "feature": "CoreML Backend FFI",
+  "severity": "critical",
+  "base_commit": "ccae80f07f628621d6c605cd4ba1c637463a055d",
+  "files": [
+    {
+      "path": "crates/adapteros-lora-kernel-coreml/src/lib.rs",
+      "lines": "862-868",
+      "type": "not_implemented",
+      "description": "CoreML backend FFI not implemented. Native bridge code (coreml_bridge.mm) is missing."
+    }
+  ],
+  "description": "CoreML backend FFI not implemented. Native bridge code (coreml_bridge.mm) is missing. Use Metal backend for inference or MLX backend for training.",
+  "created": "2025-11-21",
+  "impact": "Primary production backend non-functional"
+}

@@ -1,0 +1,46 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT \n            signer_key,\n            registered_by,\n            registered_uid,\n            registered_at::text AS registered_at,\n            bundle_b3\n        FROM adapter_provenance\n        WHERE adapter_id = $1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "signer_key",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "registered_by",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "registered_uid",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 3,
+        "name": "registered_at",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "bundle_b3",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      null,
+      false
+    ]
+  },
+  "hash": "c0c712371e2396d46cad66012b05b8f2142f9380d7beecf377777b7a200e9b9c"
+}

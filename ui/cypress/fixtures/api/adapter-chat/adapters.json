@@ -1,0 +1,27 @@
+[
+  {
+    "id": "adapter-test",
+    "tenant_id": "tenant-test",
+    "adapter_id": "adapter-test",
+    "name": "Test Adapter",
+    "tier": "warm",
+    "hash_b3": "b3_adapter_seed_test",
+    "rank": 8,
+    "alpha": 16.0,
+    "lora_strength": 1.0,
+    "targets_json": "[\"attn.q_proj\",\"attn.v_proj\"]",
+    "category": "code",
+    "scope": "global",
+    "base_model_id": "model-qwen-test",
+    "manifest_schema_version": "1.0.0",
+    "content_hash_b3": "b3_adapter_content_seed",
+    "metadata_json": "{\"description\":\"Seed adapter for Cypress\",\"owner\":\"seed-fixtures\"}",
+    "created_at": "2025-01-01T00:00:00Z",
+    "updated_at": "2025-01-01T00:00:00Z",
+    "current_state": "unloaded",
+    "lifecycle_state": "active",
+    "version": "1.0.0",
+    "active": 1
+  }
+]
+

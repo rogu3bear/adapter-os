@@ -1,0 +1,34 @@
+{
+  "trace_id": "sample-trace-0001",
+  "tenant_id": "tenant-sample",
+  "request_id": "req-sample",
+  "context_digest_hex": "0000000000000000000000000000000000000000000000000000000000000000",
+  "tokens": [
+    {
+      "token_index": 0,
+      "adapter_ids": ["adapter-a"],
+      "gates_q15": [123],
+      "policy_mask_digest_hex": null,
+      "backend_id": "coreml",
+      "kernel_version_id": "v1",
+      "decision_hash_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "token_index": 1,
+      "adapter_ids": ["adapter-b", "adapter-c"],
+      "gates_q15": [321, 111],
+      "policy_mask_digest_hex": "0000000000000000000000000000000000000000000000000000000000000000",
+      "backend_id": "coreml",
+      "kernel_version_id": "v1",
+      "decision_hash_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+    }
+  ],
+  "receipt": {
+    "run_head_hash_hex": "0000000000000000000000000000000000000000000000000000000000000000",
+    "output_digest_hex": "0000000000000000000000000000000000000000000000000000000000000000",
+    "receipt_digest_hex": "0000000000000000000000000000000000000000000000000000000000000000",
+    "signature_b64": null,
+    "attestation_b64": null
+  },
+  "footer": "MLNavigator Inc Thursday Dec 11, 2025."
+}

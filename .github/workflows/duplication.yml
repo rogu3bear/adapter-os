@@ -1,0 +1,103 @@
+name: Duplication Scan
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+    inputs:
+      enforce:
+        description: "Fail the job if any duplication is found"
+        required: false
+        default: "false"
+
+jobs:
+  jscpd:
+    name: jscpd duplication check
+    runs-on: ubuntu-latest
+    env:
+      ENFORCE: ${{ vars.JSCPD_ENFORCE || 'true' }}
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    concurrency:
+      group: duplication-${{ github.ref }}
+      cancel-in-progress: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Run jscpd scan
+        shell: bash
+        run: |
+          bash scripts/run_jscpd.sh --ci
+
+      - name: Locate latest report
+        id: locate
+        shell: bash
+        run: |
+          latest_dir=$(ls -1t var/reports/jscpd | head -n1)
+          echo "dir=$latest_dir" >> $GITHUB_OUTPUT
+          echo "md=var/reports/jscpd/$latest_dir/report.md" >> $GITHUB_OUTPUT
+          echo "json=var/reports/jscpd/$latest_dir/report.json" >> $GITHUB_OUTPUT
+
+      - name: Upload jscpd reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: jscpd-reports
+          path: var/reports/jscpd/${{ steps.locate.outputs.dir }}
+          retention-days: 30
+
+      - name: Comment on PR
+        if: github.event_name == 'pull_request' && always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const mdPath = '${{ steps.locate.outputs.md }}';
+            const jsonPath = '${{ steps.locate.outputs.json }}';
+
+            let body = '## 🔍 Duplication Scan Results\n\n';
+
+            if (fs.existsSync(jsonPath)) {
+              const report = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+              const clones = report.clones || [];
+              body += `Found **${clones.length}** duplicate code blocks.\n\n`;
+
+              if (fs.existsSync(mdPath)) {
+                const md = fs.readFileSync(mdPath, 'utf8');
+                body += '<details><summary>View Details</summary>\n\n' + md + '\n</details>';
+              }
+            } else {
+              body += '⚠️ Report not found';
+            }
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });
+
+      - name: Check enforcement
+        if: always()
+        shell: bash
+        run: |
+          json="${{ steps.locate.outputs.json }}"
+          if [[ ! -f "$json" ]]; then
+            echo "::warning::jscpd report not found"
+            exit 0
+          fi
+
+          clones=$(node -e 'const fs=require("fs");try{const j=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));console.log((j.clones&&j.clones.length)||0)}catch{console.log(0)}' "$json")
+          echo "Found $clones duplicate code blocks"
+
+          if [[ "${ENFORCE}" == "true" && "$clones" -gt 0 ]]; then
+            echo "::error::Duplication found and JSCPD_ENFORCE is enabled"
+            exit 1
+          fi

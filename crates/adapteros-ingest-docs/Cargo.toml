@@ -1,0 +1,41 @@
+[package]
+name = "adapteros-ingest-docs"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[features]
+default = []
+
+# =============================================================================
+# INGEST-DOCS FEATURE FLAGS
+# =============================================================================
+# multi-backend: Enable MLX-based embedding models
+#   - Adds adapteros-lora-mlx-ffi dependency
+#   - Enables ProductionEmbeddingModel::MLX variant
+#   - Without this, falls back to SimpleEmbeddingModel
+# =============================================================================
+
+multi-backend = ["dep:adapteros-lora-mlx-ffi"]
+
+[dependencies]
+adapteros-core = { path = "../adapteros-core" }
+adapteros-db = { path = "../adapteros-db" }
+adapteros-lora-rag = { path = "../adapteros-lora-rag" }
+adapteros-lora-mlx-ffi = { path = "../adapteros-lora-mlx-ffi", optional = true }
+tokenizers = { workspace = true }
+pulldown-cmark = "0.9"
+lopdf = "0.32"
+serde = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+thiserror = { workspace = true }
+chrono = { workspace = true }
+tracing = { workspace = true }
+tokio = { workspace = true, features = ["rt", "macros"] }
+
+[dev-dependencies]
+tempfile = "3.8"
+adapteros-lora-rag = { path = "../adapteros-lora-rag" }
+adapteros-config = { path = "../adapteros-config" }

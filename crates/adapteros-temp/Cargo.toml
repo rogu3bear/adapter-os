@@ -1,0 +1,18 @@
+[package]
+name = "adapteros-temp"
+version.workspace = true
+edition = "2021"
+authors = ["AdapterOS Team"]
+description = "Temporary file management with guaranteed cleanup for AdapterOS"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+adapteros-core = { path = "../adapteros-core" }
+adapteros-platform = { path = "../adapteros-platform" }
+tokio = { version = "1.0", features = ["fs", "time", "sync", "rt", "macros", "io-util"] }
+serde = { version = "1.0", features = ["derive"] }
+tracing = { workspace = true }
+tempfile = "3.8"
+
+[dev-dependencies]
+tokio-test = "0.4"

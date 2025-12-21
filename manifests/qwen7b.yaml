@@ -1,0 +1,36 @@
+schema: adapteros.manifest.v3
+base:
+  model_id: "Qwen2.5-7B-Instruct"
+  model_hash: "b3:9089587768b6a4fd"
+  arch: "Qwen2ForCausalLM"
+  vocab_size: 152064
+  hidden_dim: 3584
+  n_layers: 28
+  n_heads: 28
+  config_hash: "b3:79e2c37983c3614a"
+  tokenizer_hash: "b3:368590b202a77298"
+  tokenizer_cfg_hash: "b3:246a7c1ed7f7afdd"
+  license_hash: "b3:930add1d09178722"
+router:
+  k_sparse: 3
+  gate_quant: "q15"
+  entropy_floor: 0.02
+  tau: 1.0
+  sample_tokens_full: 128
+telemetry:
+  schema_hash: "b3:stub"
+  sampling:
+    token: 0.05
+    router: 1.0
+    inference: 1.0
+  router_full_tokens: 128
+  bundle:
+    max_events: 500000
+    max_bytes: 268435456
+policies:
+  egress: "deny_all"
+  access:
+    adapters: "RBAC"
+    datasets: "ABAC"
+seeds:
+  global: "b3:deadbeef"

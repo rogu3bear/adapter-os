@@ -1,0 +1,118 @@
+# AdapterOS Control Plane Configuration
+
+[server]
+# Use 8080 for development (UI expects this)
+port = 8080
+bind = "127.0.0.1"
+production_mode = false
+
+[db]
+# Use explicit scheme so loader maps to database.url correctly
+path = "sqlite://var/aos-cp.sqlite3"
+storage_mode = "sql_only"
+pool_size = 20
+kv_path = "var/aos-kv.redb"
+kv_tantivy_path = "var/aos-kv-index"
+
+[security]
+# Set to false for development mode (allows running without root/PF rules)
+# MUST be true in production!
+require_pf_deny = false
+mtls_required = false
+jwt_secret = "CHANGE_ME_IN_PRODUCTION_USE_64_CHAR_RANDOM_STRING_HERE_XXXXXXXXX"
+jwt_mode = "hmac"
+dev_login_enabled = true
+
+[paths]
+artifacts_root = "var/artifacts"
+bundles_root = "var/bundles"
+adapters_root = "var/adapters"
+plan_dir = "plan"
+datasets_root = "var/datasets"
+documents_root = "var/documents"
+
+[model.cache]
+# Explicit budget required for worker model cache (MB)
+max.mb = 16384
+
+[worker.safety]
+# Timeout configuration
+inference_timeout_secs = 30
+evidence_timeout_secs = 5
+router_timeout_ms = 100
+policy_timeout_ms = 50
+
+# Circuit breaker configuration
+circuit_breaker_threshold = 5
+circuit_breaker_timeout_secs = 60
+
+# Resource limits
+max_concurrent_requests = 10
+max_tokens_per_second = 40
+max_memory_per_request_mb = 50
+max_cpu_time_per_request_secs = 30
+max_requests_per_minute = 100
+
+# Health monitoring
+health_check_interval_secs = 30
+max_response_time_secs = 60
+max_memory_growth_mb = 100
+max_cpu_time_secs = 300
+max_consecutive_failures = 3
+
+[health.adapter]
+# Drift above this threshold is at least degraded
+drift_hard_threshold = 0.15
+# For high-tier adapters, this threshold blocks promotion
+high_tier_block_threshold = 0.10
+
+# Deadlock detection
+deadlock_check_interval_secs = 5
+max_wait_time_secs = 30
+max_lock_depth = 10
+recovery_timeout_secs = 10
+
+[rate_limits]
+requests_per_minute = 100
+burst_size = 20
+inference_per_minute = 50
+
+[capacity_limits]
+# Maximum concurrent training jobs (default: 5)
+max_concurrent_training_jobs = 5
+
+[metrics]
+enabled = true
+bearer_token = "CHANGE_ME_METRICS_TOKEN_32_CHARS_MIN"
+include_histogram = true
+histogram_buckets = [0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0]
+
+[alerting]
+enabled = true
+alert_dir = "var/alerts"
+max_alerts_per_file = 10000
+rotate_size_mb = 50
+
+[self_hosting]
+# off | on | safe (safe requires manual promotion)
+mode = "off"
+repo_allowlist = []
+promotion_threshold = 0.0
+
+[logging]
+# Log level filter (supports per-module levels like "aos_cp=debug,tower_http=info")
+level = "info"
+# Directory for log files (comment out for stdout-only in dev)
+log_dir = "var/logs"
+# Log file prefix
+log_prefix = "aos-cp"
+# Enable JSON format for log aggregation tools (default: false for human-readable)
+json_format = false
+# Rotation: "hourly", "daily", or "never"
+rotation = "daily"
+# Maximum rotated log files to keep (0 = unlimited)
+max_log_files = 30
+# Include request IDs in log output
+include_request_id = true
+# Capture panics to log file
+capture_panics = true

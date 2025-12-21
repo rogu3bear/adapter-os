@@ -1,0 +1,68 @@
+[package]
+name = "adapteros-lora-kernel-coreml"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "CoreML backend for AdapterOS - Neural Engine acceleration"
+
+[features]
+default = []
+
+# Align with workspace feature flag used by CI and dependent crates.
+# Enables CoreML-only tests with:
+#   cargo test -p adapteros-lora-kernel-coreml --features coreml-backend
+coreml-backend = []
+
+# =============================================================================
+# COREML KERNEL FEATURE FLAGS
+# =============================================================================
+# This crate provides CoreML + Neural Engine (ANE) acceleration.
+# It is the PRIMARY production backend for macOS 13+.
+#
+# ane-optimizations: Enable ANE-specific optimizations
+#   - Enables MLTensor-based operations (macOS 15+)
+#   - Falls back to MLMultiArray on older macOS
+#   - Provides 2x speedup on supported hardware
+#
+# Usage:
+#   cargo build -p adapteros-lora-kernel-coreml
+#   cargo build -p adapteros-lora-kernel-coreml --features ane-optimizations
+# =============================================================================
+
+ane-optimizations = []  # Enable ANE-specific code paths (macOS 15+ MLTensor)
+coreml-stub = []       # Enable stub fallback for tests/dev; OFF for production
+
+[dependencies]
+adapteros-core = { path = "../adapteros-core" }
+adapteros-aos = { path = "../adapteros-aos" }
+adapteros-lora-kernel-api = { path = "../adapteros-lora-kernel-api" }
+adapteros-telemetry = { path = "../adapteros-telemetry" }
+adapteros-types = { path = "../adapteros-types" }
+adapteros-platform = { path = "../adapteros-platform" }
+thiserror = { workspace = true }
+serde = { workspace = true }
+serde_derive = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+hex = { workspace = true }
+safetensors = { workspace = true }
+tokio = { workspace = true, features = ["sync"] }
+memmap2 = { workspace = true }
+tempfile = { workspace = true }
+libc = "0.2"
+half = { workspace = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc = { workspace = true }
+cocoa = { workspace = true }
+core-foundation = { workspace = true }
+
+[build-dependencies]
+cc = "1.0"
+blake3 = { workspace = true }
+
+[dev-dependencies]
+adapteros-config = { path = "../adapteros-config" }
+adapteros-memory = { path = "../adapteros-memory" }
+adapteros-testing = { path = "../adapteros-testing" }

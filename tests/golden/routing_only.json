@@ -1,0 +1,36 @@
+{
+  "kind": "routing",
+  "name": "routing_only",
+  "reason_code": "routing_decision_set",
+  "context_digest": "87c493d592ddcfad775ca647df8449863bfa0dc322199e30c89b4fa534a9aa22",
+  "tokens": [
+    {
+      "token_index": 0,
+      "adapter_ids": ["adapter-a", "adapter-b"],
+      "gates_q15": [50, 25],
+      "policy_mask_digest": "83d95ddfbe1df08bd36cf577389dc48292d2df0ae925ad5cf88b1a1021c8185b",
+      "allowed_mask": [true, true],
+      "policy_overrides_applied": null,
+      "backend_id": "coreml",
+      "kernel_version_id": "r1"
+    },
+    {
+      "token_index": 1,
+      "adapter_ids": ["adapter-a"],
+      "gates_q15": [75],
+      "policy_mask_digest": null,
+      "allowed_mask": null,
+      "policy_overrides_applied": null,
+      "backend_id": "coreml",
+      "kernel_version_id": "r1"
+    }
+  ],
+  "output_tokens": [42, 43],
+  "expected": {
+    "run_head": "1c4bfb0de239bf657d6be5d67701a0840b2a2b53f21926ecda345cc9a933934c",
+    "output_digest": "0a422fa88baceed2bc68270e8536ec06c84577f6b15746b45dcc09bcd5197464",
+    "receipt_digest": "ced92b7db05ec6938e382b3401678eddafd600ef227c12db1e4a550ebe04ce7a",
+    "merkle_root": "1c4bfb0de239bf657d6be5d67701a0840b2a2b53f21926ecda345cc9a933934c"
+  },
+  "assert_output_count_matches_tokens": true
+}

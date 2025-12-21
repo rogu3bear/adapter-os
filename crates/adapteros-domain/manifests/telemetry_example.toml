@@ -1,0 +1,26 @@
+# Example Telemetry Adapter Manifest
+#
+# This manifest configures a telemetry domain adapter for deterministic
+# time-series signal processing.
+
+[adapter]
+name = "telemetry_adapter_v1"
+version = "1.0.0"
+model = "timeseries_lstm_v1"
+hash = "f0e9d8c7b6a5f4e3d2c1b0a9f8e7d6c5b4a3f2e1d0c9b8a7f6e5d4c3b2a1"
+input_format = "time_series_canonical"
+output_format = "normalized_filtered"
+epsilon_threshold = 1e-6
+deterministic = true
+
+[adapter.model_files]
+weights = "path/to/telemetry_weights.safetensors"
+config = "path/to/telemetry_config.json"
+
+[adapter.parameters]
+num_channels = 16
+window_size = 128
+sampling_rate = 100.0
+filter_kernel_size = 5
+anomaly_threshold = 0.95
+

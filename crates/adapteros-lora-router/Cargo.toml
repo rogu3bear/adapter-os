@@ -1,0 +1,27 @@
+[package]
+name = "adapteros-lora-router"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+adapteros-core = { path = "../adapteros-core" }
+adapteros-types = { path = "../adapteros-types" }
+adapteros-lora-kernel-api = { path = "../adapteros-lora-kernel-api" }
+adapteros-telemetry = { path = "../adapteros-telemetry" }
+adapteros-policy = { path = "../adapteros-policy" }
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+smallvec = { workspace = true }
+rand = { workspace = true }
+rand_core = { workspace = true }
+rand_chacha = "0.3"
+tracing = { workspace = true }
+
+[dev-dependencies]
+proptest = "1.0"
+bincode = "1.3"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+futures = "0.3"

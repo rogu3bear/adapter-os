@@ -1,0 +1,32 @@
+---
+source: crates/adapteros-server-api/tests/contract_snapshots.rs
+assertion_line: 240
+expression: "json!({ \"status\": login_status.as_u16(), \"body\": login_body })"
+---
+{
+  "body": {
+    "expires_in": "<redacted>",
+    "role": "admin",
+    "schema_version": "v1",
+    "tenant_id": "tenant-test",
+    "tenants": [
+      {
+        "created_at": "<timestamp>",
+        "id": "tenant-test",
+        "name": "Test Tenant",
+        "schema_version": "1.0",
+        "status": "active"
+      },
+      {
+        "created_at": "<timestamp>",
+        "id": "tenant-test-2",
+        "name": "Test Tenant 2",
+        "schema_version": "1.0",
+        "status": "active"
+      }
+    ],
+    "token": "<redacted>",
+    "user_id": "<redacted>"
+  },
+  "status": 200
+}
