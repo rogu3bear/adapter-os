@@ -1630,15 +1630,25 @@ pub async fn get_all_models_status(
         )
     })?;
 
-    // Filter by tenant if provided
+    // PRD-RECT-002: Non-admin users can only see their own tenant's model statuses
+    let is_admin = claims.roles.iter().any(|r| r.to_lowercase() == "admin");
     let tenant_filter = query.get("tenant_id");
-    let statuses: Vec<_> = if let Some(tenant_id) = tenant_filter {
+    let statuses: Vec<_> = if is_admin {
+        // Admin: can filter by specific tenant or see all
+        if let Some(tenant_id) = tenant_filter {
+            statuses
+                .into_iter()
+                .filter(|s| s.tenant_id == *tenant_id)
+                .collect()
+        } else {
+            statuses
+        }
+    } else {
+        // Non-admin: always filter to their own tenant only, ignore tenant_id query param
         statuses
             .into_iter()
-            .filter(|s| s.tenant_id == *tenant_id)
+            .filter(|s| s.tenant_id == claims.tenant_id)
             .collect()
-    } else {
-        statuses
     };
 
     // Convert to response format and get model details
