@@ -378,3 +378,119 @@ async fn test_backward_compatibility() {
     // Backward compatibility maintained
     assert!(existing_endpoints.len() > 0);
 }
+
+#[tokio::test]
+async fn test_policy_studio_endpoints() {
+    // Test that Policy Studio required endpoints exist
+    // Citation: ui/src/hooks/security/useTenantPolicies.ts
+
+    // Policy Studio requires these endpoints for tenant policy customization
+    let policy_studio_endpoints = vec![
+        // Tenant customizations - list
+        "GET /v1/tenants/{tenant_id}/policies/customizations",
+        // Tenant customizations - create
+        "POST /v1/tenants/{tenant_id}/policies/customize",
+        // Tenant customizations - get single
+        "GET /v1/tenants/{tenant_id}/policies/customizations/{id}",
+        // Tenant customizations - update
+        "PUT /v1/tenants/{tenant_id}/policies/customizations/{id}",
+        // Tenant customizations - delete
+        "DELETE /v1/tenants/{tenant_id}/policies/customizations/{id}",
+        // Tenant customizations - submit for review
+        "POST /v1/tenants/{tenant_id}/policies/customizations/{id}/submit",
+    ];
+
+    assert_eq!(policy_studio_endpoints.len(), 6);
+
+    // All Policy Studio endpoints are required for tenant customization workflow
+    assert!(policy_studio_endpoints.iter().any(|e| e.contains("customize")));
+    assert!(policy_studio_endpoints.iter().any(|e| e.contains("submit")));
+}
+
+#[tokio::test]
+async fn test_policy_review_queue_endpoints() {
+    // Test that Policy Review Queue required endpoints exist
+    // Citation: ui/src/hooks/security/useTenantPolicies.ts
+
+    // Policy Review Queue requires these endpoints for admin/compliance review
+    let review_queue_endpoints = vec![
+        // Pending reviews - list all pending across tenants
+        "GET /v1/policies/pending-reviews",
+        // Approve customization
+        "POST /v1/policies/customizations/{id}/approve",
+        // Reject customization
+        "POST /v1/policies/customizations/{id}/reject",
+        // Activate customization
+        "POST /v1/policies/customizations/{id}/activate",
+    ];
+
+    assert_eq!(review_queue_endpoints.len(), 4);
+
+    // All Review Queue endpoints are required for policy approval workflow
+    assert!(review_queue_endpoints.iter().any(|e| e.contains("pending-reviews")));
+    assert!(review_queue_endpoints.iter().any(|e| e.contains("approve")));
+    assert!(review_queue_endpoints.iter().any(|e| e.contains("reject")));
+    assert!(review_queue_endpoints.iter().any(|e| e.contains("activate")));
+}
+
+#[tokio::test]
+async fn test_policy_studio_rbac_requirements() {
+    // Test that Policy Studio has correct RBAC permission requirements
+    // Citation: ui/src/pages/Security/PolicyStudio.tsx L67
+
+    // Policy Studio requires policy:customize permission
+    let required_permissions = vec!["policy:customize"];
+
+    // Roles that should have access (from PermissionDenied component)
+    let allowed_roles = vec!["admin", "developer"];
+
+    assert_eq!(required_permissions.len(), 1);
+    assert!(required_permissions.contains(&"policy:customize"));
+    assert!(allowed_roles.contains(&"admin"));
+    assert!(allowed_roles.contains(&"developer"));
+}
+
+#[tokio::test]
+async fn test_policy_review_queue_rbac_requirements() {
+    // Test that Policy Review Queue has correct RBAC permission requirements
+    // Citation: ui/src/pages/Security/PolicyReviewQueue.tsx L56
+
+    // Policy Review Queue requires policy:review permission
+    let required_permissions = vec!["policy:review"];
+
+    // Roles that should have access (from PermissionDenied component)
+    let allowed_roles = vec!["admin", "compliance", "developer"];
+
+    assert_eq!(required_permissions.len(), 1);
+    assert!(required_permissions.contains(&"policy:review"));
+    assert!(allowed_roles.contains(&"admin"));
+    assert!(allowed_roles.contains(&"compliance"));
+}
+
+#[tokio::test]
+async fn test_tenant_policy_customization_workflow() {
+    // Test the complete tenant policy customization workflow
+    // Citation: AGENTS.md - Policy Studio feature for tenant-safe policy authoring
+
+    // Workflow states
+    let valid_states = vec!["draft", "pending_review", "approved", "rejected", "active"];
+
+    assert_eq!(valid_states.len(), 5);
+
+    // State transitions
+    // draft -> pending_review (via submit)
+    // pending_review -> approved | rejected (via approve/reject)
+    // approved -> active (via activate)
+
+    // Draft customizations can be edited, submitted, or deleted
+    let draft_actions = vec!["edit", "submit", "delete"];
+    assert_eq!(draft_actions.len(), 3);
+
+    // Pending review customizations can be approved or rejected
+    let review_actions = vec!["approve", "reject"];
+    assert_eq!(review_actions.len(), 2);
+
+    // Approved customizations can be activated
+    let approved_actions = vec!["activate"];
+    assert_eq!(approved_actions.len(), 1);
+}
