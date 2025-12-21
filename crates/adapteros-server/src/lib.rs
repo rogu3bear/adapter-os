@@ -1,5 +1,10 @@
 pub mod boot;
+pub mod cli;
 pub mod config;
+pub mod logging;
+pub mod model_seeding;
+pub mod otel;
+pub mod pid_lock;
 pub mod router_telemetry_consumer;
 pub mod security;
 pub mod shutdown;

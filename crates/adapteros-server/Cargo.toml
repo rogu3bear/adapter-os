@@ -87,3 +87,7 @@ sqlx = { version = "0.8", features = ["sqlite", "runtime-tokio"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
+
+[dev-dependencies]
+filetime = "0.2"
+tempfile = "3"
