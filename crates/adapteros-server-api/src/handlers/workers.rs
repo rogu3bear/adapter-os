@@ -65,6 +65,24 @@ pub async fn worker_spawn(
 ) -> Result<Json<WorkerResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Operator])?;
 
+    // PRD-RECT-002: Validate caller can spawn workers for the requested tenant
+    let is_admin = claims.roles.iter().any(|r| r.to_lowercase() == "admin");
+    if !is_admin && req.tenant_id != claims.tenant_id {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(
+                ErrorResponse::new("cannot spawn worker for another tenant")
+                    .with_code("FORBIDDEN")
+                    .with_string_details(
+                        "Non-admin users can only spawn workers for their own tenant",
+                    ),
+            ),
+        ));
+    }
+    if is_admin && req.tenant_id != claims.tenant_id {
+        crate::security::validate_tenant_isolation(&claims, &req.tenant_id)?;
+    }
+
     // Look up node by ID
     let node = state
         .db
@@ -325,33 +343,48 @@ pub async fn stop_worker(
     // Require worker manage permission
     crate::permissions::require_permission(&claims, crate::permissions::Permission::WorkerManage)?;
 
-    // PRD-RECT-002: Use tenant-scoped query to prevent cross-tenant worker access.
-    // Returns 404 for both missing and cross-tenant workers.
-    let worker = state
-        .db
-        .get_worker_for_tenant(&claims.tenant_id, &worker_id)
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("database error")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?
-        .ok_or_else(|| {
-            // Returns same error for both "not found" and "cross-tenant" cases
-            (
-                StatusCode::NOT_FOUND,
-                Json(
-                    ErrorResponse::new("worker not found")
-                        .with_code("NOT_FOUND")
-                        .with_string_details(format!("Worker ID: {}", worker_id)),
-                ),
-            )
-        })?;
+    // PRD-RECT-002: Admins with admin_tenants grants can access workers across tenants.
+    // Returns 404 for both missing and cross-tenant workers (for non-admins).
+    let is_admin = claims.roles.iter().any(|r| r.to_lowercase() == "admin");
+    let worker = if is_admin {
+        let w = state
+            .db
+            .get_worker(&worker_id)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("database error")
+                            .with_code("DATABASE_ERROR")
+                            .with_string_details(e.to_string()),
+                    ),
+                )
+            })?
+            .ok_or_else(|| {
+                not_found_with_details("worker not found", format!("Worker ID: {}", worker_id))
+            })?;
+        crate::security::validate_tenant_isolation(&claims, &w.tenant_id)?;
+        w
+    } else {
+        state
+            .db
+            .get_worker_for_tenant(&claims.tenant_id, &worker_id)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("database error")
+                            .with_code("DATABASE_ERROR")
+                            .with_string_details(e.to_string()),
+                    ),
+                )
+            })?
+            .ok_or_else(|| {
+                not_found_with_details("worker not found", format!("Worker ID: {}", worker_id))
+            })?
+    };
 
     let previous_status = worker.status.clone();
 

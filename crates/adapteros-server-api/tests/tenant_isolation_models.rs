@@ -813,3 +813,169 @@ async fn test_viewer_cannot_import_model() -> Result<()> {
 
     Ok(())
 }
+
+// =============================================================================
+// TEST SUITE: Handler-Level Model Status Tenant Isolation (PRD-RECT-002)
+// =============================================================================
+
+#[tokio::test]
+async fn test_get_all_models_status_cross_tenant_filtered() -> Result<()> {
+    use adapteros_server_api::handlers::models::get_all_models_status;
+    use axum::extract::Query;
+    use std::collections::HashMap;
+
+    let state: AppState = setup_state(None).await.expect("state");
+
+    create_test_tenant(&state.db, "tenant-a").await?;
+    create_test_tenant(&state.db, "tenant-b").await?;
+
+    // Create models for each tenant
+    let model_a_id = create_test_model(&state.db, "model-a", "Model A", Some("tenant-a")).await?;
+    let model_b_id = create_test_model(&state.db, "model-b", "Model B", Some("tenant-b")).await?;
+
+    // Set both models to available
+    sqlx::query("UPDATE models SET import_status = 'available'")
+        .execute(state.db.pool())
+        .await?;
+
+    // Create base_model_status records for both tenants
+    sqlx::query(
+        "INSERT INTO base_model_status (tenant_id, model_id, is_loaded, updated_at) VALUES (?, ?, 1, datetime('now'))",
+    )
+    .bind("tenant-a")
+    .bind(&model_a_id)
+    .execute(state.db.pool())
+    .await?;
+
+    sqlx::query(
+        "INSERT INTO base_model_status (tenant_id, model_id, is_loaded, updated_at) VALUES (?, ?, 1, datetime('now'))",
+    )
+    .bind("tenant-b")
+    .bind(&model_b_id)
+    .execute(state.db.pool())
+    .await?;
+
+    // Non-admin from tenant-a should only see tenant-a's model status
+    let claims_a = create_test_claims("user-a", "user-a@tenant-a.com", "operator", "tenant-a");
+    let empty_query: HashMap<String, String> = HashMap::new();
+
+    let result = get_all_models_status(
+        State(state.clone()),
+        Extension(claims_a),
+        Query(empty_query),
+    )
+    .await;
+
+    assert!(result.is_ok(), "get_all_models_status should succeed");
+    let statuses = result.unwrap().0;
+
+    // Should only see tenant-a's status
+    let has_tenant_a = statuses.iter().any(|s| s.tenant_id == "tenant-a");
+    let has_tenant_b = statuses.iter().any(|s| s.tenant_id == "tenant-b");
+
+    assert!(has_tenant_a, "tenant-a should see their own model status");
+    assert!(!has_tenant_b, "tenant-a should NOT see tenant-b's model status");
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_get_base_model_status_cross_tenant_denied() -> Result<()> {
+    use adapteros_server_api::handlers::{get_base_model_status, ListJobsQuery};
+    use axum::extract::Query;
+
+    let state: AppState = setup_state(None).await.expect("state");
+
+    create_test_tenant(&state.db, "tenant-a").await?;
+    create_test_tenant(&state.db, "tenant-b").await?;
+
+    // Create model and status for tenant-b
+    let model_b_id = create_test_model(&state.db, "model-b", "Model B", Some("tenant-b")).await?;
+
+    // Set model to available
+    sqlx::query("UPDATE models SET import_status = 'available', model_path = '/tmp/dummy' WHERE id = ?")
+        .bind(&model_b_id)
+        .execute(state.db.pool())
+        .await?;
+
+    // Create base_model_status for tenant-b
+    sqlx::query(
+        "INSERT INTO base_model_status (tenant_id, model_id, is_loaded, updated_at) VALUES (?, ?, 1, datetime('now'))",
+    )
+    .bind("tenant-b")
+    .bind(&model_b_id)
+    .execute(state.db.pool())
+    .await?;
+
+    // Non-admin from tenant-a tries to query tenant-b's base model status
+    let claims_a = create_test_claims("user-a", "user-a@tenant-a.com", "operator", "tenant-a");
+
+    let result = get_base_model_status(
+        State(state.clone()),
+        Some(Extension(claims_a)),
+        Query(ListJobsQuery { tenant_id: Some("tenant-b".to_string()) }),
+    )
+    .await;
+
+    // Should return 404 NOT_FOUND (to prevent enumeration)
+    match result {
+        Err((status, _)) => {
+            assert_eq!(
+                status,
+                StatusCode::NOT_FOUND,
+                "Cross-tenant base model status query should return 404"
+            );
+        }
+        Ok(_) => panic!("Non-admin should not access another tenant's base model status"),
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_admin_with_admin_tenants_can_access_cross_tenant_model_status() -> Result<()> {
+    use adapteros_server_api::handlers::{get_base_model_status, ListJobsQuery};
+    use axum::extract::Query;
+
+    let state: AppState = setup_state(None).await.expect("state");
+
+    create_test_tenant(&state.db, "system").await?;
+    create_test_tenant(&state.db, "tenant-a").await?;
+
+    // Create model and status for tenant-a
+    let model_a_id = create_test_model(&state.db, "model-a", "Model A", Some("tenant-a")).await?;
+
+    // Set model to available
+    sqlx::query("UPDATE models SET import_status = 'available', model_path = '/tmp/dummy' WHERE id = ?")
+        .bind(&model_a_id)
+        .execute(state.db.pool())
+        .await?;
+
+    // Create base_model_status for tenant-a
+    sqlx::query(
+        "INSERT INTO base_model_status (tenant_id, model_id, is_loaded, updated_at) VALUES (?, ?, 1, datetime('now'))",
+    )
+    .bind("tenant-a")
+    .bind(&model_a_id)
+    .execute(state.db.pool())
+    .await?;
+
+    // Admin from system with admin_tenants grant for tenant-a
+    let mut admin_claims = create_test_claims("admin", "admin@system.com", "admin", "system");
+    admin_claims.admin_tenants = vec!["tenant-a".to_string()];
+
+    let result = get_base_model_status(
+        State(state.clone()),
+        Some(Extension(admin_claims)),
+        Query(ListJobsQuery { tenant_id: Some("tenant-a".to_string()) }),
+    )
+    .await;
+
+    // Admin with proper grant should succeed
+    assert!(
+        result.is_ok(),
+        "Admin with admin_tenants grant should access cross-tenant model status"
+    );
+
+    Ok(())
+}

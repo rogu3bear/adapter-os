@@ -1876,7 +1876,22 @@ pub async fn get_base_model_status(
     }
 
     // Authenticated path - return full data
-    let tenant_id = query.tenant_id.unwrap_or_else(|| "default".to_string());
+    // PRD-RECT-002: Validate caller has access to the requested tenant
+    let claims_inner = claims.as_ref().map(|c| &c.0).unwrap(); // Safe: checked is_authenticated above
+    let tenant_id = query.tenant_id.clone().unwrap_or_else(|| claims_inner.tenant_id.clone());
+    let is_admin = claims_inner.roles.iter().any(|r| r.to_lowercase() == "admin");
+    if !is_admin && tenant_id != claims_inner.tenant_id {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(
+                ErrorResponse::new("model status not found")
+                    .with_code("NOT_FOUND"),
+            ),
+        ));
+    }
+    if is_admin && tenant_id != claims_inner.tenant_id {
+        crate::security::validate_tenant_isolation(claims_inner, &tenant_id)?;
+    }
 
     // Get base model status from database
     let status_record = state
@@ -1952,7 +1967,7 @@ pub async fn get_base_model_status(
 
 #[derive(Deserialize)]
 pub struct ListJobsQuery {
-    tenant_id: Option<String>,
+    pub tenant_id: Option<String>,
 }
 
 /// List jobs
