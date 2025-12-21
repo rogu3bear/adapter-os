@@ -28,6 +28,13 @@ by default in `make test` / `make stability-check`.
 in the ignore reason, e.g. `[tracking: STAB-IGN-001]`. Replace with a specific issue
 ID when one is filed so stabilization doesn't silently skip it.
 
+`make test-hw` currently covers:
+- `tests/lora_buffer_population_integration.rs`
+- `tests/kv_residency_quota_integration.rs`
+- `crates/adapteros-lora-worker/tests/worker_enforcement_tests.rs`
+- `crates/adapteros-lora-worker/tests/residency_probe.rs`
+- `crates/adapteros-memory/tests/metal_heap_tests.rs`
+
 ---
 
 ## Test Files

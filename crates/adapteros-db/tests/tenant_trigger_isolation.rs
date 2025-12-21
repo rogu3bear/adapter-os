@@ -137,7 +137,7 @@ async fn trigger_allows_same_tenant_version_insert() {
 async fn trigger_rejects_cross_tenant_repo_id_update() {
     std::env::set_var("AOS_SKIP_MIGRATION_SIGNATURES", "1");
     let db = Db::new_in_memory().await.expect("db");
-    let (tenant_a, tenant_b) = setup_tenants(&db).await;
+    let (tenant_a, _tenant_b) = setup_tenants(&db).await;
 
     // Create repositories in both tenants
     let repo_a = create_test_repo(&db, &tenant_a, "Repo A").await;
@@ -587,7 +587,6 @@ async fn trigger_validates_concurrent_tenant_version_creations() {
         move |op_id| {
             let db = db.clone();
             let tenant_a = tenant_a.clone();
-            let tenant_b = tenant_b.clone();
             let repo_a = repo_a.clone();
             let repo_b = repo_b.clone();
             let telemetry = telemetry.clone();
@@ -1302,23 +1301,6 @@ where
     }
 
     all_results
-}
-
-/// Create test user for authentication scenarios
-async fn create_test_user(db: &Db, user_id: &str, email: &str) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "INSERT INTO users (id, email, display_name, pw_hash, role, disabled, mfa_enabled, mfa_secret_enc, mfa_backup_codes_json, mfa_enrolled_at, mfa_last_verified_at, mfa_recovery_last_used_at) \
-         VALUES (?, ?, ?, ?, ?, 0, 0, NULL, NULL, NULL, NULL, NULL)",
-    )
-    .bind(user_id)
-    .bind(email)
-    .bind(format!("User {}", user_id))
-    .bind("$2b$12$...")
-    .bind("admin")
-    .execute(db.pool())
-    .await?;
-
-    Ok(())
 }
 
 /// Create a git repository row for training job FK requirements.
