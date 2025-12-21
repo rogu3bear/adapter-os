@@ -41,7 +41,7 @@ use axum::{
 use once_cell::sync::Lazy;
 use regex::Regex;
 use std::borrow::Cow;
-use tracing::{error, warn};
+use tracing::{error, trace, warn};
 
 // ============================================================================
 // Error Redaction
@@ -52,6 +52,13 @@ use tracing::{error, warn};
 // and other potentially sensitive data.
 //
 // To disable redaction for debugging, set: ADAPTEROS_DISABLE_ERROR_REDACTION=1
+
+/// Cached env var check (read once at startup)
+static REDACTION_DISABLED: Lazy<bool> = Lazy::new(|| {
+    std::env::var("ADAPTEROS_DISABLE_ERROR_REDACTION")
+        .map(|v| v == "1")
+        .unwrap_or(false)
+});
 
 /// Pre-compiled regex patterns for sensitive data redaction
 ///
@@ -77,8 +84,12 @@ static REDACTION_PATTERNS: Lazy<Vec<(Regex, &'static str)>> = Lazy::new(|| {
         (Regex::new(r"/tmp/[^\s]+").unwrap(), "[TEMP]"),
         // Stack trace locations (file.rs:123:45)
         (Regex::new(r"\b[a-z_]+\.rs:\d+:\d+\b").unwrap(), "[SOURCE]"),
-        // File paths (Unix absolute paths with 3+ segments) - must be last
-        (Regex::new(r"(/[a-zA-Z0-9_\-\.]+){3,}").unwrap(), "[PATH]"),
+        // Windows file paths (C:\Users\... or \\server\share)
+        (Regex::new(r"(?i)([a-z]:\\[^\s]+|\\\\[^\s]+)").unwrap(), "[PATH]"),
+        // Unix file paths with extension (must have file extension to avoid matching API routes)
+        (Regex::new(r"(/[a-zA-Z0-9_\-\.]+){2,}\.[a-zA-Z0-9]+").unwrap(), "[PATH]"),
+        // Home directory paths
+        (Regex::new(r"~(/[a-zA-Z0-9_\-\.]+)+").unwrap(), "[PATH]"),
     ]
 });
 
@@ -88,19 +99,22 @@ static REDACTION_PATTERNS: Lazy<Vec<(Regex, &'static str)>> = Lazy::new(|| {
 /// connection strings, and other potentially sensitive data in error messages.
 ///
 /// Set `ADAPTEROS_DISABLE_ERROR_REDACTION=1` to bypass redaction for debugging.
-pub fn redact_error_details(input: &str) -> String {
-    // Check environment override for debugging
-    if std::env::var("ADAPTEROS_DISABLE_ERROR_REDACTION")
-        .map(|v| v == "1")
-        .unwrap_or(false)
-    {
-        return input.to_string();
+pub fn redact_error_details(input: &str) -> Cow<'_, str> {
+    if *REDACTION_DISABLED {
+        return Cow::Borrowed(input);
     }
 
-    let mut result = input.to_string();
+    let mut result = Cow::Borrowed(input);
     for (pattern, replacement) in REDACTION_PATTERNS.iter() {
-        result = pattern.replace_all(&result, *replacement).to_string();
+        if pattern.is_match(&result) {
+            result = Cow::Owned(pattern.replace_all(&result, *replacement).into_owned());
+        }
     }
+
+    if matches!(result, Cow::Owned(_)) {
+        trace!(original_len = input.len(), "redacted sensitive data from error details");
+    }
+
     result
 }
 
@@ -734,13 +748,6 @@ impl From<AosError> for ApiError {
 mod tests {
     use super::*;
     use adapteros_core::AosError;
-    use std::sync::Mutex;
-
-    static REDACTION_ENV_LOCK: Mutex<()> = Mutex::new(());
-
-    fn redaction_env_guard() -> std::sync::MutexGuard<'static, ()> {
-        REDACTION_ENV_LOCK.lock().expect("redaction env lock")
-    }
 
     #[test]
     fn test_api_error_into_response() {
@@ -800,7 +807,6 @@ mod tests {
 
     #[test]
     fn test_redacts_file_paths() {
-        let _guard = redaction_env_guard();
         let input = "Failed to open /Users/admin/secrets/config.json";
         let result = redact_error_details(input);
         assert!(!result.contains("/Users/"), "Path should be redacted");
@@ -809,7 +815,6 @@ mod tests {
 
     #[test]
     fn test_redacts_jwt_tokens() {
-        let _guard = redaction_env_guard();
         let input = "Invalid token: eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0.abcdefghijk";
         let result = redact_error_details(input);
         assert!(!result.contains("eyJ"), "JWT should be redacted");
@@ -818,7 +823,6 @@ mod tests {
 
     #[test]
     fn test_redacts_bearer_tokens() {
-        let _guard = redaction_env_guard();
         let input = "Authorization: Bearer sk-12345abcdefghijklmnop";
         let result = redact_error_details(input);
         assert!(
@@ -833,7 +837,6 @@ mod tests {
 
     #[test]
     fn test_redacts_postgres_connection() {
-        let _guard = redaction_env_guard();
         let input = "Connection failed: postgres://user:password@localhost:5432/db";
         let result = redact_error_details(input);
         assert!(!result.contains("password"), "Password should be redacted");
@@ -845,7 +848,6 @@ mod tests {
 
     #[test]
     fn test_redacts_api_keys() {
-        let _guard = redaction_env_guard();
         let input = "Invalid api_key=sk_test_1234567890abcdef";
         let result = redact_error_details(input);
         assert!(
@@ -860,7 +862,6 @@ mod tests {
 
     #[test]
     fn test_redacts_secrets() {
-        let _guard = redaction_env_guard();
         let input = "secret=VGhpcyBpcyBhIHNlY3JldCB2YWx1ZSB0aGF0IHNob3VsZCBiZSByZWRhY3RlZA==";
         let result = redact_error_details(input);
         assert!(!result.contains("VGhpcyBpc"), "Secret should be redacted");
@@ -872,7 +873,6 @@ mod tests {
 
     #[test]
     fn test_redacts_temp_paths() {
-        let _guard = redaction_env_guard();
         let input = "Temp file error at /tmp/adapter-12345/weights.bin";
         let result = redact_error_details(input);
         assert!(
@@ -883,8 +883,26 @@ mod tests {
     }
 
     #[test]
+    fn test_redacts_windows_paths() {
+        let input = r"Failed to open C:\Users\admin\secrets\config.json";
+        let result = redact_error_details(input);
+        assert!(
+            !result.contains(r"C:\Users"),
+            "Windows path should be redacted"
+        );
+        assert!(result.contains("[PATH]"), "Should contain [PATH] placeholder");
+    }
+
+    #[test]
+    fn test_redacts_home_paths() {
+        let input = "Config at ~/secrets/config.json";
+        let result = redact_error_details(input);
+        assert!(!result.contains("~/secrets"), "Home path should be redacted");
+        assert!(result.contains("[PATH]"), "Should contain [PATH] placeholder");
+    }
+
+    #[test]
     fn test_preserves_error_codes_and_messages() {
-        let _guard = redaction_env_guard();
         let input = "DATABASE_ERROR: connection refused";
         let result = redact_error_details(input);
         assert!(
@@ -898,8 +916,18 @@ mod tests {
     }
 
     #[test]
+    fn test_preserves_api_routes() {
+        // API routes should NOT be redacted (no file extension)
+        let input = "Not found: /api/v1/users";
+        let result = redact_error_details(input);
+        assert!(
+            result.contains("/api/v1/users"),
+            "API route should be preserved"
+        );
+    }
+
+    #[test]
     fn test_with_redacted_details_method() {
-        let _guard = redaction_env_guard();
         let error = ApiError::internal("failed").with_redacted_details(
             "Error at /Users/admin/secrets/config.json: connection refused",
         );
@@ -912,13 +940,22 @@ mod tests {
     }
 
     #[test]
-    fn test_redaction_disabled_via_env() {
-        let _guard = redaction_env_guard();
-        // Note: This test modifies global state and should ideally run in isolation
-        std::env::set_var("ADAPTEROS_DISABLE_ERROR_REDACTION", "1");
-        let input = "/Users/admin/secrets/config.json";
+    fn test_redaction_returns_borrowed_when_no_match() {
+        // When nothing matches, should return Cow::Borrowed (no allocation)
+        let input = "Simple error message";
         let result = redact_error_details(input);
-        assert_eq!(result, input, "Should return input unchanged when disabled");
-        std::env::remove_var("ADAPTEROS_DISABLE_ERROR_REDACTION");
+        assert!(
+            matches!(result, Cow::Borrowed(_)),
+            "Should return borrowed when no redaction needed"
+        );
+    }
+
+    #[test]
+    fn test_redaction_env_var_cached() {
+        // REDACTION_DISABLED is cached at startup - verify it's false by default
+        assert!(
+            !*REDACTION_DISABLED,
+            "Redaction should be enabled by default"
+        );
     }
 }
