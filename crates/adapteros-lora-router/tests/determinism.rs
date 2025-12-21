@@ -14,11 +14,13 @@
 //! Note: Router seed is used for telemetry sampling determinism, not routing decisions.
 //! Routing determinism comes from stable sorting (score desc, then index asc).
 
+use adapteros_core::determinism::{DeterminismContext, DeterminismSource};
 use adapteros_core::AosError;
 use adapteros_lora_router::{
     policy_mask::PolicyMask, AdapterInfo, Decision, Router, ROUTER_GATE_Q15_DENOM,
     ROUTER_GATE_Q15_MAX,
 };
+use adapteros_types::adapters::metadata::RoutingDeterminismMode;
 use proptest::prelude::*;
 use smallvec::smallvec;
 
@@ -871,6 +873,403 @@ fn test_q15_no_negative_gates() {
             ROUTER_GATE_Q15_MAX,
             gate
         );
+    }
+}
+
+/// Stress test: deterministic tie-breaking with near-equal scores across many iterations.
+///
+/// This test validates that the router produces consistent results when scores differ
+/// by amounts close to the relative epsilon threshold. It runs many iterations with
+/// slight score variations to ensure the tie-breaker is stable.
+#[test]
+fn stress_test_near_equal_scores_determinism() {
+    const ITERATIONS: usize = 1000;
+    const ADAPTER_COUNT: usize = 8;
+    const K: usize = 4;
+
+    let seed = [0xABu8; 32];
+    let weights_vec = vec![1.0; ADAPTER_COUNT];
+
+    // Base score with near-equal values that differ by amounts near the relative epsilon
+    // Using 0.5 as base, scores within ~5e-7 of each other should be treated as ties
+    let base_score = 0.5f32;
+    let tiny_delta = 1e-7; // Below relative epsilon threshold (1e-6 * 0.5 = 5e-7)
+
+    let adapter_info: Vec<AdapterInfo> = (0..ADAPTER_COUNT)
+        .map(|i| AdapterInfo {
+            id: format!("stress_adapter_{}", i),
+            framework: None,
+            languages: vec![],
+            tier: "warm".to_string(),
+            scope_path: None,
+            lora_tier: None,
+            base_model: None,
+        })
+        .collect();
+    let mask = allow_all_mask(&adapter_info);
+
+    // Test 1: Exactly equal scores - should always produce same result
+    {
+        let priors: Vec<f32> = vec![base_score; ADAPTER_COUNT];
+        let mut baseline_decision: Option<Decision> = None;
+
+        for iteration in 0..ITERATIONS {
+            let mut router =
+                Router::new(weights_vec.clone(), K, 1.0, 0.01, seed).expect("router creation");
+            let decision = router
+                .route_with_adapter_info(&[], &priors, &adapter_info, &mask)
+                .expect("router decision");
+
+            if let Some(ref baseline) = baseline_decision {
+                assert_eq!(
+                    baseline.indices, decision.indices,
+                    "Iteration {}: indices diverged with equal scores",
+                    iteration
+                );
+                assert_eq!(
+                    baseline.gates_q15, decision.gates_q15,
+                    "Iteration {}: gates diverged with equal scores",
+                    iteration
+                );
+            } else {
+                baseline_decision = Some(decision);
+            }
+        }
+
+        // With equal scores, should select indices 0..K (lowest indices win ties)
+        let baseline = baseline_decision.unwrap();
+        for i in 0..K {
+            assert_eq!(
+                baseline.indices[i], i as u16,
+                "Equal scores should select indices in ascending order"
+            );
+        }
+    }
+
+    // Test 2: Near-equal scores with tiny deltas below relative epsilon
+    {
+        // Scores differ by amounts smaller than the tie threshold
+        let priors: Vec<f32> = (0..ADAPTER_COUNT)
+            .map(|i| base_score + (i as f32) * tiny_delta)
+            .collect();
+
+        let mut baseline_decision: Option<Decision> = None;
+
+        for iteration in 0..ITERATIONS {
+            let mut router =
+                Router::new(weights_vec.clone(), K, 1.0, 0.01, seed).expect("router creation");
+            let decision = router
+                .route_with_adapter_info(&[], &priors, &adapter_info, &mask)
+                .expect("router decision");
+
+            if let Some(ref baseline) = baseline_decision {
+                assert_eq!(
+                    baseline.indices, decision.indices,
+                    "Iteration {}: indices diverged with near-equal scores",
+                    iteration
+                );
+                assert_eq!(
+                    baseline.gates_q15, decision.gates_q15,
+                    "Iteration {}: gates diverged with near-equal scores",
+                    iteration
+                );
+            } else {
+                baseline_decision = Some(decision);
+            }
+        }
+    }
+
+    // Test 3: Mixed near-equal and distinct scores
+    {
+        // First 4 adapters have near-equal high scores, last 4 have lower distinct scores
+        let mut priors: Vec<f32> = vec![0.0; ADAPTER_COUNT];
+        for i in 0..4 {
+            priors[i] = 0.8 + (i as f32) * tiny_delta; // Near-equal high scores
+        }
+        for i in 4..ADAPTER_COUNT {
+            priors[i] = 0.3 - (i as f32) * 0.05; // Distinct lower scores
+        }
+
+        let mut baseline_decision: Option<Decision> = None;
+
+        for iteration in 0..ITERATIONS {
+            let mut router =
+                Router::new(weights_vec.clone(), K, 1.0, 0.01, seed).expect("router creation");
+            let decision = router
+                .route_with_adapter_info(&[], &priors, &adapter_info, &mask)
+                .expect("router decision");
+
+            if let Some(ref baseline) = baseline_decision {
+                assert_eq!(
+                    baseline.indices, decision.indices,
+                    "Iteration {}: indices diverged with mixed scores",
+                    iteration
+                );
+                assert_eq!(
+                    baseline.gates_q15, decision.gates_q15,
+                    "Iteration {}: gates diverged with mixed scores",
+                    iteration
+                );
+            } else {
+                baseline_decision = Some(decision);
+            }
+        }
+
+        // Should select the 4 high-scoring adapters (indices 0-3)
+        let baseline = baseline_decision.unwrap();
+        let mut selected: Vec<u16> = baseline.indices.iter().cloned().collect();
+        selected.sort();
+        assert_eq!(
+            selected,
+            vec![0u16, 1, 2, 3],
+            "Should select the 4 near-equal high-scoring adapters"
+        );
+    }
+
+    // Test 4: Stress with cross-instance determinism
+    {
+        let priors: Vec<f32> = (0..ADAPTER_COUNT)
+            .map(|i| base_score + (i as f32) * tiny_delta * 0.5)
+            .collect();
+
+        // Create multiple router instances with different seeds
+        // (seed doesn't affect non-adaptive routing)
+        let seeds: [[u8; 32]; 4] = [[1u8; 32], [2u8; 32], [99u8; 32], [255u8; 32]];
+
+        let first_decision = {
+            let mut router =
+                Router::new(weights_vec.clone(), K, 1.0, 0.01, seeds[0]).expect("router creation");
+            router
+                .route_with_adapter_info(&[], &priors, &adapter_info, &mask)
+                .expect("router decision")
+        };
+
+        for (idx, &s) in seeds.iter().enumerate().skip(1) {
+            let mut router =
+                Router::new(weights_vec.clone(), K, 1.0, 0.01, s).expect("router creation");
+            let decision = router
+                .route_with_adapter_info(&[], &priors, &adapter_info, &mask)
+                .expect("router decision");
+
+            assert_eq!(
+                first_decision.indices, decision.indices,
+                "Seed {:?} (index {}): cross-instance indices should match",
+                s,
+                idx
+            );
+            assert_eq!(
+                first_decision.gates_q15, decision.gates_q15,
+                "Seed {:?} (index {}): cross-instance gates should match",
+                s,
+                idx
+            );
+        }
+    }
+}
+
+/// Stress test for adaptive routing with near-equal scores.
+///
+/// This tests the seeded RNG tie-breaking path when adaptive_routing is enabled
+/// and a determinism context is provided.
+#[test]
+fn stress_test_adaptive_routing_near_equal_scores() {
+    const ITERATIONS: usize = 500;
+    const ADAPTER_COUNT: usize = 6;
+    const K: usize = 3;
+
+    let base_score = 0.5f32;
+    let tiny_delta = 1e-7; // Below relative epsilon threshold
+
+    let adapter_info: Vec<AdapterInfo> = (0..ADAPTER_COUNT)
+        .map(|i| AdapterInfo {
+            id: format!("adaptive_adapter_{}", i),
+            framework: None,
+            languages: vec![],
+            tier: "warm".to_string(),
+            scope_path: None,
+            lora_tier: None,
+            base_model: None,
+        })
+        .collect();
+    let mask = allow_all_mask(&adapter_info);
+
+    // Near-equal scores
+    let priors: Vec<f32> = (0..ADAPTER_COUNT)
+        .map(|i| base_score + (i as f32) * tiny_delta)
+        .collect();
+
+    let determinism_ctx = DeterminismContext::new(
+        [42u8; 32],
+        None,
+        adapteros_core::SeedMode::BestEffort,
+        RoutingDeterminismMode::Adaptive,
+        DeterminismSource::DerivedFromRequest,
+    );
+
+    let mut baseline_decision: Option<Decision> = None;
+
+    for iteration in 0..ITERATIONS {
+        let weights_vec = vec![1.0; ADAPTER_COUNT];
+        let mut router = Router::new(weights_vec, K, 1.0, 0.01, [0u8; 32]).expect("router creation");
+        router.set_routing_determinism_mode(true);
+
+        let decision = router
+            .route_with_adapter_info_with_ctx(&[], &priors, &adapter_info, &mask, Some(&determinism_ctx))
+            .expect("router decision");
+
+        if let Some(ref baseline) = baseline_decision {
+            assert_eq!(
+                baseline.indices, decision.indices,
+                "Iteration {}: adaptive routing indices diverged with near-equal scores",
+                iteration
+            );
+            assert_eq!(
+                baseline.gates_q15, decision.gates_q15,
+                "Iteration {}: adaptive routing gates diverged with near-equal scores",
+                iteration
+            );
+        } else {
+            baseline_decision = Some(decision);
+        }
+    }
+
+    // Different determinism context should potentially produce different results
+    // (the seeded RNG tie-breaker uses the context's seed)
+    let different_ctx = DeterminismContext::new(
+        [99u8; 32], // Different seed
+        None,
+        adapteros_core::SeedMode::BestEffort,
+        RoutingDeterminismMode::Adaptive,
+        DeterminismSource::DerivedFromRequest,
+    );
+
+    let weights_vec = vec![1.0; ADAPTER_COUNT];
+    let mut router = Router::new(weights_vec, K, 1.0, 0.01, [0u8; 32]).expect("router creation");
+    router.set_routing_determinism_mode(true);
+    let _different_decision = router
+        .route_with_adapter_info_with_ctx(&[], &priors, &adapter_info, &mask, Some(&different_ctx))
+        .expect("router decision");
+
+    // Note: We don't assert they're different because with near-equal scores,
+    // the RNG might happen to produce the same ordering. The key invariant is
+    // that same context => same result (tested above).
+}
+
+/// Test relative epsilon edge cases: near-zero, large, and negative scores.
+#[test]
+fn test_relative_epsilon_edge_cases() {
+    const K: usize = 3;
+    let seed = [0u8; 32];
+
+    // Helper to create adapter info
+    let make_adapters = |n: usize| -> Vec<AdapterInfo> {
+        (0..n)
+            .map(|i| AdapterInfo {
+                id: format!("edge_adapter_{}", i),
+                framework: None,
+                languages: vec![],
+                tier: "warm".to_string(),
+                scope_path: None,
+                lora_tier: None,
+                base_model: None,
+            })
+            .collect()
+    };
+
+    // Test 1: Near-zero scores - absolute epsilon floor should kick in
+    {
+        let adapter_info = make_adapters(5);
+        let mask = allow_all_mask(&adapter_info);
+        // Scores very close to zero, differing by less than f32::EPSILON
+        let priors: Vec<f32> = vec![
+            1e-8,
+            1e-8 + 1e-10,
+            1e-8 + 2e-10,
+            1e-8 + 3e-10,
+            1e-8 + 4e-10,
+        ];
+
+        let mut baseline: Option<Decision> = None;
+        for _ in 0..100 {
+            let weights_vec = vec![1.0; 5];
+            let mut router = Router::new(weights_vec, K, 1.0, 0.01, seed).expect("router creation");
+            let decision = router
+                .route_with_adapter_info(&[], &priors, &adapter_info, &mask)
+                .expect("router decision");
+
+            if let Some(ref b) = baseline {
+                assert_eq!(b.indices, decision.indices, "Near-zero scores: indices should be stable");
+            } else {
+                baseline = Some(decision);
+            }
+        }
+    }
+
+    // Test 2: Large scores - relative epsilon should dominate
+    {
+        let adapter_info = make_adapters(5);
+        let mask = allow_all_mask(&adapter_info);
+        // Large scores with differences that are small relatively but large absolutely
+        let base = 1e6_f32;
+        let priors: Vec<f32> = vec![
+            base,
+            base + 0.1,   // Difference of 0.1 is tiny relative to 1e6
+            base + 0.2,
+            base + 0.3,
+            base - 0.1,
+        ];
+
+        let mut baseline: Option<Decision> = None;
+        for _ in 0..100 {
+            let weights_vec = vec![1.0; 5];
+            let mut router = Router::new(weights_vec, K, 1.0, 0.01, seed).expect("router creation");
+            let decision = router
+                .route_with_adapter_info(&[], &priors, &adapter_info, &mask)
+                .expect("router decision");
+
+            if let Some(ref b) = baseline {
+                assert_eq!(b.indices, decision.indices, "Large scores: indices should be stable");
+            } else {
+                baseline = Some(decision);
+            }
+        }
+    }
+
+    // Test 3: Scores that span positive and near-zero
+    {
+        let adapter_info = make_adapters(6);
+        let mask = allow_all_mask(&adapter_info);
+        let priors: Vec<f32> = vec![
+            0.9,
+            0.9 + 1e-7,  // Near-equal to first
+            0.5,
+            0.5 + 1e-7,  // Near-equal to third
+            0.1,
+            0.1 + 1e-7,  // Near-equal to fifth
+        ];
+
+        let mut baseline: Option<Decision> = None;
+        for _ in 0..100 {
+            let weights_vec = vec![1.0; 6];
+            let mut router = Router::new(weights_vec, K, 1.0, 0.01, seed).expect("router creation");
+            let decision = router
+                .route_with_adapter_info(&[], &priors, &adapter_info, &mask)
+                .expect("router decision");
+
+            if let Some(ref b) = baseline {
+                assert_eq!(b.indices, decision.indices, "Mixed scores: indices should be stable");
+            } else {
+                baseline = Some(decision);
+            }
+        }
+
+        // Should select top 3 scores (indices 0, 1, 2 or some permutation of high scorers)
+        let baseline = baseline.unwrap();
+        let selected: Vec<u16> = baseline.indices.iter().cloned().collect();
+        // All selected indices should be from the high-scoring group (0, 1) or middle (2, 3)
+        for &idx in &selected {
+            assert!(idx <= 3, "Should select from higher-scoring adapters, got {}", idx);
+        }
     }
 }
 
