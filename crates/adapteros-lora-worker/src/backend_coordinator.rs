@@ -424,6 +424,12 @@ mod tests {
     #[tokio::test]
     #[cfg(target_os = "macos")]
     async fn test_coordinator_creation() {
+        let caps = crate::backend_factory::detect_capabilities();
+        if !caps.has_metal {
+            eprintln!("skipping: metal backend not available");
+            return;
+        }
+
         // Manifest verification uses deterministic test keys - no setup needed
         let coordinator = BackendCoordinator::new(BackendStrategy::MetalOnly, false, None).await;
 
@@ -437,6 +443,12 @@ mod tests {
     #[tokio::test]
     #[cfg(target_os = "macos")]
     async fn test_coordinator_metrics() {
+        let caps = crate::backend_factory::detect_capabilities();
+        if !caps.has_metal {
+            eprintln!("skipping: metal backend not available");
+            return;
+        }
+
         // Manifest verification uses deterministic test keys - no setup needed
         let coordinator = BackendCoordinator::new(BackendStrategy::MetalOnly, false, None)
             .await
