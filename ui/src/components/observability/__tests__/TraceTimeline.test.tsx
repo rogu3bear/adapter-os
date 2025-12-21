@@ -13,7 +13,7 @@ vi.mock('@/api/client', () => ({
 
 // Mock usePolling hook
 const mockRefetch = vi.fn();
-vi.mock('@/hooks/usePolling', () => ({
+vi.mock('@/hooks/realtime/usePolling', () => ({
   usePolling: vi.fn(() => ({
     data: [],
     isLoading: false,
@@ -47,7 +47,7 @@ describe('TraceTimeline', () => {
 
   it('displays loading state', async () => {
     // Dynamically mock usePolling for this test
-    const usePollingModule = await import('@/hooks/usePolling');
+    const usePollingModule = await import('@/hooks/realtime/usePolling');
     vi.mocked(usePollingModule.usePolling).mockReturnValue({
       data: [],
       isLoading: true,
@@ -64,7 +64,7 @@ describe('TraceTimeline', () => {
     const traceIds = ['trace-1', 'trace-2', 'trace-3'];
 
     // Dynamically mock usePolling
-    const usePollingModule = await import('@/hooks/usePolling');
+    const usePollingModule = await import('@/hooks/realtime/usePolling');
     vi.mocked(usePollingModule.usePolling).mockReturnValue({
       data: traceIds,
       isLoading: false,
@@ -100,7 +100,7 @@ describe('TraceTimeline', () => {
     };
 
     // Dynamically mock usePolling
-    const usePollingModule = await import('@/hooks/usePolling');
+    const usePollingModule = await import('@/hooks/realtime/usePolling');
     vi.mocked(usePollingModule.usePolling).mockReturnValue({
       data: traceIds,
       isLoading: false,

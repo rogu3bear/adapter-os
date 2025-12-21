@@ -76,7 +76,7 @@ describe('UnifiedDialog', () => {
     });
 
     it('supports different sizes', () => {
-      const { container } = render(
+      render(
         <UnifiedDialog
           open={true}
           onOpenChange={vi.fn()}
@@ -87,7 +87,7 @@ describe('UnifiedDialog', () => {
         </UnifiedDialog>
       );
 
-      const dialogContent = container.querySelector('[data-slot="unified-dialog-content"]');
+      const dialogContent = document.querySelector('[data-slot="unified-dialog-content"]');
       expect(dialogContent).toHaveClass('sm:max-w-sm');
     });
 
@@ -186,7 +186,7 @@ describe('UnifiedDialog', () => {
     });
 
     it('renders with destructive variant icon by default', () => {
-      const { container } = render(
+      render(
         <UnifiedDialog.Confirmation
           open={true}
           onOpenChange={vi.fn()}
@@ -197,7 +197,7 @@ describe('UnifiedDialog', () => {
       );
 
       // Check for destructive variant icon (TrashIcon)
-      const iconContainer = container.querySelector('.text-destructive');
+      const iconContainer = document.querySelector('.text-destructive');
       expect(iconContainer).toBeInTheDocument();
     });
   });

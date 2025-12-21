@@ -4,13 +4,18 @@ import { describe, expect, it } from 'vitest';
 
 import type { AdapterHealthFlag } from '@/api/adapter-types';
 import { HealthBadge } from '@/components/shared/TrustHealthBadge';
+import { TooltipProvider } from '@/components/ui/tooltip';
 
 describe('HealthBadge snapshots', () => {
   const states: AdapterHealthFlag[] = ['healthy', 'degraded', 'unsafe', 'corrupt'];
 
   states.forEach(state => {
     it(`renders ${state} state`, () => {
-      const { container, getByText } = render(<HealthBadge state={state} />);
+      const { container, getByText } = render(
+        <TooltipProvider>
+          <HealthBadge state={state} />
+        </TooltipProvider>
+      );
       expect(getByText(/Healthy|Degraded|Unsafe|Corrupt/)).toBeInTheDocument();
       const text = container.textContent;
       switch (state) {
