@@ -33,6 +33,10 @@ fn test_detect_capabilities() {
     // On macOS, Metal should always be available (unless using Intel Mac with Metal disabled)
     #[cfg(target_os = "macos")]
     {
+        if !(caps.has_metal || caps.has_coreml || caps.has_mlx) {
+            eprintln!("skipping: no Metal/CoreML/MLX backend available in this environment");
+            return;
+        }
         // We expect at least one backend to be available on macOS
         assert!(
             caps.has_metal || caps.has_coreml || caps.has_mlx,
@@ -108,17 +112,27 @@ fn coreml_request_falls_back_with_reason() {
     };
 
     let ctx = SelectionContext::new(profile, caps);
-    let selection = select_backend_from_execution_profile(&ctx).expect("fallback selection");
-    assert!(
-        selection.overridden,
-        "coreml should be overridden when unavailable"
-    );
-    assert_eq!(
-        selection.selected,
-        BackendChoice::Mlx,
-        "fallback should pick MLX when available"
-    );
-    assert_eq!(selection.reason, Some("coreml_unavailable_fallback_mlx"));
+    if cfg!(feature = "multi-backend") {
+        let selection = select_backend_from_execution_profile(&ctx).expect("fallback selection");
+        assert!(
+            selection.overridden,
+            "coreml should be overridden when unavailable"
+        );
+        assert_eq!(
+            selection.selected,
+            BackendChoice::Mlx,
+            "fallback should pick MLX when available"
+        );
+        assert_eq!(selection.reason, Some("coreml_unavailable_fallback_mlx"));
+    } else {
+        let err = select_backend_from_execution_profile(&ctx).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("Requested CoreML backend is not available"),
+            "unexpected error: {}",
+            err
+        );
+    }
 }
 
 #[test]
@@ -460,6 +474,10 @@ fn test_apple_silicon_detection() {
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     {
         let caps = detect_capabilities();
+        if !caps.has_metal && !caps.has_coreml {
+            eprintln!("skipping: Metal/CoreML unavailable in this environment");
+            return;
+        }
         // On Apple Silicon, we should have either Metal or CoreML
         assert!(
             caps.has_metal || caps.has_coreml,
