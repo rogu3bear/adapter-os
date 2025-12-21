@@ -48,6 +48,9 @@ export * from './useInformationDensity';
 export * from './useLayoutDebug';
 export * from './useViewTransition';
 
+// Accessibility
+export * from './useReducedMotion';
+
 // Navigation and redirects
 export * from './useFirstRunRedirect';
 
