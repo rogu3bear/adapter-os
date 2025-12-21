@@ -1,20 +1,15 @@
 //! Integration tests for the aosctl db reset command
 //!
-//! NOTE: The `db` subcommand is defined in app.rs but NOT wired into main.rs.
-//! These tests are currently marked as ignored until the db command is added to
-//! the main CLI or a separate binary is created for database management.
-//!
-//! The db commands are available in app.rs with the following structure:
+//! The db commands are available with the following structure:
 //! - `aosctl db migrate` - Run database migrations
 //! - `aosctl db reset` - Reset database (DEVELOPMENT ONLY)
-//!
-//! These tests check for the command existence. They may be skipped if the command
-//! is not available in the current binary.
+//! - `aosctl db seed-fixtures` - Reset and seed deterministic test fixtures
+//! - `aosctl db health` - Health check for migration signatures and DB integrity
+//! - `aosctl db verify-seed` - Verify seeded demo fixtures exist
 
 use std::process::Command;
 
 #[test]
-#[ignore = "db subcommand not wired into main.rs - available in app.rs [tracking: STAB-IGN-0008]"]
 fn test_db_reset_command_help_output() {
     let output = Command::new("cargo")
         .args(["run", "--bin", "aosctl", "--", "db", "reset", "--help"])
@@ -32,7 +27,6 @@ fn test_db_reset_command_help_output() {
 }
 
 #[test]
-#[ignore = "db subcommand not wired into main.rs - available in app.rs [tracking: STAB-IGN-0009]"]
 fn test_db_reset_requires_confirmation() {
     // This test would require setting up a test database
     // For now, we'll test the command structure
@@ -56,7 +50,6 @@ fn test_db_reset_requires_confirmation() {
 }
 
 #[test]
-#[ignore = "db subcommand not wired into main.rs - available in app.rs [tracking: STAB-IGN-0010]"]
 fn test_db_reset_with_force_flag() {
     // Test with --force flag (would normally destroy data)
     // Note: the actual flag is --force, not --yes
