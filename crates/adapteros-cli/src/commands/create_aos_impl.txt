@@ -1,0 +1,122 @@
+pub async fn create_aos(args: CreateArgs, output: &OutputWriter) -> Result<()> {
+    output.info(&format!("Creating .aos file from: {}", args.source.display()));
+
+    // 1. Read weights from source path (directory or file)
+    let weights = aos_impl::load_weights_from_source(&args.source)?;
+
+    // 2. Load training data from JSONL if provided
+    let training_data = if let Some(ref training_data_path) = args.training_data {
+        output.info(&format!("Loading training data from: {}", training_data_path.display()));
+        aos_impl::load_training_data(training_data_path)?
+    } else {
+        output.info("No training data provided, using empty dataset");
+        Vec::new()
+    };
+
+    // 3. Load config from TOML if provided
+    let config = if let Some(ref config_path) = args.config {
+        output.info(&format!("Loading config from: {}", config_path.display()));
+        aos_impl::load_config(config_path)?
+    } else {
+        output.info("No config provided, using defaults");
+        TrainingConfig::default()
+    };
+
+    // 4. Create lineage info
+    let lineage = LineageInfo {
+        adapter_id: args.adapter_id.clone(),
+        version: args.version.clone(),
+        parent_version: None,
+        parent_hash: None,
+        mutations: Vec::new(),
+        quality_delta: 0.0,
+        created_at: chrono::Utc::now().to_rfc3339(),
+    };
+
+    // 5. Create adapter
+    output.info("Creating adapter manifest");
+    let mut adapter = SingleFileAdapter::create(
+        args.adapter_id.clone(),
+        weights,
+        training_data,
+        config,
+        lineage,
+    )?;
+
+    // 6. Optionally sign with Ed25519 if --sign flag is set
+    if args.sign {
+        output.info("Signing adapter with Ed25519");
+        let keypair = if let Some(ref key_hex) = args.signing_key {
+            // Use provided key
+            let key_bytes = hex::decode(key_hex)
+                .map_err(|e| AosError::Config(format!("Invalid signing key hex: {}", e)))?;
+            Keypair::from_bytes(&key_bytes)
+                .map_err(|e| AosError::Config(format!("Invalid signing key: {}", e)))?
+        } else {
+            // Generate new key
+            output.info("Generating new Ed25519 keypair");
+            Keypair::generate()
+        };
+
+        adapter.sign(&keypair)?;
+
+        if let Some((key_id, timestamp)) = adapter.signature_info() {
+            output.info(&format!("Signed with key ID: {}", key_id));
+            output.info(&format!("Signature timestamp: {}", timestamp));
+        }
+    }
+
+    // 7. Map compression level
+    let compression_level = match args.compression.as_str() {
+        "store" => CompressionLevel::Store,
+        "fast" => CompressionLevel::Fast,
+        "best" => CompressionLevel::Best,
+        other => {
+            return Err(AosError::Config(format!(
+                "Invalid compression level: {} (expected: store, fast, best)",
+                other
+            )))
+        }
+    };
+
+    // 8. Save using appropriate packager based on format arg
+    output.info(&format!("Packaging adapter with format: {}", args.format));
+    match args.format.as_str() {
+        "zip" => {
+            let package_options = PackageOptions {
+                compression: compression_level,
+                include_signature: args.sign,
+                include_combined_weights: true,
+            };
+            SingleFileAdapterPackager::save_with_options(&adapter, &args.output, package_options).await?;
+        }
+        "aos2" => {
+            let aos2_options = Aos2PackageOptions {
+                compress_metadata: true,
+                compress_weights: false, // Keep weights uncompressed for mmap
+                compression_level: match compression_level {
+                    CompressionLevel::Store => 1,
+                    CompressionLevel::Fast => 3,
+                    CompressionLevel::Best => 22,
+                },
+                include_combined_weights: true,
+            };
+            Aos2Packager::save_with_options(&adapter, &args.output, aos2_options).await?;
+        }
+        other => {
+            return Err(AosError::Config(format!(
+                "Invalid format: {} (expected: zip, aos2)",
+                other
+            )))
+        }
+    }
+
+    output.success(&format!("Successfully created .aos file: {}", args.output.display()));
+    output.kv("Adapter ID", &args.adapter_id);
+    output.kv("Version", &args.version);
+    output.kv("Format", &args.format);
+    output.kv("Compression", &args.compression);
+    output.kv("Signed", if args.sign { "yes" } else { "no" });
+
+    Ok(())
+}

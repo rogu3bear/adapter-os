@@ -1,0 +1,133 @@
+[package]
+name = "adapteros-lora-worker"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[features]
+default = []
+deterministic-only = []
+telemetry-sysinfo = ["dep:sysinfo"]
+
+# Backend feature flags
+# These must be explicitly enabled to activate conditional compilation paths
+#
+# coreml-backend: Enables CoreML + Neural Engine support
+#   - Adds adapteros-lora-kernel-coreml as dependency
+#   - Enables ANE detection and CoreML model loading
+#   - macOS 13+ required
+#
+# multi-backend: Enables MLX FFI backend
+#   - Adds adapteros-lora-mlx-ffi as dependency
+#   - For research/training workloads
+#
+coreml-backend = ["dep:adapteros-lora-kernel-coreml"]
+multi-backend = ["dep:adapteros-lora-mlx-ffi", "mlx"]
+
+# Alias for clarity
+mlx-backend = ["multi-backend"]
+mlx = []               # Enable real MLX backend (requires MLX runtime)
+real-mlx = ["mlx"]     # Legacy alias (deprecated)
+loom = []
+
+# Residency testing features
+ci-residency = []                    # Enable standard CI residency tests
+hardware-residency = []             # Enable hardware residency tests (Mac Studio)
+
+[dependencies]
+adapteros-core = { path = "../adapteros-core" }
+adapteros-config = { path = "../adapteros-config" }
+adapteros-aos = { path = "../adapteros-aos" }
+adapteros-codegraph = { path = "../adapteros-codegraph" }
+adapteros-db = { path = "../adapteros-db" }
+adapteros-manifest = { path = "../adapteros-manifest" }
+adapteros-policy = { path = "../adapteros-policy" }
+adapteros-lora-router = { path = "../adapteros-lora-router" }
+adapteros-lora-rag = { path = "../adapteros-lora-rag" }
+adapteros-lora-kernel-api = { path = "../adapteros-lora-kernel-api" }
+adapteros-lora-kernel-coreml = { path = "../adapteros-lora-kernel-coreml", optional = true }
+adapteros-lora-mlx-ffi = { path = "../adapteros-lora-mlx-ffi", optional = true, features = ["mlx"] }
+adapteros-telemetry = { path = "../adapteros-telemetry" }
+adapteros-profiler = { path = "../adapteros-profiler" }
+adapteros-lora-lifecycle = { path = "../adapteros-lora-lifecycle" }
+adapteros-crypto = { path = "../adapteros-crypto" }
+adapteros-deterministic-exec = { path = "../adapteros-deterministic-exec" }
+adapteros-memory = { path = "../adapteros-memory" }
+adapteros-secure-fs = { path = "../adapteros-secure-fs" }
+adapteros-storage = { path = "../adapteros-storage" }
+adapteros-single-file-adapter = { path = "../adapteros-single-file-adapter" }
+adapteros-platform = { path = "../adapteros-platform" }
+adapteros-types = { path = "../adapteros-types" }
+adapteros-api-types = { path = "../adapteros-api-types" }
+adapteros-boot = { path = "../adapteros-boot" }
+lru = "0.12"
+ed25519-dalek = { workspace = true }
+# adapteros-lint = { path = "../adapteros-lint" }  # Temporarily disabled due to dependency issues
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_jcs = { workspace = true }
+walkdir = { workspace = true }
+thiserror = { workspace = true }
+tokenizers = { workspace = true }
+safetensors = { workspace = true }
+memmap2 = { workspace = true }
+once_cell = { workspace = true }
+half = "2.3"
+crossbeam = { workspace = true }
+parking_lot = { workspace = true }
+rand = { workspace = true }
+rand_chacha = "0.3"
+zeroize = { version = "1.7", features = ["derive"] }
+bytemuck = "1.14"
+tracing = { workspace = true }
+uuid = { version = "1.0", features = ["v4", "v7", "serde"] }
+regex = "1.0"
+tokio-util = { version = "0.7", features = ["time"] }
+hkdf = "0.12"
+sha2 = "0.10"
+hex = { workspace = true }
+base64 = { version = "0.21" }
+async-trait = "0.1"
+anyhow = { workspace = true }
+serde_yaml = "0.9"
+blake3 = { workspace = true }
+sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite"] }
+chrono = "0.4"
+smallvec = "1.13"
+sysinfo = { version = "0.30", optional = true }  # Telemetry + residency harness
+reqwest = { version = "0.12", features = ["json"] }
+ureq = "3.0"  # PRD-09: Blocking HTTP client for panic hook
+
+clap = { workspace = true }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[[bin]]
+name = "aos-worker"
+path = "src/bin/aos_worker.rs"
+
+[[bin]]
+name = "residency_harness"
+path = "src/bin/residency_harness.rs"
+required-features = ["hardware-residency"]
+
+[dev-dependencies]
+loom = "0.7"
+criterion = { version = "0.5", features = ["html_reports"] }
+tempfile = { workspace = true }
+proptest = "1.0"
+serial_test = "3.0"
+sysinfo = { version = "0.30" }
+adapteros-lora-mlx-ffi = { path = "../adapteros-lora-mlx-ffi" }
+
+[[bench]]
+name = "hotswap"
+harness = false
+
+[target.'cfg(target_os = "macos")'.dependencies]
+adapteros-lora-kernel-mtl = { path = "../adapteros-lora-kernel-mtl" }
+nix = { workspace = true }
+mach = "0.3"
+metal = "0.27"
+libc = "0.2"

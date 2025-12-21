@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.adapteros.secd</string>
+    
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/aos-secd</string>
+        <string>--socket</string>
+        <string>/var/run/aos-secd.sock</string>
+    </array>
+    
+    <key>RunAtLoad</key>
+    <true/>
+    
+    <key>KeepAlive</key>
+    <true/>
+    
+    <key>StandardOutPath</key>
+    <string>/var/log/aos-secd.log</string>
+    
+    <key>StandardErrorPath</key>
+    <string>/var/log/aos-secd-error.log</string>
+    
+    <!-- Restrict to local Unix domain sockets only -->
+    <key>Sockets</key>
+    <dict>
+        <key>Listeners</key>
+        <dict>
+            <key>SockPathName</key>
+            <string>/var/run/aos-secd.sock</string>
+            <key>SockPathMode</key>
+            <integer>384</integer><!-- 0600 in decimal -->
+        </dict>
+    </dict>
+    
+    <!-- Security: No network access -->
+    <key>NetworkState</key>
+    <false/>
+</dict>
+</plist>
+

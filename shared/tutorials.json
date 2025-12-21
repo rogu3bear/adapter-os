@@ -1,0 +1,127 @@
+{
+  "tutorials": [
+    {
+      "id": "training-tutorial",
+      "title": "Training Adapters Tutorial",
+      "description": "Learn how to train adapters step by step",
+      "dismissible": true,
+      "steps": [
+        {
+          "id": "intro",
+          "title": "Welcome to Training",
+          "content": "This tutorial will guide you through training an adapter. Training creates specialized AI models for your domain.",
+          "target_selector": null,
+          "position": "center"
+        },
+        {
+          "id": "select-template",
+          "title": "Choose a Template",
+          "content": "Start by selecting a training template. Templates provide pre-configured settings for common use cases.",
+          "target_selector": "[data-tutorial=\"training-template\"]",
+          "position": "bottom"
+        },
+        {
+          "id": "configure-params",
+          "title": "Configure Parameters",
+          "content": "Adjust training parameters like learning rate, batch size, and epochs to match your requirements.",
+          "target_selector": "[data-tutorial=\"training-params\"]",
+          "position": "right"
+        },
+        {
+          "id": "start-training",
+          "title": "Start Training",
+          "content": "Click the Start Training button to launch your training job. Monitor progress in real-time.",
+          "target_selector": "[data-tutorial=\"start-training\"]",
+          "position": "top"
+        }
+      ]
+    },
+    {
+      "id": "adapter-management-tutorial",
+      "title": "Managing Adapters",
+      "description": "Learn how to deploy and manage adapters",
+      "dismissible": true,
+      "steps": [
+        {
+          "id": "intro",
+          "title": "Adapter Management",
+          "content": "Adapters are specialized AI models trained for specific domains. Learn how to deploy and manage them.",
+          "target_selector": null,
+          "position": "center"
+        },
+        {
+          "id": "deploy-adapter",
+          "title": "Deploy an Adapter",
+          "content": "Click Deploy to make a trained adapter available for inference. Ensure it has passed all tests first.",
+          "target_selector": "[data-tutorial=\"deploy-adapter\"]",
+          "position": "bottom"
+        },
+        {
+          "id": "monitor-health",
+          "title": "Monitor Health",
+          "content": "Check adapter health metrics regularly. Look for latency, error rates, and resource usage.",
+          "target_selector": "[data-tutorial=\"adapter-health\"]",
+          "position": "right"
+        }
+      ]
+    },
+    {
+      "id": "policy-management-tutorial",
+      "title": "Policy Management",
+      "description": "Learn how to manage policies and ensure compliance",
+      "dismissible": true,
+      "steps": [
+        {
+          "id": "intro",
+          "title": "Policy Management",
+          "content": "Policies enforce security and compliance rules. This tutorial shows you how to review and manage them.",
+          "target_selector": null,
+          "position": "center"
+        },
+        {
+          "id": "review-policies",
+          "title": "Review Policy Packs",
+          "content": "All 20 policy packs should be reviewed regularly. Click on a policy to view its details.",
+          "target_selector": "[data-tutorial=\"policy-list\"]",
+          "position": "bottom"
+        },
+        {
+          "id": "sign-policies",
+          "title": "Sign Policies",
+          "content": "After reviewing, sign policies to indicate compliance. Unsigned policies may block operations.",
+          "target_selector": "[data-tutorial=\"sign-policy\"]",
+          "position": "right"
+        }
+      ]
+    },
+    {
+      "id": "dashboard-tutorial",
+      "title": "Dashboard Overview",
+      "description": "Learn how to navigate and use the dashboard",
+      "dismissible": true,
+      "steps": [
+        {
+          "id": "intro",
+          "title": "Welcome to the Dashboard",
+          "content": "The dashboard provides a system overview with health metrics, adapter counts, and performance indicators.",
+          "target_selector": null,
+          "position": "center"
+        },
+        {
+          "id": "system-health",
+          "title": "System Health",
+          "content": "Monitor system health metrics here. Green indicates healthy, yellow means attention needed, red requires immediate action.",
+          "target_selector": "[data-tutorial=\"system-health\"]",
+          "position": "bottom"
+        },
+        {
+          "id": "recent-activity",
+          "title": "Recent Activity",
+          "content": "View recent system events and activities. This helps you stay informed about what's happening.",
+          "target_selector": "[data-tutorial=\"recent-activity\"]",
+          "position": "right"
+        }
+      ]
+    }
+  ]
+}

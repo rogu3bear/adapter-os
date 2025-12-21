@@ -1,0 +1,19 @@
+name: Check Merge Conflicts
+on: [push, pull_request]
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Check for conflict markers
+        run: |
+          if git grep -E '<<<<<<< |=======$|>>>>>>> ' -- '*.rs' '*.ts' '*.tsx'; then
+            echo "Found merge conflict markers"
+            exit 1
+          fi
+      - name: Check for .orig/.rej files
+        run: |
+          if find . -name "*.orig" -o -name "*.rej" | grep .; then
+            echo "Found .orig or .rej files"
+            exit 1
+          fi

@@ -1,0 +1,281 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "id": 1,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1 },
+              { "color": "red", "value": 2 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        { "expr": "adapteros_db_index_health_status", "legendFormat": "status", "refId": "A" }
+      ],
+      "title": "Index Health Status (0/1/2)",
+      "type": "stat"
+    },
+    {
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "id": 2,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.15 },
+              { "color": "red", "value": 0.3 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        { "expr": "adapteros_db_freelist_ratio", "legendFormat": "freelist_ratio", "refId": "A" }
+      ],
+      "title": "Fragmentation (Freelist Ratio)",
+      "type": "stat"
+    },
+    {
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "id": 3,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.2 },
+              { "color": "red", "value": 0.35 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        { "expr": "adapteros_db_index_unused_ratio", "legendFormat": "unused_ratio", "refId": "A" }
+      ],
+      "title": "Index Unused Ratio (dbstat)",
+      "type": "stat"
+    },
+    {
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "id": 4,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "adapteros_db_index_maintenance_in_progress",
+          "legendFormat": "running",
+          "refId": "A"
+        }
+      ],
+      "title": "Maintenance Running",
+      "type": "stat"
+    },
+    {
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 4 },
+      "id": 5,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "targets": [
+        { "expr": "adapteros_db_size_estimate_bytes", "legendFormat": "db_size_estimate", "refId": "A" },
+        { "expr": "adapteros_db_freelist_bytes", "legendFormat": "freelist_bytes", "refId": "B" }
+      ],
+      "title": "DB Size Estimate vs Freelist Bytes",
+      "type": "timeseries"
+    },
+    {
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 4 },
+      "id": 6,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "targets": [
+        { "expr": "adapteros_db_freelist_ratio", "legendFormat": "freelist_ratio", "refId": "A" }
+      ],
+      "title": "Fragmentation Over Time",
+      "type": "timeseries"
+    },
+    {
+      "gridPos": { "h": 7, "w": 24, "x": 0, "y": 11 },
+      "id": 7,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(adapteros_db_index_probe_duration_seconds_bucket[5m])) by (le, probe))",
+          "legendFormat": "{{probe}} p95",
+          "refId": "A"
+        }
+      ],
+      "title": "Index Probe Duration (p95)",
+      "type": "timeseries"
+    },
+    {
+      "gridPos": { "h": 9, "w": 8, "x": 0, "y": 18 },
+      "id": 8,
+      "options": { "showHeader": true, "cellHeight": "sm", "footer": { "show": false } },
+      "targets": [
+        { "expr": "adapteros_db_tenant_index_leading_present", "format": "table", "instant": true, "refId": "A" }
+      ],
+      "title": "Tenant Index Coverage (Leading tenant_id)",
+      "type": "table",
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": { "Time": true, "__name__": true },
+            "renameByName": { "table": "Table", "Value": "Leading Index Present" }
+          }
+        }
+      ]
+    },
+    {
+      "gridPos": { "h": 9, "w": 8, "x": 8, "y": 18 },
+      "id": 9,
+      "options": { "showHeader": true, "cellHeight": "sm", "footer": { "show": false } },
+      "targets": [
+        { "expr": "adapteros_db_index_probe_used_index", "format": "table", "instant": true, "refId": "A" }
+      ],
+      "title": "Index Probe Uses Index",
+      "type": "table",
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": { "Time": true, "__name__": true },
+            "renameByName": { "probe": "Probe", "Value": "Used Index" }
+          }
+        }
+      ]
+    },
+    {
+      "gridPos": { "h": 9, "w": 8, "x": 16, "y": 18 },
+      "id": 10,
+      "options": { "showHeader": true, "cellHeight": "sm", "footer": { "show": false } },
+      "targets": [
+        { "expr": "adapteros_db_dbstat_top_index_unused_ratio", "format": "table", "instant": true, "refId": "A" }
+      ],
+      "title": "dbstat: Top Index Unused Ratio",
+      "type": "table",
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": { "Time": true, "__name__": true },
+            "renameByName": { "index_name": "Index", "Value": "Unused Ratio" }
+          }
+        }
+      ]
+    },
+    {
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 27 },
+      "id": 11,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "targets": [
+        {
+          "expr": "avg_over_time(adapteros_db_freelist_ratio[5m]) / avg_over_time(adapteros_db_freelist_ratio[1h])",
+          "legendFormat": "freelist 5m/1h",
+          "refId": "A"
+        }
+      ],
+      "title": "Fragmentation Regression (5m / 1h)",
+      "type": "timeseries"
+    },
+    {
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 27 },
+      "id": 12,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(adapteros_db_index_probe_duration_seconds_bucket[5m])) by (le, probe)) / histogram_quantile(0.95, sum(rate(adapteros_db_index_probe_duration_seconds_bucket[1h])) by (le, probe))",
+          "legendFormat": "{{probe}} p95 5m/1h",
+          "refId": "A"
+        }
+      ],
+      "title": "Probe Latency Regression (p95 5m / 1h)",
+      "type": "timeseries"
+    },
+    {
+      "gridPos": { "h": 7, "w": 24, "x": 0, "y": 34 },
+      "id": 13,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "targets": [
+        {
+          "expr": "sum by(action, result) (increase(adapteros_db_index_maintenance_total[24h]))",
+          "legendFormat": "{{action}} {{result}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Maintenance Actions (24h)",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 38,
+  "tags": ["adapteros", "database", "indexes"],
+  "templating": { "list": [] },
+  "time": { "from": "now-6h", "to": "now" },
+  "timepicker": {},
+  "timezone": "",
+  "title": "AdapterOS DB Index Health",
+  "uid": "adapteros-db-index-health",
+  "version": 1,
+  "weekStart": ""
+}
+

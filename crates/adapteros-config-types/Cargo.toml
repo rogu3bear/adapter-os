@@ -1,0 +1,14 @@
+[package]
+name = "adapteros-config-types"
+version = "0.1.0"
+edition = "2021"
+description = "Shared configuration structs for AdapterOS services"
+authors = ["AdapterOS Contributors"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/adapteros/adapteros"
+keywords = ["config", "types"]
+categories = ["configuration"]
+
+[dependencies]
+adapteros-core = { path = "../adapteros-core" }
+serde = { workspace = true }

@@ -1,0 +1,24 @@
+# Baseline Manifest
+# Signed manifest anchoring baseline artifacts to git commits
+# Per design decision: External object store (S3/MinIO), anchored via signed manifests in repo
+
+[metadata]
+version = "1.0"
+created_at = "2025-01-15T00:00:00Z"
+last_updated = "2025-01-15T00:00:00Z"
+
+# Baseline entries: run_id -> artifact metadata
+[baselines]
+
+# Example baseline entry format:
+# [baselines.run-001]
+# git_commit = "abc123def456..."
+# arch = "aarch64-apple-darwin"
+# suite = "deterministic-exec"
+# merkle_root = "b3:..."
+# object_store_prefix = "s3://adapteros-baselines/v0.1.0/aarch64-apple-darwin/deterministic-exec/run-001/"
+# artifact_count = 42
+# timestamp = 1705276800
+# signature = "ed25519:..."  # Ed25519 signature of manifest
+# public_key = "ed25519:..."  # Public key for verification
+

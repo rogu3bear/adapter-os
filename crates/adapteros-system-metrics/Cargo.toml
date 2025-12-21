@@ -1,0 +1,52 @@
+[package]
+name = "adapteros-system-metrics"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "System resource monitoring and metrics collection for AdapterOS"
+
+[features]
+mlx = ["dep:adapteros-lora-mlx-ffi"]
+coreml = []
+
+[dependencies]
+# Internal crates
+adapteros-core = { path = "../adapteros-core" }
+adapteros-telemetry = { path = "../adapteros-telemetry" }
+adapteros-policy = { path = "../adapteros-policy" }
+adapteros-manifest = { path = "../adapteros-manifest" }
+adapteros-db = { path = "../adapteros-db" }
+
+# Workspace dependencies
+sysinfo.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+chrono.workspace = true
+hkdf.workspace = true
+sha2.workspace = true
+adapteros-lora-mlx-ffi = { path = "../adapteros-lora-mlx-ffi", optional = true, default-features = false }
+
+# Note: Metal integration moved to macOS-specific dependencies below
+
+# Additional dependencies
+parking_lot.workspace = true
+sqlx.workspace = true
+async-trait.workspace = true
+reqwest.workspace = true
+uuid.workspace = true
+rand = "0.8"
+rand_chacha = "0.3"
+utoipa = { version = "5.4", features = ["axum_extras"] }
+
+# macOS-specific dependencies for Metal GPU support
+[target.'cfg(target_os = "macos")'.dependencies]
+metal.workspace = true
+
+[dev-dependencies]
+tempfile = { workspace = true }

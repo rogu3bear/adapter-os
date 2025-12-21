@@ -1,0 +1,30 @@
+# Cargo configuration for deterministic builds
+# Per Determinism Ruleset #2: Reproducible builds across machines
+
+[build]
+# Disable debug info for smaller, reproducible binaries
+# Note: Removed -Wl,-no_uuid flag as it causes LC_UUID linker errors on macOS Sequoia
+rustflags = [
+    "-Cdebuginfo=0",
+    "-C", "link-arg=-fmodules-cache-path=target/clang-cache",
+]
+
+# Target-specific configuration
+[target.aarch64-apple-darwin]
+rustflags = [
+    "-Cdebuginfo=0",
+]
+
+[target.x86_64-apple-darwin]
+rustflags = [
+    "-Cdebuginfo=0",
+  "-C", "link-arg=-fmodules-cache-path=target/clang-cache",
+]
+
+[env]
+CLANG_MODULE_CACHE_PATH = "target/clang-cache"
+MODULE_CACHE_DIR = "target/clang-cache"
+CFLAGS = "-fmodules-cache-path=target/clang-cache"
+CXXFLAGS = "-fmodules-cache-path=target/clang-cache"
+# SOURCE_DATE_EPOCH ensures timestamps are deterministic
+SOURCE_DATE_EPOCH = "1704067200"

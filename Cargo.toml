@@ -1,0 +1,420 @@
+[package]
+name = "adapter-os"
+version = "0.11.0"
+edition = "2021"
+authors = ["James KC Auchterlonie <vats-springs0m@icloud.com>"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/rogu3bear/adapter-os"
+
+[workspace]
+resolver = "2"
+exclude = []  # adapteros-server temporarily included for building
+members = [
+    "crates/adapteros-boot",  # Boot lifecycle management
+    "crates/adapteros-core",
+    "crates/adapteros-crypto",
+    "crates/adapteros-platform",  # Platform utilities and path resolution
+    "crates/adapteros-manifest",
+    "crates/adapteros-registry",
+    "crates/adapteros-artifacts",
+    "crates/adapteros-aos",
+    "crates/adapteros-lora-kernel-api",
+    "crates/adapteros-lora-kernel-coreml",
+    "crates/adapteros-types",
+    "crates/adapteros-lora-kernel-mtl",  # Metal kernels - re-enabled for MVP
+    "crates/adapteros-system-metrics",
+    "crates/adapteros-lora-mlx-ffi",  # MLX backend - now functional with real inference
+    "crates/adapteros-autograd",  # Rust autograd system
+    "crates/adapteros-lora-plan",
+    "crates/adapteros-lora-router",
+    "crates/adapteros-lora-rag",
+    "crates/adapteros-ingest-docs",
+    "crates/adapteros-lora-worker",  # Re-enabled for MVP
+    "crates/adapteros-telemetry",
+    "crates/adapteros-policy",
+    "crates/adapteros-config",
+    "crates/adapteros-config-types",
+    "crates/adapteros-cli",
+    "crates/adapteros-tui",  # Terminal UI dashboard
+    "crates/adapteros-api",
+    "crates/adapteros-sbom",
+    "crates/adapteros-lora-quant",
+    "crates/adapteros-server",  # Re-enabled for building
+    "crates/adapteros-server-api",
+    "crates/adapteros-db",
+    "crates/adapteros-client",
+    "crates/adapteros-node",
+    "crates/adapteros-chat",
+    "crates/adapteros-metrics-exporter",
+    "crates/adapteros-orchestrator",
+    "crates/adapteros-profiler",
+    "crates/adapteros-lora-lifecycle",
+    "crates/adapteros-scenarios",
+    "crates/adapteros-git",
+    "crates/adapteros-deterministic-exec",
+    "crates/adapteros-graph",
+    "crates/adapteros-codegraph",
+    "crates/adapteros-replay",
+    "crates/adapteros-trace",
+    "crates/adapteros-numerics",
+    "crates/adapteros-memory",
+    "crates/adapteros-lint",
+    "crates/adapteros-verify",
+    "crates/adapteros-federation",
+    "crates/adapteros-domain",
+    "crates/adapteros-error-recovery",
+    "crates/adapteros-base-llm",
+    "crates/adapteros-testing",
+    "crates/adapteros-verification",
+    # "crates/adapteros-codegraph",  # Temporarily disabled due to SQLite conflict
+    # "crates/adapteros-codegraph-viewer/src-tauri",  # Temporarily disabled due to SQLite conflict
+    "crates/adapteros-lora-mlx-ffi",  # MLX backend - now functional with real inference
+    "crates/sign-migrations",  # Migration signing tool
+    "crates/adapteros-plugin-advanced-metrics",  # Advanced metrics plugin
+    "xtask",
+    "fuzz",
+    "crates/adapteros-service-supervisor",
+    "crates/adapteros-model-hub",  # Model discovery and download
+    "crates/adapteros-storage",  # Storage management and versioned records
+    "crates/adapteros-telemetry-verifier",
+]
+
+[workspace.package]
+version = "0.11.0"
+edition = "2021"
+authors = ["James KC Auchterlonie <vats-springs0m@icloud.com>"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/rogu3bear/mplora"
+
+[features]
+# Default configuration: deterministic-only + CoreML backend on macOS
+# CoreML provides ANE acceleration and guaranteed determinism for production
+default = ["deterministic-only", "coreml-backend"]
+
+# Core capability flags
+deterministic-only = []
+telemetry = []
+metrics = []
+replay = []
+
+# =============================================================================
+# BACKEND FEATURE FLAGS
+# =============================================================================
+#
+# ARCHITECTURE: Features are defined at WORKSPACE level and propagate to crates
+# via optional dependencies. Each crate re-exports its backend feature.
+#
+# REAL BACKENDS (require macOS + frameworks):
+#   coreml-backend - CoreML + Neural Engine (macOS 13+, production primary)
+#   metal-backend  - Metal GPU (macOS, fallback for non-ANE systems)
+#
+# DEVELOPMENT BACKENDS:
+#   mlx-backend    - MLX FFI (research/training, HKDF-seeded determinism)
+#   mlx            - Real MLX library integration (vs stub implementation)
+#   real-mlx       - Legacy alias for `mlx` (deprecated)
+#
+# ACTIVATION:
+#   cargo build --features coreml-backend   # Enable CoreML backend
+#   cargo build --features metal-backend    # Enable Metal backend
+#   cargo build --features multi-backend  # Enable MLX development
+#
+# =============================================================================
+
+# Workspace-level Metal flag (enables Metal code paths across crates)
+metal = []
+
+# Real backends (macOS-only, require frameworks)
+# These propagate to per-crate features via optional dependencies
+coreml-backend = []  # CoreML + ANE (production primary)
+metal-backend = []   # Metal GPU (production fallback)
+
+# MLX backend (development/research)
+mlx-backend = []     # MLX FFI stubs
+mlx = []             # Real MLX library (requires mlx C++ FFI)
+real-mlx = ["mlx"]   # Legacy alias for `mlx` (deprecated)
+
+# Combined feature sets
+stub-backends = ["mlx-backend"]  # All stub implementations
+multi-backend = ["mlx-backend"]  # Alias for development backends
+full = ["telemetry", "metrics", "replay"]
+no-metal = []  # Explicitly disable Metal (for Linux/CI)
+# Production-oriented profiles (macOS)
+production-macos = ["coreml-backend", "metal-backend", "multi-backend", "mlx"]
+dev-macos-real = ["coreml-backend", "metal-backend", "multi-backend", "mlx"]
+
+# Testing features - used in 157+ test files and test infrastructure
+extended-tests = []  # Extended test suite with intensive tests
+integration_tests = []  # Integration test suite
+security_tests = []  # Security unit and integration tests
+loom = []  # Concurrency testing with loom (thread model verification)
+
+# Experimental features - opt-in unstable functionality
+domain-experimental = []  # Domain adapter experimental features
+lint-experimental = []  # Linter experimental features
+numerics-experimental = []  # Numerical stability and precision tests
+
+# Integration and advanced features
+federation = []  # Federation daemon and cross-node communication
+rag-pgvector = []  # Vector database integration (pgvector) for RAG
+secure-enclave = []  # macOS Secure Enclave support
+cdp = []  # Chrome DevTools Protocol support
+
+[dependencies]
+# Re-export key crates for integration tests
+adapteros-lora-kernel-api = { path = "crates/adapteros-lora-kernel-api" }
+adapteros-core = { path = "crates/adapteros-core" }
+# Removed: SingleFileAdapter - using unified binary format in adapteros-aos
+anyhow = "1.0"
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+safetensors.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+adapteros-lora-kernel-mtl = { path = "crates/adapteros-lora-kernel-mtl" }  # Re-enabled for MVP
+
+[workspace.dependencies]
+# Core
+anyhow = "1.0"
+thiserror = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Crypto
+blake3 = "1.5"
+ed25519-dalek = { version = "2.1", features = ["rand_core"] }
+hkdf = "0.12"
+sha2 = "0.10"
+aes-gcm = "0.10"
+rand = "0.8"
+rand_core = "0.6"
+rand_chacha = "0.3"
+
+# Schema & Validation
+schemars = "0.8"
+serde_jcs = "0.1"
+serde_cbor = "0.11"
+toml = "0.8"
+
+# Database
+rusqlite = { version = "0.31", features = ["bundled"] }
+refinery = { version = "0.8", features = ["rusqlite"] }
+sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "macros", "migrate", "chrono", "uuid"] }
+
+# Compression & Archive
+zstd = "0.13"
+tar = "0.4"
+
+# Async & Concurrency
+tokio = { version = "1.35", features = ["full", "macros", "rt-multi-thread"] }
+tokio-stream = "0.1"
+futures-util = "0.3"
+async-stream = "0.3"
+crossbeam = "0.8"
+parking_lot = "0.12"
+
+# HTTP & API
+axum = { version = "0.8", features = ["tokio", "macros"] }
+tower = "0.5"
+hyper = { version = "1.0", features = ["full"] }
+hyper-util = "0.1"
+tower-http = { version = "0.6", features = ["cors", "trace"] }
+reqwest = { version = "0.12", features = ["json"] }
+
+# CLI
+clap = { version = "4.4", features = ["derive", "env"] }
+comfy-table = "7.1"
+
+# ML & Search
+hnsw_rs = "0.3"
+tantivy = "0.22"
+tokenizers = "0.15"
+safetensors = "0.4"
+
+# Python/MLX Integration - REMOVED (PyO3 cleanup)
+
+# Metal (macOS)
+metal = "0.28"
+objc = "0.2"
+cocoa = "0.25"
+core-foundation = "0.9"
+security-framework = "2.9"
+
+# Filesystem
+cap-std = "3.0"
+tempfile = "3.8"
+
+# Utilities
+smallvec = "1.11"
+bytemuck = { version = "1.14", features = ["derive"] }
+half = "2.7"
+memmap2 = "0.9"
+walkdir = "2.4"
+nix = { version = "0.29", features = ["user", "process", "signal"] }
+bincode = "1.3"
+serde_derive = "1.0"
+uuid = { version = "1.6", features = ["v7", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+hex = "0.4"
+base64 = "0.22"
+hostname = "0.4"
+zeroize = "1.0"
+async-trait = "0.1"
+regex = "1.10"
+once_cell = "1.19"
+
+# Auth & Security
+argon2 = "0.5"
+jsonwebtoken = "9.2"
+
+# API
+utoipa = { version = "5.4", features = ["axum_extras", "uuid"] }
+utoipa-swagger-ui = { version = "9.0", features = ["axum"] }
+
+# Observability
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tracing-appender = "0.2"
+sysinfo = "0.30"
+prometheus = "0.13"
+# OpenTelemetry distributed tracing
+opentelemetry = { version = "0.27", default-features = false, features = ["trace"] }
+opentelemetry_sdk = { version = "0.27", default-features = false, features = ["trace", "rt-tokio"] }
+opentelemetry-otlp = { version = "0.27", default-features = false, features = ["trace", "grpc-tonic", "http-proto", "reqwest-client"] }
+tracing-opentelemetry = "0.28"
+
+# Code Analysis
+tree-sitter = "0.20"
+
+# Testing
+proptest = "1.4"
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = "symbols"  # Strip symbols but preserve UUID load commands
+
+[profile.dev]
+opt-level = 0
+
+[profile.test]
+opt-level = 1
+
+# Test configurations
+[[test]]
+name = "determinism"
+path = "tests/determinism.rs"
+
+# NOTE: integration_tests.rs and integration_qwen.rs removed - files don't exist
+# [[test]]
+# name = "integration"
+# path = "tests/integration_tests.rs"
+
+# [[test]]
+# name = "integration_qwen"
+# path = "tests/integration_qwen.rs"
+
+[[test]]
+name = "deterministic_exec"
+path = "tests/deterministic_exec.rs"
+
+[[test]]
+name = "replay_identical"
+path = "tests/replay_identical.rs"
+
+[[test]]
+name = "cross_platform_determinism"
+path = "tests/cross_platform_determinism.rs"
+
+# NOTE: directory_adapter_performance.rs removed - file doesn't exist
+# [[test]]
+# name = "directory_adapter_performance"
+# path = "tests/directory_adapter_performance.rs"
+
+[[test]]
+name = "kernel_buffer_layout"
+path = "tests/kernel_buffer_layout.rs"
+
+# NOTE: kernel_lora_validation.rs removed - file doesn't exist
+# [[test]]
+# name = "kernel_lora_validation"
+# path = "tests/kernel_lora_validation.rs"
+
+[[test]]
+name = "kv_residency_quota_tests"
+path = "tests/kv_residency_quota_tests.rs"
+
+[[test]]
+name = "kv_residency_quota_integration"
+path = "tests/kv_residency_quota_integration.rs"
+
+[[test]]
+name = "kv_quota_concurrent_e2e"
+path = "tests/kv_quota_concurrent_e2e.rs"
+
+# Test dependencies
+[dev-dependencies]
+adapteros-core = { path = "crates/adapteros-core" }
+adapteros-manifest = { path = "crates/adapteros-manifest" }
+adapteros-chat = { path = "crates/adapteros-chat" }
+adapteros-lora-plan = { path = "crates/adapteros-lora-plan" }
+adapteros-lora-worker = { path = "crates/adapteros-lora-worker" }
+adapteros-aos = { path = "crates/adapteros-aos" }
+adapteros-telemetry = { path = "crates/adapteros-telemetry", version = "0.11.0" }
+adapteros-policy = { path = "crates/adapteros-policy" }
+adapteros-lora-router = { path = "crates/adapteros-lora-router" }
+adapteros-lora-rag = { path = "crates/adapteros-lora-rag" }
+adapteros-lora-quant = { path = "crates/adapteros-lora-quant" }
+# Examples and integration tests
+adapteros-verify = { path = "crates/adapteros-verify" }
+adapteros-api-types = { path = "crates/adapteros-api-types" }
+adapteros-scenarios = { path = "crates/adapteros-scenarios" }
+adapteros-types = { path = "crates/adapteros-types" }
+reqwest = { workspace = true }
+futures-util = { workspace = true }
+# adapteros-server = { path = "crates/adapteros-server" }  # Temporarily excluded
+adapteros-server-api = { path = "crates/adapteros-server-api" }
+adapteros-db = { path = "crates/adapteros-db" }
+adapteros-config = { path = "crates/adapteros-config" }
+adapteros-codegraph = { path = "crates/adapteros-codegraph" }
+adapteros-client = { path = "crates/adapteros-client" }
+adapteros-node = { path = "crates/adapteros-node" }
+adapteros-metrics-exporter = { path = "crates/adapteros-metrics-exporter" }
+adapteros-orchestrator = { path = "crates/adapteros-orchestrator" }
+axum-test = "16"
+adapteros-profiler = { path = "crates/adapteros-profiler" }
+adapteros-lora-lifecycle = { path = "crates/adapteros-lora-lifecycle" }
+adapteros-registry = { path = "crates/adapteros-registry" }
+adapteros-artifacts = { path = "crates/adapteros-artifacts" }
+adapteros-lora-kernel-api = { path = "crates/adapteros-lora-kernel-api" }
+adapteros-lora-kernel-mtl = { path = "crates/adapteros-lora-kernel-mtl" }  # macOS only - needed for KV quota tests
+# adapteros-lora-kernel-prof = { path = "crates/adapteros-lora-kernel-prof" }  # macOS only
+# adapteros-system-metrics = { path = "crates/adapteros-system-metrics" }  # Requires DATABASE_URL
+adapteros-crypto = { path = "crates/adapteros-crypto" }
+adapteros-sbom = { path = "crates/adapteros-sbom" }
+adapteros-api = { path = "crates/adapteros-api" }
+adapteros-deterministic-exec = { path = "crates/adapteros-deterministic-exec" }
+adapteros-graph = { path = "crates/adapteros-graph" }
+adapteros-replay = { path = "crates/adapteros-replay" }
+adapteros-trace = { path = "crates/adapteros-trace" }
+tracing = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+rand = "0.8"
+rand_chacha = "0.3"
+tempfile = "3.0"
+tracing-subscriber = { workspace = true }
+anyhow = "1.0"
+axum = "0.8"
+tower = "0.5"
+sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "macros", "migrate", "chrono", "uuid"] }
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.6", features = ["v7", "serde"] }
+blake3 = { workspace = true }
+hex = { workspace = true }
+metal = { workspace = true }
+rusqlite = "0.31"

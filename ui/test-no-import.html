@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Test No Import</title>
+</head>
+<body>
+  <div id="root"></div>
+  <script>
+    console.log("Starting no-import test");
+    
+    function testDOM() {
+      console.log("Testing DOM manipulation...");
+      const rootElement = document.getElementById("root");
+      console.log("Root element:", rootElement);
+      
+      if (rootElement) {
+        rootElement.innerHTML = '<div style="padding: 20px; font-size: 24px; color: green;">No Import Test - DOM Manipulation Works</div>';
+        console.log("DOM test successful");
+      } else {
+        console.error("Root element not found!");
+      }
+    }
+    
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', testDOM);
+    } else {
+      testDOM();
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>AdapterOS API Test</title>
+    <style>
+        body {
+            font-family: monospace;
+            padding: 20px;
+            background: #f5f5f5;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        h1 {
+            color: #333;
+            border-bottom: 2px solid #2196F3;
+            padding-bottom: 10px;
+        }
+        h2 {
+            color: #666;
+            margin-top: 30px;
+        }
+        button {
+            margin: 5px;
+            padding: 10px 15px;
+            background: #2196F3;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        button:hover {
+            background: #1976D2;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        pre {
+            background: white;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            max-height: 400px;
+            overflow: auto;
+        }
+        .success {
+            color: green;
+            background: #e8f5e9;
+            border-left: 4px solid green;
+        }
+        .error {
+            color: red;
+            background: #ffebee;
+            border-left: 4px solid red;
+        }
+        .pending {
+            color: #ff9800;
+            background: #fff3e0;
+            border-left: 4px solid #ff9800;
+        }
+        .container {
+            display: grid;
+            grid-template-columns: 1fr 2fr;
+            gap: 20px;
+        }
+        .tests {
+            background: white;
+            padding: 20px;
+            border-radius: 4px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .results {
+            background: white;
+            padding: 20px;
+            border-radius: 4px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .test-group {
+            margin-bottom: 20px;
+        }
+        .test-group h3 {
+            color: #555;
+            margin-bottom: 10px;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 5px;
+        }
+        input[type="text"] {
+            padding: 8px;
+            margin: 5px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-family: monospace;
+        }
+        .status-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-size: 11px;
+            font-weight: bold;
+            margin-left: 10px;
+        }
+        .status-badge.success {
+            background: #4CAF50;
+            color: white;
+        }
+        .status-badge.error {
+            background: #f44336;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <h1>AdapterOS API Test Harness</h1>
+    <p>Test the AdapterOS API endpoints to verify server connectivity and functionality.</p>
+
+    <div class="container">
+        <div class="tests">
+            <h2>API Tests</h2>
+
+            <div class="test-group">
+                <h3>System</h3>
+                <button onclick="testHealth()">Test /health</button>
+                <button onclick="testSystemInfo()">Test /v1/system/info</button>
+                <button onclick="testSystemMetrics()">Test /v1/system/metrics</button>
+            </div>
+
+            <div class="test-group">
+                <h3>Adapters</h3>
+                <button onclick="testListAdapters()">List Adapters</button>
+                <button onclick="testGetAdapter()">Get Adapter</button>
+                <input type="text" id="adapterId" placeholder="Adapter ID" style="width: 200px;">
+                <button onclick="testLoadAdapter()">Load Adapter</button>
+                <button onclick="testUnloadAdapter()">Unload Adapter</button>
+                <button onclick="testSwapAdapter()">Swap Adapter</button>
+            </div>
+
+            <div class="test-group">
+                <h3>Inference</h3>
+                <textarea id="promptText" placeholder="Enter prompt..." style="width: 100%; height: 60px; margin: 5px 0;"></textarea>
+                <button onclick="testGenerate()">Test Generate</button>
+                <button onclick="testStreamGenerate()">Test Stream Generate</button>
+            </div>
+
+            <div class="test-group">
+                <h3>Training</h3>
+                <button onclick="testListDatasets()">List Datasets</button>
+                <button onclick="testListTrainingJobs()">List Training Jobs</button>
+            </div>
+
+            <div class="test-group">
+                <h3>Advanced</h3>
+                <button onclick="testAllEndpoints()">Run All Tests</button>
+                <button onclick="clearResults()">Clear Results</button>
+            </div>
+        </div>
+
+        <div class="results">
+            <h2>Test Results</h2>
+            <div id="results"></div>
+        </div>
+    </div>
+
+    <script>
+        const results = document.getElementById('results');
+        let testCounter = 0;
+
+        function log(message, status = 'success') {
+            testCounter++;
+            const p = document.createElement('pre');
+            p.className = status;
+            const timestamp = new Date().toLocaleTimeString();
+            const badge = `<span class="status-badge ${status}">${status.toUpperCase()}</span>`;
+            p.innerHTML = `[${testCounter}] ${timestamp} ${badge}\n${escapeHtml(message)}`;
+            results.insertBefore(p, results.firstChild);
+        }
+
+        function escapeHtml(text) {
+            const map = {
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#039;'
+            };
+            return text.replace(/[&<>"']/g, m => map[m]);
+        }
+
+        async function testHealth() {
+            try {
+                log('Testing /health...', 'pending');
+                const res = await fetch('/health');
+                const data = await res.json();
+                log(`✅ /health (${res.status})\n${JSON.stringify(data, null, 2)}`, 'success');
+            } catch (err) {
+                log(`❌ /health\n${err.message}`, 'error');
+            }
+        }
+
+        async function testSystemInfo() {
+            try {
+                log('Testing /v1/system/info...', 'pending');
+                const res = await fetch('/v1/system/info');
+                const data = await res.json();
+                log(`✅ /v1/system/info (${res.status})\n${JSON.stringify(data, null, 2)}`, 'success');
+            } catch (err) {
+                log(`❌ /v1/system/info\n${err.message}`, 'error');
+            }
+        }
+
+        async function testSystemMetrics() {
+            try {
+                log('Testing /v1/system/metrics...', 'pending');
+                const res = await fetch('/v1/system/metrics');
+                const data = await res.json();
+                log(`✅ /v1/system/metrics (${res.status})\n${JSON.stringify(data, null, 2)}`, 'success');
+            } catch (err) {
+                log(`❌ /v1/system/metrics\n${err.message}`, 'error');
+            }
+        }
+
+        async function testListAdapters() {
+            try {
+                log('Testing /v1/adapters...', 'pending');
+                const res = await fetch('/v1/adapters');
+                const data = await res.json();
+                log(`✅ /v1/adapters (${res.status})\n${JSON.stringify(data, null, 2)}`, 'success');
+            } catch (err) {
+                log(`❌ /v1/adapters\n${err.message}`, 'error');
+            }
+        }
+
+        async function testGetAdapter() {
+            const adapterId = document.getElementById('adapterId').value || 'test-adapter';
+            try {
+                log(`Testing /v1/adapters/${adapterId}...`, 'pending');
+                const res = await fetch(`/v1/adapters/${adapterId}`);
+                const data = await res.json();
+                log(`✅ /v1/adapters/${adapterId} (${res.status})\n${JSON.stringify(data, null, 2)}`,
+                    res.ok ? 'success' : 'error');
+            } catch (err) {
+                log(`❌ /v1/adapters/${adapterId}\n${err.message}`, 'error');
+            }
+        }
+
+        async function testLoadAdapter() {
+            const adapterId = document.getElementById('adapterId').value;
+            if (!adapterId) {
+                log('❌ Please enter an adapter ID', 'error');
+                return;
+            }
+
+            try {
+                log(`Loading adapter ${adapterId}...`, 'pending');
+                const res = await fetch(`/v1/adapters/${adapterId}/load`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                const data = await res.json();
+                log(`✅ Load adapter (${res.status})\n${JSON.stringify(data, null, 2)}`,
+                    res.ok ? 'success' : 'error');
+            } catch (err) {
+                log(`❌ Load adapter\n${err.message}`, 'error');
+            }
+        }
+
+        async function testUnloadAdapter() {
+            const adapterId = document.getElementById('adapterId').value;
+            if (!adapterId) {
+                log('❌ Please enter an adapter ID', 'error');
+                return;
+            }
+
+            try {
+                log(`Unloading adapter ${adapterId}...`, 'pending');
+                const res = await fetch(`/v1/adapters/${adapterId}/unload`, {
+                    method: 'POST'
+                });
+                const data = await res.json();
+                log(`✅ Unload adapter (${res.status})\n${JSON.stringify(data, null, 2)}`,
+                    res.ok ? 'success' : 'error');
+            } catch (err) {
+                log(`❌ Unload adapter\n${err.message}`, 'error');
+            }
+        }
+
+        async function testSwapAdapter() {
+            const adapterId = document.getElementById('adapterId').value;
+            if (!adapterId) {
+                log('❌ Please enter an adapter ID', 'error');
+                return;
+            }
+
+            try {
+                log(`Swapping to adapter ${adapterId}...`, 'pending');
+                const res = await fetch(`/v1/adapters/${adapterId}/swap`, {
+                    method: 'POST'
+                });
+                const data = await res.json();
+                log(`✅ Swap adapter (${res.status})\n${JSON.stringify(data, null, 2)}`,
+                    res.ok ? 'success' : 'error');
+            } catch (err) {
+                log(`❌ Swap adapter\n${err.message}`, 'error');
+            }
+        }
+
+        async function testGenerate() {
+            const prompt = document.getElementById('promptText').value || 'Hello, how are you?';
+            const adapterId = document.getElementById('adapterId').value;
+
+            try {
+                log('Testing /v1/generate...', 'pending');
+                const res = await fetch('/v1/generate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        prompt: prompt,
+                        max_tokens: 100,
+                        adapter_id: adapterId || undefined
+                    })
+                });
+                const data = await res.json();
+                log(`✅ /v1/generate (${res.status})\n${JSON.stringify(data, null, 2)}`,
+                    res.ok ? 'success' : 'error');
+            } catch (err) {
+                log(`❌ /v1/generate\n${err.message}`, 'error');
+            }
+        }
+
+        async function testStreamGenerate() {
+            const prompt = document.getElementById('promptText').value || 'Hello, how are you?';
+            const adapterId = document.getElementById('adapterId').value;
+
+            try {
+                log('Testing /v1/generate (stream)...', 'pending');
+                const res = await fetch('/v1/generate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        prompt: prompt,
+                        max_tokens: 100,
+                        stream: true,
+                        adapter_id: adapterId || undefined
+                    })
+                });
+
+                if (!res.ok) {
+                    const error = await res.json();
+                    log(`❌ Stream generate (${res.status})\n${JSON.stringify(error, null, 2)}`, 'error');
+                    return;
+                }
+
+                const reader = res.body.getReader();
+                const decoder = new TextDecoder();
+                let fullResponse = '';
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    const chunk = decoder.decode(value);
+                    fullResponse += chunk;
+                }
+
+                log(`✅ Stream generate (${res.status})\n${fullResponse}`, 'success');
+            } catch (err) {
+                log(`❌ Stream generate\n${err.message}`, 'error');
+            }
+        }
+
+        async function testListDatasets() {
+            try {
+                log('Testing /v1/training/datasets...', 'pending');
+                const res = await fetch('/v1/training/datasets');
+                const data = await res.json();
+                log(`✅ /v1/training/datasets (${res.status})\n${JSON.stringify(data, null, 2)}`,
+                    res.ok ? 'success' : 'error');
+            } catch (err) {
+                log(`❌ /v1/training/datasets\n${err.message}`, 'error');
+            }
+        }
+
+        async function testListTrainingJobs() {
+            try {
+                log('Testing /v1/training/jobs...', 'pending');
+                const res = await fetch('/v1/training/jobs');
+                const data = await res.json();
+                log(`✅ /v1/training/jobs (${res.status})\n${JSON.stringify(data, null, 2)}`,
+                    res.ok ? 'success' : 'error');
+            } catch (err) {
+                log(`❌ /v1/training/jobs\n${err.message}`, 'error');
+            }
+        }
+
+        async function testAllEndpoints() {
+            log('Running all tests...', 'pending');
+            await testHealth();
+            await new Promise(r => setTimeout(r, 500));
+            await testSystemInfo();
+            await new Promise(r => setTimeout(r, 500));
+            await testSystemMetrics();
+            await new Promise(r => setTimeout(r, 500));
+            await testListAdapters();
+            await new Promise(r => setTimeout(r, 500));
+            await testListDatasets();
+            await new Promise(r => setTimeout(r, 500));
+            await testListTrainingJobs();
+            log('All tests completed!', 'success');
+        }
+
+        function clearResults() {
+            results.innerHTML = '';
+            testCounter = 0;
+            log('Results cleared', 'success');
+        }
+
+        // Run basic health check on load
+        window.addEventListener('load', () => {
+            log('API Test Harness loaded. Click buttons to test endpoints.', 'success');
+            // testHealth();
+        });
+    </script>
+</body>
+</html>

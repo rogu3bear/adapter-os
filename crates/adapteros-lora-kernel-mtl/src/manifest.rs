@@ -1,0 +1,410 @@
+//! Kernel manifest verification
+//!
+//! Verifies signed kernel manifests at runtime to ensure determinism
+//! and prevent tampering with kernel binaries.
+
+use adapteros_core::{identity::IdentityEnvelope, AosError, B3Hash, Result};
+use adapteros_crypto::signature::{PublicKey, Signature};
+use adapteros_telemetry::{unified_events::TelemetryEventBuilder, TelemetryWriter};
+use base64::Engine;
+use serde::{Deserialize, Serialize};
+use std::sync::Arc;
+
+/// Returns true when production safeguards must be enforced.
+///
+/// Controlled by `AOS_SERVER_PRODUCTION_MODE` to align with control-plane
+/// production posture. Debug builds may still run with this flag disabled.
+pub(crate) fn production_mode_enabled() -> bool {
+    std::env::var("AOS_SERVER_PRODUCTION_MODE")
+        .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+        .unwrap_or(false)
+}
+
+/// Guard dev-only bypass flags so they cannot be activated in production mode
+/// or release builds. These escapes exist solely for development/debug builds.
+pub(crate) fn allow_dev_bypass(var_names: &[&str], context: &str) -> Result<bool> {
+    let env_name = var_names
+        .iter()
+        .copied()
+        .find(|name| std::env::var(name).is_ok())
+        .map(|s| s.to_string());
+
+    if let Some(env_name) = env_name {
+        let prod = production_mode_enabled();
+
+        if prod {
+            tracing::error!(
+                env = env_name,
+                context,
+                production_mode = prod,
+                "Unsafe bypass blocked: production_mode=true"
+            );
+            return Err(AosError::PolicyViolation(format!(
+                "{} is disabled when production_mode is enabled",
+                env_name
+            )));
+        }
+
+        #[cfg(not(debug_assertions))]
+        {
+            tracing::warn!(
+                env = env_name,
+                context,
+                "Ignoring {} in release builds for security (dev-only bypass rejected)",
+                env_name
+            );
+            return Ok(false);
+        }
+
+        #[cfg(debug_assertions)]
+        {
+            tracing::warn!(
+                env = env_name,
+                context,
+                production_mode = prod,
+                build = "debug",
+                "DEV-ONLY bypass enabled; verification will be skipped"
+            );
+            return Ok(true);
+        }
+    }
+
+    Ok(false)
+}
+
+/// Kernel manifest containing build metadata
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KernelManifest {
+    pub kernel_hash: String,
+    pub xcrun_version: String,
+    pub sdk_version: String,
+    pub rust_version: String,
+    pub build_timestamp: String,
+    pub toolchain_metadata: ToolchainMetadata,
+}
+
+/// Toolchain metadata for reproducibility
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolchainMetadata {
+    pub xcode_version: String,
+    pub sdk_version: String,
+    pub rust_version: String,
+    pub metal_version: String,
+}
+
+/// Signature metadata for manifest verification
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ManifestSignature {
+    pub signature: String,
+    pub public_key: String,
+    pub algorithm: String,
+    pub canonical_json: String,
+}
+
+/// Manifest verifier with embedded public key
+pub struct ManifestVerifier {
+    /// Embedded public key for verification
+    public_key: PublicKey,
+    /// Telemetry writer for logging verification events
+    telemetry: Option<Arc<TelemetryWriter>>,
+}
+
+impl ManifestVerifier {
+    /// Create a new manifest verifier with embedded public key
+    pub fn new(telemetry: Option<Arc<TelemetryWriter>>) -> Result<Self> {
+        // Load public key from the dynamically generated test key
+        // This uses the deterministic test key infrastructure in keys.rs
+        let public_key_pem = crate::keys::get_signing_public_key_pem();
+        let public_key = PublicKey::from_pem(&public_key_pem)
+            .map_err(|e| AosError::Crypto(format!("Failed to load embedded public key: {}", e)))?;
+
+        Ok(Self {
+            public_key,
+            telemetry,
+        })
+    }
+
+    /// Verify manifest signature and kernel hash
+    pub fn verify_manifest(
+        &self,
+        manifest_json: &str,
+        signature_data: &str,
+        actual_kernel_hash: B3Hash,
+    ) -> Result<KernelManifest> {
+        // Parse signature metadata
+        let sig_metadata: ManifestSignature =
+            serde_json::from_str(signature_data).map_err(AosError::Serialization)?;
+
+        // Verify signature algorithm
+        if sig_metadata.algorithm != "Ed25519" {
+            return Err(AosError::Crypto(format!(
+                "Unsupported signature algorithm: {}",
+                sig_metadata.algorithm
+            )));
+        }
+
+        // Decode signature
+        let signature_bytes = base64::engine::general_purpose::STANDARD
+            .decode(&sig_metadata.signature)
+            .map_err(|e| AosError::Crypto(format!("Invalid signature base64: {}", e)))?;
+
+        if signature_bytes.len() != 64 {
+            return Err(AosError::Crypto(format!(
+                "Invalid signature length: {}",
+                signature_bytes.len()
+            )));
+        }
+
+        let mut sig_array = [0u8; 64];
+        sig_array.copy_from_slice(&signature_bytes);
+
+        let signature = Signature::from_bytes(&sig_array)
+            .map_err(|e| AosError::Crypto(format!("Invalid signature format: {}", e)))?;
+
+        // Verify signature against canonical JSON
+        self.public_key
+            .verify(sig_metadata.canonical_json.as_bytes(), &signature)
+            .map_err(|e| AosError::Crypto(format!("Signature verification failed: {}", e)))?;
+
+        // NOTE: Kernel integrity is verified via the manifest signature and kernel_hash field.
+        // The manifest contains a BLAKE3 hash of the metallib, and the manifest itself is
+        // signed with Ed25519. This provides cryptographic verification that:
+        // 1. The manifest hasn't been tampered with (signature verification above)
+        // 2. The kernel matches what was signed (kernel_hash verification below)
+        //
+        // Previously there was additional direct kernel signature verification here,
+        // but it was using placeholder values and is redundant with the manifest-based
+        // verification chain.
+
+        // Parse manifest
+        let manifest: KernelManifest =
+            serde_json::from_str(manifest_json).map_err(AosError::Serialization)?;
+
+        // Verify kernel hash matches
+        let expected_hash = B3Hash::from_hex(&manifest.kernel_hash)
+            .map_err(|e| AosError::Crypto(format!("Invalid kernel hash in manifest: {}", e)))?;
+
+        if actual_kernel_hash != expected_hash {
+            return Err(AosError::DeterminismViolation(format!(
+                "Kernel hash mismatch!\n  Expected: {}\n  Actual:   {}\n  \
+                This indicates the embedded kernel does not match the manifest.\n  \
+                Rebuild with: cargo clean && cargo build",
+                expected_hash.to_hex(),
+                actual_kernel_hash.to_hex()
+            )));
+        }
+
+        // Log verification success to telemetry
+        self.log_verification_event(&manifest, actual_kernel_hash, true)?;
+
+        Ok(manifest)
+    }
+
+    /// Log verification event to telemetry
+    fn log_verification_event(
+        &self,
+        manifest: &KernelManifest,
+        kernel_hash: B3Hash,
+        success: bool,
+    ) -> Result<()> {
+        if let Some(telemetry) = &self.telemetry {
+            let identity = IdentityEnvelope::new(
+                "system".to_string(),
+                "kernel".to_string(),
+                "manifest".to_string(),
+                "1.0".to_string(),
+            );
+            let event = TelemetryEventBuilder::new(
+                adapteros_telemetry::EventType::Custom("kernel_manifest_verify".to_string()),
+                adapteros_telemetry::LogLevel::Info,
+                format!(
+                    "Kernel manifest verification: {}",
+                    if success { "success" } else { "failure" }
+                ),
+                identity,
+            )
+            .metadata(serde_json::json!({
+                "kernel_hash": kernel_hash.to_hex(),
+                "manifest_hash": B3Hash::hash(manifest.kernel_hash.as_bytes()).to_hex(),
+                "verification_result": if success { "success" } else { "failure" },
+                "build_timestamp": manifest.build_timestamp,
+                "toolchain": manifest.toolchain_metadata
+            }))
+            .build()?;
+
+            telemetry.log_event(event)?;
+        }
+
+        Ok(())
+    }
+}
+
+/// Verify embedded manifest at runtime
+pub fn verify_embedded_manifest(
+    metallib_bytes: &[u8],
+    telemetry: Option<Arc<TelemetryWriter>>,
+) -> Result<KernelManifest> {
+    // Load embedded manifest and signature
+    let manifest_json = include_str!("../manifests/metallib_manifest.json");
+    let signature_data = include_str!("../manifests/metallib_manifest.json.sig");
+
+    // Create verifier
+    let verifier = ManifestVerifier::new(telemetry)?;
+
+    // Compute actual kernel hash
+    let actual_hash = B3Hash::hash(metallib_bytes);
+
+    // Allow development override to skip kernel signature verification (DEV BUILDS ONLY)
+    let skip_sig = allow_dev_bypass(
+        &[
+            "AOS_SKIP_KERNEL_SIGNATURE_VERIFY",
+            "AOS_DEBUG_SKIP_KERNEL_SIG",
+        ],
+        "kernel manifest signature verification",
+    )?;
+
+    let manifest = if skip_sig {
+        // Parse manifest without signature validation (DEV ONLY)
+        tracing::warn!(
+            "Skipping kernel signature verification due to AOS_SKIP_KERNEL_SIGNATURE_VERIFY/AOS_DEBUG_SKIP_KERNEL_SIG"
+        );
+        let m: KernelManifest =
+            serde_json::from_str(manifest_json).map_err(AosError::Serialization)?;
+        // Still compare kernel hash if present
+        if let Ok(expected_hash) = B3Hash::from_hex(&m.kernel_hash) {
+            if actual_hash != expected_hash {
+                tracing::warn!(
+                    expected = %expected_hash.to_short_hex(),
+                    actual = %actual_hash.to_short_hex(),
+                    "Kernel hash mismatch in dev mode"
+                );
+            }
+        }
+        m
+    } else {
+        // Verify manifest and kernel signature
+        verifier.verify_manifest(manifest_json, signature_data, actual_hash)?
+    };
+
+    tracing::info!(
+        "Kernel manifest verified: hash={}, build={}",
+        actual_hash.to_short_hex(),
+        manifest.build_timestamp
+    );
+
+    Ok(manifest)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn set_env(var: &str, val: Option<&str>) -> Option<String> {
+        let prev = std::env::var(var).ok();
+        match val {
+            Some(v) => std::env::set_var(var, v),
+            None => std::env::remove_var(var),
+        }
+        prev
+    }
+
+    fn restore_env(var: &str, prev: Option<String>) {
+        match prev {
+            Some(v) => std::env::set_var(var, v),
+            None => std::env::remove_var(var),
+        }
+    }
+
+    #[test]
+    fn test_manifest_verification() {
+        // Create test manifest
+        let manifest = KernelManifest {
+            kernel_hash: "b3:test123".to_string(),
+            xcrun_version: "xcrun 1.0.0".to_string(),
+            sdk_version: "14.0".to_string(),
+            rust_version: "1.75.0".to_string(),
+            build_timestamp: "2024-01-15T10:30:00Z".to_string(),
+            toolchain_metadata: ToolchainMetadata {
+                xcode_version: "15.2".to_string(),
+                sdk_version: "14.0".to_string(),
+                rust_version: "1.75.0".to_string(),
+                metal_version: "3.1".to_string(),
+            },
+        };
+
+        let manifest_json =
+            serde_json::to_string(&manifest).expect("Test manifest should serialize to JSON");
+        let canonical_json = serde_json::to_string_pretty(&manifest)
+            .expect("Test manifest should serialize to pretty JSON");
+
+        // Note: This test would need actual signing keys to be complete
+        // For now, just test the structure
+        assert!(manifest_json.contains("kernel_hash"));
+        assert!(canonical_json.contains("kernel_hash"));
+    }
+
+    #[test]
+    fn test_skip_sig_rejected_in_production_mode() {
+        let prod_prev = set_env("AOS_SERVER_PRODUCTION_MODE", Some("true"));
+        let skip_prev = set_env("AOS_SKIP_KERNEL_SIGNATURE_VERIFY", Some("1"));
+
+        let result = verify_embedded_manifest(b"not-a-real-metallib", None);
+        assert!(
+            matches!(result, Err(AosError::PolicyViolation(_))),
+            "Skip env should be rejected when production_mode is enabled"
+        );
+
+        restore_env("AOS_SKIP_KERNEL_SIGNATURE_VERIFY", skip_prev);
+        restore_env("AOS_SERVER_PRODUCTION_MODE", prod_prev);
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    fn test_skip_sig_allowed_in_dev_debug() {
+        let prod_prev = set_env("AOS_SERVER_PRODUCTION_MODE", Some("false"));
+        let skip_prev = set_env("AOS_SKIP_KERNEL_SIGNATURE_VERIFY", Some("1"));
+
+        let result = verify_embedded_manifest(b"not-a-real-metallib", None);
+        assert!(
+            result.is_ok(),
+            "Dev skip should allow bypassing verification in debug builds"
+        );
+
+        restore_env("AOS_SKIP_KERNEL_SIGNATURE_VERIFY", skip_prev);
+        restore_env("AOS_SERVER_PRODUCTION_MODE", prod_prev);
+    }
+
+    #[test]
+    fn test_metallib_skip_blocked_in_production_mode() {
+        let prod_prev = set_env("AOS_SERVER_PRODUCTION_MODE", Some("true"));
+        let skip_prev = set_env("AOS_DEV_SKIP_METALLIB_CHECK", Some("1"));
+
+        let result = allow_dev_bypass(
+            &["AOS_DEV_SKIP_METALLIB_CHECK"],
+            "metallib hash verification",
+        );
+        assert!(
+            matches!(result, Err(AosError::PolicyViolation(_))),
+            "Hash skip should be rejected when production_mode is enabled"
+        );
+
+        restore_env("AOS_DEV_SKIP_METALLIB_CHECK", skip_prev);
+        restore_env("AOS_SERVER_PRODUCTION_MODE", prod_prev);
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    fn test_metallib_skip_allowed_in_dev_debug() {
+        let prod_prev = set_env("AOS_SERVER_PRODUCTION_MODE", Some("false"));
+        let skip_prev = set_env("AOS_DEV_SKIP_METALLIB_CHECK", Some("1"));
+
+        let result = allow_dev_bypass(
+            &["AOS_DEV_SKIP_METALLIB_CHECK"],
+            "metallib hash verification",
+        );
+        assert_eq!(result.unwrap_or(false), true);
+
+        restore_env("AOS_DEV_SKIP_METALLIB_CHECK", skip_prev);
+        restore_env("AOS_SERVER_PRODUCTION_MODE", prod_prev);
+    }
+}

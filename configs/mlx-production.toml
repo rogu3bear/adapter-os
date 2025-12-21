@@ -1,0 +1,23 @@
+# AdapterOS MLX production template
+# Hardened defaults for real MLX backend with circuit breaker protections.
+
+[server]
+backend = "mlx"
+production_mode = true
+uds_socket = "/var/run/adapteros.sock"
+
+[mlx]
+enabled = true
+model_path = "/var/lib/adapteros/models/qwen2.5-7b-mlx"
+precision = "float16"
+max_memory_mb = 20000
+circuit_breaker_timeout_secs = 600
+
+[telemetry]
+enabled = true
+streaming = true
+canonical_json = true
+
+[security]
+jwt_mode = "eddsa"
+require_pf_deny = true

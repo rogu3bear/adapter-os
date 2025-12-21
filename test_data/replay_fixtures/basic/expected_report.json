@@ -1,0 +1,13 @@
+{
+  "request_id": "basic",
+  "cpid": "cp-basic",
+  "plan_id": "plan-basic",
+  "worker_id": "worker-a",
+  "allow_cross_worker": false,
+  "expected_context_digest": "845340fd2d27e9a2b3f9f53a9d9a411609b0a92e2adba4a949f25f581e82d0db",
+  "expected_receipt": "a401884a8a0ed2ec3ced596860a98c2c3152d231d47231e6b3c3a2d2c9a5e1f0",
+  "expected_output_tokens": [
+    201,
+    202
+  ]
+}

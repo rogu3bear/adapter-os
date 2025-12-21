@@ -1,0 +1,18 @@
+[package]
+name = "adapteros-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[dependencies]
+libfuzzer-sys = "0.4"
+arbitrary = { version = "1.3", features = ["derive"] }
+adapteros-core = { path = "../crates/adapteros-core" }
+adapteros-lora-kernel-api = { path = "../crates/adapteros-lora-kernel-api" }
+adapteros-lora-worker = { path = "../crates/adapteros-lora-worker" }
+
+[[bin]]
+name = "model_cache_eviction"
+path = "fuzz_targets/model_cache_eviction.rs"
+test = false
+doc = false

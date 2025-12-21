@@ -1,0 +1,24 @@
+[package]
+name = "adapteros-lint"
+version.workspace = true
+edition = "2021"
+description = "Runtime guards for AdapterOS determinism enforcement"
+
+[dependencies]
+rand = "0.8"
+tracing = { workspace = true }
+syn = { version = "2.0", features = ["full", "parsing", "extra-traits", "visit"] }
+quote = "1.0"
+proc-macro2 = "1.0"
+
+[dev-dependencies]
+tokio = { version = "1.0", features = ["macros", "rt", "rt-multi-thread"] }
+tempfile = "3.8"
+walkdir = "2.5"
+
+[lib]
+name = "adapteros_lint"
+
+[[bin]]
+name = "adapteros-lint"
+path = "src/main.rs"

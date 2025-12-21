@@ -1,0 +1,36 @@
+{
+  "thresholds": {
+    "core_backends": {
+      "pattern": "adapteros-lora-kernel-*",
+      "threshold": 80,
+      "description": "Core Backends (CoreML, Metal, API)"
+    },
+    "inference": {
+      "pattern": "adapteros-lora-router|adapteros-lora-worker",
+      "threshold": 85,
+      "description": "Inference Pipeline"
+    },
+    "training": {
+      "pattern": "adapteros-lora-worker/training",
+      "threshold": 70,
+      "description": "Training Pipeline (modules within adapteros-lora-worker)"
+    },
+    "security": {
+      "pattern": "adapteros-policy|adapteros-secd",
+      "threshold": 95,
+      "description": "Security/Crypto (highest coverage requirement)"
+    },
+    "api": {
+      "pattern": "adapteros-server-api",
+      "threshold": 80,
+      "description": "API Handlers"
+    },
+    "default": {
+      "threshold": 80,
+      "description": "Default threshold for all other crates"
+    }
+  },
+  "source": "docs/testing/VERIFICATION-STRATEGY.md",
+  "last_updated": "2025-11-24"
+}
+

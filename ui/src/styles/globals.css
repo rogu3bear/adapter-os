@@ -1,0 +1,311 @@
+@import './design-system.css';
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --font-size: 16px;
+  --background: var(--surface-1);
+  --foreground: var(--gray-800);
+  --card: var(--surface-1);
+  --card-foreground: var(--gray-800);
+  --popover: var(--surface-1);
+  --popover-foreground: var(--gray-800);
+  --primary: var(--accent-600);
+  --primary-foreground: var(--surface-1);
+  --secondary: var(--surface-2);
+  --secondary-foreground: var(--gray-700);
+  --muted: var(--surface-2);
+  --muted-foreground: var(--gray-500);
+  --accent: var(--surface-2);
+  --accent-foreground: var(--gray-700);
+  --destructive: var(--error);
+  --destructive-foreground: var(--surface-1);
+  --border: var(--gray-200);
+  --input: transparent;
+  --input-background: var(--surface-2);
+  --switch-background: var(--gray-300);
+  --ring: var(--accent-500);
+  --chart-1: var(--accent-600);
+  --chart-2: var(--success);
+  --chart-3: var(--info);
+  --chart-4: var(--warning);
+  --chart-5: var(--gray-500);
+  --radius: var(--card-radius);
+  --sidebar: var(--surface-2);
+  --sidebar-foreground: var(--gray-700);
+  --sidebar-primary: var(--accent-600);
+  --sidebar-primary-foreground: var(--surface-1);
+  --sidebar-accent: var(--surface-3);
+  --sidebar-accent-foreground: var(--gray-700);
+  --sidebar-border: var(--gray-200);
+  --sidebar-ring: var(--accent-500);
+}
+
+.dark {
+  --background: var(--gray-900);
+  --foreground: var(--gray-0);
+  --card: var(--gray-900);
+  --card-foreground: var(--gray-0);
+  --popover: var(--gray-800);
+  --popover-foreground: var(--gray-0);
+  --primary: var(--accent-400);
+  --primary-foreground: var(--gray-900);
+  --secondary: var(--gray-800);
+  --secondary-foreground: var(--gray-0);
+  --muted: var(--gray-800);
+  --muted-foreground: var(--gray-400);
+  --accent: var(--gray-800);
+  --accent-foreground: var(--gray-0);
+  --destructive: var(--error);
+  --destructive-foreground: var(--gray-900);
+  --border: var(--gray-700);
+  --input: var(--gray-800);
+  --input-background: var(--gray-800);
+  --switch-background: var(--gray-600);
+  --ring: var(--accent-400);
+  --chart-1: var(--accent-400);
+  --chart-2: var(--success);
+  --chart-3: var(--info);
+  --chart-4: var(--warning);
+  --chart-5: var(--gray-400);
+  --sidebar: var(--gray-800);
+  --sidebar-foreground: var(--gray-0);
+  --sidebar-primary: var(--accent-400);
+  --sidebar-primary-foreground: var(--gray-900);
+  --sidebar-accent: var(--gray-700);
+  --sidebar-accent-foreground: var(--gray-0);
+  --sidebar-border: var(--gray-700);
+  --sidebar-ring: var(--accent-400);
+}
+
+@theme inline {
+  /* shadcn/ui semantic tokens */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-input-background: var(--input-background);
+  --color-switch-background: var(--switch-background);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+
+  /* Sidebar tokens */
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  /* Status semantic colors */
+  --color-success: var(--success);
+  --color-success-surface: var(--success-surface);
+  --color-success-border: var(--success-border);
+  --color-error: var(--error);
+  --color-error-surface: var(--error-surface);
+  --color-error-border: var(--error-border);
+  --color-warning: var(--warning);
+  --color-warning-surface: var(--warning-surface);
+  --color-warning-border: var(--warning-border);
+  --color-info: var(--info);
+  --color-info-surface: var(--info-surface);
+  --color-info-border: var(--info-border);
+
+  /* Accent scale */
+  --color-accent-300: var(--accent-300);
+  --color-accent-400: var(--accent-400);
+  --color-accent-500: var(--accent-500);
+  --color-accent-600: var(--accent-600);
+
+  /* Gray scale */
+  --color-gray-0: var(--gray-0);
+  --color-gray-50: var(--gray-100);
+  --color-gray-100: var(--gray-100);
+  --color-gray-200: var(--gray-200);
+  --color-gray-300: var(--gray-300);
+  --color-gray-400: var(--gray-400);
+  --color-gray-500: var(--gray-500);
+  --color-gray-600: var(--gray-600);
+  --color-gray-700: var(--gray-700);
+  --color-gray-800: var(--gray-800);
+  --color-gray-900: var(--gray-900);
+
+  /* Surface tokens */
+  --color-surface-1: var(--surface-1);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+
+  /* Spacing scale */
+  --spacing-0: var(--space-0);
+  --spacing-1: var(--space-1);
+  --spacing-2: var(--space-2);
+  --spacing-3: var(--space-3);
+  --spacing-4: var(--space-4);
+  --spacing-5: var(--space-5);
+  --spacing-6: var(--space-6);
+  --spacing-8: var(--space-8);
+  --spacing-10: var(--space-10);
+  --spacing-12: var(--space-12);
+  --spacing-16: var(--space-16);
+
+  /* Semantic spacing aliases */
+  --spacing-xs: var(--space-1);
+  --spacing-sm: var(--space-2);
+  --spacing-md: var(--space-4);
+  --spacing-lg: var(--space-6);
+  --spacing-xl: var(--space-8);
+  --spacing-2xl: var(--space-12);
+
+  /* Border radius (shadcn defaults) */
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  /* Component-specific radii */
+  --radius-button: var(--radius-button);
+  --radius-card: var(--radius-card);
+  --radius-input: var(--radius-input);
+  --radius-surface: var(--radius-surface);
+
+  /* Shadow tokens - actual values for Tailwind v4 utility generation */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.08);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.12);
+  --shadow-lg: 0 12px 24px rgba(0, 0, 0, 0.16);
+  --shadow-xl: 0 20px 40px rgba(0, 0, 0, 0.20);
+  --shadow-none: 0 0 #0000;
+
+  /* Font family */
+  --font-sans: ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+  /* Font weight */
+  --font-weight-normal: var(--font-weight-regular);
+  --font-weight-medium: var(--font-weight-medium);
+  --font-weight-semibold: var(--font-weight-semibold);
+  --font-weight-bold: var(--font-weight-bold);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+
+  /* Enhanced focus indicators for accessibility */
+  button:focus-visible,
+  a:focus-visible,
+  [role="button"]:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+    box-shadow: 0 0 0 4px color-mix(in oklab, var(--ring) 20%, transparent);
+    transition: box-shadow var(--transition-base, 0.15s) var(--transition-timing, ease-in-out);
+  }
+  
+  input:focus-visible,
+  textarea:focus-visible,
+  select:focus-visible {
+    border-color: var(--ring);
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring) 20%, transparent);
+    transition: border-color var(--transition-base, 0.15s) var(--transition-timing, ease-in-out), box-shadow var(--transition-base, 0.15s) var(--transition-timing, ease-in-out);
+  }
+}
+
+/**
+ * Base typography. This is not applied to elements which have an ancestor with a Tailwind text class.
+ */
+@layer base {
+  :where(:not(:has([class*=" text-"]), :not(:has([class^="text-"])))) {
+    h1 {
+      font-size: var(--text-2xl);
+      font-weight: var(--font-weight-medium);
+      line-height: 1.5;
+    }
+
+    h2 {
+      font-size: var(--text-xl);
+      font-weight: var(--font-weight-medium);
+      line-height: 1.5;
+    }
+
+    h3 {
+      font-size: var(--text-lg);
+      font-weight: var(--font-weight-medium);
+      line-height: 1.5;
+    }
+
+    h4 {
+      font-size: var(--text-base);
+      font-weight: var(--font-weight-medium);
+      line-height: 1.5;
+    }
+
+    p {
+      font-size: var(--text-base);
+      font-weight: var(--font-weight-normal);
+      line-height: 1.5;
+    }
+
+    label {
+      font-size: var(--text-base);
+      font-weight: var(--font-weight-medium);
+      line-height: 1.5;
+    }
+
+    button {
+      font-size: var(--text-base);
+      font-weight: var(--font-weight-medium);
+      line-height: 1.5;
+    }
+
+    input {
+      font-size: var(--text-base);
+      font-weight: var(--font-weight-normal);
+      line-height: 1.5;
+    }
+  }
+}
+
+/* Dev-only layout debugging helpers */
+.aos-layout-debug .aos-layout-debug-overflow {
+  outline: 2px solid #ef4444;
+  outline-offset: 2px;
+  background-image: linear-gradient(
+    135deg,
+    rgba(239, 68, 68, 0.08) 25%,
+    rgba(239, 68, 68, 0.02) 25%,
+    rgba(239, 68, 68, 0.02) 50%,
+    rgba(239, 68, 68, 0.08) 50%,
+    rgba(239, 68, 68, 0.08) 75%,
+    rgba(239, 68, 68, 0.02) 75%,
+    rgba(239, 68, 68, 0.02) 100%
+  );
+  background-size: 12px 12px;
+}
+
+html {
+  font-size: var(--font-size);
+}

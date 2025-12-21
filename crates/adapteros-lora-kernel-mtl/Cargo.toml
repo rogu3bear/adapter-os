@@ -1,0 +1,101 @@
+[package]
+name = "adapteros-lora-kernel-mtl"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[features]
+# Default: Metal backend only
+default = ["metal-backend"]
+
+# =============================================================================
+# BACKEND FEATURE FLAGS (crate-local)
+# =============================================================================
+# These features control which backend implementations are compiled into this crate.
+# They are INDEPENDENT of workspace-level features - enable explicitly when needed.
+#
+# Usage:
+#   cargo build -p adapteros-lora-kernel-mtl --features metal-backend
+#   cargo build -p adapteros-lora-kernel-mtl --features coreml-backend
+#   cargo build -p adapteros-lora-kernel-mtl --features all-backends
+#
+# Note: The coreml-backend feature in THIS crate enables CoreML code paths within
+# the Metal kernel crate. For the standalone CoreML crate, use adapteros-lora-kernel-coreml.
+# =============================================================================
+
+# Metal backend (GPU acceleration via Metal Performance Shaders)
+# Enabled by default - provides deterministic GPU kernels
+metal-backend = []
+
+# CoreML backend integration (Neural Engine acceleration via CoreML)
+# Enables CoreML code paths within this crate for hybrid Metal+CoreML execution
+coreml-backend = []
+
+# Enable all backends (Metal + CoreML)
+all-backends = ["metal-backend", "coreml-backend"]
+
+[dependencies]
+adapteros-core = { path = "../adapteros-core" }
+adapteros-lora-kernel-api = { path = "../adapteros-lora-kernel-api" }
+adapteros-crypto = { path = "../adapteros-crypto" }
+adapteros-telemetry = { path = "../adapteros-telemetry" }
+adapteros-numerics = { path = "../adapteros-numerics" }
+adapteros-platform = { path = "../adapteros-platform" }
+thiserror = { workspace = true }
+bincode = { workspace = true }
+serde = { workspace = true }
+serde_derive = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+base64 = "0.22"
+hex = { workspace = true }
+rand = { workspace = true }
+half = "2.4"
+safetensors = { workspace = true }
+memmap2 = "0.9"
+parking_lot = { workspace = true }
+ed25519-dalek = { workspace = true }
+
+# macOS-specific dependencies for Metal GPU support
+[target.'cfg(target_os = "macos")'.dependencies]
+metal = { workspace = true }
+objc = { workspace = true }
+cocoa = { workspace = true }
+core-foundation = { workspace = true }
+
+[build-dependencies]
+blake3 = { workspace = true }
+chrono = "0.4"
+cc = "1.0"
+ed25519-dalek = { workspace = true }
+base64 = "0.22"
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+bytemuck = { workspace = true }
+adapteros-memory = { path = "../adapteros-memory" }
+adapteros-testing = { path = "../adapteros-testing" }
+criterion = "0.5"
+
+# Metal kernel tests
+[[test]]
+name = "fused_mlp_smoke"
+
+[[test]]
+name = "fused_qkv_flash_smoke"
+
+[[test]]
+name = "metal_enhancement_tests"
+
+[[test]]
+name = "multi_backend_tests"
+
+[[test]]
+name = "coreml_backend_tests"
+
+# Metal kernel performance benchmarks
+[[bench]]
+name = "kernel_benchmarks"
+harness = false

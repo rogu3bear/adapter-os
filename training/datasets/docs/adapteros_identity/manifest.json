@@ -1,0 +1,53 @@
+{
+  "dataset_id": "adapteros-identity-docs-v1",
+  "name": "AdapterOS Identity Dataset (Documentation)",
+  "description": "Identity mapping dataset from AGENTS.md for memorization training. Uses identity strategy where input = target to teach the adapter to reproduce AdapterOS documentation verbatim.",
+  "version": "1.0.0",
+  "created_at": "2025-01-18",
+  "strategy": "identity",
+  "source_documents": [
+    {
+      "name": "AGENTS.md",
+      "type": "markdown",
+      "sections": [
+        "header",
+        "code_style",
+        "error_handling",
+        "logging",
+        "policy_packs",
+        "naming_conventions",
+        "hot_swap",
+        "lifecycle",
+        "deterministic_seeding",
+        "hkdf"
+      ]
+    }
+  ],
+  "statistics": {
+    "total_examples": 10,
+    "total_chunks": 10,
+    "avg_sequence_length": 350,
+    "source_format": "jsonl"
+  },
+  "training_config": {
+    "recommended_rank": 16,
+    "recommended_alpha": 32,
+    "max_seq_length": 512,
+    "strategy": "Identity"
+  },
+  "metadata": {
+    "purpose": "Memorization of AdapterOS core documentation",
+    "domain": "engineering/documentation",
+    "use_case": "Training adapters to recall AdapterOS technical concepts, conventions, and patterns",
+    "quality": "high",
+    "validation_status": "valid"
+  },
+  "files": [
+    {
+      "path": "adapteros-identity.jsonl",
+      "format": "jsonl",
+      "examples_count": 10,
+      "size_bytes": 0
+    }
+  ]
+}

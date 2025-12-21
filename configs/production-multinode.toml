@@ -1,0 +1,51 @@
+[server]
+production_mode = true
+uds_socket = "/var/run/adapteros/control-plane.sock"
+port = 0
+bind = "127.0.0.1"
+workers = 8
+enable_mmap_adapters = true
+mmap_cache_size_mb = 2048
+enable_hot_swap = true
+
+[db]
+path = "postgresql://adapteros:secure_password@postgres-primary:5432/adapteros_prod"
+
+[security]
+require_pf_deny = true
+mtls_required = true
+jwt_mode = "eddsa"
+jwt_secret_file = "/etc/adapteros/hmac.secret"
+jwt_public_key_pem_file = "/etc/adapteros/jwt_public.pem"
+jwt_signing_key_path = "/etc/adapteros/jwt_signing.key"
+global_seed = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+# File size limits for security (OOM prevention)
+max_config_size_bytes = 1048576      # 1MB for config.json
+max_tokenizer_size_bytes = 10485760  # 10MB for tokenizer.json
+max_model_size_bytes = 10737418240   # 10GB for model weights
+
+[paths]
+artifacts_root = "/var/lib/adapteros/artifacts"
+bundles_root = "/var/lib/adapteros/bundles"
+adapters_root = "/var/lib/adapteros/adapters"
+plan_dir = "/var/lib/adapteros/plans"
+datasets_root = "/var/lib/adapteros/datasets"
+documents_root = "/var/lib/adapteros/documents"
+
+[rate_limits]
+requests_per_minute = 600
+burst_size = 120
+inference_per_minute = 300
+
+[metrics]
+enabled = true
+bearer_token = "CHANGE_ME_METRICS_TOKEN_32_CHARS_MIN"
+include_histogram = true
+histogram_buckets = [0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0]
+system_metrics_interval_secs = 30
+
+[alerting]
+enabled = true
+alert_dir = "/var/log/adapteros/alerts"
+max_alerts_per_file = 10000
+rotate_size_mb = 50

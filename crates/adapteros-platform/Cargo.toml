@@ -1,0 +1,17 @@
+[package]
+name = "adapteros-platform"
+version.workspace = true
+edition = "2021"
+authors = ["AdapterOS Team"]
+description = "Cross-platform filesystem operations for AdapterOS"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+adapteros-core = { path = "../adapteros-core" }
+serde = { version = "1.0", features = ["derive"] }
+tracing = { workspace = true }
+dirs = "5.0"
+tempfile = "3.8"
+
+[dev-dependencies]
+tokio-test = "0.4"

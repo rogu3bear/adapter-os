@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Test Plain</title>
+</head>
+<body>
+  <div id="root"></div>
+  <script>
+    console.log("Plain HTML test starting");
+    console.log("Document ready state:", document.readyState);
+    
+    function testReact() {
+      console.log("Testing React...");
+      const rootElement = document.getElementById("root");
+      console.log("Root element:", rootElement);
+      
+      if (rootElement) {
+        rootElement.innerHTML = '<div style="padding: 20px; font-size: 24px; color: green;">Plain HTML Test - React Not Needed</div>';
+        console.log("Plain HTML test successful");
+      } else {
+        console.error("Root element not found!");
+      }
+    }
+    
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', testReact);
+    } else {
+      testReact();
+    }
+  </script>
+</body>
+</html>

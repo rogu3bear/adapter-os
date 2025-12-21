@@ -1,0 +1,79 @@
+// !(Dashboard configuration types for per-user widget customization
+
+use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
+
+use crate::schema_version;
+
+/// Dashboard widget configuration for a single widget
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct DashboardWidgetConfig {
+    pub id: String,
+    pub user_id: String,
+    pub widget_id: String,
+    pub enabled: bool,
+    pub position: i32,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+/// Request to get dashboard configuration for the current user
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct GetDashboardConfigRequest {
+    // Currently empty - uses authenticated user from JWT
+    // Future: could add filtering options
+}
+
+/// Response containing all widget configurations for a user
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct GetDashboardConfigResponse {
+    #[serde(default = "schema_version")]
+    pub schema_version: String,
+    pub widgets: Vec<DashboardWidgetConfig>,
+}
+
+/// Single widget configuration update
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct WidgetConfigUpdate {
+    pub widget_id: String,
+    pub enabled: bool,
+    pub position: i32,
+}
+
+/// Request to update dashboard widget configurations
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct UpdateDashboardConfigRequest {
+    pub widgets: Vec<WidgetConfigUpdate>,
+}
+
+/// Response after updating dashboard configuration
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct UpdateDashboardConfigResponse {
+    #[serde(default = "schema_version")]
+    pub schema_version: String,
+    pub success: bool,
+    pub updated_count: usize,
+}
+
+/// Request to reset dashboard to role defaults
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct ResetDashboardConfigRequest {
+    // Currently empty - uses authenticated user from JWT
+}
+
+/// Response after resetting dashboard configuration
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct ResetDashboardConfigResponse {
+    #[serde(default = "schema_version")]
+    pub schema_version: String,
+    pub success: bool,
+    pub message: String,
+}

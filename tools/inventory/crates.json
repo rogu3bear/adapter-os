@@ -1,0 +1,335 @@
+{
+  "schema_version": "1.0",
+  "generated_at": "2025-10-13",
+  "total_crates": 44,
+  "naming_prefixes": {
+    "mplora": 30,
+    "adapteros": 11,
+    "aos": 1,
+    "other": 2
+  },
+  "crates": [
+    {
+      "name": "mplora-core",
+      "path": "crates/mplora-core",
+      "category": "infrastructure",
+      "rename_to": "adapteros-core",
+      "description": "Core types, error handling, hashing, and ID generation"
+    },
+    {
+      "name": "mplora-crypto",
+      "path": "crates/mplora-crypto",
+      "category": "security",
+      "rename_to": "adapteros-crypto",
+      "description": "Cryptographic operations: Ed25519, BLAKE3, envelope encryption"
+    },
+    {
+      "name": "mplora-manifest",
+      "path": "crates/mplora-manifest",
+      "category": "configuration",
+      "rename_to": "adapteros-manifest",
+      "description": "Plan manifest parsing and validation"
+    },
+    {
+      "name": "mplora-registry",
+      "path": "crates/mplora-registry",
+      "category": "infrastructure",
+      "rename_to": "adapteros-registry",
+      "description": "Adapter registry management"
+    },
+    {
+      "name": "mplora-artifacts",
+      "path": "crates/mplora-artifacts",
+      "category": "infrastructure",
+      "rename_to": "adapteros-artifacts",
+      "description": "Content-addressed artifact store with SBOM support"
+    },
+    {
+      "name": "mplora-kernel-api",
+      "path": "crates/mplora-kernel-api",
+      "category": "lora",
+      "rename_to": "adapteros-lora-kernel-api",
+      "description": "Kernel trait definitions for compute backends"
+    },
+    {
+      "name": "mplora-kernel-mtl",
+      "path": "crates/mplora-kernel-mtl",
+      "category": "lora",
+      "rename_to": "adapteros-lora-kernel-mtl",
+      "description": "Metal-optimized fused kernels (attention + MLP + LoRA)"
+    },
+    {
+      "name": "mplora-kernel-prof",
+      "path": "crates/mplora-kernel-prof",
+      "category": "lora",
+      "rename_to": "adapteros-lora-kernel-prof",
+      "description": "Kernel performance profiling"
+    },
+    {
+      "name": "mplora-system-metrics",
+      "path": "crates/mplora-system-metrics",
+      "category": "observability",
+      "rename_to": "adapteros-system-metrics",
+      "description": "System and GPU metrics collection"
+    },
+    {
+      "name": "mplora-plan",
+      "path": "crates/mplora-plan",
+      "category": "lora",
+      "rename_to": "adapteros-lora-plan",
+      "description": "Plan building and management"
+    },
+    {
+      "name": "mplora-router",
+      "path": "crates/mplora-router",
+      "category": "lora",
+      "rename_to": "adapteros-lora-router",
+      "description": "K-sparse LoRA routing with Q15 quantized gates"
+    },
+    {
+      "name": "mplora-rag",
+      "path": "crates/mplora-rag",
+      "category": "lora",
+      "rename_to": "adapteros-lora-rag",
+      "description": "Evidence retrieval with HNSW vector search"
+    },
+    {
+      "name": "mplora-worker",
+      "path": "crates/mplora-worker",
+      "category": "lora",
+      "rename_to": "adapteros-lora-worker",
+      "description": "Main inference engine with safety mechanisms"
+    },
+    {
+      "name": "mplora-telemetry",
+      "path": "crates/mplora-telemetry",
+      "category": "observability",
+      "rename_to": "adapteros-telemetry",
+      "description": "Canonical JSON event logging with Merkle trees"
+    },
+    {
+      "name": "mplora-policy",
+      "path": "crates/mplora-policy",
+      "category": "security",
+      "rename_to": "adapteros-policy",
+      "description": "Policy enforcement engine (partial 20-pack implementation)"
+    },
+    {
+      "name": "mplora-cli",
+      "path": "crates/mplora-cli",
+      "category": "interface",
+      "rename_to": "adapteros-cli",
+      "description": "Command-line tool (aosctl -> adapteros)"
+    },
+    {
+      "name": "mplora-api",
+      "path": "crates/mplora-api",
+      "category": "interface",
+      "rename_to": "adapteros-api",
+      "description": "Public API types and traits"
+    },
+    {
+      "name": "mplora-sbom",
+      "path": "crates/mplora-sbom",
+      "category": "security",
+      "rename_to": "adapteros-sbom",
+      "description": "Software Bill of Materials generation"
+    },
+    {
+      "name": "mplora-quant",
+      "path": "crates/mplora-quant",
+      "category": "lora",
+      "rename_to": "adapteros-lora-quant",
+      "description": "Quantization utilities (Q15, etc.)"
+    },
+    {
+      "name": "mplora-server",
+      "path": "crates/mplora-server",
+      "category": "control-plane",
+      "rename_to": "adapteros-server",
+      "description": "Control plane API server"
+    },
+    {
+      "name": "mplora-server-api",
+      "path": "crates/mplora-server-api",
+      "category": "control-plane",
+      "rename_to": "adapteros-server-api",
+      "description": "REST API handlers and routes"
+    },
+    {
+      "name": "mplora-db",
+      "path": "crates/mplora-db",
+      "category": "infrastructure",
+      "rename_to": "adapteros-db",
+      "description": "SQLite database layer with migrations"
+    },
+    {
+      "name": "mplora-client",
+      "path": "crates/mplora-client",
+      "category": "interface",
+      "rename_to": "adapteros-client",
+      "description": "Client library for server communication"
+    },
+    {
+      "name": "mplora-node",
+      "path": "crates/mplora-node",
+      "category": "infrastructure",
+      "rename_to": "adapteros-node",
+      "description": "Node management and coordination"
+    },
+    {
+      "name": "mplora-chat",
+      "path": "crates/mplora-chat",
+      "category": "interface",
+      "rename_to": "adapteros-chat",
+      "description": "Chat protocol implementation"
+    },
+    {
+      "name": "mplora-metrics-exporter",
+      "path": "crates/mplora-metrics-exporter",
+      "category": "observability",
+      "rename_to": "adapteros-metrics-exporter",
+      "description": "Metrics export to external systems"
+    },
+    {
+      "name": "mplora-orchestrator",
+      "path": "crates/mplora-orchestrator",
+      "category": "control-plane",
+      "rename_to": "adapteros-orchestrator",
+      "description": "Multi-node orchestration"
+    },
+    {
+      "name": "mplora-profiler",
+      "path": "crates/mplora-profiler",
+      "category": "observability",
+      "rename_to": "adapteros-profiler",
+      "description": "Adapter performance profiling"
+    },
+    {
+      "name": "mplora-lifecycle",
+      "path": "crates/mplora-lifecycle",
+      "category": "lora",
+      "rename_to": "adapteros-lora-lifecycle",
+      "description": "Adapter lifecycle management and eviction"
+    },
+    {
+      "name": "mplora-git",
+      "path": "crates/mplora-git",
+      "category": "infrastructure",
+      "rename_to": "adapteros-git",
+      "description": "Git repository integration and commit tracking"
+    },
+    {
+      "name": "mplora-secd",
+      "path": "crates/mplora-secd",
+      "category": "security",
+      "rename_to": "adapteros-secd",
+      "description": "Secure Enclave daemon for key management"
+    },
+    {
+      "name": "mplora-mlx",
+      "path": "crates/mplora-mlx",
+      "category": "lora",
+      "rename_to": "adapteros-lora-mlx",
+      "description": "MLX backend integration (currently disabled)",
+      "status": "disabled"
+    },
+    {
+      "name": "mplora-codegraph",
+      "path": "crates/mplora-codegraph",
+      "category": "infrastructure",
+      "rename_to": "adapteros-codegraph",
+      "description": "Code graph analysis (currently disabled)",
+      "status": "disabled"
+    },
+    {
+      "name": "adapteros-deterministic-exec",
+      "path": "crates/adapteros-deterministic-exec",
+      "category": "determinism",
+      "rename_to": "adapteros-deterministic-exec",
+      "description": "Deterministic execution environment"
+    },
+    {
+      "name": "adapteros-graph",
+      "path": "crates/adapteros-graph",
+      "category": "determinism",
+      "rename_to": "adapteros-graph",
+      "description": "Computation graph with canonical hashing"
+    },
+    {
+      "name": "adapteros-replay",
+      "path": "crates/adapteros-replay",
+      "category": "determinism",
+      "rename_to": "adapteros-replay",
+      "description": "Deterministic replay sessions"
+    },
+    {
+      "name": "adapteros-trace",
+      "path": "crates/adapteros-trace",
+      "category": "observability",
+      "rename_to": "adapteros-trace",
+      "description": "Trace event capture and BLAKE3 hashing"
+    },
+    {
+      "name": "adapteros-numerics",
+      "path": "crates/adapteros-numerics",
+      "category": "determinism",
+      "rename_to": "adapteros-numerics",
+      "description": "Numeric stability and epsilon tracking"
+    },
+    {
+      "name": "adapteros-memory",
+      "path": "crates/adapteros-memory",
+      "category": "determinism",
+      "rename_to": "adapteros-memory",
+      "description": "Deterministic memory management and heap observation"
+    },
+    {
+      "name": "adapteros-compiler-lock",
+      "path": "crates/adapteros-compiler-lock",
+      "category": "determinism",
+      "rename_to": "adapteros-compiler-lock",
+      "description": "Compiler and toolchain lockbox verification"
+    },
+    {
+      "name": "adapteros-lint",
+      "path": "crates/adapteros-lint",
+      "category": "tooling",
+      "rename_to": "adapteros-lint",
+      "description": "Custom lints for nondeterminism detection"
+    },
+    {
+      "name": "adapteros-verify",
+      "path": "crates/adapteros-verify",
+      "category": "determinism",
+      "rename_to": "adapteros-verify",
+      "description": "Verification framework for epsilon bounds and hash comparison"
+    },
+    {
+      "name": "adapteros-domain",
+      "path": "crates/adapteros-domain",
+      "category": "lora",
+      "rename_to": "adapteros-domain",
+      "description": "Domain-specific adapter framework"
+    },
+    {
+      "name": "xtask",
+      "path": "xtask",
+      "category": "tooling",
+      "rename_to": "xtask",
+      "description": "Build automation tasks"
+    }
+  ],
+  "disabled_crates": [
+    "mplora-mlx",
+    "mplora-codegraph",
+    "mplora-codegraph-viewer"
+  ],
+  "rename_summary": {
+    "total_renames": 33,
+    "mplora_to_adapteros": 30,
+    "mplora_to_adapteros_lora": 11,
+    "keep_as_is": 11
+  }
+}
+

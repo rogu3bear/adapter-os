@@ -1,0 +1,34 @@
+# Grafana Datasources Provisioning
+# See: https://grafana.com/docs/grafana/latest/administration/provisioning/#datasources
+
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: ${PROMETHEUS_URL:-http://localhost:9090}
+    isDefault: true
+    editable: false
+    jsonData:
+      httpMethod: POST
+      manageAlerts: true
+      prometheusType: Prometheus
+      timeInterval: "15s"
+    uid: prometheus
+
+  # Optional: Jaeger/Tempo for distributed tracing
+  # Uncomment if using OpenTelemetry tracing backend
+  # - name: Tempo
+  #   type: tempo
+  #   access: proxy
+  #   url: ${TEMPO_URL:-http://localhost:3200}
+  #   editable: false
+  #   jsonData:
+  #     tracesToLogs:
+  #       datasourceUid: loki
+  #       filterByTraceID: true
+  #       filterBySpanID: false
+  #     nodeGraph:
+  #       enabled: true
+  #   uid: tempo

@@ -1,0 +1,27 @@
+# Example Vision Adapter Manifest
+#
+# This manifest configures a vision domain adapter for deterministic
+# image processing with quantized convolution.
+
+[adapter]
+name = "vision_adapter_v1"
+version = "1.0.0"
+model = "resnet50_quantized"
+hash = "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0"
+input_format = "NCHW canonical"
+output_format = "NCHW quantized"
+epsilon_threshold = 1e-5
+deterministic = true
+
+[adapter.model_files]
+weights = "path/to/vision_weights.safetensors"
+config = "path/to/vision_config.json"
+
+[adapter.parameters]
+image_height = 224
+image_width = 224
+num_channels = 3
+num_classes = 1000
+normalization_mean = [0.485, 0.456, 0.406]
+normalization_std = [0.229, 0.224, 0.225]
+

@@ -1,0 +1,120 @@
+{
+  "schema": "adapteros.manifest.v3",
+  "base": {
+    "model_id": "tinyllama-1.1b",
+    "model_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+    "arch": "llama",
+    "vocab_size": 32000,
+    "hidden_dim": 2048,
+    "n_layers": 22,
+    "n_heads": 32
+  },
+  "adapters": [
+    {
+      "id": "adapter_domain_a",
+      "hash": "1111111111111111111111111111111111111111111111111111111111111111",
+      "tier": "persistent",
+      "rank": 8,
+      "alpha": 16.0,
+      "target_modules": ["q_proj", "v_proj"],
+      "acl": []
+    },
+    {
+      "id": "adapter_domain_b",
+      "hash": "2222222222222222222222222222222222222222222222222222222222222222",
+      "tier": "ephemeral",
+      "rank": 4,
+      "alpha": 8.0,
+      "target_modules": ["q_proj", "v_proj"],
+      "ttl": 3600,
+      "acl": ["tenant1"]
+    }
+  ],
+  "router": {
+    "k_sparse": 3,
+    "gate_quant": "q15",
+    "entropy_floor": 0.02,
+    "tau": 1.0,
+    "sample_tokens_full": 128
+  },
+  "telemetry": {
+    "schema_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "sampling": {
+      "token": 0.05,
+      "router": 1.0,
+      "inference": 1.0
+    },
+    "router_full_tokens": 128,
+    "bundle": {
+      "max_events": 500000,
+      "max_bytes": 268435456
+    }
+  },
+  "policies": {
+    "egress": {
+      "mode": "deny_all",
+      "serve_requires_pf": true,
+      "allow_tcp": false,
+      "allow_udp": false,
+      "uds_paths": ["/var/run/aos/<tenant>/*.sock"]
+    },
+    "determinism": {
+      "require_metallib_embed": true,
+      "require_kernel_hash_match": true,
+      "rng": "hkdf_seeded",
+      "retrieval_tie_break": ["score_desc", "doc_id_asc"]
+    },
+    "evidence": {
+      "require_open_book": true,
+      "min_spans": 1,
+      "prefer_latest_revision": true,
+      "warn_on_superseded": true
+    },
+    "refusal": {
+      "abstain_threshold": 0.55,
+      "missing_fields_templates": {
+        "torque_spec": ["aircraft_effectivity", "component_pn"]
+      }
+    },
+    "numeric": {
+      "canonical_units": {
+        "torque": "in_lbf",
+        "pressure": "psi"
+      },
+      "max_rounding_error": 0.5,
+      "require_units_in_trace": true
+    },
+    "rag": {
+      "index_scope": "per_tenant",
+      "doc_tags_required": ["doc_id", "rev", "effectivity", "source_type"],
+      "embedding_model_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "topk": 5,
+      "order": ["score_desc", "doc_id_asc"]
+    },
+    "isolation": {
+      "process_model": "per_tenant",
+      "uds_root": "/var/run/aos/<tenant>",
+      "forbid_shm": true
+    },
+    "performance": {
+      "latency_p95_ms": 24,
+      "router_overhead_pct_max": 8,
+      "throughput_tokens_per_s_min": 40
+    },
+    "memory": {
+      "min_headroom_pct": 15,
+      "evict_order": ["ephemeral_ttl", "cold_lru", "warm_lru"],
+      "k_reduce_before_evict": true
+    },
+    "artifacts": {
+      "require_signature": true,
+      "require_sbom": true,
+      "cas_only": true
+    }
+  },
+  "seeds": {
+    "global": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "manifest_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "parent_cpid": null
+  }
+}

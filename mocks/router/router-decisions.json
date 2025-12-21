@@ -1,0 +1,27 @@
+{
+  "decisions": [
+    {
+      "decision_id": "dec-001",
+      "step": 0,
+      "input_token_id": 1234,
+      "candidate_adapters": [
+        {
+          "adapter_idx": 0,
+          "raw_score": 0.87,
+          "gate_q15": 28508
+        },
+        {
+          "adapter_idx": 1,
+          "raw_score": 0.45,
+          "gate_q15": 14745
+        }
+      ],
+      "selected_adapters": [0],
+      "entropy": 1.234,
+      "tau": 0.1,
+      "entropy_floor": 0.01,
+      "stack_hash": "b3:aabbccdd00112233445566778899aabbccddeeff00112233445566778899aabb",
+      "timestamp": "2025-01-16T14:35:22.123Z"
+    }
+  ]
+}

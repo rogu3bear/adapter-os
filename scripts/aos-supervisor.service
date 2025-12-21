@@ -1,0 +1,38 @@
+[Unit]
+Description=AdapterOS Supervisor Daemon
+Documentation=https://github.com/adapteros/adapter-os
+After=network.target
+Wants=aos-worker.service
+Conflicts=aos-worker.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/aos-supervisor --config /etc/aos/supervisor.toml
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=always
+RestartSec=10
+User=aos
+Group=aos
+
+# Environment
+Environment=RUST_LOG=info
+Environment=AOS_DB_PATH=/var/lib/aos/aos.db
+Environment=AOS_TELEMETRY_PATH=/var/lib/aos/telemetry
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/aos /var/run/aos
+
+# Resource limits
+LimitNOFILE=65536
+LimitNPROC=32768
+
+# Health check
+ExecStartPost=/bin/sleep 5
+ExecStartPost=/bin/systemctl is-active --quiet %n || exit 1
+
+[Install]
+WantedBy=multi-user.target

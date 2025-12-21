@@ -1,0 +1,95 @@
+#!/bin/bash
+# Pre-commit hook for AdapterOS
+# Runs linting, validation, and multi-agent conflict detection
+
+set -e
+
+echo "🧹 Running pre-commit checks..."
+
+# Check if we're in the right directory
+if [ ! -f "Cargo.toml" ]; then
+    echo "❌ Not in AdapterOS root directory"
+    exit 1
+fi
+
+# =============================================================================
+# MULTI-AGENT CONFLICT DETECTION
+# =============================================================================
+
+echo "🔍 Checking for PRD boundary violations..."
+
+# Get list of staged files
+STAGED_FILES=$(git diff --cached --name-only)
+
+# Check PRD-RECT-001 boundaries (should not touch migrations)
+if echo "$STAGED_FILES" | grep -q "crates/adapteros-db/src/adapters.rs"; then
+    if echo "$STAGED_FILES" | grep -q "migrations/"; then
+        echo "⚠️  WARNING: PRD-RECT-001 files AND migrations staged together"
+        echo "   This may cause conflicts with PRD-RECT-004. Consider separate commits."
+    fi
+fi
+
+# Check PRD-RECT-003 boundaries (should not touch server-api handlers)
+if echo "$STAGED_FILES" | grep -q "crates/adapteros-lora-worker/src/model_handle_cache.rs"; then
+    if echo "$STAGED_FILES" | grep -q "crates/adapteros-server-api/src/handlers/"; then
+        echo "⚠️  WARNING: PRD-RECT-003 files AND server-api handlers staged together"
+        echo "   This may cause conflicts. Consider separate commits."
+    fi
+fi
+
+# =============================================================================
+# HALLUCINATION DETECTION
+# =============================================================================
+
+echo "🔍 Checking for potential hallucinations in staged Rust files..."
+
+# Check for references to non-existent common hallucinated patterns
+for file in $(echo "$STAGED_FILES" | grep "\.rs$"); do
+    if [ -f "$file" ]; then
+        # Check for common hallucinated function names
+        if grep -q "handle_infer\|GlobalLedger\|StackService" "$file" 2>/dev/null; then
+            echo "⚠️  WARNING: $file may contain hallucinated API references"
+            echo "   Known incorrect patterns: handle_infer (use infer), GlobalLedger (use GlobalTickLedger), StackService (use LifecycleManager)"
+        fi
+    fi
+done
+
+# =============================================================================
+# STANDARD CHECKS
+# =============================================================================
+
+# Run cargo check (fast compilation check)
+echo "🔍 Running cargo check..."
+if ! cargo check --quiet 2>&1; then
+    echo "❌ cargo check failed - code does not compile"
+    echo "   This may indicate hallucinated imports or API references"
+    exit 1
+fi
+
+# Run clippy (linting)
+echo "🔍 Running clippy..."
+if ! cargo clippy --all-features --quiet -- -D warnings 2>&1; then
+    echo "❌ clippy failed - code has lint errors"
+    exit 1
+fi
+
+# Run formatter check
+echo "🔍 Checking code formatting..."
+if ! cargo fmt --all --check 2>&1; then
+    echo "❌ Code is not formatted. Run: cargo fmt --all"
+    exit 1
+fi
+
+# =============================================================================
+# SUMMARY
+# =============================================================================
+
+echo "✅ All pre-commit checks passed!"
+echo ""
+echo "📋 Staged files:"
+echo "$STAGED_FILES" | head -10
+if [ $(echo "$STAGED_FILES" | wc -l) -gt 10 ]; then
+    echo "   ... and $(( $(echo "$STAGED_FILES" | wc -l) - 10 )) more"
+fi
+
+exit 0

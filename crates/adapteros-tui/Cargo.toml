@@ -1,0 +1,53 @@
+[package]
+name = "adapteros-tui"
+version = "0.1.0"
+edition = "2021"
+authors = ["AdapterOS Team"]
+description = "Terminal User Interface control system for adapterOS"
+license = "MIT OR Apache-2.0"
+
+[[bin]]
+name = "adapteros-tui"
+path = "src/main.rs"
+
+[dependencies]
+# TUI Framework
+ratatui = "0.29"
+crossterm = "0.28"
+
+# Async runtime
+tokio = { version = "1.41", features = ["full"] }
+tokio-stream = "0.1"
+
+# HTTP/WebSocket for API integration
+reqwest = { version = "0.12", features = ["json", "stream"] }
+tokio-tungstenite = "0.24"
+
+# Internal crates (gradual integration)
+adapteros-api-types = { path = "../adapteros-api-types" }
+# adapteros-db has compile-time query validation errors, so we'll use sqlx directly
+# adapteros-db = { path = "../adapteros-db" }
+# adapteros-core = { path = "../adapteros-core" }  # Has crypto dependency issues
+# adapteros-telemetry = { path = "../adapteros-telemetry" }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Database - direct access
+sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite"], default-features = false }
+
+# Logging and errors
+tracing = { workspace = true }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+anyhow = "1.0"
+thiserror = "2.0"
+
+# Utilities
+chrono = "0.4"
+once_cell = "1.20"
+which = "6.0"
+
+# For aligned text and formatting
+unicode-width = "0.1"
+textwrap = "0.16"

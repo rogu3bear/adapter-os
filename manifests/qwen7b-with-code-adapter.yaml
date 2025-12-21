@@ -1,0 +1,127 @@
+schema: adapteros.manifest.v3
+base:
+  model_id: "Qwen2.5-7B-Instruct"
+  model_hash: "c2b163cbaac302b55d81116be1ea6e75309017db50d9c7eafeebb29030394f29"
+  arch: "Qwen2ForCausalLM"
+  vocab_size: 152064
+  hidden_dim: 3584
+  n_layers: 28
+  n_heads: 28
+  config_hash: "c2b163cbaac302b55d81116be1ea6e75309017db50d9c7eafeebb29030394f29"
+  tokenizer_hash: "c2b163cbaac302b55d81116be1ea6e75309017db50d9c7eafeebb29030394f29"
+  tokenizer_cfg_hash: "c2b163cbaac302b55d81116be1ea6e75309017db50d9c7eafeebb29030394f29"
+  license_hash: "c2b163cbaac302b55d81116be1ea6e75309017db50d9c7eafeebb29030394f29"
+
+adapters:
+  # Layer 2: Code (Domain Adapter) - First layer after base model
+  - id: "code_lang_v1"
+    hash: "36f6f094b169354edad1b78786d820100be62d2c0b377e0b5753fa06eafac45a"
+    tier: "persistent"
+    category: "code"
+    scope: "global"
+    rank: 16
+    alpha: 32.0
+    target_modules: ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+    acl: []
+    metadata:
+      description: "Generic coding knowledge across languages, patterns, and tooling"
+      training_data:
+        - "Language syntax and semantics (Python, Rust, TypeScript, Go, Java)"
+        - "Static analysis reasoning (type errors, linter violations)"
+        - "Refactoring patterns (extract function, inline, rename)"
+        - "Test scaffolding"
+        - "Docstring and comment hygiene"
+        - "Secure coding patterns"
+      evaluation_gates:
+        - "Compile-pass delta ≥ target on synthetic repos"
+        - "Linter error reduction ≥ target"
+        - "No security anti-patterns introduced"
+
+router:
+  k_sparse: 3
+  gate_quant: "q15"
+  entropy_floor: 0.02
+  tau: 1.0
+  sample_tokens_full: 128
+  features:
+    - "lang_one_hot"
+    - "framework_prior"
+    - "symbol_hits"
+    - "path_tokens"
+    - "attn_entropy"
+  code_features:
+    enable_lang_detection: true
+    enable_framework_prior: true
+    enable_symbol_hits: true
+    enable_path_tokens: true
+    max_framework_adapters: 1
+
+telemetry:
+  schema_hash: "94e35ad1ca6568e622f2bf5bedc44e6227be0dbf30f5e166e1d308c4218759b9"
+  sampling:
+    token: 0.05
+    router: 1.0
+    inference: 1.0
+  router_full_tokens: 128
+  bundle:
+    max_events: 500000
+    max_bytes: 268435456
+
+policies:
+  egress:
+    mode: "deny_all"
+    serve_requires_pf: true
+    allow_tcp: false
+    allow_udp: false
+    uds_paths: ["/var/run/aos/<tenant>/*.sock"]
+  determinism:
+    require_metallib_embed: true
+    require_kernel_hash_match: true
+    rng: "hkdf_seeded"
+    retrieval_tie_break: ["score_desc", "doc_id_asc"]
+  evidence:
+    require_open_book: true
+    min_spans: 1
+    prefer_latest_revision: true
+    warn_on_superseded: true
+  refusal:
+    abstain_threshold: 0.55
+    missing_fields_templates: {}
+  numeric:
+    canonical_units:
+      memory: "bytes"
+      time: "seconds"
+    max_rounding_error: 0.5
+    require_units_in_trace: true
+  rag:
+    index_scope: "per_tenant"
+    doc_tags_required: ["doc_id", "rev", "effectivity", "source_type"]
+    embedding_model_hash: "c2b163cbaac302b55d81116be1ea6e75309017db50d9c7eafeebb29030394f29"
+    topk: 5
+    order: ["score_desc", "doc_id_asc"]
+  isolation:
+    process_model: "per_tenant"
+    uds_root: "/var/run/aos/<tenant>"
+    forbid_shm: true
+  performance:
+    latency_p95_ms: 24
+    router_overhead_pct_max: 8
+    throughput_tokens_per_s_min: 40
+  memory:
+    min_headroom_pct: 15
+    evict_order: ["ephemeral_ttl", "cold_lru", "warm_lru"]
+    k_reduce_before_evict: true
+  artifacts:
+    require_signature: true
+    require_sbom: true
+    cas_only: true
+  drift:
+    os_build_tolerance: 0
+    gpu_driver_tolerance: 0
+    env_hash_tolerance: 0
+    allow_warnings: true
+    block_on_critical: true
+
+seeds:
+  global: "8cbdc4e57f82f9f5a63e96bb0b58ad505ae20975bf205bb16c69935a22e53df9"
+  manifest_hash: "c2b163cbaac302b55d81116be1ea6e75309017db50d9c7eafeebb29030394f29"

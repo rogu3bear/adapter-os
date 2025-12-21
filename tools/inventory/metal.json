@@ -1,0 +1,249 @@
+{
+  "schema_version": "1.0",
+  "generated_at": "2025-10-13",
+  "metal_directory": "metal/",
+  "source_files": [
+    {
+      "file": "metal/aos_kernels.metal",
+      "lines": 366,
+      "status": "monolithic",
+      "target_split": [
+        "metal/src/kernels/attention.metal",
+        "metal/src/kernels/mlp.metal",
+        "metal/src/kernels/lora.metal"
+      ],
+      "kernels": [
+        {
+          "name": "fused_mlp",
+          "line": 29,
+          "parameters": 50,
+          "description": "Fused MLP with SwiGLU activation, LoRA support, and bias"
+        },
+        {
+          "name": "fused_qkv_gqa",
+          "line": 164,
+          "parameters": 40,
+          "description": "Fused QKV with Grouped Query Attention (GQA)"
+        },
+        {
+          "name": "flash_attention",
+          "line": 283,
+          "parameters": 35,
+          "description": "Flash Attention with tiled computation"
+        }
+      ]
+    },
+    {
+      "file": "metal/fused_attention.metal",
+      "lines": 268,
+      "status": "already_split",
+      "target": "metal/src/kernels/attention.metal",
+      "kernels": [
+        {
+          "name": "fused_qkv_projection",
+          "line": 19,
+          "parameters": 30,
+          "description": "QKV projection with bias support"
+        },
+        {
+          "name": "apply_rope_embeddings",
+          "line": 104,
+          "parameters": 15,
+          "description": "Apply Rotary Position Embeddings (RoPE)"
+        },
+        {
+          "name": "flash_attention",
+          "line": 151,
+          "parameters": 25,
+          "description": "Flash Attention implementation with GQA"
+        },
+        {
+          "name": "attention_output_projection",
+          "line": 241,
+          "parameters": 10,
+          "description": "Attention output projection layer"
+        }
+      ]
+    },
+    {
+      "file": "metal/fused_mlp.metal",
+      "lines": 0,
+      "status": "empty",
+      "target": "metal/src/kernels/mlp.metal",
+      "note": "Placeholder file, actual MLP kernels in aos_kernels.metal"
+    },
+    {
+      "file": "metal/common.metal",
+      "lines": 112,
+      "status": "shared_utilities",
+      "target": "metal/src/kernels/utils.metal",
+      "description": "Common configuration structures and deterministic math functions",
+      "structs": [
+        {
+          "name": "LoraConfig",
+          "fields": ["rank", "alpha", "target_module", "dropout_rate"]
+        },
+        {
+          "name": "GqaConfig",
+          "fields": [
+            "num_attention_heads",
+            "num_key_value_heads",
+            "head_dim",
+            "kv_width",
+            "hidden_size",
+            "rope_theta",
+            "attention_scale",
+            "dropout_rate"
+          ]
+        },
+        {
+          "name": "RingBuffer",
+          "fields": ["top_k", "current_pos", "adapter_indices[8]", "gates[8]"]
+        }
+      ],
+      "functions": [
+        "deterministic_silu",
+        "q15_to_float",
+        "deterministic_gelu",
+        "deterministic_softmax_sum",
+        "rope_frequency",
+        "rope_cos_sin",
+        "apply_rope_rotation",
+        "deterministic_dropout"
+      ]
+    }
+  ],
+  "compiled_artifacts": [
+    {
+      "file": "metal/aos_kernels.metallib",
+      "status": "needs_split",
+      "note": "Compiled from aos_kernels.metal; will be replaced by modular compilation"
+    },
+    {
+      "file": "metal/mplora_kernels.metallib",
+      "status": "production",
+      "note": "Production metallib; needs hash tracking"
+    }
+  ],
+  "parameter_struct_refactor": {
+    "status": "planned",
+    "description": "Replace 50+ individual parameters with struct-based configuration",
+    "target_structs": [
+      {
+        "name": "LoraConfig",
+        "fields": {
+          "adapter_count": "uint",
+          "k_sparse": "uint",
+          "rank": "uint",
+          "alpha": "float",
+          "dropout_rate": "float",
+          "entropy_floor": "float"
+        }
+      },
+      {
+        "name": "RingBuffer",
+        "fields": {
+          "data": "device float*",
+          "capacity": "uint",
+          "head": "uint",
+          "tail": "uint",
+          "top_k": "uint",
+          "adapter_indices": "uint[8]",
+          "gates": "uint16_t[8]"
+        }
+      },
+      {
+        "name": "AttentionConfig",
+        "fields": {
+          "batch_size": "uint",
+          "seq_len": "uint",
+          "num_heads": "uint",
+          "num_kv_heads": "uint",
+          "head_dim": "uint",
+          "hidden_size": "uint",
+          "rope_theta": "float",
+          "attention_scale": "float"
+        }
+      },
+      {
+        "name": "MlpConfig",
+        "fields": {
+          "hidden_size": "uint",
+          "intermediate_size": "uint",
+          "batch_size": "uint",
+          "has_bias": "bool"
+        }
+      }
+    ]
+  },
+  "kernel_call_sites": {
+    "crate": "mplora-kernel-mtl",
+    "files": [
+      "crates/mplora-kernel-mtl/src/lib.rs",
+      "crates/mplora-kernel-mtl/src/fused_mlp.rs",
+      "crates/mplora-kernel-mtl/src/fused_qkv.rs"
+    ]
+  },
+  "build_system": {
+    "script": "metal/build.sh",
+    "ci_script": "metal/ci_build.sh",
+    "metadata_file": "metal/build_metadata.json",
+    "toolchain_config": "metal/toolchain.toml",
+    "compiler_lockbox": "metal/compiler_lockbox.toml",
+    "determinism_flags": [
+      "#pragma clang fp contract(off)",
+      "-fno-fast-math",
+      "-std=metal3.0"
+    ],
+    "planned_changes": [
+      "Compute BLAKE3 hashes of compiled .metallib files",
+      "Fail builds if hashes drift without --update-kernels flag",
+      "Record Metal SDK version and compiler fingerprint",
+      "Generate kernel registry JSON with versioned hashes"
+    ]
+  },
+  "kernel_registry": {
+    "status": "not_yet_created",
+    "planned_file": "metal/kernels.json",
+    "schema": {
+      "kernels": [
+        {
+          "name": "kernel_name",
+          "version": "semver",
+          "hash": "b3:...",
+          "source_file": "relative_path",
+          "parameters": "list_of_param_structs"
+        }
+      ],
+      "compiler": {
+        "version": "xcrun_metal_version",
+        "sdk": "metal_sdk_version",
+        "flags": ["array", "of", "flags"]
+      }
+    }
+  },
+  "target_structure": {
+    "root": "metal/",
+    "src": "metal/src/",
+    "kernels": "metal/src/kernels/",
+    "types": "metal/src/types.metal",
+    "utils": "metal/src/kernels/utils.metal",
+    "modules": [
+      "metal/src/kernels/attention.metal",
+      "metal/src/kernels/mlp.metal",
+      "metal/src/kernels/lora.metal"
+    ]
+  },
+  "documentation": {
+    "status": "partial",
+    "current": "inline comments in metal files",
+    "planned": "metal/README.md with kernel module structure and parameter documentation"
+  },
+  "determinism_guarantees": [
+    "Precompiled .metallib (no runtime compilation)",
+    "Fixed rounding mode and no fast-math",
+    "Deterministic RNG via xorshift with HKDF-derived seeds",
+    "Canonical struct layout with explicit padding"
+  ]
+}
+

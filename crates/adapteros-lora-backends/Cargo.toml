@@ -1,0 +1,54 @@
+[package]
+name = "adapteros-lora-backends"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Unified compute backends facade for AdapterOS LoRA inference"
+
+[features]
+default = ["coreml", "mlx"]
+
+# =============================================================================
+# BACKEND FEATURE FLAGS (macOS only)
+# =============================================================================
+# This crate provides a unified facade over the individual backend crates.
+#
+# Priority order for inference:
+#   1. CoreML - Neural Engine (ANE) acceleration, best power efficiency
+#   2. MLX    - Apple's native ML framework, good for training + inference
+#   3. Metal  - GPU fallback for non-ANE operations
+#
+# Features:
+#   coreml:   CoreML/Neural Engine backend (macOS 13+, default)
+#   mlx:      MLX backend via C++ FFI (default)
+#   metal:    Metal GPU backend (fallback)
+#   profiler: Kernel profiling support
+#   all:      Enable all backends
+#
+# Usage:
+#   cargo build -p adapteros-lora-backends                      # CoreML + MLX (default)
+#   cargo build -p adapteros-lora-backends --features metal     # + Metal fallback
+#   cargo build -p adapteros-lora-backends --features all       # All backends
+# =============================================================================
+
+coreml = ["dep:adapteros-lora-kernel-coreml"]
+mlx = ["dep:adapteros-lora-mlx-ffi"]
+metal = ["dep:adapteros-lora-kernel-mtl"]
+profiler = ["dep:adapteros-lora-kernel-prof"]
+all = ["coreml", "mlx", "metal", "profiler"]
+
+[dependencies]
+# Core API (always included)
+adapteros-lora-kernel-api = { path = "../adapteros-lora-kernel-api" }
+adapteros-core = { path = "../adapteros-core" }
+
+# Optional backend implementations
+adapteros-lora-kernel-mtl = { path = "../adapteros-lora-kernel-mtl", optional = true }
+adapteros-lora-kernel-coreml = { path = "../adapteros-lora-kernel-coreml", optional = true }
+adapteros-lora-mlx-ffi = { path = "../adapteros-lora-mlx-ffi", optional = true }
+adapteros-lora-kernel-prof = { path = "../adapteros-lora-kernel-prof", optional = true }
+
+# Common dependencies
+thiserror = { workspace = true }
+tracing = { workspace = true }

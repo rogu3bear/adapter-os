@@ -1,0 +1,84 @@
+# AdapterOS DB Optimization Registry
+#
+# Purpose:
+# - Provide a single coordination point for *all* DB optimizations (migrations, query rewrites,
+#   PRAGMA changes, background jobs that change planner behavior).
+# - Enable safe parallel development via explicit ownership, dependency tracking, and
+#   pre-implementation conflict resolution.
+# - Enforce rollout safety via required canary + rollback + impact assessment.
+#
+# Rules (enforced by tests):
+# - Every optimization MUST have a unique `id`.
+# - `migrations` and `rollback_scripts` MUST reference existing files.
+# - `depends_on`/`conflicts_with` MUST reference known IDs.
+# - `touches` entries MUST be globally unique across non-archived optimizations.
+# - `canary` and `rollback` MUST be non-empty.
+
+[[optimization]]
+id = "dbopt-0210-tenant-scoped-composite-indexes"
+title = "Tenant-scoped composite indexes for hot queries"
+owner_team = "adapteros-db"
+owner_contacts = ["@mln-db-oncall"]
+status = "rolled_out" # proposed | in_progress | merged | rolled_out | archived
+risk = "low"
+
+# Files
+migrations = ["0210_tenant_scoped_query_optimization.sql"]
+rollback_scripts = ["rollbacks/0210_tenant_scoped_query_optimization_rollback.sql"]
+
+# Coordination
+depends_on = []
+conflicts_with = []
+
+# Conflict surface (must be unique)
+touches = [
+  "adapters:idx_adapters_tenant_active_tier_created",
+  "adapters:idx_adapters_tenant_hash_active",
+  "adapters:idx_adapters_tenant_expires",
+  "documents:idx_documents_tenant_created",
+  "repository_training_jobs:idx_training_jobs_tenant_status_created",
+  "chat_messages:idx_chat_messages_tenant_created",
+  "base_model_status:idx_base_model_status_tenant_model",
+]
+
+# Safety
+canary = "Deploy migration to canary environment first; verify query plans + p95 latency; then promote"
+rollback = "If regression: restore from pre-migration backup OR apply rollback script(s) and ANALYZE"
+impact_assessment = [
+  "Collect baseline EXPLAIN QUERY PLAN for listed hot queries",
+  "Run adapteros-db query performance tests and record p95/p99 deltas",
+  "Confirm SQLite WAL growth does not regress under representative load",
+]
+success_metrics = [
+  "No temp B-tree for ORDER BY on tenant-scoped listing queries",
+  "p95 latency improvement >= 30% (target 50%) on affected endpoints",
+]
+
+[[optimization]]
+id = "dbopt-0217-training-jobs-dashboard-index"
+title = "Training jobs dashboard index (tenant/status/created_at/adapter_id)"
+owner_team = "adapteros-db"
+owner_contacts = ["@mln-db-oncall"]
+status = "rolled_out"
+risk = "low"
+
+migrations = ["0217_add_training_jobs_index.sql"]
+rollback_scripts = ["rollbacks/0217_add_training_jobs_index_rollback.sql"]
+
+depends_on = ["dbopt-0210-tenant-scoped-composite-indexes"]
+conflicts_with = []
+
+touches = [
+  "repository_training_jobs:idx_training_jobs_tenant_status_created_adapter",
+]
+
+canary = "Deploy migration to canary environment first; validate UI dashboard p95 and EXPLAIN plans"
+rollback = "If regression: restore from pre-migration backup OR apply rollback script and ANALYZE repository_training_jobs"
+impact_assessment = [
+  "Collect baseline EXPLAIN QUERY PLAN for repository_training_jobs listing query",
+  "Validate index selection on tenant_id+status ordered by created_at DESC",
+]
+success_metrics = [
+  "Dashboard listing p95 improves and remains stable under concurrency",
+]
+

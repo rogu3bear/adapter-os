@@ -1,0 +1,47 @@
+[package]
+name = "adapteros-telemetry"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+adapteros-core = { path = "../adapteros-core" }
+adapteros-crypto = { path = "../adapteros-crypto" }
+adapteros-types = { path = "../adapteros-types" }
+adapteros-telemetry-types = { path = "../adapteros-telemetry-types" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_jcs = { workspace = true }
+crossbeam = { workspace = true }
+thiserror = { workspace = true }
+hex = { workspace = true }
+tracing = { workspace = true, features = ["log"] }
+tempfile = { workspace = true, optional = true }
+prometheus = { workspace = true }
+tokio = { workspace = true }
+axum = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+blake3 = { workspace = true }
+clap = { workspace = true }
+tracing-subscriber = { workspace = true }
+async-trait = { workspace = true }
+rand = { workspace = true }
+zstd = "0.13"
+flate2 = "1.0"
+lz4_flex = "0.11"
+
+[dev-dependencies]
+tempfile = { workspace = true }
+criterion = { version = "0.5", features = ["html_reports", "async_tokio"] }
+
+[[bench]]
+name = "telemetry_overhead"
+harness = false
+
+[[bench]]
+name = "compression_benchmark"
+harness = false
