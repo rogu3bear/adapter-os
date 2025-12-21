@@ -2,6 +2,7 @@ import React from 'react';
 import { Loader2 } from 'lucide-react';
 import { Skeleton } from './skeleton';
 import { cn } from '@/lib/utils';
+import { useReducedMotion } from '@/hooks/ui/useReducedMotion';
 
 type LoadingStateSize = 'sm' | 'md';
 type LoadingStateVariant = 'card' | 'minimal';
@@ -45,6 +46,7 @@ export function LoadingState({
   className,
 }: LoadingStateProps) {
   const resolvedLabel = ariaLabel || title || message || 'Loading';
+  const prefersReducedMotion = useReducedMotion();
 
   if (variant === 'minimal') {
     return (
@@ -55,7 +57,7 @@ export function LoadingState({
         aria-label={resolvedLabel}
         data-testid={testId ?? 'loading-state'}
       >
-        <Loader2 className={cn('mx-auto animate-spin', spinnerClassMap[size])} aria-hidden="true" />
+        <Loader2 className={cn('mx-auto', !prefersReducedMotion && 'animate-spin', spinnerClassMap[size])} aria-hidden="true" />
         {title && <p className="mt-2 text-sm">{title}</p>}
         {description && <p className="mt-1 text-sm">{description}</p>}
         {message && <p className="mt-2 text-sm">{message}</p>}
@@ -82,7 +84,7 @@ export function LoadingState({
       aria-label={resolvedLabel}
       data-testid={testId ?? 'loading-state'}
     >
-      <Loader2 className={cn('animate-spin text-primary', spinnerClassMap[size])} aria-hidden="true" />
+      <Loader2 className={cn('text-primary', !prefersReducedMotion && 'animate-spin', spinnerClassMap[size])} aria-hidden="true" />
       {title && <h3 className="mt-3 text-sm font-medium text-foreground">{title}</h3>}
       {description && <p className="mt-1 text-sm text-muted-foreground">{description}</p>}
       {message && <p className="mt-1 text-sm text-muted-foreground">{message}</p>}

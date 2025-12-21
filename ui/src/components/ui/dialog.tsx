@@ -11,6 +11,7 @@ import {
   FROST_OVERLAY,
   CLOSE_BUTTON_BASE,
 } from "@/lib/utils";
+import { useReducedMotion } from "@/hooks/ui/useReducedMotion";
 
 const containsDialogDescription = (node: React.ReactNode): boolean => {
   if (!node) return false;
@@ -58,16 +59,20 @@ const DialogOverlay = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Overlay>,
   React.ComponentPropsWithoutRef<typeof DialogPrimitive.Overlay>
 >(({ className, ...props }, ref) => {
+  const prefersReducedMotion = useReducedMotion();
+
   return (
     <DialogPrimitive.Overlay
       ref={ref}
       data-slot="dialog-overlay"
       className={cn(
 
-        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-50",
+        !prefersReducedMotion && "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
+        "fixed inset-0 z-50",
         FROST_OVERLAY,
 
-        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-50 bg-black/50",
+        !prefersReducedMotion && "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
+        "fixed inset-0 z-50 bg-black/50",
         className,
       )}
       {...props}
@@ -80,6 +85,7 @@ const DialogContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & { initialFocusSelector?: string }
 >(({ className, children, initialFocusSelector, onOpenAutoFocus, ...restProps }, ref) => {
+  const prefersReducedMotion = useReducedMotion();
   const contentRef = React.useRef<React.ElementRef<typeof DialogPrimitive.Content> | null>(null);
   const { ['aria-describedby']: ariaDescribedBy, ...contentProps } = restProps;
   const hasDescription = React.useMemo(
@@ -135,10 +141,14 @@ const DialogContent = React.forwardRef<
         className={cn(
 
           FROST_BACKGROUND,
-          MENU_ANIMATION_CLASSES,
-          "fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-lg border p-6 shadow-lg duration-200 sm:max-w-lg",
+          !prefersReducedMotion && MENU_ANIMATION_CLASSES,
+          "fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-lg border p-6 shadow-lg sm:max-w-lg",
+          !prefersReducedMotion && "duration-200",
 
-          "bg-background data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-lg border p-6 shadow-lg duration-200 sm:max-w-lg",
+          "bg-background",
+          !prefersReducedMotion && "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
+          "fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-lg border p-6 shadow-lg sm:max-w-lg",
+          !prefersReducedMotion && "duration-200",
           className,
         )}
         {...contentProps}
