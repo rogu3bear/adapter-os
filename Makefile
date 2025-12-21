@@ -1,4 +1,4 @@
-.PHONY: help build prepare test test-rust test-ui test-e2e clean fmt clippy metal ui ui-dev menu-bar menu-bar-dev menu-bar-install infra-check dev dev-no-auth build-mlx test-mlx bench-mlx verify-mlx-env cli setup-git-hooks lint-fix mvp-demo stability-check stability-ci
+.PHONY: help build prepare test test-rust test-ui test-e2e test-ignored test-hw clean fmt clippy metal ui ui-dev menu-bar menu-bar-dev menu-bar-install infra-check dev dev-no-auth build-mlx test-mlx bench-mlx verify-mlx-env cli setup-git-hooks lint-fix mvp-demo stability-check stability-ci
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -54,6 +54,18 @@ test-ui: ## Run UI lint + unit/integration tests only
 
 test-e2e: ## Run UI end-to-end tests (optional, starts dev stack)
 	bash scripts/test/all.sh e2e
+
+test-ignored: ## Run ignored Rust tests (unit + integration) across the workspace
+	cargo test --workspace --exclude adapteros-lora-mlx-ffi --lib --bins --examples -- --ignored
+	cargo test --workspace --exclude adapteros-lora-mlx-ffi --tests -- --ignored
+
+HW_PROFILE ?= release
+test-hw: ## Run hardware-dependent Rust tests (Metal/VRAM/residency)
+	cargo test --test lora_buffer_population_integration --features extended-tests --profile $(HW_PROFILE) -- --ignored --nocapture
+	cargo test --test kv_residency_quota_integration --features hardware-residency
+	cargo test -p adapteros-lora-worker --features hardware-residency --test worker_enforcement_tests
+	cargo test -p adapteros-lora-worker --features hardware-residency --test residency_probe
+	cargo test -p adapteros-memory --test metal_heap_tests --profile $(HW_PROFILE) -- --ignored
 
 clean: ## Clean build artifacts
 	cargo clean
