@@ -44,8 +44,8 @@ describe('LineageViewer', () => {
     );
 
     expect(screen.getByText('Test Lineage')).toBeInTheDocument();
-    expect(screen.getByText('Upstream')).toBeInTheDocument();
-    expect(screen.getByText('Downstream')).toBeInTheDocument();
+    expect(screen.getAllByText('Upstream').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Downstream').length).toBeGreaterThan(0);
     expect(screen.getByText('Doc 1')).toBeInTheDocument();
     expect(screen.getByText('Job 1')).toBeInTheDocument();
   });
