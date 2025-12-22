@@ -1,6 +1,6 @@
 //! Unified evidence envelope for telemetry, policy audit, and inference traces.
 //!
-//! EvidenceEnvelopeV1 provides a canonical, chain-linked, signed container
+//! EvidenceEnvelope provides a canonical, chain-linked, signed container
 //! that wraps all evidence types with a single verifiable format.
 //!
 //! # Design
@@ -15,10 +15,10 @@
 //! # Example
 //!
 //! ```ignore
-//! use adapteros_core::evidence_envelope::{EvidenceEnvelopeV1, EvidenceScope, InferenceReceiptRef};
+//! use adapteros_core::evidence_envelope::{EvidenceEnvelope, EvidenceScope, InferenceReceiptRef};
 //!
 //! let receipt_ref = InferenceReceiptRef { /* ... */ };
-//! let envelope = EvidenceEnvelopeV1::new_inference(
+//! let envelope = EvidenceEnvelope::new_inference(
 //!     "tenant-1".to_string(),
 //!     receipt_ref,
 //!     None, // first in chain
@@ -152,7 +152,7 @@ pub struct InferenceReceiptRef {
 /// All evidence types (telemetry, policy, inference) are wrapped in this
 /// canonical envelope format for unified verification.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EvidenceEnvelopeV1 {
+pub struct EvidenceEnvelope {
     /// Schema version for forward compatibility (currently 1)
     pub schema_version: u8,
 
@@ -201,7 +201,7 @@ pub struct EvidenceEnvelopeV1 {
     pub inference_receipt_ref: Option<InferenceReceiptRef>,
 }
 
-impl EvidenceEnvelopeV1 {
+impl EvidenceEnvelope {
     /// Create a new telemetry evidence envelope (unsigned)
     pub fn new_telemetry(
         tenant_id: String,
@@ -520,7 +520,7 @@ mod tests {
     #[test]
     fn test_telemetry_envelope_creation() {
         let env =
-            EvidenceEnvelopeV1::new_telemetry("tenant-1".to_string(), sample_bundle_ref(), None);
+            EvidenceEnvelope::new_telemetry("tenant-1".to_string(), sample_bundle_ref(), None);
 
         assert_eq!(env.scope, EvidenceScope::Telemetry);
         assert_eq!(env.tenant_id, "tenant-1");
@@ -532,7 +532,7 @@ mod tests {
 
     #[test]
     fn test_policy_envelope_creation() {
-        let env = EvidenceEnvelopeV1::new_policy("tenant-1".to_string(), sample_policy_ref(), None);
+        let env = EvidenceEnvelope::new_policy("tenant-1".to_string(), sample_policy_ref(), None);
 
         assert_eq!(env.scope, EvidenceScope::Policy);
         assert!(env.policy_audit_ref.is_some());
@@ -542,7 +542,7 @@ mod tests {
     #[test]
     fn test_inference_envelope_creation() {
         let env =
-            EvidenceEnvelopeV1::new_inference("tenant-1".to_string(), sample_inference_ref(), None);
+            EvidenceEnvelope::new_inference("tenant-1".to_string(), sample_inference_ref(), None);
 
         assert_eq!(env.scope, EvidenceScope::Inference);
         assert!(env.inference_receipt_ref.is_some());
@@ -552,11 +552,11 @@ mod tests {
     #[test]
     fn test_canonical_bytes_determinism() {
         let env1 =
-            EvidenceEnvelopeV1::new_telemetry("tenant-1".to_string(), sample_bundle_ref(), None);
+            EvidenceEnvelope::new_telemetry("tenant-1".to_string(), sample_bundle_ref(), None);
 
         // Create another envelope with same data
         let mut env2 =
-            EvidenceEnvelopeV1::new_telemetry("tenant-1".to_string(), sample_bundle_ref(), None);
+            EvidenceEnvelope::new_telemetry("tenant-1".to_string(), sample_bundle_ref(), None);
         env2.created_at = env1.created_at.clone();
 
         assert_eq!(env1.to_canonical_bytes(), env2.to_canonical_bytes());
@@ -566,9 +566,9 @@ mod tests {
     #[test]
     fn test_tenant_id_changes_digest() {
         let env1 =
-            EvidenceEnvelopeV1::new_telemetry("tenant-1".to_string(), sample_bundle_ref(), None);
+            EvidenceEnvelope::new_telemetry("tenant-1".to_string(), sample_bundle_ref(), None);
         let mut env2 =
-            EvidenceEnvelopeV1::new_telemetry("tenant-2".to_string(), sample_bundle_ref(), None);
+            EvidenceEnvelope::new_telemetry("tenant-2".to_string(), sample_bundle_ref(), None);
         env2.created_at = env1.created_at.clone();
 
         assert_ne!(env1.digest(), env2.digest());
@@ -577,8 +577,8 @@ mod tests {
     #[test]
     fn test_previous_root_changes_digest() {
         let env1 =
-            EvidenceEnvelopeV1::new_telemetry("tenant-1".to_string(), sample_bundle_ref(), None);
-        let mut env2 = EvidenceEnvelopeV1::new_telemetry(
+            EvidenceEnvelope::new_telemetry("tenant-1".to_string(), sample_bundle_ref(), None);
+        let mut env2 = EvidenceEnvelope::new_telemetry(
             "tenant-1".to_string(),
             sample_bundle_ref(),
             Some(B3Hash::hash(b"previous")),
@@ -592,7 +592,7 @@ mod tests {
     fn test_inference_envelope_contains_run_receipt_fields() {
         let receipt_ref = sample_inference_ref();
         let env =
-            EvidenceEnvelopeV1::new_inference("tenant-1".to_string(), receipt_ref.clone(), None);
+            EvidenceEnvelope::new_inference("tenant-1".to_string(), receipt_ref.clone(), None);
 
         let ref_data = env.inference_receipt_ref.as_ref().unwrap();
 
@@ -639,7 +639,7 @@ mod tests {
 
     #[test]
     fn test_validation_rejects_empty_tenant() {
-        let mut env = EvidenceEnvelopeV1::new_telemetry("".to_string(), sample_bundle_ref(), None);
+        let mut env = EvidenceEnvelope::new_telemetry("".to_string(), sample_bundle_ref(), None);
 
         assert!(env.validate().is_err());
     }
@@ -647,7 +647,7 @@ mod tests {
     #[test]
     fn test_validation_rejects_wrong_schema_version() {
         let mut env =
-            EvidenceEnvelopeV1::new_telemetry("tenant-1".to_string(), sample_bundle_ref(), None);
+            EvidenceEnvelope::new_telemetry("tenant-1".to_string(), sample_bundle_ref(), None);
         env.schema_version = 99;
 
         assert!(env.validate().is_err());
@@ -655,14 +655,14 @@ mod tests {
 
     #[test]
     fn test_json_roundtrip() {
-        let env = EvidenceEnvelopeV1::new_inference(
+        let env = EvidenceEnvelope::new_inference(
             "tenant-1".to_string(),
             sample_inference_ref(),
             Some(B3Hash::hash(b"previous")),
         );
 
         let json = serde_json::to_string(&env).expect("serialize");
-        let parsed: EvidenceEnvelopeV1 = serde_json::from_str(&json).expect("deserialize");
+        let parsed: EvidenceEnvelope = serde_json::from_str(&json).expect("deserialize");
 
         assert_eq!(parsed.tenant_id, env.tenant_id);
         assert_eq!(parsed.scope, env.scope);

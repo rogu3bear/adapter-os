@@ -8,7 +8,7 @@
 //! - Query filtering and pagination
 
 use adapteros_core::evidence_envelope::{
-    BundleMetadataRef, EvidenceEnvelopeV1, InferenceReceiptRef, PolicyAuditRef,
+    BundleMetadataRef, EvidenceEnvelope, InferenceReceiptRef, PolicyAuditRef,
 };
 use adapteros_core::{B3Hash, EvidenceScope};
 use adapteros_db::{Db, EvidenceEnvelopeFilter};
@@ -29,7 +29,7 @@ fn create_telemetry_envelope(
     tenant_id: String,
     bundle_hash: B3Hash,
     previous_root: Option<B3Hash>,
-) -> EvidenceEnvelopeV1 {
+) -> EvidenceEnvelope {
     let bundle_ref = BundleMetadataRef {
         bundle_hash,
         merkle_root: B3Hash::hash(b"merkle"),
@@ -38,7 +38,7 @@ fn create_telemetry_envelope(
         sequence_no: Some(1),
     };
 
-    EvidenceEnvelopeV1::new_telemetry(tenant_id, bundle_ref, previous_root)
+    EvidenceEnvelope::new_telemetry(tenant_id, bundle_ref, previous_root)
 }
 
 /// Helper to create a policy envelope
@@ -46,7 +46,7 @@ fn create_policy_envelope(
     tenant_id: String,
     decision_id: String,
     previous_root: Option<B3Hash>,
-) -> EvidenceEnvelopeV1 {
+) -> EvidenceEnvelope {
     let policy_ref = PolicyAuditRef {
         decision_id,
         entry_hash: B3Hash::hash(b"decision"),
@@ -56,7 +56,7 @@ fn create_policy_envelope(
         decision: "allow".to_string(),
     };
 
-    EvidenceEnvelopeV1::new_policy(tenant_id, policy_ref, previous_root)
+    EvidenceEnvelope::new_policy(tenant_id, policy_ref, previous_root)
 }
 
 /// Helper to create an inference envelope
@@ -64,7 +64,7 @@ fn create_inference_envelope(
     tenant_id: String,
     trace_id: String,
     previous_root: Option<B3Hash>,
-) -> EvidenceEnvelopeV1 {
+) -> EvidenceEnvelope {
     let receipt_ref = InferenceReceiptRef {
         trace_id,
         run_head_hash: B3Hash::hash(b"run_head"),
@@ -81,7 +81,7 @@ fn create_inference_envelope(
         model_cache_identity_v2_digest_b3: None,
     };
 
-    EvidenceEnvelopeV1::new_inference(tenant_id, receipt_ref, previous_root)
+    EvidenceEnvelope::new_inference(tenant_id, receipt_ref, previous_root)
 }
 
 #[tokio::test]

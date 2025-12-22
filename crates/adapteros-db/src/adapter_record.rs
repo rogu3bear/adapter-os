@@ -514,7 +514,7 @@ impl SchemaMetadata {
     }
 
     /// Create with default version "1.0.0"
-    pub fn default_v1(created_at: String, updated_at: String) -> Self {
+    pub fn default(created_at: String, updated_at: String) -> Self {
         Self {
             version: "1.0.0".to_string(),
             created_at,
@@ -722,7 +722,7 @@ impl AdapterRecordBuilder {
             // This should be replaced with proper time handling in production
             // For now, use placeholder timestamps - caller should provide actual values
             let placeholder = "2025-11-21T00:00:00Z".to_string();
-            SchemaMetadata::default_v1(placeholder.clone(), placeholder)
+            SchemaMetadata::default(placeholder.clone(), placeholder)
         });
 
         let record = AdapterRecordV1 {

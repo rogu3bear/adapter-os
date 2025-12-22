@@ -97,7 +97,7 @@ pub use determinism::{
 pub use determinism_mode::DeterminismMode;
 pub use error::{AosError, Result, ResultExt};
 pub use evidence_envelope::{
-    compute_key_id, BundleMetadataRef, EvidenceEnvelopeV1, EvidenceScope, InferenceReceiptRef,
+    compute_key_id, BundleMetadataRef, EvidenceEnvelope, EvidenceScope, InferenceReceiptRef,
     PolicyAuditRef, EVIDENCE_ENVELOPE_SCHEMA_VERSION,
 };
 pub use evidence_verifier::{

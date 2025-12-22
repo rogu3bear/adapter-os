@@ -12,7 +12,7 @@
 
 use adapteros_api_types::inference::PolicyOverrideFlags;
 use adapteros_core::evidence_envelope::{
-    BundleMetadataRef, EvidenceEnvelopeV1, InferenceReceiptRef, PolicyAuditRef,
+    BundleMetadataRef, EvidenceEnvelope, InferenceReceiptRef, PolicyAuditRef,
 };
 use adapteros_core::{B3Hash, EvidenceScope, EvidenceVerifier};
 use adapteros_db::{
@@ -141,7 +141,7 @@ async fn test_inference_to_envelope_flow() -> anyhow::Result<()> {
 
     // Create envelope (first in chain, no previous_root)
     let envelope =
-        EvidenceEnvelopeV1::new_inference("tenant-test".to_string(), receipt_ref.clone(), None);
+        EvidenceEnvelope::new_inference("tenant-test".to_string(), receipt_ref.clone(), None);
 
     // Verify envelope structure
     assert_eq!(envelope.scope, EvidenceScope::Inference);
@@ -188,7 +188,7 @@ async fn test_envelope_storage_during_inference() -> anyhow::Result<()> {
 
     // Create and store envelope as would happen in inference_core
     let receipt_ref = trace_receipt_to_ref("trace-inf-001".to_string(), &receipt);
-    let envelope = EvidenceEnvelopeV1::new_inference("tenant-test".to_string(), receipt_ref, None);
+    let envelope = EvidenceEnvelope::new_inference("tenant-test".to_string(), receipt_ref, None);
 
     let _envelope_id = db.store_evidence_envelope(&envelope).await?;
 
@@ -218,14 +218,14 @@ async fn test_envelope_chain_linking() -> anyhow::Result<()> {
     // Create first inference envelope
     let receipt1 = create_test_trace(&db, "trace-chain-1", "tenant-test", 3).await?;
     let ref1 = trace_receipt_to_ref("trace-chain-1".to_string(), &receipt1);
-    let envelope1 = EvidenceEnvelopeV1::new_inference("tenant-test".to_string(), ref1, None);
+    let envelope1 = EvidenceEnvelope::new_inference("tenant-test".to_string(), ref1, None);
 
     db.store_evidence_envelope(&envelope1).await?;
 
     // Create second inference envelope linked to first
     let receipt2 = create_test_trace(&db, "trace-chain-2", "tenant-test", 4).await?;
     let ref2 = trace_receipt_to_ref("trace-chain-2".to_string(), &receipt2);
-    let envelope2 = EvidenceEnvelopeV1::new_inference(
+    let envelope2 = EvidenceEnvelope::new_inference(
         "tenant-test".to_string(),
         ref2,
         Some(envelope1.root), // Link to previous
@@ -236,7 +236,7 @@ async fn test_envelope_chain_linking() -> anyhow::Result<()> {
     // Create third envelope linked to second
     let receipt3 = create_test_trace(&db, "trace-chain-3", "tenant-test", 2).await?;
     let ref3 = trace_receipt_to_ref("trace-chain-3".to_string(), &receipt3);
-    let envelope3 = EvidenceEnvelopeV1::new_inference(
+    let envelope3 = EvidenceEnvelope::new_inference(
         "tenant-test".to_string(),
         ref3,
         Some(envelope2.root), // Link to previous
@@ -276,7 +276,7 @@ async fn test_receipt_digest_includes_envelope_ref() -> anyhow::Result<()> {
     // Create envelope from receipt
     let receipt_ref = trace_receipt_to_ref("trace-digest".to_string(), &receipt);
     let envelope =
-        EvidenceEnvelopeV1::new_inference("tenant-test".to_string(), receipt_ref.clone(), None);
+        EvidenceEnvelope::new_inference("tenant-test".to_string(), receipt_ref.clone(), None);
 
     // The envelope's root should match the receipt digest
     // This binds the envelope to the exact receipt
@@ -318,7 +318,7 @@ async fn test_audit_chain_verification() -> anyhow::Result<()> {
         let receipt = create_test_trace(&db, &trace_id, "tenant-test", 2).await?;
         let receipt_ref = trace_receipt_to_ref(trace_id.clone(), &receipt);
         let envelope =
-            EvidenceEnvelopeV1::new_inference("tenant-test".to_string(), receipt_ref, prev_root);
+            EvidenceEnvelope::new_inference("tenant-test".to_string(), receipt_ref, prev_root);
 
         db.store_evidence_envelope(&envelope).await?;
         prev_root = Some(envelope.root);
@@ -357,7 +357,7 @@ async fn test_chain_divergence_detection() -> anyhow::Result<()> {
     // Create valid chain start
     let receipt1 = create_test_trace(&db, "trace-div-1", "tenant-test", 2).await?;
     let ref1 = trace_receipt_to_ref("trace-div-1".to_string(), &receipt1);
-    let envelope1 = EvidenceEnvelopeV1::new_inference("tenant-test".to_string(), ref1, None);
+    let envelope1 = EvidenceEnvelope::new_inference("tenant-test".to_string(), ref1, None);
     db.store_evidence_envelope(&envelope1).await?;
 
     // Try to create envelope with wrong previous_root
@@ -365,7 +365,7 @@ async fn test_chain_divergence_detection() -> anyhow::Result<()> {
     let ref2 = trace_receipt_to_ref("trace-div-2".to_string(), &receipt2);
     let wrong_prev = B3Hash::hash(b"wrong-previous-root");
     let envelope2 =
-        EvidenceEnvelopeV1::new_inference("tenant-test".to_string(), ref2, Some(wrong_prev));
+        EvidenceEnvelope::new_inference("tenant-test".to_string(), ref2, Some(wrong_prev));
 
     // Should fail with divergence error
     let result = db.store_evidence_envelope(&envelope2).await;
@@ -400,7 +400,7 @@ async fn test_telemetry_envelope_creation() -> anyhow::Result<()> {
     };
 
     // Create telemetry envelope
-    let envelope = EvidenceEnvelopeV1::new_telemetry("tenant-test".to_string(), bundle_ref, None);
+    let envelope = EvidenceEnvelope::new_telemetry("tenant-test".to_string(), bundle_ref, None);
 
     assert_eq!(envelope.scope, EvidenceScope::Telemetry);
     assert!(envelope.bundle_metadata_ref.is_some());
@@ -448,7 +448,7 @@ async fn test_policy_envelope_creation() -> anyhow::Result<()> {
     };
 
     // Create policy envelope
-    let envelope = EvidenceEnvelopeV1::new_policy("tenant-test".to_string(), policy_ref, None);
+    let envelope = EvidenceEnvelope::new_policy("tenant-test".to_string(), policy_ref, None);
 
     assert_eq!(envelope.scope, EvidenceScope::Policy);
     assert!(envelope.policy_audit_ref.is_some());
@@ -485,7 +485,7 @@ async fn test_mixed_evidence_chain() -> anyhow::Result<()> {
     // Create inference chain
     let receipt1 = create_test_trace(&db, "trace-mixed-1", "tenant-test", 2).await?;
     let ref1 = trace_receipt_to_ref("trace-mixed-1".to_string(), &receipt1);
-    let inf_env1 = EvidenceEnvelopeV1::new_inference("tenant-test".to_string(), ref1, None);
+    let inf_env1 = EvidenceEnvelope::new_inference("tenant-test".to_string(), ref1, None);
     db.store_evidence_envelope(&inf_env1).await?;
 
     // Create policy chain (separate from inference)
@@ -497,7 +497,7 @@ async fn test_mixed_evidence_chain() -> anyhow::Result<()> {
         hook: "OnBeforeInference".to_string(),
         decision: "allow".to_string(),
     };
-    let policy_env1 = EvidenceEnvelopeV1::new_policy("tenant-test".to_string(), policy_ref1, None);
+    let policy_env1 = EvidenceEnvelope::new_policy("tenant-test".to_string(), policy_ref1, None);
     db.store_evidence_envelope(&policy_env1).await?;
 
     // Create telemetry chain (separate from both)
@@ -509,14 +509,14 @@ async fn test_mixed_evidence_chain() -> anyhow::Result<()> {
         sequence_no: Some(1),
     };
     let telem_env1 =
-        EvidenceEnvelopeV1::new_telemetry("tenant-test".to_string(), bundle_ref1, None);
+        EvidenceEnvelope::new_telemetry("tenant-test".to_string(), bundle_ref1, None);
     db.store_evidence_envelope(&telem_env1).await?;
 
     // Add second to each chain
     let receipt2 = create_test_trace(&db, "trace-mixed-2", "tenant-test", 2).await?;
     let ref2 = trace_receipt_to_ref("trace-mixed-2".to_string(), &receipt2);
     let inf_env2 =
-        EvidenceEnvelopeV1::new_inference("tenant-test".to_string(), ref2, Some(inf_env1.root));
+        EvidenceEnvelope::new_inference("tenant-test".to_string(), ref2, Some(inf_env1.root));
     db.store_evidence_envelope(&inf_env2).await?;
 
     let policy_ref2 = PolicyAuditRef {
@@ -527,7 +527,7 @@ async fn test_mixed_evidence_chain() -> anyhow::Result<()> {
         hook: "OnAfterInference".to_string(),
         decision: "allow".to_string(),
     };
-    let policy_env2 = EvidenceEnvelopeV1::new_policy(
+    let policy_env2 = EvidenceEnvelope::new_policy(
         "tenant-test".to_string(),
         policy_ref2,
         Some(policy_env1.root),
@@ -569,10 +569,10 @@ async fn test_canonical_bytes_determinism() -> anyhow::Result<()> {
 
     // Create envelopes from same receipt data
     let ref1 = trace_receipt_to_ref("trace-det-1".to_string(), &receipt);
-    let env1 = EvidenceEnvelopeV1::new_inference("tenant-test".to_string(), ref1.clone(), None);
+    let env1 = EvidenceEnvelope::new_inference("tenant-test".to_string(), ref1.clone(), None);
 
     // Create second envelope with identical receipt reference
-    let mut env2 = EvidenceEnvelopeV1::new_inference("tenant-test".to_string(), ref1, None);
+    let mut env2 = EvidenceEnvelope::new_inference("tenant-test".to_string(), ref1, None);
 
     // Normalize timestamps for determinism check
     env2.created_at = env1.created_at.clone();
@@ -607,12 +607,12 @@ async fn test_envelope_verification() -> anyhow::Result<()> {
     // Create and store a chain of envelopes
     let receipt1 = create_test_trace(&db, "trace-verify-1", "tenant-test", 2).await?;
     let ref1 = trace_receipt_to_ref("trace-verify-1".to_string(), &receipt1);
-    let env1 = EvidenceEnvelopeV1::new_inference("tenant-test".to_string(), ref1, None);
+    let env1 = EvidenceEnvelope::new_inference("tenant-test".to_string(), ref1, None);
     db.store_evidence_envelope(&env1).await?;
 
     let receipt2 = create_test_trace(&db, "trace-verify-2", "tenant-test", 2).await?;
     let ref2 = trace_receipt_to_ref("trace-verify-2".to_string(), &receipt2);
-    let env2 = EvidenceEnvelopeV1::new_inference("tenant-test".to_string(), ref2, Some(env1.root));
+    let env2 = EvidenceEnvelope::new_inference("tenant-test".to_string(), ref2, Some(env1.root));
     db.store_evidence_envelope(&env2).await?;
 
     // Verify using EvidenceVerifier
@@ -663,7 +663,7 @@ async fn test_envelope_query_filters() -> anyhow::Result<()> {
                 .map(|(root, _)| root)
         };
 
-        let env = EvidenceEnvelopeV1::new_inference("tenant-test".to_string(), receipt_ref, prev);
+        let env = EvidenceEnvelope::new_inference("tenant-test".to_string(), receipt_ref, prev);
         db.store_evidence_envelope(&env).await?;
     }
 
