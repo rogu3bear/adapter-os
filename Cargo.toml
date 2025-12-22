@@ -229,7 +229,7 @@ comfy-table = "7.1"
 
 # ML & Search
 hnsw_rs = "0.3"
-tantivy = "0.22"
+tantivy = "0.25"
 tokenizers = "0.15"
 safetensors = "0.4"
 
