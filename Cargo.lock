@@ -1373,6 +1373,7 @@ dependencies = [
  "axum 0.8.7",
  "chrono",
  "clap",
+ "ed25519-dalek",
  "filetime",
  "hyper 1.8.1",
  "hyper-util",

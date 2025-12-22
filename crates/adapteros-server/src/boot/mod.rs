@@ -8,6 +8,12 @@
 //! - `timings`: Boot phase timing tracker
 //! - `tasks`: Background task spawner
 //! - `server`: Server binding utilities
+//! - `executor`: Deterministic executor initialization
+//! - `database`: Database initialization and connection management
+//! - `migrations`: Database migrations and seeding
+//! - `security`: Security initialization and preflight checks
+//! - `background_tasks`: Background task spawning logic
+//! - `app_state`: AppState construction and initialization
 //!
 //! # Usage
 //!
@@ -33,11 +39,32 @@
 //! let config = ServerBindConfig { boot_state, shutdown_coordinator, drain_timeout, in_flight_requests };
 //! bind_and_serve(mode, app, config).await?;
 //! ```
+pub mod api_config;
+pub mod app_state;
+pub mod background_tasks;
 
+mod config;
+pub mod database;
+pub mod executor;
+pub mod federation;
+mod finalization;
+mod metrics;
+pub mod migrations;
+pub mod runtime;
+pub mod security;
 mod server;
 mod tasks;
 mod timings;
 
+pub use app_state::build_app_state;
+pub use config::{initialize_config, ConfigContext};
+pub use database::{initialize_database, DatabaseContext};
+pub use executor::{derive_executor_seed, initialize_executor, ExecutorContext};
+pub use federation::{initialize_federation, FederationContext};
+pub use finalization::{finalize_boot, write_boot_report, BindConfig, BootArtifacts};
+pub use metrics::{initialize_metrics, MetricsContext};
+pub use runtime::{initialize_runtime, RuntimeContext};
+pub use security::{initialize_security, log_effective_config, run_preflight_checks, SecurityContext};
 pub use server::{bind_and_serve, BindError, BindMode, ServerBindConfig};
 pub use tasks::{BackgroundTaskSpawner, SpawnError, SpawnResult};
 pub use timings::BootTimings;
