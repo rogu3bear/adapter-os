@@ -311,6 +311,9 @@ libdeterminism_guardrail_suite.rlib
 libreplay_path_verification.rlib
 aosctl
 
+# Agent coordination (local development only)
+.agents/
+
 # Alternate target directories (clippy, etc.)
 target-clippy/
 
