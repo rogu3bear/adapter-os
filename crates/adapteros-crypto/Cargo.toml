@@ -39,7 +39,7 @@ futures-util = { workspace = true }
 [target.'cfg(target_os = "macos")'.dependencies]
 security-framework = "2.9"
 security-framework-sys = "2.9"
-core-foundation = "0.9"
+core-foundation = "0.10"
 core-foundation-sys = "0.8"
 
 # AWS KMS support (optional)

@@ -239,7 +239,7 @@ safetensors = "0.4"
 metal = "0.28"
 objc = "0.2"
 cocoa = "0.25"
-core-foundation = "0.9"
+core-foundation = "0.10"
 security-framework = "2.9"
 
 # Filesystem
