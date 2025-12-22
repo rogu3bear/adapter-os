@@ -282,7 +282,7 @@ prometheus = "0.13"
 # OpenTelemetry distributed tracing
 opentelemetry = { version = "0.27", default-features = false, features = ["trace"] }
 opentelemetry_sdk = { version = "0.27", default-features = false, features = ["trace", "rt-tokio"] }
-opentelemetry-otlp = { version = "0.27", default-features = false, features = ["trace", "grpc-tonic", "http-proto", "reqwest-client"] }
+opentelemetry-otlp = { version = "0.31", default-features = false, features = ["trace", "grpc-tonic", "http-proto", "reqwest-client"] }
 tracing-opentelemetry = "0.28"
 
 # Code Analysis
