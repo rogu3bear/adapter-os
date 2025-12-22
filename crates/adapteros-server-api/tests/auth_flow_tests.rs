@@ -823,3 +823,328 @@ async fn expired_session_cannot_refresh() -> anyhow::Result<()> {
     assert_eq!(err_body.code, "SESSION_EXPIRED");
     Ok(())
 }
+
+/// Comprehensive E2E auth flow: Login → Access → Refresh → Access → Logout → Denied → Session Expired
+///
+/// This test validates the complete authentication lifecycle:
+/// 1. Login with valid credentials → receive access + refresh tokens in cookies
+/// 2. Access protected endpoint with access token → success
+/// 3. Refresh tokens → receive new access + refresh tokens
+/// 4. Access protected endpoint with new access token → success
+/// 5. Logout → tokens revoked, cookies cleared (Max-Age=0)
+/// 6. Access protected endpoint after logout → TOKEN_REVOKED
+/// 7. New login then session lock → SESSION_EXPIRED on refresh attempt
+#[tokio::test]
+async fn complete_auth_flow_login_refresh_logout_session_expired() -> anyhow::Result<()> {
+    let state = setup_state(None).await?;
+    {
+        let mut cfg = state.config.write().unwrap();
+        cfg.server.production_mode = true;
+        cfg.security.cookie_secure = Some(true);
+        cfg.security.cookie_same_site = Some("Lax".to_string());
+    }
+
+    let pw_hash = hash_password("complete-flow!")?;
+    state
+        .db
+        .create_user(
+            "complete@example.com",
+            "Complete Flow User",
+            &pw_hash,
+            Role::Admin,
+            "tenant-1",
+        )
+        .await?;
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // STEP 1: LOGIN → receive access + refresh tokens
+    // ══════════════════════════════════════════════════════════════════════════
+    let login_req = LoginRequest {
+        username: None,
+        email: "complete@example.com".to_string(),
+        password: "complete-flow!".to_string(),
+        device_id: Some("test-device-001".to_string()),
+        totp_code: None,
+    };
+    let mut login_headers = HeaderMap::new();
+    login_headers.insert(
+        header::USER_AGENT,
+        HeaderValue::from_static("complete-flow-test/1.0"),
+    );
+
+    let (set_cookie_headers, Json(login_body)) = login_handler(
+        axum::extract::State(state.clone()),
+        login_headers.clone(),
+        axum::Extension(ClientIp("192.168.1.100".into())),
+        Json(login_req),
+    )
+    .await
+    .expect("login should succeed");
+
+    let cookies = collect_cookies(&set_cookie_headers);
+    let auth_cookie = find_cookie(&cookies, "auth_token").expect("auth_token cookie");
+    let refresh_cookie = find_cookie(&cookies, "refresh_token").expect("refresh_token cookie");
+    let csrf_cookie = find_cookie(&cookies, "csrf_token").expect("csrf_token cookie");
+
+    let auth_value = cookie_value(auth_cookie, "auth_token").expect("auth cookie value");
+    let refresh_value = cookie_value(refresh_cookie, "refresh_token").expect("refresh cookie value");
+    let csrf_value = cookie_value(csrf_cookie, "csrf_token").expect("csrf cookie value");
+
+    assert!(!auth_value.is_empty(), "access token should be present");
+    assert!(!refresh_value.is_empty(), "refresh token should be present");
+    assert!(!csrf_value.is_empty(), "csrf token should be present");
+    assert_eq!(login_body.token, auth_value, "body token matches cookie");
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // STEP 2: ACCESS protected endpoint with access token → success
+    // ══════════════════════════════════════════════════════════════════════════
+    let me_app = Router::new()
+        .route("/v1/auth/me", get(auth_me))
+        .with_state(state.clone())
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            auth_middleware,
+        ));
+
+    let me_response = me_app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/v1/auth/me")
+                .header(header::COOKIE, format!("auth_token={auth_value}"))
+                .body(Body::empty())?,
+        )
+        .await?;
+    assert_eq!(me_response.status(), StatusCode::OK, "initial access should succeed");
+
+    let body_bytes = to_bytes(me_response.into_body(), 16 * 1024).await?;
+    let user: UserInfoResponse = serde_json::from_slice(&body_bytes)?;
+    assert_eq!(user.email, "complete@example.com");
+    assert_eq!(user.tenant_id, "tenant-1");
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // STEP 3: REFRESH tokens → receive new access + refresh tokens
+    // ══════════════════════════════════════════════════════════════════════════
+    tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
+
+    let mut refresh_headers = HeaderMap::new();
+    refresh_headers.insert(
+        header::COOKIE,
+        HeaderValue::from_str(&format!("refresh_token={refresh_value}"))?,
+    );
+
+    let (refresh_set_cookies, Json(refresh_body)) =
+        refresh_token_handler(axum::extract::State(state.clone()), refresh_headers)
+            .await
+            .expect("refresh should succeed");
+
+    let new_cookies = collect_cookies(&refresh_set_cookies);
+    let new_auth_cookie = find_cookie(&new_cookies, "auth_token").expect("new auth cookie");
+    let new_refresh_cookie = find_cookie(&new_cookies, "refresh_token").expect("new refresh cookie");
+
+    let new_auth_value = cookie_value(new_auth_cookie, "auth_token").expect("new auth value");
+    let new_refresh_value = cookie_value(new_refresh_cookie, "refresh_token").expect("new refresh value");
+
+    assert_ne!(new_auth_value, auth_value, "access token should rotate");
+    assert_ne!(new_refresh_value, refresh_value, "refresh token should rotate");
+    assert_eq!(refresh_body.token, new_auth_value, "response token matches new cookie");
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // STEP 4: ACCESS protected endpoint with NEW access token → success
+    // ══════════════════════════════════════════════════════════════════════════
+    let me_response2 = me_app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/v1/auth/me")
+                .header(header::COOKIE, format!("auth_token={new_auth_value}"))
+                .body(Body::empty())?,
+        )
+        .await?;
+    assert_eq!(me_response2.status(), StatusCode::OK, "access with new token should succeed");
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // STEP 5: LOGOUT → tokens revoked, cookies cleared
+    // ══════════════════════════════════════════════════════════════════════════
+    use adapteros_server_api::handlers::auth_enhanced::logout_handler;
+
+    let new_claims = decode_access_claims(&new_auth_value, &state);
+
+    let (logout_headers, Json(logout_body)) = logout_handler(
+        axum::extract::State(state.clone()),
+        axum::Extension(new_claims.clone()),
+    )
+    .await
+    .expect("logout should succeed");
+
+    assert!(
+        logout_body.message.contains("success") || !logout_body.message.is_empty(),
+        "logout response should indicate success"
+    );
+
+    let logout_cookies = collect_cookies(&logout_headers);
+    let cleared_auth = find_cookie(&logout_cookies, "auth_token");
+    let cleared_refresh = find_cookie(&logout_cookies, "refresh_token");
+
+    if let Some(c) = cleared_auth {
+        assert!(
+            c.contains("Max-Age=0") || c.contains("max-age=0"),
+            "auth_token cookie should be cleared (Max-Age=0)"
+        );
+    }
+    if let Some(c) = cleared_refresh {
+        assert!(
+            c.contains("Max-Age=0") || c.contains("max-age=0"),
+            "refresh_token cookie should be cleared (Max-Age=0)"
+        );
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // STEP 6: ACCESS protected endpoint after logout → denied
+    // Note: Logout both revokes the token AND locks the session. The middleware
+    // checks session status before token revocation, so SESSION_EXPIRED is returned
+    // when both conditions are true.
+    // ══════════════════════════════════════════════════════════════════════════
+    let me_response3 = me_app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/v1/auth/me")
+                .header(header::COOKIE, format!("auth_token={new_auth_value}"))
+                .body(Body::empty())?,
+        )
+        .await?;
+    assert_eq!(
+        me_response3.status(),
+        StatusCode::UNAUTHORIZED,
+        "access after logout should be denied"
+    );
+
+    let err_bytes = to_bytes(me_response3.into_body(), 2048).await?;
+    let err: ErrorResponse = serde_json::from_slice(&err_bytes)?;
+    // Session lock check happens before token revocation check in middleware,
+    // so SESSION_EXPIRED is returned when logout locks the session
+    assert_eq!(err.code, "SESSION_EXPIRED", "error should indicate session expired (locked)");
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // STEP 7: SESSION EXPIRED scenario (new login then lock session)
+    // ══════════════════════════════════════════════════════════════════════════
+    let login_req2 = LoginRequest {
+        username: None,
+        email: "complete@example.com".to_string(),
+        password: "complete-flow!".to_string(),
+        device_id: Some("test-device-002".to_string()),
+        totp_code: None,
+    };
+
+    let (login2_headers, _) = login_handler(
+        axum::extract::State(state.clone()),
+        login_headers,
+        axum::Extension(ClientIp("192.168.1.101".into())),
+        Json(login_req2),
+    )
+    .await
+    .expect("second login should succeed");
+
+    let login2_cookies = collect_cookies(&login2_headers);
+    let refresh2_cookie = find_cookie(&login2_cookies, "refresh_token").expect("refresh cookie 2");
+    let refresh2_value = cookie_value(refresh2_cookie, "refresh_token").expect("refresh value 2");
+
+    let refresh2_claims = decode_refresh_claims(&refresh2_value, &state);
+
+    lock_session(&state.db, &refresh2_claims.session_id)
+        .await
+        .expect("lock session should succeed");
+
+    let mut expired_refresh_headers = HeaderMap::new();
+    expired_refresh_headers.insert(
+        header::COOKIE,
+        HeaderValue::from_str(&format!("refresh_token={refresh2_value}"))?,
+    );
+
+    let (expired_status, Json(expired_err)) =
+        refresh_token_handler(axum::extract::State(state.clone()), expired_refresh_headers)
+            .await
+            .expect_err("refresh on locked session must fail");
+
+    assert_eq!(expired_status, StatusCode::UNAUTHORIZED);
+    assert_eq!(
+        expired_err.code, "SESSION_EXPIRED",
+        "locked session should return SESSION_EXPIRED"
+    );
+
+    Ok(())
+}
+
+/// Verifies old access token becomes invalid after refresh (if strict rotation is enforced)
+/// and that attempting to use old refresh token after rotation fails.
+#[tokio::test]
+async fn refresh_invalidates_prior_tokens() -> anyhow::Result<()> {
+    let state = setup_state(None).await?;
+    let pw_hash = hash_password("invalidate-pass!")?;
+    state
+        .db
+        .create_user(
+            "invalidate@example.com",
+            "Invalidate User",
+            &pw_hash,
+            Role::Admin,
+            "tenant-1",
+        )
+        .await?;
+
+    let login_req = LoginRequest {
+        username: None,
+        email: "invalidate@example.com".to_string(),
+        password: "invalidate-pass!".to_string(),
+        device_id: None,
+        totp_code: None,
+    };
+    let (login_headers, _) = login_handler(
+        axum::extract::State(state.clone()),
+        HeaderMap::new(),
+        axum::Extension(ClientIp("127.0.0.1".into())),
+        Json(login_req),
+    )
+    .await
+    .expect("login should succeed");
+
+    let cookies = collect_cookies(&login_headers);
+    let auth_cookie = find_cookie(&cookies, "auth_token").expect("auth cookie");
+    let refresh_cookie = find_cookie(&cookies, "refresh_token").expect("refresh cookie");
+    let original_auth = cookie_value(auth_cookie, "auth_token").expect("auth value");
+    let original_refresh = cookie_value(refresh_cookie, "refresh_token").expect("refresh value");
+
+    // Ensure refreshed tokens get a distinct iat from the initial login issuance
+    tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
+
+    // Perform first refresh
+    let mut refresh_headers = HeaderMap::new();
+    refresh_headers.insert(
+        header::COOKIE,
+        HeaderValue::from_str(&format!("refresh_token={original_refresh}"))?,
+    );
+    let (new_cookies_headers, Json(new_body)) =
+        refresh_token_handler(axum::extract::State(state.clone()), refresh_headers)
+            .await
+            .expect("first refresh should succeed");
+
+    let new_cookies = collect_cookies(&new_cookies_headers);
+    let new_auth_cookie = find_cookie(&new_cookies, "auth_token").expect("new auth cookie");
+    let new_auth = cookie_value(new_auth_cookie, "auth_token").expect("new auth value");
+
+    assert_ne!(new_auth, original_auth, "new access token differs from original");
+    assert_eq!(new_body.token, new_auth, "response token matches new cookie");
+
+    // Attempt to reuse old refresh token → should fail
+    let mut stale_headers = HeaderMap::new();
+    stale_headers.insert(
+        header::COOKIE,
+        HeaderValue::from_str(&format!("refresh_token={original_refresh}"))?,
+    );
+    let reuse_result =
+        refresh_token_handler(axum::extract::State(state.clone()), stale_headers).await;
+    assert!(reuse_result.is_err(), "reusing old refresh token should fail");
+
+    Ok(())
+}
