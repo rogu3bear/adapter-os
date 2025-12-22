@@ -36,7 +36,7 @@ use crate::shutdown::{ShutdownCoordinator, ShutdownError};
 use adapteros_server_api::boot_state::BootStateManager;
 use axum::Router;
 use std::net::SocketAddr;
-use std::sync::atomic::AtomicU64;
+use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{error, info, warn};
@@ -92,7 +92,7 @@ pub struct ServerBindConfig {
     /// Timeout for draining in-flight requests
     pub drain_timeout: Duration,
     /// Counter for in-flight requests
-    pub in_flight_requests: Arc<AtomicU64>,
+    pub in_flight_requests: Arc<AtomicUsize>,
 }
 
 /// Result of server binding operation.
@@ -264,7 +264,7 @@ async fn serve_and_shutdown(
     boot_state: BootStateManager,
     shutdown_coordinator: ShutdownCoordinator,
     drain_timeout: Duration,
-    in_flight_requests: Arc<AtomicU64>,
+    in_flight_requests: Arc<AtomicUsize>,
 ) -> Result<(), BindError> {
     // Mark ready - binding succeeded
     boot_state.ready().await;
@@ -347,7 +347,7 @@ async fn handle_coordinated_shutdown(
 /// and waits for in-flight requests to complete (with timeout).
 async fn shutdown_signal_with_drain(
     boot_state: BootStateManager,
-    in_flight_requests: Arc<AtomicU64>,
+    in_flight_requests: Arc<AtomicUsize>,
     drain_timeout: Duration,
 ) {
     use std::sync::atomic::Ordering;

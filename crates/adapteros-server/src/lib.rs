@@ -1,6 +1,7 @@
 pub mod boot;
 pub mod cli;
 pub mod config;
+pub mod db_index_monitor;
 pub mod logging;
 pub mod model_seeding;
 pub mod otel;
