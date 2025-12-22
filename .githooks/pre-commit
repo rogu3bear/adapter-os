@@ -1,6 +1,6 @@
 #!/bin/bash
 # Pre-commit hook for AdapterOS
-# Runs linting, validation, and optional agent coordination checks
+# Runs linting and validation
 
 set -e
 
@@ -10,17 +10,6 @@ echo "🧹 Running pre-commit checks..."
 if [ ! -f "Cargo.toml" ]; then
     echo "❌ Not in AdapterOS root directory"
     exit 1
-fi
-
-# =============================================================================
-# AGENT COORDINATION (optional - only if .agents exists)
-# =============================================================================
-
-if [ -f ".agents/validate-coordination.py" ] && [ -f ".agents/active-work.json" ]; then
-    echo "🔍 Validating agent coordination..."
-    if ! python3 .agents/validate-coordination.py 2>/dev/null; then
-        echo "⚠️  Agent coordination validation failed (non-blocking)"
-    fi
 fi
 
 # =============================================================================
