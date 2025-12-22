@@ -267,7 +267,7 @@ once_cell = "1.19"
 
 # Auth & Security
 argon2 = "0.5"
-jsonwebtoken = "9.2"
+jsonwebtoken = "10.2"
 
 # API
 utoipa = { version = "5.4", features = ["axum_extras", "uuid"] }
