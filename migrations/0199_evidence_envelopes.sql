@@ -1,6 +1,6 @@
 -- Migration: 0199
 -- Purpose: Unified evidence envelope storage for telemetry, policy, and inference evidence
--- PRD: EvidenceEnvelopeV1 - Unified Merkle + signature metadata
+-- PRD: EvidenceEnvelope - Unified Merkle + signature metadata
 
 -- Evidence envelopes table - unified storage for all evidence types
 CREATE TABLE IF NOT EXISTS evidence_envelopes (

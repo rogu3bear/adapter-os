@@ -15,7 +15,7 @@
 //!
 //! ```no_run
 //! use adapteros_db::Db;
-//! use adapteros_core::{EvidenceEnvelopeV1, EvidenceScope, BundleMetadataRef, B3Hash};
+//! use adapteros_core::{EvidenceEnvelope, EvidenceScope, BundleMetadataRef, B3Hash};
 //!
 //! # async fn example(db: &Db) -> anyhow::Result<()> {
 //! // Create a telemetry envelope
@@ -27,7 +27,7 @@
 //!     sequence_no: Some(1),
 //! };
 //!
-//! let envelope = EvidenceEnvelopeV1::new_telemetry(
+//! let envelope = EvidenceEnvelope::new_telemetry(
 //!     "tenant-1".to_string(),
 //!     bundle_ref,
 //!     None,
@@ -41,7 +41,7 @@
 use crate::query_helpers::{db_err, FilterBuilder};
 use crate::Db;
 use adapteros_core::error_helpers::DbErrorExt;
-use adapteros_core::evidence_envelope::EvidenceEnvelopeV1;
+use adapteros_core::evidence_envelope::EvidenceEnvelope;
 use adapteros_core::evidence_verifier::{
     evidence_chain_divergence, ChainVerificationResult, EVIDENCE_CHAIN_DIVERGED_CODE,
 };
@@ -141,7 +141,7 @@ impl Db {
     /// - `previous_root` doesn't match the current chain tail
     /// - Envelope claims to be first but chain already has entries
     /// - Envelope claims a previous but chain is empty
-    pub async fn store_evidence_envelope(&self, envelope: &EvidenceEnvelopeV1) -> Result<String> {
+    pub async fn store_evidence_envelope(&self, envelope: &EvidenceEnvelope) -> Result<String> {
         // Validate envelope structure first
         envelope.validate()?;
 
@@ -216,7 +216,7 @@ impl Db {
     }
 
     /// Get an evidence envelope by ID
-    pub async fn get_evidence_envelope(&self, id: &str) -> Result<Option<EvidenceEnvelopeV1>> {
+    pub async fn get_evidence_envelope(&self, id: &str) -> Result<Option<EvidenceEnvelope>> {
         let row = sqlx::query_as::<_, EvidenceEnvelopeRow>(
             r#"
             SELECT id, schema_version, tenant_id, scope, previous_root, root,
@@ -233,7 +233,7 @@ impl Db {
 
         match row {
             Some(r) => {
-                let mut envelope: EvidenceEnvelopeV1 = serde_json::from_str(&r.payload_json)?;
+                let mut envelope: EvidenceEnvelope = serde_json::from_str(&r.payload_json)?;
                 envelope.root = B3Hash::from_hex(&r.root)?;
                 envelope.previous_root = r
                     .previous_root
@@ -250,7 +250,7 @@ impl Db {
     pub async fn query_evidence_envelopes(
         &self,
         filter: EvidenceEnvelopeFilter,
-    ) -> Result<Vec<EvidenceEnvelopeV1>> {
+    ) -> Result<Vec<EvidenceEnvelope>> {
         let mut builder = FilterBuilder::new(
             r#"
             SELECT id, schema_version, tenant_id, scope, previous_root, root,
@@ -301,7 +301,7 @@ impl Db {
 
         let mut envelopes = Vec::with_capacity(rows.len());
         for row in rows {
-            let mut envelope: EvidenceEnvelopeV1 = serde_json::from_str(&row.payload_json)?;
+            let mut envelope: EvidenceEnvelope = serde_json::from_str(&row.payload_json)?;
             envelope.root = B3Hash::from_hex(&row.root)?;
             envelope.previous_root = row
                 .previous_root

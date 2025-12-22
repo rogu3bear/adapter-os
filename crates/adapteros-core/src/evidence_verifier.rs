@@ -17,7 +17,7 @@
 //! ```
 
 use crate::evidence_envelope::{
-    EvidenceEnvelopeV1, EvidenceScope, EVIDENCE_ENVELOPE_SCHEMA_VERSION,
+    EvidenceEnvelope, EvidenceScope, EVIDENCE_ENVELOPE_SCHEMA_VERSION,
 };
 use crate::{AosError, B3Hash, Result};
 use serde::{Deserialize, Serialize};
@@ -134,7 +134,7 @@ impl EvidenceVerifier {
     /// Verification result with detailed status for each check
     pub fn verify_envelope(
         &self,
-        envelope: &EvidenceEnvelopeV1,
+        envelope: &EvidenceEnvelope,
         expected_previous_root: Option<&B3Hash>,
     ) -> Result<EnvelopeVerificationResult> {
         let mut result = EnvelopeVerificationResult::default();
@@ -229,7 +229,7 @@ impl EvidenceVerifier {
     /// Chain verification result
     pub fn verify_chain(
         &self,
-        envelopes: &[EvidenceEnvelopeV1],
+        envelopes: &[EvidenceEnvelope],
     ) -> Result<ChainVerificationResult> {
         if envelopes.is_empty() {
             return Ok(ChainVerificationResult::default());
@@ -263,7 +263,7 @@ impl EvidenceVerifier {
     }
 
     /// Compute the root hash for an envelope's payload
-    fn compute_envelope_root(&self, envelope: &EvidenceEnvelopeV1) -> Result<B3Hash> {
+    fn compute_envelope_root(&self, envelope: &EvidenceEnvelope) -> Result<B3Hash> {
         match envelope.scope {
             EvidenceScope::Telemetry => {
                 let ref_data = envelope.bundle_metadata_ref.as_ref().ok_or_else(|| {
@@ -295,7 +295,7 @@ impl EvidenceVerifier {
 
     /// Verify envelope signature
     #[cfg(feature = "evidence-signing")]
-    fn verify_signature(&self, envelope: &EvidenceEnvelopeV1) -> Result<bool> {
+    fn verify_signature(&self, envelope: &EvidenceEnvelope) -> Result<bool> {
         use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 
         // Get public key for this key_id
@@ -349,7 +349,7 @@ impl EvidenceVerifier {
 
     /// Verify envelope signature (stub when feature disabled)
     #[cfg(not(feature = "evidence-signing"))]
-    fn verify_signature(&self, _envelope: &EvidenceEnvelopeV1) -> Result<bool> {
+    fn verify_signature(&self, _envelope: &EvidenceEnvelope) -> Result<bool> {
         // Without the feature, skip signature verification
         Ok(true)
     }
@@ -357,7 +357,7 @@ impl EvidenceVerifier {
 
 /// Sign an envelope with Ed25519 (requires `evidence-signing` feature)
 #[cfg(feature = "evidence-signing")]
-pub fn sign_envelope(envelope: &mut EvidenceEnvelopeV1, signing_key_hex: &str) -> Result<()> {
+pub fn sign_envelope(envelope: &mut EvidenceEnvelope, signing_key_hex: &str) -> Result<()> {
     use crate::evidence_envelope::compute_key_id;
     use ed25519_dalek::{Signer, SigningKey};
 
@@ -447,7 +447,7 @@ mod tests {
     fn test_verify_telemetry_envelope() {
         let verifier = EvidenceVerifier::new();
         let env =
-            EvidenceEnvelopeV1::new_telemetry("tenant-1".to_string(), sample_bundle_ref(), None);
+            EvidenceEnvelope::new_telemetry("tenant-1".to_string(), sample_bundle_ref(), None);
 
         let result = verifier.verify_envelope(&env, None).unwrap();
         assert!(
@@ -463,7 +463,7 @@ mod tests {
     #[test]
     fn test_verify_policy_envelope() {
         let verifier = EvidenceVerifier::new();
-        let env = EvidenceEnvelopeV1::new_policy("tenant-1".to_string(), sample_policy_ref(), None);
+        let env = EvidenceEnvelope::new_policy("tenant-1".to_string(), sample_policy_ref(), None);
 
         let result = verifier.verify_envelope(&env, None).unwrap();
         assert!(
@@ -477,7 +477,7 @@ mod tests {
     fn test_verify_inference_envelope() {
         let verifier = EvidenceVerifier::new();
         let env =
-            EvidenceEnvelopeV1::new_inference("tenant-1".to_string(), sample_inference_ref(), None);
+            EvidenceEnvelope::new_inference("tenant-1".to_string(), sample_inference_ref(), None);
 
         let result = verifier.verify_envelope(&env, None).unwrap();
         assert!(
@@ -494,19 +494,19 @@ mod tests {
 
         // Telemetry
         let telemetry_env =
-            EvidenceEnvelopeV1::new_telemetry("tenant-1".to_string(), sample_bundle_ref(), None);
+            EvidenceEnvelope::new_telemetry("tenant-1".to_string(), sample_bundle_ref(), None);
         let result = verifier.verify_envelope(&telemetry_env, None).unwrap();
         assert!(result.is_valid, "Telemetry envelope should verify");
 
         // Policy
         let policy_env =
-            EvidenceEnvelopeV1::new_policy("tenant-1".to_string(), sample_policy_ref(), None);
+            EvidenceEnvelope::new_policy("tenant-1".to_string(), sample_policy_ref(), None);
         let result = verifier.verify_envelope(&policy_env, None).unwrap();
         assert!(result.is_valid, "Policy envelope should verify");
 
         // Inference
         let inference_env =
-            EvidenceEnvelopeV1::new_inference("tenant-1".to_string(), sample_inference_ref(), None);
+            EvidenceEnvelope::new_inference("tenant-1".to_string(), sample_inference_ref(), None);
         let result = verifier.verify_envelope(&inference_env, None).unwrap();
         assert!(result.is_valid, "Inference envelope should verify");
     }
@@ -518,9 +518,9 @@ mod tests {
 
         // Create chain of 3 envelopes
         let env1 =
-            EvidenceEnvelopeV1::new_telemetry("tenant-1".to_string(), sample_bundle_ref(), None);
+            EvidenceEnvelope::new_telemetry("tenant-1".to_string(), sample_bundle_ref(), None);
 
-        let env2 = EvidenceEnvelopeV1::new_telemetry(
+        let env2 = EvidenceEnvelope::new_telemetry(
             "tenant-1".to_string(),
             BundleMetadataRef {
                 bundle_hash: B3Hash::hash(b"bundle-2"),
@@ -533,7 +533,7 @@ mod tests {
         );
 
         // Create env3 with WRONG previous_root (chain break)
-        let env3 = EvidenceEnvelopeV1::new_telemetry(
+        let env3 = EvidenceEnvelope::new_telemetry(
             "tenant-1".to_string(),
             BundleMetadataRef {
                 bundle_hash: B3Hash::hash(b"bundle-3"),
@@ -561,7 +561,7 @@ mod tests {
     fn test_inference_envelope_contains_run_receipt_fields() {
         let receipt_ref = sample_inference_ref();
         let env =
-            EvidenceEnvelopeV1::new_inference("tenant-1".to_string(), receipt_ref.clone(), None);
+            EvidenceEnvelope::new_inference("tenant-1".to_string(), receipt_ref.clone(), None);
 
         let ref_data = env.inference_receipt_ref.as_ref().unwrap();
 
@@ -587,9 +587,9 @@ mod tests {
         let verifier = EvidenceVerifier::new();
 
         let env1 =
-            EvidenceEnvelopeV1::new_policy("tenant-1".to_string(), sample_policy_ref(), None);
+            EvidenceEnvelope::new_policy("tenant-1".to_string(), sample_policy_ref(), None);
 
-        let env2 = EvidenceEnvelopeV1::new_policy(
+        let env2 = EvidenceEnvelope::new_policy(
             "tenant-1".to_string(),
             PolicyAuditRef {
                 decision_id: "dec-002".to_string(),
@@ -620,7 +620,7 @@ mod tests {
     fn test_schema_version_mismatch() {
         let verifier = EvidenceVerifier::new();
         let mut env =
-            EvidenceEnvelopeV1::new_telemetry("tenant-1".to_string(), sample_bundle_ref(), None);
+            EvidenceEnvelope::new_telemetry("tenant-1".to_string(), sample_bundle_ref(), None);
         env.schema_version = 99;
 
         let result = verifier.verify_envelope(&env, None).unwrap();

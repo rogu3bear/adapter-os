@@ -1,6 +1,6 @@
 #![no_main]
 
-use adapteros_core::evidence_envelope::{BundleMetadataRef, EvidenceEnvelopeV1};
+use adapteros_core::evidence_envelope::{BundleMetadataRef, EvidenceEnvelope};
 use adapteros_core::evidence_verifier::EvidenceVerifier;
 use adapteros_core::B3Hash;
 use arbitrary::Unstructured;
@@ -70,7 +70,7 @@ fuzz_target!(|data: &[u8]| {
             previous_root
         };
 
-        let envelope = EvidenceEnvelopeV1::new_telemetry(
+        let envelope = EvidenceEnvelope::new_telemetry(
             "tenant-fuzz".to_string(),
             bundle_ref,
             envelope_previous_root,

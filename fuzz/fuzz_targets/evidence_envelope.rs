@@ -1,7 +1,7 @@
 #![no_main]
 
 use adapteros_core::evidence_envelope::{
-    BundleMetadataRef, EvidenceEnvelopeV1, EvidenceScope, InferenceReceiptRef, PolicyAuditRef,
+    BundleMetadataRef, EvidenceEnvelope, EvidenceScope, InferenceReceiptRef, PolicyAuditRef,
 };
 use adapteros_core::B3Hash;
 use arbitrary::Unstructured;
@@ -68,7 +68,7 @@ fuzz_target!(|data: &[u8]| {
                 sequence_no,
             };
 
-            EvidenceEnvelopeV1::new_telemetry("tenant-fuzz".to_string(), bundle_ref, previous_root)
+            EvidenceEnvelope::new_telemetry("tenant-fuzz".to_string(), bundle_ref, previous_root)
         }
         1 => {
             // Policy envelope
@@ -109,7 +109,7 @@ fuzz_target!(|data: &[u8]| {
                 decision,
             };
 
-            EvidenceEnvelopeV1::new_policy("tenant-fuzz".to_string(), policy_ref, previous_root)
+            EvidenceEnvelope::new_policy("tenant-fuzz".to_string(), policy_ref, previous_root)
         }
         _ => {
             // Inference envelope
@@ -173,7 +173,7 @@ fuzz_target!(|data: &[u8]| {
                 model_cache_identity_v2_digest_b3,
             };
 
-            EvidenceEnvelopeV1::new_inference(
+            EvidenceEnvelope::new_inference(
                 "tenant-fuzz".to_string(),
                 inference_ref,
                 previous_root,
@@ -199,7 +199,7 @@ fuzz_target!(|data: &[u8]| {
 
     // Test JSON roundtrip
     if let Ok(json) = serde_json::to_string(&envelope) {
-        let _ = serde_json::from_str::<EvidenceEnvelopeV1>(&json);
+        let _ = serde_json::from_str::<EvidenceEnvelope>(&json);
     }
 
     // Test scope matching

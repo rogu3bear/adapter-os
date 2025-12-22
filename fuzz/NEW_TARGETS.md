@@ -2,7 +2,7 @@ This document describes the new fuzzing targets added to the AdapterOS project.
 
 Four new fuzzing targets have been created to test recently added modules:
 
-1. `evidence_envelope`: Fuzzes the serialization and construction of `EvidenceEnvelopeV1`
+1. `evidence_envelope`: Fuzzes the serialization and construction of `EvidenceEnvelope`
 2. `evidence_chain_verification`: Fuzzes the verification of evidence chains (Merkle links)
 3. `stop_controller`: Fuzzes the token generation stop logic
 4. `kv_quota_reservation`: Fuzzes the KV cache quota reservation system
