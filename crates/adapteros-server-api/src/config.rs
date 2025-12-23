@@ -3,8 +3,8 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 
 pub use adapteros_config_types::{
-    AlertingConfig, AuthConfig, DatabaseConfig, MetricsConfig, PathsConfig, PoliciesConfig,
-    RateLimitsConfig, SecurityConfig, ServerConfig,
+    AlertingConfig, AuthConfig, DatabaseConfig, InvariantsConfig, MetricsConfig, PathsConfig,
+    PoliciesConfig, RateLimitsConfig, SecurityConfig, ServerConfig,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -29,6 +29,9 @@ pub struct Config {
     /// OpenTelemetry distributed tracing configuration
     #[serde(default)]
     pub otel: OtelConfig,
+    /// Boot invariant check configuration (escape hatch for incidents)
+    #[serde(default)]
+    pub invariants: InvariantsConfig,
 }
 
 fn default_self_hosting_mode() -> String {
@@ -197,6 +200,13 @@ impl Config {
         let config: Config = toml::from_str(&contents)?;
         Ok(config)
     }
+}
+
+/// Check if production mode is enabled for the given config.
+///
+/// Production mode enables stricter security checks and disables dev features.
+pub fn is_production(config: &Config) -> bool {
+    config.server.production_mode
 }
 
 #[cfg(test)]

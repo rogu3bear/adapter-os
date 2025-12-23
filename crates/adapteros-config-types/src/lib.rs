@@ -252,3 +252,25 @@ pub fn default_datasets_root() -> String {
 pub fn default_documents_root() -> String {
     "var/documents".to_string()
 }
+
+// ============================================================================
+// Boot Invariants Configuration
+// ============================================================================
+
+/// Configuration for boot-time invariant checks.
+/// Allows operators to disable specific checks during incidents.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct InvariantsConfig {
+    /// Disable SEC-001: Dev auth bypass check (NOT RECOMMENDED)
+    #[serde(default)]
+    pub disable_sec_001_dev_bypass: bool,
+    /// Disable SEC-002: Dual-write strict mode check (NOT RECOMMENDED)
+    #[serde(default)]
+    pub disable_sec_002_dual_write: bool,
+    /// Disable SEC-003: Executor manifest seed check (NOT RECOMMENDED)
+    #[serde(default)]
+    pub disable_sec_003_executor_seed: bool,
+    /// Disable SEC-005: Cookie security check
+    #[serde(default)]
+    pub disable_sec_005_cookie_security: bool,
+}
