@@ -133,7 +133,9 @@ export function BaseModelWidget() {
     isLoading,
     refetch: refetchStatus,
     error: pollingError,
-    lastUpdated
+    lastUpdated,
+    isCircuitOpen,
+    circuitResetTimeRemaining
   } = usePolling(
     fetchStatus,
     'normal',
@@ -261,6 +263,11 @@ export function BaseModelWidget() {
         ? 'ready'
         : 'empty';
 
+  // Format circuit breaker countdown for display
+  const circuitBreakerMessage = isCircuitOpen && circuitResetTimeRemaining !== null
+    ? `Polling paused (retrying in ${Math.ceil(circuitResetTimeRemaining / 1000)}s)`
+    : null;
+
   return (
     <>
       <DashboardWidgetFrame
@@ -271,7 +278,7 @@ export function BaseModelWidget() {
             <GlossaryTooltip termId="base-model-status" />
           </div>
         }
-        subtitle="Base model lifecycle and actions"
+        subtitle={circuitBreakerMessage || "Base model lifecycle and actions"}
         state={widgetState}
         onRefresh={async () => { await refetchStatus(); }}
         onRetry={async () => { await refetchStatus(); }}
