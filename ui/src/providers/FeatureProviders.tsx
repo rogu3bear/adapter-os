@@ -21,6 +21,9 @@ interface TenantSelection {
   userId: string;
 }
 
+// Tenant loading timeout (10 seconds)
+const TENANT_LOADING_TIMEOUT_MS = 10000;
+
 // Tenant Context
 interface TenantContextValue {
   selectedTenant: string;
@@ -28,6 +31,10 @@ interface TenantContextValue {
   setSelectedTenant: (tenantId: string) => Promise<boolean>;
   tenants: TenantSummary[];
   isLoading: boolean;
+  /** Error that occurred during tenant loading, if any */
+  loadError: Error | null;
+  /** Whether tenant loading timed out */
+  loadTimedOut: boolean;
   refreshTenants: () => Promise<void>;
 }
 
@@ -71,6 +78,9 @@ function TenantProvider({ children }: { children: ReactNode }) {
     return [];
   });
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<Error | null>(null);
+  const [loadTimedOut, setLoadTimedOut] = useState(false);
+  const loadingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     selectedTenantRef.current = selectedTenant;
@@ -177,8 +187,34 @@ function TenantProvider({ children }: { children: ReactNode }) {
   }, [clearTenantSelectionRequirement, refreshUser, resetTenantCaches]);
 
   const refreshTenants = useCallback(async () => {
+    // Clear any previous error/timeout state
+    setLoadError(null);
+    setLoadTimedOut(false);
+
+    // Set loading timeout
+    if (loadingTimeoutRef.current) {
+      clearTimeout(loadingTimeoutRef.current);
+    }
+    loadingTimeoutRef.current = setTimeout(() => {
+      if (isLoading) {
+        setLoadTimedOut(true);
+        setIsLoading(false);
+        logger.error('Tenant loading timed out', {
+          component: 'TenantProvider',
+          timeoutMs: TENANT_LOADING_TIMEOUT_MS,
+        });
+      }
+    }, TENANT_LOADING_TIMEOUT_MS);
+
     try {
       const tenantList = await apiClient.listUserTenants();
+
+      // Clear timeout on success
+      if (loadingTimeoutRef.current) {
+        clearTimeout(loadingTimeoutRef.current);
+        loadingTimeoutRef.current = null;
+      }
+
       setTenants(tenantList);
       try {
         sessionStorage.removeItem(TENANT_BOOTSTRAP_KEY);
@@ -240,11 +276,18 @@ function TenantProvider({ children }: { children: ReactNode }) {
         return firstTenantId;
       });
     } catch (error) {
-      logger.error('Failed to fetch tenants', { component: 'TenantProvider' }, toError(error));
+      // Clear timeout on error
+      if (loadingTimeoutRef.current) {
+        clearTimeout(loadingTimeoutRef.current);
+        loadingTimeoutRef.current = null;
+      }
+      const err = toError(error);
+      setLoadError(err);
+      logger.error('Failed to fetch tenants', { component: 'TenantProvider' }, err);
     } finally {
       setIsLoading(false);
     }
-  }, [user?.tenant_id]);
+  }, [user?.tenant_id, isLoading]);
 
   const setSelectedTenant = useCallback(async (tenantId: string): Promise<boolean> => {
     // Validate tenant exists in list (unless we're still loading)
@@ -377,11 +420,22 @@ function TenantProvider({ children }: { children: ReactNode }) {
     }
   }, [selectedTenant, tenants, clearTenantSelectionRequirement]);
 
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (loadingTimeoutRef.current) {
+        clearTimeout(loadingTimeoutRef.current);
+      }
+    };
+  }, []);
+
   const value: TenantContextValue = {
     selectedTenant,
     setSelectedTenant,
     tenants,
     isLoading,
+    loadError,
+    loadTimedOut,
     refreshTenants,
   };
 

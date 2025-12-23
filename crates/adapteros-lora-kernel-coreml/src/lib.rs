@@ -5,6 +5,16 @@
 
 #![allow(dead_code)]
 
+// =============================================================================
+// Release build feature flag validation
+// Prevents deploying stub backends to production
+// =============================================================================
+#[cfg(all(not(debug_assertions), feature = "coreml-stub"))]
+compile_error!(
+    "coreml-stub feature must not be enabled in release builds. \
+     Stub mode is for testing only."
+);
+
 use crate::export::validate_coreml_fusion;
 use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_lora_kernel_api::{

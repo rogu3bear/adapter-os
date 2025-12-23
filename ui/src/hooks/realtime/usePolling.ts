@@ -31,6 +31,10 @@ export interface UsePollingReturn<T> {
   isFetching: boolean;
   lastUpdated: Date | null;
   error: Error | null;
+  /** Whether the circuit breaker is open (polling paused after consecutive failures) */
+  isCircuitOpen: boolean;
+  /** Time remaining until circuit breaker resets (ms), or null if not open */
+  circuitResetTimeRemaining: number | null;
   refetch: () => Promise<void>;
 }
 
@@ -58,7 +62,9 @@ export function usePolling<T>(
   const [isFetching, setIsFetching] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [error, setError] = useState<Error | null>(null);
-  
+  const [isCircuitOpen, setIsCircuitOpen] = useState(false);
+  const [circuitResetTimeRemaining, setCircuitResetTimeRemaining] = useState<number | null>(null);
+
   // Circuit breaker state
   const failureCountRef = useRef(0);
   const lastSuccessRef = useRef<Date | null>(null);
@@ -68,6 +74,7 @@ export function usePolling<T>(
   
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const circuitBreakerTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const circuitCountdownRef = useRef<NodeJS.Timeout | null>(null);
   const mountedRef = useRef(true);
   
   // Store latest values in refs to avoid recreating callbacks
@@ -104,6 +111,12 @@ export function usePolling<T>(
         failureCountRef.current = 0;
         backoffMultiplierRef.current = 1;
         currentIntervalRef.current = intervalMs;
+        setIsCircuitOpen(false);
+        setCircuitResetTimeRemaining(null);
+        if (circuitCountdownRef.current) {
+          clearInterval(circuitCountdownRef.current);
+          circuitCountdownRef.current = null;
+        }
         logger.info('Circuit breaker reset - resuming polling', {
           component: 'usePolling',
           operation: operationName,
@@ -127,11 +140,17 @@ export function usePolling<T>(
       backoffMultiplierRef.current = 1;
       currentIntervalRef.current = intervalMs;
       circuitOpenTimeRef.current = null;
-      
-      // Clear any circuit breaker timeout
+      setIsCircuitOpen(false);
+      setCircuitResetTimeRemaining(null);
+
+      // Clear any circuit breaker timeout and countdown
       if (circuitBreakerTimeoutRef.current) {
         clearTimeout(circuitBreakerTimeoutRef.current);
         circuitBreakerTimeoutRef.current = null;
+      }
+      if (circuitCountdownRef.current) {
+        clearInterval(circuitCountdownRef.current);
+        circuitCountdownRef.current = null;
       }
       
       onSuccessRef.current?.(result);
@@ -173,19 +192,43 @@ export function usePolling<T>(
       // Check if circuit breaker should open
       if (enableCircuitBreaker && failureCountRef.current >= circuitBreakerThreshold) {
         circuitOpenTimeRef.current = new Date();
+        setIsCircuitOpen(true);
+        setCircuitResetTimeRemaining(circuitBreakerResetMs);
+
+        // Start countdown timer for UI feedback
+        if (circuitCountdownRef.current) {
+          clearInterval(circuitCountdownRef.current);
+        }
+        circuitCountdownRef.current = setInterval(() => {
+          if (!mountedRef.current || !circuitOpenTimeRef.current) {
+            if (circuitCountdownRef.current) {
+              clearInterval(circuitCountdownRef.current);
+              circuitCountdownRef.current = null;
+            }
+            return;
+          }
+          const elapsed = Date.now() - circuitOpenTimeRef.current.getTime();
+          const remaining = Math.max(0, circuitBreakerResetMs - elapsed);
+          setCircuitResetTimeRemaining(remaining);
+          if (remaining <= 0 && circuitCountdownRef.current) {
+            clearInterval(circuitCountdownRef.current);
+            circuitCountdownRef.current = null;
+          }
+        }, 1000);
+
         logger.warn('Circuit breaker opened - pausing polling', {
           component: 'usePolling',
           operation: operationName,
           failureCount: failureCountRef.current,
           resetAfterMs: circuitBreakerResetMs,
         });
-        
+
         // Clear current polling interval
         if (intervalRef.current) {
           clearTimeout(intervalRef.current);
           intervalRef.current = null;
         }
-        
+
         // Schedule circuit breaker reset
         circuitBreakerTimeoutRef.current = setTimeout(() => {
           if (mountedRef.current) {
@@ -193,6 +236,12 @@ export function usePolling<T>(
             failureCountRef.current = 0;
             backoffMultiplierRef.current = 1;
             currentIntervalRef.current = intervalMs;
+            setIsCircuitOpen(false);
+            setCircuitResetTimeRemaining(null);
+            if (circuitCountdownRef.current) {
+              clearInterval(circuitCountdownRef.current);
+              circuitCountdownRef.current = null;
+            }
             logger.info('Circuit breaker reset - resuming polling', {
               component: 'usePolling',
               operation: operationName,
@@ -240,6 +289,8 @@ export function usePolling<T>(
     
     if (!enabled) {
       setIsLoading(false);
+      setIsCircuitOpen(false);
+      setCircuitResetTimeRemaining(null);
       // Clean up any existing interval
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
@@ -248,6 +299,10 @@ export function usePolling<T>(
       if (circuitBreakerTimeoutRef.current) {
         clearTimeout(circuitBreakerTimeoutRef.current);
         circuitBreakerTimeoutRef.current = null;
+      }
+      if (circuitCountdownRef.current) {
+        clearInterval(circuitCountdownRef.current);
+        circuitCountdownRef.current = null;
       }
       return;
     }
@@ -301,9 +356,13 @@ export function usePolling<T>(
         clearTimeout(circuitBreakerTimeoutRef.current);
         circuitBreakerTimeoutRef.current = null;
       }
+      if (circuitCountdownRef.current) {
+        clearInterval(circuitCountdownRef.current);
+        circuitCountdownRef.current = null;
+      }
     };
   }, [fetchData, intervalMs, enabled, enableCircuitBreaker, circuitBreakerResetMs]);
 
-  return { data, isLoading, isFetching, lastUpdated, error, refetch };
+  return { data, isLoading, isFetching, lastUpdated, error, isCircuitOpen, circuitResetTimeRemaining, refetch };
 }
 
