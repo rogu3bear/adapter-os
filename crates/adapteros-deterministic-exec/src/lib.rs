@@ -45,7 +45,25 @@ use thiserror::Error;
 use tracing::{debug, error, info, warn};
 
 /// Global sequence counter for deterministic task ID generation
-/// This ensures all task IDs are reproducible across runs
+///
+/// This ensures all task IDs are reproducible across runs when:
+/// 1. The same global_seed is used
+/// 2. Tasks are spawned in the same order
+/// 3. The sequence counter starts from the same value
+///
+/// ## Persistence Requirement
+///
+/// This counter is NOT persisted automatically. For crash recovery or replay:
+/// - Use `ExecutorSnapshot::global_sequence` to capture the current value
+/// - Use `DeterministicExecutor::restore()` to restore it from a snapshot
+///
+/// Without proper restoration, task IDs will differ between runs, breaking
+/// deterministic replay guarantees.
+///
+/// ## Thread Safety
+///
+/// Uses `SeqCst` ordering for cross-thread visibility and to prevent
+/// reordering with other atomic operations in the executor.
 static GLOBAL_TASK_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 /// Deterministic task ID type using BLAKE3 hash

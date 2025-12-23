@@ -2,15 +2,30 @@
 //!
 //! This module provides CPU affinity management to ensure deterministic
 //! thread scheduling and prevent work-stealing non-determinism.
+//!
+//! ## Determinism Notes
+//!
+//! - CPU affinity is best-effort on most platforms. If affinity cannot be set,
+//!   the OS scheduler may move threads between cores, potentially affecting
+//!   determinism in multi-threaded scenarios.
+//! - Use `init_cpu_affinity_strict()` when determinism is critical - it will
+//!   return an error if affinity cannot be enforced.
+//! - Single-threaded execution (`worker_threads: Some(1)`) is the most reliable
+//!   way to ensure deterministic scheduling.
 
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use thiserror::Error;
-use tracing::info;
+use tracing::{info, warn};
+
+/// Whether strict mode is enabled (fail on affinity errors)
+static STRICT_MODE: AtomicBool = AtomicBool::new(false);
 
 #[derive(Error, Debug)]
 pub enum CpuAffinityError {
     #[error("Failed to set CPU affinity: {0}")]
     AffinityError(String),
+    #[error("CPU affinity not supported on this platform (strict mode enabled)")]
+    NotSupported,
 }
 
 pub type Result<T> = std::result::Result<T, CpuAffinityError>;
@@ -48,6 +63,43 @@ pub fn init_cpu_affinity() -> Result<()> {
     NEXT_CORE_ID.store(0, Ordering::Relaxed);
 
     Ok(())
+}
+
+/// Initialize CPU affinity in strict mode (fail if affinity cannot be enforced)
+///
+/// Use this when deterministic execution is critical. If CPU affinity cannot
+/// be properly set on this platform, this function will return an error instead
+/// of silently degrading to non-deterministic behavior.
+///
+/// ## Platform Support
+/// - Linux: Full support via sched_setaffinity
+/// - macOS: Limited support (thread affinity hints only)
+/// - Windows: Full support via SetThreadAffinityMask
+pub fn init_cpu_affinity_strict() -> Result<()> {
+    STRICT_MODE.store(true, Ordering::SeqCst);
+
+    let num_cores = num_cpus::get();
+    info!(
+        cores = num_cores,
+        strict = true,
+        "Initializing CPU affinity (strict mode)"
+    );
+
+    // Reset the core counter
+    NEXT_CORE_ID.store(0, Ordering::Relaxed);
+
+    // On macOS, thread affinity is not fully supported - warn in strict mode
+    #[cfg(target_os = "macos")]
+    {
+        warn!("macOS does not fully support thread affinity - determinism may be affected");
+    }
+
+    Ok(())
+}
+
+/// Check if strict mode is enabled
+pub fn is_strict_mode() -> bool {
+    STRICT_MODE.load(Ordering::SeqCst)
 }
 
 /// Get the number of available CPU cores
