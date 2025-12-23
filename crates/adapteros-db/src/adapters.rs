@@ -456,12 +456,12 @@ impl AdapterRegistrationBuilder {
     pub fn build(self) -> Result<AdapterRegistrationParams> {
         let rank = self
             .rank
-            .ok_or_else(|| AosError::Validation("rank is required".into()))?;
+            .ok_or_else(|| AosError::validation("rank is required"))?;
 
         // Validate and default tier
         let tier = self.tier.unwrap_or_else(|| "warm".to_string());
         if !["persistent", "warm", "ephemeral"].contains(&tier.as_str()) {
-            return Err(AosError::Validation(format!(
+            return Err(AosError::validation(format!(
                 "tier must be 'persistent', 'warm', or 'ephemeral', got: {}",
                 tier
             )));
@@ -473,13 +473,13 @@ impl AdapterRegistrationBuilder {
                 .unwrap_or_else(|| "default-tenant".to_string()),
             adapter_id: self
                 .adapter_id
-                .ok_or_else(|| AosError::Validation("adapter_id is required".into()))?,
+                .ok_or_else(|| AosError::validation("adapter_id is required"))?,
             name: self
                 .name
-                .ok_or_else(|| AosError::Validation("name is required".into()))?,
+                .ok_or_else(|| AosError::validation("name is required"))?,
             hash_b3: self
                 .hash_b3
-                .ok_or_else(|| AosError::Validation("hash_b3 is required".into()))?,
+                .ok_or_else(|| AosError::validation("hash_b3 is required"))?,
             rank,
             tier,
             alpha: self.alpha.unwrap_or_else(|| (rank * 2) as f64),
@@ -645,7 +645,7 @@ impl Db {
                 .bind(adapter_id)
                 .fetch_optional(self.pool())
                 .await
-                .map_err(|e| AosError::Database(e.to_string()))?;
+                .map_err(|e| AosError::database(e.to_string()))?;
         Ok(tenant_id)
     }
 
@@ -666,7 +666,7 @@ impl Db {
             .index_manager()
             .query_index(adapter_indexes::BY_ADAPTER_ID, adapter_id)
             .await
-            .map_err(|e| AosError::Database(format!("Failed to query adapter index: {}", e)))?;
+            .map_err(|e| AosError::database(format!("Failed to query adapter index: {}", e)))?;
 
         let internal_id = match internal_ids.first() {
             Some(id) => id,
@@ -679,7 +679,7 @@ impl Db {
             .backend()
             .get(&key)
             .await
-            .map_err(|e| AosError::Database(format!("Failed to get adapter: {}", e)))?
+            .map_err(|e| AosError::database(format!("Failed to get adapter: {}", e)))?
         {
             Some(b) => b,
             None => return Ok(None),
@@ -687,7 +687,7 @@ impl Db {
 
         // Deserialize and convert to Adapter
         let adapter_kv: adapteros_storage::AdapterKv = bincode::deserialize(&bytes)
-            .map_err(|e| AosError::Database(format!("Failed to deserialize adapter: {}", e)))?;
+            .map_err(|e| AosError::database(format!("Failed to deserialize adapter: {}", e)))?;
 
         Ok(Some(adapter_kv.into()))
     }
@@ -796,11 +796,11 @@ impl Db {
                 .bind(&params.provenance_json)
                 .execute(pool)
                 .await
-                .map_err(|e| AosError::Database(e.to_string()))?;
+                .map_err(|e| AosError::database(e.to_string()))?;
                 sql_inserted = true;
             } else if !self.storage_mode().write_to_kv() {
                 // No SQL pool and not writing to KV means we cannot satisfy the write
-                return Err(AosError::Database(
+                return Err(AosError::database(
                     "SQL backend unavailable for adapter registration".to_string(),
                 ));
             }
@@ -834,26 +834,30 @@ impl Db {
                                         tenant_id = %params.tenant_id,
                                         "CRITICAL: Failed to rollback SQL insert after KV failure"
                                     );
-                                    return Err(AosError::Database(format!(
+                                    return Err(AosError::database(format!(
                                         "KV write failed and rollback failed (adapter_id: {id}). Manual repair required."
                                     )));
                                 }
                             }
                             None => {
+                                // CRITICAL: This is a point of no return - SQL committed but KV failed
+                                // and we cannot rollback. System is in an inconsistent state.
                                 error!(
                                     original_error = %e,
                                     adapter_id = %id,
                                     tenant_id = %params.tenant_id,
-                                    "KV write failed but SQL pool unavailable; cannot rollback SQL insert"
+                                    "DUAL-WRITE INCONSISTENCY: KV write failed but SQL pool unavailable; cannot rollback SQL insert. Use ensure_consistency() to repair."
                                 );
-                                return Err(AosError::Database(format!(
-                                    "KV write failed in strict mode for adapter_id={id} and SQL rollback unavailable (no SQL pool): {e}"
-                                )));
+                                return Err(AosError::dual_write_inconsistency(
+                                    "adapter",
+                                    &id,
+                                    format!("KV write failed and SQL rollback unavailable: {e}"),
+                                ));
                             }
                         }
                     }
 
-                    return Err(AosError::Database(format!(
+                    return Err(AosError::database(format!(
                         "KV write failed in strict mode for adapter_id={id}: {e}"
                     )));
                 } else {
@@ -884,7 +888,7 @@ impl Db {
         let adapters = sqlx::query_as::<_, Adapter>(&query)
             .fetch_all(self.pool())
             .await
-            .map_err(|e| AosError::Database(e.to_string()))?;
+            .map_err(|e| AosError::database(e.to_string()))?;
         Ok(adapters)
     }
 
@@ -908,7 +912,7 @@ impl Db {
         let adapters = sqlx::query_as::<_, Adapter>(&query)
             .fetch_all(self.pool())
             .await
-            .map_err(|e| AosError::Database(e.to_string()))?;
+            .map_err(|e| AosError::database(e.to_string()))?;
         Ok(adapters)
     }
 
@@ -956,7 +960,7 @@ impl Db {
             .fetch_all(self.pool())
             .await
             .map_err(|e| {
-                AosError::Database(format!("Failed to list all adapters (system): {}", e))
+                AosError::database(format!("Failed to list all adapters (system): {}", e))
             })?;
         Ok(adapters)
     }
@@ -1078,11 +1082,11 @@ impl Db {
                     ))
                 })?
                 .map_err(|e| {
-                    AosError::Database(format!("Failed to list adapters for tenant: {}", e))
+                    AosError::database(format!("Failed to list adapters for tenant: {}", e))
                 })?
         } else {
             adapters_future.await.map_err(|e| {
-                AosError::Database(format!("Failed to list adapters for tenant: {}", e))
+                AosError::database(format!("Failed to list adapters for tenant: {}", e))
             })?
         };
 
@@ -1133,7 +1137,7 @@ impl Db {
                 .bind(id)
                 .fetch_optional(self.pool())
                 .await
-                .map_err(|e| AosError::Database(e.to_string()))?;
+                .map_err(|e| AosError::database(e.to_string()))?;
 
         let (adapter_id, tenant_id) = match adapter_data {
             Some((aid, tid)) => (aid, tid),
@@ -1170,7 +1174,7 @@ impl Db {
             .bind(id)
             .execute(self.pool())
             .await
-            .map_err(|e| AosError::Database(e.to_string()))?;
+            .map_err(|e| AosError::database(e.to_string()))?;
 
         // KV write (dual-write mode)
         if let Some(repo) = self.get_adapter_kv_repo(&tenant_id) {
@@ -1183,7 +1187,7 @@ impl Db {
                         mode = "dual-write-strict",
                         "CONSISTENCY WARNING: SQL delete committed but KV delete failed in strict mode. KV entry may be orphaned."
                     );
-                    return Err(AosError::Database(format!(
+                    return Err(AosError::database(format!(
                         "Adapter deleted in SQL but KV delete failed (strict mode): {e}"
                     )));
                 } else {
@@ -1212,7 +1216,7 @@ impl Db {
             .pool()
             .begin()
             .await
-            .map_err(|e| AosError::Database(e.to_string()))?;
+            .map_err(|e| AosError::database(e.to_string()))?;
 
         // Get adapter_id and tenant_id for pinning check and KV dual-write
         let adapter_data: Option<(String, String)> =
@@ -1220,7 +1224,7 @@ impl Db {
                 .bind(id)
                 .fetch_optional(&mut *tx)
                 .await
-                .map_err(|e| AosError::Database(e.to_string()))?;
+                .map_err(|e| AosError::database(e.to_string()))?;
 
         let (adapter_id, tenant_id) = match adapter_data {
             Some((aid, tid)) => (aid, tid),
@@ -1259,7 +1263,7 @@ impl Db {
         .bind(&adapter_id)
         .execute(&mut *tx)
         .await
-        .map_err(|e| AosError::Database(e.to_string()))?;
+        .map_err(|e| AosError::database(e.to_string()))?;
 
         info!(id = %id, adapter_id = %adapter_id, "Deleting adapter with cascade");
 
@@ -1268,11 +1272,11 @@ impl Db {
             .bind(id)
             .execute(&mut *tx)
             .await
-            .map_err(|e| AosError::Database(e.to_string()))?;
+            .map_err(|e| AosError::database(e.to_string()))?;
 
         tx.commit()
             .await
-            .map_err(|e| AosError::Database(e.to_string()))?;
+            .map_err(|e| AosError::database(e.to_string()))?;
 
         // KV write (dual-write mode) - after transaction commit
         if let Some(repo) = self.get_adapter_kv_repo(&tenant_id) {
@@ -1285,7 +1289,7 @@ impl Db {
                         mode = "dual-write-strict",
                         "CONSISTENCY WARNING: SQL cascade delete committed but KV delete failed in strict mode. KV entry may be orphaned."
                     );
-                    return Err(AosError::Database(format!(
+                    return Err(AosError::database(format!(
                         "Cascade delete succeeded in SQL but failed in KV (strict mode): {e}"
                     )));
                 } else {
@@ -1360,7 +1364,7 @@ impl Db {
             .bind(adapter_id)
             .fetch_optional(self.pool())
             .await
-            .map_err(|e| AosError::Database(e.to_string()))?;
+            .map_err(|e| AosError::database(e.to_string()))?;
         Ok(adapter)
     }
 
@@ -1410,7 +1414,7 @@ impl Db {
             .bind(adapter_id)
             .fetch_all(self.pool())
             .await
-            .map_err(|e| AosError::Database(e.to_string()))?;
+            .map_err(|e| AosError::database(e.to_string()))?;
         let execution_time = start_time.elapsed();
 
         // Record performance metrics if monitoring is enabled
@@ -1440,7 +1444,7 @@ impl Db {
         match adapters.len() {
             0 => Ok(None),
             1 => Ok(Some(adapters.remove(0))),
-            _ => Err(AosError::Validation(format!(
+            _ => Err(AosError::validation(format!(
                 "Ambiguous adapter_id '{}' for tenant '{}'",
                 adapter_id, tenant_id
             ))),
@@ -1495,7 +1499,7 @@ impl Db {
             .bind(hash_b3)
             .fetch_optional(self.pool())
             .await
-            .map_err(|e| AosError::Database(format!("Failed to find adapter by hash: {}", e)))?;
+            .map_err(|e| AosError::database(format!("Failed to find adapter by hash: {}", e)))?;
 
         if let Some(ref a) = adapter {
             warn!(
@@ -1532,7 +1536,7 @@ impl Db {
                     Err(e) if self.storage_mode().sql_fallback_enabled() => {
                         warn!(error = %e, tenant_id = %tenant_id, hash = %hash_b3, mode = "kv-fallback", "KV lookup failed, falling back to SQL");
                     }
-                    Err(e) => return Err(AosError::Database(format!("KV lookup failed: {}", e))),
+                    Err(e) => return Err(AosError::database(format!("KV lookup failed: {}", e))),
                 }
             }
         }
@@ -1549,7 +1553,7 @@ impl Db {
             .fetch_optional(self.pool())
             .await
             .map_err(|e| {
-                AosError::Database(format!("Failed to find adapter by hash for tenant: {}", e))
+                AosError::database(format!("Failed to find adapter by hash for tenant: {}", e))
             })?;
         let execution_time = start_time.elapsed();
 
@@ -1599,7 +1603,7 @@ impl Db {
         .bind(if selected { 1 } else { 0 })
         .execute(self.pool())
         .await
-        .map_err(|e| AosError::Database(e.to_string()))?;
+        .map_err(|e| AosError::database(e.to_string()))?;
         Ok(id)
     }
 
@@ -1620,7 +1624,7 @@ impl Db {
         .bind(limit)
         .fetch_all(self.pool())
         .await
-        .map_err(|e| AosError::Database(e.to_string()))?;
+        .map_err(|e| AosError::database(e.to_string()))?;
         Ok(activations)
     }
 
@@ -1637,11 +1641,11 @@ impl Db {
         .bind(adapter_id)
         .fetch_one(self.pool())
         .await
-        .map_err(|e| AosError::Database(e.to_string()))?;
+        .map_err(|e| AosError::database(e.to_string()))?;
 
         let total: i64 = row
             .try_get("total")
-            .map_err(|e| AosError::Database(e.to_string()))?;
+            .map_err(|e| AosError::database(e.to_string()))?;
         let selected: i64 = row.try_get("selected_count").unwrap_or(0);
         let avg_gate: f64 = row.try_get("avg_gate").unwrap_or(0.0);
 
@@ -1662,7 +1666,7 @@ impl Db {
         .bind(adapter_id)
         .execute(self.pool())
         .await
-        .map_err(|e| AosError::Database(e.to_string()))?;
+        .map_err(|e| AosError::database(e.to_string()))?;
 
         // KV write (dual-write mode)
         if let Some(tenant_id) = self.get_adapter_tenant_id(adapter_id).await? {
@@ -1679,7 +1683,7 @@ impl Db {
                             mode = "dual-write-strict",
                             "CONSISTENCY WARNING: SQL state update committed but KV write failed in strict mode. Use ensure_consistency() to repair."
                         );
-                        return Err(AosError::Database(format!(
+                        return Err(AosError::database(format!(
                             "State update succeeded in SQL but failed in KV (strict mode): {e}"
                         )));
                     } else {
@@ -1705,7 +1709,7 @@ impl Db {
         .bind(adapter_id)
         .execute(self.pool())
         .await
-        .map_err(|e| AosError::Database(e.to_string()))?;
+        .map_err(|e| AosError::database(e.to_string()))?;
 
         // KV write (dual-write mode)
         if let Some(tenant_id) = self.get_adapter_tenant_id(adapter_id).await? {
@@ -1722,7 +1726,7 @@ impl Db {
                             mode = "dual-write-strict",
                             "CONSISTENCY WARNING: SQL memory update committed but KV write failed in strict mode. Use ensure_consistency() to repair."
                         );
-                        return Err(AosError::Database(format!(
+                        return Err(AosError::database(format!(
                             "Memory update succeeded in SQL but failed in KV (strict mode): {e}"
                         )));
                     } else {
@@ -1756,7 +1760,7 @@ impl Db {
             .pool()
             .begin()
             .await
-            .map_err(|e| AosError::Database(e.to_string()))?;
+            .map_err(|e| AosError::database(e.to_string()))?;
 
         // Lock the row and get tenant_id for KV dual-write
         let row_data: Option<(String, String)> =
@@ -1764,7 +1768,7 @@ impl Db {
                 .bind(adapter_id)
                 .fetch_optional(&mut *tx)
                 .await
-                .map_err(|e| AosError::Database(e.to_string()))?;
+                .map_err(|e| AosError::database(e.to_string()))?;
 
         let tenant_id = match row_data {
             Some((_, tid)) => tid,
@@ -1788,11 +1792,11 @@ impl Db {
         .bind(adapter_id)
         .execute(&mut *tx)
         .await
-        .map_err(|e| AosError::Database(e.to_string()))?;
+        .map_err(|e| AosError::database(e.to_string()))?;
 
         tx.commit()
             .await
-            .map_err(|e| AosError::Database(e.to_string()))?;
+            .map_err(|e| AosError::database(e.to_string()))?;
 
         // KV write (dual-write mode) - after transaction commit
         if let Some(repo) = self.get_adapter_kv_repo(&tenant_id) {
@@ -1808,7 +1812,7 @@ impl Db {
                         mode = "dual-write-strict",
                         "CONSISTENCY WARNING: SQL state update committed but KV write failed in strict mode. Use ensure_consistency() to repair."
                     );
-                    return Err(AosError::Database(format!(
+                    return Err(AosError::database(format!(
                         "State update (tx) succeeded in SQL but failed in KV (strict mode): {e}"
                     )));
                 } else {
@@ -1861,7 +1865,7 @@ impl Db {
             .pool()
             .begin()
             .await
-            .map_err(|e| AosError::Database(e.to_string()))?;
+            .map_err(|e| AosError::database(e.to_string()))?;
 
         // Lock the row and verify current state
         let row_data: Option<(String, String, String)> = sqlx::query_as(
@@ -1870,7 +1874,7 @@ impl Db {
         .bind(adapter_id)
         .fetch_optional(&mut *tx)
         .await
-        .map_err(|e| AosError::Database(e.to_string()))?;
+        .map_err(|e| AosError::database(e.to_string()))?;
 
         let (tenant_id, current_state) = match row_data {
             Some((_, tid, state)) => (tid, state),
@@ -1911,11 +1915,11 @@ impl Db {
         .bind(expected_state) // Double-check in WHERE clause for atomicity
         .execute(&mut *tx)
         .await
-        .map_err(|e| AosError::Database(e.to_string()))?;
+        .map_err(|e| AosError::database(e.to_string()))?;
 
         tx.commit()
             .await
-            .map_err(|e| AosError::Database(e.to_string()))?;
+            .map_err(|e| AosError::database(e.to_string()))?;
 
         // KV write (dual-write mode) - after transaction commit
         if let Some(repo) = self.get_adapter_kv_repo(&tenant_id) {
@@ -1931,7 +1935,7 @@ impl Db {
                         mode = "dual-write-strict",
                         "CONSISTENCY WARNING: SQL state update committed but KV write failed in strict mode (CAS). Use ensure_consistency() to repair."
                     );
-                    return Err(AosError::Database(format!(
+                    return Err(AosError::database(format!(
                         "State update (CAS) succeeded in SQL but failed in KV (strict mode): {e}"
                     )));
                 } else {
@@ -1970,7 +1974,7 @@ impl Db {
             .pool()
             .begin()
             .await
-            .map_err(|e| AosError::Database(e.to_string()))?;
+            .map_err(|e| AosError::database(e.to_string()))?;
 
         // Verify adapter exists and get tenant_id for KV dual-write
         let row_data: Option<(String, String)> =
@@ -1978,7 +1982,7 @@ impl Db {
                 .bind(adapter_id)
                 .fetch_optional(&mut *tx)
                 .await
-                .map_err(|e| AosError::Database(e.to_string()))?;
+                .map_err(|e| AosError::database(e.to_string()))?;
 
         let tenant_id = match row_data {
             Some((_, tid)) => tid,
@@ -2000,11 +2004,11 @@ impl Db {
         .bind(adapter_id)
         .execute(&mut *tx)
         .await
-        .map_err(|e| AosError::Database(e.to_string()))?;
+        .map_err(|e| AosError::database(e.to_string()))?;
 
         tx.commit()
             .await
-            .map_err(|e| AosError::Database(e.to_string()))?;
+            .map_err(|e| AosError::database(e.to_string()))?;
 
         // KV write (dual-write mode) - after transaction commit
         if let Some(repo) = self.get_adapter_kv_repo(&tenant_id) {
@@ -2020,7 +2024,7 @@ impl Db {
                         mode = "dual-write-strict",
                         "CONSISTENCY WARNING: SQL memory update committed but KV write failed in strict mode. Use ensure_consistency() to repair."
                     );
-                    return Err(AosError::Database(format!(
+                    return Err(AosError::database(format!(
                         "Memory update (tx) succeeded in SQL but failed in KV (strict mode): {e}"
                     )));
                 } else {
@@ -2051,7 +2055,7 @@ impl Db {
             .pool()
             .begin()
             .await
-            .map_err(|e| AosError::Database(e.to_string()))?;
+            .map_err(|e| AosError::database(e.to_string()))?;
 
         // Verify adapter exists and get tenant_id for KV dual-write
         let row_data: Option<(String, String)> =
@@ -2059,7 +2063,7 @@ impl Db {
                 .bind(adapter_id)
                 .fetch_optional(&mut *tx)
                 .await
-                .map_err(|e| AosError::Database(e.to_string()))?;
+                .map_err(|e| AosError::database(e.to_string()))?;
 
         let tenant_id = match row_data {
             Some((_, tid)) => tid,
@@ -2090,11 +2094,11 @@ impl Db {
         .bind(adapter_id)
         .execute(&mut *tx)
         .await
-        .map_err(|e| AosError::Database(e.to_string()))?;
+        .map_err(|e| AosError::database(e.to_string()))?;
 
         tx.commit()
             .await
-            .map_err(|e| AosError::Database(e.to_string()))?;
+            .map_err(|e| AosError::database(e.to_string()))?;
 
         // KV write (dual-write mode) - after transaction commit
         if let Some(repo) = self.get_adapter_kv_repo(&tenant_id) {
@@ -2110,7 +2114,7 @@ impl Db {
                         mode = "dual-write-strict",
                         "CONSISTENCY WARNING: SQL state/memory update committed but KV write failed in strict mode. Use ensure_consistency() to repair."
                     );
-                    return Err(AosError::Database(format!(
+                    return Err(AosError::database(format!(
                         "State/memory update succeeded in SQL but failed in KV (strict mode): {e}"
                     )));
                 } else {
@@ -2166,7 +2170,7 @@ impl Db {
             .bind(category)
             .fetch_all(self.pool())
             .await
-            .map_err(|e| AosError::Database(e.to_string()))?;
+            .map_err(|e| AosError::database(e.to_string()))?;
         Ok(adapters)
     }
 
@@ -2212,7 +2216,7 @@ impl Db {
             .bind(scope)
             .fetch_all(self.pool())
             .await
-            .map_err(|e| AosError::Database(e.to_string()))?;
+            .map_err(|e| AosError::database(e.to_string()))?;
         Ok(adapters)
     }
 
@@ -2241,7 +2245,7 @@ impl Db {
             .bind(state)
             .fetch_all(self.pool())
             .await
-            .map_err(|e| AosError::Database(e.to_string()))?;
+            .map_err(|e| AosError::database(e.to_string()))?;
         Ok(adapters)
     }
 
@@ -2264,22 +2268,22 @@ impl Db {
         .bind(tenant_id)
         .fetch_all(self.pool())
         .await
-        .map_err(|e| AosError::Database(e.to_string()))?;
+        .map_err(|e| AosError::database(e.to_string()))?;
 
         let mut result = Vec::new();
         for row in summary {
             let category: String = row
                 .try_get("category")
-                .map_err(|e| AosError::Database(e.to_string()))?;
+                .map_err(|e| AosError::database(e.to_string()))?;
             let scope: String = row
                 .try_get("scope")
-                .map_err(|e| AosError::Database(e.to_string()))?;
+                .map_err(|e| AosError::database(e.to_string()))?;
             let state: String = row
                 .try_get("current_state")
-                .map_err(|e| AosError::Database(e.to_string()))?;
+                .map_err(|e| AosError::database(e.to_string()))?;
             let count: i64 = row
                 .try_get("count")
-                .map_err(|e| AosError::Database(e.to_string()))?;
+                .map_err(|e| AosError::database(e.to_string()))?;
             let total_memory: i64 = row.try_get("total_memory_bytes").unwrap_or(0);
             let avg_activations: f64 = row.try_get("avg_activations").unwrap_or(0.0);
             let most_recent: Option<String> = row.try_get("most_recent_activation").ok();
@@ -2380,7 +2384,7 @@ impl Db {
             .bind(adapter_id)
             .fetch_all(self.pool())
             .await
-            .map_err(|e| AosError::Database(e.to_string()))?;
+            .map_err(|e| AosError::database(e.to_string()))?;
         Ok(adapters)
     }
 
@@ -2423,7 +2427,7 @@ impl Db {
             .bind(adapter_id)
             .fetch_all(self.pool())
             .await
-            .map_err(|e| AosError::Database(e.to_string()))?;
+            .map_err(|e| AosError::database(e.to_string()))?;
         Ok(adapters)
     }
 
@@ -2457,7 +2461,7 @@ impl Db {
             .bind(adapter_id)
             .fetch_all(self.pool())
             .await
-            .map_err(|e| AosError::Database(e.to_string()))?;
+            .map_err(|e| AosError::database(e.to_string()))?;
         Ok(adapters)
     }
 
@@ -2484,7 +2488,7 @@ impl Db {
         .bind(purpose)
         .fetch_optional(self.pool())
         .await
-        .map_err(|e| AosError::Database(e.to_string()))?;
+        .map_err(|e| AosError::database(e.to_string()))?;
 
         if let Some((revision_str,)) = row {
             // Parse revision string (e.g., "r042" -> 42)
@@ -2521,7 +2525,7 @@ impl Db {
         .bind(purpose)
         .fetch_all(self.pool())
         .await
-        .map_err(|e| AosError::Database(e.to_string()))?;
+        .map_err(|e| AosError::database(e.to_string()))?;
 
         if rows.len() < 2 {
             return Ok(()); // No gap if only 0-1 adapters
@@ -2545,7 +2549,7 @@ impl Db {
         let gap = max_rev - min_rev;
 
         if gap > max_gap {
-            return Err(AosError::Validation(format!(
+            return Err(AosError::validation(format!(
                 "Revision gap ({}) exceeds maximum allowed ({}) for adapter family {}/{}/{}",
                 gap, max_gap, tenant_namespace, domain, purpose
             )));
@@ -2563,7 +2567,7 @@ impl Db {
         .bind(adapter_id)
         .execute(self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to update adapter tier: {}", e)))?;
+        .map_err(|e| AosError::database(format!("Failed to update adapter tier: {}", e)))?;
 
         // KV write (dual-write mode)
         if let Some(tenant_id) = self.get_adapter_tenant_id(adapter_id).await? {
@@ -2577,7 +2581,7 @@ impl Db {
                             mode = "dual-write-strict",
                             "CONSISTENCY WARNING: SQL tier update committed but KV write failed in strict mode. Use ensure_consistency() to repair."
                         );
-                        return Err(AosError::Database(format!(
+                        return Err(AosError::database(format!(
                             "Tier update succeeded in SQL but failed in KV (strict mode): {e}"
                         )));
                     } else {
@@ -2605,7 +2609,7 @@ impl Db {
         .bind(adapter_id)
         .execute(self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to update adapter strength: {}", e)))?;
+        .map_err(|e| AosError::database(format!("Failed to update adapter strength: {}", e)))?;
 
         Ok(())
     }
@@ -2625,7 +2629,7 @@ impl Db {
             .bind(adapter_id)
             .fetch_optional(self.pool())
             .await
-            .map_err(|e| AosError::Database(e.to_string()))?
+            .map_err(|e| AosError::database(e.to_string()))?
         {
             Some(a) => a,
             None => return Ok(false),
@@ -2701,18 +2705,18 @@ impl Db {
                 let _ = repo.delete_adapter_kv(adapter_id).await;
                 repo.register_adapter_kv(params)
                     .await
-                    .map_err(|e| AosError::Database(format!("Failed to repair KV entry: {}", e)))?;
+                    .map_err(|e| AosError::database(format!("Failed to repair KV entry: {}", e)))?;
                 repo.update_adapter_state_kv(
                     adapter_id,
                     &adapter.current_state,
                     "consistency_repair",
                 )
                 .await
-                .map_err(|e| AosError::Database(format!("Failed to repair KV state: {}", e)))?;
+                .map_err(|e| AosError::database(format!("Failed to repair KV state: {}", e)))?;
                 repo.update_adapter_memory_kv(adapter_id, adapter.memory_bytes)
                     .await
                     .map_err(|e| {
-                        AosError::Database(format!("Failed to repair KV memory: {}", e))
+                        AosError::database(format!("Failed to repair KV memory: {}", e))
                     })?;
 
                 Ok(true)
@@ -2767,7 +2771,7 @@ impl Db {
                 };
 
                 repo.register_adapter_kv(params).await.map_err(|e| {
-                    AosError::Database(format!("Failed to create adapter in KV: {}", e))
+                    AosError::database(format!("Failed to create adapter in KV: {}", e))
                 })?;
                 repo.update_adapter_state_kv(
                     adapter_id,
@@ -2775,16 +2779,16 @@ impl Db {
                     "consistency_repair",
                 )
                 .await
-                .map_err(|e| AosError::Database(format!("Failed to sync state to KV: {}", e)))?;
+                .map_err(|e| AosError::database(format!("Failed to sync state to KV: {}", e)))?;
                 repo.update_adapter_memory_kv(adapter_id, adapter.memory_bytes)
                     .await
                     .map_err(|e| {
-                        AosError::Database(format!("Failed to sync memory to KV: {}", e))
+                        AosError::database(format!("Failed to sync memory to KV: {}", e))
                     })?;
 
                 Ok(true)
             }
-            Err(e) => Err(AosError::Database(format!(
+            Err(e) => Err(AosError::database(format!(
                 "Consistency check failed: {}",
                 e
             ))),
@@ -2898,7 +2902,7 @@ impl Db {
         .bind(tenant_id)
         .fetch_all(self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to query adapters: {}", e)))?;
+        .map_err(|e| AosError::database(format!("Failed to query adapters: {}", e)))?;
 
         let result = sqlx::query(
             "UPDATE adapters
@@ -2915,7 +2919,7 @@ impl Db {
         .bind(tenant_id)
         .execute(self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to archive adapters: {}", e)))?;
+        .map_err(|e| AosError::database(format!("Failed to archive adapters: {}", e)))?;
 
         info!(
             tenant_id = %tenant_id,
@@ -2994,7 +2998,7 @@ impl Db {
         .bind(adapter_id)
         .execute(self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to archive adapter: {}", e)))?
+        .map_err(|e| AosError::database(format!("Failed to archive adapter: {}", e)))?
         .rows_affected();
 
         if affected == 0 {
@@ -3053,7 +3057,7 @@ impl Db {
             .bind(limit)
             .fetch_all(self.pool())
             .await
-            .map_err(|e| AosError::Database(format!("Failed to find GC candidates: {}", e)))?;
+            .map_err(|e| AosError::database(format!("Failed to find GC candidates: {}", e)))?;
 
         Ok(adapters)
     }
@@ -3063,8 +3067,39 @@ impl Db {
     /// Sets `purged_at` timestamp and clears `aos_file_path`.
     /// The record is preserved for audit purposes.
     ///
-    /// CRITICAL: Call this AFTER successfully deleting the .aos file from disk.
+    /// # Point of No Return
+    ///
+    /// **WARNING: THIS IS AN IRREVERSIBLE OPERATION.**
+    ///
+    /// After this function executes successfully:
+    /// - The adapter's `.aos` file reference is permanently cleared
+    /// - `unarchive_adapter()` will fail for this adapter
+    /// - The adapter can never be loaded again
+    /// - Only the audit record remains in the database
+    ///
+    /// This boundary is enforced by:
+    /// - Database trigger `prevent_purged_adapter_load` (migration 0138)
+    /// - SQL WHERE clause `purged_at IS NULL` in `unarchive_adapter()`
+    ///
+    /// # Prerequisites
+    ///
+    /// CRITICAL: Call this ONLY AFTER successfully deleting the `.aos` file from disk.
+    /// The `.aos` file MUST be deleted before calling this function to maintain
+    /// consistency between filesystem and database state.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - Adapter is not archived (must be archived before purge)
+    /// - Adapter is already purged
+    /// - Database operation fails
     pub async fn mark_adapter_purged(&self, adapter_id: &str) -> Result<()> {
+        // Pre-check: Log that we're about to cross the point of no return
+        warn!(
+            adapter_id = %adapter_id,
+            "POINT OF NO RETURN: About to mark adapter as purged. This is irreversible."
+        );
+
         let affected = sqlx::query(
             "UPDATE adapters
              SET purged_at = datetime('now'),
@@ -3077,17 +3112,21 @@ impl Db {
         .bind(adapter_id)
         .execute(self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to mark adapter purged: {}", e)))?
+        .map_err(|e| AosError::database(format!("Failed to mark adapter purged: {}", e)))?
         .rows_affected();
 
         if affected == 0 {
-            return Err(AosError::Validation(format!(
-                "Adapter {} is not archived or already purged",
+            return Err(AosError::validation(format!(
+                "Adapter {} is not archived or already purged. Cannot proceed with irreversible purge.",
                 adapter_id
             )));
         }
 
-        info!(adapter_id = %adapter_id, "Marked adapter as purged");
+        // Log completion of the irreversible operation
+        info!(
+            adapter_id = %adapter_id,
+            "IRREVERSIBLE: Adapter marked as purged. Recovery is no longer possible."
+        );
 
         // KV write (dual-write mode)
         if let Some(tenant_id) = self.get_adapter_tenant_id(adapter_id).await? {
@@ -3113,7 +3152,7 @@ impl Db {
                 .bind(adapter_id)
                 .fetch_optional(self.pool())
                 .await
-                .map_err(|e| AosError::Database(e.to_string()))?;
+                .map_err(|e| AosError::database(e.to_string()))?;
 
         match result {
             Some((archived_at, purged_at)) => {
@@ -3129,8 +3168,31 @@ impl Db {
 
     /// Unarchive an adapter (restore from archived state)
     ///
-    /// Only works if adapter is archived but NOT purged.
-    /// Cannot restore a purged adapter as the .aos file has been deleted.
+    /// Restores an archived adapter to active state. This is the last opportunity
+    /// to recover an adapter before the garbage collection purge makes it permanent.
+    ///
+    /// # Recovery Boundary
+    ///
+    /// This function succeeds only if `purged_at IS NULL`. Once an adapter has been
+    /// purged via `mark_adapter_purged()`, recovery is impossible because:
+    /// - The `.aos` file has been permanently deleted from disk
+    /// - The `aos_file_path` column is NULL
+    /// - The database trigger `prevent_purged_adapter_load` blocks any load attempts
+    ///
+    /// # State Transitions
+    ///
+    /// ```text
+    /// Active → Archived → Active (this function)
+    ///               ↓
+    ///           Purged (IRREVERSIBLE - unarchive fails here)
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - Adapter is not archived (nothing to restore)
+    /// - Adapter has been purged (point of no return crossed)
+    /// - Database operation fails
     pub async fn unarchive_adapter(&self, adapter_id: &str) -> Result<()> {
         let affected = sqlx::query(
             "UPDATE adapters
@@ -3145,17 +3207,18 @@ impl Db {
         .bind(adapter_id)
         .execute(self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to unarchive adapter: {}", e)))?
+        .map_err(|e| AosError::database(format!("Failed to unarchive adapter: {}", e)))?
         .rows_affected();
 
         if affected == 0 {
-            return Err(AosError::Validation(format!(
-                "Adapter {} is not archived or has been purged (cannot restore)",
+            // This is the enforcement point - purged adapters cannot be restored
+            return Err(AosError::validation(format!(
+                "Adapter {} is not archived or has crossed the point of no return (purged). Recovery is not possible.",
                 adapter_id
             )));
         }
 
-        info!(adapter_id = %adapter_id, "Unarchived adapter");
+        info!(adapter_id = %adapter_id, "Unarchived adapter - successfully restored before purge");
 
         // KV write (dual-write mode)
         if let Some(tenant_id) = self.get_adapter_tenant_id(adapter_id).await? {
@@ -3184,7 +3247,7 @@ impl Db {
         .bind(tenant_id)
         .fetch_one(self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to count archived adapters: {}", e)))?;
+        .map_err(|e| AosError::database(format!("Failed to count archived adapters: {}", e)))?;
 
         Ok(count)
     }
@@ -3201,7 +3264,7 @@ impl Db {
         .bind(tenant_id)
         .fetch_one(self.pool())
         .await
-        .map_err(|e| AosError::Database(format!("Failed to count purged adapters: {}", e)))?;
+        .map_err(|e| AosError::database(format!("Failed to count purged adapters: {}", e)))?;
 
         Ok(count)
     }
@@ -3227,7 +3290,7 @@ impl Db {
         .bind(tenant_id)
         .fetch_one(self.pool())
         .await
-        .map_err(|e| AosError::Database(e.to_string()))?;
+        .map_err(|e| AosError::database(e.to_string()))?;
 
         if !exists {
             return Err(AosError::NotFound(format!(
@@ -3257,7 +3320,7 @@ impl Db {
         .bind(tenant_id)
         .fetch_one(self.pool())
         .await
-        .map_err(|e| AosError::Database(e.to_string()))?;
+        .map_err(|e| AosError::database(e.to_string()))?;
 
         if !exists {
             return Err(AosError::NotFound(format!(
@@ -3287,7 +3350,7 @@ impl Db {
         .bind(tenant_id)
         .execute(self.pool())
         .await
-        .map_err(|e| AosError::Database(e.to_string()))?
+        .map_err(|e| AosError::database(e.to_string()))?
         .rows_affected();
 
         if rows_affected == 0 {
@@ -3317,7 +3380,7 @@ impl Db {
         .bind(tenant_id)
         .execute(self.pool())
         .await
-        .map_err(|e| AosError::Database(e.to_string()))?
+        .map_err(|e| AosError::database(e.to_string()))?
         .rows_affected();
 
         if rows_affected == 0 {
@@ -3339,7 +3402,7 @@ impl Db {
                 .bind(tenant_id)
                 .execute(self.pool())
                 .await
-                .map_err(|e| AosError::Database(e.to_string()))?
+                .map_err(|e| AosError::database(e.to_string()))?
                 .rows_affected();
 
         if rows_affected == 0 {
@@ -3458,6 +3521,6 @@ impl Db {
         // Fetch and return the new adapter using tenant-scoped access
         self.get_adapter_for_tenant(tenant_id, &new_id)
             .await?
-            .ok_or_else(|| AosError::Database("Failed to retrieve duplicated adapter".to_string()))
+            .ok_or_else(|| AosError::database("Failed to retrieve duplicated adapter".to_string()))
     }
 }
