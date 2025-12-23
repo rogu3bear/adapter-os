@@ -36,10 +36,10 @@ adapteros-lora-kernel-api = { path = "../adapteros-lora-kernel-api" }
 adapteros-lora-mlx-ffi = { path = "../adapteros-lora-mlx-ffi", optional = true }
 adapteros-secd = { path = "../adapteros-secd", optional = true }
 adapteros-tui = { path = "../adapteros-tui", optional = true }
-adapteros-scenarios = { path = "../adapteros-scenarios" }
+adapteros-scenarios = { path = "../adapteros-scenarios", optional = true }
 # adapteros-system-metrics = { path = "../adapteros-system-metrics" }  # Requires DATABASE_URL
-adapteros-replay = { path = "../adapteros-replay" }
-adapteros-trace = { path = "../adapteros-trace" }
+adapteros-replay = { path = "../adapteros-replay", optional = true }
+adapteros-trace = { path = "../adapteros-trace", optional = true }
 adapteros-verify = { path = "../adapteros-verify", features = ["clap"] }
 adapteros-deterministic-exec = { path = "../adapteros-deterministic-exec" }
 adapteros-lora-lifecycle = { path = "../adapteros-lora-lifecycle" }
@@ -86,7 +86,7 @@ tokenizers = "0.15"
 argon2 = "0.5"
 rand = "0.8"
 indicatif = "0.17"
-adapteros-orchestrator = { path = "../adapteros-orchestrator" }
+adapteros-orchestrator = { path = "../adapteros-orchestrator", optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # adapteros-lora-kernel-mtl = { path = "../adapteros-lora-kernel-mtl" }  # Disabled for stable compilation
@@ -95,21 +95,26 @@ adapteros-orchestrator = { path = "../adapteros-orchestrator" }
 # =============================================================================
 # CLI FEATURE FLAGS
 # =============================================================================
-# multi-backend: Enable MLX backend support in CLI commands
-#   - Adds MLX FFI dependency
-#   - Enables `aosctl serve --backend mlx` and related commands
-#
-# secd-support: Enable Secure Enclave Daemon support
-#   - Adds adapteros-secd dependency
-#   - Enables hardware key management commands
-# =============================================================================
+# Default: includes replay, trace, scenarios, orchestrator for backwards compat
+default = ["replay", "trace", "scenarios", "orchestrator"]
 
+# multi-backend: Enable MLX backend support in CLI commands
 multi-backend = ["dep:adapteros-lora-mlx-ffi"]
 codegraph = ["dep:adapteros-codegraph"]
 secd-support = ["dep:adapteros-secd"]
 tui = ["dep:adapteros-tui"]
+replay = ["dep:adapteros-replay"]
+trace = ["dep:adapteros-trace"]
+scenarios = ["dep:adapteros-scenarios"]
+orchestrator = ["dep:adapteros-orchestrator"]
 extended-tests = []
 coreml-export = ["adapteros-lora-worker/coreml-backend"]
+
+# Full CLI with all optional features
+full = ["replay", "trace", "scenarios", "orchestrator", "codegraph", "tui"]
+
+# Minimal CLI without optional features
+minimal = []
 
 [dev-dependencies]
 axum = { version = "0.8", features = ["macros", "json"] }

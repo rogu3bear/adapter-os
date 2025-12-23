@@ -68,12 +68,15 @@ pub mod registry;
 // Legacy registry commands - consolidated into registry.rs
 // pub mod registry_migrate;  // Consolidated into registry.rs
 // pub mod sync_registry;     // Consolidated into registry.rs
+#[cfg(feature = "replay")]
 pub mod replay;
+#[cfg(feature = "replay")]
 pub mod replay_bundle;
 pub mod repo;
 pub mod report;
 pub mod rollback;
 pub mod router;
+#[cfg(feature = "scenarios")]
 pub mod scenario;
 pub mod secd;
 #[cfg(feature = "secd-support")]
@@ -89,7 +92,9 @@ pub mod tui;
 // pub mod telemetry_list;     // Consolidated into telemetry.rs
 // pub mod verify_telemetry;   // Consolidated into telemetry.rs
 pub mod telemetry_show;
+#[cfg(feature = "trace")]
 pub mod trace;
+#[cfg(feature = "trace")]
 pub mod trace_validate;
 pub mod train;
 pub mod train_cli;
@@ -104,6 +109,7 @@ pub mod verify_receipt;
 // Legacy federation command - consolidated into federation.rs
 // pub mod verify_federation;  // Consolidated into federation.rs
 pub mod baseline;
+#[cfg(feature = "orchestrator")]
 pub mod behavior_export;
 #[cfg(feature = "codegraph")]
 pub mod codegraph_stats;
