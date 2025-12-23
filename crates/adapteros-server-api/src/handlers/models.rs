@@ -3,7 +3,7 @@
 //! These handlers provide basic API endpoints for model operations.
 //! Full implementation details are in the original models.rs file.
 
-use crate::audit_helper::{log_failure, log_success};
+use crate::audit_helper::{log_failure_or_warn, log_success_or_warn};
 use crate::auth::Claims;
 use crate::middleware::require_any_role;
 use crate::model_status::aggregate_status;
@@ -344,7 +344,7 @@ pub async fn load_model(
             .db
             .update_model_operation(&op_id, "failed", Some(&err_msg), Some(&now), None)
             .await;
-        let _ = log_failure(
+        log_failure_or_warn(
             &state.db,
             &claims,
             ACTION_MODEL_LOAD,
@@ -431,7 +431,7 @@ pub async fn load_model(
             .update_model_operation(&op_id, "failed", Some(&e.to_string()), Some(&now), None)
             .await;
         // Audit log: model load failure
-        let _ = log_failure(
+        log_failure_or_warn(
             &state.db,
             &claims,
             ACTION_MODEL_LOAD,
@@ -461,7 +461,7 @@ pub async fn load_model(
             .db
             .update_model_operation(&op_id, "failed", Some(&error_msg), Some(&now), None)
             .await;
-        let _ = log_failure(
+        log_failure_or_warn(
             &state.db,
             &claims,
             ACTION_MODEL_LOAD,
@@ -493,7 +493,7 @@ pub async fn load_model(
         .await;
 
     // Audit log: model load success
-    let _ = log_success(
+    log_success_or_warn(
         &state.db,
         &claims,
         ACTION_MODEL_LOAD,
@@ -698,7 +698,7 @@ pub async fn unload_model(
             .db
             .update_model_operation(&op_id, "failed", Some(&e.to_string()), Some(&now), None)
             .await;
-        let _ = log_failure(
+        log_failure_or_warn(
             &state.db,
             &claims,
             ACTION_MODEL_UNLOAD,
@@ -740,7 +740,7 @@ pub async fn unload_model(
             .update_model_operation(&op_id, "failed", Some(&e.to_string()), Some(&now), None)
             .await;
         // Audit log: model unload failure
-        let _ = log_failure(
+        log_failure_or_warn(
             &state.db,
             &claims,
             ACTION_MODEL_UNLOAD,
@@ -772,7 +772,7 @@ pub async fn unload_model(
         .await;
 
     // Audit log: model unload success
-    let _ = log_success(
+    log_success_or_warn(
         &state.db,
         &claims,
         ACTION_MODEL_UNLOAD,
@@ -1239,7 +1239,7 @@ pub async fn import_model(
         Err(e) => {
             error!("Failed to start model import: {}", e);
             // Audit log: model import failure
-            let _ = log_failure(
+            log_failure_or_warn(
                 &state.db,
                 &claims,
                 ACTION_MODEL_IMPORT,
@@ -1269,7 +1269,7 @@ pub async fn import_model(
     }
 
     // Audit log: model import success
-    let _ = log_success(
+    log_success_or_warn(
         &state.db,
         &claims,
         ACTION_MODEL_IMPORT,

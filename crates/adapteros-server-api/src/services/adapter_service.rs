@@ -233,12 +233,12 @@ impl DefaultAdapterService {
                 if is_promotion {
                     manager.promote_adapter(adapter_idx).await.map_err(|e| {
                         error!(error = %e, "Failed to promote adapter via lifecycle manager");
-                        AosError::Other(format!("Failed to promote adapter: {}", e))
+                        AosError::Lifecycle(format!("Failed to promote adapter: {}", e))
                     })?;
                 } else {
                     manager.demote_adapter(adapter_idx).await.map_err(|e| {
                         error!(error = %e, "Failed to demote adapter via lifecycle manager");
-                        AosError::Other(format!("Failed to demote adapter: {}", e))
+                        AosError::Lifecycle(format!("Failed to demote adapter: {}", e))
                     })?;
                 }
 

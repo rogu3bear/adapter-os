@@ -3,7 +3,7 @@
 //! Provides REST endpoints for PDF document upload, indexing, and management.
 //! Documents are ingested, chunked, and stored with embeddings for RAG workflows.
 
-use crate::audit_helper::{actions, log_success, resources};
+use crate::audit_helper::{actions, log_success_or_warn, resources};
 use crate::auth::Claims;
 use crate::error_helpers::{bad_request, db_error, internal_error, not_found, payload_too_large};
 use crate::permissions::{require_permission, Permission};
@@ -213,7 +213,7 @@ pub async fn upload_document(
         );
 
         // Audit log: document upload deduplicated
-        let _ = log_success(
+        log_success_or_warn(
             &state.db,
             &claims,
             actions::DOCUMENT_UPLOAD,
@@ -260,7 +260,7 @@ pub async fn upload_document(
     );
 
     // Audit log: document uploaded
-    let _ = log_success(
+    log_success_or_warn(
         &state.db,
         &claims,
         actions::DOCUMENT_UPLOAD,
@@ -435,7 +435,7 @@ pub async fn delete_document(
     info!("Deleted document {} and its chunks", id);
 
     // Audit log: document deleted
-    let _ = log_success(
+    log_success_or_warn(
         &state.db,
         &claims,
         actions::DOCUMENT_DELETE,
@@ -855,7 +855,7 @@ async fn process_document_inner(
     );
 
     // Audit log: document processed
-    let _ = log_success(
+    log_success_or_warn(
         &state.db,
         claims,
         actions::DOCUMENT_UPLOAD,
@@ -965,7 +965,7 @@ pub async fn retry_document(
         .ok_or_else(|| not_found("Document"))?;
 
     // Audit log
-    let _ = log_success(
+    log_success_or_warn(
         &state.db,
         &claims,
         actions::DOCUMENT_RETRY,

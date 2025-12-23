@@ -727,8 +727,8 @@ pub async fn start_training(
                 "Unable to check training capacity: database temporarily unavailable".to_string(),
             ),
             // Other errors: internal server error (includes config lock failures)
-            // Note: Config lock failures return AosError::Other, not AosError::Config
-            AosError::Other(_) => (
+            // Note: Config lock failures return AosError::Internal
+            AosError::Internal(_) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "INTERNAL_ERROR",
                 "Unable to check training capacity: internal error".to_string(),
@@ -1304,7 +1304,7 @@ pub async fn start_training(
                 })
             });
 
-            let as_aos = AosError::Other(e.to_string());
+            let as_aos = AosError::Internal(e.to_string());
             build_training_error_response(&as_aos)
         })?;
 

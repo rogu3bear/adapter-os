@@ -3,7 +3,7 @@
 //! Provides REST endpoints for managing document collections.
 //! Collections group related documents together for organizational purposes.
 
-use crate::audit_helper::{actions, log_success, resources};
+use crate::audit_helper::{actions, log_success_or_warn, resources};
 use crate::auth::Claims;
 use crate::error_helpers::{conflict, db_error, not_found};
 use crate::permissions::{require_permission, Permission};
@@ -108,7 +108,7 @@ pub async fn create_collection(
     );
 
     // Audit log: collection created
-    let _ = log_success(
+    log_success_or_warn(
         &state.db,
         &claims,
         actions::COLLECTION_CREATE,
@@ -293,7 +293,7 @@ pub async fn delete_collection(
     info!("Deleted collection {}", id);
 
     // Audit log: collection deleted
-    let _ = log_success(
+    log_success_or_warn(
         &state.db,
         &claims,
         actions::COLLECTION_DELETE,
@@ -366,7 +366,7 @@ pub async fn add_document_to_collection(
     info!("Added document {} to collection {}", req.document_id, id);
 
     // Audit log: document added to collection
-    let _ = log_success(
+    log_success_or_warn(
         &state.db,
         &claims,
         actions::COLLECTION_ADD_DOCUMENT,
@@ -421,7 +421,7 @@ pub async fn remove_document_from_collection(
     info!("Removed document {} from collection {}", doc_id, id);
 
     // Audit log: document removed from collection
-    let _ = log_success(
+    log_success_or_warn(
         &state.db,
         &claims,
         actions::COLLECTION_REMOVE_DOCUMENT,

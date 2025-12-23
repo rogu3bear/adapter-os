@@ -722,7 +722,7 @@ impl From<AosError> for ApiError {
             | AosError::MissingSegment { .. }
             | AosError::MissingCanonicalSegment
             | AosError::CacheCorruption { .. }
-            | AosError::Other(_) => {
+            | AosError::DualWriteInconsistency { .. } => {
                 error!("Internal error: {}", err);
                 ApiError::internal(err.to_string())
             }

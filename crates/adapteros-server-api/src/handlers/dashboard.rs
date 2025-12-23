@@ -3,7 +3,7 @@
 //! Provides API endpoints for per-user dashboard widget customization.
 //! Supports show/hide widgets, custom ordering, and reset to role defaults.
 
-use crate::audit_helper::{actions, log_success, resources};
+use crate::audit_helper::{actions, log_success_or_warn, resources};
 use crate::handlers::{AppState, Claims, ErrorResponse};
 use crate::permissions::{require_permission, Permission};
 use adapteros_api_types::dashboard::*;
@@ -130,15 +130,14 @@ pub async fn update_dashboard_config(
         updated_count, user_id
     );
 
-    log_success(
+    log_success_or_warn(
         &state.db,
         &claims,
         actions::DASHBOARD_CONFIG_UPDATE,
         resources::DASHBOARD_CONFIG,
         Some(&claims.sub),
     )
-    .await
-    .ok();
+    .await;
 
     Ok(Json(UpdateDashboardConfigResponse {
         schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
@@ -190,15 +189,14 @@ pub async fn reset_dashboard_config(
 
     info!("Reset dashboard configuration for user {}", user_id);
 
-    log_success(
+    log_success_or_warn(
         &state.db,
         &claims,
         actions::DASHBOARD_CONFIG_RESET,
         resources::DASHBOARD_CONFIG,
         Some(&claims.sub),
     )
-    .await
-    .ok();
+    .await;
 
     Ok(Json(ResetDashboardConfigResponse {
         schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),

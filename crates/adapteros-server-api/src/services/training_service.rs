@@ -278,7 +278,7 @@ impl TrainingService for DefaultTrainingService {
         let max_concurrent = {
             let config = self.state.config.read().map_err(|e| {
                 error!(error = %e, "Config lock poisoned");
-                AosError::Other("Failed to read config".to_string())
+                AosError::Internal("Failed to read config".to_string())
             })?;
             config.capacity_limits.max_concurrent_training_jobs
         };

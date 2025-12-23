@@ -659,7 +659,7 @@ pub async fn update_tenant(
     let tenant_id_value = tenant.id.clone();
 
     // Audit log: tenant updated
-    let _ = crate::audit_helper::log_success(
+    crate::audit_helper::log_success_or_warn(
         &state.db,
         &claims,
         crate::audit_helper::actions::TENANT_UPDATE,
@@ -707,7 +707,7 @@ pub async fn pause_tenant(
     tracing::info!("Tenant {} paused by {}", tenant_id, claims.email);
 
     // Audit log: tenant paused
-    let _ = crate::audit_helper::log_success(
+    crate::audit_helper::log_success_or_warn(
         &state.db,
         &claims,
         crate::audit_helper::actions::TENANT_PAUSE,
@@ -742,7 +742,7 @@ pub async fn archive_tenant(
     tracing::info!("Tenant {} archived by {}", tenant_id, claims.email);
 
     // Audit log: tenant archived
-    let _ = crate::audit_helper::log_success(
+    crate::audit_helper::log_success_or_warn(
         &state.db,
         &claims,
         crate::audit_helper::actions::TENANT_ARCHIVE,
@@ -1500,7 +1500,7 @@ pub async fn register_node(
     })?;
 
     // Audit log: node registered
-    let _ = crate::audit_helper::log_success(
+    crate::audit_helper::log_success_or_warn(
         &state.db,
         &claims,
         crate::audit_helper::actions::NODE_REGISTER,
@@ -1631,7 +1631,7 @@ pub async fn mark_node_offline(
         })?;
 
     // Audit log: node marked offline
-    let _ = crate::audit_helper::log_success(
+    crate::audit_helper::log_success_or_warn(
         &state.db,
         &claims,
         crate::audit_helper::actions::NODE_OFFLINE,
@@ -1689,7 +1689,7 @@ pub async fn evict_node(
     })?;
 
     // Audit log: node evicted
-    let _ = crate::audit_helper::log_success(
+    crate::audit_helper::log_success_or_warn(
         &state.db,
         &claims,
         crate::audit_helper::actions::NODE_EVICT,
@@ -2746,7 +2746,7 @@ pub async fn stop_worker(
     );
 
     // Audit log
-    let _ = crate::audit_helper::log_success(
+    crate::audit_helper::log_success_or_warn(
         &state.db,
         &claims,
         "worker.stop",
@@ -5730,8 +5730,26 @@ pub async fn register_adapter(
                     use adapteros_policy::packs::naming_policy::{
                         AdapterNameValidation, NamingConfig, NamingPolicy,
                     };
+                    // Security: Fail explicitly on malformed policy JSON to prevent bypass
                     let config: NamingConfig =
-                        serde_json::from_str(&pack.content_json).unwrap_or_default();
+                        serde_json::from_str(&pack.content_json).map_err(|e| {
+                            tracing::error!(
+                                policy_pack_id = %pack.id,
+                                error = %e,
+                                "Malformed policy pack JSON - refusing to apply empty policy"
+                            );
+                            (
+                                StatusCode::INTERNAL_SERVER_ERROR,
+                                Json(
+                                    ErrorResponse::new("Policy pack has invalid JSON configuration")
+                                        .with_code("POLICY_PACK_CORRUPT")
+                                        .with_string_details(format!(
+                                            "Policy pack '{}' contains malformed JSON: {}",
+                                            pack.id, e
+                                        )),
+                                ),
+                            )
+                        })?;
                     let naming_policy = NamingPolicy::new(config);
 
                     // Validate adapter name against naming policy
@@ -5778,7 +5796,7 @@ pub async fn register_adapter(
                         );
 
                         // Audit log: policy violation during adapter registration
-                        let _ = crate::audit_helper::log_failure(
+                        crate::audit_helper::log_failure_or_warn(
                             &state.db,
                             &claims,
                             crate::audit_helper::actions::ADAPTER_REGISTER,
@@ -5831,7 +5849,7 @@ pub async fn register_adapter(
         Ok(id) => id,
         Err(e) => {
             // Audit log: adapter registration failure
-            let _ = crate::audit_helper::log_failure(
+            crate::audit_helper::log_failure_or_warn(
                 &state.db,
                 &claims,
                 crate::audit_helper::actions::ADAPTER_REGISTER,
@@ -5852,7 +5870,7 @@ pub async fn register_adapter(
     };
 
     // Audit log: adapter registration
-    let _ = crate::audit_helper::log_success(
+    crate::audit_helper::log_success_or_warn(
         &state.db,
         &claims,
         crate::audit_helper::actions::ADAPTER_REGISTER,
@@ -5954,7 +5972,7 @@ pub async fn delete_adapter(
         .await
     {
         // Audit log: adapter deletion failure
-        let _ = crate::audit_helper::log_failure(
+        crate::audit_helper::log_failure_or_warn(
             &state.db,
             &claims,
             crate::audit_helper::actions::ADAPTER_DELETE,
@@ -5974,7 +5992,7 @@ pub async fn delete_adapter(
     }
 
     // Audit log: adapter deletion
-    let _ = crate::audit_helper::log_success(
+    crate::audit_helper::log_success_or_warn(
         &state.db,
         &claims,
         crate::audit_helper::actions::ADAPTER_DELETE,
@@ -6022,7 +6040,7 @@ pub async fn load_adapter(
             ));
         }
         Err(e) => {
-            let _ = crate::audit_helper::log_failure(
+            crate::audit_helper::log_failure_or_warn(
                 &state.db,
                 &claims,
                 crate::audit_helper::actions::ADAPTER_LOAD,
@@ -6068,7 +6086,7 @@ pub async fn load_adapter(
             )
             .await
         {
-            let _ = crate::audit_helper::log_failure(
+            crate::audit_helper::log_failure_or_warn(
                 &state.db,
                 &claims,
                 crate::audit_helper::actions::ADAPTER_LOAD,
@@ -6091,7 +6109,7 @@ pub async fn load_adapter(
     let expected_hash = match parse_hash_b3(&adapter.hash_b3) {
         Ok(hash) => hash,
         Err(e) => {
-            let _ = crate::audit_helper::log_failure(
+            crate::audit_helper::log_failure_or_warn(
                 &state.db,
                 &claims,
                 crate::audit_helper::actions::ADAPTER_LOAD,
@@ -6125,7 +6143,7 @@ pub async fn load_adapter(
             // Must drop the lock before awaiting
             drop(manager);
             // Audit log: adapter load failure
-            let _ = crate::audit_helper::log_failure(
+            crate::audit_helper::log_failure_or_warn(
                 &state.db,
                 &claims,
                 crate::audit_helper::actions::ADAPTER_LOAD,
@@ -6191,7 +6209,7 @@ pub async fn load_adapter(
             )
             .await
         {
-            let _ = crate::audit_helper::log_failure(
+            crate::audit_helper::log_failure_or_warn(
                 &state.db,
                 &claims,
                 crate::audit_helper::actions::ADAPTER_LOAD,
@@ -6219,7 +6237,7 @@ pub async fn load_adapter(
     }
 
     // Audit log: adapter load
-    let _ = crate::audit_helper::log_success(
+    crate::audit_helper::log_success_or_warn(
         &state.db,
         &claims,
         crate::audit_helper::actions::ADAPTER_LOAD,
@@ -6364,7 +6382,7 @@ pub async fn unload_adapter(
             ));
         }
         Err(e) => {
-            let _ = crate::audit_helper::log_failure(
+            crate::audit_helper::log_failure_or_warn(
                 &state.db,
                 &claims,
                 crate::audit_helper::actions::ADAPTER_UNLOAD,
@@ -6410,7 +6428,7 @@ pub async fn unload_adapter(
             )
             .await
         {
-            let _ = crate::audit_helper::log_failure(
+            crate::audit_helper::log_failure_or_warn(
                 &state.db,
                 &claims,
                 crate::audit_helper::actions::ADAPTER_UNLOAD,
@@ -6471,7 +6489,7 @@ pub async fn unload_adapter(
                 )
                 .await
             {
-                let _ = crate::audit_helper::log_failure(
+                crate::audit_helper::log_failure_or_warn(
                     &state.db,
                     &claims,
                     crate::audit_helper::actions::ADAPTER_UNLOAD,
@@ -6508,7 +6526,7 @@ pub async fn unload_adapter(
             )
             .await
         {
-            let _ = crate::audit_helper::log_failure(
+            crate::audit_helper::log_failure_or_warn(
                 &state.db,
                 &claims,
                 crate::audit_helper::actions::ADAPTER_UNLOAD,
@@ -6541,7 +6559,7 @@ pub async fn unload_adapter(
     }
 
     // Audit log: adapter unload
-    let _ = crate::audit_helper::log_success(
+    crate::audit_helper::log_success_or_warn(
         &state.db,
         &claims,
         crate::audit_helper::actions::ADAPTER_UNLOAD,
@@ -7457,37 +7475,80 @@ pub async fn get_system_metrics(
         .expect("System time before UNIX epoch")
         .as_secs();
 
+    // Collect additional metrics for frontend compatibility
+    let active_workers = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM workers WHERE status = 'active'",
+    )
+    .fetch_one(state.db.pool())
+    .await
+    .unwrap_or(0) as i32;
+
+    let requests_per_second = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM request_log WHERE timestamp > datetime('now', '-1 minute')",
+    )
+    .fetch_one(state.db.pool())
+    .await
+    .map(|count| count as f32 / 60.0)
+    .unwrap_or(0.0);
+
+    let avg_latency_ms = sqlx::query_scalar::<_, Option<f64>>(
+        "SELECT AVG(latency_ms) FROM request_log WHERE timestamp > datetime('now', '-5 minutes')",
+    )
+    .fetch_one(state.db.pool())
+    .await
+    .unwrap_or(None)
+    .unwrap_or(0.0) as f32;
+
+    // Calculate active sessions count
+    let active_sessions = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM chat_sessions WHERE updated_at > datetime('now', '-30 minutes')",
+    )
+    .fetch_one(state.db.pool())
+    .await
+    .unwrap_or(0) as i32;
+
+    // Calculate error rate from recent requests
+    let error_rate = {
+        let total = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM request_log WHERE timestamp > datetime('now', '-5 minutes')",
+        )
+        .fetch_one(state.db.pool())
+        .await
+        .unwrap_or(0);
+
+        if total > 0 {
+            let errors = sqlx::query_scalar::<_, i64>(
+                "SELECT COUNT(*) FROM request_log WHERE timestamp > datetime('now', '-5 minutes') AND status_code >= 500",
+            )
+            .fetch_one(state.db.pool())
+            .await
+            .unwrap_or(0);
+            Some((errors as f32) / (total as f32))
+        } else {
+            Some(0.0)
+        }
+    };
+
+    // Tokens per second would come from inference telemetry - use 0.0 as default
+    // TODO: Track actual tokens/sec from inference endpoints
+    let tokens_per_second: f32 = 0.0;
+
+    // Calculate p95 latency
+    let latency_p95_ms = sqlx::query_scalar::<_, Option<f64>>(
+        "SELECT latency_ms FROM request_log WHERE timestamp > datetime('now', '-5 minutes') ORDER BY latency_ms DESC LIMIT 1 OFFSET (SELECT COUNT(*) * 5 / 100 FROM request_log WHERE timestamp > datetime('now', '-5 minutes'))",
+    )
+    .fetch_one(state.db.pool())
+    .await
+    .unwrap_or(None)
+    .map(|v| v as f32);
+
     Ok(Json(SystemMetricsResponse {
         schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
         cpu_usage: metrics.cpu_usage as f32,
         memory_usage: metrics.memory_usage as f32,
-        active_workers: {
-            // Count active workers from database
-            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM workers WHERE status = 'active'")
-                .fetch_one(state.db.pool())
-                .await
-                .unwrap_or(0) as i32
-        },
-        requests_per_second: {
-            // Calculate RPS from recent request log
-            sqlx::query_scalar::<_, i64>(
-                "SELECT COUNT(*) FROM request_log WHERE timestamp > datetime('now', '-1 minute')",
-            )
-            .fetch_one(state.db.pool())
-            .await
-            .map(|count| count as f32 / 60.0)
-            .unwrap_or(0.0)
-        },
-        avg_latency_ms: {
-            // Calculate average latency from recent requests
-            sqlx::query_scalar::<_, Option<f64>>(
-                "SELECT AVG(latency_ms) FROM request_log WHERE timestamp > datetime('now', '-5 minutes')"
-            )
-            .fetch_one(state.db.pool())
-            .await
-            .unwrap_or(None)
-            .unwrap_or(0.0) as f32
-        },
+        active_workers,
+        requests_per_second,
+        avg_latency_ms,
         disk_usage: metrics.disk_io.usage_percent,
         network_bandwidth: metrics.network_io.bandwidth_mbps,
         gpu_utilization: metrics.gpu_metrics.utilization.unwrap_or(0.0) as f32,
@@ -7500,6 +7561,13 @@ pub async fn get_system_metrics(
             load_15min: load_avg.2,
         },
         timestamp,
+        // Additional fields for frontend compatibility
+        cpu_usage_percent: Some(metrics.cpu_usage as f32),
+        memory_usage_percent: Some(metrics.memory_usage as f32),
+        tokens_per_second: Some(tokens_per_second),
+        error_rate,
+        active_sessions: Some(active_sessions),
+        latency_p95_ms,
     }))
 }
 
@@ -8483,37 +8551,36 @@ async fn get_system_metrics_internal(state: &AppState) -> Result<SystemMetricsRe
         .map_err(|e| format!("time error: {}", e))?
         .as_secs();
 
+    let active_workers = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM workers WHERE status = 'active'",
+    )
+    .fetch_one(state.db.pool())
+    .await
+    .unwrap_or(0) as i32;
+
+    let requests_per_second = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM request_log WHERE timestamp > datetime('now', '-1 minute')",
+    )
+    .fetch_one(state.db.pool())
+    .await
+    .map(|count| count as f32 / 60.0)
+    .unwrap_or(0.0);
+
+    let avg_latency_ms = sqlx::query_scalar::<_, Option<f64>>(
+        "SELECT AVG(latency_ms) FROM request_log WHERE timestamp > datetime('now', '-5 minutes')",
+    )
+    .fetch_one(state.db.pool())
+    .await
+    .unwrap_or(None)
+    .unwrap_or(0.0) as f32;
+
     Ok(SystemMetricsResponse {
         schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
         cpu_usage: metrics.cpu_usage as f32,
         memory_usage: metrics.memory_usage as f32,
-        active_workers: {
-            // Count active workers from database
-            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM workers WHERE status = 'active'")
-                .fetch_one(state.db.pool())
-                .await
-                .unwrap_or(0) as i32
-        },
-        requests_per_second: {
-            // Calculate RPS from recent request log
-            sqlx::query_scalar::<_, i64>(
-                "SELECT COUNT(*) FROM request_log WHERE timestamp > datetime('now', '-1 minute')",
-            )
-            .fetch_one(state.db.pool())
-            .await
-            .map(|count| count as f32 / 60.0)
-            .unwrap_or(0.0)
-        },
-        avg_latency_ms: {
-            // Calculate average latency from recent requests
-            sqlx::query_scalar::<_, Option<f64>>(
-                "SELECT AVG(latency_ms) FROM request_log WHERE timestamp > datetime('now', '-5 minutes')"
-            )
-            .fetch_one(state.db.pool())
-            .await
-            .unwrap_or(None)
-            .unwrap_or(0.0) as f32
-        },
+        active_workers,
+        requests_per_second,
+        avg_latency_ms,
         disk_usage: metrics.disk_io.usage_percent,
         network_bandwidth: metrics.network_io.bandwidth_mbps,
         gpu_utilization: metrics.gpu_metrics.utilization.unwrap_or(0.0) as f32,
@@ -8526,6 +8593,13 @@ async fn get_system_metrics_internal(state: &AppState) -> Result<SystemMetricsRe
             load_15min: load_avg.2,
         },
         timestamp,
+        // Additional fields for frontend compatibility (optional in internal helper)
+        cpu_usage_percent: Some(metrics.cpu_usage as f32),
+        memory_usage_percent: Some(metrics.memory_usage as f32),
+        tokens_per_second: None,
+        error_rate: None,
+        active_sessions: None,
+        latency_p95_ms: None,
     })
 }
 
@@ -9241,7 +9315,7 @@ pub async fn create_training_session(
         })?;
 
     // Audit log: training session created
-    let _ = crate::audit_helper::log_success(
+    crate::audit_helper::log_success_or_warn(
         &state.db,
         &claims,
         crate::audit_helper::actions::TRAINING_START,

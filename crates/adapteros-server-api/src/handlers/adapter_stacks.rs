@@ -1,4 +1,4 @@
-use crate::audit_helper::{log_failure, log_success, resources};
+use crate::audit_helper::{log_failure_or_warn, log_success_or_warn, resources};
 use crate::auth::Claims;
 use crate::error_helpers::{db_error, internal_error, not_found};
 use crate::handlers::guard_in_flight_requests;
@@ -328,7 +328,7 @@ pub async fn create_stack(
                 )
             };
             // Audit log: stack creation failure
-            let _ = log_failure(
+            log_failure_or_warn(
                 &state.db,
                 &claims,
                 ACTION_STACK_CREATE,
@@ -342,7 +342,7 @@ pub async fn create_stack(
     };
 
     // Audit log: stack creation success
-    let _ = log_success(
+    log_success_or_warn(
         &state.db,
         &claims,
         ACTION_STACK_CREATE,
@@ -540,7 +540,7 @@ pub async fn delete_stack(
         Ok(deleted) => deleted,
         Err(e) => {
             // Audit log: stack deletion failure
-            let _ = log_failure(
+            log_failure_or_warn(
                 &state.db,
                 &claims,
                 ACTION_STACK_DELETE,
@@ -555,7 +555,7 @@ pub async fn delete_stack(
 
     if !deleted {
         // Audit log: stack not found
-        let _ = log_failure(
+        log_failure_or_warn(
             &state.db,
             &claims,
             ACTION_STACK_DELETE,
@@ -568,7 +568,7 @@ pub async fn delete_stack(
     }
 
     // Audit log: stack deletion success
-    let _ = log_success(
+    log_success_or_warn(
         &state.db,
         &claims,
         ACTION_STACK_DELETE,

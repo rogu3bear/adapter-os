@@ -18,7 +18,7 @@ use self::progress::emit_progress;
 use super::chunked_upload::{
     CompressionFormat, FileValidator, DEFAULT_CHUNK_SIZE, MAX_CHUNK_SIZE, MIN_CHUNK_SIZE,
 };
-use crate::audit_helper::{actions, log_failure, log_success, resources};
+use crate::audit_helper::{actions, log_failure_or_warn, log_success_or_warn, resources};
 use crate::auth::Claims;
 use crate::citations::build_dataset_index;
 use crate::error_helpers::{
@@ -2791,7 +2791,7 @@ pub async fn complete_chunked_upload(
             let error_msg_clone = error_msg.clone();
             if let Err(e) =
                 spawn_deterministic("audit-log:dataset-upload-failure".to_string(), async move {
-                    let _ = log_failure(
+                    log_failure_or_warn(
                         &db,
                         &claims_clone,
                         actions::DATASET_UPLOAD,
@@ -2806,7 +2806,7 @@ pub async fn complete_chunked_upload(
                 let claims_fallback = claims.clone();
                 let error_msg_fallback = error_msg.clone();
                 tokio::spawn(async move {
-                    let _ = log_failure(
+                    log_failure_or_warn(
                         &db_fallback,
                         &claims_fallback,
                         actions::DATASET_UPLOAD,
@@ -2899,7 +2899,7 @@ pub async fn complete_chunked_upload(
     clean_temp(&session.temp_dir).await;
 
     // Log audit success
-    let _ = log_success(
+    log_success_or_warn(
         &state.db,
         &claims,
         actions::DATASET_UPLOAD,

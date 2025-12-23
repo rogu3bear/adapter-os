@@ -64,18 +64,26 @@ pub async fn get_metrics_snapshot(
         kv_snapshot.degraded_events_total as f64,
     );
 
+    let gauges = std::collections::HashMap::from([
+        ("queue_depth".to_string(), exporter_snapshot.queue_depth),
+        (
+            "avg_latency_ms".to_string(),
+            exporter_snapshot.avg_latency_ms,
+        ),
+    ]);
+
+    // Create flattened metrics map (union of counters and gauges) for frontend compatibility
+    let mut metrics = counters.clone();
+    metrics.extend(gauges.clone());
+
     // Create a MetricsSnapshotResponse from the exporter snapshot
     let response = MetricsSnapshotResponse {
-        timestamp: Some(exporter_snapshot.timestamp.to_string()),
+        schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
+        timestamp: chrono::Utc::now().to_rfc3339(),
         counters,
-        gauges: std::collections::HashMap::from([
-            ("queue_depth".to_string(), exporter_snapshot.queue_depth),
-            (
-                "avg_latency_ms".to_string(),
-                exporter_snapshot.avg_latency_ms,
-            ),
-        ]),
+        gauges,
         histograms: std::collections::HashMap::new(),
+        metrics,
     };
 
     Ok(Json(response))
