@@ -48,6 +48,7 @@ pub mod database;
 pub mod executor;
 pub mod federation;
 mod finalization;
+pub mod invariants;
 mod metrics;
 pub mod migrations;
 pub mod runtime;
@@ -62,9 +63,15 @@ pub use database::{initialize_database, DatabaseContext};
 pub use executor::{derive_executor_seed, initialize_executor, ExecutorContext};
 pub use federation::{initialize_federation, FederationContext};
 pub use finalization::{finalize_boot, write_boot_report, BindConfig, BootArtifacts};
+pub use invariants::{
+    boot_invariant_metrics, enforce_invariants, validate_boot_invariants, BootInvariantMetrics,
+    InvariantReport, InvariantViolation,
+};
 pub use metrics::{initialize_metrics, MetricsContext};
 pub use runtime::{initialize_runtime, RuntimeContext};
-pub use security::{initialize_security, log_effective_config, run_preflight_checks, SecurityContext};
+pub use security::{
+    initialize_security, log_effective_config, run_preflight_checks, SecurityContext,
+};
 pub use server::{bind_and_serve, BindError, BindMode, ServerBindConfig};
 pub use tasks::{BackgroundTaskSpawner, SpawnError, SpawnResult};
 pub use timings::BootTimings;

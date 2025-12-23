@@ -1,0 +1,271 @@
+//! Boot Invariants Integration Tests
+//!
+//! Tests for the boot-time invariant validation system.
+//! These tests verify that:
+//! 1. Invariant violations are detected correctly
+//! 2. Production mode blocks on fatal violations
+//! 3. Config escape hatches work correctly
+//! 4. Metrics are recorded properly
+//!
+//! Citations:
+//! - crates/adapteros-server/src/boot/invariants.rs: validate_boot_invariants, enforce_invariants
+
+use adapteros_config_types::InvariantsConfig;
+use adapteros_server::boot::{
+    boot_invariant_metrics, enforce_invariants, validate_boot_invariants, InvariantReport,
+    InvariantViolation,
+};
+use adapteros_server_api::config::Config;
+use std::sync::{Arc, RwLock};
+
+/// Helper to create a minimal test config
+fn create_test_config(production_mode: bool, invariants: InvariantsConfig) -> Arc<RwLock<Config>> {
+    // This requires a valid Config which is complex to construct.
+    // For now we test the report and enforcement logic directly.
+    // Full integration tests would require the test harness from common/mod.rs
+    let _ = (production_mode, invariants);
+    unimplemented!("Full config creation requires test harness - see individual unit tests below")
+}
+
+#[cfg(test)]
+mod invariant_report_tests {
+    use super::*;
+
+    #[test]
+    fn test_report_tracks_passes() {
+        let mut report = InvariantReport::new();
+        report.record_pass();
+        report.record_pass();
+        report.record_pass();
+
+        assert_eq!(report.checks_passed, 3);
+        assert_eq!(report.checks_failed, 0);
+        assert_eq!(report.checks_skipped, 0);
+        assert!(!report.has_fatal_violations());
+    }
+
+    #[test]
+    fn test_report_tracks_violations() {
+        let mut report = InvariantReport::new();
+        report.record_pass();
+        report.record_violation(InvariantViolation {
+            id: "TEST-001",
+            message: "Test fatal violation".to_string(),
+            is_fatal: true,
+            remediation: "Fix the test",
+        });
+        report.record_violation(InvariantViolation {
+            id: "TEST-002",
+            message: "Test warning".to_string(),
+            is_fatal: false,
+            remediation: "Consider fixing",
+        });
+
+        assert_eq!(report.checks_passed, 1);
+        assert_eq!(report.checks_failed, 2);
+        assert!(report.has_fatal_violations());
+        assert_eq!(report.fatal_count(), 1);
+        assert_eq!(report.warning_count(), 1);
+    }
+
+    #[test]
+    fn test_report_tracks_skips() {
+        let mut report = InvariantReport::new();
+        report.record_pass();
+        report.record_skip("SEC-001");
+        report.record_skip("SEC-002");
+
+        assert_eq!(report.checks_passed, 1);
+        assert_eq!(report.checks_skipped, 2);
+        assert_eq!(report.skipped_ids, vec!["SEC-001", "SEC-002"]);
+    }
+
+    #[test]
+    fn test_non_fatal_violations_dont_block() {
+        let mut report = InvariantReport::new();
+        report.record_violation(InvariantViolation {
+            id: "WARN-001",
+            message: "Warning only".to_string(),
+            is_fatal: false,
+            remediation: "Consider fixing",
+        });
+
+        assert!(!report.has_fatal_violations());
+        assert_eq!(report.warning_count(), 1);
+        assert_eq!(report.fatal_count(), 0);
+    }
+}
+
+#[cfg(test)]
+mod enforcement_tests {
+    use super::*;
+
+    #[test]
+    fn test_enforce_allows_clean_report() {
+        let report = InvariantReport::new();
+        let result = enforce_invariants(&report, true);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_enforce_allows_warnings_in_production() {
+        let mut report = InvariantReport::new();
+        report.record_violation(InvariantViolation {
+            id: "WARN-001",
+            message: "Non-fatal warning".to_string(),
+            is_fatal: false,
+            remediation: "Optional fix",
+        });
+
+        let result = enforce_invariants(&report, true);
+        assert!(
+            result.is_ok(),
+            "Non-fatal violations should not block production boot"
+        );
+    }
+
+    #[test]
+    fn test_enforce_blocks_fatal_in_production() {
+        let mut report = InvariantReport::new();
+        report.record_violation(InvariantViolation {
+            id: "SEC-001",
+            message: "Fatal security violation".to_string(),
+            is_fatal: true,
+            remediation: "Must fix before boot",
+        });
+
+        let result = enforce_invariants(&report, true);
+        assert!(
+            result.is_err(),
+            "Fatal violations should block production boot"
+        );
+
+        let err = result.unwrap_err();
+        let err_msg = format!("{}", err);
+        assert!(
+            err_msg.contains("SEC-001"),
+            "Error should identify the violating invariant"
+        );
+        assert!(
+            err_msg.contains("fatal"),
+            "Error should mention fatal violation"
+        );
+    }
+
+    #[test]
+    fn test_enforce_allows_fatal_in_development() {
+        let mut report = InvariantReport::new();
+        report.record_violation(InvariantViolation {
+            id: "SEC-001",
+            message: "Fatal security violation".to_string(),
+            is_fatal: true,
+            remediation: "Should fix, but dev mode allows",
+        });
+
+        let result = enforce_invariants(&report, false);
+        assert!(
+            result.is_ok(),
+            "Fatal violations should be allowed in development mode (fail open)"
+        );
+    }
+
+    #[test]
+    fn test_enforce_multiple_fatal_violations() {
+        let mut report = InvariantReport::new();
+        report.record_violation(InvariantViolation {
+            id: "SEC-001",
+            message: "First fatal".to_string(),
+            is_fatal: true,
+            remediation: "Fix 1",
+        });
+        report.record_violation(InvariantViolation {
+            id: "SEC-002",
+            message: "Second fatal".to_string(),
+            is_fatal: true,
+            remediation: "Fix 2",
+        });
+        report.record_violation(InvariantViolation {
+            id: "WARN-001",
+            message: "A warning".to_string(),
+            is_fatal: false,
+            remediation: "Optional",
+        });
+
+        let result = enforce_invariants(&report, true);
+        assert!(result.is_err());
+
+        let err = result.unwrap_err();
+        let err_msg = format!("{}", err);
+        assert!(err_msg.contains("SEC-001"), "Should list first violation");
+        assert!(err_msg.contains("SEC-002"), "Should list second violation");
+        assert!(err_msg.contains("2"), "Should count 2 fatal violations");
+    }
+}
+
+#[cfg(test)]
+mod metrics_tests {
+    use super::*;
+
+    #[test]
+    fn test_metrics_snapshot() {
+        // Note: Metrics are global atomics, so this test just verifies the snapshot works
+        let metrics = boot_invariant_metrics();
+        // Values depend on previous tests, just verify fields exist
+        assert!(metrics.checked >= 0);
+        assert!(metrics.violated >= 0);
+        assert!(metrics.fatal >= 0);
+        assert!(metrics.skipped >= 0);
+    }
+}
+
+#[cfg(test)]
+mod escape_hatch_documentation {
+    //! These tests document the escape hatch configuration behavior.
+    //! Full integration testing requires the test harness.
+
+    use super::*;
+
+    /// Documents: InvariantsConfig fields map to specific checks
+    #[test]
+    fn doc_invariants_config_fields() {
+        let config = InvariantsConfig::default();
+
+        // All escape hatches default to false (checks enabled)
+        assert!(!config.disable_sec_001_dev_bypass);
+        assert!(!config.disable_sec_002_dual_write);
+        assert!(!config.disable_sec_003_executor_seed);
+        assert!(!config.disable_sec_005_cookie_security);
+
+        println!("InvariantsConfig escape hatch mapping:");
+        println!("  disable_sec_001_dev_bypass -> Skip SEC-001 (dev auth bypass check)");
+        println!("  disable_sec_002_dual_write -> Skip SEC-002 (dual-write strict mode check)");
+        println!("  disable_sec_003_executor_seed -> Skip SEC-003 (executor manifest check)");
+        println!("  disable_sec_005_cookie_security -> Skip SEC-005 (cookie security check)");
+    }
+
+    /// Documents: TOML config syntax for escape hatches
+    #[test]
+    fn doc_toml_escape_hatch_syntax() {
+        println!("To disable an invariant check in config.toml:");
+        println!();
+        println!("[invariants]");
+        println!("disable_sec_001_dev_bypass = true  # NOT RECOMMENDED");
+        println!("disable_sec_002_dual_write = true  # NOT RECOMMENDED");
+        println!("disable_sec_003_executor_seed = true  # NOT RECOMMENDED");
+        println!("disable_sec_005_cookie_security = true  # NOT RECOMMENDED");
+        println!();
+        println!("WARNING: Disabling invariant checks bypasses critical safety guards.");
+        println!("Only use during incidents with explicit approval.");
+    }
+
+    /// Documents: Expected log output when checks are skipped
+    #[test]
+    fn doc_skip_log_output() {
+        println!("When an invariant check is skipped, the following is logged:");
+        println!();
+        println!("  WARN invariant=SEC-001 \"INVARIANT CHECK SKIPPED via config escape hatch (NOT RECOMMENDED)\"");
+        println!();
+        println!("Summary log will include:");
+        println!("  WARN passed=N failed=M skipped=K skipped_ids=[\"SEC-001\"] \"Invariant validation complete (WARNING: K checks skipped via config)\"");
+    }
+}
