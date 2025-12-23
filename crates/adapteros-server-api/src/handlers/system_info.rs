@@ -1,11 +1,11 @@
 //! System information and metadata handlers
 
+use crate::api_error::{ApiError, ApiResult};
 use crate::auth::Claims;
 use crate::permissions::{require_permission, Permission};
 use crate::state::AppState;
 use crate::types::*;
 use axum::extract::{Extension, State};
-use axum::http::StatusCode;
 use axum::Json;
 use serde::Serialize;
 
@@ -93,13 +93,8 @@ pub struct ResourceUsageResponse {
 pub async fn get_resource_usage(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
-) -> Result<Json<ResourceUsageResponse>, (StatusCode, Json<ErrorResponse>)> {
-    require_permission(&claims, Permission::MetricsView).map_err(|_| {
-        (
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse::new("Permission denied").with_code("PERMISSION_DENIED")),
-        )
-    })?;
+) -> ApiResult<ResourceUsageResponse> {
+    require_permission(&claims, Permission::MetricsView)?;
 
     // Get UMA memory stats
     let uma_stats = state.uma_monitor.get_uma_stats().await;
@@ -108,10 +103,7 @@ pub async fn get_resource_usage(
     // Get workers
     let workers = state.db.list_all_workers().await.map_err(|e| {
         tracing::error!(error = %e, "Failed to list workers");
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new("Failed to get worker data").with_code("DATABASE_ERROR")),
-        )
+        ApiError::db_error(e)
     })?;
 
     let total_workers = workers.len();

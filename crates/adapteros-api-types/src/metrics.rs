@@ -56,6 +56,25 @@ pub struct SystemMetricsResponse {
     pub process_count: usize,
     pub load_average: LoadAverageResponse,
     pub timestamp: u64,
+    // Additional fields expected by frontend (API contract alignment)
+    /// CPU usage as percentage (0-100), mirrors cpu_usage for frontend compatibility
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cpu_usage_percent: Option<f32>,
+    /// Memory usage as percentage (0-100), mirrors memory_usage for frontend compatibility
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub memory_usage_percent: Option<f32>,
+    /// Tokens generated per second across all workers
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tokens_per_second: Option<f32>,
+    /// Error rate as fraction (0.0-1.0)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_rate: Option<f32>,
+    /// Number of active inference sessions
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub active_sessions: Option<i32>,
+    /// 95th percentile latency in milliseconds
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub latency_p95_ms: Option<f32>,
 }
 
 /// Load average response

@@ -130,6 +130,9 @@ pub struct MetricsSeriesResponse {
 /// Current metrics snapshot with counters, gauges, and histograms
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct MetricsSnapshotResponse {
+    /// API schema version for frontend compatibility
+    #[serde(default = "default_schema_version")]
+    pub schema_version: String,
     /// Counter metrics (monotonically increasing values)
     pub counters: HashMap<String, f64>,
     /// Gauge metrics (point-in-time values)
@@ -137,8 +140,14 @@ pub struct MetricsSnapshotResponse {
     /// Histogram metrics (distribution summaries)
     pub histograms: HashMap<String, Vec<f64>>,
     /// Timestamp when snapshot was taken (RFC3339)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub timestamp: Option<String>,
+    pub timestamp: String,
+    /// Flattened metrics map for frontend compatibility (union of counters and gauges)
+    #[serde(default)]
+    pub metrics: HashMap<String, f64>,
+}
+
+fn default_schema_version() -> String {
+    adapteros_api_types::API_SCHEMA_VERSION.to_string()
 }
 
 /// Activity event for recent activity feed
