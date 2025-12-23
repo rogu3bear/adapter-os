@@ -57,7 +57,7 @@ impl CdpStore {
     pub fn store_cdp(&mut self, cdp: &CommitDeltaPack) -> Result<B3Hash> {
         // Serialize CDP to canonical JSON
         let json_bytes = serde_json::to_vec(cdp)
-            .map_err(|e| AosError::Other(format!("Failed to serialize CDP: {}", e)))?;
+            .map_err(|e| AosError::Parse(format!("Failed to serialize CDP: {}", e)))?;
 
         // Store in CAS
         let content_hash = self.cas_store.store("cdp", &json_bytes)?;
@@ -87,14 +87,14 @@ impl CdpStore {
     pub fn load_cdp(&self, cdp_id: &CdpId) -> Result<CommitDeltaPack> {
         // Get metadata to find content hash
         let metadata = self.metadata_index.get(cdp_id)
-            .ok_or_else(|| AosError::Other(format!("CDP not found: {}", cdp_id)))?;
+            .ok_or_else(|| AosError::NotFound(format!("CDP not found: {}", cdp_id)))?;
 
         // Load from CAS
         let json_bytes = self.cas_store.load("cdp", &metadata.content_hash)?;
 
         // Deserialize CDP
         let cdp: CommitDeltaPack = serde_json::from_slice(&json_bytes)
-            .map_err(|e| AosError::Other(format!("Failed to deserialize CDP: {}", e)))?;
+            .map_err(|e| AosError::Parse(format!("Failed to deserialize CDP: {}", e)))?;
 
         Ok(cdp)
     }
@@ -178,10 +178,10 @@ impl CdpStore {
         }
 
         let json_bytes = std::fs::read(path)
-            .map_err(|e| AosError::Other(format!("Failed to read metadata index: {}", e)))?;
+            .map_err(|e| AosError::Io(format!("Failed to read metadata index: {}", e)))?;
 
         let index: HashMap<CdpId, CdpMetadata> = serde_json::from_slice(&json_bytes)
-            .map_err(|e| AosError::Other(format!("Failed to deserialize metadata index: {}", e)))?;
+            .map_err(|e| AosError::Parse(format!("Failed to deserialize metadata index: {}", e)))?;
 
         self.metadata_index = index;
         Ok(())
@@ -190,10 +190,10 @@ impl CdpStore {
     /// Save metadata index to disk (for persistence)
     pub fn save_metadata_index<P: AsRef<Path>>(&self, index_path: P) -> Result<()> {
         let json_bytes = serde_json::to_vec_pretty(&self.metadata_index)
-            .map_err(|e| AosError::Other(format!("Failed to serialize metadata index: {}", e)))?;
+            .map_err(|e| AosError::Parse(format!("Failed to serialize metadata index: {}", e)))?;
 
         std::fs::write(index_path, json_bytes)
-            .map_err(|e| AosError::Other(format!("Failed to write metadata index: {}", e)))?;
+            .map_err(|e| AosError::Io(format!("Failed to write metadata index: {}", e)))?;
 
         Ok(())
     }

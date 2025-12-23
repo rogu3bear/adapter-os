@@ -320,7 +320,7 @@ async fn send_streaming_inference(
     let status = resp.status();
     if !status.is_success() {
         let text = resp.text().await.unwrap_or_default();
-        return Err(AosError::Other(format!(
+        return Err(AosError::Http(format!(
             "Inference failed: {} {}",
             status, text
         )));
@@ -435,7 +435,7 @@ async fn list_chat_sessions(json: bool, base_url: &str, output: &OutputWriter) -
     let status = resp.status();
     if !status.is_success() {
         let text = resp.text().await.unwrap_or_default();
-        return Err(AosError::Other(format!(
+        return Err(AosError::Http(format!(
             "Failed to list sessions: {} {}",
             status, text
         )));
@@ -499,7 +499,7 @@ async fn show_chat_history(
     let status = resp.status();
     if !status.is_success() {
         let text = resp.text().await.unwrap_or_default();
-        return Err(AosError::Other(format!(
+        return Err(AosError::Http(format!(
             "Failed to get history: {} {}",
             status, text
         )));
@@ -594,7 +594,7 @@ async fn create_cli_session(
     let status = resp.status();
     if !status.is_success() {
         let text = resp.text().await.unwrap_or_default();
-        return Err(AosError::Other(format!(
+        return Err(AosError::Http(format!(
             "Failed to create chat session: {} {}",
             status, text
         )));
@@ -633,7 +633,7 @@ async fn add_cli_message(
     let status = resp.status();
     if !status.is_success() {
         let text = resp.text().await.unwrap_or_default();
-        return Err(AosError::Other(format!(
+        return Err(AosError::Http(format!(
             "Failed to add message: {} {}",
             status, text
         )));

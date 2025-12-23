@@ -148,10 +148,10 @@ impl MetadataExtractor {
             .arg(commit_sha)
             .current_dir(&self.repo_path)
             .output()
-            .map_err(|e| AosError::Other(format!("Failed to run git log: {}", e)))?;
+            .map_err(|e| AosError::Git(format!("Failed to run git log: {}", e)))?;
 
         if !output.status.success() {
-            return Err(AosError::Other(format!(
+            return Err(AosError::Git(format!(
                 "Git log failed for commit {}: {}",
                 commit_sha,
                 String::from_utf8_lossy(&output.stderr)
@@ -159,7 +159,7 @@ impl MetadataExtractor {
         }
 
         let log_line = String::from_utf8(output.stdout)
-            .map_err(|e| AosError::Other(format!("Invalid git log output: {}", e)))?;
+            .map_err(|e| AosError::Git(format!("Invalid git log output: {}", e)))?;
 
         self.parse_git_log_line(&log_line, commit_sha)
     }
@@ -168,7 +168,7 @@ impl MetadataExtractor {
     fn parse_git_log_line(&self, log_line: &str, commit_sha: &str) -> Result<CdpMetadata> {
         let parts: Vec<&str> = log_line.split('|').collect();
         if parts.len() != 8 {
-            return Err(AosError::Other(format!(
+            return Err(AosError::Git(format!(
                 "Invalid git log format for commit {}: expected 8 parts, got {}",
                 commit_sha,
                 parts.len()
@@ -180,7 +180,7 @@ impl MetadataExtractor {
 
         // Parse timestamps
         let timestamp = DateTime::parse_from_rfc3339(author_date)
-            .map_err(|e| AosError::Other(format!("Invalid author date: {}", e)))?
+            .map_err(|e| AosError::Git(format!("Invalid author date: {}", e)))?
             .with_timezone(&Utc);
 
         // Get current branch
@@ -219,17 +219,17 @@ impl MetadataExtractor {
             .arg("--show-current")
             .current_dir(&self.repo_path)
             .output()
-            .map_err(|e| AosError::Other(format!("Failed to get current branch: {}", e)))?;
+            .map_err(|e| AosError::Git(format!("Failed to get current branch: {}", e)))?;
 
         if !output.status.success() {
-            return Err(AosError::Other(format!(
+            return Err(AosError::Git(format!(
                 "Failed to get current branch: {}",
                 String::from_utf8_lossy(&output.stderr)
             )));
         }
 
         let branch = String::from_utf8(output.stdout)
-            .map_err(|e| AosError::Other(format!("Invalid branch output: {}", e)))?
+            .map_err(|e| AosError::Git(format!("Invalid branch output: {}", e)))?
             .trim()
             .to_string();
 
@@ -250,17 +250,17 @@ impl MetadataExtractor {
             .arg("origin")
             .current_dir(&self.repo_path)
             .output()
-            .map_err(|e| AosError::Other(format!("Failed to get remote URL: {}", e)))?;
+            .map_err(|e| AosError::Git(format!("Failed to get remote URL: {}", e)))?;
 
         if !output.status.success() {
-            return Err(AosError::Other(format!(
+            return Err(AosError::Git(format!(
                 "Failed to get remote URL: {}",
                 String::from_utf8_lossy(&output.stderr)
             )));
         }
 
         Ok(String::from_utf8(output.stdout)
-            .map_err(|e| AosError::Other(format!("Invalid remote URL output: {}", e)))?
+            .map_err(|e| AosError::Git(format!("Invalid remote URL output: {}", e)))?
             .trim()
             .to_string())
     }

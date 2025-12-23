@@ -413,7 +413,7 @@ pub async fn load_aos(args: LoadArgs, output: &OutputWriter) -> Result<()> {
     // Step 5: Display result
     if !status.is_success() {
         let text = response.text().await.unwrap_or_default();
-        return Err(AosError::Other(format!(
+        return Err(AosError::Http(format!(
             "Registration failed: {} {}",
             status, text
         )));

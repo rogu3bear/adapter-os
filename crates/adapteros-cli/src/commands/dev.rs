@@ -315,7 +315,7 @@ fn run_migrations(_output: &OutputWriter) -> Result<()> {
         .map_err(|e| AosError::Io(format!("Failed to run migrations: {}", e)))?;
 
     if !status.success() {
-        return Err(AosError::Other("Database migrations failed".to_string()));
+        return Err(AosError::Database("Database migrations failed".to_string()));
     }
 
     Ok(())
@@ -501,7 +501,7 @@ fn stop_process(pid: u32) -> Result<bool> {
     {
         // Fallback for non-Unix systems
         warn!("Process termination not implemented for this platform");
-        Err(AosError::Other(
+        Err(AosError::Platform(
             "Process termination not supported on this platform".to_string(),
         ))
     }

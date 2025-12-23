@@ -348,7 +348,7 @@ impl DiagnosticRunner {
         // Try to connect
         let db_path_str = db_path
             .to_str()
-            .ok_or_else(|| AosError::Other("Invalid database path".to_string()))?;
+            .ok_or_else(|| AosError::Validation("Invalid database path".to_string()))?;
         match adapteros_db::Db::connect(db_path_str).await {
             Ok(_db) => {
                 self.check(
@@ -452,7 +452,7 @@ impl DiagnosticRunner {
 
         let db_path_str = db_path
             .to_str()
-            .ok_or_else(|| AosError::Other("Invalid database path".to_string()))?;
+            .ok_or_else(|| AosError::Validation("Invalid database path".to_string()))?;
         match adapteros_db::Db::connect(db_path_str).await {
             Ok(db) => {
                 // Check if tenant exists

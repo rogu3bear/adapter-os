@@ -268,7 +268,7 @@ async fn list_stacks(tenant: Option<String>, json: bool, output: &OutputWriter) 
     let status = resp.status();
     if !status.is_success() {
         let text = resp.text().await.unwrap_or_default();
-        return Err(AosError::Other(format!(
+        return Err(AosError::Http(format!(
             "Failed to list stacks: {} {}",
             status, text
         )));
@@ -362,7 +362,7 @@ async fn create_stack(
     let status = resp.status();
     if !status.is_success() {
         let text = resp.text().await.unwrap_or_default();
-        return Err(AosError::Other(format!(
+        return Err(AosError::Http(format!(
             "Failed to create stack: {} {}",
             status, text
         )));
@@ -418,7 +418,7 @@ async fn show_stack(
     let status = resp.status();
     if !status.is_success() {
         let text = resp.text().await.unwrap_or_default();
-        return Err(AosError::Other(format!(
+        return Err(AosError::Http(format!(
             "Failed to get stack: {} {}",
             status, text
         )));
@@ -490,7 +490,7 @@ async fn delete_stack(
     let status = resp.status();
     if !status.is_success() {
         let text = resp.text().await.unwrap_or_default();
-        return Err(AosError::Other(format!(
+        return Err(AosError::Http(format!(
             "Failed to delete stack: {} {}",
             status, text
         )));
@@ -531,7 +531,7 @@ async fn activate_stack(
     let status = resp.status();
     if !status.is_success() {
         let text = resp.text().await.unwrap_or_default();
-        return Err(AosError::Other(format!(
+        return Err(AosError::Http(format!(
             "Failed to activate stack: {} {}",
             status, text
         )));
@@ -570,7 +570,7 @@ async fn deactivate_stack(
     let status = resp.status();
     if !status.is_success() {
         let text = resp.text().await.unwrap_or_default();
-        return Err(AosError::Other(format!(
+        return Err(AosError::Http(format!(
             "Failed to deactivate stack: {} {}",
             status, text
         )));
@@ -612,7 +612,7 @@ async fn set_default_stack(
     let status = resp.status();
     if !status.is_success() {
         let text = resp.text().await.unwrap_or_default();
-        return Err(AosError::Other(format!(
+        return Err(AosError::Http(format!(
             "Failed to set default stack: {} {}",
             status, text
         )));

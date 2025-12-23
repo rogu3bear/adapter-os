@@ -95,7 +95,7 @@ pub async fn handle_telemetry_command(cmd: TelemetryCommand, output: &OutputWrit
             output,
         )
         .await
-        .map_err(|e| AosError::Other(e.to_string())),
+        .map_err(|e| AosError::Internal(e.to_string())),
         TelemetryCommand::Verify { bundle_dir } => {
             verify_telemetry_chain(&bundle_dir, output).await
         }

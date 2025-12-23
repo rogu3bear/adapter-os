@@ -70,7 +70,7 @@ pub async fn trigger_export_for_job(
     let status = resp.status();
     if !status.is_success() {
         let body = resp.text().await.unwrap_or_default();
-        return Err(AosError::Other(format!(
+        return Err(AosError::Http(format!(
             "CoreML export failed: {} {}",
             status, body
         )));
@@ -120,7 +120,7 @@ pub async fn show_export_status(job_id: &str, base_url: &str, output: &OutputWri
     let status = resp.status();
     if !status.is_success() {
         let body = resp.text().await.unwrap_or_default();
-        return Err(AosError::Other(format!(
+        return Err(AosError::Http(format!(
             "Failed to fetch job: {} {}",
             status, body
         )));
