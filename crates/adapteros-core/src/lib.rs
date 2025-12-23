@@ -37,6 +37,7 @@ pub mod determinism;
 pub mod determinism_mode;
 pub mod error;
 pub mod error_helpers;
+pub mod errors;
 pub mod evidence_envelope;
 pub mod evidence_verifier;
 pub mod fusion_interval;
@@ -53,6 +54,7 @@ pub mod plugin_events;
 pub mod plugins;
 pub mod policy;
 pub mod prefix_kv_key;
+pub mod redaction;
 pub mod retry_policy;
 pub mod seed;
 pub mod singleflight;
@@ -96,6 +98,12 @@ pub use determinism::{
 };
 pub use determinism_mode::DeterminismMode;
 pub use error::{AosError, Result, ResultExt};
+// Re-export categorical error types for structured error handling
+pub use errors::{
+    AosAdapterError, AosAuthError, AosCryptoError, AosInternalError, AosModelError,
+    AosNetworkError, AosOperationsError, AosPolicyError, AosResourceError, AosStorageError,
+    AosValidationError, CacheBudgetExceededInfo,
+};
 pub use evidence_envelope::{
     compute_key_id, BundleMetadataRef, EvidenceEnvelope, EvidenceScope, InferenceReceiptRef,
     PolicyAuditRef, EVIDENCE_ENVELOPE_SCHEMA_VERSION,

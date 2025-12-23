@@ -32,66 +32,15 @@
 
 use crate::middleware::context::RequestContext;
 use crate::types::ErrorResponse;
+use adapteros_core::redaction::redact_sensitive;
 use adapteros_core::AosError;
 use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
     Json,
 };
-use once_cell::sync::Lazy;
-use regex::Regex;
 use std::borrow::Cow;
-use tracing::{error, trace, warn};
-
-// ============================================================================
-// Error Redaction
-// ============================================================================
-//
-// Automatically strips sensitive information from error details before they
-// reach API clients. Patterns cover file paths, tokens, connection strings,
-// and other potentially sensitive data.
-//
-// To disable redaction for debugging, set: ADAPTEROS_DISABLE_ERROR_REDACTION=1
-
-/// Cached env var check (read once at startup)
-static REDACTION_DISABLED: Lazy<bool> = Lazy::new(|| {
-    std::env::var("ADAPTEROS_DISABLE_ERROR_REDACTION")
-        .map(|v| v == "1")
-        .unwrap_or(false)
-});
-
-/// Pre-compiled regex patterns for sensitive data redaction
-///
-/// Pattern order matters: more specific patterns should come before general ones.
-/// For example, /tmp and /run patterns must come before the general path pattern.
-static REDACTION_PATTERNS: Lazy<Vec<(Regex, &'static str)>> = Lazy::new(|| {
-    vec![
-        // Bearer tokens
-        (Regex::new(r"Bearer\s+[A-Za-z0-9\-_\.]+").unwrap(), "Bearer [REDACTED]"),
-        // JWT tokens (three base64 segments)
-        (Regex::new(r"eyJ[A-Za-z0-9\-_]+\.eyJ[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+").unwrap(), "[JWT]"),
-        // API keys (common formats)
-        (Regex::new(r"(?i)(api[_-]?key|apikey)[=:\s]+[A-Za-z0-9\-_]{16,}").unwrap(), "$1=[REDACTED]"),
-        // Secrets/tokens/passwords (base64-like values)
-        (Regex::new(r"(?i)(secret|password)[=:\s]+[A-Za-z0-9+/]{16,}=*").unwrap(), "$1=[REDACTED]"),
-        // PostgreSQL connection strings
-        (Regex::new(r"postgres://[^@\s]+@[^\s]+").unwrap(), "postgres://[REDACTED]"),
-        // SQLite paths
-        (Regex::new(r"sqlite://[^\s]+\.db").unwrap(), "sqlite://[REDACTED]"),
-        // UDS socket paths (before general paths)
-        (Regex::new(r"/run/[^\s]+\.sock").unwrap(), "[SOCKET]"),
-        // Temp file paths (before general paths)
-        (Regex::new(r"/tmp/[^\s]+").unwrap(), "[TEMP]"),
-        // Stack trace locations (file.rs:123:45)
-        (Regex::new(r"\b[a-z_]+\.rs:\d+:\d+\b").unwrap(), "[SOURCE]"),
-        // Windows file paths (C:\Users\... or \\server\share)
-        (Regex::new(r"(?i)([a-z]:\\[^\s]+|\\\\[^\s]+)").unwrap(), "[PATH]"),
-        // Unix file paths with extension (must have file extension to avoid matching API routes)
-        (Regex::new(r"(/[a-zA-Z0-9_\-\.]+){2,}\.[a-zA-Z0-9]+").unwrap(), "[PATH]"),
-        // Home directory paths
-        (Regex::new(r"~(/[a-zA-Z0-9_\-\.]+)+").unwrap(), "[PATH]"),
-    ]
-});
+use tracing::{error, warn};
 
 /// Redact sensitive information from error details
 ///
@@ -99,23 +48,10 @@ static REDACTION_PATTERNS: Lazy<Vec<(Regex, &'static str)>> = Lazy::new(|| {
 /// connection strings, and other potentially sensitive data in error messages.
 ///
 /// Set `ADAPTEROS_DISABLE_ERROR_REDACTION=1` to bypass redaction for debugging.
+///
+/// This delegates to `adapteros_core::redaction::redact_sensitive`.
 pub fn redact_error_details(input: &str) -> Cow<'_, str> {
-    if *REDACTION_DISABLED {
-        return Cow::Borrowed(input);
-    }
-
-    let mut result = Cow::Borrowed(input);
-    for (pattern, replacement) in REDACTION_PATTERNS.iter() {
-        if pattern.is_match(&result) {
-            result = Cow::Owned(pattern.replace_all(&result, *replacement).into_owned());
-        }
-    }
-
-    if matches!(result, Cow::Owned(_)) {
-        trace!(original_len = input.len(), "redacted sensitive data from error details");
-    }
-
-    result
+    redact_sensitive(input)
 }
 
 /// Unified API error type implementing IntoResponse
@@ -952,9 +888,9 @@ mod tests {
 
     #[test]
     fn test_redaction_env_var_cached() {
-        // REDACTION_DISABLED is cached at startup - verify it's false by default
+        // is_redaction_disabled is cached at startup - verify it's false by default
         assert!(
-            !*REDACTION_DISABLED,
+            !adapteros_core::redaction::is_redaction_disabled(),
             "Redaction should be enabled by default"
         );
     }

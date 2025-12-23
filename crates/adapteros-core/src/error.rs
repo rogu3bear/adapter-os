@@ -358,6 +358,13 @@ pub enum AosError {
         source: anyhow::Error,
     },
 
+    #[error("Dual-write inconsistency for {entity_type} '{entity_id}': {reason}")]
+    DualWriteInconsistency {
+        entity_type: String,
+        entity_id: String,
+        reason: String,
+    },
+
     #[error("Routing error: {0}")]
     Routing(String),
 
@@ -391,15 +398,108 @@ pub enum AosError {
     #[error("Model acquisition in progress: {model_id} is {state}")]
     ModelAcquisitionInProgress { model_id: String, state: String },
 
-    #[error("{0}")]
-    Other(String),
-
     #[error("{context}: {source}")]
     WithContext {
         context: String,
         #[source]
         source: Box<AosError>,
     },
+}
+
+// ============================================================================
+// Convenience constructors for common error patterns
+// ============================================================================
+
+impl AosError {
+    /// Validation error
+    pub fn validation(msg: impl Into<String>) -> Self {
+        AosError::Validation(msg.into())
+    }
+
+    /// Configuration error
+    pub fn config(msg: impl Into<String>) -> Self {
+        AosError::Config(msg.into())
+    }
+
+    /// I/O error
+    pub fn io(msg: impl Into<String>) -> Self {
+        AosError::Io(msg.into())
+    }
+
+    /// Cryptographic error
+    pub fn crypto(msg: impl Into<String>) -> Self {
+        AosError::Crypto(msg.into())
+    }
+
+    /// Network error
+    pub fn network(msg: impl Into<String>) -> Self {
+        AosError::Network(msg.into())
+    }
+
+    /// HTTP error
+    pub fn http(msg: impl Into<String>) -> Self {
+        AosError::Http(msg.into())
+    }
+
+    /// Timeout error
+    pub fn timeout(duration: std::time::Duration) -> Self {
+        AosError::Timeout { duration }
+    }
+
+    /// Lifecycle error
+    pub fn lifecycle(msg: impl Into<String>) -> Self {
+        AosError::Lifecycle(msg.into())
+    }
+
+    /// Determinism violation
+    pub fn determinism_violation(msg: impl Into<String>) -> Self {
+        AosError::DeterminismViolation(msg.into())
+    }
+
+    /// Internal error
+    pub fn internal(msg: impl Into<String>) -> Self {
+        AosError::Internal(msg.into())
+    }
+
+    /// Database error
+    pub fn database(msg: impl Into<String>) -> Self {
+        AosError::Database(msg.into())
+    }
+
+    /// Not found error
+    pub fn not_found(msg: impl Into<String>) -> Self {
+        AosError::NotFound(msg.into())
+    }
+
+    /// Worker error
+    pub fn worker(msg: impl Into<String>) -> Self {
+        AosError::Worker(msg.into())
+    }
+
+    /// Policy violation
+    pub fn policy_violation(msg: impl Into<String>) -> Self {
+        AosError::PolicyViolation(msg.into())
+    }
+
+    /// Circuit breaker open
+    pub fn circuit_breaker_open(service: impl Into<String>) -> Self {
+        AosError::CircuitBreakerOpen {
+            service: service.into(),
+        }
+    }
+
+    /// Dual-write inconsistency error (SQL committed but KV failed)
+    pub fn dual_write_inconsistency(
+        entity_type: impl Into<String>,
+        entity_id: impl Into<String>,
+        reason: impl Into<String>,
+    ) -> Self {
+        AosError::DualWriteInconsistency {
+            entity_type: entity_type.into(),
+            entity_id: entity_id.into(),
+            reason: reason.into(),
+        }
+    }
 }
 
 /// Serializable representation of cache budget exceeded error
@@ -455,7 +555,7 @@ impl CacheBudgetExceededInfo {
 // Conversion from anyhow for CLI commands
 impl From<anyhow::Error> for AosError {
     fn from(err: anyhow::Error) -> Self {
-        AosError::Other(err.to_string())
+        AosError::Internal(err.to_string())
     }
 }
 
@@ -521,7 +621,7 @@ mod tests {
 
     #[test]
     fn test_context_chaining() {
-        let base: Result<()> = Err(AosError::Other("boom".to_string()));
+        let base: Result<()> = Err(AosError::Internal("boom".to_string()));
 
         let err = base
             .context("while doing A")
@@ -536,8 +636,8 @@ mod tests {
                     AosError::WithContext { context, source } => {
                         assert_eq!(context, "while doing A");
                         match source.as_ref() {
-                            AosError::Other(ref s) => assert_eq!(s, "boom"),
-                            _ => panic!("expected innermost Other variant"),
+                            AosError::Internal(ref s) => assert_eq!(s, "boom"),
+                            _ => panic!("expected innermost Internal variant"),
                         }
                     }
                     _ => panic!("expected inner WithContext variant"),
