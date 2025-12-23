@@ -7,6 +7,7 @@ use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
+#[cfg(target_os = "windows")]
 use tracing::debug;
 
 /// Windows-specific settings
@@ -226,36 +227,21 @@ impl PlatformHandler for WindowsHandler {
         })
     }
 
-    fn set_file_metadata(&self, path: &Path, metadata: &FileMetadata) -> Result<()> {
-        // Set file permissions
-        self.set_file_permissions(path, metadata.permissions)?;
-
-        // Set file times
+    fn set_file_metadata(&self, _path: &Path, _metadata: &FileMetadata) -> Result<()> {
+        // Fail fast - full metadata update not implemented
         #[cfg(target_os = "windows")]
         {
-            use std::fs::File;
-            use std::os::windows::fs::FileTypeExt;
-            use std::os::windows::fs::OpenOptionsExt;
-            use std::os::windows::io::AsRawHandle;
-            use std::os::windows::io::FromRawHandle;
-
-            let file = File::open(path).map_err(|e| {
-                AosError::Platform(format!("Failed to open file for metadata update: {}", e))
-            })?;
-
-            let handle = file.as_raw_handle();
-
-            // Set file times using Windows API
-            // This would require additional Windows API bindings
-            debug!("Windows file metadata update not fully implemented");
+            return Err(AosError::Platform(
+                "Windows file metadata update not implemented (file times require Windows API bindings)".to_string(),
+            ));
         }
 
         #[cfg(not(target_os = "windows"))]
         {
-            debug!("Windows file metadata update not available on this platform");
+            Err(AosError::Platform(
+                "Windows file metadata not available on this platform".to_string(),
+            ))
         }
-
-        Ok(())
     }
 }
 
