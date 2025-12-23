@@ -1225,11 +1225,17 @@ impl From<adapteros_telemetry::metrics::MetricsSnapshot> for crate::types::Metri
             ],
         );
 
+        // Merge counters and gauges for frontend compatibility
+        let mut metrics = counters.clone();
+        metrics.extend(gauges.clone());
+
         Self {
-            timestamp: Some(snapshot.timestamp_ms.to_string()),
+            schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
+            timestamp: snapshot.timestamp_ms.to_string(),
             counters,
             gauges,
             histograms,
+            metrics,
         }
     }
 }

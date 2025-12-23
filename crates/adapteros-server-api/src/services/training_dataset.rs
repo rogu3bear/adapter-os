@@ -3,7 +3,7 @@
 //! Provides reusable helpers to build training datasets from existing
 //! documents or collections so HTTP handlers can stay thin.
 
-use crate::audit_helper::{actions, log_success, resources};
+use crate::audit_helper::{actions, log_success_or_warn, resources};
 use crate::citations::build_dataset_index;
 #[cfg(feature = "embeddings")]
 use crate::error_helpers::payload_too_large;
@@ -276,7 +276,7 @@ impl DefaultTrainingDatasetService {
         let now = chrono::Utc::now().to_rfc3339();
 
         // Audit log
-        let _ = log_success(
+        log_success_or_warn(
             &self.state.db,
             claims,
             actions::DATASET_CREATE,
@@ -449,7 +449,7 @@ impl DefaultTrainingDatasetService {
             "Document processed and indexed successfully"
         );
 
-        let _ = log_success(
+        log_success_or_warn(
             &self.state.db,
             claims,
             actions::DOCUMENT_UPLOAD,
@@ -744,7 +744,7 @@ impl TrainingDatasetService for DefaultTrainingDatasetService {
             claims.tenant_id
         );
 
-        let _ = log_success(
+        log_success_or_warn(
             &self.state.db,
             claims,
             actions::DOCUMENT_UPLOAD,

@@ -133,8 +133,8 @@ pub async fn update_settings(
 
     // Persist settings to override file
     if let Err(e) = persist_settings_override(&req).await {
-        use crate::audit_helper::{actions, log_failure, resources};
-        let _ = log_failure(
+        use crate::audit_helper::{actions, log_failure_or_warn, resources};
+        log_failure_or_warn(
             &state.db,
             &claims,
             actions::SETTINGS_UPDATE,
@@ -154,8 +154,8 @@ pub async fn update_settings(
     }
 
     // Log successful settings update
-    use crate::audit_helper::{actions, log_success, resources};
-    let _ = log_success(
+    use crate::audit_helper::{actions, log_success_or_warn, resources};
+    log_success_or_warn(
         &state.db,
         &claims,
         actions::SETTINGS_UPDATE,

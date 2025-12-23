@@ -3,7 +3,7 @@
 //! Provides API endpoints for activity event creation and feed retrieval.
 //! Activity events track user actions and collaboration events.
 
-use crate::audit_helper::{actions, log_success, resources};
+use crate::audit_helper::{actions, log_success_or_warn, resources};
 use crate::handlers::{AppState, Claims, ErrorResponse};
 use crate::permissions::{require_permission, Permission};
 use adapteros_db::activity_events::ActivityEventType;
@@ -159,18 +159,15 @@ pub async fn create_activity_event(
             )
         })?;
 
-    // Best-effort audit logging - failures here don't fail the request since the event was created successfully
-    if let Err(e) = log_success(
+    // Audit logging - failures are logged at error level via log_success_or_warn
+    log_success_or_warn(
         &state.db,
         &claims,
         actions::ACTIVITY_EVENT_CREATE,
         resources::ACTIVITY_EVENT,
         Some(&event.id),
     )
-    .await
-    {
-        debug!(error = %e, event_id = %event.id, "Failed to log activity event creation to audit trail");
-    }
+    .await;
 
     Ok(Json(ActivityEventResponse {
         id: event.id,

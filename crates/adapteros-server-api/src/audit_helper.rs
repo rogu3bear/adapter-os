@@ -2,11 +2,17 @@
 //!
 //! Provides convenient functions to log audit events from API handlers.
 //! All sensitive operations should be logged for compliance and security review.
+//!
+//! # Security Note
+//!
+//! Audit logging failures are critical security events. When the primary audit chain
+//! cannot be written (database unavailable, etc.), we MUST still record the event
+//! via the tracing/logging system to maintain an evidence trail.
 
 use crate::auth::Claims;
 use adapteros_core::Result;
 use adapteros_db::Db;
-use tracing::info;
+use tracing::{error, info, warn};
 
 /// Log an audit action
 ///
@@ -124,6 +130,83 @@ pub async fn log_failure(
         Some(error),
     )
     .await
+}
+
+/// Log a successful action, with explicit error handling on failure
+///
+/// Unlike `log_success`, this function NEVER silently discards errors.
+/// If the audit chain cannot be written, it logs a CRITICAL error via tracing
+/// to ensure there is always SOME record of the operation.
+///
+/// # Security
+///
+/// This function should be used instead of `let _ = log_success(...)` to prevent
+/// silent audit trail gaps. Even when the primary audit fails, the tracing log
+/// provides a secondary evidence trail.
+pub async fn log_success_or_warn(
+    db: &Db,
+    claims: &Claims,
+    action: &str,
+    resource_type: &str,
+    resource_id: Option<&str>,
+) {
+    if let Err(e) = log_success(db, claims, action, resource_type, resource_id).await {
+        // CRITICAL: Primary audit chain failed - log via tracing as fallback evidence
+        error!(
+            event_type = "audit.chain_failure",
+            user_id = %claims.sub,
+            user_role = %claims.role,
+            tenant_id = %claims.tenant_id,
+            action = %action,
+            resource_type = %resource_type,
+            resource_id = ?resource_id,
+            status = "success",
+            audit_error = %e,
+            "AUDIT CHAIN FAILURE: Operation succeeded but audit log could not be written. \
+             This is a CRITICAL security event - the operation completed without audit trail."
+        );
+        warn!(
+            action = %action,
+            resource_id = ?resource_id,
+            "Audit chain gap detected - manual reconciliation may be required"
+        );
+    }
+}
+
+/// Log a failed action, with explicit error handling on audit failure
+///
+/// Unlike `log_failure`, this function NEVER silently discards errors.
+/// If the audit chain cannot be written, it logs a CRITICAL error via tracing.
+pub async fn log_failure_or_warn(
+    db: &Db,
+    claims: &Claims,
+    action: &str,
+    resource_type: &str,
+    resource_id: Option<&str>,
+    operation_error: &str,
+) {
+    if let Err(e) = log_failure(db, claims, action, resource_type, resource_id, operation_error).await {
+        // CRITICAL: Primary audit chain failed - log via tracing as fallback evidence
+        error!(
+            event_type = "audit.chain_failure",
+            user_id = %claims.sub,
+            user_role = %claims.role,
+            tenant_id = %claims.tenant_id,
+            action = %action,
+            resource_type = %resource_type,
+            resource_id = ?resource_id,
+            status = "failure",
+            operation_error = %operation_error,
+            audit_error = %e,
+            "AUDIT CHAIN FAILURE: Operation failed and audit log could not be written. \
+             This is a CRITICAL security event - the failure is not in the audit trail."
+        );
+        warn!(
+            action = %action,
+            resource_id = ?resource_id,
+            "Audit chain gap detected - manual reconciliation may be required"
+        );
+    }
 }
 
 /// Audit action types as constants for consistency

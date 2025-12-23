@@ -202,9 +202,23 @@ pub async fn rate_limiting_middleware(
             response
         }
         Err(e) => {
-            // Internal error - allow request but log
-            tracing::error!(error = %e, "Rate limiting check failed, allowing request");
-            next.run(req).await
+            // Internal error - DENY request (fail closed)
+            // Security: Rate limiting must fail closed to prevent bypass via induced errors
+            tracing::error!(
+                error = %e,
+                tenant_id = %tenant_id,
+                client_ip = %client_ip,
+                path = %req.uri().path(),
+                "Rate limiting check failed, denying request (fail-closed)"
+            );
+
+            Response::builder()
+                .status(StatusCode::SERVICE_UNAVAILABLE)
+                .header("Retry-After", "60")
+                .body(axum::body::Body::from(
+                    r#"{"error":"rate limiting unavailable","code":"RATE_LIMIT_UNAVAILABLE","message":"Rate limiting service is temporarily unavailable. Please retry."}"#
+                ))
+                .expect("static response body cannot fail")
         }
     }
 }

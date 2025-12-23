@@ -2,7 +2,7 @@
 //!
 //! Provides REST endpoints for managing evidence entries linked to datasets and adapters.
 
-use crate::audit_helper::{actions, log_failure, log_success, resources};
+use crate::audit_helper::{actions, log_failure_or_warn, log_success_or_warn, resources};
 use crate::auth::Claims;
 use crate::error_helpers::{db_error, internal_error, not_found};
 use crate::permissions::{require_permission, Permission};
@@ -285,7 +285,7 @@ pub async fn create_evidence(
             let claims = claims.clone();
             let message = format!("Failed to create evidence: {}", e);
             tokio::spawn(async move {
-                let _ = log_failure(
+                log_failure_or_warn(
                     &db,
                     &claims,
                     actions::ADAPTER_REGISTER,
@@ -306,7 +306,7 @@ pub async fn create_evidence(
         .map_err(db_error)?
         .ok_or_else(|| internal_error("Evidence entry not found after creation"))?;
 
-    let _ = log_success(
+    log_success_or_warn(
         &state.db,
         &claims,
         actions::ADAPTER_REGISTER,
@@ -443,7 +443,7 @@ pub async fn delete_evidence(
         let id = id.clone();
         let message = format!("Failed to delete evidence: {}", e);
         tokio::spawn(async move {
-            let _ = log_failure(
+            log_failure_or_warn(
                 &db,
                 &claims,
                 actions::ADAPTER_DELETE,
@@ -456,7 +456,7 @@ pub async fn delete_evidence(
         internal_error(e)
     })?;
 
-    let _ = log_success(
+    log_success_or_warn(
         &state.db,
         &claims,
         actions::ADAPTER_DELETE,

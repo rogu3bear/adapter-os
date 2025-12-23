@@ -3,7 +3,7 @@
 //! Provides API endpoints for workspace CRUD, membership management, and resource sharing.
 //! Workspaces enable cross-tenant collaboration while maintaining tenant isolation.
 
-use crate::audit_helper::{actions, log_success, resources};
+use crate::audit_helper::{actions, log_success_or_warn, resources};
 use crate::handlers::{AppState, Claims, ErrorResponse};
 use crate::permissions::{require_permission, Permission};
 use crate::PaginatedResponse;
@@ -270,17 +270,14 @@ pub async fn create_workspace(
         })?;
 
     // Audit log successful creation
-    if let Err(e) = log_success(
+    log_success_or_warn(
         &state.db,
         &claims,
         actions::WORKSPACE_CREATE,
         resources::WORKSPACE,
         Some(&workspace_id),
     )
-    .await
-    {
-        tracing::warn!("Failed to log audit event: {}", e);
-    }
+    .await;
 
     Ok(Json(WorkspaceResponse {
         id: workspace.id,
@@ -470,17 +467,14 @@ pub async fn update_workspace(
         })?;
 
     // Audit log successful update
-    if let Err(e) = log_success(
+    log_success_or_warn(
         &state.db,
         &claims,
         actions::WORKSPACE_UPDATE,
         resources::WORKSPACE,
         Some(&workspace_id),
     )
-    .await
-    {
-        tracing::warn!("Failed to log audit event: {}", e);
-    }
+    .await;
 
     Ok(Json(WorkspaceResponse {
         id: workspace.id,
@@ -560,17 +554,14 @@ pub async fn delete_workspace(
         })?;
 
     // Audit log successful deletion
-    if let Err(e) = log_success(
+    log_success_or_warn(
         &state.db,
         &claims,
         actions::WORKSPACE_DELETE,
         resources::WORKSPACE,
         Some(&workspace_id),
     )
-    .await
-    {
-        tracing::warn!("Failed to log audit event: {}", e);
-    }
+    .await;
 
     Ok(Json(
         serde_json::json!({"status": "deleted", "id": workspace_id}),
@@ -751,15 +742,14 @@ pub async fn add_workspace_member(
         })?;
 
     let user_id = req.user_id.clone().unwrap_or_else(|| req.tenant_id.clone());
-    log_success(
+    log_success_or_warn(
         &state.db,
         &claims,
         actions::WORKSPACE_MEMBER_ADD,
         resources::WORKSPACE_MEMBER,
         Some(&format!("{}:{}", workspace_id, user_id)),
     )
-    .await
-    .ok();
+    .await;
 
     Ok(Json(
         serde_json::json!({"id": member_id, "status": "added"}),
@@ -882,15 +872,14 @@ pub async fn update_workspace_member(
             )
         })?;
 
-    log_success(
+    log_success_or_warn(
         &state.db,
         &claims,
         actions::WORKSPACE_MEMBER_UPDATE,
         resources::WORKSPACE_MEMBER,
         Some(&format!("{}:{}", workspace_id, member_id)),
     )
-    .await
-    .ok();
+    .await;
 
     Ok(Json(serde_json::json!({"status": "updated"})))
 }
@@ -992,15 +981,14 @@ pub async fn remove_workspace_member(
             )
         })?;
 
-    log_success(
+    log_success_or_warn(
         &state.db,
         &claims,
         actions::WORKSPACE_MEMBER_REMOVE,
         resources::WORKSPACE_MEMBER,
         Some(&format!("{}:{}", workspace_id, member_id)),
     )
-    .await
-    .ok();
+    .await;
 
     Ok(Json(serde_json::json!({"status": "removed"})))
 }
@@ -1267,15 +1255,14 @@ pub async fn share_workspace_resource(
             )
         })?;
 
-    log_success(
+    log_success_or_warn(
         &state.db,
         &claims,
         actions::WORKSPACE_RESOURCE_SHARE,
         resources::WORKSPACE_RESOURCE,
         Some(&req.resource_id),
     )
-    .await
-    .ok();
+    .await;
 
     Ok(Json(
         serde_json::json!({"id": resource_id, "status": "shared"}),
@@ -1374,15 +1361,14 @@ pub async fn unshare_workspace_resource(
             )
         })?;
 
-    log_success(
+    log_success_or_warn(
         &state.db,
         &claims,
         actions::WORKSPACE_RESOURCE_UNSHARE,
         resources::WORKSPACE_RESOURCE,
         Some(&resource_id),
     )
-    .await
-    .ok();
+    .await;
 
     Ok(Json(serde_json::json!({"status": "unshared"})))
 }

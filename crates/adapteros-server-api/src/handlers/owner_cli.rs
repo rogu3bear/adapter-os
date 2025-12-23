@@ -340,7 +340,7 @@ async fn execute_command(command: &str) -> Result<CliRunResponse, AosError> {
         .stderr(std::process::Stdio::piped())
         .spawn()
         .map_err(|e| {
-            AosError::Other(format!(
+            AosError::Internal(format!(
                 "Failed to spawn aosctl process: {}. Ensure aosctl is in PATH.",
                 e
             ))
@@ -353,12 +353,11 @@ async fn execute_command(command: &str) -> Result<CliRunResponse, AosError> {
     )
     .await
     .map_err(|_| {
-        AosError::Other(format!(
-            "Command timed out after {} seconds",
-            COMMAND_TIMEOUT_SECS
-        ))
+        AosError::Timeout {
+            duration: std::time::Duration::from_secs(COMMAND_TIMEOUT_SECS),
+        }
     })?
-    .map_err(|e| AosError::Other(format!("Failed to wait for aosctl process: {}", e)))?;
+    .map_err(|e| AosError::Internal(format!("Failed to wait for aosctl process: {}", e)))?;
 
     let duration_ms = start.elapsed().as_millis() as u64;
 

@@ -1307,7 +1307,7 @@ pub async fn get_pin_status(
 // Adapter Hot-Swap Handler
 // ============================================================================
 
-use crate::audit_helper::{actions, log_success, resources};
+use crate::audit_helper::{actions, log_success_or_warn, resources};
 use crate::types::{
     AdapterStatsResponse, AdapterSwapRequest, AdapterSwapResponse, CategoryPoliciesResponse,
     CategoryPolicyRequest, CategoryPolicyResponse,
@@ -1657,7 +1657,7 @@ pub async fn swap_adapters(
     );
 
     // Audit log
-    let _ = log_success(
+    log_success_or_warn(
         &state.db,
         &claims,
         "adapter.swap",
@@ -1989,7 +1989,7 @@ pub async fn update_category_policy(
     );
 
     // Audit log
-    let _ = log_success(
+    log_success_or_warn(
         &state.db,
         &claims,
         "policy.category.update",
@@ -2742,7 +2742,7 @@ pub async fn import_adapter(
     );
 
     // Audit log
-    let _ = log_success(
+    log_success_or_warn(
         &state.db,
         &claims,
         actions::ADAPTER_REGISTER,

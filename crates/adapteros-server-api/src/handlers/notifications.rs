@@ -2,7 +2,7 @@
 //!
 //! Provides API endpoints for unified notification center (system alerts, messages, mentions, activity).
 
-use crate::audit_helper::{actions, log_success, resources};
+use crate::audit_helper::{actions, log_success_or_warn, resources};
 use crate::handlers::{AppState, Claims, ErrorResponse};
 use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
@@ -278,15 +278,14 @@ pub async fn mark_notification_read(
             )
         })?;
 
-    log_success(
+    log_success_or_warn(
         &state.db,
         &claims,
         actions::NOTIFICATION_READ,
         resources::NOTIFICATION,
         Some(&notification_id),
     )
-    .await
-    .ok();
+    .await;
 
     Ok(Json(serde_json::json!({"status": "read"})))
 }
@@ -329,15 +328,14 @@ pub async fn mark_all_notifications_read(
             )
         })?;
 
-    log_success(
+    log_success_or_warn(
         &state.db,
         &claims,
         actions::NOTIFICATION_READ_ALL,
         resources::NOTIFICATION,
         workspace_id,
     )
-    .await
-    .ok();
+    .await;
 
     Ok(Json(serde_json::json!({"status": "read", "count": count})))
 }

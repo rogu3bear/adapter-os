@@ -21,7 +21,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use crate::audit_helper::{actions, log_failure, log_success, resources};
+use crate::audit_helper::{actions, log_failure_or_warn, log_success_or_warn, resources};
 use crate::auth::Claims;
 use crate::permissions::{require_permission, Permission};
 use crate::state::AppState;
@@ -153,7 +153,7 @@ pub async fn request_promotion(
         .join(&run_id);
 
     if !golden_dir.exists() {
-        let _ = log_failure(
+        log_failure_or_warn(
             &state.db,
             &claims,
             actions::PROMOTION_EXECUTE,
@@ -212,7 +212,7 @@ pub async fn request_promotion(
                     });
 
                     // Log success
-                    let _ = log_success(
+                    log_success_or_warn(
                         &state.db,
                         &claims,
                         actions::PROMOTION_EXECUTE,
@@ -503,7 +503,7 @@ pub async fn approve_or_reject_promotion(
                 req.action, claims.email, request_id
             );
 
-            let _ = log_success(
+            log_success_or_warn(
                 &state.db,
                 &claims,
                 actions::PROMOTION_EXECUTE,
@@ -628,7 +628,7 @@ pub async fn rollback_promotion(
         )
         .await;
 
-    let _ = log_success(
+    log_success_or_warn(
         &state.db,
         &claims,
         actions::PROMOTION_ROLLBACK,

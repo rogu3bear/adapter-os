@@ -2,6 +2,15 @@
 //!
 //! Provides a persistent ledger of all deterministic executor events with Merkle chain
 //! verification for cross-host consistency checks.
+//!
+//! ## Determinism Notes
+//!
+//! - **Timestamps**: The `timestamp_us` field uses wall-clock time and is NOT deterministic
+//!   across runs. However, it is excluded from `event_hash` computation, so it does not
+//!   affect cross-host consistency checks or replay correctness. For fully deterministic
+//!   timestamps, use `with_deterministic_timestamps()` constructor.
+//! - **Merkle Chain**: The `prev_entry_hash` linkage is deterministic when events are
+//!   recorded in the same order with the same global seed.
 
 use crate::{ExecutorEvent, TaskId};
 use adapteros_core::identity::IdentityEnvelope;
@@ -106,6 +115,10 @@ pub struct GlobalTickLedger {
 
     /// Last entry hash (for Merkle chain)
     last_entry_hash: Arc<RwLock<Option<B3Hash>>>,
+
+    /// Use deterministic (tick-based) timestamps instead of wall-clock time
+    /// When true, timestamp_us will be set to (tick * 1000) for reproducibility
+    use_deterministic_timestamps: bool,
 }
 
 impl std::fmt::Debug for GlobalTickLedger {
@@ -131,6 +144,25 @@ impl GlobalTickLedger {
             max_cache_size: 1000,
             telemetry: None,
             last_entry_hash: Arc::new(RwLock::new(None)),
+            use_deterministic_timestamps: false,
+        }
+    }
+
+    /// Create with deterministic timestamps enabled (for replay scenarios)
+    ///
+    /// When enabled, `timestamp_us` is set to `tick * 1000` instead of wall-clock time,
+    /// ensuring identical timestamps across replay runs.
+    pub fn with_deterministic_timestamps(db: Arc<Db>, tenant_id: String, host_id: String) -> Self {
+        Self {
+            local_tick: Arc::new(AtomicU64::new(0)),
+            db,
+            tenant_id,
+            host_id,
+            entries: Arc::new(RwLock::new(VecDeque::new())),
+            max_cache_size: 1000,
+            telemetry: None,
+            last_entry_hash: Arc::new(RwLock::new(None)),
+            use_deterministic_timestamps: true,
         }
     }
 
@@ -150,6 +182,7 @@ impl GlobalTickLedger {
             max_cache_size: 1000,
             telemetry: Some(telemetry),
             last_entry_hash: Arc::new(RwLock::new(None)),
+            use_deterministic_timestamps: false,
         }
     }
 
@@ -172,10 +205,17 @@ impl GlobalTickLedger {
     pub async fn record_tick(&self, task_id: TaskId, event: &ExecutorEvent) -> Result<B3Hash> {
         // Atomically fetch-and-increment tick to ensure uniqueness
         let tick = self.local_tick.fetch_add(1, Ordering::SeqCst);
-        let timestamp_us = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_micros() as u64;
+
+        // Use deterministic timestamps if enabled (tick * 1000us), otherwise wall-clock
+        // Note: Wall-clock timestamps are non-deterministic but excluded from event_hash
+        let timestamp_us = if self.use_deterministic_timestamps {
+            tick * 1000 // Deterministic: 1ms per tick
+        } else {
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_micros() as u64
+        };
 
         // Serialize event type
         let event_type = match event {
