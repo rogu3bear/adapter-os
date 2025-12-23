@@ -2,6 +2,17 @@
 //!
 //! Provides sequence-tagged message passing for deterministic execution.
 //! All messages are tagged with a sequence number to ensure reproducible ordering.
+//!
+//! ## Determinism Notes
+//!
+//! - **Sequence Numbers**: All messages get a globally unique sequence number from
+//!   `GLOBAL_CHANNEL_SEQUENCE`, ensuring total ordering across all channels.
+//! - **tokio::task::yield_now()**: The `recv()` method uses Tokio's yield_now which
+//!   has non-deterministic wake ordering in standard Tokio runtime. For fully
+//!   deterministic behavior, use the `DeterministicExecutor` which provides
+//!   FIFO task scheduling.
+//! - **Global State**: `GLOBAL_CHANNEL_SEQUENCE` is process-wide and not persisted.
+//!   For replay scenarios, reset it via `reset_global_sequence()` (test-only).
 
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
