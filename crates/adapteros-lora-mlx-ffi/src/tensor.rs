@@ -43,7 +43,7 @@ impl MLXFFITensor {
                         .to_string_lossy()
                         .to_string()
                 };
-                return Err(AosError::Other(format!(
+                return Err(AosError::Mlx(format!(
                     "Failed to create MLX array: {}",
                     error_str
                 )));
@@ -71,7 +71,7 @@ impl MLXFFITensor {
                         .to_string_lossy()
                         .to_string()
                 };
-                return Err(AosError::Other(format!(
+                return Err(AosError::Mlx(format!(
                     "Failed to create MLX array: {}",
                     error_str
                 )));
@@ -88,12 +88,12 @@ impl MLXFFITensor {
     /// Get tensor data as slice
     pub fn data(&self) -> Result<&[f32]> {
         if self.dtype != TensorDtype::Float32 {
-            return Err(AosError::Other("Tensor is not Float32 type".to_string()));
+            return Err(AosError::Mlx("Tensor is not Float32 type".to_string()));
         }
 
         let data_ptr = unsafe { mlx_array_data(self.inner) };
         if data_ptr.is_null() {
-            return Err(AosError::Other("Failed to get tensor data".to_string()));
+            return Err(AosError::Mlx("Failed to get tensor data".to_string()));
         }
 
         let size = unsafe { mlx_array_size(self.inner) };
@@ -103,7 +103,7 @@ impl MLXFFITensor {
     /// Get tensor data as a vector (for testing and conversion)
     pub fn to_float_vec(&self) -> Result<Vec<f32>> {
         if self.dtype != TensorDtype::Float32 {
-            return Err(AosError::Other("Tensor is not Float32 type".to_string()));
+            return Err(AosError::Mlx("Tensor is not Float32 type".to_string()));
         }
 
         let data_slice = self.data()?;
@@ -146,7 +146,7 @@ impl MLXFFITensor {
                 // Clear error for next operation
                 mlx_clear_error();
 
-                return Err(AosError::Other(format!(
+                return Err(AosError::Mlx(format!(
                     "Failed to add tensors: {}",
                     error_str
                 )));
@@ -181,7 +181,7 @@ impl MLXFFITensor {
                 // Clear error for next operation
                 mlx_clear_error();
 
-                return Err(AosError::Other(format!(
+                return Err(AosError::Mlx(format!(
                     "Failed to multiply tensors: {}",
                     error_str
                 )));
@@ -216,7 +216,7 @@ impl MLXFFITensor {
                 // Clear error for next operation
                 mlx_clear_error();
 
-                return Err(AosError::Other(format!(
+                return Err(AosError::Mlx(format!(
                     "Failed to perform matrix multiplication: {}",
                     error_str
                 )));
@@ -267,7 +267,7 @@ impl MLXFFITensor {
         let current_size: usize = self.shape.iter().product();
         let new_size: usize = new_shape.iter().product();
         if current_size != new_size {
-            return Err(AosError::Other(format!(
+            return Err(AosError::Mlx(format!(
                 "Cannot reshape tensor of size {} to shape {:?} (size {})",
                 current_size, new_shape, new_size
             )));
@@ -289,7 +289,7 @@ impl MLXFFITensor {
                         .to_string_lossy()
                         .to_string()
                 };
-                return Err(AosError::Other(format!(
+                return Err(AosError::Mlx(format!(
                     "Failed to reshape tensor: {}",
                     error_str
                 )));
@@ -331,7 +331,7 @@ impl MLXFFITensor {
                         .to_string_lossy()
                         .to_string()
                 };
-                return Err(AosError::Other(format!(
+                return Err(AosError::Mlx(format!(
                     "Failed to transpose tensor: {}",
                     error_str
                 )));
@@ -381,7 +381,7 @@ impl MLXFFITensor {
                         .to_string_lossy()
                         .to_string()
                 };
-                return Err(AosError::Other(format!(
+                return Err(AosError::Mlx(format!(
                     "Failed to get tensor shape: {}",
                     error_str
                 )));
@@ -419,7 +419,7 @@ impl MLXFFITensor {
                         .to_string_lossy()
                         .to_string()
                 };
-                return Err(AosError::Other(format!(
+                return Err(AosError::Mlx(format!(
                     "Failed to get tensor ndim: {}",
                     error_str
                 )));
@@ -496,7 +496,7 @@ impl MLXFFITensor {
                         .to_string_lossy()
                         .to_string()
                 };
-                return Err(AosError::Other(format!(
+                return Err(AosError::Mlx(format!(
                     "Failed to copy tensor: {}",
                     error_str
                 )));

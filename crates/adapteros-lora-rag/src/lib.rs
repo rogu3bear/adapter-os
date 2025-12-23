@@ -48,7 +48,7 @@ impl RagSystem {
     /// Create new RAG system
     pub fn new<P: AsRef<Path>>(root: P, embedding_model_hash: B3Hash) -> Result<Self> {
         std::fs::create_dir_all(root.as_ref())
-            .map_err(|e| AosError::Other(format!("Failed to create RAG root: {}", e)))?;
+            .map_err(|e| AosError::Io(format!("Failed to create RAG root: {}", e)))?;
 
         Ok(Self {
             root: root.as_ref().to_path_buf(),
@@ -97,7 +97,7 @@ impl RagSystem {
     /// Validate embedding model hash
     pub fn validate_embedding_hash(&self, hash: &B3Hash) -> Result<()> {
         if *hash != self.embedding_model_hash {
-            return Err(AosError::Other(format!(
+            return Err(AosError::Validation(format!(
                 "Embedding model hash mismatch: expected {}, got {}",
                 self.embedding_model_hash, hash
             )));

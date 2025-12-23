@@ -176,17 +176,17 @@ impl DiffAnalyzer {
             .arg(format!("{}..{}", from_commit, to_commit))
             .current_dir(&self.repo_path)
             .output()
-            .map_err(|e| AosError::Other(format!("Failed to run git diff: {}", e)))?;
+            .map_err(|e| AosError::Git(format!("Failed to run git diff: {}", e)))?;
 
         if !output.status.success() {
-            return Err(AosError::Other(format!(
+            return Err(AosError::Git(format!(
                 "Git diff failed: {}",
                 String::from_utf8_lossy(&output.stderr)
             )));
         }
 
         String::from_utf8(output.stdout)
-            .map_err(|e| AosError::Other(format!("Invalid git diff output: {}", e)))
+            .map_err(|e| AosError::Git(format!("Invalid git diff output: {}", e)))
     }
 
     /// Get uncommitted diff
@@ -197,17 +197,17 @@ impl DiffAnalyzer {
             .arg("--unified=3")
             .current_dir(&self.repo_path)
             .output()
-            .map_err(|e| AosError::Other(format!("Failed to run git diff: {}", e)))?;
+            .map_err(|e| AosError::Git(format!("Failed to run git diff: {}", e)))?;
 
         if !output.status.success() {
-            return Err(AosError::Other(format!(
+            return Err(AosError::Git(format!(
                 "Git diff failed: {}",
                 String::from_utf8_lossy(&output.stderr)
             )));
         }
 
         String::from_utf8(output.stdout)
-            .map_err(|e| AosError::Other(format!("Invalid git diff output: {}", e)))
+            .map_err(|e| AosError::Git(format!("Invalid git diff output: {}", e)))
     }
 
     /// Get parent commit SHA
@@ -217,17 +217,17 @@ impl DiffAnalyzer {
             .arg(format!("{}^", commit_sha))
             .current_dir(&self.repo_path)
             .output()
-            .map_err(|e| AosError::Other(format!("Failed to get parent commit: {}", e)))?;
+            .map_err(|e| AosError::Git(format!("Failed to get parent commit: {}", e)))?;
 
         if !output.status.success() {
-            return Err(AosError::Other(format!(
+            return Err(AosError::Git(format!(
                 "Failed to get parent commit: {}",
                 String::from_utf8_lossy(&output.stderr)
             )));
         }
 
         Ok(String::from_utf8(output.stdout)
-            .map_err(|e| AosError::Other(format!("Invalid parent commit output: {}", e)))?
+            .map_err(|e| AosError::Git(format!("Invalid parent commit output: {}", e)))?
             .trim()
             .to_string())
     }
@@ -236,7 +236,7 @@ impl DiffAnalyzer {
     pub fn get_file_content_at_commit(&self, file_path: &Path, commit_sha: &str) -> Result<String> {
         let path_str = file_path
             .to_str()
-            .ok_or_else(|| AosError::Other("Invalid file path".to_string()))?;
+            .ok_or_else(|| AosError::Git("Invalid file path".to_string()))?;
         let git_path = format!("{}:{}", commit_sha, path_str);
 
         let output = Command::new("git")
@@ -244,10 +244,10 @@ impl DiffAnalyzer {
             .arg(git_path)
             .current_dir(&self.repo_path)
             .output()
-            .map_err(|e| AosError::Other(format!("Failed to run git show: {}", e)))?;
+            .map_err(|e| AosError::Git(format!("Failed to run git show: {}", e)))?;
 
         if !output.status.success() {
-            return Err(AosError::Other(format!(
+            return Err(AosError::Git(format!(
                 "Git show failed for {}: {}",
                 path_str,
                 String::from_utf8_lossy(&output.stderr)
@@ -255,7 +255,7 @@ impl DiffAnalyzer {
         }
 
         String::from_utf8(output.stdout)
-            .map_err(|e| AosError::Other(format!("Invalid git show output: {}", e)))
+            .map_err(|e| AosError::Git(format!("Invalid git show output: {}", e)))
     }
 
     /// Parse diff summary from raw diff

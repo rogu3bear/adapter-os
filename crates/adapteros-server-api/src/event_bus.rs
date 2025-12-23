@@ -476,7 +476,7 @@ mod tests {
             }
 
             if self.should_error {
-                return Err(AosError::Other("Test error".to_string()));
+                return Err(AosError::Internal("Test error".to_string()));
             }
 
             Ok(())

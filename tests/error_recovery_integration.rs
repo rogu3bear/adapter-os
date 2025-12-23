@@ -538,7 +538,7 @@ mod error_context_chaining {
     /// Test context display formatting
     #[test]
     fn test_context_display_formatting() {
-        let base_error: Result<()> = Err(AosError::Other("base error".to_string()));
+        let base_error: Result<()> = Err(AosError::Internal("base error".to_string()));
 
         let chained = base_error
             .context("context A")

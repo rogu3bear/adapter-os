@@ -17,7 +17,7 @@ impl TenantIndex {
     /// Create new tenant index
     pub fn new<P: AsRef<Path>>(path: P, embedding_hash: B3Hash) -> Result<Self> {
         std::fs::create_dir_all(path.as_ref())
-            .map_err(|e| AosError::Other(format!("Failed to create index directory: {}", e)))?;
+            .map_err(|e| AosError::Io(format!("Failed to create index directory: {}", e)))?;
 
         Ok(Self {
             _path: path.as_ref().to_path_buf(),
