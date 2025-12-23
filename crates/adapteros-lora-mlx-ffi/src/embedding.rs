@@ -568,7 +568,7 @@ impl MLXEmbeddingModel {
             let data_ptr = mlx_array_data(final_result);
             if data_ptr.is_null() {
                 mlx_array_free(final_result);
-                return Err(AosError::Other("Failed to get result data".to_string()));
+                return Err(AosError::Mlx("Failed to get result data".to_string()));
             }
 
             let result = std::slice::from_raw_parts(data_ptr, size).to_vec();
@@ -851,7 +851,7 @@ impl MLXEmbeddingModel {
                     .to_string_lossy()
                     .to_string()
             };
-            AosError::Other(format!("{}: {}", context, error_str))
+            AosError::Mlx(format!("{}: {}", context, error_str))
         }
     }
 

@@ -198,7 +198,7 @@ async fn fixture_documents_retrieval_and_training() -> Result<()> {
                         .unwrap_or(std::cmp::Ordering::Equal)
                 })
                 .ok_or_else(|| {
-                    AosError::Other("No retrieval available for expected question".to_string())
+                    AosError::Internal("No retrieval available for expected question".to_string())
                 })?;
 
             assert!(
@@ -329,7 +329,7 @@ fn repository_root() -> Result<PathBuf> {
         .parent()
         .and_then(|p| p.parent())
         .map(PathBuf::from)
-        .ok_or_else(|| AosError::Other("Failed to determine repository root".to_string()))
+        .ok_or_else(|| AosError::Internal("Failed to determine repository root".to_string()))
 }
 
 fn assert_documents_equal(

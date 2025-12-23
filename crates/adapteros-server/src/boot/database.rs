@@ -389,6 +389,7 @@ pub async fn initialize_database(
             policies: Default::default(),
             logging: Default::default(),
             otel: Default::default(),
+            invariants: Default::default(),
         };
 
         RuntimeModeResolver::resolve(&api_cfg, &db)

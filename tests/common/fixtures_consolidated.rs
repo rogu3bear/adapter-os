@@ -207,7 +207,7 @@ impl TestAppStateBuilder {
 
         let metrics_exporter = Arc::new(
             adapteros_metrics_exporter::MetricsExporter::new(vec![0.1, 0.5, 1.0]).map_err(|e| {
-                AosError::Other(format!("Failed to create metrics exporter: {}", e))
+                AosError::Internal(format!("Failed to create metrics exporter: {}", e))
             })?,
         );
 
