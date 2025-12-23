@@ -107,7 +107,7 @@ async fn directory_upsert(
     let status = resp.status();
     if !status.is_success() {
         let text = resp.text().await.unwrap_or_default();
-        return Err(adapteros_core::AosError::Other(format!(
+        return Err(adapteros_core::AosError::Http(format!(
             "Upsert failed: {} {}",
             status, text
         )));
@@ -285,7 +285,7 @@ async fn send_adapter_command(
             "unpin" => client.pin_adapter(adapter_id, false).await,
             _ => {
                 error!(command = %command, "Unsupported adapter command");
-                return Err(adapteros_core::AosError::Other(format!(
+                return Err(adapteros_core::AosError::Validation(format!(
                     "Unsupported command: {}",
                     command
                 )));
@@ -1001,7 +1001,7 @@ pub async fn handle_adapter_command(cmd: AdapterCommand, output: &OutputWriter) 
             let tenant_id = tenant.as_deref().unwrap_or("default");
             crate::commands::verify_gpu::run(tenant_id, adapter.as_deref(), &socket, timeout)
                 .await
-                .map_err(|e| adapteros_core::AosError::Other(e.to_string()))
+                .map_err(|e| adapteros_core::AosError::Internal(e.to_string()))
         }
         AdapterCommand::UpdateLifecycle {
             adapter_id,
@@ -1025,16 +1025,16 @@ pub async fn handle_adapter_command(cmd: AdapterCommand, output: &OutputWriter) 
             socket,
         } => crate::commands::adapter_swap::run(&tenant, &add, &remove, timeout, commit, &socket)
             .await
-            .map_err(|e| adapteros_core::AosError::Other(e.to_string())),
+            .map_err(|e| adapteros_core::AosError::Internal(e.to_string())),
         AdapterCommand::Info { adapter_id } => crate::commands::adapter_info::run(&adapter_id)
             .await
-            .map_err(|e| adapteros_core::AosError::Other(e.to_string())),
+            .map_err(|e| adapteros_core::AosError::Internal(e.to_string())),
         AdapterCommand::Inspect { path } => inspect_aos_archive(&path, output),
         AdapterCommand::ListPinned { tenant } => {
             let db = adapteros_db::Db::connect_env().await?;
             crate::commands::pin::list_pinned(&db, &tenant, output)
                 .await
-                .map_err(|e| adapteros_core::AosError::Other(e.to_string()))
+                .map_err(|e| adapteros_core::AosError::Internal(e.to_string()))
         }
         AdapterCommand::Export {
             adapter_id,
@@ -2165,7 +2165,7 @@ async fn register_adapter(
     let status = response.status();
     if !status.is_success() {
         let text = response.text().await.unwrap_or_default();
-        return Err(AosError::Other(format!(
+        return Err(AosError::Http(format!(
             "Registration failed: {} {}",
             status, text
         )));
@@ -2388,7 +2388,7 @@ async fn list_adapter_versions(
     let status = resp.status();
     let text = resp.text().await.unwrap_or_default();
     if !status.is_success() {
-        return Err(AosError::Other(format!(
+        return Err(AosError::Http(format!(
             "Failed to list adapter versions: {} {}",
             status, text
         )));
@@ -2462,7 +2462,7 @@ async fn promote_adapter_version(
     let status = resp.status();
     let text = resp.text().await.unwrap_or_default();
     if !status.is_success() {
-        return Err(AosError::Other(format!(
+        return Err(AosError::Http(format!(
             "Failed to promote version: {} {}",
             status, text
         )));
@@ -2509,7 +2509,7 @@ async fn rollback_adapter_version(
     let status = resp.status();
     let text = resp.text().await.unwrap_or_default();
     if !status.is_success() {
-        return Err(AosError::Other(format!(
+        return Err(AosError::Http(format!(
             "Failed to rollback version: {} {}",
             status, text
         )));

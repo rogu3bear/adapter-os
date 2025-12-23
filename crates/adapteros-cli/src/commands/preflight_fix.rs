@@ -250,7 +250,7 @@ pub fn run_database_migrations(db_path: String) -> FixableIssue {
             let status = Command::new("cargo")
                 .args(["run", "-p", "adapteros-cli", "--", "db", "migrate"])
                 .status()
-                .map_err(|e| AosError::Other(format!("Failed to run migrations: {}", e)))?;
+                .map_err(|e| AosError::Database(format!("Failed to run migrations: {}", e)))?;
 
             if !status.success() {
                 return Err(AosError::Database("Migration failed".to_string()));
@@ -282,10 +282,10 @@ pub fn download_model(model_path: PathBuf) -> FixableIssue {
 
             let status = Command::new(script_path)
                 .status()
-                .map_err(|e| AosError::Other(format!("Failed to run download script: {}", e)))?;
+                .map_err(|e| AosError::Internal(format!("Failed to run download script: {}", e)))?;
 
             if !status.success() {
-                return Err(AosError::Other("Model download failed".to_string()));
+                return Err(AosError::Internal("Model download failed".to_string()));
             }
 
             output.success("   Model downloaded successfully");
@@ -319,10 +319,10 @@ pub fn create_default_tenant() -> FixableIssue {
                     "1000",
                 ])
                 .status()
-                .map_err(|e| AosError::Other(format!("Failed to create tenant: {}", e)))?;
+                .map_err(|e| AosError::Http(format!("Failed to create tenant: {}", e)))?;
 
             if !status.success() {
-                return Err(AosError::Other("Tenant creation failed".to_string()));
+                return Err(AosError::Internal("Tenant creation failed".to_string()));
             }
 
             output.info("   Default tenant created");

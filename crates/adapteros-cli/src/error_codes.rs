@@ -693,7 +693,6 @@ impl From<&adapteros_core::AosError> for ExitCode {
             AosError::ResourceExhaustion(_) => ExitCode::ResourceExhaustion,
             AosError::Unavailable(_) => ExitCode::Unavailable,
             AosError::FeatureDisabled { .. } => ExitCode::FeatureDisabled,
-            AosError::Other(_) => ExitCode::Other,
             AosError::WithContext { source, .. } => ExitCode::from(source.as_ref()),
 
             // Configuration errors (10-19)
