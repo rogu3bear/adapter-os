@@ -445,6 +445,7 @@ pub enum Commands {
     // Telemetry & Verification
     // ============================================================
     /// Validate a trace file for integrity and limits
+    #[cfg(feature = "trace")]
     #[command(after_help = r#"Examples:
   # Strict validation with hash checks
   aosctl trace-validate /path/to/trace.ndjson --verify-hash
@@ -786,6 +787,7 @@ pub enum Commands {
     },
 
     /// Replay a bundle
+    #[cfg(feature = "replay")]
     #[command(after_help = r#"Examples:
   # Replay bundle
   aosctl replay ./var/bundles/bundle_001.zip
@@ -1215,6 +1217,7 @@ pub enum Commands {
     },
 
     /// Export behavior training data from adapter lifecycle events
+    #[cfg(feature = "orchestrator")]
     #[command(after_help = r#"Examples:
   # Export historical events from the last 30 days
   aosctl behavior-export --output behavior.jsonl --since 2025-11-01
@@ -1568,6 +1571,7 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
         }
 
         // Telemetry & Verification
+        #[cfg(feature = "trace")]
         Commands::TraceValidate {
             path,
             strict,
@@ -1714,6 +1718,7 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
             )
             .await?;
         }
+        #[cfg(feature = "replay")]
         Commands::Replay { bundle, verbose } => {
             // Merge command-specific verbose flag with global verbose
             let verbose_mode = *verbose || cli.verbose;
@@ -1856,6 +1861,7 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
             args.execute().await?;
         }
 
+        #[cfg(feature = "orchestrator")]
         Commands::BehaviorExport { args } => {
             args.execute().await?;
         }
@@ -1900,6 +1906,7 @@ fn get_command_name(command: &Commands) -> String {
         Commands::NodeSync { .. } => "node-sync",
         Commands::PlanBuild { .. } => "build-plan",
         Commands::ModelImport { .. } => "import-model",
+        #[cfg(feature = "trace")]
         Commands::TraceValidate { .. } => "trace-validate",
         Commands::DriftCheck { .. } => "drift-check",
         #[cfg(feature = "codegraph")]
@@ -1917,6 +1924,7 @@ fn get_command_name(command: &Commands) -> String {
         Commands::Serve { .. } => "serve",
         Commands::Audit { .. } => "audit",
         Commands::AuditDeterminism { .. } => "audit-determinism",
+        #[cfg(feature = "replay")]
         Commands::Replay { .. } => "replay",
         Commands::Rollback { .. } => "rollback",
         Commands::Baseline(_) => "baseline",
@@ -1939,6 +1947,7 @@ fn get_command_name(command: &Commands) -> String {
         Commands::TrainBaseAdapter { .. } => "train-base-adapter",
         Commands::IngestDocs { .. } => "ingest-docs",
         Commands::TrainDocs { .. } => "train-docs",
+        #[cfg(feature = "orchestrator")]
         Commands::BehaviorExport { .. } => "behavior-export",
         Commands::CodeInit { .. } => "code-init",
         Commands::CodeUpdate { .. } => "code-update",
