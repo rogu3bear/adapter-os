@@ -1226,6 +1226,10 @@ pub async fn login_handler(
         .unwrap_or_else(Utc::now)
         .to_rfc3339();
 
+    // Session expiry uses the longer session TTL
+    let session_expires_at =
+        (Utc::now() + Duration::seconds(auth_cfg.effective_ttl() as i64)).to_rfc3339();
+
     // Decode to get jti and exp
     let claims = if state.use_ed25519 {
         crate::auth::validate_token_ed25519(
@@ -1259,6 +1263,7 @@ pub async fn login_handler(
         device_id.as_deref(),
         Some(&rot_id),
         Some(&refresh_hash),
+        &session_expires_at,
         &refresh_expires_at,
         Some(&client_ip.0),
         user_agent.as_deref(),
@@ -2179,6 +2184,10 @@ pub async fn refresh_token_handler(
         .unwrap_or_else(Utc::now)
         .to_rfc3339();
 
+    // Session expiry uses the longer session TTL
+    let session_expires_at =
+        (Utc::now() + Duration::seconds(auth_cfg.effective_ttl() as i64)).to_rfc3339();
+
     // Persist rotation
     upsert_user_session(
         &state.db,
@@ -2188,6 +2197,7 @@ pub async fn refresh_token_handler(
         device_id.as_deref(),
         Some(&new_rot_id),
         Some(&new_refresh_hash),
+        &session_expires_at,
         &refresh_expires_at,
         None,
         user_agent.as_deref(),
@@ -2627,7 +2637,7 @@ pub async fn switch_tenant_handler(
         )
     })?;
 
-    let expires_at = Utc::now() + Duration::seconds(auth_cfg.access_ttl() as i64);
+    let expires_at = Utc::now() + Duration::seconds(auth_cfg.effective_ttl() as i64);
     if let Err(e) = create_session(
         &state.db,
         &access_claims.jti,
@@ -3194,6 +3204,7 @@ pub async fn dev_bypass_handler(
         None,
         Some(&rot_id),
         Some(&refresh_hash),
+        &session_expires_at.to_rfc3339(),
         &refresh_expires_at.to_rfc3339(),
         Some(&client_ip.0),
         user_agent.as_deref(),
