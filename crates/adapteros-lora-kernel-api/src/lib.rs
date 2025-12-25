@@ -241,29 +241,30 @@ impl IoBuffers {
 /// - `AosError::ResourceExhaustion`: Memory or resource limits
 ///
 /// ## Usage Example
-/// ```rust
+/// ```rust,ignore
 /// use adapteros_lora_kernel_api::{FusedKernels, RouterRing, IoBuffers};
+/// use adapteros_core::Result;
 ///
-/// # async fn example(backend: &mut impl FusedKernels) -> Result<()> {
-/// // Load model plan and weights
-/// let plan_bytes = load_plan_from_file("model.aos")?;
-/// backend.load(&plan_bytes)?;
+/// async fn example(backend: &mut impl FusedKernels) -> Result<()> {
+///     // Load model plan and weights
+///     let plan_bytes = load_plan_from_file("model.aos")?;
+///     backend.load(&plan_bytes)?;
 ///
-/// // Prepare router decision
-/// let mut ring = RouterRing::new(4);
-/// ring.set(&[0, 2, 5, 7], &[1000, 2000, 1500, 800])?;
+///     // Prepare router decision
+///     let mut ring = RouterRing::new(4);
+///     ring.set(&[0, 2, 5, 7], &[1000, 2000, 1500, 800])?;
 ///
-/// // Prepare IO buffers
-/// let mut io = IoBuffers::new(1); // batch size 1
-/// io.input_ids = vec![15043, 995, 1234]; // "Hello world" tokens
+///     // Prepare IO buffers
+///     let mut io = IoBuffers::new(1); // batch size 1
+///     io.input_ids = vec![15043, 995, 1234]; // "Hello world" tokens
 ///
-/// // Run inference step
-/// backend.run_step(&ring, &mut io)?;
+///     // Run inference step
+///     backend.run_step(&ring, &mut io)?;
 ///
-/// // Results available in io.output_logits
-/// assert!(!io.output_logits.is_empty());
-/// # Ok(())
-/// # }
+///     // Results available in io.output_logits
+///     assert!(!io.output_logits.is_empty());
+///     Ok(())
+/// }
 /// ```
 ///
 /// [source: crates/adapteros-lora-kernel-api/src/lib.rs L198-244]
@@ -484,6 +485,94 @@ pub trait FusedKernels: Send + Sync {
     fn get_gpu_fingerprints(&self) -> std::collections::HashMap<u32, GpuBufferFingerprint> {
         std::collections::HashMap::new()
     }
+
+    // =========================================================================
+    // TEXT GENERATION METHODS (for backends that bypass run_step)
+    // =========================================================================
+
+    /// Check if this backend supports direct text generation
+    ///
+    /// Backends that support text generation (like MLXSubprocessBridge) return true.
+    /// These backends bypass the token-by-token `run_step()` loop and instead
+    /// generate text in bulk via `generate_text_full()`.
+    ///
+    /// Default implementation returns false - most backends use run_step().
+    #[deprecated(
+        since = "0.1.0",
+        note = "use `supports_streaming_text_generation` instead"
+    )]
+    fn supports_text_generation(&self) -> bool {
+        false
+    }
+
+    /// Generate text from a prompt (non-streaming)
+    ///
+    /// For backends that support bulk text generation (where `supports_text_generation()`
+    /// returns true), this method generates text directly without using `run_step()`.
+    ///
+    /// # Arguments
+    /// * `prompt` - Input text/prompt to continue from
+    /// * `max_tokens` - Maximum tokens to generate
+    /// * `temperature` - Sampling temperature (0.0-2.0, typically 0.7)
+    /// * `top_p` - Nucleus sampling parameter (0.0-1.0, typically 0.9)
+    ///
+    /// # Returns
+    /// * `TextGenerationResult` with full text, token count, and stats
+    ///
+    /// # Errors
+    /// Default implementation returns error - only text-generation backends implement this.
+    #[deprecated(since = "0.1.0", note = "use `generate_text_complete` instead")]
+    fn generate_text_full(
+        &self,
+        _prompt: &str,
+        _max_tokens: usize,
+        _temperature: f32,
+        _top_p: f32,
+    ) -> Result<TextGenerationResult> {
+        Err(adapteros_core::AosError::Kernel(
+            "Text generation not supported by this backend - use run_step() instead".to_string(),
+        ))
+    }
+
+    /// Check if this backend supports streaming text generation
+    ///
+    /// Backends that support text generation (like MLXSubprocessBridge) return true.
+    /// These backends bypass the token-by-token `run_step()` loop and instead
+    /// generate text via `generate_text_complete()`.
+    ///
+    /// Default implementation forwards to the deprecated `supports_text_generation()`.
+    #[allow(deprecated)]
+    fn supports_streaming_text_generation(&self) -> bool {
+        self.supports_text_generation()
+    }
+
+    /// Generate text from a prompt (blocking, returns complete result)
+    ///
+    /// For backends that support bulk text generation (where
+    /// `supports_streaming_text_generation()` returns true), this method generates
+    /// text directly without using `run_step()`.
+    ///
+    /// # Arguments
+    /// * `prompt` - Input text/prompt to continue from
+    /// * `max_tokens` - Maximum tokens to generate
+    /// * `temperature` - Sampling temperature (0.0-2.0, typically 0.7)
+    /// * `top_p` - Nucleus sampling parameter (0.0-1.0, typically 0.9)
+    ///
+    /// # Returns
+    /// * `TextGenerationResult` with full text, token count, and stats
+    ///
+    /// # Errors
+    /// Default implementation forwards to the deprecated `generate_text_full()`.
+    #[allow(deprecated)]
+    fn generate_text_complete(
+        &self,
+        prompt: &str,
+        max_tokens: usize,
+        temperature: f32,
+        top_p: f32,
+    ) -> Result<TextGenerationResult> {
+        self.generate_text_full(prompt, max_tokens, temperature, top_p)
+    }
 }
 
 /// GPU buffer fingerprint for cross-layer integrity verification
@@ -674,6 +763,36 @@ macro_rules! impl_fused_kernels_for_box {
             fn get_gpu_fingerprints(&self) -> std::collections::HashMap<u32, GpuBufferFingerprint> {
                 (**self).get_gpu_fingerprints()
             }
+
+            #[allow(deprecated)]
+            fn supports_text_generation(&self) -> bool {
+                (**self).supports_text_generation()
+            }
+
+            fn supports_streaming_text_generation(&self) -> bool {
+                (**self).supports_streaming_text_generation()
+            }
+
+            #[allow(deprecated)]
+            fn generate_text_full(
+                &self,
+                prompt: &str,
+                max_tokens: usize,
+                temperature: f32,
+                top_p: f32,
+            ) -> Result<TextGenerationResult> {
+                (**self).generate_text_full(prompt, max_tokens, temperature, top_p)
+            }
+
+            fn generate_text_complete(
+                &self,
+                prompt: &str,
+                max_tokens: usize,
+                temperature: f32,
+                top_p: f32,
+            ) -> Result<TextGenerationResult> {
+                (**self).generate_text_complete(prompt, max_tokens, temperature, top_p)
+            }
         }
     };
 }
@@ -720,6 +839,124 @@ impl Default for MploraConfig {
             penalty_weight: 0.1,
             history_window: 10,
         }
+    }
+}
+
+// ============================================================================
+// Text Generation Kernel (for backends without logits support)
+// ============================================================================
+
+/// Result of a text generation request
+#[derive(Debug, Clone)]
+pub struct TextGenerationResult {
+    /// Complete generated text
+    pub text: String,
+    /// Number of tokens generated
+    pub tokens_generated: usize,
+    /// Reason generation stopped (e.g., "stop", "length", "max_tokens")
+    pub finish_reason: String,
+    /// Optional token usage statistics (prompt_tokens, completion_tokens, total)
+    pub usage_stats: Option<TextGenerationUsage>,
+    /// Optional timing statistics (TTFT, total latency, tokens/sec)
+    pub timing_stats: Option<TextGenerationTiming>,
+}
+
+/// Usage statistics for text generation
+#[derive(Debug, Clone, Default)]
+pub struct TextGenerationUsage {
+    pub prompt_tokens: usize,
+    pub completion_tokens: usize,
+    pub total_tokens: usize,
+}
+
+/// Timing statistics for text generation
+#[derive(Debug, Clone, Default)]
+pub struct TextGenerationTiming {
+    /// Time to first token in milliseconds
+    pub ttft_ms: f64,
+    /// Total generation time in milliseconds
+    pub total_ms: f64,
+    /// Throughput in tokens per second
+    pub tokens_per_second: f64,
+}
+
+/// A token yielded during streaming generation
+#[derive(Debug, Clone)]
+pub struct TextToken {
+    /// Token text/string
+    pub text: String,
+    /// Optional token ID from vocabulary
+    pub token_id: Option<usize>,
+    /// Token index in the generated sequence
+    pub index: usize,
+}
+
+/// Trait for text generation backends that don't support token-by-token logits inference.
+///
+/// Some backends (like MLXSubprocessBridge using Python mlx-lm) can only perform bulk text
+/// generation, not single-token inference with logits output. This trait provides an
+/// alternative interface for such backends.
+///
+/// ## Design Rationale
+///
+/// The FusedKernels trait requires logits output for router-driven inference:
+/// ```ignore
+/// fn run_step(&mut self, ring: &RouterRing, io: &mut IoBuffers) -> Result<()>
+/// // Must fill: io.output_logits: Vec<f32> (vocab-sized probability distribution)
+/// ```
+///
+/// However, Python mlx-lm only exposes:
+/// - Text generation (returns text string)
+/// - Streaming generation (returns tokens as they're generated)
+/// - NOT raw logits or log-probabilities
+///
+/// This trait allows backends to declare "I do text generation, not token-by-token inference"
+/// and provides methods for the worker to use them in text generation workflows.
+///
+/// ## Implementation Strategy
+///
+/// Backends that implement TextGenerationKernel:
+/// 1. Declare they don't support FusedKernels::run_step() (return error)
+/// 2. Implement generate_text_full() for bulk generation
+/// 3. Report text generation capability via supports_text_generation()
+pub trait TextGenerationKernel: Send + Sync {
+    /// Check if this backend supports text generation
+    ///
+    /// Returns true if the backend can perform text generation via
+    /// generate_text_full().
+    fn supports_text_generation(&self) -> bool {
+        false
+    }
+
+    /// Generate text from a prompt (non-streaming)
+    ///
+    /// Performs bulk text generation and returns the complete result
+    /// including usage statistics and timing information.
+    ///
+    /// # Arguments
+    /// * `prompt` - Input text/prompt to continue from
+    /// * `max_tokens` - Maximum tokens to generate
+    /// * `temperature` - Sampling temperature (0.0-2.0, typically 0.7)
+    /// * `top_p` - Nucleus sampling parameter (0.0-1.0, typically 0.9)
+    ///
+    /// # Returns
+    /// * TextGenerationResult with full text, token count, and stats
+    fn generate_text_full(
+        &self,
+        prompt: &str,
+        max_tokens: usize,
+        temperature: f32,
+        top_p: f32,
+    ) -> Result<TextGenerationResult> {
+        let _ = (prompt, max_tokens, temperature, top_p);
+        Err(adapteros_core::AosError::Kernel(
+            "Text generation not supported by this backend".to_string(),
+        ))
+    }
+
+    /// Get the backend name for debugging/logging
+    fn text_generation_backend_name(&self) -> &str {
+        "Unknown"
     }
 }
 

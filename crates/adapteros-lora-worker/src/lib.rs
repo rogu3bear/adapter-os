@@ -80,7 +80,6 @@ use base64::Engine;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::watch;
@@ -118,6 +117,12 @@ pub mod limiter;
 pub mod linter_runner;
 pub mod llm_backend;
 pub mod memory;
+#[cfg(feature = "mlx-bridge")]
+pub mod mlx_subprocess_bridge;
+#[cfg(feature = "mlx-bridge")]
+pub mod moe_prefix_cache;
+#[cfg(feature = "mlx-bridge")]
+pub mod moe_types;
 pub mod metrics;
 pub mod model_handle_cache;
 pub mod model_key;
@@ -142,6 +147,18 @@ pub mod training;
 pub mod uds_server;
 pub mod vision_adapter;
 pub mod vision_lora;
+
+// Refactored modules - extracted from lib.rs
+pub mod adapter_operations;
+pub mod determinism;
+pub mod kernel_wrapper;
+pub mod patch_generation;
+pub mod placement_engine;
+pub mod request_types;
+pub mod response_types;
+pub mod routing_utilities;
+pub mod training_management;
+pub mod worker_utilities;
 
 pub use adapter_hotswap::{
     AdapterCacheIdentity, AdapterCommand, AdapterCommandResult, AdapterTable, GpuFingerprint,
@@ -187,6 +204,10 @@ pub use linter_runner::{
 };
 pub use llm_backend::{create_llm_backend, LlmBackendType, LocalLlmBackend, LocalLlmConfig};
 pub use memory::UmaPressureMonitor as MemoryMonitor;
+#[cfg(feature = "mlx-bridge")]
+pub use mlx_subprocess_bridge::{GenerationResult, MlxBridgeConfig, MLXSubprocessBridge};
+#[cfg(feature = "mlx-bridge")]
+pub use moe_types::{ExpertId, ExpertRouting, LayerIdx, SequenceExpertRouting};
 pub use model_handle_cache::{
     CacheStats, CachedModelEntry, ModelHandle, ModelHandleCache, DEFAULT_MAX_PINNED_ENTRIES,
 };
@@ -642,6 +663,9 @@ pub struct InferenceRequest {
     /// Request-scoped seed provided by control plane (32 bytes)
     #[serde(default)]
     pub request_seed: Option<[u8; 32]>,
+    /// Canonical determinism context supplied by control plane (optional)
+    #[serde(default)]
+    pub determinism: Option<DeterminismContext>,
     /// Fusion interval policy for aligning router gates with fused weights
     #[serde(default)]
     pub fusion_interval: Option<FusionInterval>,
@@ -963,362 +987,14 @@ pub struct EvidenceRef {
     pub score: f32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RouterSummary {
-    pub adapters_used: Vec<String>,
-    pub avg_activations: Vec<f32>,
-}
+// Re-export RouterSummary and summarize_router_usage from refactored modules
+pub use response_types::RouterSummary;
+pub use routing_utilities::summarize_router_usage;
+// Import internal fusion helpers for use in lib.rs
+use routing_utilities::fusion_intervals_for_mode;
 
-/// Summarize router usage for telemetry and replay.
-///
-/// Base-only requests produce empty adapter usage to make it explicit that the
-/// base model handled the request without any adapter contribution.
-pub fn summarize_router_usage(
-    base_only_request: bool,
-    active_ids: &[String],
-    k_sparse: usize,
-    router_decisions: Option<&[adapteros_api_types::inference::RouterDecision]>,
-) -> RouterSummary {
-    if base_only_request {
-        return RouterSummary {
-            adapters_used: Vec::new(),
-            avg_activations: Vec::new(),
-        };
-    }
-
-    if let Some(decisions) = router_decisions {
-        let mut used: Vec<String> = decisions
-            .iter()
-            .flat_map(|d| d.candidate_adapters.iter())
-            .filter_map(|c| active_ids.get(c.adapter_idx as usize))
-            .cloned()
-            .collect();
-        used.sort();
-        used.dedup();
-        if !used.is_empty() {
-            let take = used.len().min(k_sparse);
-            return RouterSummary {
-                adapters_used: used.into_iter().take(take).collect(),
-                avg_activations: vec![0.33; take],
-            };
-        }
-    }
-
-    let adapters_used: Vec<String> = active_ids.iter().take(k_sparse).cloned().collect();
-    let activation_len = adapters_used.len();
-    RouterSummary {
-        adapters_used,
-        avg_activations: if activation_len == 0 {
-            Vec::new()
-        } else {
-            vec![0.33; activation_len]
-        },
-    }
-}
-
-#[derive(Serialize)]
-struct FusionCandidateMaterial {
-    adapter_idx: u16,
-    raw_score: f32,
-    gate_q15: i16,
-}
-
-#[derive(Serialize)]
-struct FusionDecisionMaterial {
-    step: usize,
-    input_token_id: Option<u32>,
-    candidate_adapters: Vec<FusionCandidateMaterial>,
-    entropy: f32,
-    tau: f32,
-    entropy_floor: f32,
-    stack_hash: Option<String>,
-    policy_mask_digest: Option<B3Hash>,
-    policy_overrides_applied: Option<adapteros_api_types::inference::PolicyOverrideFlags>,
-    interval_id: Option<String>,
-}
-
-#[derive(Serialize)]
-struct FusionIntervalMaterial {
-    base_model_hash: B3Hash,
-    interval_id: String,
-    decisions: Vec<FusionDecisionMaterial>,
-}
-
-fn fused_hash_for_interval(
-    base_model_hash: &B3Hash,
-    interval_id: &str,
-    decisions: &[adapteros_api_types::inference::RouterDecision],
-) -> B3Hash {
-    let material = FusionIntervalMaterial {
-        base_model_hash: *base_model_hash,
-        interval_id: interval_id.to_string(),
-        decisions: decisions
-            .iter()
-            .map(|decision| FusionDecisionMaterial {
-                step: decision.step,
-                input_token_id: decision.input_token_id,
-                candidate_adapters: decision
-                    .candidate_adapters
-                    .iter()
-                    .map(|c| FusionCandidateMaterial {
-                        adapter_idx: c.adapter_idx,
-                        raw_score: c.raw_score,
-                        gate_q15: c.gate_q15,
-                    })
-                    .collect(),
-                entropy: decision.entropy,
-                tau: decision.tau,
-                entropy_floor: decision.entropy_floor,
-                stack_hash: decision.stack_hash.clone(),
-                policy_mask_digest: decision.policy_mask_digest,
-                policy_overrides_applied: decision.policy_overrides_applied.clone(),
-                interval_id: decision.interval_id.clone(),
-            })
-            .collect(),
-    };
-
-    // Canonical JSON ensures platform-stable byte layout for replay hashing.
-    let canonical_bytes =
-        serde_jcs::to_vec(&material).expect("fusion interval hash serialization must succeed");
-    B3Hash::hash(&canonical_bytes)
-}
-
-fn fusion_intervals_for_mode(
-    mode: FusionInterval,
-    router_decisions: Option<&[adapteros_api_types::inference::RouterDecision]>,
-    base_model_hash: &B3Hash,
-) -> Option<Vec<FusionIntervalTrace>> {
-    let decisions = router_decisions?;
-    if decisions.is_empty() {
-        return None;
-    }
-
-    let mut intervals = Vec::new();
-    let mut start_idx = 0usize;
-    let mut current_interval = decisions[0]
-        .interval_id
-        .clone()
-        .unwrap_or_else(|| mode.interval_id_for_step(decisions[0].step));
-
-    let mut push_bucket =
-        |interval_id: &str, bucket: &[adapteros_api_types::inference::RouterDecision]| {
-            if bucket.is_empty() {
-                return;
-            }
-            let hash = fused_hash_for_interval(base_model_hash, interval_id, bucket);
-            let start = bucket.first().map(|d| d.step).unwrap_or(0);
-            let end = bucket.last().map(|d| d.step).unwrap_or(start);
-            intervals.push(FusionIntervalTrace {
-                interval_id: interval_id.to_string(),
-                start_token: start,
-                end_token: end,
-                fused_weight_hash: hash,
-            });
-        };
-
-    for (idx, decision) in decisions.iter().enumerate().skip(1) {
-        let interval_id = decision
-            .interval_id
-            .clone()
-            .unwrap_or_else(|| mode.interval_id_for_step(decision.step));
-
-        if interval_id != current_interval {
-            push_bucket(&current_interval, &decisions[start_idx..idx]);
-            start_idx = idx;
-            current_interval = interval_id;
-        }
-    }
-
-    push_bucket(&current_interval, &decisions[start_idx..]);
-
-    Some(intervals)
-}
-
-#[cfg(test)]
-mod fusion_interval_tests {
-    use super::*;
-    use adapteros_api_types::inference::{RouterCandidate, RouterDecision};
-
-    fn sample_decisions() -> Vec<RouterDecision> {
-        vec![
-            RouterDecision {
-                step: 0,
-                input_token_id: Some(1),
-                candidate_adapters: vec![
-                    RouterCandidate {
-                        adapter_idx: 0,
-                        raw_score: 0.8,
-                        gate_q15: 20000,
-                    },
-                    RouterCandidate {
-                        adapter_idx: 1,
-                        raw_score: 0.2,
-                        gate_q15: 5000,
-                    },
-                ],
-                entropy: 0.4,
-                tau: 1.0,
-                entropy_floor: 0.1,
-                allowed_mask: None,
-                stack_hash: Some("stack-a".to_string()),
-                policy_mask_digest: None,
-                policy_overrides_applied: None,
-                interval_id: None,
-            },
-            RouterDecision {
-                step: 1,
-                input_token_id: Some(2),
-                candidate_adapters: vec![RouterCandidate {
-                    adapter_idx: 0,
-                    raw_score: 0.5,
-                    gate_q15: 15000,
-                }],
-                entropy: 0.5,
-                tau: 1.0,
-                entropy_floor: 0.1,
-                allowed_mask: None,
-                stack_hash: Some("stack-a".to_string()),
-                policy_mask_digest: None,
-                policy_overrides_applied: None,
-                interval_id: None,
-            },
-        ]
-    }
-
-    #[test]
-    fn per_request_creates_single_interval() {
-        let base = B3Hash::hash(b"base");
-        let decisions = sample_decisions();
-        let intervals = fusion_intervals_for_mode(
-            FusionInterval::PerRequest,
-            Some(decisions.as_slice()),
-            &base,
-        )
-        .expect("intervals exist");
-
-        assert_eq!(intervals.len(), 1);
-        assert_eq!(intervals[0].interval_id, "request-0");
-        assert_eq!(intervals[0].start_token, 0);
-        assert_eq!(intervals[0].end_token, 1);
-    }
-
-    #[test]
-    fn per_token_creates_interval_per_step() {
-        let base = B3Hash::hash(b"base");
-        let decisions = sample_decisions();
-        let intervals =
-            fusion_intervals_for_mode(FusionInterval::PerToken, Some(decisions.as_slice()), &base)
-                .expect("intervals exist");
-
-        assert_eq!(intervals.len(), decisions.len());
-        assert_eq!(intervals[0].interval_id, "token-0");
-        assert_eq!(intervals[1].interval_id, "token-1");
-    }
-
-    #[test]
-    fn fused_hash_is_stable_for_same_inputs() {
-        let base = B3Hash::hash(b"base");
-        let decisions = sample_decisions();
-        let first = fusion_intervals_for_mode(
-            FusionInterval::PerRequest,
-            Some(decisions.as_slice()),
-            &base,
-        )
-        .expect("intervals");
-        let second = fusion_intervals_for_mode(
-            FusionInterval::PerRequest,
-            Some(decisions.as_slice()),
-            &base,
-        )
-        .expect("intervals");
-
-        assert_eq!(
-            first[0].fused_weight_hash, second[0].fused_weight_hash,
-            "same inputs must produce identical fused hash"
-        );
-    }
-
-    #[test]
-    fn provided_interval_ids_are_honored() {
-        let base = B3Hash::hash(b"base");
-        let mut decisions = sample_decisions();
-        decisions
-            .iter_mut()
-            .for_each(|d| d.interval_id = Some("segment-0".to_string()));
-
-        let intervals =
-            fusion_intervals_for_mode(FusionInterval::PerToken, Some(decisions.as_slice()), &base)
-                .expect("intervals");
-
-        assert_eq!(intervals.len(), 1, "custom interval ids control grouping");
-        assert_eq!(intervals[0].interval_id, "segment-0");
-        assert_eq!(intervals[0].start_token, 0);
-        assert_eq!(intervals[0].end_token, 1);
-    }
-}
-
-#[cfg(test)]
-mod router_summary_tests {
-    use super::summarize_router_usage;
-    use adapteros_api_types::inference::{RouterCandidate, RouterDecision};
-
-    #[test]
-    fn base_only_summary_is_empty() {
-        let empty_decisions: Vec<RouterDecision> = Vec::new();
-        let summary = summarize_router_usage(true, &[], 2, Some(empty_decisions.as_slice()));
-        assert!(summary.adapters_used.is_empty());
-        assert!(summary.avg_activations.is_empty());
-    }
-
-    #[test]
-    fn summarize_uses_active_ids_when_present() {
-        let decisions = vec![RouterDecision {
-            step: 0,
-            input_token_id: None,
-            candidate_adapters: vec![RouterCandidate {
-                adapter_idx: 1,
-                raw_score: 0.2,
-                gate_q15: 1000,
-            }],
-            entropy: 0.0,
-            tau: 0.0,
-            entropy_floor: 0.0,
-            stack_hash: None,
-            interval_id: None,
-            allowed_mask: None,
-            policy_mask_digest: None,
-            policy_overrides_applied: None,
-        }];
-        let active_ids = vec!["adapter-a".to_string(), "adapter-b".to_string()];
-        let summary = summarize_router_usage(false, &active_ids, 2, Some(decisions.as_slice()));
-        assert_eq!(summary.adapters_used, vec!["adapter-b".to_string()]);
-        assert_eq!(summary.avg_activations.len(), 1);
-    }
-}
-
-/// Request to cancel a training job
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CancelTrainingRequest {
-    /// ID of the training job to cancel
-    pub job_id: String,
-    /// Optional reason for cancellation
-    pub reason: Option<String>,
-}
-
-/// Response from training job cancellation
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CancelTrainingResponse {
-    /// ID of the job that was cancelled
-    pub job_id: String,
-    /// Status: "cancelled", "not_found", "already_complete", "not_running"
-    pub status: String,
-    /// Number of tokens processed before cancellation (if available)
-    pub tokens_processed: Option<u64>,
-    /// Final loss value at cancellation (if available)
-    pub final_loss: Option<f32>,
-    /// Epoch at which training was stopped
-    pub stopped_at_epoch: Option<u32>,
-}
+// Re-export training request/response types from refactored modules
+pub use request_types::{CancelTrainingRequest, CancelTrainingResponse};
 
 struct PlacementState {
     engine: PlacementEngine,
@@ -1974,7 +1650,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         let backend_type = match backend {
             BackendKind::CoreML => BackendType::CoreML,
             BackendKind::Metal => BackendType::Metal,
-            BackendKind::Mlx => BackendType::Mlx,
+            BackendKind::Mlx | BackendKind::MlxBridge => BackendType::MLX,
             BackendKind::CPU | BackendKind::Auto => BackendType::Mock, // Fallback for non-accelerated
         };
 
@@ -2596,6 +2272,115 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         let mut stop_reason_code = None;
         let mut stop_reason_token_index = None;
 
+        // ============================================================================
+        // TEXT GENERATION BACKEND DETECTION
+        // ============================================================================
+        // Some backends (e.g., MLXSubprocessBridge) only support bulk text generation,
+        // not token-by-token inference with logits. Detect and handle them via the
+        // FusedKernels::supports_streaming_text_generation() method.
+
+        let (backend_supports_text_generation, device_name) = {
+            let kernels = self.kernels.lock().await;
+            (kernels.supports_streaming_text_generation(), kernels.device_name().to_string())
+        };
+
+        if backend_supports_text_generation {
+            info!(
+                device = %device_name,
+                "Text-generation backend detected, using generate_text_complete() path"
+            );
+
+            // For text-generation backends, we bypass the router-driven token loop
+            // and use bulk generation instead. The backend doesn't support run_step()
+            // with logits output, only full text generation.
+
+            // Call generate_text_complete() directly via FusedKernels trait
+            let generation_result: adapteros_lora_kernel_api::TextGenerationResult = {
+                let kernels = self.kernels.lock().await;
+                let temperature = request.temperature.unwrap_or(0.7);
+                let top_p = request.top_p.unwrap_or(0.9);
+
+                kernels.generate_text_complete(
+                    &request.prompt,
+                    request.max_tokens,
+                    temperature,
+                    top_p,
+                )?
+            };
+
+            // Build simplified response for text-generation mode
+            let (backend_used, fallback_triggered) = {
+                let kernels = self.kernels.lock().await;
+                (
+                    kernels
+                        .last_backend_used()
+                        .unwrap_or_else(|| kernels.device_name().to_string()),
+                    kernels.fallback_triggered(),
+                )
+            };
+            let backend_version = adapteros_core::version::VERSION.to_string();
+            let (coreml_runtime, fallback_backend) =
+                self.runtime_metadata_for_response(fallback_triggered);
+
+            // Build simplified trace (no router decisions for text-gen mode)
+            let trace = self.build_trace(
+                &request.cpid,
+                &evidence,
+                generation_result.tokens_generated,
+                None, // No router decisions for text-gen
+                None, // No router decision chain
+                fusion_interval,
+                &active_ids,
+                base_only_request,
+            );
+
+            info!(
+                tokens = generation_result.tokens_generated,
+                finish_reason = %generation_result.finish_reason,
+                "Text generation completed"
+            );
+
+            return Ok(InferenceResponse {
+                text: Some(generation_result.text),
+                status: "ok".to_string(),
+                trace,
+                run_receipt: None,
+                refusal: None,
+                patch_proposal: None,
+                stack_id: request.stack_id.clone(),
+                stack_version: request.stack_version,
+                backend_used: Some(backend_used),
+                backend_version: Some(backend_version),
+                fallback_triggered,
+                coreml_compute_preference: coreml_runtime
+                    .as_ref()
+                    .and_then(|r| r.compute_preference.clone()),
+                coreml_compute_units: coreml_runtime
+                    .as_ref()
+                    .and_then(|r| r.compute_units.clone()),
+                coreml_gpu_used: coreml_runtime.as_ref().and_then(|r| r.gpu_used),
+                coreml_package_hash: self.coreml_package_hash.clone(),
+                coreml_expected_package_hash: self
+                    .coreml_verification
+                    .as_ref()
+                    .and_then(|v| v.expected.clone()),
+                coreml_hash_mismatch: self.coreml_verification.as_ref().map(|v| v.mismatch),
+                fallback_backend,
+                determinism_mode_applied: Some(request.determinism_mode.clone()),
+                unavailable_pinned_adapters,
+                pinned_routing_fallback,
+                placement_trace: None, // No placement for text-gen mode
+                stop_reason_code: None, // Text-gen backends handle stop internally
+                stop_reason_token_index: Some(generation_result.tokens_generated as u32),
+                stop_policy_digest_b3: Some(stop_policy_digest.to_hex()),
+                error_details: None,
+            });
+        }
+
+        // ============================================================================
+        // STANDARD TOKEN-BY-TOKEN GENERATION LOOP (for FusedKernels backends)
+        // ============================================================================
+
         // Autoregressive generation loop
         for step in 0..request.max_tokens {
             // Prepare input for this step
@@ -2632,14 +2417,8 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 determinism_ctx.as_ref(),
             )?;
 
-            let mut decision =
-                self.apply_routing_policy_to_decision(decision, request.routing_policy.as_ref())?;
-
-            if base_only_request {
-                decision.indices.clear();
-                decision.candidates.clear();
-                decision.gates_q15.clear();
-            }
+            let decision =
+                self.apply_routing_policy_to_decision(decision, request.routing_policy.as_ref(), base_only_request)?;
 
             // Collect router decision for control plane transmission
             let input_token_id = if step == 0 {
@@ -3095,943 +2874,13 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         })
     }
 
-    /// Validate and derive the allowed adapter indices for this request.
-    ///
-    /// - If no effective_adapter_ids provided, allow all (backward compatibility)
-    /// - All effective_adapter_ids must exist in the manifest
-    /// - Pinned adapters must be in both the manifest and the effective set
-    fn validate_effective_adapter_gate(
-        &self,
-        request: &InferenceRequest,
-    ) -> Result<Option<HashSet<usize>>> {
-        let manifest_ids: Vec<&str> = self
-            .manifest
-            .adapters
-            .iter()
-            .map(|a| a.id.as_str())
-            .collect();
-
-        let Some(effective_ids) = request.effective_adapter_ids.as_ref() else {
-            return Ok(None);
-        };
-
-        if effective_ids.is_empty() {
-            return Ok(Some(HashSet::new()));
-        }
-
-        let mut allowed_indices = HashSet::new();
-
-        for effective_id in effective_ids {
-            let Some(idx) = manifest_ids
-                .iter()
-                .position(|id| id == &effective_id.as_str())
-            else {
-                return Err(AosError::AdapterNotInManifest {
-                    adapter_id: effective_id.clone(),
-                    available: manifest_ids.iter().map(|s| s.to_string()).collect(),
-                });
-            };
-            allowed_indices.insert(idx);
-        }
-
-        if let Some(pinned_ids) = request.pinned_adapter_ids.as_ref() {
-            for pinned in pinned_ids {
-                let Some(idx) = manifest_ids.iter().position(|id| id == &pinned.as_str()) else {
-                    return Err(AosError::AdapterNotInManifest {
-                        adapter_id: pinned.clone(),
-                        available: manifest_ids.iter().map(|s| s.to_string()).collect(),
-                    });
-                };
-                if !allowed_indices.contains(&idx) {
-                    return Err(AosError::AdapterNotInEffectiveSet {
-                        adapter_id: pinned.clone(),
-                        effective_set: effective_ids.clone(),
-                    });
-                }
-            }
-        }
-
-        Ok(Some(allowed_indices))
-    }
-
-    /// Apply routing policy filters to a router Decision deterministically.
-    ///
-    /// - Preserves original decision order; only drops entries.
-    /// - Does not renormalize gates to keep kernel inputs deterministic.
-    /// - If all candidates are removed, returns a policy violation error.
-    fn apply_routing_policy_to_decision(
-        &self,
-        decision: adapteros_lora_router::Decision,
-        policy: Option<&adapteros_api_types::RoutingPolicy>,
-    ) -> Result<adapteros_lora_router::Decision> {
-        let adapter_ids: Vec<String> = self
-            .manifest
-            .adapters
-            .iter()
-            .map(|a| a.id.clone())
-            .collect();
-
-        filter_decision_by_policy(decision, &adapter_ids, policy)
-    }
-
-    /// Generate patch proposal with evidence retrieval
-    pub async fn propose_patch(
-        &mut self,
-        request: InferenceRequest,
-        patch_request: &PatchProposalRequest,
-    ) -> Result<InferenceResponse> {
-        use crate::evidence::EvidenceRequest;
-        use crate::patch_generator::{MockLlmBackend, PatchGenerationRequest, PatchGenerator};
-        use crate::patch_telemetry::{
-            EvidenceMetrics, PatchGenerationMetrics, PatchTelemetry, ValidationMetrics,
-        };
-        use crate::patch_validator::{CodePolicy, PatchValidator};
-
-        info!(
-            "Generating patch proposal for: {}",
-            patch_request.description
-        );
-
-        // Compute unavailable pinned adapters (CHAT-PIN-02)
-        let unavailable_pinned_adapters =
-            request.pinned_adapter_ids.as_ref().and_then(|pinned_ids| {
-                let loaded_adapter_ids: Vec<&str> = self
-                    .manifest
-                    .adapters
-                    .iter()
-                    .map(|a| a.id.as_str())
-                    .collect();
-                let unavailable: Vec<String> = pinned_ids
-                    .iter()
-                    .filter(|id| !loaded_adapter_ids.contains(&id.as_str()))
-                    .cloned()
-                    .collect();
-                if unavailable.is_empty() {
-                    None
-                } else {
-                    Some(unavailable)
-                }
-            });
-
-        // Compute pinned_routing_fallback based on unavailability (PRD-6A)
-        let pinned_routing_fallback =
-            match (&request.pinned_adapter_ids, &unavailable_pinned_adapters) {
-                (Some(pinned), Some(unavailable))
-                    if !pinned.is_empty() && !unavailable.is_empty() =>
-                {
-                    if unavailable.len() >= pinned.len() {
-                        Some("stack_only".to_string())
-                    } else {
-                        Some("partial".to_string())
-                    }
-                }
-                _ => None,
-            };
-
-        // Initialize telemetry
-        let mut telemetry = PatchTelemetry::new();
-
-        // 1. Build evidence retrieval request
-        let evidence_request = EvidenceRequest {
-            query: patch_request.description.clone(),
-            target_files: patch_request.target_files.clone(),
-            repo_id: patch_request.repo_id.clone(),
-            commit_sha: patch_request.commit_sha.clone(),
-            max_results: 10,
-            min_score: 0.7,
-        };
-
-        // 2. Retrieve evidence (using mock implementation for now)
-        let evidence_result = self.retrieve_evidence(&evidence_request).await?;
-
-        // Log evidence retrieval telemetry
-        let evidence_metrics = EvidenceMetrics {
-            query: evidence_request.query,
-            sources_used: evidence_result
-                .sources_used
-                .iter()
-                .map(|s| format!("{:?}", s))
-                .collect(),
-            spans_found: evidence_result.spans.len(),
-            retrieval_time_ms: evidence_result.retrieval_time_ms,
-            avg_relevance_score: if !evidence_result.spans.is_empty() {
-                evidence_result.spans.iter().map(|s| s.score).sum::<f32>()
-                    / evidence_result.spans.len() as f32
-            } else {
-                0.0
-            },
-            min_score_threshold: evidence_request.min_score,
-        };
-        telemetry.log_evidence_retrieval("default_tenant", evidence_metrics, None);
-
-        let mut evidence_refs = Vec::new();
-
-        // Convert evidence spans to trace references
-        for span in &evidence_result.spans {
-            evidence_refs.push(EvidenceRef {
-                doc_id: span.doc_id.clone(),
-                rev: span.rev.clone(),
-                span_hash: adapteros_core::B3Hash::from_hex(&span.span_hash)
-                    .unwrap_or_else(|_| adapteros_core::B3Hash::hash(span.span_hash.as_bytes())),
-                score: span.score,
-            });
-        }
-
-        // 3. Generate patch proposal
-        let patch_generation_request = PatchGenerationRequest {
-            repo_id: patch_request.repo_id.clone(),
-            commit_sha: patch_request.commit_sha.clone(),
-            target_files: patch_request.target_files.clone(),
-            description: patch_request.description.clone(),
-            evidence: evidence_result.spans,
-            context: std::collections::HashMap::new(),
-        };
-
-        let patch_generator = PatchGenerator::new(
-            Box::new(MockLlmBackend),
-            crate::patch_generator::PatchParser::new(),
-            crate::patch_generator::CitationExtractor::new(),
-        );
-
-        let proposal = patch_generator
-            .generate_patch(patch_generation_request)
-            .await?;
-
-        // Log patch generation telemetry
-        let generation_metrics = PatchGenerationMetrics {
-            proposal_id: proposal.proposal_id.clone(),
-            description: patch_request.description.clone(),
-            target_files: patch_request.target_files.clone(),
-            evidence_count: proposal.citations.len(),
-            patch_count: proposal.patches.len(),
-            total_lines: proposal.patches.iter().map(|p| p.total_lines).sum(),
-            generation_time_ms: 100, // Mock timing
-            confidence_score: proposal.confidence,
-        };
-        telemetry.log_patch_generation("default_tenant", generation_metrics);
-
-        // 4. Validate patch against policy
-        let policy = CodePolicy::default();
-        let policy_engine = PolicyEngine::new(self.manifest.policies.clone());
-        let validator = PatchValidator::new(policy, policy_engine);
-        let validation_result = validator.validate(&proposal.patches).await?;
-
-        // Log patch validation telemetry
-        let validation_metrics = ValidationMetrics {
-            proposal_id: proposal.proposal_id.clone(),
-            is_valid: validation_result.is_valid,
-            error_count: validation_result.errors.len(),
-            warning_count: validation_result.warnings.len(),
-            violation_count: validation_result.violations.len(),
-            validation_time_ms: 50, // Mock timing
-            confidence_score: validation_result.confidence,
-            violations: validation_result
-                .violations
-                .into_iter()
-                .map(|v| crate::patch_telemetry::ViolationMetric {
-                    violation_type: format!("{:?}", v.violation_type),
-                    severity: format!("{:?}", v.severity),
-                    file_path: v.file_path,
-                    line_number: v.line_number,
-                    description: v.description,
-                })
-                .collect(),
-        };
-        telemetry.log_patch_validation("default_tenant", validation_metrics);
-
-        // 5. Build response
-        let patch_proposal = if validation_result.is_valid {
-            Some(PatchProposalResponse {
-                proposal_id: proposal.proposal_id,
-                rationale: proposal.rationale,
-                patches: proposal
-                    .patches
-                    .clone()
-                    .into_iter()
-                    .map(|p| FilePatchResponse {
-                        file_path: p.file_path,
-                        hunks: p
-                            .hunks
-                            .into_iter()
-                            .map(|h| PatchHunkResponse {
-                                start_line: h.start_line,
-                                end_line: h.end_line,
-                                old_content: h.context_lines.join("\n"),
-                                new_content: h.modified_lines.join("\n"),
-                            })
-                            .collect(),
-                    })
-                    .collect(),
-                citations: proposal
-                    .citations
-                    .clone()
-                    .into_iter()
-                    .map(|c| CitationResponse {
-                        source_type: format!("{:?}", c.evidence_type),
-                        reference: format!("{}:{}", c.file_path, c.line_range.0),
-                        relevance: c.relevance_score,
-                    })
-                    .collect(),
-                confidence: proposal.confidence,
-            })
-        } else {
-            None
-        };
-
-        let status = if validation_result.is_valid {
-            "success".to_string()
-        } else {
-            "validation_failed".to_string()
-        };
-
-        let fusion_interval = request
-            .fusion_interval
-            .unwrap_or(FusionInterval::PerRequest);
-
-        let text = if validation_result.is_valid {
-            Some(format!(
-                "Patch proposal generated successfully with {} files and {} citations",
-                proposal.patches.len(),
-                proposal.citations.len()
-            ))
-        } else {
-            Some(format!(
-                "Patch validation failed: {}",
-                validation_result.errors.join(", ")
-            ))
-        };
-
-        Ok(InferenceResponse {
-            text,
-            status,
-            trace: self.build_trace(
-                &request.cpid,
-                &evidence_refs,
-                0,
-                None,
-                None,
-                fusion_interval,
-                &self
-                    .manifest
-                    .adapters
-                    .iter()
-                    .map(|a| a.id.clone())
-                    .collect::<Vec<_>>(),
-                false,
-            ),
-            run_receipt: None,
-            refusal: if !validation_result.is_valid {
-                Some(RefusalResponse {
-                    status: "failed".to_string(),
-                    reason: adapteros_policy::RefusalReason::MissingFields {
-                        template: "patch_validation".to_string(),
-                        fields: validation_result.errors.clone(),
-                    },
-                    message: format!(
-                        "Patch validation failed: {}",
-                        validation_result.errors.join(", ")
-                    ),
-                })
-            } else {
-                None
-            },
-            patch_proposal,
-            stack_id: request.stack_id.clone(),
-            stack_version: request.stack_version,
-            backend_used: Some(self.kernels.lock().await.device_name().to_string()),
-            backend_version: Some(adapteros_core::version::VERSION.to_string()),
-            fallback_triggered: false,
-            coreml_compute_preference: None,
-            coreml_compute_units: None,
-            coreml_gpu_used: None,
-            coreml_package_hash: self.coreml_package_hash.clone(),
-            coreml_expected_package_hash: self
-                .coreml_verification
-                .as_ref()
-                .and_then(|v| v.expected.clone()),
-            coreml_hash_mismatch: self.coreml_verification.as_ref().map(|v| v.mismatch),
-            fallback_backend: None,
-            determinism_mode_applied: Some(request.determinism_mode.clone()),
-            unavailable_pinned_adapters,
-            pinned_routing_fallback,
-            placement_trace: None,
-            stop_reason_code: None,
-            stop_reason_token_index: None,
-            stop_policy_digest_b3: None,
-            error_details: None,
-        })
-    }
-
-    /// Retrieve evidence for patch proposal using real EvidenceRetriever
-    async fn retrieve_evidence(
-        &mut self,
-        request: &crate::evidence::EvidenceRequest,
-    ) -> Result<crate::evidence::EvidenceResult> {
-        use crate::evidence::{EvidenceResult, EvidenceSpan, EvidenceType};
-        use std::collections::HashMap;
-
-        // Use real evidence retriever if available
-        if let Some(ref mut retriever) = self.evidence_retriever {
-            retriever
-                .retrieve_patch_evidence(request, "default_tenant")
-                .await
-                .map_err(|e| AosError::Internal(e.to_string()))
-        } else {
-            // Fallback to basic mock if no retriever is available
-            let mock_spans = vec![
-                EvidenceSpan {
-                    doc_id: "mock_doc_1".to_string(),
-                    rev: "v1".to_string(),
-                    span_hash: "hash1".to_string(),
-                    score: 0.9,
-                    evidence_type: EvidenceType::Symbol,
-                    file_path: request
-                        .target_files
-                        .first()
-                        .unwrap_or(&"src/test.rs".to_string())
-                        .clone(),
-                    start_line: 10,
-                    end_line: 15,
-                    content: format!("Mock evidence for: {}", request.query),
-                    metadata: HashMap::new(),
-                },
-                EvidenceSpan {
-                    doc_id: "mock_doc_2".to_string(),
-                    rev: "v1".to_string(),
-                    span_hash: "hash2".to_string(),
-                    score: 0.8,
-                    evidence_type: EvidenceType::Test,
-                    file_path: "tests/test.rs".to_string(),
-                    start_line: 20,
-                    end_line: 25,
-                    content: "Mock test evidence".to_string(),
-                    metadata: HashMap::new(),
-                },
-            ];
-
-            Ok(EvidenceResult {
-                spans: mock_spans,
-                total_found: 2,
-                retrieval_time_ms: 50,
-                sources_used: vec![EvidenceType::Symbol, EvidenceType::Test],
-            })
-        }
-    }
-
-    /// Compute embedding for text query (for RAG/similarity search)
-    ///
-    /// This generates averaged token embeddings for semantic search.
-    /// Note: Metal kernels handle embedding lookup internally for forward pass.
-    fn compute_embedding(&self, text: &str) -> Result<Vec<f32>> {
-        let tokens = self.tokenizer.encode(text)?;
-        self.embedding_model.encode_tokens(&tokens)
-    }
-
-    /// Encode tokens to embeddings for RAG/text similarity
-    ///
-    /// This method is used for generating query embeddings for evidence retrieval
-    /// and semantic search. It averages token embeddings and applies L2 normalization.
-    ///
-    /// Note: This is NOT used for the forward pass - Metal kernels perform
-    /// embedding lookup directly from input_ids for inference.
-    fn _encode_text_for_rag(&self, token_ids: &[u32]) -> Result<Vec<f32>> {
-        self.embedding_model.encode_tokens(token_ids)
-    }
-
-    /// Generate a deterministic plan_id from the manifest hash and request context
-    ///
-    /// The plan_id is derived using BLAKE3 hash of:
-    /// - Base model hash from manifest (ensures reproducibility across workers)
-    /// - Request cpid (ensures uniqueness per request)
-    ///
-    /// This provides a deterministic, traceable identifier for each inference plan.
-    fn generate_plan_id(&self, cpid: &str) -> String {
-        use adapteros_core::B3Hash;
-
-        // Combine manifest model hash with cpid for deterministic plan identification
-        let combined = format!("{}:{}", self.manifest.base.model_hash, cpid);
-        let hash = B3Hash::hash(combined.as_bytes());
-
-        // Use first 16 hex chars (64 bits) for reasonable uniqueness while keeping it readable
-        format!("plan_{}", &hash.to_hex()[..16])
-    }
-
-    /// Build response trace with evidence and router summary
-    #[allow(clippy::too_many_arguments)]
-    fn build_trace(
-        &self,
-        cpid: &str,
-        evidence: &[EvidenceRef],
-        token_count: usize,
-        router_decisions: Option<Vec<adapteros_api_types::inference::RouterDecision>>,
-        router_decision_chain: Option<
-            Vec<adapteros_api_types::inference::RouterDecisionChainEntry>,
-        >,
-        fusion_interval: FusionInterval,
-        active_ids: &[String],
-        base_only_request: bool,
-    ) -> ResponseTrace {
-        let active_pool: Vec<String> = if active_ids.is_empty() {
-            self.manifest
-                .adapters
-                .iter()
-                .map(|a| a.id.clone())
-                .collect()
-        } else {
-            active_ids.to_vec()
-        };
-
-        let router_summary = summarize_router_usage(
-            base_only_request,
-            &active_pool,
-            self.manifest.router.k_sparse,
-            router_decisions.as_deref(),
-        );
-
-        let fusion_intervals = fusion_intervals_for_mode(
-            fusion_interval,
-            router_decisions.as_deref(),
-            &self.manifest.base.model_hash,
-        );
-
-        ResponseTrace {
-            cpid: cpid.to_string(),
-            plan_id: self.generate_plan_id(cpid),
-            evidence: evidence.to_vec(),
-            router_summary,
-            token_count,
-            router_decisions,
-            router_decision_chain,
-            fusion_intervals,
-        }
-    }
-
-    /// Execute adapter hot-swap command
-    pub async fn execute_adapter_command(
-        &mut self,
-        command: AdapterCommand,
-    ) -> Result<AdapterCommandResult> {
-        if let AdapterCommand::Preload { ref adapter_id, .. } = &command {
-            // Check live pressure before attempting to load another adapter.
-            let pressure_before: MemoryPressureLevel =
-                self.memory_monitor.current_pressure_level().await;
-
-            if pressure_before == MemoryPressureLevel::Critical {
-                tracing::warn!(
-                    adapter_id = %adapter_id,
-                    "Critical memory pressure before adapter preload; attempting eviction"
-                );
-
-                // Attempt to free memory through lifecycle eviction logic.
-                let lifecycle = self.lifecycle.lock().await;
-                if let Err(evict_err) = lifecycle.handle_memory_pressure(&self.profiler) {
-                    tracing::warn!(
-                        adapter_id = %adapter_id,
-                        error = %evict_err,
-                        "Eviction attempt during preload guard failed"
-                    );
-                }
-            }
-
-            let pressure_after: MemoryPressureLevel =
-                self.memory_monitor.current_pressure_level().await;
-            ensure_preload_allowed(pressure_before, pressure_after)?;
-        }
-
-        self.hotswap.execute(command).await
-    }
-
-    /// Verify GPU buffers for all loaded adapters
-    ///
-    /// Reads GPU buffer checkpoints and validates against stored fingerprints.
-    /// Also checks memory footprint against adaptive baseline with 2 sigma tolerance.
-    ///
-    /// Returns a report with verified/failed/skipped adapters.
-    ///
-    /// # Usage
-    ///
-    /// This method can be called on-demand to verify GPU integrity after adapter
-    /// operations (load, swap, rollback) or as part of periodic health checks.
-    ///
-    /// ```rust
-    /// use adapteros_lora_lifecycle::GpuIntegrityReport;
-    ///
-    /// // Example of how to check a GPU integrity report
-    /// let report = GpuIntegrityReport {
-    ///     verified: vec![(0, "adapter-1".to_string())],
-    ///     failed: vec![],
-    ///     skipped: vec![],
-    ///     total_checked: 1,
-    ///     timestamp: 0,
-    /// };
-    ///
-    /// // Check if any adapters failed verification
-    /// if !report.failed.is_empty() {
-    ///     // Handle integrity failures
-    ///     for (idx, id, reason) in &report.failed {
-    ///         eprintln!("Adapter {} (idx {}) failed: {}", id, idx, reason);
-    ///     }
-    /// }
-    /// ```
-    ///
-    /// In async context with a Worker instance:
-    /// ```ignore
-    /// let report = worker.verify_gpu_integrity().await?;
-    /// ```
-    pub async fn verify_gpu_integrity(
-        &self,
-    ) -> Result<adapteros_lora_lifecycle::GpuIntegrityReport> {
-        use adapteros_lora_lifecycle::GpuIntegrityReport;
-
-        let mut verified = Vec::new();
-        let mut failed = Vec::new();
-        let mut skipped = Vec::new();
-
-        // Get adapters that should have GPU buffers loaded
-        let loaded_adapters = {
-            let lifecycle = self.lifecycle.lock().await;
-            lifecycle.get_loaded_adapters()
-        };
-
-        let mut kernels_lock = self.kernels.lock().await;
-
-        // Proceed with verification - backends without GPU tracking will skip via default trait impls
-        for (adapter_id_u16, adapter_id, _state) in &loaded_adapters {
-            // Try to verify GPU buffers
-            #[cfg(target_os = "macos")]
-            match kernels_lock.verify_adapter_buffers(*adapter_id_u16) {
-                Ok((buffer_size, first, last, mid)) => {
-                    // Create fingerprint from current GPU state
-                    use adapteros_lora_kernel_mtl::vram::GpuBufferFingerprint;
-                    let current_fp = GpuBufferFingerprint::new(buffer_size, &first, &last, &mid);
-                    let checkpoint_hash_hex = current_fp.checkpoint_hash.to_hex();
-
-                    // Verify against stored baseline
-                    match kernels_lock.verify_gpu_fingerprint(
-                        *adapter_id_u16,
-                        buffer_size,
-                        &checkpoint_hash_hex,
-                    ) {
-                        Ok(true) => {
-                            // Check memory footprint against baseline
-                            let (within_tolerance, z_score, baseline_stats) =
-                                kernels_lock.check_memory_footprint(*adapter_id_u16, buffer_size);
-
-                            let (baseline_mean, baseline_stddev, _sample_count) =
-                                baseline_stats.unwrap_or((buffer_size as f64, 0.0, 0));
-
-                            if within_tolerance {
-                                verified.push((*adapter_id_u16, adapter_id.clone()));
-
-                                // Emit telemetry for successful verification
-                                use adapteros_lora_lifecycle::GpuIntegrityVerificationEvent;
-                                if let Some(t) = &self.telemetry {
-                                    let _ = t.log(
-                                        "gpu_integrity_verification",
-                                        GpuIntegrityVerificationEvent {
-                                            adapter_id: adapter_id.clone(),
-                                            adapter_idx: *adapter_id_u16,
-                                            verified: true,
-                                            buffer_bytes: buffer_size,
-                                            checkpoint_hash: current_fp.checkpoint_hash.to_hex(),
-                                            memory_footprint_within_tolerance: true,
-                                            z_score: Some(z_score),
-                                            baseline_mean: Some(baseline_mean),
-                                            timestamp: std::time::SystemTime::now()
-                                                .duration_since(std::time::UNIX_EPOCH)
-                                                .unwrap()
-                                                .as_secs(),
-                                        },
-                                    );
-                                }
-                            } else {
-                                failed.push((
-                                    *adapter_id_u16,
-                                    adapter_id.clone(),
-                                    format!(
-                                        "Memory footprint anomaly: {} bytes (baseline: {:.1} ± {:.1}, z-score: {:.2})",
-                                        buffer_size, baseline_mean, baseline_stddev, z_score
-                                    ),
-                                ));
-
-                                // Emit telemetry for memory footprint anomaly
-                                use adapteros_lora_lifecycle::GpuIntegrityViolationEvent;
-                                if let Some(t) = &self.telemetry {
-                                    let _ = t.log("gpu_integrity_violation", GpuIntegrityViolationEvent {
-                                        adapter_id: adapter_id.clone(),
-                                        adapter_idx: *adapter_id_u16,
-                                        violation_type: "memory_anomaly".to_string(),
-                                        details: format!(
-                                            "Memory footprint {} bytes exceeds 2σ tolerance (baseline: {:.1} ± {:.1}, z-score: {:.2})",
-                                            buffer_size, baseline_mean, baseline_stddev, z_score
-                                        ),
-                                        buffer_bytes: Some(buffer_size),
-                                        z_score: Some(z_score),
-                                        timestamp: std::time::SystemTime::now()
-                                            .duration_since(std::time::UNIX_EPOCH)
-                                            .unwrap()
-                                            .as_secs(),
-                                    });
-                                }
-                            }
-                        }
-                        Ok(false) => {
-                            // No baseline exists yet - store this as the baseline
-                            if let Err(e) = kernels_lock.store_gpu_fingerprint(
-                                *adapter_id_u16,
-                                buffer_size,
-                                &checkpoint_hash_hex,
-                            ) {
-                                tracing::warn!(
-                                    adapter_id = %adapter_id,
-                                    error = %e,
-                                    "Failed to store GPU fingerprint baseline (non-fatal)"
-                                );
-                            } else {
-                                tracing::info!(
-                                    adapter_id = %adapter_id,
-                                    adapter_idx = adapter_id_u16,
-                                    "Stored initial GPU fingerprint baseline"
-                                );
-                            }
-                            verified.push((*adapter_id_u16, adapter_id.clone()));
-                        }
-                        Err(msg) => {
-                            failed.push((
-                                *adapter_id_u16,
-                                adapter_id.clone(),
-                                format!("GPU buffer fingerprint mismatch: {}", msg),
-                            ));
-
-                            // Emit telemetry for fingerprint mismatch
-                            use adapteros_lora_lifecycle::GpuIntegrityViolationEvent;
-                            if let Some(t) = &self.telemetry {
-                                let _ = t.log("gpu_integrity_violation", GpuIntegrityViolationEvent {
-                                    adapter_id: adapter_id.clone(),
-                                    adapter_idx: *adapter_id_u16,
-                                    violation_type: "fingerprint_mismatch".to_string(),
-                                    details: format!("GPU buffer checkpoint hash does not match stored fingerprint: {}", msg),
-                                    buffer_bytes: Some(buffer_size),
-                                    z_score: None,
-                                    timestamp: std::time::SystemTime::now()
-                                        .duration_since(std::time::UNIX_EPOCH)
-                                        .unwrap()
-                                        .as_secs(),
-                                });
-                            }
-                        }
-                    }
-                }
-                Err(e) => {
-                    // Adapter not loaded or verification not supported
-                    skipped.push((*adapter_id_u16, adapter_id.clone()));
-                    tracing::debug!(
-                        adapter_id = %adapter_id,
-                        error = %e,
-                        "GPU verification skipped"
-                    );
-                }
-            }
-
-            // Non-macOS platforms don't have Metal GPU verification
-            #[cfg(not(target_os = "macos"))]
-            {
-                skipped.push((*adapter_id_u16, adapter_id.clone()));
-                tracing::debug!(
-                    adapter_id = %adapter_id,
-                    "GPU verification not available on this platform"
-                );
-            }
-        }
-
-        drop(kernels_lock);
-
-        Ok(GpuIntegrityReport {
-            verified,
-            failed,
-            skipped,
-            total_checked: loaded_adapters.len(),
-            timestamp: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
-        })
-    }
-
-    /// Get current adapter states
-    pub fn get_adapter_states(&self) -> Vec<adapter_hotswap::AdapterState> {
-        self.hotswap.table().get_active()
-    }
-
-    /// Get current memory usage in bytes
-    ///
-    /// Returns the memory currently used by the worker, including model weights
-    /// and adapter buffers. Returns 0 if memory tracking is unavailable.
-    pub fn get_memory_usage_bytes(&self) -> u64 {
-        self.health_monitor.get_memory_usage().unwrap_or(0)
-    }
-
-    /// Get current memory usage in MB
-    pub fn get_memory_usage_mb(&self) -> i32 {
-        (self.get_memory_usage_bytes() / (1024 * 1024)) as i32
-    }
-
-    /// Execute a workflow using real kernel backend
-    ///
-    /// Runs the workflow through actual Metal/MLX kernels with LoRA transformations.
-    /// Kernels are shared via Arc<Mutex<K>> to allow concurrent workflow execution.
-    pub async fn execute_workflow(
-        &self,
-        workflow_type: adapteros_lora_lifecycle::WorkflowType,
-        adapter_ids: Vec<String>,
-        context: adapteros_lora_lifecycle::WorkflowContext,
-    ) -> Result<adapteros_lora_lifecycle::WorkflowResult>
-    where
-        K: Send + Sync,
-    {
-        use adapteros_lora_lifecycle::{MockAdapterBackend, WorkflowExecutor};
-
-        info!(
-            "Executing workflow with {} adapters using real kernels",
-            adapter_ids.len()
-        );
-
-        // Snapshot current stack and increment refcounts for workflow adapters
-        let table = self.hotswap.table();
-        let _stack_handle = table.get_current_stack_generation();
-        let refcounts = table.refcounts().lock().await;
-        for id in &adapter_ids {
-            if let Some(rc) = refcounts.get(id) {
-                rc.fetch_add(1, Ordering::Relaxed);
-            }
-        }
-        drop(refcounts);
-
-        // Create kernel backend with adapter name mapping
-        let _adapter_names: Vec<String> = self
-            .manifest
-            .adapters
-            .iter()
-            .map(|a| a.id.clone())
-            .collect();
-
-        let backend = Arc::new(MockAdapterBackend);
-
-        // Create and execute workflow
-        let executor = WorkflowExecutor::new(workflow_type, adapter_ids.clone(), backend);
-        let result = executor.execute(context).await;
-
-        // Decrement refcounts
-        for id in &adapter_ids {
-            let _new_ref = table.dec_ref(id).await;
-        }
-
-        result
-    }
-
-    /// Get reference to the hot-swap manager
-    pub fn hotswap(&self) -> &Arc<HotSwapManager<K>> {
-        &self.hotswap
-    }
-
-    /// Get reference to the KV cache
-    pub fn kv_cache(&self) -> &Arc<StdMutex<KvCache>> {
-        &self.kv_cache
-    }
-
-    /// Return the cached CoreML verification snapshot, if available.
-    pub fn coreml_verification(&self) -> Option<CoremlVerificationSnapshot> {
-        self.coreml_verification.clone()
-    }
-
-    /// Get reference to the last stack hash
-    pub fn last_stack_hash(&self) -> &RwLock<Option<B3Hash>> {
-        &self._last_stack_hash
-    }
-
-    /// Get reference to the telemetry writer
-    pub fn telemetry(&self) -> &Option<TelemetryWriter> {
-        &self.telemetry
-    }
-
-    /// Get cloned reference to health monitor
-    pub fn health_monitor(&self) -> Arc<HealthMonitor> {
-        self.health_monitor.clone()
-    }
-
-    /// Replace the health monitor (for heartbeat alignment after CP registration)
-    pub fn set_health_monitor(&mut self, monitor: Arc<HealthMonitor>) {
-        self.health_monitor = monitor;
-    }
-
-    /// Register an active training job with its cancellation token
-    ///
-    /// Call this when starting a training job to enable cancellation.
-    pub fn register_training_job(&self, job_id: &str) -> Arc<AtomicBool> {
-        let cancel_token = Arc::new(AtomicBool::new(false));
-        let mut jobs = self.active_training_jobs.write();
-        jobs.insert(job_id.to_string(), cancel_token.clone());
-        tracing::info!(job_id = %job_id, "Registered training job for cancellation tracking");
-        cancel_token
-    }
-
-    /// Unregister a training job (call when job completes/fails/cancels)
-    pub fn unregister_training_job(&self, job_id: &str) {
-        let mut jobs = self.active_training_jobs.write();
-        jobs.remove(job_id);
-        tracing::debug!(job_id = %job_id, "Unregistered training job");
-    }
-
-    /// Cancel an active training job
-    ///
-    /// Sets the cancellation token for the job, causing the training loop
-    /// to stop at the next epoch boundary.
-    pub fn cancel_training_job(&self, job_id: &str) -> Result<CancelTrainingResponse> {
-        let jobs = self.active_training_jobs.read();
-
-        if let Some(cancel_token) = jobs.get(job_id) {
-            // Check if already cancelled
-            if cancel_token.load(std::sync::atomic::Ordering::SeqCst) {
-                tracing::info!(job_id = %job_id, "Training job already cancelled");
-                return Ok(CancelTrainingResponse {
-                    job_id: job_id.to_string(),
-                    status: "already_cancelled".to_string(),
-                    tokens_processed: None,
-                    final_loss: None,
-                    stopped_at_epoch: None,
-                });
-            }
-
-            // Set cancellation flag
-            cancel_token.store(true, std::sync::atomic::Ordering::SeqCst);
-            tracing::info!(job_id = %job_id, "Training job cancellation requested");
-
-            Ok(CancelTrainingResponse {
-                job_id: job_id.to_string(),
-                status: "cancelled".to_string(),
-                tokens_processed: None, // Will be filled by training loop when it stops
-                final_loss: None,
-                stopped_at_epoch: None,
-            })
-        } else {
-            tracing::warn!(job_id = %job_id, "Training job not found for cancellation");
-            Ok(CancelTrainingResponse {
-                job_id: job_id.to_string(),
-                status: "not_found".to_string(),
-                tokens_processed: None,
-                final_loss: None,
-                stopped_at_epoch: None,
-            })
-        }
-    }
-
-    /// Check if a training job has been cancelled
-    pub fn is_training_cancelled(&self, job_id: &str) -> bool {
-        let jobs = self.active_training_jobs.read();
-        jobs.get(job_id)
-            .map(|token| token.load(std::sync::atomic::Ordering::SeqCst))
-            .unwrap_or(false)
-    }
+    // validate_effective_adapter_gate is now in adapter_operations.rs
+
+    // Refactored methods are now in separate modules:
+    // - patch_generation.rs: propose_patch, retrieve_evidence, build_trace, etc.
+    // - adapter_operations.rs: execute_adapter_command, verify_gpu_integrity
+    // - worker_utilities.rs: compute_embedding, generate_plan_id, etc.
+    // - training_management.rs: training job management methods
 }
 
 impl<K: FusedKernels + StrictnessControl + Send + Sync> Drop for Worker<K> {

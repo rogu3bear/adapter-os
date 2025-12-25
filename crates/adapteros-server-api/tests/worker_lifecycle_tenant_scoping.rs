@@ -17,7 +17,7 @@ use adapteros_api_types::API_SCHEMA_VERSION;
 use adapteros_core::{AosError, Result, WorkerStatus};
 use adapteros_db::sqlx;
 use adapteros_db::users::Role;
-use adapteros_db::workers::{WorkerInsertBuilder, WorkerRegistrationParams};
+use adapteros_db::workers::{WorkerIncidentType, WorkerInsertBuilder, WorkerRegistrationParams};
 use adapteros_db::Db;
 use adapteros_server_api::auth::{AuthMode, Claims, PrincipalType};
 use adapteros_server_api::handlers::workers::{
@@ -1287,7 +1287,7 @@ async fn test_worker_incidents_are_tenant_scoped() {
     db.insert_worker_incident(
         &worker_a,
         "tenant-inc-a",
-        "crash",
+        WorkerIncidentType::Crash,
         "OOM error",
         Some("backtrace: ..."),
         Some(500.0),
@@ -1298,7 +1298,7 @@ async fn test_worker_incidents_are_tenant_scoped() {
     db.insert_worker_incident(
         &worker_b,
         "tenant-inc-b",
-        "timeout",
+        WorkerIncidentType::Hung,
         "Hung",
         Some("backtrace: ..."),
         Some(10000.0),
@@ -1453,7 +1453,7 @@ async fn test_worker_status_notification_updates_correct_tenant() {
         cache_active_entries: None,
     };
 
-    notify_worker_status(State(state.clone()), Json(notification))
+    let _ = notify_worker_status(State(state.clone()), Json(notification))
         .await
         .expect("status update should succeed");
 

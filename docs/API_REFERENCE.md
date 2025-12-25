@@ -368,6 +368,8 @@ Content-Type: application/json
 
 ### Adapter Management
 
+> **For comprehensive adapter API examples with curl commands, see [ADAPTER_API_EXAMPLES.md](ADAPTER_API_EXAMPLES.md)**
+
 **List Adapters:**
 ```http
 GET /v1/adapters?tier=1&framework=pytorch
@@ -413,16 +415,30 @@ Content-Type: application/json
 
 **Import Adapter:**
 ```http
-POST /v1/adapters/import
+POST /v1/adapters/import?load=true
 Authorization: Bearer <token>
 Content-Type: multipart/form-data
 
 file=@adapter.aos
 ```
 
+**Hot-Swap Adapters:**
+```http
+POST /v1/adapters/swap
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "old_adapter_id": "adapter-v1",
+  "new_adapter_id": "adapter-v2",
+  "dry_run": false
+}
+```
+
 **Adapter Operations:**
 - `POST /v1/adapters/{adapter_id}/load` - Load adapter into memory
 - `POST /v1/adapters/{adapter_id}/unload` - Unload adapter
+- `POST /v1/adapters/swap` - Hot-swap adapters atomically
 - `DELETE /v1/adapters/{adapter_id}` - Delete adapter
 - `GET /v1/adapters/{adapter_id}/activations` - Activation history
 - `GET /v1/adapters/{adapter_id}/lineage` - Lineage tree
@@ -430,13 +446,24 @@ file=@adapter.aos
 - `GET /v1/adapters/{adapter_id}/health` - Health status
 
 **Lifecycle Management:**
-- `POST /v1/adapters/{adapter_id}/lifecycle/promote` - Promote stage
-- `POST /v1/adapters/{adapter_id}/lifecycle/demote` - Demote stage
+- `POST /v1/adapters/{adapter_id}/lifecycle/promote` - Promote stage (Unloaded → Cold → Warm → Hot → Resident)
+- `POST /v1/adapters/{adapter_id}/lifecycle/demote` - Demote stage (Resident → Hot → Warm → Cold → Unloaded)
 
 **Pinning:**
 - `GET /v1/adapters/{adapter_id}/pin` - Get pin status
 - `POST /v1/adapters/{adapter_id}/pin` - Pin adapter (prevent eviction)
 - `DELETE /v1/adapters/{adapter_id}/pin` - Unpin adapter
+
+**Adapter Stacks:**
+- `POST /v1/adapter-stacks` - Create adapter stack
+- `GET /v1/adapter-stacks` - List stacks
+- `GET /v1/adapter-stacks/{id}` - Get stack details
+- `POST /v1/adapter-stacks/{id}/activate` - Activate stack
+- `POST /v1/adapter-stacks/deactivate` - Deactivate current stack
+- `DELETE /v1/adapter-stacks/{id}` - Delete stack
+- `POST /v1/adapter-stacks/{id}/clear-adapters` - Clear adapters from stack
+- `GET /v1/adapter-stacks/{id}/history` - Version history
+- `GET /v1/adapter-stacks/{id}/policies` - Policies assigned to stack
 
 ### Inference
 
@@ -2768,6 +2795,7 @@ All responses include:
 
 ### Related Documentation
 
+- [ADAPTER_API_EXAMPLES.md](ADAPTER_API_EXAMPLES.md) - Comprehensive adapter API examples with curl commands
 - [AGENTS.md](../AGENTS.md) - Development guide
 - [ACCESS_CONTROL.md](ACCESS_CONTROL.md) - Access control (RBAC + tenant isolation)
 - [POLICIES.md](POLICIES.md) - Policy enforcement

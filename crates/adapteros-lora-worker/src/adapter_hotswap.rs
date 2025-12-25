@@ -312,7 +312,10 @@ impl AdapterTable {
     pub async fn preload(&self, id: String, hash: B3Hash, vram_mb: u64) -> Result<()> {
         if vram_mb == 0 {
             return Err(AosError::Worker(
-                "Adapter preload requires non-zero VRAM estimate".to_string(),
+                format!(
+                    "Adapter preload failed: VRAM estimate is zero for adapter '{}'. This indicates the adapter weights could not be measured. Check that the .aos file contains valid SafeTensors data.",
+                    id
+                )
             ));
         }
         {
@@ -363,7 +366,7 @@ impl AdapterTable {
             for id in add_ids {
                 if !staged_read.contains_key(id) {
                     let err = AosError::Worker(format!(
-                        "Adapter {} not found in staged set - aborting swap before any changes",
+                        "Hot-swap aborted: adapter '{}' was not preloaded into staging. You must preload all adapters before swapping them in. Use the Preload command first with adapter ID and hash.",
                         id
                     ));
                     self.emit_swap_event(add_ids, remove_ids, false, Some(err.to_string()));
@@ -411,7 +414,7 @@ impl AdapterTable {
                         );
                         self.staged.write().clear();
                         let err = AosError::Worker(format!(
-                            "Adapter {} disappeared from staged set after validation (possible concurrent modification)",
+                            "Critical hot-swap error: adapter '{}' was removed from staging between validation and swap (concurrent modification detected). This indicates a race condition. Rolling back to previous state.",
                             id
                         ));
                         self.emit_swap_event(add_ids, remove_ids, false, Some(err.to_string()));
@@ -419,7 +422,7 @@ impl AdapterTable {
                     } else {
                         self.staged.write().clear();
                         let err = AosError::Worker(format!(
-                            "Adapter {} disappeared from staged set and no rollback state available",
+                            "Fatal hot-swap error: adapter '{}' is missing from staging and no rollback state exists. System state may be inconsistent. Manual intervention required.",
                             id
                         ));
                         self.emit_swap_event(add_ids, remove_ids, false, Some(err.to_string()));
@@ -499,7 +502,9 @@ impl AdapterTable {
             .read()
             .as_ref()
             .cloned()
-            .ok_or_else(|| AosError::Worker("No rollback state available".to_string()))?;
+            .ok_or_else(|| AosError::Worker(
+                "Rollback failed: no previous adapter state saved. Cannot revert to earlier configuration. This typically happens when attempting rollback before any successful swap.".to_string()
+            ))?;
 
         let old = self
             .current_stack
@@ -832,8 +837,14 @@ impl AdapterTable {
                     "Hot-swap drain timed out; adapters still referenced"
                 );
                 return Err(AosError::Worker(format!(
-                    "Hot-swap blocked: adapters still in use after {:?}: {:?}",
-                    timeout, counts
+                    "Hot-swap blocked: {} adapter(s) still have active inference requests after {:?} timeout. Adapters in use: {}. Wait for requests to complete or increase timeout.",
+                    counts.iter().filter(|(_, c)| *c > 0).count(),
+                    timeout,
+                    counts.iter()
+                        .filter(|(_, c)| *c > 0)
+                        .map(|(id, c)| format!("'{}' ({} refs)", id, c))
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 )));
             }
 
@@ -1328,7 +1339,7 @@ where
                 let tenant_root = self.repo_root.join(&self.tenant_id);
                 if !adapter_path.starts_with(&tenant_root) {
                     return Err(AosError::IsolationViolation(format!(
-                        "Adapter path {} is outside tenant root {}",
+                        "Tenant isolation violation: adapter path '{}' is outside tenant root '{}'. This is a security violation - adapters must reside within their tenant's directory.",
                         adapter_path.display(),
                         tenant_root.display()
                     )));
@@ -1339,7 +1350,7 @@ where
                     // Load .aos file (async I/O to avoid blocking executor)
                     let adapter_bytes = tokio::fs::read(&adapter_path).await.map_err(|e| {
                         AosError::Io(format!(
-                            "Failed to read adapter file {}: {}",
+                            "Adapter preload failed: cannot read file '{}'. Verify the file exists, has correct permissions, and is a valid .aos bundle. Technical details: {}",
                             adapter_path.display(),
                             e
                         ))
@@ -1348,7 +1359,10 @@ where
                     let file_view = adapteros_aos::open_aos(&adapter_bytes)?;
                     let _manifest: serde_json::Value =
                         serde_json::from_slice(file_view.manifest_bytes)
-                            .map_err(|e| AosError::Parse(format!("Invalid AOS manifest: {}", e)))?;
+                            .map_err(|e| AosError::Parse(format!(
+                            "Adapter preload failed: manifest in '{}' is corrupted or invalid. Re-export the adapter using the training pipeline. Technical details: {}",
+                            adapter_path.display(), e
+                        )))?;
                     // Prefer a CoreML-specific segment when present; fall back to canonical.
                     let canonical_segment = file_view
                         .segments
@@ -1361,9 +1375,10 @@ where
                                 .find(|seg| seg.backend_tag == adapteros_aos::BackendTag::Canonical)
                         })
                         .ok_or_else(|| {
-                            AosError::Validation(
-                                "Missing CoreML or canonical segment in adapter bundle".to_string(),
-                            )
+                            AosError::Validation(format!(
+                                "Adapter preload failed: '{}' is missing required weight segments. The .aos bundle must contain either a CoreML or canonical segment. Re-export the adapter with proper backend support.",
+                                adapter_id
+                            ))
                         })?;
 
                     // Extract SafeTensors payload
@@ -1381,16 +1396,16 @@ where
                         // Check if we have enough available memory
                         if estimated_vram_mb > available_mb {
                             return Err(AosError::MemoryPressure(format!(
-                                "Insufficient VRAM: adapter requires ~{}MB but only {}MB available",
-                                estimated_vram_mb, available_mb
+                                "Adapter preload blocked: insufficient VRAM for adapter '{}'. Requires ~{}MB but only {}MB available. Unload other adapters or reduce active adapter count.",
+                                adapter_id, estimated_vram_mb, available_mb
                             )));
                         }
 
                         // Check memory pressure level - reject if critical
                         if pressure == crate::memory::MemoryPressureLevel::Critical {
                             return Err(AosError::MemoryPressure(format!(
-                                "Critical memory pressure detected, cannot preload adapter (requires ~{}MB)",
-                                estimated_vram_mb
+                                "Adapter preload blocked: critical memory pressure detected. Cannot load adapter '{}' (requires ~{}MB). System is under severe memory stress. Wait for memory to free up or terminate other processes.",
+                                adapter_id, estimated_vram_mb
                             )));
                         }
                     }

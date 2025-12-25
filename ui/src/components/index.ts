@@ -40,3 +40,8 @@ export type { RouterDecisionSummary } from './chat/RouterSummaryView';
 
 // Legacy dashboard (will be deprecated)
 export { Dashboard as LegacyDashboard } from './Dashboard';
+
+// Streaming
+export { default as InferenceStreaming } from './InferenceStreaming';
+export type { InferenceStreamingProps } from './InferenceStreaming';
+export { default as StreamingIntegration } from './StreamingIntegration';

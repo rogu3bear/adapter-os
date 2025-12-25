@@ -14,6 +14,10 @@ pool_size = 20
 kv_path = "var/aos-kv.redb"
 kv_tantivy_path = "var/aos-kv-index"
 
+[auth]
+# Session lifetime in seconds (12 hours)
+session_lifetime = 43200
+
 [security]
 # Set to false for development mode (allows running without root/PF rules)
 # MUST be true in production!

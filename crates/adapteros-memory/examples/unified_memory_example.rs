@@ -95,11 +95,11 @@ fn main() {
     println!("Loading adapter 3 on MLX...");
     tracker.track_adapter(
         3,
-        BackendType::Mlx,
+        BackendType::MLX,
         24 * 1024 * 1024, // 24 MB buffer
         12 * 1024 * 1024, // 12 MB KV cache
     );
-    telemetry.emit_allocation(3, BackendType::Mlx, 24 * 1024 * 1024, 12 * 1024 * 1024);
+    telemetry.emit_allocation(3, BackendType::MLX, 24 * 1024 * 1024, 12 * 1024 * 1024);
 
     let stats = manager.get_stats();
     telemetry.emit_stats(&stats);

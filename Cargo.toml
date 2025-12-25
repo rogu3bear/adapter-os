@@ -20,6 +20,7 @@ members = [
     "crates/adapteros-aos",
     "crates/adapteros-lora-kernel-api",
     "crates/adapteros-lora-kernel-coreml",
+    "crates/adapteros-lora-backends",  # Backend facade
     "crates/adapteros-types",
     "crates/adapteros-lora-kernel-mtl",  # Metal kernels - re-enabled for MVP
     "crates/adapteros-system-metrics",
@@ -132,6 +133,7 @@ metal-backend = []   # Metal GPU (production fallback)
 mlx-backend = []     # MLX FFI stubs
 mlx = []             # Real MLX library (requires mlx C++ FFI)
 real-mlx = ["mlx"]   # Legacy alias for `mlx` (deprecated)
+mlx-bridge = ["adapteros-lora-worker/mlx-bridge"]  # MLX Python subprocess bridge
 
 # Combined feature sets
 stub-backends = ["mlx-backend"]  # All stub implementations
@@ -358,6 +360,7 @@ path = "tests/kv_quota_concurrent_e2e.rs"
 
 # Test dependencies
 [dev-dependencies]
+smallvec = { workspace = true }
 adapteros-core = { path = "crates/adapteros-core" }
 adapteros-manifest = { path = "crates/adapteros-manifest" }
 adapteros-chat = { path = "crates/adapteros-chat" }
@@ -394,6 +397,7 @@ adapteros-registry = { path = "crates/adapteros-registry" }
 adapteros-artifacts = { path = "crates/adapteros-artifacts" }
 adapteros-lora-kernel-api = { path = "crates/adapteros-lora-kernel-api" }
 adapteros-lora-kernel-mtl = { path = "crates/adapteros-lora-kernel-mtl" }  # macOS only - needed for KV quota tests
+adapteros-lora-mlx-ffi = { path = "crates/adapteros-lora-mlx-ffi" }  # MLX FFI backend for E2E tests
 # adapteros-lora-kernel-prof = { path = "crates/adapteros-lora-kernel-prof" }  # macOS only
 # adapteros-system-metrics = { path = "crates/adapteros-system-metrics" }  # Requires DATABASE_URL
 adapteros-crypto = { path = "crates/adapteros-crypto" }

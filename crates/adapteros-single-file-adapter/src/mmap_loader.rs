@@ -134,8 +134,12 @@ impl MmapAdapter {
 
     // Load signature on demand and verify against manifest
     pub fn verify_signature(&self) -> Result<bool> {
-        // Try cached
-        if let Some(sig) = self.sig_cache.lock().clone() {
+        // Try cached - use explicit scoping to ensure lock is released
+        let cached_sig = {
+            let guard = self.sig_cache.lock();
+            (*guard).clone()
+        };
+        if let Some(sig) = cached_sig {
             let manifest_hash = B3Hash::hash(&serde_json::to_vec(&self.manifest)?);
             sig.public_key
                 .verify(&manifest_hash.to_bytes(), &sig.signature)?;
@@ -374,8 +378,15 @@ impl MmapAdapter {
         };
 
         // Load signature if present and cache
+        // NOTE: Use explicit lock scoping to ensure the MutexGuard is released before
+        // the second lock acquisition. Implicit temporary lifetime in if-let expressions
+        // can cause unexpected lock contention.
         let signature = {
-            if let Some(sig) = self.sig_cache.lock().clone() {
+            let cached_sig = {
+                let guard = self.sig_cache.lock();
+                (*guard).clone()
+            };
+            if let Some(sig) = cached_sig {
                 Some(sig)
             } else {
                 let cursor = Cursor::new(&self.mmap[..]);
@@ -677,7 +688,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "FIXME: This test hangs indefinitely - investigate ZIP parsing performance issue [tracking: STAB-IGN-0156]"]
     async fn test_mmap_vs_standard_manifest() {
         let temp_dir = new_test_tempdir();
         let aos_path = temp_dir.path().join("mmap_manifest_test.aos");

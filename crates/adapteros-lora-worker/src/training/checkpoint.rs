@@ -381,11 +381,14 @@ mod tests {
             max_seq_length: None,
             gradient_accumulation_steps: None,
             determinism: None,
+            moe_config: None,
         };
 
         let weights = LoRAWeights {
             lora_a: vec![vec![1.0, 2.0], vec![3.0, 4.0]],
             lora_b: vec![vec![5.0, 6.0], vec![7.0, 8.0]],
+            moe_config: None,
+            precomputed_delta: None,
         };
 
         let checkpoint =
@@ -413,6 +416,8 @@ mod tests {
         let weights = LoRAWeights {
             lora_a: vec![vec![1.0]],
             lora_b: vec![vec![2.0]],
+            moe_config: None,
+            precomputed_delta: None,
         };
 
         // Create checkpoints for epochs 2, 4, 6, 8

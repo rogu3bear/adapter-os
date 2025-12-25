@@ -88,6 +88,25 @@ extern "C" {
         delta_lens: *const usize,
     ) -> i32;
 
+    /// Run inference with configurable output name
+    ///
+    /// For hybrid models that output hidden_states instead of logits.
+    /// Tries the specified output_name first, then falls back to:
+    /// "final_ln_output", "hidden_states", "logits"
+    ///
+    /// # Returns
+    /// - Positive: Number of elements copied to output_buffer
+    /// - Negative: Error code
+    pub fn coreml_run_inference_named_output(
+        handle: *mut std::ffi::c_void,
+        input_ids: *const u32,
+        input_len: usize,
+        output_buffer: *mut f32,
+        output_len: usize,
+        output_name: *const i8,
+        output_name_len: usize,
+    ) -> i32;
+
     /// Perform health check on model
     pub fn coreml_health_check(handle: *mut std::ffi::c_void) -> i32;
 

@@ -42,6 +42,7 @@ pub struct ReplayMetadataKv {
     pub execution_policy_id: Option<String>,
     pub execution_policy_version: Option<i32>,
     pub stop_policy_json: Option<String>,
+    pub policy_mask_digest_b3: Option<String>,
     pub created_at: String,
 }
 

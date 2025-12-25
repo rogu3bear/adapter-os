@@ -3,7 +3,7 @@
 //! Packages trained LoRA adapters into a format compatible with mplora-artifacts.
 
 use super::quantizer::{LoRAQuantizer, QuantizedLoRAWeights};
-use super::trainer::TrainingConfig;
+use super::trainer::{MoETrainingConfig, TrainingConfig};
 use adapteros_aos::{AosWriter, BackendTag};
 use adapteros_core::{AosError, RepoAdapterPaths, Result};
 use adapteros_crypto::Keypair;
@@ -98,6 +98,9 @@ pub struct AdapterManifest {
     pub backend_policy: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub kernel_version: Option<String>,
+    /// MoE (Mixture of Experts) training configuration (if trained for MoE model)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub moe_config: Option<MoETrainingConfig>,
     pub metadata: std::collections::HashMap<String, String>,
 }
 
@@ -936,6 +939,7 @@ impl AdapterPackager {
             training_slice_id,
             backend_policy,
             kernel_version: Some(adapteros_core::version::VERSION.to_string()),
+            moe_config: config.moe_config.clone(),
             metadata,
         };
 
@@ -1114,6 +1118,7 @@ impl AdapterPackager {
             training_slice_id,
             backend_policy,
             kernel_version: Some(adapteros_core::version::VERSION.to_string()),
+            moe_config: config.moe_config.clone(),
             metadata,
         };
 
@@ -1572,6 +1577,7 @@ mod tests {
             training_slice_id: None,
             backend_policy: None,
             kernel_version: None,
+            moe_config: None,
             metadata: std::collections::HashMap::new(),
         };
 

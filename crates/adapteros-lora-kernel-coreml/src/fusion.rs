@@ -1,17 +1,27 @@
-//! True LoRA Fusion for CoreML Backend
+//! Offline LoRA Fusion for CoreML Backend
 //!
-//! This module implements pre-fusion of LoRA adapters into CoreML models,
-//! creating fused `.mlmodelc` files for optimal ANE performance.
+//! This module implements **offline pre-fusion** of LoRA adapters into base model weights,
+//! creating fused safetensors files that can be exported to CoreML `.mlpackage` format.
 //!
-//! ## Architecture
+//! ## Fusion Strategy
 //!
-//! CoreML models are compiled and don't expose intermediate layer activations.
-//! To achieve true LoRA fusion (not post-hoc logit scaling), we must fuse
-//! LoRA weights into the base model weights before compilation.
+//! CoreML models are compiled and opaque - they don't expose intermediate layer activations
+//! at runtime. Therefore, this module provides **offline weight-space fusion** that:
+//!
+//! 1. Loads base model weights from safetensors format
+//! 2. Loads LoRA adapter weights (A and B matrices) from safetensors
+//! 3. Computes fused weights: W_fused = W_base + (alpha/rank) * sum(gate_i * B_i @ A_i)
+//! 4. Writes fused weights to a new safetensors file
+//! 5. The fused weights can then be converted to CoreML `.mlpackage` for ANE deployment
+//!
+//! ## NOT Runtime Fusion
+//!
+//! This module does **NOT** perform runtime LoRA fusion. For runtime adapter switching,
+//! see the sidecar path (currently stubbed - requires Metal/MLX integration).
 //!
 //! Formula: W_fused = W_base + (alpha/rank) * sum(gate_i * B_i @ A_i)
 //!
-//! ## Usage
+//! ## Usage Example
 //!
 //! ```rust,no_run
 //! use adapteros_core::Result;
@@ -21,21 +31,42 @@
 //! use adapteros_lora_kernel_coreml::ComputeUnits;
 //!
 //! fn main() -> Result<()> {
+//!     // Step 1: Pre-fuse LoRA weights into base model weights
 //!     let config = LoraFusionConfig {
-//!         base_model_path: "model.mlpackage".into(),
-//!         output_path: "fused_model.mlmodelc".into(),
+//!         base_model_path: "base_weights.safetensors".into(),  // Input: base weights
+//!         output_path: "fused_weights.safetensors".into(),      // Output: fused weights
 //!         adapters: vec![AdapterFusionSpec {
 //!             weights_path: "adapter_a.safetensors".into(),
-//!             gate_weight: 0.5,
+//!             gate_weight: 0.5,  // Q15 router weight
 //!             alpha: 32.0,
 //!             rank: 16,
 //!         }],
 //!         compute_units: ComputeUnits::CpuAndNeuralEngine,
 //!     };
 //!
-//!     fuse_lora_into_model(&config)?;
+//!     let result = fuse_lora_into_model(&config)?;
+//!     println!("✅ Fused {} layers, {} params modified",
+//!              result.layers_fused, result.total_params_modified);
+//!
+//!     // Step 2 (not shown): Convert fused_weights.safetensors to CoreML .mlpackage
+//!     // using scripts/convert_mlx_to_coreml.py or coremltools
+//!
 //!     Ok(())
 //! }
+//! ```
+//!
+//! ## Workflow Overview
+//!
+//! ```text
+//! 1. Base Model (safetensors)
+//!      ↓
+//! 2. fuse_lora_into_model() ← Adapter weights (safetensors)
+//!      ↓
+//! 3. Fused Weights (safetensors)
+//!      ↓
+//! 4. Convert to CoreML (scripts/convert_mlx_to_coreml.py)
+//!      ↓
+//! 5. Fused Model (.mlpackage) → Deploy to ANE
 //! ```
 
 use adapteros_core::{AosError, Result};
@@ -327,16 +358,23 @@ pub struct FusionStats {
     pub adapters_fused: usize,
 }
 
-/// Fuse LoRA adapters into a CoreML model
+/// Fuse LoRA adapters into base model weights (OFFLINE FUSION)
 ///
-/// This is a pure Rust implementation that fuses LoRA adapter weights into
-/// base model weights. It operates on safetensors format weights.
+/// This performs **offline weight-space fusion** of LoRA adapter weights into
+/// base model weights. The output is a safetensors file containing fused weights.
+///
+/// # Important: This is NOT Runtime Fusion
+///
+/// This function performs offline fusion and writes to disk. It does **NOT** modify
+/// a loaded CoreML model at runtime. For runtime adapter switching, see the sidecar
+/// path (currently stubbed).
 ///
 /// # Process
 /// 1. Load base model weights from safetensors
 /// 2. Load LoRA adapter weights from safetensors
 /// 3. For each target layer, compute: W_fused = W_base + sum(gate_i * alpha_i/rank_i * B_i @ A_i)
-/// 4. Return fused weights (caller is responsible for CoreML model creation)
+/// 4. Write fused weights to output safetensors file
+/// 5. Caller can convert fused weights to CoreML `.mlpackage` using coremltools
 ///
 /// # Formula
 /// ```text
@@ -350,6 +388,42 @@ pub struct FusionStats {
 /// - `rank_i`: LoRA rank (dimension of low-rank decomposition)
 /// - `A_i`: LoRA down-projection [rank, in_dim]
 /// - `B_i`: LoRA up-projection [out_dim, rank]
+///
+/// # Use Cases
+///
+/// - **Production deployment**: Pre-fuse known adapter combinations for zero runtime overhead
+/// - **Model distribution**: Ship fused models to clients (no adapter hot-swapping needed)
+/// - **Audit trails**: Generate deterministic hashes of fused weight combinations
+///
+/// # Example
+///
+/// ```rust,no_run
+/// use adapteros_lora_kernel_coreml::fusion::{
+///     LoraFusionConfig, AdapterFusionSpec, fuse_lora_into_model
+/// };
+/// use adapteros_lora_kernel_coreml::ComputeUnits;
+///
+/// let config = LoraFusionConfig {
+///     base_model_path: "base_weights.safetensors".into(),
+///     output_path: "fused_weights.safetensors".into(),
+///     adapters: vec![
+///         AdapterFusionSpec {
+///             weights_path: "adapter.safetensors".into(),
+///             gate_weight: 1.0,
+///             alpha: 32.0,
+///             rank: 16,
+///         },
+///     ],
+///     compute_units: ComputeUnits::CpuAndNeuralEngine,
+/// };
+///
+/// let result = fuse_lora_into_model(&config)?;
+/// println!("Fused {} layers", result.layers_fused);
+///
+/// // Next step (not shown): Convert fused_weights.safetensors to CoreML
+/// // using coremltools or scripts/convert_mlx_to_coreml.py
+/// # Ok::<(), adapteros_core::AosError>(())
+/// ```
 pub fn fuse_lora_into_model(config: &LoraFusionConfig) -> Result<FusionResult> {
     // Validate inputs
     if !config.base_model_path.exists() {

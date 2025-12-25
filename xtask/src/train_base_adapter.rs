@@ -178,6 +178,7 @@ pub async fn run(args: TrainBaseAdapterArgs) -> Result<()> {
         max_seq_length: None,
         gradient_accumulation_steps: None,
         determinism: None,
+        moe_config: None,
     };
 
     // Train positive adapter

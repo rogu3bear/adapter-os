@@ -284,6 +284,7 @@ mod tests {
     #[test]
     fn test_qwen2_5_config_parsing() {
         let config_json = r#"{
+            "name": "Qwen2.5-7B",
             "architecture": "Qwen2.5ForCausalLM",
             "hidden_size": 3584,
             "intermediate_size": 18944,
@@ -311,6 +312,7 @@ mod tests {
     #[test]
     fn test_lora_size_calculation() {
         let config_json = r#"{
+            "name": "Qwen2.5-7B",
             "architecture": "Qwen2.5ForCausalLM",
             "hidden_size": 3584,
             "intermediate_size": 18944,
@@ -350,6 +352,7 @@ mod tests {
     #[test]
     fn test_config_validation() {
         let config_json = r#"{
+            "name": "Qwen2.5-7B",
             "architecture": "Qwen2.5ForCausalLM",
             "hidden_size": 3584,
             "intermediate_size": 18944,
@@ -368,6 +371,7 @@ mod tests {
 
         // Invalid config: hidden_size not divisible by num_attention_heads
         let invalid_json = r#"{
+            "name": "Qwen2.5-7B",
             "architecture": "Qwen2.5ForCausalLM",
             "hidden_size": 3585,
             "intermediate_size": 18944,

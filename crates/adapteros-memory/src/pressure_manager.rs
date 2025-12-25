@@ -333,7 +333,7 @@ impl MemoryPressureManager {
 
         if self.try_evict_backend(
             &candidates,
-            BackendType::Mlx,
+            BackendType::MLX,
             target_bytes,
             &mut evicted,
             &mut total_freed,
@@ -426,7 +426,7 @@ impl MemoryPressureManager {
         let total_memory = self.tracker.get_total_memory();
         let metal_memory = self.tracker.get_backend_memory(BackendType::Metal);
         let coreml_memory = self.tracker.get_backend_memory(BackendType::CoreML);
-        let mlx_memory = self.tracker.get_backend_memory(BackendType::Mlx);
+        let mlx_memory = self.tracker.get_backend_memory(BackendType::MLX);
         let pinned_count = self.pinned_adapters.read().len();
 
         MemoryStats {
@@ -608,7 +608,7 @@ mod tests {
 
         tracker.track_adapter(1, BackendType::Metal, 100, 0);
         tracker.track_adapter(2, BackendType::CoreML, 100, 0);
-        tracker.track_adapter(3, BackendType::Mlx, 100, 0);
+        tracker.track_adapter(3, BackendType::MLX, 100, 0);
 
         // Trigger high pressure
         tracker.track_adapter(4, BackendType::Metal, 800, 0);
@@ -621,7 +621,7 @@ mod tests {
             // First eviction should be Metal or MLX (not CoreML)
             assert!(matches!(
                 first_evicted.backend,
-                BackendType::Metal | BackendType::Mlx
+                BackendType::Metal | BackendType::MLX
             ));
         }
     }

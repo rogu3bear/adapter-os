@@ -143,7 +143,7 @@ fn parse_backend(backend: &str) -> BackendType {
     match backend.to_lowercase().as_str() {
         "coreml" => BackendType::CoreML,
         "metal" => BackendType::Metal,
-        "mlx" => BackendType::Mlx,
+        "mlx" => BackendType::MLX,
         _ => BackendType::Mock, // Auto falls back to Mock for simulation
     }
 }

@@ -167,7 +167,12 @@ fn generate_weights(adapter_id: &str, rank: usize, hidden_dim: usize) -> LoRAWei
         lora_b.push(row);
     }
 
-    LoRAWeights { lora_a, lora_b }
+    LoRAWeights {
+        lora_a,
+        lora_b,
+        moe_config: None,
+        precomputed_delta: None,
+    }
 }
 
 #[cfg(test)]

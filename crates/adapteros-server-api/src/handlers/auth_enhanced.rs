@@ -8,6 +8,7 @@ use crate::auth::{
 };
 use crate::auth_common::{
     attach_auth_cookie, attach_csrf_cookie, attach_refresh_cookie, clear_auth_cookies, AuthConfig,
+    AuthContext,
 };
 use crate::ip_extraction::ClientIp;
 use crate::mfa::{
@@ -3039,6 +3040,9 @@ pub async fn dev_bypass_handler(
         mfa_enrolled_at: None,
         mfa_last_verified_at: None,
         mfa_recovery_last_used_at: None,
+        password_rotated_at: None,
+        token_rotated_at: None,
+        last_login_at: Some(Utc::now().to_rfc3339()),
     };
 
     let mut ctx = AuthContext::from_user(dev_user).map_err(|err| {

@@ -85,9 +85,12 @@ pub async fn list_adapters(
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(
-                    ErrorResponse::new("failed to list adapters")
-                        .with_code("INTERNAL_ERROR")
-                        .with_string_details(e.to_string()),
+                    ErrorResponse::new("Failed to retrieve adapters from database")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(format!(
+                            "Database query failed for tenant '{}'. This may indicate a temporary connection issue. Try again in a moment. Technical details: {}",
+                            claims.tenant_id, e
+                        )),
                 ),
             )
         })?;
@@ -225,9 +228,12 @@ pub async fn create_adapter_repository(
             (
                 StatusCode::BAD_REQUEST,
                 Json(
-                    ErrorResponse::new("failed to create repository")
-                        .with_code("VALIDATION_ERROR")
-                        .with_string_details(e.to_string()),
+                    ErrorResponse::new("Failed to create adapter repository")
+                        .with_code("REPOSITORY_CREATION_FAILED")
+                        .with_string_details(format!(
+                            "Repository '{}' could not be created for tenant '{}'. Common causes: duplicate repository name, invalid base model ID, or database constraint violation. Technical details: {}",
+                            req.name, claims.tenant_id, e
+                        )),
                 ),
             )
         })?;
@@ -279,9 +285,12 @@ pub async fn get_adapter_repository(
             return Err((
                 StatusCode::NOT_FOUND,
                 Json(
-                    ErrorResponse::new("repository not found")
-                        .with_code("NOT_FOUND")
-                        .with_string_details(repo_id),
+                    ErrorResponse::new("Adapter repository not found")
+                        .with_code("REPOSITORY_NOT_FOUND")
+                        .with_string_details(format!(
+                            "Repository '{}' does not exist for tenant '{}'. Check the repository ID and ensure it was created successfully.",
+                            repo_id, claims.tenant_id
+                        )),
                 ),
             ))
         }
@@ -295,9 +304,12 @@ pub async fn get_adapter_repository(
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(
-                    ErrorResponse::new("failed to fetch repository policy")
-                        .with_code("INTERNAL_ERROR")
-                        .with_string_details(e.to_string()),
+                    ErrorResponse::new("Failed to retrieve repository training policy")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(format!(
+                            "Could not load training policy for repository '{}'. The repository exists but policy metadata is inaccessible. Technical details: {}",
+                            repo_id, e
+                        )),
                 ),
             )
         })?;
@@ -398,9 +410,12 @@ pub async fn upsert_adapter_repository_policy(
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(
-                    ErrorResponse::new("failed to upsert repository policy")
-                        .with_code("INTERNAL_ERROR")
-                        .with_string_details(e.to_string()),
+                    ErrorResponse::new("Failed to update repository training policy")
+                        .with_code("POLICY_UPDATE_FAILED")
+                        .with_string_details(format!(
+                            "Training policy for repository '{}' could not be updated. Verify that backend preferences and CoreML settings are valid. Technical details: {}",
+                            repo_id, e
+                        )),
                 ),
             )
         })?;
@@ -549,9 +564,12 @@ pub async fn archive_adapter_repository(
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(
-                    ErrorResponse::new("failed to archive repository")
-                        .with_code("INTERNAL_ERROR")
-                        .with_string_details(e.to_string()),
+                    ErrorResponse::new("Failed to archive adapter repository")
+                        .with_code("ARCHIVE_FAILED")
+                        .with_string_details(format!(
+                            "Repository '{}' could not be archived. This operation marks the repository as inactive. Technical details: {}",
+                            repo_id, e
+                        )),
                 ),
             )
         })?;
@@ -560,9 +578,12 @@ pub async fn archive_adapter_repository(
         return Err((
             StatusCode::NOT_FOUND,
             Json(
-                ErrorResponse::new("repository not found")
-                    .with_code("NOT_FOUND")
-                    .with_string_details(repo_id),
+                ErrorResponse::new("Adapter repository not found")
+                    .with_code("REPOSITORY_NOT_FOUND")
+                    .with_string_details(format!(
+                        "Repository '{}' does not exist for tenant '{}'. Cannot archive non-existent repository.",
+                        repo_id, claims.tenant_id
+                    )),
             ),
         ));
     }
@@ -600,9 +621,12 @@ pub async fn list_adapter_repositories(
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(
-                    ErrorResponse::new("failed to list adapter repositories")
-                        .with_code("INTERNAL_ERROR")
-                        .with_string_details(e.to_string()),
+                    ErrorResponse::new("Failed to retrieve adapter repositories")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(format!(
+                            "Could not list repositories for tenant '{}'. This may indicate a temporary database issue. Try again in a moment. Technical details: {}",
+                            claims.tenant_id, e
+                        )),
                 ),
             )
         })?;
@@ -756,9 +780,12 @@ pub async fn list_adapter_versions(
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(
-                    ErrorResponse::new("failed to list adapter versions")
-                        .with_code("INTERNAL_ERROR")
-                        .with_string_details(e.to_string()),
+                    ErrorResponse::new("Failed to retrieve adapter versions")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(format!(
+                            "Could not list versions for repository '{}'. Verify the repository exists and is accessible. Technical details: {}",
+                            repo_id, e
+                        )),
                 ),
             )
         })?;
@@ -935,9 +962,12 @@ pub async fn create_draft_version(
             (
                 StatusCode::BAD_REQUEST,
                 Json(
-                    ErrorResponse::new("failed to create draft version")
-                        .with_code("VALIDATION_ERROR")
-                        .with_string_details(e.to_string()),
+                    ErrorResponse::new("Failed to create draft adapter version")
+                        .with_code("VERSION_CREATION_FAILED")
+                        .with_string_details(format!(
+                            "Draft version for repository '{}' on branch '{}' could not be created. Common causes: invalid parent version ID, branch naming conflict, or database constraint violation. Technical details: {}",
+                            req.repo_id, req.branch, e
+                        )),
                 ),
             )
         })?;
@@ -976,9 +1006,12 @@ pub async fn get_adapter_version(
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(
-                    ErrorResponse::new("failed to load adapter version")
-                        .with_code("INTERNAL_ERROR")
-                        .with_string_details(e.to_string()),
+                    ErrorResponse::new("Failed to retrieve adapter version")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(format!(
+                            "Adapter version '{}' could not be loaded. Verify the version ID is correct and accessible. Technical details: {}",
+                            version_id, e
+                        )),
                 ),
             )
         })?;
@@ -988,7 +1021,14 @@ pub async fn get_adapter_version(
         None => {
             return Err((
                 StatusCode::NOT_FOUND,
-                Json(ErrorResponse::new("version not found").with_code("NOT_FOUND")),
+                Json(
+                    ErrorResponse::new("Adapter version not found")
+                        .with_code("VERSION_NOT_FOUND")
+                        .with_string_details(format!(
+                            "Version '{}' does not exist for tenant '{}'. Check the version ID or list available versions using GET /v1/adapter-repositories/{{repo_id}}/versions",
+                            version_id, claims.tenant_id
+                        ))
+                ),
             ))
         }
     };
@@ -1001,9 +1041,12 @@ pub async fn get_adapter_version(
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(
-                    ErrorResponse::new("failed to load dataset versions")
-                        .with_code("INTERNAL_ERROR")
-                        .with_string_details(e.to_string()),
+                    ErrorResponse::new("Failed to load training dataset lineage")
+                        .with_code("LINEAGE_LOAD_FAILED")
+                        .with_string_details(format!(
+                            "Dataset version metadata for adapter version '{}' could not be retrieved. Training data provenance is unavailable. Technical details: {}",
+                            version.id, e
+                        )),
                 ),
             )
         })?;

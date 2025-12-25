@@ -144,3 +144,96 @@ fn wait_with_timeout(
         std::thread::sleep(Duration::from_millis(100));
     }
 }
+
+/// Test that worker fails fast at startup if cache budget is not configured.
+/// This verifies the fail-fast behavior required by PRD-RECT-005.
+#[test]
+fn test_worker_fails_fast_on_missing_cache_budget() -> anyhow::Result<()> {
+    // Use a minimal test setup that doesn't require a real model
+    let uds_path = "var/run/test-no-budget.sock";
+
+    if let Some(parent) = Path::new(uds_path).parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let _ = fs::remove_file(uds_path);
+
+    // Create a temporary manifest file (even though we won't reach model loading)
+    let temp_dir = tempfile::tempdir()?;
+    let manifest_path = temp_dir.path().join("test-manifest.yaml");
+    fs::write(&manifest_path, r#"
+schema: adapteros.manifest.v3
+base:
+  model_id: test-model
+  model_hash: "0000000000000000000000000000000000000000000000000000000000000000"
+  arch: llama
+  vocab_size: 32000
+  hidden_dim: 4096
+  n_layers: 32
+  n_heads: 32
+  config_hash: "0000000000000000000000000000000000000000000000000000000000000000"
+  tokenizer_hash: "0000000000000000000000000000000000000000000000000000000000000000"
+  tokenizer_cfg_hash: "0000000000000000000000000000000000000000000000000000000000000000"
+"#)?;
+
+    // Spawn worker WITHOUT setting AOS_MODEL_CACHE_MAX_MB
+    // This should fail fast at startup, NOT when trying to load a model
+    let mut command = Command::new("cargo");
+    let start = Instant::now();
+
+    let mut child = command
+        .arg("run")
+        .arg("-p")
+        .arg("adapteros-lora-worker")
+        .arg("--bin")
+        .arg("aos-worker")
+        .arg("--")
+        .arg("--uds-path")
+        .arg(uds_path)
+        .arg("--manifest")
+        .arg(manifest_path.to_str().unwrap())
+        .env_remove("AOS_MODEL_CACHE_MAX_MB")  // Ensure it's not set
+        .env("AOS_DEV_NO_AUTH", "1")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+
+    // Wait for process to exit
+    let status = wait_with_timeout(&mut child, Duration::from_secs(30))?;
+    let elapsed = start.elapsed();
+
+    // Read stderr to verify error message
+    let stderr = child.stderr.take();
+    let stderr_output = if let Some(stderr) = stderr {
+        let mut buf = String::new();
+        std::io::Read::read_to_string(&mut stderr, &mut buf).ok();
+        buf
+    } else {
+        String::new()
+    };
+
+    // Cleanup
+    let _ = fs::remove_file(uds_path);
+
+    // Verify exit code is 1 (EXIT_CONFIG_ERROR)
+    assert!(!status.success(), "Worker should fail when cache budget not configured");
+    assert_eq!(status.code(), Some(1), "Worker should exit with code 1 (EXIT_CONFIG_ERROR)");
+
+    // Verify the worker failed FAST (within a few seconds, not after expensive operations)
+    // The comment in aos_worker.rs says this should save "100-200ms of wasted work"
+    // Let's be generous and say it should fail within 10 seconds
+    assert!(
+        elapsed < Duration::from_secs(10),
+        "Worker should fail fast, but took {:?}",
+        elapsed
+    );
+
+    // Verify error message mentions cache budget
+    assert!(
+        stderr_output.contains("Model cache budget not configured")
+            || stderr_output.contains("AOS_MODEL_CACHE_MAX_MB"),
+        "Error output should mention cache budget configuration: {}",
+        stderr_output
+    );
+
+    Ok(())
+}

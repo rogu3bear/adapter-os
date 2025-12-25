@@ -390,8 +390,8 @@ impl ModelLoader {
     }
 
     /// Get RoPE configuration
-    pub fn get_rope_config(&self) -> RopeConfig {
-        RopeConfig {
+    pub fn get_rope_config(&self) -> RoPEConfig {
+        RoPEConfig {
             theta: self.config.rope_theta,
             scaling_factor: self.config.rope_scaling_factor,
             max_position_embeddings: self.config.max_position_embeddings,
@@ -410,11 +410,15 @@ pub struct GqaConfig {
 
 /// RoPE (Rotary Position Embedding) configuration
 #[derive(Debug, Clone)]
-pub struct RopeConfig {
+pub struct RoPEConfig {
     pub theta: f32,
     pub scaling_factor: Option<f32>,
     pub max_position_embeddings: u32,
 }
+
+/// Deprecated alias for backwards compatibility
+#[deprecated(since = "0.12.0", note = "Use `RoPEConfig` instead (correct RoPE casing)")]
+pub type RopeConfig = RoPEConfig;
 
 #[cfg(test)]
 mod tests {
@@ -505,6 +509,8 @@ mod tests {
             // State management hints
             auto_promote: false,
             eviction_priority: adapteros_manifest::EvictionPriority::Normal,
+            free_tokens: None,
+            hot_experts: None,
         };
 
         let loader = ModelLoader {

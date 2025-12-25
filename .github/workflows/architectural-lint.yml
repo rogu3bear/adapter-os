@@ -19,6 +19,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Check MoE/LoRA naming conventions
+        run: bash scripts/check_moe_lora_naming.sh
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:

@@ -907,6 +907,8 @@ impl<'a> InferenceCore<'a> {
                 .await?;
         }
 
+        let routing_policy = Some(execution_policy.routing.clone().unwrap_or_default());
+
         // 3. Create worker request with full sampling parameters
         // ┌─────────────────────────────────────────────────────────────────┐
         // │ Adapter Pipeline: Worker will apply K-sparse routing            │
@@ -938,7 +940,7 @@ impl<'a> InferenceCore<'a> {
             determinism_mode: request.determinism_mode.clone(),
             routing_determinism_mode: request.routing_determinism_mode,
             effective_adapter_ids: request.effective_adapter_ids.clone(),
-            routing_policy: execution_policy.routing.clone(),
+            routing_policy,
             placement: None,
             adapter_strength_overrides: request.adapter_strength_overrides.clone(),
             stop_policy: request.stop_policy.clone(),
@@ -2599,6 +2601,7 @@ impl<'a> InferenceCore<'a> {
             execution_policy_id: None,
             execution_policy_version: None,
             stop_policy_json,
+            policy_mask_digest_b3: request.policy_mask_digest.as_ref().map(hex::encode),
         }
     }
 
@@ -2887,6 +2890,7 @@ impl<'a> InferenceCore<'a> {
             execution_policy_id: execution_policy_id.map(|s| s.to_string()),
             execution_policy_version: execution_policy_version.map(|v| v as i32),
             stop_policy_json,
+            policy_mask_digest_b3: request.policy_mask_digest.as_ref().map(hex::encode),
         };
 
         // Store to database (best effort - don't fail inference on capture error)

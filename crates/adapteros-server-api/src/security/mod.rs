@@ -584,6 +584,7 @@ pub async fn upsert_user_session(
     device_id: Option<&str>,
     rot_id: Option<&str>,
     refresh_hash: Option<&str>,
+    session_expires_at: &str,
     refresh_expires_at: &str,
     ip_address: Option<&str>,
     user_agent: Option<&str>,
@@ -616,7 +617,7 @@ pub async fn upsert_user_session(
         .bind(user_id)
         .bind(tenant_id)
         .bind(&created_at)
-        .bind(refresh_expires_at)
+        .bind(session_expires_at)
         .bind(refresh_expires_at)
         .bind(device_id)
         .bind(rot_id)

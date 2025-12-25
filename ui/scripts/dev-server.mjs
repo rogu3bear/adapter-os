@@ -75,7 +75,7 @@ if ((process.env.AOS_E2E_RESET_DB ?? '1') !== '0') {
 const backendLog = path.resolve(projectRoot, 'server-dev.log');
 const backendHost = process.env.AOS_SERVER_HOST ?? '127.0.0.1';
 const backendPort = process.env.AOS_SERVER_PORT ?? process.env.AOS_SERVER__PORT ?? '8080';
-const healthPath = process.env.AOS_BACKEND_HEALTH_PATH ?? '/api/readyz'; // Public, no auth required; see routes.rs
+const healthPath = process.env.AOS_BACKEND_HEALTH_PATH ?? '/api/healthz'; // Use healthz for dev (boot state only); readyz requires workers
 const readinessHost = backendHost === '0.0.0.0' ? '127.0.0.1' : backendHost;
 const healthUrl = `http://${readinessHost}:${backendPort}${healthPath}`;
 const backendWaitMs = Number(process.env.AOS_BACKEND_WAIT_MS ?? '180000');

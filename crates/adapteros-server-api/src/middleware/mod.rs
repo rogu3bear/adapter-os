@@ -471,7 +471,8 @@ async fn validate_access_token_with_session(
         match repo.get_session(&session_id).await {
             Ok(Some(session)) => {
                 let now = Utc::now().timestamp();
-                let expiry = session.refresh_expires_at.unwrap_or(session.expires_at);
+                // Use the longer session expiry (expires_at) for session validation
+                let expiry = session.expires_at;
                 if now >= expiry {
                     tracing::warn!(session_id = %session_id, "Session expired");
                     return Err(session_expired("session no longer valid"));
@@ -516,11 +517,15 @@ async fn validate_access_token_with_session(
         // SQL fallback
         match get_session_by_id(&state.db, &session_id).await {
             Ok(Some(session)) => {
-                let session_exp_ts = session
-                    .refresh_expires_at
-                    .as_ref()
-                    .or(Some(&session.expires_at))
-                    .and_then(|dt| chrono::DateTime::parse_from_rfc3339(dt).ok())
+                // Use the longer session expiry (expires_at), falling back to refresh_expires_at
+                let session_exp_ts = chrono::DateTime::parse_from_rfc3339(&session.expires_at)
+                    .ok()
+                    .or_else(|| {
+                        session
+                            .refresh_expires_at
+                            .as_ref()
+                            .and_then(|dt| chrono::DateTime::parse_from_rfc3339(dt).ok())
+                    })
                     .map(|dt| dt.timestamp())
                     .unwrap_or(now_ts);
 

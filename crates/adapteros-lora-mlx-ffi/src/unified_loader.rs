@@ -2,10 +2,16 @@
 //!
 //! Provides zero-copy GPU loading when MLX is available, falling back
 //! to the Rust safetensors crate for compatibility.
+//!
+//! When `mlx-rs-backend` feature is enabled, uses pure Rust loading
+//! with conversion to mlx-rs Array types.
 
 use adapteros_core::{AosError, Result};
 use std::collections::HashMap;
 use std::path::Path;
+
+#[cfg(feature = "mlx-rs-backend")]
+use crate::array::MlxArray;
 
 /// Loading strategy preference
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -13,7 +19,7 @@ pub enum LoadStrategy {
     /// Try MLX native first, fallback to Rust crate
     #[default]
     MlxPreferred,
-    /// Always use Rust crate
+    /// Always use Rust crate (or mlx-rs when that feature is enabled)
     RustOnly,
 }
 
@@ -28,7 +34,8 @@ pub struct TensorMetadata {
 
 /// Unified SafeTensors loader
 pub struct UnifiedSafeTensorsLoader {
-    /// MLX weights handle (if loaded via MLX)
+    /// MLX weights handle (if loaded via MLX FFI - only when not using mlx-rs-backend)
+    #[cfg(not(feature = "mlx-rs-backend"))]
     mlx_weights: Option<*mut crate::mlx_weights_t>,
     /// Rust safetensors data (if loaded via Rust)
     rust_data: Option<Vec<u8>>,
@@ -40,6 +47,23 @@ pub struct UnifiedSafeTensorsLoader {
 
 impl UnifiedSafeTensorsLoader {
     /// Load safetensors file with specified strategy
+    #[cfg(feature = "mlx-rs-backend")]
+    pub fn load<P: AsRef<Path>>(path: P, _strategy: LoadStrategy) -> Result<Self> {
+        // mlx-rs backend always uses pure Rust loading
+        let path = path.as_ref();
+
+        if !path.exists() {
+            return Err(AosError::NotFound(format!(
+                "SafeTensors file not found: {}",
+                path.display()
+            )));
+        }
+
+        Self::load_rust_crate(path)
+    }
+
+    /// Load safetensors file with specified strategy (legacy FFI path)
+    #[cfg(not(feature = "mlx-rs-backend"))]
     pub fn load<P: AsRef<Path>>(path: P, strategy: LoadStrategy) -> Result<Self> {
         let path = path.as_ref();
 
@@ -73,7 +97,8 @@ impl UnifiedSafeTensorsLoader {
         }
     }
 
-    /// Load using MLX C++ FFI
+    /// Load using MLX C++ FFI (only available when not using mlx-rs-backend)
+    #[cfg(not(feature = "mlx-rs-backend"))]
     fn load_mlx_native(path: &Path) -> Result<Self> {
         // Ensure MLX is initialized
         crate::mlx_ensure_initialized(true)?;
@@ -154,14 +179,29 @@ impl UnifiedSafeTensorsLoader {
         for (name, _) in tensors.tensors() {
             if let Ok(view) = tensors.tensor(&name) {
                 let shape: Vec<usize> = view.shape().to_vec();
+                let dtype = format!("{:?}", view.dtype());
+                let elem_size = match view.dtype() {
+                    safetensors::Dtype::F32 | safetensors::Dtype::I32 | safetensors::Dtype::U32 => {
+                        4
+                    }
+                    safetensors::Dtype::F16
+                    | safetensors::Dtype::BF16
+                    | safetensors::Dtype::I16
+                    | safetensors::Dtype::U16 => 2,
+                    safetensors::Dtype::I8 | safetensors::Dtype::U8 | safetensors::Dtype::BOOL => 1,
+                    safetensors::Dtype::F64 | safetensors::Dtype::I64 | safetensors::Dtype::U64 => {
+                        8
+                    }
+                    _ => 4, // Default to 4 bytes
+                };
                 let size: usize = shape.iter().product();
                 tensor_info.insert(
                     name.to_string(),
                     TensorMetadata {
                         name: name.to_string(),
                         shape,
-                        dtype: format!("{:?}", view.dtype()),
-                        size_bytes: size * 4,
+                        dtype,
+                        size_bytes: size * elem_size,
                     },
                 );
             }
@@ -170,6 +210,7 @@ impl UnifiedSafeTensorsLoader {
         tracing::info!(path = %path.display(), tensors = tensor_info.len(), "Loaded via Rust crate");
 
         Ok(Self {
+            #[cfg(not(feature = "mlx-rs-backend"))]
             mlx_weights: None,
             rust_data: Some(data),
             tensor_info,
@@ -177,7 +218,25 @@ impl UnifiedSafeTensorsLoader {
         })
     }
 
-    /// Get tensor as f32 vec
+    /// Get tensor as f32 vec (mlx-rs-backend)
+    #[cfg(feature = "mlx-rs-backend")]
+    pub fn get_tensor_f32(&self, name: &str) -> Result<Vec<f32>> {
+        if let Some(ref data) = self.rust_data {
+            let tensors = safetensors::SafeTensors::deserialize(data)
+                .map_err(|e| AosError::Parse(format!("Parse error: {}", e)))?;
+
+            let view = tensors
+                .tensor(name)
+                .map_err(|_| AosError::NotFound(format!("Tensor not found: {}", name)))?;
+
+            Self::convert_tensor_to_f32(&view)
+        } else {
+            Err(AosError::Internal("No data loaded".to_string()))
+        }
+    }
+
+    /// Get tensor as f32 vec (legacy FFI)
+    #[cfg(not(feature = "mlx-rs-backend"))]
     pub fn get_tensor_f32(&self, name: &str) -> Result<Vec<f32>> {
         if let Some(weights) = self.mlx_weights {
             // MLX path
@@ -210,16 +269,59 @@ impl UnifiedSafeTensorsLoader {
                 .tensor(name)
                 .map_err(|_| AosError::NotFound(format!("Tensor not found: {}", name)))?;
 
-            let bytes = view.data();
-            let floats: Vec<f32> = bytes
-                .chunks_exact(4)
-                .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
-                .collect();
-
-            Ok(floats)
+            Self::convert_tensor_to_f32(&view)
         } else {
             Err(AosError::Internal("No data loaded".to_string()))
         }
+    }
+
+    /// Convert safetensors view to f32 vec (handles multiple dtypes)
+    fn convert_tensor_to_f32(view: &safetensors::tensor::TensorView<'_>) -> Result<Vec<f32>> {
+        let bytes = view.data();
+        match view.dtype() {
+            safetensors::Dtype::F32 => Ok(bytes
+                .chunks_exact(4)
+                .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
+                .collect()),
+            safetensors::Dtype::F16 => {
+                // Convert f16 to f32
+                Ok(bytes
+                    .chunks_exact(2)
+                    .map(|chunk| {
+                        let bits = u16::from_le_bytes([chunk[0], chunk[1]]);
+                        half_to_f32(bits)
+                    })
+                    .collect())
+            }
+            safetensors::Dtype::BF16 => {
+                // Convert bf16 to f32
+                Ok(bytes
+                    .chunks_exact(2)
+                    .map(|chunk| {
+                        let bits = u16::from_le_bytes([chunk[0], chunk[1]]);
+                        bf16_to_f32(bits)
+                    })
+                    .collect())
+            }
+            safetensors::Dtype::I32 => Ok(bytes
+                .chunks_exact(4)
+                .map(|chunk| i32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]) as f32)
+                .collect()),
+            safetensors::Dtype::I8 => Ok(bytes.iter().map(|&b| b as i8 as f32).collect()),
+            other => Err(AosError::Mlx(format!("Unsupported dtype: {:?}", other))),
+        }
+    }
+
+    /// Get tensor as MlxArray (mlx-rs-backend only)
+    #[cfg(feature = "mlx-rs-backend")]
+    pub fn get_tensor_mlx(&self, name: &str) -> Result<MlxArray> {
+        let f32_data = self.get_tensor_f32(name)?;
+        let meta = self
+            .get_metadata(name)
+            .ok_or_else(|| AosError::NotFound(format!("Tensor metadata not found: {}", name)))?;
+
+        let shape_i32: Vec<i32> = meta.shape.iter().map(|&s| s as i32).collect();
+        MlxArray::from_slice_f32(&f32_data, &shape_i32)
     }
 
     /// List tensor names
@@ -238,6 +340,7 @@ impl UnifiedSafeTensorsLoader {
     }
 }
 
+#[cfg(not(feature = "mlx-rs-backend"))]
 impl Drop for UnifiedSafeTensorsLoader {
     fn drop(&mut self) {
         if let Some(weights) = self.mlx_weights.take() {
@@ -246,4 +349,47 @@ impl Drop for UnifiedSafeTensorsLoader {
             }
         }
     }
+}
+
+// f16/bf16 conversion helpers
+
+/// Convert IEEE 754 half-precision (f16) to f32
+fn half_to_f32(bits: u16) -> f32 {
+    let sign = ((bits >> 15) & 1) as u32;
+    let exp = ((bits >> 10) & 0x1F) as u32;
+    let mantissa = (bits & 0x3FF) as u32;
+
+    if exp == 0 {
+        // Denormalized number or zero
+        if mantissa == 0 {
+            f32::from_bits(sign << 31)
+        } else {
+            // Denormalized
+            let mut m = mantissa;
+            let mut e = 0i32;
+            while (m & 0x400) == 0 {
+                m <<= 1;
+                e -= 1;
+            }
+            m &= 0x3FF;
+            let new_exp = (127 - 15 + 1 + e) as u32;
+            f32::from_bits((sign << 31) | (new_exp << 23) | (m << 13))
+        }
+    } else if exp == 31 {
+        // Infinity or NaN
+        if mantissa == 0 {
+            f32::from_bits((sign << 31) | (0xFF << 23))
+        } else {
+            f32::from_bits((sign << 31) | (0xFF << 23) | (mantissa << 13))
+        }
+    } else {
+        // Normalized number
+        let new_exp = (exp as i32 - 15 + 127) as u32;
+        f32::from_bits((sign << 31) | (new_exp << 23) | (mantissa << 13))
+    }
+}
+
+/// Convert bfloat16 to f32 (simple padding - bf16 is just truncated f32)
+fn bf16_to_f32(bits: u16) -> f32 {
+    f32::from_bits((bits as u32) << 16)
 }

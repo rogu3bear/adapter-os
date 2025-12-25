@@ -1,0 +1,30 @@
+# Requirements for MLX to CoreML MoE Conversion
+# ================================================
+#
+# Usage:
+#   pip install -r scripts/requirements-convert.txt
+#
+# Or with virtual environment:
+#   python3 -m venv .venv-convert
+#   source .venv-convert/bin/activate
+#   pip install -r scripts/requirements-convert.txt
+
+# Core conversion tools
+coremltools>=9.0.0
+numpy>=1.24.0,<2.0.0
+
+# Weight loading
+safetensors>=0.4.0
+
+# MLX for reference (optional, but useful for validation)
+mlx>=0.12.0
+
+# Model utilities
+transformers>=4.40.0
+
+# PyTorch for bfloat16 conversion (required for MLX models)
+torch>=2.0.0
+
+# Development tools (optional)
+# tqdm  # Progress bars for long conversions
+# psutil  # Memory monitoring

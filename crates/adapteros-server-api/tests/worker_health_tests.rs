@@ -6,6 +6,7 @@
 //! - Worker recovery (degraded -> healthy transition)
 
 use adapteros_core::Result;
+use adapteros_db::workers::WorkerIncidentType;
 use adapteros_db::Db;
 use adapteros_server_api::worker_health::{HealthConfig, WorkerHealthMonitor, WorkerHealthStatus};
 use std::sync::Arc;
@@ -179,7 +180,7 @@ async fn test_fatal_incident_recorded_in_database() {
     db.insert_worker_incident(
         worker_id,
         tenant_id,
-        "fatal",
+        WorkerIncidentType::Fatal,
         "PANIC: Out of memory during inference",
         Some("at src/inference.rs:123\n  in inference_handler"),
         None,
@@ -195,7 +196,7 @@ async fn test_fatal_incident_recorded_in_database() {
 
     assert_eq!(incidents.len(), 1, "Should have exactly one incident");
     let incident = &incidents[0];
-    assert_eq!(incident.incident_type, "fatal");
+    assert_eq!(incident.incident_type, WorkerIncidentType::Fatal);
     assert!(incident.reason.contains("PANIC"));
     assert!(incident.backtrace_snippet.is_some());
 }
@@ -210,12 +211,12 @@ async fn test_multiple_incident_types_recorded() {
         .await
         .expect("Failed to create test worker");
 
-    // Insert various incident types
-    for (i, incident_type) in ["fatal", "crash", "hung", "degraded"].iter().enumerate() {
+    // Insert all valid incident types using the enum (covers all 5 CHECK constraint values)
+    for (i, incident_type) in WorkerIncidentType::ALL.iter().enumerate() {
         db.insert_worker_incident(
             worker_id,
             tenant_id,
-            incident_type,
+            *incident_type,
             &format!("Test {} incident", incident_type),
             None,
             Some(1000.0 + i as f64 * 100.0),
@@ -224,20 +225,30 @@ async fn test_multiple_incident_types_recorded() {
         .expect("Failed to insert incident");
     }
 
-    // Verify all incidents are recorded
+    // Verify all 5 incidents are recorded (fatal, crash, hung, degraded, recovered)
     let incidents = db
         .list_worker_incidents(worker_id, Some(10))
         .await
         .expect("Failed to list incidents");
 
-    assert_eq!(incidents.len(), 4, "Should have all 4 incidents");
+    assert_eq!(incidents.len(), 5, "Should have all 5 incident types");
+
+    // Verify each incident type was recorded correctly
+    let incident_types: Vec<&str> = incidents.iter().map(|i| i.incident_type.as_str()).collect();
+    for expected_type in WorkerIncidentType::ALL {
+        assert!(
+            incident_types.contains(&expected_type.as_str()),
+            "Missing incident type: {}",
+            expected_type
+        );
+    }
 
     // Verify incident count method
     let count = db
         .get_worker_incident_count(worker_id)
         .await
         .expect("Failed to count incidents");
-    assert_eq!(count, 4, "Incident count should match");
+    assert_eq!(count, 5, "Incident count should match");
 }
 
 // =============================================================================

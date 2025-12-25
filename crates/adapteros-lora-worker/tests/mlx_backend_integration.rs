@@ -156,7 +156,7 @@ fn test_mlx_determinism_attestation() {
     // Verify backend type is MLX
     assert_eq!(
         attestation.backend_type,
-        BackendType::Mlx,
+        BackendType::MLX,
         "Backend type should be Mlx"
     );
 

@@ -670,6 +670,25 @@ pub async fn execute_replay(
         serde_json::from_str::<adapteros_api_types::inference::StopPolicySpec>(json).ok()
     });
 
+    // Restore policy_mask_digest from metadata for audit trail completeness
+    let stored_policy_mask_digest = metadata
+        .policy_mask_digest_b3
+        .as_ref()
+        .and_then(|hex_str| {
+            hex::decode(hex_str)
+                .ok()
+                .and_then(|bytes| bytes.try_into().ok())
+        });
+
+    // Log warning if policy_mask_digest is missing (indicates incomplete audit trail)
+    if stored_policy_mask_digest.is_none() && metadata.policy_mask_digest_b3.is_some() {
+        warn!(
+            inference_id = %inference_id,
+            replay_id = %replay_id,
+            "Policy mask digest found in metadata but failed to decode"
+        );
+    }
+
     let inference_request = InferenceRequestInternal {
         request_id: replay_id.clone(),
         cpid: claims.tenant_id.clone(),
@@ -711,7 +730,7 @@ pub async fn execute_replay(
         stop_policy, // Restored from original inference for deterministic replay
         created_at: std::time::Instant::now(),
         worker_auth_token: None,
-        policy_mask_digest: None, // TODO: Restore from metadata when stored
+        policy_mask_digest: stored_policy_mask_digest, // Restored from metadata for audit trail
     };
 
     if base_only
@@ -766,6 +785,22 @@ pub async fn execute_replay(
                     .with_string_details(&violation.message),
             ),
         ));
+    }
+
+    // Log policy mask digest restoration for audit trail
+    if let Some(digest) = stored_policy_mask_digest {
+        debug!(
+            inference_id = %inference_id,
+            replay_id = %replay_id,
+            policy_mask_digest = %hex::encode(digest),
+            "Restored policy mask digest from original inference"
+        );
+    } else if metadata.policy_mask_digest_b3.is_none() {
+        debug!(
+            inference_id = %inference_id,
+            replay_id = %replay_id,
+            "No policy mask digest found in metadata (legacy inference or no policies applied)"
+        );
     }
 
     // Execute inference through InferenceCore (PRD-02: unified inference path)

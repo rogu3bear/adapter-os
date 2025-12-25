@@ -14,6 +14,9 @@
 #include <atomic>
 #include <mutex>
 #include <cstdint>
+#include <tuple>
+#include <algorithm>
+#include <optional>
 
 // Only compile with real MLX if MLX_REAL is defined (set by build.rs)
 #ifdef MLX_REAL
@@ -41,24 +44,6 @@ static std::unordered_map<uintptr_t, size_t> g_allocation_map;  // Track individ
 // Runtime state
 static std::atomic<bool> g_initialized(false);
 static mlx_device_type_t g_current_device_type = MLX_DEVICE_AUTO;
-
-// LoRA adapter cache
-struct LoRACacheEntry {
-    mx::array lora_a;
-    mx::array lora_b;
-    uint64_t last_access;  // For LRU eviction
-
-    // Default constructor required for unordered_map
-    LoRACacheEntry() : lora_a(mx::array(0.0f)), lora_b(mx::array(0.0f)), last_access(0) {}
-
-    // Constructor with values
-    LoRACacheEntry(mx::array a, mx::array b, uint64_t access)
-        : lora_a(std::move(a)), lora_b(std::move(b)), last_access(access) {}
-};
-static std::mutex g_lora_cache_mutex;
-static std::unordered_map<std::string, LoRACacheEntry> g_lora_cache;
-static size_t g_lora_cache_limit = 32;
-static uint64_t g_lora_access_counter = 0;
 
 /// Calculate bytes used by an MLX array dtype
 static inline size_t get_dtype_size(mx::Dtype dtype) {
@@ -101,35 +86,10 @@ static inline void unrecord_allocation(uintptr_t ptr) {
     }
 }
 
-// Helper function to create Shape from dimensions
-inline mx::Shape make_shape(int32_t size) {
-    mx::Shape shape;
-    shape.push_back(size);
-    return shape;
-}
-
-inline mx::Shape make_shape(int32_t d1, int32_t d2) {
-    mx::Shape shape;
-    shape.push_back(d1);
-    shape.push_back(d2);
-    return shape;
-}
-
-inline mx::Shape make_shape(int32_t d1, int32_t d2, int32_t d3) {
-    mx::Shape shape;
-    shape.push_back(d1);
-    shape.push_back(d2);
-    shape.push_back(d3);
-    return shape;
-}
-
-inline mx::Shape make_shape(int32_t d1, int32_t d2, int32_t d3, int32_t d4) {
-    mx::Shape shape;
-    shape.push_back(d1);
-    shape.push_back(d2);
-    shape.push_back(d3);
-    shape.push_back(d4);
-    return shape;
+// Variadic helper to create Shape from dimensions
+template<typename... Dims>
+inline mx::Shape make_shape(Dims... dims) {
+    return mx::Shape{static_cast<int32_t>(dims)...};
 }
 
 // GELU activation function implementation
@@ -160,6 +120,18 @@ struct MLXModelWrapper {
     std::unordered_map<std::string, mx::array> weights;  // Loaded weights
     std::vector<std::pair<std::string, mx::array>> hidden_states_vec;  // Use vector for hidden states
     size_t total_weight_bytes;  // Track total weight memory
+
+    struct MoEConfig {
+        bool enabled = false;
+        int num_experts = 0;
+        int num_experts_per_tok = 0;
+        int hidden_size = 0;
+        int intermediate_size = 0;
+        bool norm_topk_prob = false;
+        int decoder_sparse_step = 1;
+        int quant_bits = 0;
+        int quant_group_size = 0;
+    } moe;
 
     // Model architecture config (loaded from config.json)
     int num_attention_heads = 32;    // Q heads
@@ -208,6 +180,18 @@ struct MLXModelWrapper {
                 return negative ? -value : value;
             };
 
+            auto parse_bool = [&content](const std::string& key) -> bool {
+                size_t pos = content.find("\"" + key + "\"");
+                if (pos == std::string::npos) return false;
+                pos = content.find(":", pos);
+                if (pos == std::string::npos) return false;
+                pos++;
+                while (pos < content.size() && (content[pos] == ' ' || content[pos] == '\t')) pos++;
+                if (content.compare(pos, 4, "true") == 0) return true;
+                if (content.compare(pos, 5, "false") == 0) return false;
+                return false;
+            };
+
             int val;
             if ((val = parse_int("num_attention_heads")) > 0) num_attention_heads = val;
             if ((val = parse_int("num_key_value_heads")) > 0) num_key_value_heads = val;
@@ -215,13 +199,34 @@ struct MLXModelWrapper {
             if ((val = parse_int("num_hidden_layers")) > 0) num_hidden_layers = val;
             if ((val = parse_int("intermediate_size")) > 0) intermediate_size = val;
             if ((val = parse_int("vocab_size")) > 0) vocab_size = val;
+            if ((val = parse_int("num_experts")) > 0) moe.num_experts = val;
+            if ((val = parse_int("num_experts_per_tok")) > 0) moe.num_experts_per_tok = val;
+            if ((val = parse_int("moe_intermediate_size")) > 0) moe.intermediate_size = val;
+            if ((val = parse_int("decoder_sparse_step")) > 0) moe.decoder_sparse_step = val;
+            moe.norm_topk_prob = parse_bool("norm_topk_prob");
+            moe.hidden_size = hidden_size;
+
+            // Quantization hints (optional)
+            if ((val = parse_int("quant_bits")) > 0) moe.quant_bits = val;
+            if ((val = parse_int("quant_group_size")) > 0) moe.quant_group_size = val;
+            if ((val = parse_int("group_size")) > 0 && moe.quant_group_size == 0)
+                moe.quant_group_size = val;
+            if ((val = parse_int("bits")) > 0 && moe.quant_bits == 0) moe.quant_bits = val;
 
             // Calculate head_dim
             head_dim = hidden_size / num_attention_heads;
 
+            // Enable MoE path if config says so
+            moe.enabled = (moe.num_experts > 0) && (moe.num_experts_per_tok > 0);
+            if (moe.intermediate_size == 0) {
+                moe.intermediate_size = intermediate_size;
+            }
+
             std::cerr << "[MLX] Loaded config: heads=" << num_attention_heads
                       << ", kv_heads=" << num_key_value_heads
                       << ", hidden=" << hidden_size
+                      << ", moe_experts=" << moe.num_experts
+                      << ", moe_top_k=" << moe.num_experts_per_tok
                       << ", layers=" << num_hidden_layers
                       << ", head_dim=" << head_dim << std::endl;
 
@@ -510,55 +515,43 @@ struct MLXModelWrapper {
         residual = layer_norm(residual, prefix + ".input_layernorm");
 
         // MLP
-        mx::array mlp_output = mlp_forward(residual, prefix + ".mlp");
+        mx::array mlp_output = mlp_forward(residual, prefix + ".mlp", layer_idx);
 
         // Final residual
         return residual + mlp_output;
     }
 
-    // Self-attention with hidden state capture using scaled dot-product attention
+    // Self-attention mechanism using scaled dot-product attention
     // Supports Grouped Query Attention (GQA) where num_key_value_heads < num_attention_heads
-    mx::array self_attention_with_hidden_states(const mx::array& hidden, const std::string& prefix) {
+    // Set capture_hidden=true to record QKV and output projections for analysis
+    mx::array self_attention_impl(const mx::array& hidden, const std::string& prefix, bool capture_hidden) {
         int batch_size = hidden.shape(0);
         int seq_len = hidden.shape(1);
-
-        // Use config values for head counts (supports GQA)
-        int n_heads = num_attention_heads;      // Q heads
-        int n_kv_heads = num_key_value_heads;   // KV heads (may be fewer for GQA)
-        int hd = head_dim;                       // head dimension
-        int n_rep = n_heads / n_kv_heads;        // GQA repetition factor
+        int n_heads = num_attention_heads;
+        int n_kv_heads = num_key_value_heads;
+        int hd = head_dim;
+        int n_rep = n_heads / n_kv_heads;
 
         // QKV projections
         mx::array q = linear_projection(hidden, prefix + ".q_proj");
         mx::array k = linear_projection(hidden, prefix + ".k_proj");
         mx::array v = linear_projection(hidden, prefix + ".v_proj");
 
-        // Capture QKV projections as hidden states
-        mx::eval(q);
-        hidden_states_vec.push_back({prefix + ".q_proj", q});
-        mx::eval(k);
-        hidden_states_vec.push_back({prefix + ".k_proj", k});
-        mx::eval(v);
-        hidden_states_vec.push_back({prefix + ".v_proj", v});
+        if (capture_hidden) {
+            mx::eval(q); hidden_states_vec.push_back({prefix + ".q_proj", q});
+            mx::eval(k); hidden_states_vec.push_back({prefix + ".k_proj", k});
+            mx::eval(v); hidden_states_vec.push_back({prefix + ".v_proj", v});
+        }
 
-        // Reshape Q for multi-head attention: [batch, seq, n_heads * head_dim] -> [batch, seq, n_heads, head_dim]
+        // Reshape for multi-head attention
         q = mx::reshape(q, {batch_size, seq_len, n_heads, hd});
-
-        // Reshape K,V for GQA: [batch, seq, n_kv_heads * head_dim] -> [batch, seq, n_kv_heads, head_dim]
         k = mx::reshape(k, {batch_size, seq_len, n_kv_heads, hd});
         v = mx::reshape(v, {batch_size, seq_len, n_kv_heads, hd});
 
         // GQA: Repeat K,V heads to match Q heads if needed
         if (n_rep > 1) {
-            // Expand K: [batch, seq, n_kv_heads, head_dim] -> [batch, seq, n_kv_heads, n_rep, head_dim]
-            k = mx::expand_dims(k, 3);
-            k = mx::repeat(k, n_rep, 3);
-            k = mx::reshape(k, {batch_size, seq_len, n_heads, hd});
-
-            // Expand V: same transformation
-            v = mx::expand_dims(v, 3);
-            v = mx::repeat(v, n_rep, 3);
-            v = mx::reshape(v, {batch_size, seq_len, n_heads, hd});
+            k = mx::reshape(mx::repeat(mx::expand_dims(k, 3), n_rep, 3), {batch_size, seq_len, n_heads, hd});
+            v = mx::reshape(mx::repeat(mx::expand_dims(v, 3), n_rep, 3), {batch_size, seq_len, n_heads, hd});
         }
 
         // Transpose for attention: [batch, seq, heads, head_dim] -> [batch, heads, seq, head_dim]
@@ -566,104 +559,38 @@ struct MLXModelWrapper {
         k = mx::transpose(k, {0, 2, 1, 3});
         v = mx::transpose(v, {0, 2, 1, 3});
 
-        // Create causal mask for autoregressive attention
+        // Create causal mask
         std::vector<float> mask_data(seq_len * seq_len, 0.0f);
-        for (int i = 0; i < seq_len; ++i) {
-            for (int j = i + 1; j < seq_len; ++j) {
+        for (int i = 0; i < seq_len; ++i)
+            for (int j = i + 1; j < seq_len; ++j)
                 mask_data[i * seq_len + j] = -1e9f;
-            }
-        }
         mx::array causal_mask = mx::array(mask_data.data(), {seq_len, seq_len}, mx::float32);
 
-        // Scaled dot-product attention: softmax(Q @ K^T * scale + mask) @ V
+        // Scaled dot-product attention
         float scale = 1.0f / std::sqrt(static_cast<float>(hd));
-        mx::array k_transposed = mx::transpose(k, {0, 1, 3, 2});
-        mx::array scores = mx::matmul(q, k_transposed);
-        scores = mx::multiply(scores, mx::array(scale));
-        scores = mx::add(scores, causal_mask);
-        mx::array attn_weights = mx::softmax(scores, -1);
-        mx::array attn_output = mx::matmul(attn_weights, v);
+        mx::array scores = mx::multiply(mx::matmul(q, mx::transpose(k, {0, 1, 3, 2})), mx::array(scale));
+        mx::array attn_output = mx::matmul(mx::softmax(mx::add(scores, causal_mask), -1), v);
 
         // Reshape back: [batch, heads, seq, head_dim] -> [batch, seq, hidden_size]
-        attn_output = mx::transpose(attn_output, {0, 2, 1, 3});
-        attn_output = mx::reshape(attn_output, {batch_size, seq_len, n_heads * hd});
+        attn_output = mx::reshape(mx::transpose(attn_output, {0, 2, 1, 3}), {batch_size, seq_len, n_heads * hd});
 
         // Output projection
         mx::array output = linear_projection(attn_output, prefix + ".o_proj");
 
-        // Capture attention output as hidden state
-        mx::eval(output);
-        hidden_states_vec.push_back({prefix + ".o_proj", output});
+        if (capture_hidden) {
+            mx::eval(output);
+            hidden_states_vec.push_back({prefix + ".o_proj", output});
+        }
 
         return output;
     }
 
-    // Self-attention mechanism using scaled dot-product attention
-    // Supports Grouped Query Attention (GQA) where num_key_value_heads < num_attention_heads
     mx::array self_attention(const mx::array& hidden, const std::string& prefix) {
-        int batch_size = hidden.shape(0);
-        int seq_len = hidden.shape(1);
+        return self_attention_impl(hidden, prefix, false);
+    }
 
-        // Use config values for head counts (supports GQA)
-        int n_heads = num_attention_heads;      // Q heads
-        int n_kv_heads = num_key_value_heads;   // KV heads (may be fewer for GQA)
-        int hd = head_dim;                       // head dimension
-        int n_rep = n_heads / n_kv_heads;        // GQA repetition factor
-
-        // QKV projections
-        mx::array q = linear_projection(hidden, prefix + ".q_proj");
-        mx::array k = linear_projection(hidden, prefix + ".k_proj");
-        mx::array v = linear_projection(hidden, prefix + ".v_proj");
-
-        // Reshape Q for multi-head attention: [batch, seq, n_heads * head_dim] -> [batch, seq, n_heads, head_dim]
-        q = mx::reshape(q, {batch_size, seq_len, n_heads, hd});
-
-        // Reshape K,V for GQA: [batch, seq, n_kv_heads * head_dim] -> [batch, seq, n_kv_heads, head_dim]
-        k = mx::reshape(k, {batch_size, seq_len, n_kv_heads, hd});
-        v = mx::reshape(v, {batch_size, seq_len, n_kv_heads, hd});
-
-        // GQA: Repeat K,V heads to match Q heads if needed
-        if (n_rep > 1) {
-            // Expand K: [batch, seq, n_kv_heads, head_dim] -> [batch, seq, n_kv_heads, n_rep, head_dim]
-            k = mx::expand_dims(k, 3);
-            k = mx::repeat(k, n_rep, 3);
-            k = mx::reshape(k, {batch_size, seq_len, n_heads, hd});
-
-            // Expand V: same transformation
-            v = mx::expand_dims(v, 3);
-            v = mx::repeat(v, n_rep, 3);
-            v = mx::reshape(v, {batch_size, seq_len, n_heads, hd});
-        }
-
-        // Transpose for attention: [batch, seq, heads, head_dim] -> [batch, heads, seq, head_dim]
-        q = mx::transpose(q, {0, 2, 1, 3});
-        k = mx::transpose(k, {0, 2, 1, 3});
-        v = mx::transpose(v, {0, 2, 1, 3});
-
-        // Create causal mask for autoregressive attention
-        std::vector<float> mask_data(seq_len * seq_len, 0.0f);
-        for (int i = 0; i < seq_len; ++i) {
-            for (int j = i + 1; j < seq_len; ++j) {
-                mask_data[i * seq_len + j] = -1e9f;
-            }
-        }
-        mx::array causal_mask = mx::array(mask_data.data(), {seq_len, seq_len}, mx::float32);
-
-        // Scaled dot-product attention: softmax(Q @ K^T * scale + mask) @ V
-        float scale = 1.0f / std::sqrt(static_cast<float>(hd));
-        mx::array k_transposed = mx::transpose(k, {0, 1, 3, 2});
-        mx::array scores = mx::matmul(q, k_transposed);
-        scores = mx::multiply(scores, mx::array(scale));
-        scores = mx::add(scores, causal_mask);
-        mx::array attn_weights = mx::softmax(scores, -1);
-        mx::array attn_output = mx::matmul(attn_weights, v);
-
-        // Reshape back: [batch, heads, seq, head_dim] -> [batch, seq, hidden_size]
-        attn_output = mx::transpose(attn_output, {0, 2, 1, 3});
-        attn_output = mx::reshape(attn_output, {batch_size, seq_len, n_heads * hd});
-
-        // Output projection
-        return linear_projection(attn_output, prefix + ".o_proj");
+    mx::array self_attention_with_hidden_states(const mx::array& hidden, const std::string& prefix) {
+        return self_attention_impl(hidden, prefix, true);
     }
 
     // Linear projection helper
@@ -672,6 +599,141 @@ struct MLXModelWrapper {
         if (!weight_ptr) return input;  // Fallback if weight not found
 
         return mx::matmul(input, mx::transpose(*weight_ptr));
+    }
+
+    // Check if the current layer is an MoE layer by inspecting stacked switch MLP weights
+    bool is_moe_layer(int layer_idx) const {
+        if (!moe.enabled) return false;
+        std::string up_key =
+            "model.layers." + std::to_string(layer_idx) + ".mlp.switch_mlp.up_proj.weight";
+        return weights.find(up_key) != weights.end();
+    }
+
+    // Dequantize a weight if companion scales (and optional biases) are present
+    mx::array get_weight_with_dequant(const std::string& base_key) {
+        auto weight_it = weights.find(base_key + ".weight");
+        if (weight_it == weights.end()) {
+            throw std::runtime_error("Weight not found: " + base_key + ".weight");
+        }
+
+        auto scales_it = weights.find(base_key + ".scales");
+        if (scales_it == weights.end()) {
+            return weight_it->second;
+        }
+
+        mx::array weight = weight_it->second;
+        mx::array scales = scales_it->second;
+        mx::array biases = mx::zeros({1}, scales.dtype());
+        auto biases_it = weights.find(base_key + ".biases");
+        if (biases_it != weights.end()) {
+            biases = biases_it->second;
+        } else {
+            // Bias shape follows the leading dims of the weight tensor
+            if (weight.ndim() == 3) {
+                biases =
+                    mx::zeros({static_cast<int>(weight.shape(0)), static_cast<int>(weight.shape(1))},
+                              scales.dtype());
+            } else {
+                biases = mx::zeros({static_cast<int>(weight.shape(0))}, scales.dtype());
+            }
+        }
+
+        int bits = moe.quant_bits > 0 ? moe.quant_bits : 4;
+        int group_size = moe.quant_group_size > 0 ? moe.quant_group_size : 64;
+        return mx::dequantize(weight, scales, biases, group_size, bits);
+    }
+
+    // MLX C++ topk returns values only; build indices via argsort for MoE routing.
+    std::pair<mx::array, mx::array> topk_with_indices(
+        const mx::array& input, int k, int axis = -1) {
+        int ndim = static_cast<int>(input.ndim());
+        int resolved_axis = axis < 0 ? ndim + axis : axis;
+        int axis_dim = static_cast<int>(input.shape(resolved_axis));
+        int k_clamped = std::min(k, axis_dim);
+
+        mx::array sorted_indices = mx::argsort(mx::negative(input), resolved_axis);
+
+        mx::Shape start(ndim, 0);
+        mx::Shape stop = input.shape();
+        stop[resolved_axis] = k_clamped;
+
+        mx::array top_indices = mx::slice(sorted_indices, start, stop);
+        mx::array top_values = mx::take_along_axis(input, top_indices, resolved_axis);
+        return {top_values, top_indices};
+    }
+
+    // Expert router: compute top-k expert indices and scores
+    std::pair<mx::array, mx::array> moe_router(const mx::array& x, const std::string& prefix) {
+        mx::array gate_weight = get_weight_with_dequant(prefix + ".gate");
+        mx::array logits = mx::matmul(x, mx::transpose(gate_weight));
+
+        // Add bias if present (biases are per-expert)
+        auto bias_it = weights.find(prefix + ".gate.biases");
+        if (bias_it != weights.end()) {
+            // Broadcast bias over batch/seq
+            mx::array bias = bias_it->second;
+            logits = logits + mx::reshape(bias, {1, 1, bias.shape(0)});
+        }
+
+        mx::array scores = mx::softmax(logits, -1);
+        int axis = static_cast<int>(scores.ndim()) - 1;
+        int last_dim = scores.shape(axis);
+        int k = std::min(moe.num_experts_per_tok, last_dim);
+
+        auto [top_scores, inds] = topk_with_indices(scores, k, axis);
+        if (moe.norm_topk_prob) {
+            top_scores = mx::divide(top_scores, mx::sum(top_scores, axis, true));
+        }
+
+        return {top_scores, inds};
+    }
+
+    // SwitchLinear gather for stacked expert weights
+    mx::array apply_switch_linear(
+        const mx::array& x_expanded, const std::string& base_key, const mx::array& inds) {
+        mx::array weight = get_weight_with_dequant(base_key);
+
+        // swap last two dims to align for matmul inside gather_mm
+        mx::array rhs = mx::transpose(weight, {0, 2, 1});
+        mx::array out = mx::gather_mm(x_expanded, rhs, inds);
+
+        auto bias_it = weights.find(base_key + ".biases");
+        if (bias_it != weights.end()) {
+            mx::array bias = bias_it->second;
+            // bias shape: [num_experts, output_dim]
+            // gather along expert axis then expand to match out
+            mx::array gathered = mx::take(bias, inds, 0);  // [B,L,k,out]
+            out = out + gathered;
+        }
+        return out;
+    }
+
+    // SwitchGLU forward for MoE experts
+    mx::array switch_glu_forward(
+        const mx::array& x, const std::string& prefix, const mx::array& inds,
+        const mx::array& scores) {
+        // Expand for gather_mm: [B, L, 1, 1, D]
+        mx::array x_exp = mx::expand_dims(mx::expand_dims(x, 2), 3);
+
+        mx::array up_out = apply_switch_linear(x_exp, prefix + ".switch_mlp.up_proj", inds);
+        mx::array gate_out = apply_switch_linear(x_exp, prefix + ".switch_mlp.gate_proj", inds);
+
+        // SwiGLU: SiLU(gate) * up = gate * sigmoid(gate) * up
+        mx::array silu_gate = mx::multiply(gate_out, mx::sigmoid(gate_out));
+        mx::array activated = mx::multiply(silu_gate, up_out);
+        mx::array activated_exp = mx::expand_dims(activated, 3);
+
+        mx::array down_out =
+            apply_switch_linear(activated_exp, prefix + ".switch_mlp.down_proj", inds);
+
+        mx::array scores_exp = mx::expand_dims(scores, -1);
+        return mx::sum(mx::multiply(down_out, scores_exp), 2);
+    }
+
+    // Full MoE MLP block: router + SwitchGLU
+    mx::array mlp_moe_forward(const mx::array& input, const std::string& prefix) {
+        auto [top_scores, inds] = moe_router(input, prefix);
+        return switch_glu_forward(input, prefix, inds, top_scores);
     }
 
     // Layer normalization
@@ -697,7 +759,12 @@ struct MLXModelWrapper {
     }
 
     // MLP forward pass
-    mx::array mlp_forward(const mx::array& input, const std::string& prefix) {
+    mx::array mlp_forward(const mx::array& input, const std::string& prefix,
+                          int layer_idx = -1) {
+        if (layer_idx >= 0 && is_moe_layer(layer_idx)) {
+            return mlp_moe_forward(input, prefix);
+        }
+
         // Up projection
         mx::array up = linear_projection(input, prefix + ".up_proj");
         up = mlx_gelu_approx(up);
@@ -781,7 +848,9 @@ struct MLXModelWrapper {
                 hidden_states_vec.push_back({std::string("layer_") + std::to_string(layer_idx) + "_post_attn", hidden});
 
                 // MLP
-                mx::array mlp_output = mlp_forward(hidden, std::string("model.layers.") + std::to_string(layer_idx) + ".mlp");
+                mx::array mlp_output = mlp_forward(
+                    hidden, std::string("model.layers.") + std::to_string(layer_idx) + ".mlp",
+                    layer_idx);
                 hidden = hidden + mlp_output;
 
                 // Capture post-MLP hidden state
@@ -810,135 +879,7 @@ struct MLXModelWrapper {
     }
 };
 
-// KV Cache wrapper for efficient autoregressive generation
-struct MLXKVCache {
-    int num_layers;
-    int num_heads;
-    int head_dim;
-    int max_seq_len;
-    int current_seq_len;
-    std::vector<mx::array> keys;    // Per-layer key cache
-    std::vector<mx::array> values;  // Per-layer value cache
-
-    MLXKVCache(int layers, int heads, int dim, int max_len)
-        : num_layers(layers), num_heads(heads), head_dim(dim),
-          max_seq_len(max_len), current_seq_len(0) {
-        // Initialize empty caches for each layer
-        keys.reserve(layers);
-        values.reserve(layers);
-        for (int i = 0; i < layers; ++i) {
-            // Initialize with empty arrays (will be populated on first update)
-            keys.push_back(mx::zeros({1, heads, 0, dim}, mx::float32));
-            values.push_back(mx::zeros({1, heads, 0, dim}, mx::float32));
-        }
-    }
-
-    bool update(int layer_idx, const mx::array& new_keys, const mx::array& new_values) {
-        if (layer_idx < 0 || layer_idx >= num_layers) {
-            return false;
-        }
-
-        // Concatenate new keys/values along sequence dimension (axis 2)
-        if (keys[layer_idx].shape(2) == 0) {
-            // First update for this layer
-            keys[layer_idx] = new_keys;
-            values[layer_idx] = new_values;
-        } else {
-            keys[layer_idx] = mx::concatenate({keys[layer_idx], new_keys}, 2);
-            values[layer_idx] = mx::concatenate({values[layer_idx], new_values}, 2);
-        }
-
-        // Update sequence length (use layer 0 as reference)
-        if (layer_idx == 0) {
-            current_seq_len = keys[0].shape(2);
-        }
-
-        return true;
-    }
-
-    void reset() {
-        keys.clear();
-        values.clear();
-        keys.reserve(num_layers);
-        values.reserve(num_layers);
-        for (int i = 0; i < num_layers; ++i) {
-            keys.push_back(mx::zeros({1, num_heads, 0, head_dim}, mx::float32));
-            values.push_back(mx::zeros({1, num_heads, 0, head_dim}, mx::float32));
-        }
-        current_seq_len = 0;
-    }
-};
-
-// Weights container for SafeTensors loading
-struct MLXWeightsWrapper {
-    std::unordered_map<std::string, mx::array> weights;
-    std::vector<std::string> weight_names;  // For iteration
-
-    bool load(const std::string& path) {
-        try {
-            auto [loaded_weights, metadata] = mx::load_safetensors(path);
-            weights = std::move(loaded_weights);
-
-            // Build name list for iteration
-            weight_names.clear();
-            for (const auto& [name, _] : weights) {
-                weight_names.push_back(name);
-            }
-
-            return !weights.empty();
-        } catch (const std::exception& e) {
-            g_last_error = std::string("Failed to load safetensors: ") + e.what();
-            return false;
-        }
-    }
-
-    mx::array* get(const std::string& name) {
-        auto it = weights.find(name);
-        if (it != weights.end()) {
-            return &it->second;
-        }
-        return nullptr;
-    }
-};
-
-// Context management
-extern "C" mlx_context_t* mlx_context_new(void) {
-    try {
-        // MLX doesn't have explicit context management like CUDA
-        // We'll use a dummy context for API compatibility
-        auto ctx = new int(1);
-        return reinterpret_cast<mlx_context_t*>(ctx);
-    } catch (const std::exception& e) {
-        g_last_error = e.what();
-        return nullptr;
-    }
-}
-
-extern "C" void mlx_context_free(mlx_context_t* ctx) {
-    if (ctx) {
-        delete reinterpret_cast<int*>(ctx);
-    }
-}
-
-extern "C" void mlx_set_default_context(mlx_context_t* ctx) {
-    // MLX uses global context
-    (void)ctx;
-}
-
-// Array creation operations
-extern "C" mlx_array_t* mlx_array_from_data(const float* data, int size) {
-    try {
-        // Copy data into vector and construct array using iterator
-        std::vector<float> vec(data, data + size);
-        mx::array arr = mx::array(vec.begin(), make_shape(size), mx::float32);
-        auto wrapper = new MLXArrayWrapper(arr);
-        return reinterpret_cast<mlx_array_t*>(wrapper);
-    } catch (const std::exception& e) {
-        g_last_error = e.what();
-        return nullptr;
-    }
-}
-
+// Array creation (only from_ints is actually used)
 extern "C" mlx_array_t* mlx_array_from_ints(const int* data, int size) {
     try {
         // Copy data into vector and construct array using iterator
@@ -952,53 +893,7 @@ extern "C" mlx_array_t* mlx_array_from_ints(const int* data, int size) {
     }
 }
 
-extern "C" mlx_array_t* mlx_array_from_uints(const uint32_t* data, int size) {
-    try {
-        // Copy data into vector and construct array using iterator
-        std::vector<uint32_t> vec(data, data + size);
-        mx::array arr = mx::array(vec.begin(), make_shape(size), mx::uint32);
-        auto wrapper = new MLXArrayWrapper(arr);
-        return reinterpret_cast<mlx_array_t*>(wrapper);
-    } catch (const std::exception& e) {
-        g_last_error = e.what();
-        return nullptr;
-    }
-}
-
-extern "C" mlx_array_t* mlx_array_zeros(int size) {
-    try {
-        mx::array arr = mx::zeros({size}, mx::float32);
-        auto wrapper = new MLXArrayWrapper(arr);
-        return reinterpret_cast<mlx_array_t*>(wrapper);
-    } catch (const std::exception& e) {
-        g_last_error = e.what();
-        return nullptr;
-    }
-}
-
-extern "C" mlx_array_t* mlx_array_ones(int size) {
-    try {
-        mx::array arr = mx::ones({size}, mx::float32);
-        auto wrapper = new MLXArrayWrapper(arr);
-        return reinterpret_cast<mlx_array_t*>(wrapper);
-    } catch (const std::exception& e) {
-        g_last_error = e.what();
-        return nullptr;
-    }
-}
-
-extern "C" mlx_array_t* mlx_array_full(int size, float value) {
-    try {
-        mx::array arr = mx::full({size}, value, mx::float32);
-        auto wrapper = new MLXArrayWrapper(arr);
-        return reinterpret_cast<mlx_array_t*>(wrapper);
-    } catch (const std::exception& e) {
-        g_last_error = e.what();
-        return nullptr;
-    }
-}
-
-// Array property access
+// Array property access (only data, size, free are used)
 extern "C" float* mlx_array_data(mlx_array_t* array) {
     if (!array) return nullptr;
     try {
@@ -1020,107 +915,6 @@ extern "C" int mlx_array_size(mlx_array_t* array) {
     } catch (const std::exception& e) {
         g_last_error = e.what();
         return 0;
-    }
-}
-
-extern "C" int mlx_array_shape(mlx_array_t* array, int* shape, int max_dims) {
-    if (!array || !shape) return 0;
-    try {
-        auto wrapper = reinterpret_cast<MLXArrayWrapper*>(array);
-        auto arr_shape = wrapper->arr.shape();
-        int ndims = std::min(static_cast<int>(arr_shape.size()), max_dims);
-        for (int i = 0; i < ndims; ++i) {
-            shape[i] = arr_shape[i];
-        }
-        return ndims;
-    } catch (const std::exception& e) {
-        g_last_error = e.what();
-        return 0;
-    }
-}
-
-extern "C" int mlx_array_ndim(mlx_array_t* array) {
-    if (!array) return 0;
-    try {
-        auto wrapper = reinterpret_cast<MLXArrayWrapper*>(array);
-        return wrapper->arr.ndim();
-    } catch (const std::exception& e) {
-        g_last_error = e.what();
-        return 0;
-    }
-}
-
-extern "C" int mlx_array_dtype(mlx_array_t* array) {
-    if (!array) return 0;
-    try {
-        auto wrapper = reinterpret_cast<MLXArrayWrapper*>(array);
-        // Map MLX dtype to integer code
-        if (wrapper->arr.dtype() == mx::float32) return 0;
-        if (wrapper->arr.dtype() == mx::float16) return 1;
-        if (wrapper->arr.dtype() == mx::int32) return 2;
-        if (wrapper->arr.dtype() == mx::uint32) return 3;
-        return -1;
-    } catch (const std::exception& e) {
-        g_last_error = e.what();
-        return -1;
-    }
-}
-
-// Array operations
-extern "C" mlx_array_t* mlx_array_copy(mlx_array_t* array) {
-    if (!array) return nullptr;
-    try {
-        auto wrapper = reinterpret_cast<MLXArrayWrapper*>(array);
-        mx::array copy = mx::copy(wrapper->arr);
-        auto new_wrapper = new MLXArrayWrapper(copy);
-        return reinterpret_cast<mlx_array_t*>(new_wrapper);
-    } catch (const std::exception& e) {
-        g_last_error = e.what();
-        return nullptr;
-    }
-}
-
-extern "C" mlx_array_t* mlx_array_reshape(mlx_array_t* array, const int* shape, int ndim) {
-    if (!array || !shape) return nullptr;
-    try {
-        auto wrapper = reinterpret_cast<MLXArrayWrapper*>(array);
-        // For now, handle common cases directly
-        if (ndim == 1) {
-            mx::array reshaped = mx::reshape(wrapper->arr, {shape[0]});
-            auto new_wrapper = new MLXArrayWrapper(reshaped);
-            return reinterpret_cast<mlx_array_t*>(new_wrapper);
-        } else if (ndim == 2) {
-            mx::array reshaped = mx::reshape(wrapper->arr, {shape[0], shape[1]});
-            auto new_wrapper = new MLXArrayWrapper(reshaped);
-            return reinterpret_cast<mlx_array_t*>(new_wrapper);
-        } else if (ndim == 3) {
-            mx::array reshaped = mx::reshape(wrapper->arr, {shape[0], shape[1], shape[2]});
-            auto new_wrapper = new MLXArrayWrapper(reshaped);
-            return reinterpret_cast<mlx_array_t*>(new_wrapper);
-        } else if (ndim == 4) {
-            mx::array reshaped = mx::reshape(wrapper->arr, {shape[0], shape[1], shape[2], shape[3]});
-            auto new_wrapper = new MLXArrayWrapper(reshaped);
-            return reinterpret_cast<mlx_array_t*>(new_wrapper);
-        } else {
-            g_last_error = "Unsupported number of dimensions for reshape";
-            return nullptr;
-        }
-    } catch (const std::exception& e) {
-        g_last_error = e.what();
-        return nullptr;
-    }
-}
-
-extern "C" mlx_array_t* mlx_array_transpose(mlx_array_t* array) {
-    if (!array) return nullptr;
-    try {
-        auto wrapper = reinterpret_cast<MLXArrayWrapper*>(array);
-        mx::array transposed = mx::transpose(wrapper->arr);
-        auto new_wrapper = new MLXArrayWrapper(transposed);
-        return reinterpret_cast<mlx_array_t*>(new_wrapper);
-    } catch (const std::exception& e) {
-        g_last_error = e.what();
-        return nullptr;
     }
 }
 
@@ -1359,478 +1153,6 @@ extern "C" int mlx_model_get_hidden_state_count(mlx_model_t* model) {
     return g_hidden_state_count;
 }
 
-// Mathematical operations
-extern "C" mlx_array_t* mlx_add(mlx_array_t* a, mlx_array_t* b) {
-    if (!a || !b) return nullptr;
-    try {
-        auto a_wrapper = reinterpret_cast<MLXArrayWrapper*>(a);
-        auto b_wrapper = reinterpret_cast<MLXArrayWrapper*>(b);
-
-        mx::array result = mx::add(a_wrapper->arr, b_wrapper->arr);
-        auto result_wrapper = new MLXArrayWrapper(result);
-        return reinterpret_cast<mlx_array_t*>(result_wrapper);
-    } catch (const std::exception& e) {
-        g_last_error = e.what();
-        return nullptr;
-    }
-}
-
-extern "C" mlx_array_t* mlx_subtract(mlx_array_t* a, mlx_array_t* b) {
-    if (!a || !b) return nullptr;
-    try {
-        auto a_wrapper = reinterpret_cast<MLXArrayWrapper*>(a);
-        auto b_wrapper = reinterpret_cast<MLXArrayWrapper*>(b);
-
-        mx::array result = mx::subtract(a_wrapper->arr, b_wrapper->arr);
-        auto result_wrapper = new MLXArrayWrapper(result);
-        return reinterpret_cast<mlx_array_t*>(result_wrapper);
-    } catch (const std::exception& e) {
-        g_last_error = e.what();
-        return nullptr;
-    }
-}
-
-extern "C" mlx_array_t* mlx_multiply(mlx_array_t* a, mlx_array_t* b) {
-    if (!a || !b) return nullptr;
-    try {
-        auto a_wrapper = reinterpret_cast<MLXArrayWrapper*>(a);
-        auto b_wrapper = reinterpret_cast<MLXArrayWrapper*>(b);
-
-        mx::array result = mx::multiply(a_wrapper->arr, b_wrapper->arr);
-        auto result_wrapper = new MLXArrayWrapper(result);
-        return reinterpret_cast<mlx_array_t*>(result_wrapper);
-    } catch (const std::exception& e) {
-        g_last_error = e.what();
-        return nullptr;
-    }
-}
-
-extern "C" mlx_array_t* mlx_divide(mlx_array_t* a, mlx_array_t* b) {
-    if (!a || !b) return nullptr;
-    try {
-        auto a_wrapper = reinterpret_cast<MLXArrayWrapper*>(a);
-        auto b_wrapper = reinterpret_cast<MLXArrayWrapper*>(b);
-
-        mx::array result = mx::divide(a_wrapper->arr, b_wrapper->arr);
-        auto result_wrapper = new MLXArrayWrapper(result);
-        return reinterpret_cast<mlx_array_t*>(result_wrapper);
-    } catch (const std::exception& e) {
-        g_last_error = e.what();
-        return nullptr;
-    }
-}
-
-extern "C" mlx_array_t* mlx_matmul(mlx_array_t* a, mlx_array_t* b) {
-    if (!a || !b) return nullptr;
-    try {
-        auto a_wrapper = reinterpret_cast<MLXArrayWrapper*>(a);
-        auto b_wrapper = reinterpret_cast<MLXArrayWrapper*>(b);
-
-        mx::array result = mx::matmul(a_wrapper->arr, b_wrapper->arr);
-        auto result_wrapper = new MLXArrayWrapper(result);
-        return reinterpret_cast<mlx_array_t*>(result_wrapper);
-    } catch (const std::exception& e) {
-        g_last_error = e.what();
-        return nullptr;
-    }
-}
-
-// Reduction operations
-extern "C" mlx_array_t* mlx_sum(mlx_array_t* array, int axis) {
-    if (!array) return nullptr;
-    try {
-        auto wrapper = reinterpret_cast<MLXArrayWrapper*>(array);
-        mx::array result = mx::sum(wrapper->arr, axis);
-        auto result_wrapper = new MLXArrayWrapper(result);
-        return reinterpret_cast<mlx_array_t*>(result_wrapper);
-    } catch (const std::exception& e) {
-        g_last_error = e.what();
-        return nullptr;
-    }
-}
-
-extern "C" mlx_array_t* mlx_mean(mlx_array_t* array, int axis) {
-    if (!array) return nullptr;
-    try {
-        auto wrapper = reinterpret_cast<MLXArrayWrapper*>(array);
-        mx::array result = mx::mean(wrapper->arr, axis);
-        auto result_wrapper = new MLXArrayWrapper(result);
-        return reinterpret_cast<mlx_array_t*>(result_wrapper);
-    } catch (const std::exception& e) {
-        g_last_error = e.what();
-        return nullptr;
-    }
-}
-
-extern "C" mlx_array_t* mlx_sqrt(mlx_array_t* array) {
-    if (!array) return nullptr;
-    try {
-        auto wrapper = reinterpret_cast<MLXArrayWrapper*>(array);
-        mx::array result = mx::sqrt(wrapper->arr);
-        auto result_wrapper = new MLXArrayWrapper(result);
-        return reinterpret_cast<mlx_array_t*>(result_wrapper);
-    } catch (const std::exception& e) {
-        g_last_error = e.what();
-        return nullptr;
-    }
-}
-
-// Indexing operations
-extern "C" mlx_array_t* mlx_take(mlx_array_t* array, mlx_array_t* indices, int axis) {
-    if (!array || !indices) return nullptr;
-    try {
-        auto wrapper = reinterpret_cast<MLXArrayWrapper*>(array);
-        auto idx_wrapper = reinterpret_cast<MLXArrayWrapper*>(indices);
-        mx::array result = mx::take(wrapper->arr, idx_wrapper->arr, axis);
-        auto result_wrapper = new MLXArrayWrapper(result);
-        return reinterpret_cast<mlx_array_t*>(result_wrapper);
-    } catch (const std::exception& e) {
-        g_last_error = e.what();
-        return nullptr;
-    }
-}
-
-// Activation functions
-extern "C" mlx_array_t* mlx_relu(mlx_array_t* array) {
-    if (!array) return nullptr;
-    try {
-        auto wrapper = reinterpret_cast<MLXArrayWrapper*>(array);
-        mx::array result = mx::maximum(wrapper->arr, mx::array(0.0f));
-        auto result_wrapper = new MLXArrayWrapper(result);
-        return reinterpret_cast<mlx_array_t*>(result_wrapper);
-    } catch (const std::exception& e) {
-        g_last_error = e.what();
-        return nullptr;
-    }
-}
-
-extern "C" mlx_array_t* mlx_gelu(mlx_array_t* array) {
-    if (!array) return nullptr;
-    try {
-        auto wrapper = reinterpret_cast<MLXArrayWrapper*>(array);
-        // GELU(x) = x * 0.5 * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3)))
-        // Simplified approximation: x * sigmoid(1.702 * x)
-        mx::array x = wrapper->arr;
-        mx::array result = mx::multiply(x, mx::sigmoid(mx::multiply(x, mx::array(1.702f))));
-        auto result_wrapper = new MLXArrayWrapper(result);
-        return reinterpret_cast<mlx_array_t*>(result_wrapper);
-    } catch (const std::exception& e) {
-        g_last_error = e.what();
-        return nullptr;
-    }
-}
-
-extern "C" mlx_array_t* mlx_sigmoid(mlx_array_t* array) {
-    if (!array) return nullptr;
-    try {
-        auto wrapper = reinterpret_cast<MLXArrayWrapper*>(array);
-        mx::array result = mx::sigmoid(wrapper->arr);
-        auto result_wrapper = new MLXArrayWrapper(result);
-        return reinterpret_cast<mlx_array_t*>(result_wrapper);
-    } catch (const std::exception& e) {
-        g_last_error = e.what();
-        return nullptr;
-    }
-}
-
-extern "C" mlx_array_t* mlx_tanh(mlx_array_t* array) {
-    if (!array) return nullptr;
-    try {
-        auto wrapper = reinterpret_cast<MLXArrayWrapper*>(array);
-        mx::array result = mx::tanh(wrapper->arr);
-        auto result_wrapper = new MLXArrayWrapper(result);
-        return reinterpret_cast<mlx_array_t*>(result_wrapper);
-    } catch (const std::exception& e) {
-        g_last_error = e.what();
-        return nullptr;
-    }
-}
-
-extern "C" mlx_array_t* mlx_softmax(mlx_array_t* array) {
-    if (!array) return nullptr;
-    try {
-        auto wrapper = reinterpret_cast<MLXArrayWrapper*>(array);
-        mx::array result = mx::softmax(wrapper->arr, -1);  // Apply along last axis
-        auto result_wrapper = new MLXArrayWrapper(result);
-        return reinterpret_cast<mlx_array_t*>(result_wrapper);
-    } catch (const std::exception& e) {
-        g_last_error = e.what();
-        return nullptr;
-    }
-}
-
-// Scaled dot-product attention
-// Implements: softmax(Q @ K^T * scale + mask) @ V
-extern "C" mlx_array_t* mlx_scaled_dot_product_attention(
-    mlx_array_t* query,
-    mlx_array_t* key,
-    mlx_array_t* value,
-    float scale,
-    mlx_array_t* mask  // nullable - causal or padding mask
-) {
-    if (!query || !key || !value) {
-        g_last_error = "Query, key, and value arrays are required";
-        return nullptr;
-    }
-
-    try {
-        auto q_wrapper = reinterpret_cast<MLXArrayWrapper*>(query);
-        auto k_wrapper = reinterpret_cast<MLXArrayWrapper*>(key);
-        auto v_wrapper = reinterpret_cast<MLXArrayWrapper*>(value);
-
-        // Q: [batch, heads, seq_q, head_dim]
-        // K: [batch, heads, seq_k, head_dim]
-        // V: [batch, heads, seq_k, head_dim]
-
-        // Step 1: Compute attention scores: Q @ K^T
-        // K^T: [batch, heads, head_dim, seq_k]
-        // scores: [batch, heads, seq_q, seq_k]
-        mx::array k_transposed = mx::transpose(k_wrapper->arr, {0, 1, 3, 2});
-        mx::array scores = mx::matmul(q_wrapper->arr, k_transposed);
-
-        // Step 2: Apply scale
-        scores = mx::multiply(scores, mx::array(scale));
-
-        // Step 3: Apply mask if provided
-        if (mask) {
-            auto mask_wrapper = reinterpret_cast<MLXArrayWrapper*>(mask);
-            // Mask should be broadcastable to scores shape
-            // Typically 0 for positions to keep, -inf for positions to mask
-            scores = mx::add(scores, mask_wrapper->arr);
-        }
-
-        // Step 4: Apply softmax along last axis (over keys)
-        mx::array attn_weights = mx::softmax(scores, -1);
-
-        // Step 5: Apply attention to values: attn_weights @ V
-        // attn_weights: [batch, heads, seq_q, seq_k]
-        // V: [batch, heads, seq_k, head_dim]
-        // output: [batch, heads, seq_q, head_dim]
-        mx::array output = mx::matmul(attn_weights, v_wrapper->arr);
-
-        auto result_wrapper = new MLXArrayWrapper(output);
-        return reinterpret_cast<mlx_array_t*>(result_wrapper);
-
-    } catch (const std::exception& e) {
-        g_last_error = std::string("Scaled dot-product attention failed: ") + e.what();
-        return nullptr;
-    }
-}
-
-// Create causal attention mask
-// Returns a mask with 0 for valid positions and -inf for masked positions
-extern "C" mlx_array_t* mlx_create_causal_mask(int seq_len) {
-    try {
-        // Create upper triangular matrix filled with -inf
-        // Lower triangle (including diagonal) = 0, upper triangle = -inf
-        mx::array mask = mx::zeros({seq_len, seq_len}, mx::float32);
-
-        // Create indices for upper triangle
-        std::vector<float> mask_data(seq_len * seq_len, 0.0f);
-        for (int i = 0; i < seq_len; ++i) {
-            for (int j = i + 1; j < seq_len; ++j) {
-                mask_data[i * seq_len + j] = -1e9f;  // Large negative instead of -inf for numerical stability
-            }
-        }
-
-        mask = mx::array(mask_data.data(), {seq_len, seq_len}, mx::float32);
-
-        auto result_wrapper = new MLXArrayWrapper(mask);
-        return reinterpret_cast<mlx_array_t*>(result_wrapper);
-
-    } catch (const std::exception& e) {
-        g_last_error = std::string("Failed to create causal mask: ") + e.what();
-        return nullptr;
-    }
-}
-
-// LoRA operations
-extern "C" mlx_array_t* mlx_lora_forward(
-    mlx_array_t* input,
-    mlx_array_t* lora_a,
-    mlx_array_t* lora_b,
-    float alpha,
-    float rank
-) {
-    if (!input || !lora_a || !lora_b) return nullptr;
-    try {
-        auto input_wrapper = reinterpret_cast<MLXArrayWrapper*>(input);
-        auto a_wrapper = reinterpret_cast<MLXArrayWrapper*>(lora_a);
-        auto b_wrapper = reinterpret_cast<MLXArrayWrapper*>(lora_b);
-
-        // LoRA forward: output = input @ A @ B * (alpha / rank)
-        mx::array intermediate = mx::matmul(input_wrapper->arr, a_wrapper->arr);
-        mx::array output = mx::matmul(intermediate, b_wrapper->arr);
-        mx::array scaled = mx::multiply(output, mx::array(alpha / rank));
-
-        auto result_wrapper = new MLXArrayWrapper(scaled);
-        return reinterpret_cast<mlx_array_t*>(result_wrapper);
-    } catch (const std::exception& e) {
-        g_last_error = e.what();
-        return nullptr;
-    }
-}
-
-extern "C" mlx_array_t* mlx_lora_combine(
-    mlx_array_t* base_output,
-    mlx_array_t* lora_output,
-    float gate
-) {
-    if (!base_output || !lora_output) return nullptr;
-    try {
-        auto base_wrapper = reinterpret_cast<MLXArrayWrapper*>(base_output);
-        auto lora_wrapper = reinterpret_cast<MLXArrayWrapper*>(lora_output);
-
-        // Combine: result = base + lora * gate
-        mx::array gated = mx::multiply(lora_wrapper->arr, mx::array(gate));
-        mx::array result = mx::add(base_wrapper->arr, gated);
-
-        auto result_wrapper = new MLXArrayWrapper(result);
-        return reinterpret_cast<mlx_array_t*>(result_wrapper);
-    } catch (const std::exception& e) {
-        g_last_error = e.what();
-        return nullptr;
-    }
-}
-
-// Multi-adapter K-sparse LoRA routing with Q15 quantized gates
-//
-// Implements K-sparse routing for efficient multi-adapter inference.
-// Uses Q15 fixed-point format for gate weights to reduce memory bandwidth.
-//
-// Formula: output = input + sum_i(gate_i * B_i(A_i(input)) * (alpha/rank))
-//
-// Parameters:
-//   input: Input tensor [batch, seq_len, hidden_dim] or [seq_len, hidden_dim]
-//   lora_a_list: Array of LoRA A matrices (down-projection) [hidden_dim, rank]
-//   lora_b_list: Array of LoRA B matrices (up-projection) [rank, hidden_dim]
-//   num_adapters: Number of active adapters (K-sparse, max 8)
-//   gates_q15: Q15 quantized gate weights (i16, 0-32767 maps to 0.0-1.0)
-//   alpha: LoRA scaling factor
-//   rank: LoRA rank dimension
-//
-// Returns: Combined output tensor with identity path and weighted LoRA contributions
-extern "C" mlx_array_t* mlx_multi_lora_forward(
-    mlx_array_t* input,
-    mlx_array_t** lora_a_list,
-    mlx_array_t** lora_b_list,
-    int num_adapters,
-    const int16_t* gates_q15,
-    float alpha,
-    float rank
-) {
-    // Validate input parameters with specific error messages
-    if (!input) {
-        g_last_error = "mlx_multi_lora_forward: input tensor is null";
-        return nullptr;
-    }
-    if (!lora_a_list || !lora_b_list) {
-        g_last_error = "mlx_multi_lora_forward: adapter weight lists are null";
-        return nullptr;
-    }
-    if (!gates_q15) {
-        g_last_error = "mlx_multi_lora_forward: gates_q15 array is null";
-        return nullptr;
-    }
-    if (num_adapters <= 0) {
-        g_last_error = "mlx_multi_lora_forward: num_adapters must be positive";
-        return nullptr;
-    }
-
-    // Enforce maximum K=8 adapters for K-sparse routing
-    // This limit aligns with typical router architectures
-    if (num_adapters > 8) {
-        g_last_error = "mlx_multi_lora_forward: num_adapters exceeds K-sparse limit (max 8)";
-        return nullptr;
-    }
-
-    // Validate rank to prevent division by zero
-    if (rank <= 0.0f) {
-        g_last_error = "mlx_multi_lora_forward: rank must be positive";
-        return nullptr;
-    }
-
-    try {
-        auto input_wrapper = reinterpret_cast<MLXArrayWrapper*>(input);
-
-        // Initialize result accumulator with zeros (same shape as input)
-        // This will accumulate: sum_i(gate_i * lora_i(input))
-        mx::array result = mx::zeros_like(input_wrapper->arr);
-
-        // Precompute LoRA scaling factor: alpha / rank
-        const float scaling = alpha / rank;
-
-        // Q15 dequantization constant
-        // Q15 format: signed 16-bit integer where 32767 represents 1.0
-        // Range [0, 32767] maps to [0.0, 1.0] for gate weights
-        constexpr float Q15_SCALE = 32767.0f;
-
-        // Process each adapter with its K-sparse gate weight
-        for (int i = 0; i < num_adapters; ++i) {
-            // Skip null adapters (sparse routing may leave some slots empty)
-            if (!lora_a_list[i] || !lora_b_list[i]) {
-                continue;
-            }
-
-            // Dequantize Q15 gate weight: gate_f32 = gate_q15 / 32767.0
-            // Clamp negative values to 0 (gates should be non-negative)
-            int16_t gate_q15 = gates_q15[i];
-            if (gate_q15 < 0) {
-                gate_q15 = 0;
-            }
-            float gate_weight = static_cast<float>(gate_q15) / Q15_SCALE;
-
-            // Skip adapters with zero or negligible gate (K-sparse efficiency)
-            // This avoids unnecessary computation for adapters not selected by router
-            if (gate_weight <= 1e-6f) {
-                continue;
-            }
-
-            auto a_wrapper = reinterpret_cast<MLXArrayWrapper*>(lora_a_list[i]);
-            auto b_wrapper = reinterpret_cast<MLXArrayWrapper*>(lora_b_list[i]);
-
-            // LoRA forward pass: lora_out = B(A(input)) * (alpha/rank)
-            //
-            // Dimensions:
-            //   input: [batch, seq_len, hidden_dim] or [seq_len, hidden_dim]
-            //   A: [hidden_dim, rank] (down-projection)
-            //   B: [rank, hidden_dim] (up-projection)
-            //
-            // Step 1: Down-project input through A
-            //   intermediate = input @ A  -> [..., rank]
-            mx::array intermediate = mx::matmul(input_wrapper->arr, a_wrapper->arr);
-
-            // Step 2: Up-project through B
-            //   lora_output = intermediate @ B  -> [..., hidden_dim]
-            mx::array lora_output = mx::matmul(intermediate, b_wrapper->arr);
-
-            // Step 3: Apply combined scaling: gate_i * (alpha/rank)
-            // Combining gate weight with LoRA scaling in one multiply reduces ops
-            float combined_scale = gate_weight * scaling;
-            mx::array scaled = mx::multiply(lora_output, mx::array(combined_scale));
-
-            // Step 4: Accumulate weighted LoRA output
-            //   result += gate_i * lora_i(input)
-            result = mx::add(result, scaled);
-        }
-
-        // Add identity path: final = input + sum(gate_i * lora_i(input))
-        // This preserves the base model's representation while adding adapter contributions
-        result = mx::add(input_wrapper->arr, result);
-
-        // Force evaluation for immediate results (MLX uses lazy evaluation by default)
-        // This ensures the computation is complete before returning
-        mx::eval(result);
-
-        auto result_wrapper = new MLXArrayWrapper(result);
-        return reinterpret_cast<mlx_array_t*>(result_wrapper);
-
-    } catch (const std::exception& e) {
-        g_last_error = std::string("mlx_multi_lora_forward failed: ") + e.what();
-        return nullptr;
-    }
-}
-
 // RNG seeding for deterministic dropout/sampling
 extern "C" void mlx_set_seed(const uint8_t* seed, size_t seed_len) {
     if (!seed || seed_len == 0) {
@@ -1970,15 +1292,7 @@ extern "C" int mlx_init_default(void) {
 
 extern "C" void mlx_shutdown(void) {
     try {
-        // Clear LoRA cache
-        {
-            std::lock_guard<std::mutex> lock(g_lora_cache_mutex);
-            g_lora_cache.clear();
-        }
-
-        // Reset memory tracking
         mlx_memory_reset();
-
         g_initialized.store(false, std::memory_order_release);
     } catch (...) {
         // Ignore errors during shutdown
@@ -2075,117 +1389,6 @@ extern "C" const char* mlx_get_version(void) {
 }
 
 // ============================================================================
-// Quantization operations
-// ============================================================================
-
-extern "C" mlx_array_t* mlx_quantize(mlx_array_t* array, int group_size, int bits) {
-    if (!array) {
-        g_last_error = "array is null";
-        return nullptr;
-    }
-
-    if (bits != 4 && bits != 8) {
-        g_last_error = "bits must be 4 or 8";
-        return nullptr;
-    }
-
-    try {
-        auto wrapper = reinterpret_cast<MLXArrayWrapper*>(array);
-
-        // MLX quantize returns a vector of 3 arrays: [quantized, scales, biases]
-        // For simplicity, we'll return just the quantized array
-        // A more complete implementation would return all three
-        std::vector<mx::array> result = mx::quantize(wrapper->arr, group_size, bits);
-
-        if (result.size() < 1) {
-            g_last_error = "Quantize returned empty result";
-            return nullptr;
-        }
-
-        auto result_wrapper = new MLXArrayWrapper(result[0]);
-        return reinterpret_cast<mlx_array_t*>(result_wrapper);
-
-    } catch (const std::exception& e) {
-        g_last_error = std::string("Quantize failed: ") + e.what();
-        return nullptr;
-    }
-}
-
-extern "C" mlx_array_t* mlx_dequantize(
-    mlx_array_t* array,
-    mlx_array_t* scales,
-    mlx_array_t* biases,
-    int group_size,
-    int bits
-) {
-    if (!array || !scales) {
-        g_last_error = "array and scales are required";
-        return nullptr;
-    }
-
-    try {
-        auto arr_wrapper = reinterpret_cast<MLXArrayWrapper*>(array);
-        auto scales_wrapper = reinterpret_cast<MLXArrayWrapper*>(scales);
-
-        mx::array result = mx::array(0.0f);  // Initialize with dummy value
-        if (biases) {
-            auto biases_wrapper = reinterpret_cast<MLXArrayWrapper*>(biases);
-            result = mx::dequantize(arr_wrapper->arr, scales_wrapper->arr, biases_wrapper->arr, group_size, bits);
-        } else {
-            // Use zeros for symmetric quantization
-            mx::array zero_biases = mx::zeros_like(scales_wrapper->arr);
-            result = mx::dequantize(arr_wrapper->arr, scales_wrapper->arr, zero_biases, group_size, bits);
-        }
-
-        auto result_wrapper = new MLXArrayWrapper(result);
-        return reinterpret_cast<mlx_array_t*>(result_wrapper);
-
-    } catch (const std::exception& e) {
-        g_last_error = std::string("Dequantize failed: ") + e.what();
-        return nullptr;
-    }
-}
-
-// ============================================================================
-// RoPE (Rotary Position Embedding)
-// ============================================================================
-
-extern "C" mlx_array_t* mlx_rope(
-    mlx_array_t* array,
-    int dims,
-    bool traditional,
-    float base,
-    float scale,
-    int offset
-) {
-    if (!array) {
-        g_last_error = "array is null";
-        return nullptr;
-    }
-
-    try {
-        auto wrapper = reinterpret_cast<MLXArrayWrapper*>(array);
-
-        // Use MLX fast rope implementation
-        mx::array result = mx::fast::rope(
-            wrapper->arr,
-            dims,
-            traditional,
-            base,
-            scale,
-            offset
-        );
-
-        auto result_wrapper = new MLXArrayWrapper(result);
-        return reinterpret_cast<mlx_array_t*>(result_wrapper);
-
-    } catch (const std::exception& e) {
-        g_last_error = std::string("RoPE failed: ") + e.what();
-        return nullptr;
-    }
-}
-
-// ============================================================================
 // Token sampling
 // ============================================================================
 
@@ -2276,183 +1479,6 @@ extern "C" int mlx_sample_token(mlx_array_t* logits, const mlx_sampler_config_t*
 }
 
 // ============================================================================
-// KV Cache management
-// ============================================================================
-
-extern "C" mlx_kv_cache_t* mlx_kv_cache_new(int num_layers, int num_heads, int head_dim, int max_seq_len) {
-    if (num_layers <= 0 || num_heads <= 0 || head_dim <= 0 || max_seq_len <= 0) {
-        g_last_error = "All KV cache dimensions must be positive";
-        return nullptr;
-    }
-
-    try {
-        auto cache = new MLXKVCache(num_layers, num_heads, head_dim, max_seq_len);
-        return reinterpret_cast<mlx_kv_cache_t*>(cache);
-    } catch (const std::exception& e) {
-        g_last_error = std::string("Failed to create KV cache: ") + e.what();
-        return nullptr;
-    }
-}
-
-extern "C" int mlx_kv_cache_update(mlx_kv_cache_t* cache, int layer_idx, mlx_array_t* keys, mlx_array_t* values) {
-    if (!cache || !keys || !values) {
-        g_last_error = "cache, keys, and values are required";
-        return -1;
-    }
-
-    try {
-        auto kv_cache = reinterpret_cast<MLXKVCache*>(cache);
-        auto keys_wrapper = reinterpret_cast<MLXArrayWrapper*>(keys);
-        auto values_wrapper = reinterpret_cast<MLXArrayWrapper*>(values);
-
-        if (!kv_cache->update(layer_idx, keys_wrapper->arr, values_wrapper->arr)) {
-            g_last_error = "Invalid layer index";
-            return -1;
-        }
-
-        return 0;
-    } catch (const std::exception& e) {
-        g_last_error = std::string("KV cache update failed: ") + e.what();
-        return -1;
-    }
-}
-
-extern "C" mlx_array_t* mlx_kv_cache_get_keys(mlx_kv_cache_t* cache, int layer_idx) {
-    if (!cache) {
-        g_last_error = "cache is null";
-        return nullptr;
-    }
-
-    try {
-        auto kv_cache = reinterpret_cast<MLXKVCache*>(cache);
-
-        if (layer_idx < 0 || layer_idx >= kv_cache->num_layers) {
-            g_last_error = "Invalid layer index";
-            return nullptr;
-        }
-
-        auto result_wrapper = new MLXArrayWrapper(kv_cache->keys[layer_idx]);
-        return reinterpret_cast<mlx_array_t*>(result_wrapper);
-
-    } catch (const std::exception& e) {
-        g_last_error = std::string("Failed to get cached keys: ") + e.what();
-        return nullptr;
-    }
-}
-
-extern "C" mlx_array_t* mlx_kv_cache_get_values(mlx_kv_cache_t* cache, int layer_idx) {
-    if (!cache) {
-        g_last_error = "cache is null";
-        return nullptr;
-    }
-
-    try {
-        auto kv_cache = reinterpret_cast<MLXKVCache*>(cache);
-
-        if (layer_idx < 0 || layer_idx >= kv_cache->num_layers) {
-            g_last_error = "Invalid layer index";
-            return nullptr;
-        }
-
-        auto result_wrapper = new MLXArrayWrapper(kv_cache->values[layer_idx]);
-        return reinterpret_cast<mlx_array_t*>(result_wrapper);
-
-    } catch (const std::exception& e) {
-        g_last_error = std::string("Failed to get cached values: ") + e.what();
-        return nullptr;
-    }
-}
-
-extern "C" int mlx_kv_cache_seq_len(mlx_kv_cache_t* cache) {
-    if (!cache) return 0;
-    auto kv_cache = reinterpret_cast<MLXKVCache*>(cache);
-    return kv_cache->current_seq_len;
-}
-
-extern "C" void mlx_kv_cache_reset(mlx_kv_cache_t* cache) {
-    if (!cache) return;
-    auto kv_cache = reinterpret_cast<MLXKVCache*>(cache);
-    kv_cache->reset();
-}
-
-extern "C" void mlx_kv_cache_free(mlx_kv_cache_t* cache) {
-    if (cache) {
-        delete reinterpret_cast<MLXKVCache*>(cache);
-    }
-}
-
-// ============================================================================
-// SafeTensors weight loading
-// ============================================================================
-
-extern "C" mlx_weights_t* mlx_load_safetensors(const char* path) {
-    if (!path) {
-        g_last_error = "path is null";
-        return nullptr;
-    }
-
-    try {
-        auto weights = new MLXWeightsWrapper();
-
-        if (!weights->load(std::string(path))) {
-            delete weights;
-            return nullptr;
-        }
-
-        return reinterpret_cast<mlx_weights_t*>(weights);
-
-    } catch (const std::exception& e) {
-        g_last_error = std::string("Failed to load safetensors: ") + e.what();
-        return nullptr;
-    }
-}
-
-extern "C" mlx_array_t* mlx_weights_get(mlx_weights_t* weights, const char* name) {
-    if (!weights || !name) {
-        g_last_error = "weights and name are required";
-        return nullptr;
-    }
-
-    try {
-        auto weights_wrapper = reinterpret_cast<MLXWeightsWrapper*>(weights);
-        auto arr = weights_wrapper->get(std::string(name));
-
-        if (!arr) {
-            return nullptr;  // Not found, not an error
-        }
-
-        auto result_wrapper = new MLXArrayWrapper(*arr);
-        return reinterpret_cast<mlx_array_t*>(result_wrapper);
-
-    } catch (const std::exception& e) {
-        g_last_error = std::string("Failed to get weight: ") + e.what();
-        return nullptr;
-    }
-}
-
-extern "C" int mlx_weights_list(mlx_weights_t* weights, const char** names, int max_names) {
-    if (!weights) return 0;
-
-    auto weights_wrapper = reinterpret_cast<MLXWeightsWrapper*>(weights);
-    int count = static_cast<int>(weights_wrapper->weight_names.size());
-
-    if (names && max_names > 0) {
-        int to_copy = std::min(count, max_names);
-        for (int i = 0; i < to_copy; ++i) {
-            names[i] = weights_wrapper->weight_names[i].c_str();
-        }
-    }
-
-    return count;
-}
-
-extern "C" void mlx_weights_free(mlx_weights_t* weights) {
-    if (weights) {
-        delete reinterpret_cast<MLXWeightsWrapper*>(weights);
-    }
-}
-
-// ============================================================================
 // Evaluation and synchronization
 // ============================================================================
 
@@ -2495,125 +1521,6 @@ extern "C" void mlx_synchronize(void) {
         mx::synchronize();
     } catch (const std::exception& e) {
         g_last_error = std::string("Synchronize failed: ") + e.what();
-    }
-}
-
-// ============================================================================
-// LoRA Adapter Caching
-// ============================================================================
-
-extern "C" const char* mlx_lora_cache_adapter(const char* adapter_id, mlx_array_t* lora_a, mlx_array_t* lora_b) {
-    if (!adapter_id || !lora_a || !lora_b) {
-        g_last_error = "adapter_id, lora_a, and lora_b are required";
-        return nullptr;
-    }
-
-    try {
-        auto a_wrapper = reinterpret_cast<MLXArrayWrapper*>(lora_a);
-        auto b_wrapper = reinterpret_cast<MLXArrayWrapper*>(lora_b);
-
-        std::lock_guard<std::mutex> lock(g_lora_cache_mutex);
-
-        // LRU eviction if at capacity
-        if (g_lora_cache.size() >= g_lora_cache_limit) {
-            // Find and evict least recently used
-            std::string lru_key;
-            uint64_t min_access = UINT64_MAX;
-
-            for (const auto& [key, entry] : g_lora_cache) {
-                if (entry.last_access < min_access) {
-                    min_access = entry.last_access;
-                    lru_key = key;
-                }
-            }
-
-            if (!lru_key.empty()) {
-                g_lora_cache.erase(lru_key);
-            }
-        }
-
-        // Insert or update
-        std::string key(adapter_id);
-        g_lora_cache[key] = LoRACacheEntry{
-            a_wrapper->arr,
-            b_wrapper->arr,
-            ++g_lora_access_counter
-        };
-
-        return adapter_id;
-
-    } catch (const std::exception& e) {
-        g_last_error = std::string("Failed to cache adapter: ") + e.what();
-        return nullptr;
-    }
-}
-
-extern "C" bool mlx_lora_get_cached(const char* adapter_id, mlx_array_t** out_lora_a, mlx_array_t** out_lora_b) {
-    if (!adapter_id || !out_lora_a || !out_lora_b) {
-        return false;
-    }
-
-    try {
-        std::lock_guard<std::mutex> lock(g_lora_cache_mutex);
-
-        auto it = g_lora_cache.find(std::string(adapter_id));
-        if (it == g_lora_cache.end()) {
-            return false;
-        }
-
-        // Update access time
-        it->second.last_access = ++g_lora_access_counter;
-
-        // Return copies of the arrays
-        *out_lora_a = reinterpret_cast<mlx_array_t*>(new MLXArrayWrapper(it->second.lora_a));
-        *out_lora_b = reinterpret_cast<mlx_array_t*>(new MLXArrayWrapper(it->second.lora_b));
-
-        return true;
-
-    } catch (const std::exception& e) {
-        g_last_error = std::string("Failed to get cached adapter: ") + e.what();
-        return false;
-    }
-}
-
-extern "C" void mlx_lora_evict_cached(const char* adapter_id) {
-    if (!adapter_id) return;
-
-    std::lock_guard<std::mutex> lock(g_lora_cache_mutex);
-    g_lora_cache.erase(std::string(adapter_id));
-}
-
-extern "C" void mlx_lora_clear_cache(void) {
-    std::lock_guard<std::mutex> lock(g_lora_cache_mutex);
-    g_lora_cache.clear();
-}
-
-extern "C" size_t mlx_lora_cache_size(void) {
-    std::lock_guard<std::mutex> lock(g_lora_cache_mutex);
-    return g_lora_cache.size();
-}
-
-extern "C" void mlx_lora_set_cache_limit(size_t max_entries) {
-    std::lock_guard<std::mutex> lock(g_lora_cache_mutex);
-    g_lora_cache_limit = max_entries;
-
-    // Evict if over new limit
-    while (g_lora_cache.size() > g_lora_cache_limit) {
-        std::string lru_key;
-        uint64_t min_access = UINT64_MAX;
-
-        for (const auto& [key, entry] : g_lora_cache) {
-            if (entry.last_access < min_access) {
-                min_access = entry.last_access;
-                lru_key = key;
-            }
-        }
-
-        if (!lru_key.empty()) {
-            g_lora_cache.erase(lru_key);
-        } else {
-            break;
-        }
     }
 }
 

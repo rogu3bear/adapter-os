@@ -18,6 +18,7 @@ mod e2e_workflow_tests {
     use adapteros_lora_mlx_ffi::mock::{create_mock_adapter, create_mock_config};
     use adapteros_lora_mlx_ffi::streaming::{
         FinishReason, MLXStreamingGenerator, SSEFormatter, StreamEvent, StreamingConfig,
+        TokenGenerationOutput,
     };
     use adapteros_lora_mlx_ffi::{memory, mlx_set_seed_from_bytes, MLXFFIModel};
     use std::collections::HashMap;
@@ -795,12 +796,12 @@ mod e2e_workflow_tests {
         // Token generator function
         let mut step_counter = 0u32;
         let generate_fn =
-            move |step: usize, _seed: &B3Hash| -> adapteros_core::Result<(u32, Vec<u8>)> {
+            move |step: usize, _seed: &B3Hash| -> adapteros_core::Result<TokenGenerationOutput> {
                 step_counter = step_counter.wrapping_add(1);
                 // Generate mock tokens
                 let token_id = (step as u32 * 17 + 1) % 32000;
                 let token_bytes = format!("tok{}", step).into_bytes();
-                Ok((token_id, token_bytes))
+                Ok(TokenGenerationOutput::new(token_id, token_bytes))
             };
 
         // Spawn generation task
@@ -947,13 +948,13 @@ mod e2e_workflow_tests {
 
         // Generate tokens that eventually include stop sequence
         let generate_fn =
-            move |step: usize, _seed: &B3Hash| -> adapteros_core::Result<(u32, Vec<u8>)> {
+            move |step: usize, _seed: &B3Hash| -> adapteros_core::Result<TokenGenerationOutput> {
                 let (token_id, text) = if step == 5 {
                     (999, "STOP".to_string()) // Trigger stop sequence
                 } else {
                     (step as u32, format!("word{}", step))
                 };
-                Ok((token_id, text.into_bytes()))
+                Ok(TokenGenerationOutput::new(token_id, text.into_bytes()))
             };
 
         let gen_handle = tokio::spawn(async move { generator.generate(generate_fn, tx).await });
@@ -1130,7 +1131,7 @@ mod e2e_workflow_tests {
         // Verify report structure
         assert_eq!(
             report.backend_type,
-            adapteros_lora_kernel_api::attestation::BackendType::Mlx
+            adapteros_lora_kernel_api::attestation::BackendType::MLX
         );
 
         // In stub mode, should not claim determinism

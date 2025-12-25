@@ -21,6 +21,7 @@ telemetry-sysinfo = ["dep:sysinfo"]
 # multi-backend: Enables MLX FFI backend
 #   - Adds adapteros-lora-mlx-ffi as dependency
 #   - For research/training workloads
+#   - Can use mlx-rs-backend feature on the dependency for pure Rust
 #
 # remote-llm: Enables remote LLM backend for external API services
 #   - Adds reqwest HTTP client dependency
@@ -30,6 +31,12 @@ telemetry-sysinfo = ["dep:sysinfo"]
 coreml-backend = ["dep:adapteros-lora-kernel-coreml"]
 multi-backend = ["dep:adapteros-lora-mlx-ffi", "mlx"]
 remote-llm = ["dep:reqwest"]
+
+# mlx-bridge: Enables MLX subprocess bridge backend
+#   - Uses Python mlx-lm via subprocess for MoE models
+#   - Automatically selected for models with num_experts > 0
+#   - Falls back to MLX FFI for non-MoE models if Python unavailable
+mlx-bridge = []
 
 # Alias for clarity
 mlx-backend = ["multi-backend"]

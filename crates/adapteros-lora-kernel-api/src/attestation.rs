@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 /// Backend type identifier
 ///
 /// PRD-RECT-003: Implements Ord for deterministic cache eviction ordering.
-/// Variants ordered alphabetically: CoreML < Metal < Mlx < Mock
+/// Variants ordered alphabetically: CoreML < Metal < MLX < Mock
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum BackendType {
     /// CoreML backend (macOS Neural Engine) - deterministic if ANE available
@@ -14,7 +14,8 @@ pub enum BackendType {
     /// Metal backend (macOS GPU) - deterministic
     Metal,
     /// MLX backend (deterministic HKDF-seeded execution)
-    Mlx,
+    #[serde(rename = "Mlx")]
+    MLX,
     /// Mock backend for testing
     Mock,
 }
@@ -24,7 +25,7 @@ impl BackendType {
     pub fn is_deterministic_by_design(&self) -> bool {
         matches!(
             self,
-            BackendType::Metal | BackendType::Mock | BackendType::Mlx
+            BackendType::Metal | BackendType::Mock | BackendType::MLX
         )
     }
 }
@@ -183,7 +184,8 @@ mod tests {
     fn test_backend_type_determinism() {
         assert!(BackendType::Metal.is_deterministic_by_design());
         assert!(BackendType::Mock.is_deterministic_by_design());
-        assert!(!BackendType::Mlx.is_deterministic_by_design());
+        // MLX is deterministic when HKDF-seeded (per enum doc comment)
+        assert!(BackendType::MLX.is_deterministic_by_design());
     }
 
     #[test]

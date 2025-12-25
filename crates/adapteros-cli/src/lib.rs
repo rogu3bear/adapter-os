@@ -22,7 +22,8 @@ pub enum BackendType {
     /// Metal backend (macOS GPU)
     Metal,
     /// MLX backend (Python/MLX)
-    Mlx,
+    #[clap(name = "mlx")]
+    MLX,
     /// CoreML backend (macOS Neural Engine)
     CoreML,
 }
@@ -31,7 +32,7 @@ impl From<BackendType> for adapteros_config::BackendPreference {
     fn from(bt: BackendType) -> Self {
         match bt {
             BackendType::Metal => adapteros_config::BackendPreference::Metal,
-            BackendType::Mlx => adapteros_config::BackendPreference::Mlx,
+            BackendType::MLX => adapteros_config::BackendPreference::Mlx,
             BackendType::CoreML => adapteros_config::BackendPreference::CoreML,
         }
     }

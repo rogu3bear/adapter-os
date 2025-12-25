@@ -207,9 +207,24 @@ impl RouterWeights {
         serde_json::from_str(&content).map_err(|e| adapteros_core::AosError::Io(e.to_string()))
     }
 
+    /// Load weights from TOML file
+    pub fn load_toml(path: impl AsRef<std::path::Path>) -> Result<Self> {
+        let content = std::fs::read_to_string(path.as_ref())
+            .map_err(|e| adapteros_core::AosError::Io(e.to_string()))?;
+        toml::from_str(&content).map_err(|e| adapteros_core::AosError::Io(e.to_string()))
+    }
+
     /// Save weights to JSON file
     pub fn save(&self, path: impl AsRef<std::path::Path>) -> Result<()> {
         let content = serde_json::to_string_pretty(&self)
+            .map_err(|e| adapteros_core::AosError::Io(e.to_string()))?;
+        std::fs::write(path.as_ref(), content)
+            .map_err(|e| adapteros_core::AosError::Io(e.to_string()))
+    }
+
+    /// Save weights to TOML file
+    pub fn save_toml(&self, path: impl AsRef<std::path::Path>) -> Result<()> {
+        let content = toml::to_string_pretty(&self)
             .map_err(|e| adapteros_core::AosError::Io(e.to_string()))?;
         std::fs::write(path.as_ref(), content)
             .map_err(|e| adapteros_core::AosError::Io(e.to_string()))
@@ -453,8 +468,16 @@ impl Router {
     /// - Low confidence: max gate value is below threshold, indicating no strong selection
     ///
     /// Events are emitted via telemetry writer if thresholds are configured and exceeded.
+    ///
+    /// Note: Empty decisions (no adapters selected) are skipped - they represent
+    /// policy-based abstention rather than uncertainty-based abstention.
     fn check_abstain_conditions(&self, entropy: f32, gates: &[f32]) {
         use adapteros_telemetry::events::AbstainEvent;
+
+        // Skip abstain checks for empty decisions (already abstained via policy/no adapters)
+        if gates.is_empty() {
+            return;
+        }
 
         if let Some(ref writer) = self.abstain_telemetry_writer {
             // Check high entropy threshold
@@ -506,7 +529,10 @@ impl Router {
     pub fn new(_weights: Vec<f32>, k: usize, tau: f32, eps: f32, _seed: [u8; 32]) -> Result<Self> {
         if k > MAX_K {
             return Err(adapteros_core::AosError::Routing(
-                "K cannot exceed MAX_K=8".to_string(),
+                format!(
+                    "Adapter routing failed: K={} exceeds maximum allowed value of {}. Reduce the number of top adapters to select (K parameter) to {} or less.",
+                    k, MAX_K, MAX_K
+                )
             ));
         }
         // Legacy constructor - ignores old weights vector, uses default RouterWeights
@@ -1171,7 +1197,7 @@ impl Router {
 
         if self.adaptive_routing && determinism.is_none() {
             return Err(adapteros_core::AosError::Config(
-                "Adaptive routing requires a determinism context for seeded tie-breaking"
+                "Adaptive routing configuration error: determinism context is required for seeded tie-breaking when adaptive routing is enabled. Provide a determinism context in the request or disable adaptive routing."
                     .to_string(),
             ));
         }
@@ -2625,5 +2651,322 @@ mod tests {
 
         assert_eq!(decision.indices.len(), 1);
         assert_eq!(decision.indices[0], 0);
+    }
+
+    // ============================================================================
+    // Q15 QUANTIZATION EDGE CASE TESTS
+    // ============================================================================
+
+    #[test]
+    fn test_q15_constants_validation() {
+        // Verify Q15 constants are correct
+        assert_eq!(
+            ROUTER_GATE_Q15_DENOM, 32767.0,
+            "Q15 denominator MUST be 32767.0, not 32768.0"
+        );
+        assert_eq!(
+            ROUTER_GATE_Q15_MAX, 32767,
+            "Q15 max value MUST be 32767 (i16::MAX)"
+        );
+    }
+
+    #[test]
+    fn test_q15_zero_gate_edge_case() {
+        // Edge case 1: Gate = 0 → Q15 = 0
+        let gate_f32 = 0.0f32;
+        let gate_q15 = (gate_f32 * ROUTER_GATE_Q15_DENOM).round() as i16;
+        let gate_q15_clamped = gate_q15.max(0);
+
+        assert_eq!(gate_q15, 0, "0.0 gate should convert to Q15 = 0");
+        assert_eq!(gate_q15_clamped, 0, "Clamped 0 should remain 0");
+
+        // Verify round-trip
+        let recovered = gate_q15_clamped as f32 / ROUTER_GATE_Q15_DENOM;
+        assert_eq!(recovered, 0.0, "Q15 = 0 should decode to 0.0");
+    }
+
+    #[test]
+    fn test_q15_max_gate_edge_case() {
+        // Edge case 2: Gate = 1.0 → Q15 = 32767
+        let gate_f32 = 1.0f32;
+        let gate_q15 = (gate_f32 * ROUTER_GATE_Q15_DENOM).round() as i16;
+
+        assert_eq!(gate_q15, 32767, "1.0 gate should convert to Q15 = 32767");
+
+        // Verify round-trip
+        let recovered = gate_q15 as f32 / ROUTER_GATE_Q15_DENOM;
+        assert_eq!(recovered, 1.0, "Q15 = 32767 should decode to exactly 1.0");
+    }
+
+    #[test]
+    fn test_q15_negative_gate_clamping() {
+        // Edge case 3: Negative gates should be clamped to 0
+        let negative_gate = -0.5f32;
+        let gate_q15_raw = (negative_gate * ROUTER_GATE_Q15_DENOM).round() as i16;
+        let gate_q15_clamped = gate_q15_raw.max(0);
+
+        assert!(gate_q15_raw < 0, "Negative gate produces negative Q15");
+        assert_eq!(gate_q15_clamped, 0, "Negative Q15 should be clamped to 0");
+    }
+
+    #[test]
+    fn test_q15_very_small_gates_underflow() {
+        // Edge case 4: Very small gates should round to 0 or 1
+        let tiny_gates = vec![1e-8, 1e-7, 1e-6, 1e-5, 1e-4];
+
+        for gate in tiny_gates {
+            let q = (gate * ROUTER_GATE_Q15_DENOM).round() as i16;
+            let q_clamped = q.max(0);
+
+            if gate * ROUTER_GATE_Q15_DENOM < 0.5 {
+                assert_eq!(
+                    q_clamped, 0,
+                    "Gate {} should round to Q15 = 0",
+                    gate
+                );
+            } else {
+                assert!(
+                    q_clamped >= 1,
+                    "Gate {} should round to Q15 >= 1",
+                    gate
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_q15_sum_normalization() {
+        // Edge case 5: Sum of Q15 gates should be ~32767 after normalization
+        let normalized_gates = vec![0.25, 0.25, 0.25, 0.25];
+
+        let gates_q15: Vec<i16> = normalized_gates
+            .iter()
+            .map(|&g| {
+                let q = (g * ROUTER_GATE_Q15_DENOM).round() as i16;
+                q.max(0)
+            })
+            .collect();
+
+        let sum_q15: i32 = gates_q15.iter().map(|&g| g as i32).sum();
+
+        // Sum should be close to 32767 (within rounding error)
+        assert!(
+            (sum_q15 - ROUTER_GATE_Q15_MAX as i32).abs() <= gates_q15.len() as i32,
+            "Sum of Q15 gates ({}) should be within {} of max ({})",
+            sum_q15,
+            gates_q15.len(),
+            ROUTER_GATE_Q15_MAX
+        );
+    }
+
+    #[test]
+    fn test_q15_to_f32_conversion_formula() {
+        // Edge case 6: Verify Q15→f32 conversion: gate_q15 / 32767.0
+        let test_values = vec![
+            (0i16, 0.0f32),
+            (1i16, 1.0 / 32767.0),
+            (16383i16, 16383.0 / 32767.0),
+            (32767i16, 1.0),
+        ];
+
+        for (q15, expected_f32) in test_values {
+            let converted = q15 as f32 / ROUTER_GATE_Q15_DENOM;
+            assert!(
+                (converted - expected_f32).abs() < 1e-6,
+                "Q15 {} should convert to {}, got {}",
+                q15,
+                expected_f32,
+                converted
+            );
+        }
+    }
+
+    #[test]
+    fn test_q15_conversion_determinism() {
+        // Edge case 7: Same gates → same Q15 values (determinism)
+        let gates = vec![0.2, 0.3, 0.5];
+
+        // Convert 5 times and verify consistency
+        let mut results = Vec::new();
+        for _ in 0..5 {
+            let gates_q15: Vec<i16> = gates
+                .iter()
+                .map(|&g| {
+                    let q = (g * ROUTER_GATE_Q15_DENOM).round() as i16;
+                    q.max(0)
+                })
+                .collect();
+            results.push(gates_q15);
+        }
+
+        // All results should be identical
+        for i in 1..results.len() {
+            assert_eq!(
+                results[0], results[i],
+                "Q15 conversion should be deterministic"
+            );
+        }
+    }
+
+    #[test]
+    fn test_q15_round_trip_precision() {
+        // Test f32 → Q15 → f32 round-trip precision
+        let test_gates = vec![0.0, 0.1, 0.25, 0.5, 0.75, 0.9, 1.0];
+
+        for original in test_gates {
+            let q15 = (original * ROUTER_GATE_Q15_DENOM).round() as i16;
+            let q15_clamped = q15.max(0);
+            let recovered = q15_clamped as f32 / ROUTER_GATE_Q15_DENOM;
+
+            let max_error = 1.0 / ROUTER_GATE_Q15_DENOM;
+            let actual_error = (recovered - original).abs();
+
+            assert!(
+                actual_error <= max_error,
+                "Round-trip error ({}) exceeds max ({}) for gate {}",
+                actual_error,
+                max_error,
+                original
+            );
+        }
+    }
+
+    #[test]
+    fn test_q15_not_using_legacy_32768() {
+        // Verify we're NOT using incorrect 32768 denominator
+        let gate_max = 1.0f32;
+
+        let q15_correct = (gate_max * 32767.0).round() as i16;
+        let q15_incorrect = (gate_max * 32768.0).round() as i16;
+
+        assert_eq!(q15_correct, 32767);
+        assert_ne!(q15_correct, q15_incorrect, "32767 and 32768 must differ");
+
+        let recovered_correct = q15_correct as f32 / 32767.0;
+        assert_eq!(recovered_correct, 1.0, "32767 denom gives exact 1.0");
+    }
+
+    #[test]
+    fn test_q15_decision_gates_f32_method() {
+        // Test Decision::gates_f32() conversion
+        let decision = Decision {
+            indices: SmallVec::from_vec(vec![0, 1, 2]),
+            gates_q15: SmallVec::from_vec(vec![32767, 16383, 0]),
+            entropy: 0.5,
+            candidates: vec![],
+            decision_hash: None,
+            policy_mask_digest: None,
+            policy_overrides_applied: None,
+        };
+
+        let gates_f32 = decision.gates_f32();
+
+        assert_eq!(gates_f32.len(), 3);
+        assert_eq!(gates_f32[0], 1.0);
+        assert!((gates_f32[1] - 0.5).abs() < 0.001);
+        assert_eq!(gates_f32[2], 0.0);
+    }
+
+    #[test]
+    fn test_router_q15_gates_sum_correctly() {
+        // Integration test: router Q15 gates should sum to ~32767
+        let mut router = Router::new_with_weights(RouterWeights::default(), 3, 1.0, 0.02);
+        router.set_routing_determinism_mode(true);
+
+        let features = vec![0.5; 22];
+        let priors = vec![1.0, 1.0, 1.0];
+
+        let adapter_info: Vec<AdapterInfo> = (0..3)
+            .map(|i| AdapterInfo {
+                adapter_id: format!("adapter-{}", i),
+                adapter_hash: Some(format!("hash{}", i)),
+                framework_tags: vec![],
+                language_tags: vec![],
+                scope: None,
+            })
+            .collect();
+
+        let adapter_ids: Vec<String> = adapter_info.iter().map(|a| a.adapter_id.clone()).collect();
+        let mask = PolicyMask::allow_all(&adapter_ids, None);
+        let decision = router
+            .route_with_adapter_info(&features, &priors, &adapter_info, &mask)
+            .expect("routing decision");
+
+        let sum_q15: i32 = decision.gates_q15.iter().map(|&g| g as i32).sum();
+        let sum_f32: f32 = decision.gates_f32().iter().sum();
+
+        assert!((sum_f32 - 1.0).abs() < 0.01, "Float gates sum to ~1.0");
+        assert!(
+            (sum_q15 - ROUTER_GATE_Q15_MAX as i32).abs() <= decision.gates_q15.len() as i32,
+            "Q15 gates sum to ~32767"
+        );
+    }
+
+    #[test]
+    fn test_router_single_adapter_gets_max_q15() {
+        // Single adapter should get gate = 1.0 → Q15 = 32767
+        let mut router = Router::new_with_weights(RouterWeights::default(), 1, 1.0, 0.02);
+        router.set_routing_determinism_mode(true);
+
+        let features = vec![0.5; 22];
+        let priors = vec![1.0];
+
+        let adapter_info = vec![AdapterInfo {
+            adapter_id: "adapter-1".to_string(),
+            adapter_hash: Some("hash1".to_string()),
+            framework_tags: vec![],
+            language_tags: vec![],
+            scope: None,
+        }];
+
+        let adapter_ids: Vec<String> = adapter_info.iter().map(|a| a.adapter_id.clone()).collect();
+        let mask = PolicyMask::allow_all(&adapter_ids, None);
+        let decision = router
+            .route_with_adapter_info(&features, &priors, &adapter_info, &mask)
+            .expect("routing decision");
+
+        assert_eq!(decision.indices.len(), 1);
+        assert_eq!(decision.gates_q15[0], 32767);
+        assert_eq!(decision.gates_f32()[0], 1.0);
+    }
+
+    #[test]
+    fn test_router_q15_determinism_identical_inputs() {
+        // Multiple routing calls with identical inputs produce identical Q15
+        let mut router = Router::new_with_weights(RouterWeights::default(), 3, 1.0, 0.02);
+        router.set_routing_determinism_mode(true);
+
+        let features = vec![0.5; 22];
+        let priors = vec![0.6, 0.3, 0.1];
+
+        let adapter_info: Vec<AdapterInfo> = (0..3)
+            .map(|i| AdapterInfo {
+                adapter_id: format!("adapter-{}", i),
+                adapter_hash: Some(format!("hash{}", i)),
+                framework_tags: vec![],
+                language_tags: vec![],
+                scope: None,
+            })
+            .collect();
+
+        let adapter_ids: Vec<String> = adapter_info.iter().map(|a| a.adapter_id.clone()).collect();
+        let mask = PolicyMask::allow_all(&adapter_ids, None);
+
+        // Make 3 identical routing decisions
+        let mut decisions = Vec::new();
+        for _ in 0..3 {
+            let decision = router
+                .route_with_adapter_info(&features, &priors, &adapter_info, &mask)
+                .expect("routing decision");
+            decisions.push(decision);
+        }
+
+        // All decisions should have identical Q15 gates
+        for i in 1..decisions.len() {
+            assert_eq!(
+                decisions[0].gates_q15, decisions[i].gates_q15,
+                "Identical inputs should produce identical Q15 gates"
+            );
+        }
     }
 }

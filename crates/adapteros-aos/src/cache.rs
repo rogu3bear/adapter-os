@@ -153,4 +153,125 @@ impl AdapterCache {
         self.metrics.update_size(-(freed_size as i64));
         Ok(())
     }
+
+    // ==================== MoE Support Methods ====================
+
+    /// Get all cached MoE adapters
+    pub fn get_moe_adapters(&self) -> Vec<(PathBuf, Arc<LoadedAdapter>)> {
+        let cache = self.cache.read();
+        cache
+            .iter()
+            .filter(|(_, adapter)| adapter.is_moe_adapter())
+            .map(|(path, adapter)| (path.clone(), Arc::clone(adapter)))
+            .collect()
+    }
+
+    /// Get total memory used by MoE adapters
+    pub fn moe_size_bytes(&self) -> u64 {
+        let cache = self.cache.read();
+        cache
+            .iter()
+            .filter(|(_, adapter)| adapter.is_moe_adapter())
+            .map(|(_, adapter)| adapter.size_bytes())
+            .sum()
+    }
+
+    /// Get count of MoE adapters in cache
+    pub fn moe_count(&self) -> usize {
+        let cache = self.cache.read();
+        cache.iter().filter(|(_, adapter)| adapter.is_moe_adapter()).count()
+    }
+
+    /// Evict all MoE adapters from cache
+    ///
+    /// Returns the total bytes freed.
+    pub fn evict_all_moe_adapters(&self) -> u64 {
+        let mut cache = self.cache.write();
+        let mut freed_size = 0u64;
+
+        // Collect paths of MoE adapters to evict
+        let moe_paths: Vec<PathBuf> = cache
+            .iter()
+            .filter(|(_, adapter)| adapter.is_moe_adapter())
+            .map(|(path, _)| path.clone())
+            .collect();
+
+        for path in moe_paths {
+            if let Some(adapter) = cache.pop(&path) {
+                let size = adapter.size_bytes();
+                freed_size += size;
+                self.metrics.record_eviction(size);
+                debug!(path = %path.display(), size_bytes = size, "Evicted MoE adapter");
+            }
+        }
+
+        self.metrics.update_size(-(freed_size as i64));
+        freed_size
+    }
+
+    /// Evict MoE adapters to make room for specified size
+    ///
+    /// This method specifically targets MoE adapters for eviction,
+    /// useful when loading a new MoE adapter and wanting to reclaim
+    /// memory from other MoE adapters first.
+    pub fn evict_moe_for_size(&self, needed_size: u64) -> Result<u64> {
+        let current_moe_size = self.moe_size_bytes();
+
+        if needed_size <= current_moe_size {
+            return Ok(0); // Already have enough headroom
+        }
+
+        let mut cache = self.cache.write();
+        let mut freed_size = 0u64;
+
+        // Get MoE adapters sorted by LRU order (oldest first)
+        let mut moe_entries: Vec<(PathBuf, u64)> = cache
+            .iter()
+            .filter(|(_, adapter)| adapter.is_moe_adapter())
+            .map(|(path, adapter)| (path.clone(), adapter.size_bytes()))
+            .collect();
+
+        // Evict until we have enough room
+        for (path, size) in moe_entries.drain(..) {
+            if freed_size >= needed_size {
+                break;
+            }
+
+            if cache.pop(&path).is_some() {
+                freed_size += size;
+                self.metrics.record_eviction(size);
+                debug!(
+                    path = %path.display(),
+                    size_bytes = size,
+                    "Evicted MoE adapter to make room"
+                );
+            }
+        }
+
+        self.metrics.update_size(-(freed_size as i64));
+
+        if freed_size < needed_size {
+            return Err(AosError::Io(format!(
+                "Cannot free {} bytes from MoE adapters (only freed {})",
+                needed_size, freed_size
+            )));
+        }
+
+        Ok(freed_size)
+    }
+
+    /// Check if inserting an MoE adapter would exceed memory limits
+    pub fn would_exceed_limit_for_moe(&self, adapter_size: u64) -> bool {
+        self.size_bytes() + adapter_size > self.config.max_size_bytes
+    }
+
+    /// Get memory pressure ratio for MoE adapters (0.0 - 1.0+)
+    pub fn moe_memory_pressure(&self) -> f64 {
+        let moe_size = self.moe_size_bytes();
+        let max_size = self.config.max_size_bytes;
+        if max_size == 0 {
+            return 0.0;
+        }
+        moe_size as f64 / max_size as f64
+    }
 }

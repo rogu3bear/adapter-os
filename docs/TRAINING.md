@@ -13,11 +13,12 @@ Complete guide to training custom LoRA adapters in AdapterOS, covering the entir
 3. [Dataset Preparation](#dataset-preparation)
 4. [Training Pipeline](#training-pipeline)
 5. [GPU Integration](#gpu-integration)
-6. [Provenance and Versioning](#provenance-and-versioning)
-7. [Backend Selection](#backend-selection)
-8. [Quick Start Examples](#quick-start-examples)
-9. [API Reference](#api-reference)
-10. [Troubleshooting](#troubleshooting)
+6. [MoE Training](#moe-training)
+7. [Provenance and Versioning](#provenance-and-versioning)
+8. [Backend Selection](#backend-selection)
+9. [Quick Start Examples](#quick-start-examples)
+10. [API Reference](#api-reference)
+11. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -471,6 +472,176 @@ let config = TrainingConfig::default()
 - MLX: `mlx_memory_used` (stub returns 1MB), `mlx_utilization: null` when unavailable
 - Metal: Best-effort via powermetrics
 - CoreML: Device tagging (ANE/GPU/CPU), sampled forward latency (mean/p95)
+
+---
+
+## MoE Training
+
+AdapterOS supports training LoRA adapters for Mixture of Experts (MoE) models like Qwen3-Coder-30B-A3B. MoE training uses routing-weighted shared LoRA, where the same LoRA weights are applied but scaled by expert routing weights.
+
+### MoE Architecture Overview
+
+MoE models route each token to a subset of experts (e.g., 8 out of 128). The adapter training accounts for this routing by scaling gradients proportionally to expert activation.
+
+**Key Concepts:**
+
+- **Routing-Weighted Shared LoRA**: Single set of LoRA weights, scaled by routing weights
+- **Expert Routing**: Token-level routing determines which experts process each token
+- **Q15 Routing Weights**: Routing weights quantized with denominator 32767.0
+
+**Formula:**
+```
+expert_out = sum(routing_weight[e]) * (alpha/rank) * (B @ A) @ x
+```
+
+### MoE Training Configuration
+
+**Configure MoE Training:**
+
+```rust
+use adapteros_lora_worker::training::{TrainingConfig, MoETrainingConfig, MoELoRAStrategy};
+
+let config = TrainingConfig::default()
+    .with_moe(128, 8)  // 128 experts, 8 active per token
+    .with_rank(4)
+    .with_alpha(8.0)
+    .with_epochs(3);
+```
+
+**Full MoE Configuration:**
+
+```rust
+let moe_config = MoETrainingConfig {
+    num_experts: 128,
+    num_experts_per_token: 8,
+    lora_strategy: MoELoRAStrategy::RoutingWeightedShared,
+    use_routing_weights: true,
+    moe_intermediate_size: Some(768),
+};
+
+let config = TrainingConfig::default()
+    .with_moe_config(moe_config);
+```
+
+### MoE LoRA Strategies
+
+| Strategy | Description | Use Case |
+|----------|-------------|----------|
+| `RoutingWeightedShared` | Single shared LoRA, scaled by routing | Default, efficient |
+| `PerExpertLoRA` | Separate LoRA per expert | Future: higher capacity |
+
+### MoE Training API
+
+**Training MoE Adapter:**
+
+```rust
+let trainer = MicroLoRATrainer::new(config)?;
+let result = trainer.train(&examples, "moe-adapter-v1").await?;
+
+// Result includes MoE config in weights
+assert!(result.weights.is_moe());
+```
+
+**MoE-Aware Forward Pass:**
+
+The trainer uses `forward_moe()` which applies routing-weighted LoRA:
+
+```rust
+// Internal: routing weights scale LoRA output
+fn apply_lora_moe(&self, hidden: &[f32], weights: &LoRAWeights, routing_weights: &[f32]) -> Vec<f32> {
+    let lora_output = self.apply_lora(hidden, weights);
+    let routing_scale: f32 = routing_weights.iter().sum();
+    lora_output.iter().map(|v| v * routing_scale).collect()
+}
+```
+
+### MoE .aos Packaging
+
+MoE adapters are packaged with `moe_config` in the manifest:
+
+```json
+{
+  "version": "2.0",
+  "rank": 4,
+  "alpha": 8.0,
+  "base_model": "Qwen/Qwen3-Coder-30B-A3B",
+  "moe_config": {
+    "num_experts": 128,
+    "num_experts_per_token": 8,
+    "lora_strategy": "routing_weighted_shared",
+    "use_routing_weights": true,
+    "moe_intermediate_size": 768
+  },
+  "quantization": "q15",
+  "gate_q15_denominator": 32767
+}
+```
+
+### Loading MoE Adapters
+
+**Validate MoE Compatibility:**
+
+```rust
+use adapteros_aos::{AosManager, MoEConfigManifest};
+
+let manager = AosManager::builder()
+    .with_cache(1024 * 1024 * 1024)
+    .build()?;
+
+// Load with MoE validation
+let adapter = manager.load_moe(&path).await?;
+assert!(adapter.is_moe_adapter());
+
+// Validate against expected config
+let expected = MoEConfigManifest {
+    num_experts: 128,
+    num_experts_per_token: 8,
+    ..Default::default()
+};
+let adapter = manager.load_moe_validated(&path, &expected).await?;
+```
+
+**Discover MoE Adapters:**
+
+```rust
+// Find all MoE adapters in a directory
+let moe_adapters = manager.discover_moe_adapters(&adapters_dir).await?;
+for (path, config) in moe_adapters {
+    println!("{}: {} experts", path.display(), config.num_experts);
+}
+
+// Find adapters compatible with specific config
+let compatible = manager.find_compatible_moe_adapters(&adapters_dir, &expected_config).await?;
+```
+
+### MoE Hot-Swap
+
+MoE adapters support hot-swap with validation:
+
+```rust
+// Hot-swap MoE adapter with automatic validation
+manager.hot_swap_moe("slot1", &new_adapter_path).await?;
+
+// Get active MoE adapters
+let active = manager.get_active_moe_adapters();
+for (slot, adapter) in active {
+    if let Some(moe_config) = adapter.moe_config() {
+        println!("Slot {}: {} experts", slot, moe_config.num_experts);
+    }
+}
+
+// Check MoE memory usage
+let moe_bytes = manager.moe_cache_size_bytes();
+let moe_count = manager.moe_cache_count();
+```
+
+### MoE Best Practices
+
+1. **Match Expert Configuration**: Ensure adapter `num_experts` matches target model
+2. **Use Routing Weights**: Enable `use_routing_weights` for proper expert scaling
+3. **Monitor Memory**: MoE models are large; use `moe_cache_size_bytes()` to track usage
+4. **Validate on Load**: Use `load_moe_validated()` to catch configuration mismatches early
+5. **Hot-Swap Validation**: Use `hot_swap_moe()` for atomic MoE adapter updates
 
 ---
 

@@ -77,7 +77,7 @@ pub struct MLXFFIBackend {
 }
 
 /// Performance metrics for optimization
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct PerformanceMetrics {
     pub total_inference_time_ms: u64,
     pub total_requests: u64,
@@ -107,7 +107,71 @@ pub struct BackendHealth {
     pub active_adapters: usize,
 }
 
+impl Default for BackendHealth {
+    fn default() -> Self {
+        Self {
+            operational: true,
+            total_requests: 0,
+            successful_requests: 0,
+            failed_requests: 0,
+            last_failure: None,
+            current_failure_streak: 0,
+            stub_fallback_active: false,
+            active_adapters: 0,
+        }
+    }
+}
+
+/// Macro to reduce boilerplate for monitor access patterns
+macro_rules! with_monitor {
+    ($self:expr, |$m:ident| $body:expr, $default:expr) => {
+        if let Some(monitor) = &$self.monitor {
+            #[allow(unused_mut)]
+            let mut $m = monitor.lock().unwrap();
+            $body
+        } else {
+            $default
+        }
+    };
+}
+
 impl MLXFFIBackend {
+    /// Conversion factor for bytes to megabytes
+    const BYTES_PER_MB: f32 = 1024.0 * 1024.0;
+
+    /// Log router decision telemetry with standardized format
+    fn log_router_decision(&self, io: &IoBuffers, ring: &RouterRing, inference_time: u64) {
+        tracing::info!(
+            target: "mlx.router.decision",
+            position = io.position,
+            ring_k = ring.k,
+            active_indices = ?&ring.indices[..ring.k],
+            gates_q15 = ?&ring.gates_q15[..ring.k],
+            inference_time_ms = inference_time,
+            deterministic = self.manifest_hash.is_some(),
+            "Router decision executed"
+        );
+    }
+
+    /// Log multi-adapter LoRA application telemetry with standardized format
+    fn log_lora_application(
+        &self,
+        active_adapters: &[&LoRAAdapter],
+        modules_applied: usize,
+        total_gate_weight: f32,
+        gates: &[u16],
+    ) {
+        tracing::info!(
+            target: "mlx.router.lora_applied",
+            active_adapters = active_adapters.len(),
+            modules_applied = modules_applied,
+            total_gate_weight = %format!("{:.4}", total_gate_weight),
+            gates_q15 = ?&gates[..gates.len().min(8)],
+            adapter_ids = ?active_adapters.iter().map(|a| a.id()).collect::<Vec<_>>(),
+            "Multi-adapter LoRA routing applied"
+        );
+    }
+
     /// Create new MLX FFI backend with loaded model and default resilience
     pub fn new(model: MLXFFIModel) -> Self {
         // Ensure MLX runtime is initialized
@@ -121,6 +185,15 @@ impl MLXFFIBackend {
 
     /// Create new MLX FFI backend with custom resilience configuration
     pub fn with_resilience_config(model: MLXFFIModel, config: MLXResilienceConfig) -> Self {
+        Self::new_internal(Arc::new(model), config, None)
+    }
+
+    /// Internal constructor shared by all public constructors
+    fn new_internal(
+        model: Arc<MLXFFIModel>,
+        config: MLXResilienceConfig,
+        manifest_hash: Option<B3Hash>,
+    ) -> Self {
         // Ensure MLX runtime is initialized
         if !crate::mlx_runtime_is_initialized() {
             if let Err(e) = crate::mlx_runtime_init() {
@@ -128,8 +201,7 @@ impl MLXFFIBackend {
             }
         }
 
-        let memory_pool_config = MLXMemoryPoolConfig::default();
-        let memory_pool = Arc::new(MLXMemoryPool::new(memory_pool_config));
+        let memory_pool = Arc::new(MLXMemoryPool::new(MLXMemoryPoolConfig::default()));
 
         if !IS_REAL_MLX {
             tracing::warn!(
@@ -138,31 +210,16 @@ impl MLXFFIBackend {
         }
 
         Self {
-            model: Arc::new(model),
+            model,
             adapters: ArcSwap::from_pointee(HashMap::new()),
             device: backend_device_label(),
             resilience_config: config,
-            health_status: Arc::new(RwLock::new(BackendHealth {
-                operational: true,
-                total_requests: 0,
-                successful_requests: 0,
-                failed_requests: 0,
-                last_failure: None,
-                current_failure_streak: 0,
-                stub_fallback_active: false,
-                active_adapters: 0,
-            })),
+            health_status: Arc::new(RwLock::new(BackendHealth::default())),
             monitor: None,
             memory_pool,
             memory_pool_size: Arc::new(RwLock::new(0)),
-            performance_metrics: Arc::new(RwLock::new(PerformanceMetrics {
-                total_inference_time_ms: 0,
-                total_requests: 0,
-                average_latency_ms: 0.0,
-                peak_memory_usage_mb: 0.0,
-                cache_hit_rate: 0.0,
-            })),
-            manifest_hash: None,
+            performance_metrics: Arc::new(RwLock::new(PerformanceMetrics::default())),
+            manifest_hash,
         }
     }
 
@@ -192,42 +249,11 @@ impl MLXFFIBackend {
             "Initialized MLX backend with HKDF-derived seed"
         );
 
-        let memory_pool_config = MLXMemoryPoolConfig::default();
-        let memory_pool = Arc::new(MLXMemoryPool::new(memory_pool_config));
-
-        if !IS_REAL_MLX {
-            tracing::warn!(
-                "MLX backend built without real MLX support (stub FFI); determinism attestation disabled"
-            );
-        }
-
-        Ok(Self {
-            model: Arc::new(model),
-            adapters: ArcSwap::from_pointee(HashMap::new()),
-            device: backend_device_label(),
-            resilience_config: config,
-            health_status: Arc::new(RwLock::new(BackendHealth {
-                operational: true,
-                total_requests: 0,
-                successful_requests: 0,
-                failed_requests: 0,
-                last_failure: None,
-                current_failure_streak: 0,
-                stub_fallback_active: false,
-                active_adapters: 0,
-            })),
-            monitor: None,
-            memory_pool,
-            memory_pool_size: Arc::new(RwLock::new(0)),
-            performance_metrics: Arc::new(RwLock::new(PerformanceMetrics {
-                total_inference_time_ms: 0,
-                total_requests: 0,
-                average_latency_ms: 0.0,
-                peak_memory_usage_mb: 0.0,
-                cache_hit_rate: 0.0,
-            })),
-            manifest_hash: Some(manifest_hash),
-        })
+        Ok(Self::new_internal(
+            Arc::new(model),
+            config,
+            Some(manifest_hash),
+        ))
     }
 
     /// Create new MLX FFI backend with a pre-loaded shared model (for caching)
@@ -241,49 +267,7 @@ impl MLXFFIBackend {
 
     /// Create new MLX FFI backend with shared model and custom resilience
     pub fn with_arc_and_config(model: Arc<MLXFFIModel>, config: MLXResilienceConfig) -> Self {
-        // Ensure MLX runtime is initialized
-        if !crate::mlx_runtime_is_initialized() {
-            if let Err(e) = crate::mlx_runtime_init() {
-                tracing::warn!("MLX runtime init in backend: {}", e);
-            }
-        }
-
-        let memory_pool_config = MLXMemoryPoolConfig::default();
-        let memory_pool = Arc::new(MLXMemoryPool::new(memory_pool_config));
-
-        if !IS_REAL_MLX {
-            tracing::warn!(
-                "MLX backend built without real MLX support (stub FFI); determinism attestation disabled"
-            );
-        }
-
-        Self {
-            model,
-            adapters: ArcSwap::from_pointee(HashMap::new()),
-            device: backend_device_label(),
-            resilience_config: config,
-            health_status: Arc::new(RwLock::new(BackendHealth {
-                operational: true,
-                total_requests: 0,
-                successful_requests: 0,
-                failed_requests: 0,
-                last_failure: None,
-                current_failure_streak: 0,
-                stub_fallback_active: false,
-                active_adapters: 0,
-            })),
-            monitor: None,
-            memory_pool,
-            memory_pool_size: Arc::new(RwLock::new(0)),
-            performance_metrics: Arc::new(RwLock::new(PerformanceMetrics {
-                total_inference_time_ms: 0,
-                total_requests: 0,
-                average_latency_ms: 0.0,
-                peak_memory_usage_mb: 0.0,
-                cache_hit_rate: 0.0,
-            })),
-            manifest_hash: None,
-        }
+        Self::new_internal(model, config, None)
     }
 
     /// Create new MLX FFI backend with shared model and HKDF seeding
@@ -317,42 +301,7 @@ impl MLXFFIBackend {
             "Initialized MLX backend with HKDF-derived seed (shared model)"
         );
 
-        let memory_pool_config = MLXMemoryPoolConfig::default();
-        let memory_pool = Arc::new(MLXMemoryPool::new(memory_pool_config));
-
-        if !IS_REAL_MLX {
-            tracing::warn!(
-                "MLX backend built without real MLX support (stub FFI); determinism attestation disabled"
-            );
-        }
-
-        Ok(Self {
-            model,
-            adapters: ArcSwap::from_pointee(HashMap::new()),
-            device: backend_device_label(),
-            resilience_config: config,
-            health_status: Arc::new(RwLock::new(BackendHealth {
-                operational: true,
-                total_requests: 0,
-                successful_requests: 0,
-                failed_requests: 0,
-                last_failure: None,
-                current_failure_streak: 0,
-                stub_fallback_active: false,
-                active_adapters: 0,
-            })),
-            monitor: None,
-            memory_pool,
-            memory_pool_size: Arc::new(RwLock::new(0)),
-            performance_metrics: Arc::new(RwLock::new(PerformanceMetrics {
-                total_inference_time_ms: 0,
-                total_requests: 0,
-                average_latency_ms: 0.0,
-                peak_memory_usage_mb: 0.0,
-                cache_hit_rate: 0.0,
-            })),
-            manifest_hash: Some(manifest_hash),
-        })
+        Ok(Self::new_internal(model, config, Some(manifest_hash)))
     }
 
     /// Enable monitoring for this backend
@@ -386,37 +335,35 @@ impl MLXFFIBackend {
 
     /// Perform health check (if monitoring enabled)
     pub fn perform_health_check(&self) -> Option<crate::monitoring::HealthCheckResult> {
-        if let Some(monitor) = &self.monitor {
-            let mut monitor_guard = monitor.lock().unwrap();
-            Some(monitor_guard.health_check())
-        } else {
-            None
-        }
+        with_monitor!(self, |m| Some(m.health_check()), None)
     }
 
     /// Get active alerts (if monitoring enabled)
     pub fn active_alerts(&self) -> Vec<crate::monitoring::Alert> {
-        if let Some(monitor) = &self.monitor {
-            let monitor_guard = monitor.lock().unwrap();
-            monitor_guard.active_alerts().to_vec()
-        } else {
-            Vec::new()
-        }
+        with_monitor!(self, |m| m.active_alerts().to_vec(), Vec::new())
     }
 
     /// Export metrics (if monitoring enabled)
     pub fn export_metrics(&self) -> String {
-        if let Some(monitor) = &self.monitor {
-            let monitor_guard = monitor.lock().unwrap();
-            monitor_guard.export_metrics()
-        } else {
-            String::new()
-        }
+        with_monitor!(self, |m| m.export_metrics(), String::new())
     }
 
     /// Get current health status
     pub fn health_status(&self) -> BackendHealth {
         self.health_status.read().clone()
+    }
+
+    /// Atomically update memory pool size with a signed delta
+    ///
+    /// This helper ensures atomic read-modify-write for `memory_pool_size`,
+    /// preventing race conditions in concurrent adapter registration/unregistration.
+    fn update_memory_pool_size(&self, delta: isize) {
+        let mut size = self.memory_pool_size.write();
+        if delta >= 0 {
+            *size = size.saturating_add(delta as usize);
+        } else {
+            *size = size.saturating_sub((-delta) as usize);
+        }
     }
 
     /// Check if backend is healthy
@@ -436,35 +383,41 @@ impl MLXFFIBackend {
         tracing::info!("MLX backend health reset");
     }
 
-    /// Register a LoRA adapter
-    pub fn register_adapter(&self, adapter_id: u16, adapter: LoRAAdapter) -> Result<()> {
+    /// Internal helper for adapter registration
+    fn add_adapter_internal(
+        &self,
+        adapter_id: u16,
+        adapter: LoRAAdapter,
+        operation: &str,
+    ) -> Result<()> {
         let adapter_name = adapter.id().to_string();
-
-        // Calculate estimated memory usage
-        let rank = adapter.config().rank;
-        let num_modules = adapter.config().target_modules.len();
-        let estimated_bytes = rank * 4096 * 2 * num_modules * 4; // f32 = 4 bytes
+        let estimated_bytes = Self::estimate_adapter_memory(&adapter);
 
         // Track adapter memory in pool
         self.memory_pool.track_adapter(adapter_id, estimated_bytes);
 
-        // Copy-on-write: clone current map, insert, then atomically swap
-        // This ensures lock-free reads during inference while keeping writes atomic
+        // Copy-on-write update
         let mut new_adapters = (**self.adapters.load()).clone();
         new_adapters.insert(adapter_id, Arc::new(adapter));
         self.adapters.store(Arc::new(new_adapters));
 
-        // Update memory pool size tracking
-        let current_size = *self.memory_pool_size.read();
-        *self.memory_pool_size.write() = current_size + estimated_bytes;
+        // Update memory pool size atomically
+        self.update_memory_pool_size(estimated_bytes as isize);
 
-        tracing::info!(
+        tracing::trace!(
             adapter_id = adapter_id,
             adapter_name = %adapter_name,
-            estimated_bytes = estimated_bytes,
-            "Registered LoRA adapter with memory tracking"
+            estimated_mb = estimated_bytes as f32 / Self::BYTES_PER_MB,
+            "{} adapter",
+            operation
         );
+
         Ok(())
+    }
+
+    /// Register a LoRA adapter
+    pub fn register_adapter(&self, adapter_id: u16, adapter: LoRAAdapter) -> Result<()> {
+        self.add_adapter_internal(adapter_id, adapter, "Registered")
     }
 
     /// Get registered adapter count
@@ -474,33 +427,7 @@ impl MLXFFIBackend {
 
     /// Load adapter at runtime (hot-swap)
     pub fn load_adapter_runtime(&self, adapter_id: u16, adapter: LoRAAdapter) -> Result<()> {
-        let adapter_name = adapter.id().to_string();
-
-        // Calculate estimated memory usage
-        let rank = adapter.config().rank;
-        let num_modules = adapter.config().target_modules.len();
-        let estimated_bytes = rank * 4096 * 2 * num_modules * 4; // f32 = 4 bytes
-
-        // Track adapter memory in pool
-        self.memory_pool.track_adapter(adapter_id, estimated_bytes);
-
-        // Copy-on-write: clone current map, insert, then atomically swap
-        // This ensures lock-free reads during inference while keeping writes atomic
-        let mut new_adapters = (**self.adapters.load()).clone();
-        new_adapters.insert(adapter_id, Arc::new(adapter));
-        self.adapters.store(Arc::new(new_adapters));
-
-        // Update memory pool size tracking
-        let current_size = *self.memory_pool_size.read();
-        *self.memory_pool_size.write() = current_size + estimated_bytes;
-
-        tracing::info!(
-            adapter_id = adapter_id,
-            adapter_name = %adapter_name,
-            estimated_bytes = estimated_bytes,
-            "Hot-loaded LoRA adapter with memory tracking"
-        );
-        Ok(())
+        self.add_adapter_internal(adapter_id, adapter, "Hot-loaded")
     }
 
     /// Unload adapter at runtime (hot-swap)
@@ -516,12 +443,11 @@ impl MLXFFIBackend {
         new_adapters.remove(&adapter_id);
         self.adapters.store(Arc::new(new_adapters));
 
-        // Get the memory usage for cleanup (use stored estimate)
-        if let Ok(memory_usage) = self.get_adapter_memory_usage_estimate(adapter.as_ref()) {
-            // Update memory pool size tracking
-            let current_size = *self.memory_pool_size.read();
-            *self.memory_pool_size.write() = current_size.saturating_sub(memory_usage);
-        }
+        // Get the memory usage for cleanup
+        let memory_usage = Self::estimate_adapter_memory(adapter.as_ref());
+
+        // Update memory pool size tracking atomically
+        self.update_memory_pool_size(-(memory_usage as isize));
 
         // Stop tracking adapter in memory pool
         self.memory_pool.untrack_adapter(adapter_id);
@@ -534,26 +460,23 @@ impl MLXFFIBackend {
         Ok(())
     }
 
-    /// Estimate memory usage for an adapter (helper for unload)
-    fn get_adapter_memory_usage_estimate(&self, adapter: &LoRAAdapter) -> Result<usize> {
+    /// Estimate memory usage for a LoRA adapter
+    ///
+    /// Calculates approximate memory footprint based on LoRA parameters:
+    /// rank * hidden_dim * 2 (A and B matrices) * num_modules * sizeof(f32)
+    /// Assumes 7B model with 4096 hidden dimension.
+    #[inline]
+    fn estimate_adapter_memory(adapter: &LoRAAdapter) -> usize {
         let rank = adapter.config().rank;
         let num_modules = adapter.config().target_modules.len();
-        let estimated_bytes = rank * 4096 * 2 * num_modules * 4; // f32 = 4 bytes
-        Ok(estimated_bytes)
+        rank * 4096 * 2 * num_modules * 4 // f32 = 4 bytes
     }
 
     /// Get adapter memory usage (estimated)
     pub fn get_adapter_memory_usage(&self, adapter_id: u16) -> Result<usize> {
         let adapters = self.adapters.load();
         if let Some(adapter) = adapters.get(&adapter_id) {
-            // Estimate memory usage based on LoRA parameters
-            // rank * (dim_in + dim_out) * sizeof(f32) per target module
-            let rank = adapter.config().rank;
-            let num_modules = adapter.config().target_modules.len();
-
-            // Simplified: assume 7B model with 4096 hidden dim
-            let estimated_bytes = rank * 4096 * 2 * num_modules * 4; // f32 = 4 bytes
-            Ok(estimated_bytes)
+            Ok(Self::estimate_adapter_memory(adapter.as_ref()))
         } else {
             Err(adapteros_core::AosError::Lifecycle(format!(
                 "Adapter {} not found",
@@ -625,7 +548,7 @@ impl MLXFFIBackend {
         let freed = self.memory_pool.handle_memory_pressure(bytes_to_free);
 
         if freed > 0 {
-            let freed_mb = freed as f32 / (1024.0 * 1024.0);
+            let freed_mb = freed as f32 / Self::BYTES_PER_MB;
             tracing::warn!(
                 freed_mb = freed_mb,
                 bytes_to_free = bytes_to_free,
@@ -662,7 +585,7 @@ impl MLXFFIBackend {
     pub fn update_memory_metrics(&self) {
         let (active_bytes, pooled_bytes) = self.memory_pool.current_usage();
         let total_bytes = active_bytes + pooled_bytes;
-        let total_mb = total_bytes as f32 / (1024.0 * 1024.0);
+        let total_mb = total_bytes as f32 / Self::BYTES_PER_MB;
 
         let mut metrics = self.performance_metrics.write();
         if total_mb > metrics.peak_memory_usage_mb {
@@ -670,12 +593,33 @@ impl MLXFFIBackend {
         }
 
         tracing::debug!(
-            active_mb = active_bytes as f32 / (1024.0 * 1024.0),
-            pooled_mb = pooled_bytes as f32 / (1024.0 * 1024.0),
+            active_mb = active_bytes as f32 / Self::BYTES_PER_MB,
+            pooled_mb = pooled_bytes as f32 / Self::BYTES_PER_MB,
             total_mb = total_mb,
             peak_mb = metrics.peak_memory_usage_mb,
             "Memory pool metrics updated"
         );
+    }
+
+    /// Record a successful operation
+    fn record_success(&self) {
+        if let Some(mut health) = self.health_status.try_write() {
+            health.successful_requests += 1;
+            health.current_failure_streak = 0;
+            health.last_failure = None;
+            if health.stub_fallback_active {
+                health.stub_fallback_active = false;
+            }
+        }
+    }
+
+    /// Record a failed operation
+    fn record_failure(&self) {
+        if let Some(mut health) = self.health_status.try_write() {
+            health.failed_requests += 1;
+            health.current_failure_streak += 1;
+            health.last_failure = Some(std::time::Instant::now());
+        }
     }
 }
 
@@ -713,17 +657,15 @@ impl FusedKernels for MLXFFIBackend {
         };
 
         // Update health based on result
-        let mut health = self.health_status.write();
         match &result {
             Ok(_) => {
-                health.successful_requests += 1;
-                health.current_failure_streak = 0;
-                health.last_failure = None;
+                self.record_success();
             }
             Err(_) => {
-                health.failed_requests += 1;
-                health.current_failure_streak += 1;
-                health.last_failure = Some(std::time::Instant::now());
+                self.record_failure();
+
+                // Read health state after recording failure
+                let mut health = self.health_status.write();
 
                 // Check if we should enable stub fallback
                 if health.current_failure_streak >= STUB_FALLBACK_THRESHOLD
@@ -804,7 +746,7 @@ impl FusedKernels for MLXFFIBackend {
 
         // Report actual capabilities
         let report = DeterminismReport {
-            backend_type: BackendType::Mlx,
+            backend_type: BackendType::MLX,
             metallib_hash: self.manifest_hash, // Include manifest hash for content addressing
             manifest: None,                    // No Metal-style manifest
             rng_seed_method: rng_method,
@@ -1044,12 +986,12 @@ impl MLXFFIBackend {
 
             // Update peak memory based on actual tensor sizes
             let logits_memory =
-                (final_logits.len() * std::mem::size_of::<f32>()) as f32 / (1024.0 * 1024.0);
+                (final_logits.len() * std::mem::size_of::<f32>()) as f32 / Self::BYTES_PER_MB;
             let hidden_memory: f32 = hidden_states
                 .values()
                 .map(|v| (v.len() * std::mem::size_of::<f32>()) as f32)
                 .sum::<f32>()
-                / (1024.0 * 1024.0);
+                / Self::BYTES_PER_MB;
             let current_memory = logits_memory + hidden_memory;
 
             if current_memory > metrics.peak_memory_usage_mb {
@@ -1058,25 +1000,7 @@ impl MLXFFIBackend {
         }
 
         // Emit router decision telemetry (structured event for monitoring)
-        tracing::info!(
-            target: "mlx.router.decision",
-            position = io.position,
-            ring_k = ring.k,
-            active_indices = ?&ring.indices[..ring.k],
-            gates_q15 = ?&ring.gates_q15[..ring.k],
-            inference_time_ms = inference_time,
-            deterministic = self.manifest_hash.is_some(),
-            "Router decision executed"
-        );
-
-        tracing::debug!(
-            position = io.position,
-            active_adapters = ring.k,
-            logits_len = final_logits.len(),
-            hidden_states_count = hidden_states.len(),
-            inference_time_ms = inference_time,
-            "MLX inference complete"
-        );
+        self.log_router_decision(io, ring, inference_time);
 
         Ok(())
     }
@@ -1197,23 +1121,7 @@ impl MLXFFIBackend {
         }
 
         // Emit multi-adapter routing telemetry
-        tracing::info!(
-            target: "mlx.router.lora_applied",
-            active_adapters = active_adapters.len(),
-            modules_applied = modules_applied,
-            total_gate_weight = %format!("{:.4}", total_gate_weight),
-            gates_q15 = ?&gates[..gates.len().min(8)],
-            adapter_ids = ?active_adapters.iter().map(|a| a.id()).collect::<Vec<_>>(),
-            "Multi-adapter LoRA routing applied"
-        );
-
-        tracing::debug!(
-            active_adapters = active_adapters.len(),
-            modules_applied = modules_applied,
-            total_gate_weight = %format!("{:.4}", total_gate_weight),
-            gates = ?&gates[..gates.len().min(4)],
-            "Applied RouterRing LoRA adaptations"
-        );
+        self.log_lora_application(&active_adapters, modules_applied, total_gate_weight, &gates);
 
         Ok(result)
     }

@@ -167,7 +167,7 @@ let total = tracker.get_total_memory();
 // Backend-specific memory
 let metal_mem = tracker.get_backend_memory(BackendType::Metal);
 let coreml_mem = tracker.get_backend_memory(BackendType::CoreML);
-let mlx_mem = tracker.get_backend_memory(BackendType::Mlx);
+let mlx_mem = tracker.get_backend_memory(BackendType::MLX);
 
 // Adapter-specific memory (all backends)
 let adapter_mem = tracker.get_adapter_memory(1);

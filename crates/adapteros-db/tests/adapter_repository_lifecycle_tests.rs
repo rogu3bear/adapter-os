@@ -3,14 +3,15 @@ use adapteros_db::{CreateRepositoryParams, CreateVersionParams, Db, RepositoryGr
 use sqlx;
 
 /// Helper to create a test model for FK satisfaction
-async fn create_test_model(db: &Db, model_id: &str) {
+async fn create_test_model(db: &Db, model_id: &str, tenant_id: &str) {
     sqlx::query(
-        "INSERT OR IGNORE INTO models (id, name, hash_b3, config_hash_b3, tokenizer_hash_b3, tokenizer_cfg_hash_b3)
-         VALUES (?, ?, ?, 'config-hash', 'tok-hash', 'tok-cfg-hash')",
+        "INSERT OR IGNORE INTO models (id, name, hash_b3, config_hash_b3, tokenizer_hash_b3, tokenizer_cfg_hash_b3, tenant_id)
+         VALUES (?, ?, ?, 'config-hash', 'tok-hash', 'tok-cfg-hash', ?)",
     )
     .bind(model_id)
     .bind(format!("model-{}", model_id))
     .bind(format!("hash-{}", model_id))
+    .bind(tenant_id)
     .execute(&*db.pool())
     .await
     .expect("create test model");
@@ -19,7 +20,7 @@ async fn create_test_model(db: &Db, model_id: &str) {
 async fn create_repo(db: &Db, tenant_id: &str, name: &str, base_model_id: Option<&str>) -> String {
     // Create model if base_model_id is provided
     if let Some(model_id) = base_model_id {
-        create_test_model(db, model_id).await;
+        create_test_model(db, model_id, tenant_id).await;
     }
     db.create_adapter_repository(CreateRepositoryParams {
         tenant_id,
@@ -147,7 +148,7 @@ async fn repo_creation_defaults_and_empty_versions() -> Result<()> {
     let tenant_id = db.create_tenant("tenant-a", false).await?;
 
     // Create the model first to satisfy FK constraint
-    create_test_model(&db, "base-x").await;
+    create_test_model(&db, "base-x", &tenant_id).await;
 
     let repo_id = db
         .create_adapter_repository(CreateRepositoryParams {

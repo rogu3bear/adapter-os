@@ -25,7 +25,7 @@ mod multi_backend_integration {
                 preferred_order: vec![
                     BackendType::Metal,
                     BackendType::CoreML,
-                    BackendType::Mlx,
+                    BackendType::MLX,
                     BackendType::Mock,
                 ],
             }
@@ -44,7 +44,7 @@ mod multi_backend_integration {
 
             // Detect MLX
             if Self::is_mlx_available() {
-                self.available_backends.push(BackendType::Mlx);
+                self.available_backends.push(BackendType::MLX);
             }
 
             // Mock always available
@@ -453,7 +453,7 @@ mod multi_backend_integration {
         let backends = vec![
             BackendType::Metal,
             BackendType::CoreML,
-            BackendType::Mlx,
+            BackendType::MLX,
             BackendType::Mock,
         ];
 

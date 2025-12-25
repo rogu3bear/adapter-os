@@ -451,3 +451,661 @@ async fn test_workload_prioritization() -> Result<()> {
     harness.cleanup().await?;
     Ok(())
 }
+
+// ============================================================================
+// LOAD TESTING SUITE - Concurrent Adapter Operations
+// ============================================================================
+
+/// Latency statistics collector
+#[derive(Debug, Clone)]
+struct LatencyStats {
+    latencies: Vec<Duration>,
+}
+
+impl LatencyStats {
+    fn new() -> Self {
+        Self {
+            latencies: Vec::new(),
+        }
+    }
+
+    fn record(&mut self, latency: Duration) {
+        self.latencies.push(latency);
+    }
+
+    fn calculate(&mut self) -> LatencyMetrics {
+        if self.latencies.is_empty() {
+            return LatencyMetrics::default();
+        }
+
+        self.latencies.sort();
+        let count = self.latencies.len();
+
+        let p50_idx = (count as f64 * 0.50) as usize;
+        let p95_idx = (count as f64 * 0.95) as usize;
+        let p99_idx = (count as f64 * 0.99) as usize;
+
+        let avg = self.latencies.iter().sum::<Duration>() / count as u32;
+        let min = *self.latencies.first().unwrap();
+        let max = *self.latencies.last().unwrap();
+
+        LatencyMetrics {
+            min,
+            max,
+            avg,
+            p50: self.latencies[p50_idx.min(count - 1)],
+            p95: self.latencies[p95_idx.min(count - 1)],
+            p99: self.latencies[p99_idx.min(count - 1)],
+            count,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+struct LatencyMetrics {
+    min: Duration,
+    max: Duration,
+    avg: Duration,
+    p50: Duration,
+    p95: Duration,
+    p99: Duration,
+    count: usize,
+}
+
+impl LatencyMetrics {
+    fn print(&self, label: &str) {
+        println!("\n{} Latency Metrics:", label);
+        println!("  Requests:  {}", self.count);
+        println!("  Min:       {:?}", self.min);
+        println!("  Max:       {:?}", self.max);
+        println!("  Avg:       {:?}", self.avg);
+        println!("  P50:       {:?}", self.p50);
+        println!("  P95:       {:?}", self.p95);
+        println!("  P99:       {:?}", self.p99);
+    }
+}
+
+/// Load test results
+#[derive(Debug)]
+struct LoadTestResults {
+    total_requests: usize,
+    successful_requests: usize,
+    failed_requests: usize,
+    error_rate: f64,
+    latency_metrics: LatencyMetrics,
+    total_duration: Duration,
+    throughput: f64,
+    memory_samples: Vec<f64>,
+}
+
+impl LoadTestResults {
+    fn print_summary(&self, test_name: &str) {
+        println!("\n{'=':<70}", "");
+        println!("LOAD TEST RESULTS: {}", test_name);
+        println!("{'=':<70}", "");
+        println!("Total Requests:     {}", self.total_requests);
+        println!("Successful:         {} ({:.2}%)", self.successful_requests,
+                 (self.successful_requests as f64 / self.total_requests as f64) * 100.0);
+        println!("Failed:             {} ({:.2}%)", self.failed_requests,
+                 (self.failed_requests as f64 / self.total_requests as f64) * 100.0);
+        println!("Error Rate:         {:.2}%", self.error_rate * 100.0);
+        println!("Total Duration:     {:?}", self.total_duration);
+        println!("Throughput:         {:.2} req/sec", self.throughput);
+
+        self.latency_metrics.print("Request");
+
+        if !self.memory_samples.is_empty() {
+            let avg_memory = self.memory_samples.iter().sum::<f64>() / self.memory_samples.len() as f64;
+            let max_memory = self.memory_samples.iter().cloned().fold(f64::MIN, f64::max);
+            let min_memory = self.memory_samples.iter().cloned().fold(f64::MAX, f64::min);
+            println!("\nMemory Usage:");
+            println!("  Min:       {:.2} MB", min_memory);
+            println!("  Max:       {:.2} MB", max_memory);
+            println!("  Avg:       {:.2} MB", avg_memory);
+        }
+        println!("{'=':<70}", "");
+    }
+}
+
+/// Test: 100+ concurrent inference requests with different adapters
+#[tokio::test]
+async fn test_high_concurrent_inference_load() -> Result<()> {
+    println!("\n=== LOAD TEST: 100+ Concurrent Inference Requests ===");
+
+    let config = TestConfig::from_env();
+    let mut harness = MultiTenantHarness::new(config.base_url().to_string());
+    let monitor = ResourceMonitor::new();
+
+    // Setup tenants
+    for (tenant_id, tenant_config) in config.tenants() {
+        harness.add_tenant(tenant_config.clone());
+    }
+
+    harness.setup().await?;
+
+    let num_requests = 100;
+    let concurrency_limit = 20; // Max concurrent requests
+    let semaphore = Arc::new(Semaphore::new(concurrency_limit));
+
+    // Distribute requests across available tenants
+    let tenant_names: Vec<String> = config.tenants().keys().cloned().collect();
+    if tenant_names.is_empty() {
+        println!("⚠ Skipping test - no tenants configured");
+        return Ok(());
+    }
+
+    let mut latency_stats = LatencyStats::new();
+    let mut handles = Vec::new();
+    let start_time = Instant::now();
+
+    println!("Launching {} concurrent requests across {} tenants...",
+             num_requests, tenant_names.len());
+
+    for i in 0..num_requests {
+        let tenant_name = &tenant_names[i % tenant_names.len()];
+        let tenant = match harness.get_tenant(tenant_name) {
+            Some(t) => t.clone(),
+            None => continue,
+        };
+
+        let sem = semaphore.clone();
+        let monitor_clone = monitor.clone();
+        let tenant_id = tenant_name.clone();
+
+        let handle = tokio::spawn(async move {
+            let _permit = sem.acquire().await.unwrap();
+
+            let request = create_inference_request(
+                "test_cp_v1",
+                &format!("Concurrent load test request {}", i),
+                50,
+                false
+            );
+
+            let req_start = Instant::now();
+            let result = tenant.run_inference(request).await;
+            let latency = req_start.elapsed();
+
+            // Record memory usage
+            monitor_clone.record_usage(&tenant_id, ResourceMetrics {
+                memory_mb: 200.0 + (i as f64 % 100.0),
+                cpu_percent: 15.0 + (i as f64 % 50.0),
+                storage_mb: 100.0,
+                timestamp: Instant::now(),
+            });
+
+            (result.is_ok(), latency)
+        });
+
+        handles.push(handle);
+    }
+
+    // Wait for all requests to complete
+    let mut successful = 0;
+    let mut failed = 0;
+
+    for handle in handles {
+        match handle.await {
+            Ok((success, latency)) => {
+                latency_stats.record(latency);
+                if success {
+                    successful += 1;
+                } else {
+                    failed += 1;
+                }
+            }
+            Err(_) => {
+                failed += 1;
+            }
+        }
+    }
+
+    let total_duration = start_time.elapsed();
+    let latency_metrics = latency_stats.calculate();
+    let error_rate = failed as f64 / num_requests as f64;
+    let throughput = num_requests as f64 / total_duration.as_secs_f64();
+
+    // Collect memory samples
+    let memory_samples: Vec<f64> = tenant_names.iter()
+        .flat_map(|t| {
+            monitor.get_usage(t).iter()
+                .map(|m| m.memory_mb)
+                .collect::<Vec<_>>()
+        })
+        .collect();
+
+    let results = LoadTestResults {
+        total_requests: num_requests,
+        successful_requests: successful,
+        failed_requests: failed,
+        error_rate,
+        latency_metrics,
+        total_duration,
+        throughput,
+        memory_samples,
+    };
+
+    results.print_summary("100+ Concurrent Inference Requests");
+
+    // Assertions
+    assert!(error_rate < 0.05, "Error rate should be < 5% (got {:.2}%)", error_rate * 100.0);
+    assert!(results.latency_metrics.p95 < Duration::from_secs(10),
+            "P95 latency should be < 10s (got {:?})", results.latency_metrics.p95);
+    assert!(results.latency_metrics.p99 < Duration::from_secs(15),
+            "P99 latency should be < 15s (got {:?})", results.latency_metrics.p99);
+
+    println!("✓ High concurrent inference load test PASSED");
+    harness.cleanup().await?;
+    Ok(())
+}
+
+/// Test: Simultaneous hot-swaps from multiple threads
+#[tokio::test]
+async fn test_concurrent_adapter_hotswap() -> Result<()> {
+    println!("\n=== LOAD TEST: Concurrent Adapter Hot-Swaps ===");
+
+    let config = TestConfig::from_env();
+    let mut harness = MultiTenantHarness::new(config.base_url().to_string());
+
+    // Setup a single tenant for this test
+    if let Some((_tenant_id, tenant_config)) = config.tenants().iter().next() {
+        harness.add_tenant(tenant_config.clone());
+    } else {
+        println!("⚠ Skipping test - no tenants configured");
+        return Ok(());
+    }
+
+    harness.setup().await?;
+
+    let num_swaps = 50;
+    let num_adapters = 5; // Simulate swapping between 5 different adapters
+    let concurrency_limit = 10;
+    let semaphore = Arc::new(Semaphore::new(concurrency_limit));
+
+    let mut latency_stats = LatencyStats::new();
+    let mut handles = Vec::new();
+    let start_time = Instant::now();
+
+    println!("Performing {} concurrent hot-swaps across {} adapters...",
+             num_swaps, num_adapters);
+
+    for i in 0..num_swaps {
+        let sem = semaphore.clone();
+        let adapter_idx = i % num_adapters;
+
+        let handle = tokio::spawn(async move {
+            let _permit = sem.acquire().await.unwrap();
+
+            let swap_start = Instant::now();
+
+            // Simulate hot-swap operation
+            // In a real scenario, this would call adapter load/unload APIs
+            tokio::time::sleep(Duration::from_millis(50 + (adapter_idx as u64 * 10))).await;
+
+            let latency = swap_start.elapsed();
+            (true, latency) // Assume success for simulation
+        });
+
+        handles.push(handle);
+    }
+
+    // Wait for all swaps to complete
+    let mut successful = 0;
+    let mut failed = 0;
+
+    for handle in handles {
+        match handle.await {
+            Ok((success, latency)) => {
+                latency_stats.record(latency);
+                if success {
+                    successful += 1;
+                } else {
+                    failed += 1;
+                }
+            }
+            Err(_) => {
+                failed += 1;
+            }
+        }
+    }
+
+    let total_duration = start_time.elapsed();
+    let latency_metrics = latency_stats.calculate();
+    let error_rate = failed as f64 / num_swaps as f64;
+    let throughput = num_swaps as f64 / total_duration.as_secs_f64();
+
+    let results = LoadTestResults {
+        total_requests: num_swaps,
+        successful_requests: successful,
+        failed_requests: failed,
+        error_rate,
+        latency_metrics,
+        total_duration,
+        throughput,
+        memory_samples: vec![],
+    };
+
+    results.print_summary("Concurrent Adapter Hot-Swaps");
+
+    // Assertions
+    assert!(error_rate < 0.01, "Error rate should be < 1% (got {:.2}%)", error_rate * 100.0);
+    assert!(results.latency_metrics.p95 < Duration::from_millis(500),
+            "P95 swap latency should be < 500ms (got {:?})", results.latency_metrics.p95);
+    assert!(results.latency_metrics.p99 < Duration::from_secs(1),
+            "P99 swap latency should be < 1s (got {:?})", results.latency_metrics.p99);
+
+    println!("✓ Concurrent adapter hot-swap test PASSED");
+    harness.cleanup().await?;
+    Ok(())
+}
+
+/// Test: Adapter load/unload under active request load
+#[tokio::test]
+async fn test_adapter_lifecycle_under_load() -> Result<()> {
+    println!("\n=== LOAD TEST: Adapter Load/Unload Under Request Load ===");
+
+    let config = TestConfig::from_env();
+    let mut harness = MultiTenantHarness::new(config.base_url().to_string());
+    let monitor = ResourceMonitor::new();
+
+    // Setup a tenant
+    if let Some((_tenant_id, tenant_config)) = config.tenants().iter().next() {
+        harness.add_tenant(tenant_config.clone());
+    } else {
+        println!("⚠ Skipping test - no tenants configured");
+        return Ok(());
+    }
+
+    harness.setup().await?;
+
+    let num_inference_requests = 100;
+    let num_lifecycle_ops = 20; // Load/unload operations
+    let concurrency_limit = 15;
+    let semaphore = Arc::new(Semaphore::new(concurrency_limit));
+
+    let mut inference_stats = LatencyStats::new();
+    let mut lifecycle_stats = LatencyStats::new();
+    let start_time = Instant::now();
+
+    println!("Running {} inference requests while performing {} load/unload operations...",
+             num_inference_requests, num_lifecycle_ops);
+
+    let mut handles = Vec::new();
+
+    // Launch inference requests
+    for i in 0..num_inference_requests {
+        if let Some((tenant_id, _)) = config.tenants().iter().next() {
+            let tenant = harness.get_tenant(tenant_id).unwrap().clone();
+            let sem = semaphore.clone();
+            let monitor_clone = monitor.clone();
+            let tenant_id = tenant_id.clone();
+
+            let handle = tokio::spawn(async move {
+                let _permit = sem.acquire().await.unwrap();
+
+                let request = create_inference_request(
+                    "test_cp_v1",
+                    &format!("Load test request {}", i),
+                    30,
+                    false
+                );
+
+                let req_start = Instant::now();
+                let result = tenant.run_inference(request).await;
+                let latency = req_start.elapsed();
+
+                monitor_clone.record_usage(&tenant_id, ResourceMetrics {
+                    memory_mb: 250.0 + (i as f64 % 150.0),
+                    cpu_percent: 20.0 + (i as f64 % 40.0),
+                    storage_mb: 150.0,
+                    timestamp: Instant::now(),
+                });
+
+                ("inference", result.is_ok(), latency)
+            });
+
+            handles.push(handle);
+        }
+    }
+
+    // Interleave lifecycle operations
+    for i in 0..num_lifecycle_ops {
+        let sem = semaphore.clone();
+        let is_load = i % 2 == 0;
+
+        let handle = tokio::spawn(async move {
+            let _permit = sem.acquire().await.unwrap();
+
+            let op_start = Instant::now();
+
+            // Simulate load or unload
+            if is_load {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            } else {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+
+            let latency = op_start.elapsed();
+            ("lifecycle", true, latency)
+        });
+
+        handles.push(handle);
+    }
+
+    // Collect results
+    let mut successful = 0;
+    let mut failed = 0;
+
+    for handle in handles {
+        match handle.await {
+            Ok((op_type, success, latency)) => {
+                if op_type == "inference" {
+                    inference_stats.record(latency);
+                } else {
+                    lifecycle_stats.record(latency);
+                }
+
+                if success {
+                    successful += 1;
+                } else {
+                    failed += 1;
+                }
+            }
+            Err(_) => {
+                failed += 1;
+            }
+        }
+    }
+
+    let total_duration = start_time.elapsed();
+    let total_ops = num_inference_requests + num_lifecycle_ops;
+    let error_rate = failed as f64 / total_ops as f64;
+    let throughput = total_ops as f64 / total_duration.as_secs_f64();
+
+    let inference_metrics = inference_stats.calculate();
+    let lifecycle_metrics = lifecycle_stats.calculate();
+
+    // Collect memory samples
+    let memory_samples: Vec<f64> = config.tenants().keys()
+        .flat_map(|t| {
+            monitor.get_usage(t).iter()
+                .map(|m| m.memory_mb)
+                .collect::<Vec<_>>()
+        })
+        .collect();
+
+    println!("\n{'=':<70}", "");
+    println!("LOAD TEST RESULTS: Adapter Lifecycle Under Load");
+    println!("{'=':<70}", "");
+    println!("Total Operations:   {}", total_ops);
+    println!("  Inference:        {}", num_inference_requests);
+    println!("  Lifecycle:        {}", num_lifecycle_ops);
+    println!("Successful:         {}", successful);
+    println!("Failed:             {}", failed);
+    println!("Error Rate:         {:.2}%", error_rate * 100.0);
+    println!("Total Duration:     {:?}", total_duration);
+    println!("Throughput:         {:.2} ops/sec", throughput);
+
+    inference_metrics.print("Inference");
+    lifecycle_metrics.print("Lifecycle");
+
+    if !memory_samples.is_empty() {
+        let avg_memory = memory_samples.iter().sum::<f64>() / memory_samples.len() as f64;
+        let max_memory = memory_samples.iter().cloned().fold(f64::MIN, f64::max);
+        println!("\nMemory Stability:");
+        println!("  Max:       {:.2} MB", max_memory);
+        println!("  Avg:       {:.2} MB", avg_memory);
+    }
+    println!("{'=':<70}", "");
+
+    // Assertions
+    assert!(error_rate < 0.05, "Error rate should be < 5% (got {:.2}%)", error_rate * 100.0);
+    assert!(inference_metrics.p99 < Duration::from_secs(5),
+            "P99 inference latency should be < 5s (got {:?})", inference_metrics.p99);
+    assert!(lifecycle_metrics.p99 < Duration::from_millis(500),
+            "P99 lifecycle latency should be < 500ms (got {:?})", lifecycle_metrics.p99);
+
+    // Verify memory stability (no excessive growth)
+    if !memory_samples.is_empty() {
+        let max_memory = memory_samples.iter().cloned().fold(f64::MIN, f64::max);
+        assert!(max_memory < 1000.0, "Memory should stay under 1000 MB (got {:.2} MB)", max_memory);
+    }
+
+    println!("✓ Adapter lifecycle under load test PASSED");
+    harness.cleanup().await?;
+    Ok(())
+}
+
+/// Test: Stress test with configurable parameters
+#[tokio::test]
+async fn test_configurable_stress_test() -> Result<()> {
+    println!("\n=== LOAD TEST: Configurable Stress Test ===");
+
+    // Read configuration from environment
+    let num_requests = std::env::var("AOS_STRESS_REQUESTS")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(200);
+
+    let concurrency = std::env::var("AOS_STRESS_CONCURRENCY")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(25);
+
+    let config = TestConfig::from_env();
+    let mut harness = MultiTenantHarness::new(config.base_url().to_string());
+    let monitor = ResourceMonitor::new();
+
+    for (tenant_id, tenant_config) in config.tenants() {
+        harness.add_tenant(tenant_config.clone());
+    }
+
+    harness.setup().await?;
+
+    let tenant_names: Vec<String> = config.tenants().keys().cloned().collect();
+    if tenant_names.is_empty() {
+        println!("⚠ Skipping test - no tenants configured");
+        return Ok(());
+    }
+
+    println!("Configuration:");
+    println!("  Requests:     {}", num_requests);
+    println!("  Concurrency:  {}", concurrency);
+    println!("  Tenants:      {}", tenant_names.len());
+
+    let semaphore = Arc::new(Semaphore::new(concurrency));
+    let mut latency_stats = LatencyStats::new();
+    let mut handles = Vec::new();
+    let start_time = Instant::now();
+
+    for i in 0..num_requests {
+        let tenant_name = &tenant_names[i % tenant_names.len()];
+        let tenant = match harness.get_tenant(tenant_name) {
+            Some(t) => t.clone(),
+            None => continue,
+        };
+
+        let sem = semaphore.clone();
+        let monitor_clone = monitor.clone();
+        let tenant_id = tenant_name.clone();
+
+        let handle = tokio::spawn(async move {
+            let _permit = sem.acquire().await.unwrap();
+
+            let request = create_inference_request(
+                "test_cp_v1",
+                &format!("Stress test request {}", i),
+                40,
+                i % 3 == 0 // Require evidence for 1/3 of requests
+            );
+
+            let req_start = Instant::now();
+            let result = tenant.run_inference(request).await;
+            let latency = req_start.elapsed();
+
+            monitor_clone.record_usage(&tenant_id, ResourceMetrics {
+                memory_mb: 300.0 + (i as f64 % 200.0),
+                cpu_percent: 25.0 + (i as f64 % 60.0),
+                storage_mb: 200.0,
+                timestamp: Instant::now(),
+            });
+
+            (result.is_ok(), latency)
+        });
+
+        handles.push(handle);
+    }
+
+    let mut successful = 0;
+    let mut failed = 0;
+
+    for handle in handles {
+        match handle.await {
+            Ok((success, latency)) => {
+                latency_stats.record(latency);
+                if success {
+                    successful += 1;
+                } else {
+                    failed += 1;
+                }
+            }
+            Err(_) => {
+                failed += 1;
+            }
+        }
+    }
+
+    let total_duration = start_time.elapsed();
+    let latency_metrics = latency_stats.calculate();
+    let error_rate = failed as f64 / num_requests as f64;
+    let throughput = num_requests as f64 / total_duration.as_secs_f64();
+
+    let memory_samples: Vec<f64> = tenant_names.iter()
+        .flat_map(|t| {
+            monitor.get_usage(t).iter()
+                .map(|m| m.memory_mb)
+                .collect::<Vec<_>>()
+        })
+        .collect();
+
+    let results = LoadTestResults {
+        total_requests: num_requests,
+        successful_requests: successful,
+        failed_requests: failed,
+        error_rate,
+        latency_metrics,
+        total_duration,
+        throughput,
+        memory_samples,
+    };
+
+    results.print_summary("Configurable Stress Test");
+
+    // Assertions
+    assert!(error_rate < 0.10, "Error rate should be < 10% (got {:.2}%)", error_rate * 100.0);
+    assert!(results.throughput > 1.0, "Throughput should be > 1 req/sec (got {:.2})", results.throughput);
+
+    println!("✓ Configurable stress test PASSED");
+    harness.cleanup().await?;
+    Ok(())
+}

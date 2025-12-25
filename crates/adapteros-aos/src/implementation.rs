@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use adapteros_core::{AosError, B3Hash, Result};
 use serde::{Deserialize, Serialize};
 
-use crate::writer::{
+pub use crate::writer::{
     compute_scope_hash, BackendTag, AOS_MAGIC, HAS_INDEX_FLAG, HEADER_SIZE, INDEX_ENTRY_SIZE,
 };
 
@@ -282,6 +282,16 @@ impl LoadedAdapter {
     pub fn tensor_count(&self) -> usize {
         self.buffers.len()
     }
+
+    /// Check if this adapter is for an MoE (Mixture of Experts) model
+    pub fn is_moe_adapter(&self) -> bool {
+        self.manifest.moe_config.is_some()
+    }
+
+    /// Get the MoE configuration if this adapter is for an MoE model
+    pub fn moe_config(&self) -> Option<&MoEConfigManifest> {
+        self.manifest.moe_config.as_ref()
+    }
 }
 
 /// AOS Manifest Structure
@@ -323,6 +333,9 @@ pub struct AosManifest {
     /// Training hyperparameters
     #[serde(default)]
     pub training_config: Option<TrainingConfigManifest>,
+    /// MoE configuration (for adapters targeting MoE models)
+    #[serde(default)]
+    pub moe_config: Option<MoEConfigManifest>,
     /// Arbitrary metadata including scope_path/domain/group/operation
     #[serde(default)]
     pub metadata: HashMap<String, String>,
@@ -338,6 +351,35 @@ pub struct TrainingConfigManifest {
     pub weight_decay: Option<f32>,
 }
 
+/// MoE (Mixture of Experts) Configuration for adapters targeting MoE models
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct MoEConfigManifest {
+    /// Number of experts in the base model
+    pub num_experts: u32,
+    /// Number of experts activated per token
+    pub num_experts_per_token: u32,
+    /// Number of shared experts (if any)
+    #[serde(default)]
+    pub num_shared_experts: Option<u32>,
+    /// MoE intermediate size per expert
+    #[serde(default)]
+    pub moe_intermediate_size: Option<u32>,
+    /// LoRA strategy: "routing_weighted_shared" or "per_expert"
+    #[serde(default = "default_moe_lora_strategy")]
+    pub lora_strategy: String,
+    /// Whether to use expert routing weights for LoRA scaling
+    #[serde(default = "default_use_routing_weights")]
+    pub use_routing_weights: bool,
+}
+
+fn default_moe_lora_strategy() -> String {
+    "routing_weighted_shared".to_string()
+}
+
+fn default_use_routing_weights() -> bool {
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -349,6 +391,70 @@ mod tests {
         assert_eq!(AOS_MAGIC, *b"AOS2");
         assert_eq!(HEADER_SIZE, 64);
         assert_eq!(INDEX_ENTRY_SIZE, 80);
+    }
+
+    #[test]
+    fn test_moe_config_manifest_serialization() {
+        let moe_config = MoEConfigManifest {
+            num_experts: 128,
+            num_experts_per_token: 8,
+            num_shared_experts: Some(0),
+            moe_intermediate_size: Some(768),
+            lora_strategy: "routing_weighted_shared".to_string(),
+            use_routing_weights: true,
+        };
+
+        let json = serde_json::to_string(&moe_config).unwrap();
+        let parsed: MoEConfigManifest = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(parsed.num_experts, 128);
+        assert_eq!(parsed.num_experts_per_token, 8);
+        assert_eq!(parsed.num_shared_experts, Some(0));
+        assert!(parsed.use_routing_weights);
+    }
+
+    #[test]
+    fn test_aos_manifest_with_moe_config() {
+        let manifest_json = r#"{
+            "adapter_id": "test/moe/qwen3-30b/v1",
+            "version": "1.0.0",
+            "rank": 16,
+            "alpha": 32.0,
+            "base_model": "Qwen/Qwen3-Coder-30B-A3B",
+            "target_modules": ["q_proj", "v_proj", "gate_proj", "up_proj", "down_proj"],
+            "moe_config": {
+                "num_experts": 128,
+                "num_experts_per_token": 8,
+                "lora_strategy": "routing_weighted_shared"
+            }
+        }"#;
+
+        let manifest: AosManifest = serde_json::from_str(manifest_json).unwrap();
+
+        assert_eq!(manifest.adapter_id, "test/moe/qwen3-30b/v1");
+        assert!(manifest.moe_config.is_some());
+
+        let moe = manifest.moe_config.unwrap();
+        assert_eq!(moe.num_experts, 128);
+        assert_eq!(moe.num_experts_per_token, 8);
+        assert!(moe.use_routing_weights); // default value
+    }
+
+    #[test]
+    fn test_aos_manifest_without_moe_config() {
+        let manifest_json = r#"{
+            "adapter_id": "test/dense/llama/v1",
+            "version": "1.0.0",
+            "rank": 8,
+            "alpha": 16.0,
+            "base_model": "meta-llama/Llama-3.1-8B",
+            "target_modules": ["q_proj", "v_proj"]
+        }"#;
+
+        let manifest: AosManifest = serde_json::from_str(manifest_json).unwrap();
+
+        assert_eq!(manifest.adapter_id, "test/dense/llama/v1");
+        assert!(manifest.moe_config.is_none());
     }
 
     #[cfg(feature = "mmap")]
