@@ -168,7 +168,7 @@ pub fn redact_sensitive(input: &str) -> Cow<'_, str> {
 /// // Debug output shows [REDACTED] for password
 /// println!("{:?}", config);
 /// ```
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct SecretString(String);
 
 impl SecretString {
@@ -202,12 +202,6 @@ impl fmt::Debug for SecretString {
         f.debug_tuple("SecretString")
             .field(&"[REDACTED]")
             .finish()
-    }
-}
-
-impl Default for SecretString {
-    fn default() -> Self {
-        Self(String::new())
     }
 }
 

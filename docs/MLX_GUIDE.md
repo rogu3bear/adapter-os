@@ -1,7 +1,7 @@
 # MLX Backend Guide
 
 **Copyright:** © 2025 JKCA / James KC Auchterlonie. All rights reserved.
-**Last Updated:** 2025-12-11
+**Last Updated:** 2025-12-24
 **Status:** Production Ready
 
 ---
@@ -18,7 +18,8 @@
 8. [Router & Hot-Swap Integration](#router--hot-swap-integration)
 9. [Performance & Tuning](#performance--tuning)
 10. [Deployment](#deployment)
-11. [MLX vs CoreML](#mlx-vs-coreml)
+11. [MLX Bridge (Subprocess Backend)](#mlx-bridge-subprocess-backend)
+12. [MLX vs CoreML](#mlx-vs-coreml)
 
 ---
 
@@ -1033,6 +1034,226 @@ if memory::exceeds_threshold(12000.0) {  // 12GB
 
 ---
 
+## MLX Bridge (Subprocess Backend)
+
+The MLX Bridge is a subprocess-based backend that uses Python's `mlx-lm` library for inference. It's designed specifically for **MoE (Mixture of Experts) models** that aren't supported by the native MLX FFI backend.
+
+### When to Use MLX Bridge
+
+- **MoE Models**: Models with `num_experts > 0` in config.json (e.g., Qwen3-30B MoE, Mixtral)
+- **Unsupported Architectures**: Models with architecture names containing "Moe" or "Mixtral"
+- **Explicit Request**: When `--backend mlx-bridge` is explicitly requested
+
+### Auto-Selection
+
+The backend factory automatically selects MLX Bridge for MoE models:
+```rust
+fn is_moe_model(model_path: &Path) -> bool {
+    // Checks for:
+    // - num_experts > 0
+    // - num_local_experts > 0
+    // - model_type containing "moe" or "mixtral"
+    // - architectures containing "Moe" or "Mixtral"
+}
+```
+
+### Installation Requirements
+
+```bash
+# Python 3.9+ required
+pip install mlx-lm
+```
+
+### Configuration
+
+```rust
+use adapteros_lora_worker::{MlxBridgeConfig, MLXSubprocessBridge};
+
+// Default configuration
+let config = MlxBridgeConfig::default();
+
+// Custom configuration
+let config = MlxBridgeConfig {
+    python_path: "python3".to_string(),
+    startup_timeout_secs: 120,
+    request_timeout_secs: 300,
+    max_restarts: 3,
+    health_check_interval_secs: 30,
+    default_temperature: 0.7,
+    default_top_p: 0.9,
+};
+
+let bridge = MLXSubprocessBridge::with_full_config(
+    model_path,
+    vocab_size,
+    config,
+    manifest_hash,
+)?;
+```
+
+### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MLX_BRIDGE_PYTHON_PATH` | `python3` | Python executable path |
+| `MLX_BRIDGE_TIMEOUT` | `300` | Request timeout in seconds |
+| `MLX_BRIDGE_MAX_RESTARTS` | `3` | Maximum restart attempts on failure |
+| `MLX_BRIDGE_SCRIPT_PATH` | (auto-detected) | Path to `mlx_bridge_server.py` script |
+
+### Text Generation
+
+```rust
+use adapteros_lora_worker::MLXSubprocessBridge;
+
+let bridge = MLXSubprocessBridge::new(model_path, vocab_size)?;
+
+// Simple generation
+let text = bridge.generate("Hello, world!", 100, 0.7, 0.9)?;
+
+// Full result with usage stats
+let result = bridge.generate_text("Hello!", 100, 0.7, 0.9)?;
+println!("Text: {}", result.text);
+println!("Tokens: {}", result.token_count);
+println!("Time: {:?}", result.timing);
+```
+
+### Streaming Generation
+
+```rust
+use adapteros_lora_worker::{MLXSubprocessBridge, StreamingEvent};
+
+let bridge = MLXSubprocessBridge::new(model_path, vocab_size)?;
+
+// Streaming with callback
+bridge.generate_stream(
+    "Once upon a time",
+    100,
+    0.7,
+    0.9,
+    |token, index| {
+        print!("{}", token);
+        std::io::stdout().flush().ok();
+        true  // Continue generation
+    },
+)?;
+```
+
+### Health Monitoring
+
+```rust
+use adapteros_lora_worker::MLXSubprocessBridge;
+
+let bridge = MLXSubprocessBridge::new(model_path, vocab_size)?;
+
+// Check bridge health
+match bridge.check_bridge_health()? {
+    true => println!("Bridge healthy, model loaded"),
+    false => println!("Bridge degraded"),
+}
+
+// Via FusedKernels trait
+use adapteros_lora_kernel_api::FusedKernels;
+match bridge.health_check()? {
+    BackendHealth::Healthy => println!("Ready for inference"),
+    BackendHealth::Degraded { reason } => println!("Degraded: {}", reason),
+    BackendHealth::Failed { reason, recoverable } => {
+        println!("Failed: {} (recoverable: {})", reason, recoverable);
+    }
+}
+```
+
+### Process Lifecycle
+
+The MLX Bridge automatically manages the Python subprocess:
+
+1. **Lazy Startup**: Process starts on first request
+2. **Health Checks**: Periodic checks ensure process is responsive
+3. **Auto-Restart**: Failed process restarts up to `max_restarts` times
+4. **Graceful Shutdown**: Clean shutdown on drop
+
+### FusedKernels Trait Implementation
+
+The MLX Bridge implements the `FusedKernels` trait for compatibility with the inference pipeline:
+
+```rust
+impl FusedKernels for MLXSubprocessBridge {
+    fn load(&mut self) -> Result<()>;           // Start subprocess, load model
+    fn run_step(&mut self, ring: &RouterRing, io: &mut IoBuffers) -> Result<()>;
+    fn device_name(&self) -> &str;              // "mlx-bridge"
+    fn attest_determinism(&self) -> Result<DeterminismReport>;
+    fn health_check(&self) -> Result<BackendHealth>;
+}
+```
+
+### Fallback Strategy
+
+When MLX Bridge is unavailable (Python/mlx-lm not installed):
+
+1. **For MoE models**: Error - MoE models require the bridge
+2. **For non-MoE models**: Fall back to MLX FFI backend
+
+```rust
+// Fallback logic in backend_factory.rs
+if is_moe_model(&model_path) {
+    if !capabilities.has_mlx_bridge {
+        return Err(AosError::Config(
+            "MoE models require MLX Bridge (Python/mlx-lm not available)".into()
+        ));
+    }
+    BackendChoice::MlxBridge
+} else {
+    // Non-MoE: use MLX FFI or fall back to Metal
+    BackendChoice::Mlx
+}
+```
+
+### Performance Characteristics
+
+| Metric | MLX FFI | MLX Bridge | Notes |
+|--------|---------|------------|-------|
+| **Startup** | 1-3s | 3-5s | Bridge has subprocess overhead |
+| **Latency** | 50-80ms | 60-100ms | ~10-20% higher |
+| **Memory** | Unified | Separate process | Extra ~500MB for Python |
+| **MoE Support** | ❌ | ✅ | Bridge required for MoE |
+| **Streaming** | Limited | ✅ Full | Native token streaming |
+
+### Troubleshooting
+
+#### Bridge Fails to Start
+
+```
+Error: Failed to spawn MLX bridge subprocess
+```
+
+**Solutions:**
+1. Verify Python path: `which python3`
+2. Check mlx-lm installed: `python3 -c "import mlx_lm"`
+3. Check script exists: `ls scripts/mlx_bridge_server.py`
+
+#### Model Loading Timeout
+
+```
+Error: Model loading timed out after 120s
+```
+
+**Solutions:**
+1. Increase startup timeout: `export MLX_BRIDGE_TIMEOUT=300`
+2. Check model size fits in memory
+3. Verify model path is correct
+
+#### Process Keeps Restarting
+
+```
+Warning: MLX bridge restart count exceeded (3)
+```
+
+**Solutions:**
+1. Check Python process logs
+2. Verify model compatibility with mlx-lm
+3. Increase max restarts: `export MLX_BRIDGE_MAX_RESTARTS=5`
+
+---
+
 ## MLX vs CoreML
 
 ### When to Choose CoreML
@@ -1054,24 +1275,26 @@ if memory::exceeds_threshold(12000.0) {  // 12GB
 
 ### Backend Comparison
 
-| Feature | Metal | CoreML | MLX |
-|---------|-------|--------|-----|
-| **Determinism** | ✓ Guaranteed | ~ ANE-only | ✗ RNG-only |
-| **RNG Seeding** | Via global seed | Via global seed | Via HKDF |
-| **Execution Order** | ✓ Fused kernels | ~ Conditional | ✗ Async |
-| **Float Rounding** | ✓ Controlled | ~ Depends on backend | ✗ Uncontrolled |
-| **Use Case** | Production | Power-efficient | Production inference, training |
-| **Policy Attestation** | `deterministic: true` | `deterministic: ane_available` | `deterministic: false` |
-| **Performance** | Highest | Good | Good |
-| **Setup** | Automatic on macOS | Automatic | Requires Python/MLX |
-| **LoRA Support** | Full | Full | Full |
-| **Adapter Hot-Swap** | Limited | Limited | Full |
-| **Model Format** | .metallib | .mlmodelc | .safetensors |
+| Feature | Metal | CoreML | MLX | MLX Bridge |
+|---------|-------|--------|-----|------------|
+| **Determinism** | ✓ Guaranteed | ~ ANE-only | ✗ RNG-only | ✗ Best-effort |
+| **RNG Seeding** | Via global seed | Via global seed | Via HKDF | Via Python |
+| **Execution Order** | ✓ Fused kernels | ~ Conditional | ✗ Async | ✗ Subprocess |
+| **Float Rounding** | ✓ Controlled | ~ Depends on backend | ✗ Uncontrolled | ✗ Uncontrolled |
+| **Use Case** | Production | Power-efficient | Production inference, training | MoE models |
+| **Policy Attestation** | `deterministic: true` | `deterministic: ane_available` | `deterministic: false` | `deterministic: false` |
+| **Performance** | Highest | Good | Good | Good (10-20% overhead) |
+| **Setup** | Automatic on macOS | Automatic | Requires Python/MLX | Requires Python/mlx-lm |
+| **LoRA Support** | Full | Full | Full | Limited |
+| **Adapter Hot-Swap** | Limited | Limited | Full | Limited |
+| **Model Format** | .metallib | .mlmodelc | .safetensors | .safetensors |
+| **MoE Support** | ❌ | ❌ | ❌ | ✅ |
 
 ### Recommended Backends by Scenario
 
 - **Low-latency production API:** CoreML
 - **Mixed inference/training lab:** MLX (real) with CoreML as fallback
+- **MoE models (Qwen3-30B, Mixtral):** MLX Bridge
 - **Legacy GPUs / no ANE:** Metal
 
 ### Operational Notes

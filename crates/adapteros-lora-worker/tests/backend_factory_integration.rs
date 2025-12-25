@@ -72,6 +72,7 @@ fn test_auto_select_backend_coreml_priority() {
         has_ane: true,
         has_coreml: true,
         has_mlx: false,
+        has_mlx_bridge: false,
         gpu_memory_bytes: Some(8 * BYTES_PER_GB), // 8GB
     };
 
@@ -104,6 +105,7 @@ fn coreml_request_falls_back_with_reason() {
         has_ane: false,
         has_coreml: false,
         has_mlx: true,
+        has_mlx_bridge: false,
         gpu_memory_bytes: Some(2 * BYTES_PER_GB),
     };
     let profile = ExecutionProfile {
@@ -143,6 +145,7 @@ fn metal_request_errors_when_unavailable() {
         has_ane: false,
         has_coreml: false,
         has_mlx: true,
+        has_mlx_bridge: false,
         gpu_memory_bytes: None,
     };
     let profile = ExecutionProfile {
@@ -166,6 +169,7 @@ fn test_auto_select_backend_metal_fallback() {
         has_ane: false,
         has_coreml: false,
         has_mlx: false,
+        has_mlx_bridge: false,
         gpu_memory_bytes: Some(4 * BYTES_PER_GB), // 4GB
     };
 
@@ -302,6 +306,7 @@ fn test_backend_strategy_metal_with_coreml_fallback() {
         has_ane: false,
         has_coreml: false,
         has_mlx: false,
+        has_mlx_bridge: false,
         gpu_memory_bytes: Some(4 * BYTES_PER_GB),
     };
 
@@ -317,6 +322,7 @@ fn test_backend_strategy_metal_with_coreml_fallback() {
         has_ane: true,
         has_coreml: true,
         has_mlx: false,
+        has_mlx_bridge: false,
         gpu_memory_bytes: None,
     };
 
@@ -332,6 +338,7 @@ fn test_backend_strategy_metal_with_coreml_fallback() {
         has_ane: false,
         has_coreml: false,
         has_mlx: false,
+        has_mlx_bridge: false,
         gpu_memory_bytes: None,
     };
 
@@ -352,6 +359,7 @@ fn test_backend_strategy_coreml_with_metal_fallback() {
         has_ane: true,
         has_coreml: true,
         has_mlx: false,
+        has_mlx_bridge: false,
         gpu_memory_bytes: Some(4 * BYTES_PER_GB),
     };
 
@@ -367,6 +375,7 @@ fn test_backend_strategy_coreml_with_metal_fallback() {
         has_ane: false,
         has_coreml: false,
         has_mlx: false,
+        has_mlx_bridge: false,
         gpu_memory_bytes: Some(4 * BYTES_PER_GB),
     };
 
@@ -387,6 +396,7 @@ fn test_backend_strategy_metal_only() {
         has_ane: false,
         has_coreml: false,
         has_mlx: false,
+        has_mlx_bridge: false,
         gpu_memory_bytes: Some(4 * BYTES_PER_GB),
     };
 
@@ -402,6 +412,7 @@ fn test_backend_strategy_metal_only() {
         has_ane: true,
         has_coreml: true,
         has_mlx: false,
+        has_mlx_bridge: false,
         gpu_memory_bytes: None,
     };
 
@@ -510,6 +521,7 @@ fn test_backend_choice_exhaustive_matching() {
             BackendChoice::Metal => println!("Metal backend"),
             BackendChoice::CoreML => println!("CoreML backend"),
             BackendChoice::Mlx => println!("MLX backend"),
+            BackendChoice::MlxBridge => println!("MLX Bridge backend"),
             BackendChoice::Auto => println!("Auto-selected backend"),
             BackendChoice::CPU => println!("CPU backend (unsupported for inference kernels)"),
         }
@@ -524,6 +536,7 @@ fn test_backend_capabilities_struct() {
         has_ane: true,
         has_coreml: true,
         has_mlx: false,
+        has_mlx_bridge: false,
         gpu_memory_bytes: Some(8_000_000_000),
     };
 
@@ -731,7 +744,7 @@ fn test_model_key_from_path_determinism() {
     );
 
     // Different backend should produce different key
-    let key3 = ModelKey::from_path(BackendType::Mlx, path).unwrap();
+    let key3 = ModelKey::from_path(BackendType::MLX, path).unwrap();
     assert_ne!(
         key1, key3,
         "Different backend should produce different ModelKey"

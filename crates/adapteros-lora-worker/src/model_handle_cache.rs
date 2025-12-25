@@ -1142,7 +1142,7 @@ impl ModelHandleCache {
     fn backend_label(key: &ModelKey) -> &'static str {
         match key.backend_type {
             BackendType::Metal => "metal",
-            BackendType::Mlx => "mlx",
+            BackendType::MLX => "mlx",
             BackendType::CoreML => "coreml",
             BackendType::Mock => "mock",
         }

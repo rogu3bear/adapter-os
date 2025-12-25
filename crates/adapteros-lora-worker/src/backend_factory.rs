@@ -497,6 +497,8 @@ pub struct BackendCapabilities {
     pub has_coreml: bool,
     /// MLX library is available
     pub has_mlx: bool,
+    /// MLX subprocess bridge is available (Python + mlx-lm)
+    pub has_mlx_bridge: bool,
     /// Total GPU/unified memory in bytes
     pub gpu_memory_bytes: Option<u64>,
 }
@@ -538,7 +540,14 @@ pub fn detect_capabilities() -> BackendCapabilities {
         {
             // Only stub available - be honest about it
             caps.has_mlx = false;
+            debug!("MLX backend not available: 'mlx' feature not enabled (stub mode only)");
         }
+    }
+
+    // Detect MLX bridge availability (Python + mlx-lm)
+    #[cfg(feature = "mlx-bridge")]
+    {
+        caps.has_mlx_bridge = detect_mlx_bridge_availability();
     }
 
     debug!(
@@ -547,11 +556,118 @@ pub fn detect_capabilities() -> BackendCapabilities {
         has_ane = caps.has_ane,
         has_coreml = caps.has_coreml,
         has_mlx = caps.has_mlx,
+        has_mlx_bridge = caps.has_mlx_bridge,
         gpu_memory_mb = caps.gpu_memory_bytes.map(|b| b / BYTES_PER_MB),
         "Backend capabilities detected"
     );
 
     caps
+}
+
+/// Detect if the MLX subprocess bridge is available
+///
+/// This checks if Python 3 and mlx-lm are installed and accessible.
+#[cfg(feature = "mlx-bridge")]
+fn detect_mlx_bridge_availability() -> bool {
+    use std::process::Command;
+
+    // Try to run python3 with a quick mlx-lm import check
+    let result = Command::new("python3")
+        .args(["-c", "import mlx_lm; print('ok')"])
+        .output();
+
+    match result {
+        Ok(output) => {
+            let success = output.status.success();
+            if success {
+                debug!("MLX bridge available: python3 and mlx-lm installed");
+            } else {
+                debug!(
+                    stderr = String::from_utf8_lossy(&output.stderr).as_ref(),
+                    "MLX bridge unavailable: mlx-lm import failed"
+                );
+            }
+            success
+        }
+        Err(e) => {
+            debug!(error = %e, "MLX bridge unavailable: python3 not found");
+            false
+        }
+    }
+}
+
+/// Check if a model is a Mixture of Experts (MoE) model
+///
+/// MoE models require special handling and typically need the MLX bridge
+/// as they may not be supported by the standard FFI backends.
+pub fn is_moe_model(model_path: &std::path::Path) -> bool {
+    let config_path = model_path.join("config.json");
+    if !config_path.exists() {
+        return false;
+    }
+
+    match std::fs::read_to_string(&config_path) {
+        Ok(contents) => {
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&contents) {
+                // Check for num_experts field (common in MoE configs)
+                if let Some(num_experts) = json.get("num_experts").or_else(|| json.get("num_local_experts")) {
+                    if let Some(n) = num_experts.as_u64() {
+                        if n > 0 {
+                            debug!(
+                                model_path = %model_path.display(),
+                                num_experts = n,
+                                "Detected MoE model by num_experts field"
+                            );
+                            return true;
+                        }
+                    }
+                }
+
+                // Check model_type for known MoE architectures
+                if let Some(model_type) = json.get("model_type").and_then(|v| v.as_str()) {
+                    let model_type_lower = model_type.to_lowercase();
+                    if model_type_lower.contains("moe")
+                        || model_type_lower.contains("mixtral")
+                        || model_type_lower == "qwen2moe"
+                        || model_type_lower == "dbrx"
+                    {
+                        debug!(
+                            model_path = %model_path.display(),
+                            model_type = model_type,
+                            "Detected MoE model by model_type"
+                        );
+                        return true;
+                    }
+                }
+
+                // Check architectures array
+                if let Some(archs) = json.get("architectures").and_then(|v| v.as_array()) {
+                    for arch in archs {
+                        if let Some(arch_str) = arch.as_str() {
+                            let arch_lower = arch_str.to_lowercase();
+                            if arch_lower.contains("moe") || arch_lower.contains("mixtral") {
+                                debug!(
+                                    model_path = %model_path.display(),
+                                    architecture = arch_str,
+                                    "Detected MoE model by architecture"
+                                );
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            warn!(
+                model_path = %model_path.display(),
+                error = %e,
+                "Failed to read config.json for MoE detection"
+            );
+        }
+    }
+
+    false
 }
 
 /// Detect Metal device and populate capability info
@@ -629,6 +745,17 @@ pub fn auto_select_backend(capabilities: &BackendCapabilities) -> Result<Backend
                 }
                 skipped.push("mlx_unavailable_or_feature_disabled".to_string());
             }
+            BackendKind::MlxBridge => {
+                if cfg!(feature = "mlx-bridge") && capabilities.has_mlx_bridge {
+                    info!(
+                        selected = "mlxbridge",
+                        skipped = skipped.join("; "),
+                        "Auto-selected MLX Bridge backend"
+                    );
+                    return Ok(BackendChoice::MlxBridge);
+                }
+                skipped.push("mlxbridge_unavailable_or_feature_disabled".to_string());
+            }
             BackendKind::Metal => {
                 if capabilities.has_metal {
                     info!(
@@ -657,6 +784,50 @@ pub fn auto_select_backend(capabilities: &BackendCapabilities) -> Result<Backend
     Err(AosError::Config(
         "No suitable backend available. Checked priority CoreML → MLX → Metal → CPU.".to_string(),
     ))
+}
+
+/// Automatic backend selection with MoE model awareness
+///
+/// This function checks if the model is a Mixture of Experts (MoE) model and
+/// automatically selects the MLX Bridge backend if so, as MoE models may not
+/// be fully supported by other backends.
+///
+/// # Arguments
+/// * `model_path` - Path to the model directory
+/// * `capabilities` - Backend capabilities
+///
+/// # Returns
+/// The selected backend choice, preferring MLX Bridge for MoE models
+pub fn auto_select_backend_with_model(
+    model_path: &Path,
+    capabilities: &BackendCapabilities,
+) -> Result<BackendChoice> {
+    // Check if model is MoE
+    if is_moe_model(model_path) {
+        info!(
+            model_path = %model_path.display(),
+            "Detected MoE model, checking if MLX Bridge is available"
+        );
+
+        // Prefer MLX Bridge for MoE models
+        if cfg!(feature = "mlx-bridge") && capabilities.has_mlx_bridge {
+            info!(
+                model_path = %model_path.display(),
+                "Auto-selected MLX Bridge backend for MoE model"
+            );
+            return Ok(BackendChoice::MlxBridge);
+        } else {
+            warn!(
+                model_path = %model_path.display(),
+                mlx_bridge_enabled = cfg!(feature = "mlx-bridge"),
+                has_mlx_bridge = capabilities.has_mlx_bridge,
+                "MoE model detected but MLX Bridge not available, falling back to standard selection"
+            );
+        }
+    }
+
+    // Fall back to standard auto-selection for non-MoE models or if MLX Bridge unavailable
+    auto_select_backend(capabilities)
 }
 
 /// Result of selecting a backend from an ExecutionProfile.
@@ -695,6 +866,7 @@ pub fn select_backend_from_execution_profile(
                         overridden: true,
                         reason: Some(match choice {
                             BackendChoice::Mlx => "coreml_unavailable_fallback_mlx",
+                            BackendChoice::MlxBridge => "coreml_unavailable_fallback_mlxbridge",
                             BackendChoice::Metal => "coreml_unavailable_fallback_metal",
                             BackendChoice::CPU => "coreml_unavailable_fallback_cpu",
                             BackendChoice::CoreML => "coreml_unavailable_fallback_coreml",
@@ -733,6 +905,33 @@ pub fn select_backend_from_execution_profile(
                 ));
             }
         }
+        BackendKind::MlxBridge => {
+            if cfg!(feature = "mlx-bridge") {
+                if capabilities.has_mlx_bridge {
+                    BackendSelection::new(BackendChoice::MlxBridge)
+                } else {
+                    // Fall back to MLX FFI if available
+                    if cfg!(feature = "multi-backend") && capabilities.has_mlx {
+                        info!("MLX bridge unavailable, falling back to MLX FFI");
+                        BackendSelection {
+                            selected: BackendChoice::Mlx,
+                            overridden: true,
+                            reason: Some("mlxbridge_unavailable_fallback_mlx"),
+                        }
+                    } else {
+                        return Err(AosError::Config(
+                            "Requested MLX Bridge backend is not available (Python/mlx-lm missing)"
+                                .to_string(),
+                        ));
+                    }
+                }
+            } else {
+                return Err(AosError::Config(
+                    "Requested MLX Bridge backend is not available (enable mlx-bridge feature)"
+                        .to_string(),
+                ));
+            }
+        }
         BackendKind::CPU => {
             return Err(AosError::Config(
                 "CPU backend is not supported for inference kernels".to_string(),
@@ -767,6 +966,7 @@ pub fn create_backend_from_config(config: &ModelConfig) -> Result<KernelBox> {
         BackendPreference::CoreML => BackendChoice::CoreML,
         BackendPreference::Metal => BackendChoice::Metal,
         BackendPreference::Mlx => BackendChoice::Mlx,
+        BackendPreference::MlxBridge => BackendChoice::MlxBridge,
         BackendPreference::CPU => BackendChoice::CPU,
     };
     create_backend_with_model(choice, &config.path)
@@ -904,7 +1104,8 @@ pub fn create_backend_with_model(choice: BackendChoice, model_path: &Path) -> Re
     match choice {
         BackendChoice::Auto => {
             let capabilities = detect_capabilities();
-            let selected = auto_select_backend(&capabilities)?;
+            // Use MoE-aware selection that checks model configuration
+            let selected = auto_select_backend_with_model(model_path, &capabilities)?;
             create_backend_with_model(selected, model_path)
         }
         BackendChoice::CPU => Err(AosError::Config(
@@ -984,6 +1185,7 @@ pub fn create_backend_with_model(choice: BackendChoice, model_path: &Path) -> Re
             }
         }
         BackendChoice::Mlx => create_mlx_backend(model_path, None, None),
+        BackendChoice::MlxBridge => create_mlx_bridge_backend(model_path, None),
     }
 }
 
@@ -1043,12 +1245,42 @@ pub fn create_backend_with_model_hashes(
 ) -> Result<KernelBox> {
     match choice {
         BackendChoice::Mlx => create_mlx_backend(model_path, manifest_hash, model_weights_hash),
+        BackendChoice::MlxBridge => create_mlx_bridge_backend(model_path, manifest_hash),
         BackendChoice::Metal => create_metal_backend(model_path, manifest_hash, model_weights_hash),
         BackendChoice::CoreML => {
             create_coreml_backend(model_path, manifest_hash, model_weights_hash)
         }
         // Other backends fallback to basic path (no hash verification)
         _ => create_backend_with_model(choice, model_path),
+    }
+}
+
+/// Detect if model is MoE (Mixture of Experts) by checking config.json
+#[cfg(feature = "multi-backend")]
+fn is_moe_model(model_path: &Path) -> bool {
+    let config_path = model_path.join("config.json");
+    if !config_path.exists() {
+        return false;
+    }
+
+    match std::fs::read_to_string(&config_path) {
+        Ok(content) => {
+            if let Ok(config) = serde_json::from_str::<Value>(&content) {
+                // Check for num_experts field (MoE indicator)
+                if let Some(num_experts) = config.get("num_experts").and_then(|v| v.as_u64()) {
+                    if num_experts > 1 {
+                        info!(
+                            model_path = %model_path.display(),
+                            num_experts = num_experts,
+                            "Detected MoE model architecture"
+                        );
+                        return true;
+                    }
+                }
+            }
+            false
+        }
+        Err(_) => false,
     }
 }
 
@@ -1059,12 +1291,31 @@ fn create_mlx_backend(
     manifest_hash: Option<&B3Hash>,
     model_weights_hash: Option<&B3Hash>,
 ) -> Result<KernelBox> {
+    // FAIL-FAST: Validate MLX feature is enabled before attempting backend creation
+    #[cfg(not(feature = "mlx"))]
+    {
+        return Err(AosError::Config(
+            "MLX backend selected but 'mlx' feature not enabled. Rebuild with --features mlx"
+                .to_string(),
+        ));
+    }
+
+    let model_path = validate_mlx_model_dir(model_path)?;
+    let model_path_str = model_path.to_string_lossy();
+
+    // Check if this is a MoE model that requires subprocess bridge
+    if is_moe_model(&model_path) {
+        info!(
+            model_path = %model_path_str,
+            "Using MLX subprocess bridge for MoE model"
+        );
+        return create_mlx_subprocess_backend(&model_path, manifest_hash);
+    }
+
     use adapteros_lora_mlx_ffi::{
         mlx_runtime_init, mlx_runtime_is_initialized, MLXFFIBackend, MLXFFIModel,
     };
 
-    let model_path = validate_mlx_model_dir(model_path)?;
-    let model_path_str = model_path.to_string_lossy();
     info!(
         model_path = %model_path_str,
         has_manifest_hash = manifest_hash.is_some(),
@@ -1090,9 +1341,9 @@ fn create_mlx_backend(
 
     // Create cache key - prefer manifest hash when available for canonical identity
     let cache_key = ModelKey::new(
-        BackendType::Mlx,
+        BackendType::MLX,
         *manifest_hash,
-        build_model_cache_identity(BackendType::Mlx, &model_path),
+        build_model_cache_identity(BackendType::MLX, &model_path),
     );
     let model_arc = get_model_cache()?
         .get_or_load(&cache_key, || {
@@ -1120,6 +1371,51 @@ fn create_mlx_backend(
     );
 
     Ok(backend)
+}
+
+/// Create MLX subprocess bridge backend for MoE models
+#[cfg(feature = "multi-backend")]
+fn create_mlx_subprocess_bridge(
+    model_path: &Path,
+    manifest_hash: Option<&B3Hash>,
+) -> Result<KernelBox> {
+    // FAIL-FAST: Validate MLX feature is enabled before attempting backend creation
+    #[cfg(not(feature = "mlx"))]
+    {
+        return Err(AosError::Config(
+            "MLX backend selected but 'mlx' feature not enabled. Rebuild with --features mlx"
+                .to_string(),
+        ));
+    }
+
+    use crate::mlx_subprocess_bridge::MLXSubprocessBridge;
+
+    // Get vocab size from config
+    let vocab_size = if let Some(config) = load_and_validate_model_config(model_path)? {
+        config.vocab_size
+    } else {
+        // Default vocab size for common models
+        warn!(
+            model_path = %model_path.display(),
+            "Could not load config.json for vocab size, using default 151936"
+        );
+        151936 // Qwen default
+    };
+
+    info!(
+        model_path = %model_path.display(),
+        vocab_size = vocab_size,
+        "Creating MLX subprocess bridge backend"
+    );
+
+    let bridge = MLXSubprocessBridge::with_config(
+        model_path.to_path_buf(),
+        vocab_size,
+        None, // Use default python3
+        manifest_hash.cloned(),
+    )?;
+
+    Ok(Box::new(bridge))
 }
 
 /// Estimate MLX model memory usage from config.json
@@ -1166,6 +1462,64 @@ fn create_mlx_backend(
     Err(AosError::Config(
         "MLX backend requires 'multi-backend' feature to be enabled. \
          Build with: cargo build --features multi-backend"
+            .to_string(),
+    ))
+}
+
+/// Internal helper to create MLX subprocess bridge backend
+#[cfg(feature = "mlx-bridge")]
+fn create_mlx_bridge_backend(
+    model_path: &Path,
+    manifest_hash: Option<&B3Hash>,
+) -> Result<KernelBox> {
+    use crate::mlx_subprocess_bridge::{MLXSubprocessBridge, MlxBridgeConfig};
+
+    info!(
+        model_path = %model_path.display(),
+        has_manifest_hash = manifest_hash.is_some(),
+        "Creating MLX subprocess bridge backend"
+    );
+
+    // Validate model path exists
+    if !model_path.exists() {
+        return Err(AosError::Config(format!(
+            "Model path does not exist: {}",
+            model_path.display()
+        )));
+    }
+
+    // Load config to get vocab_size
+    let config = load_and_validate_model_config(model_path)?;
+    let vocab_size = config.map(|c| c.vocab_size).unwrap_or(152064); // Default for Qwen2.5
+
+    // Create bridge configuration
+    let bridge_config = MlxBridgeConfig::default();
+
+    // Create the bridge backend
+    let bridge = MLXSubprocessBridge::with_full_config(
+        model_path.to_path_buf(),
+        vocab_size,
+        bridge_config,
+        manifest_hash.cloned(),
+    )?;
+
+    info!(
+        vocab_size = vocab_size,
+        "MLX subprocess bridge backend created"
+    );
+
+    Ok(Box::new(bridge))
+}
+
+/// Stub for MLX bridge when feature is not enabled
+#[cfg(not(feature = "mlx-bridge"))]
+fn create_mlx_bridge_backend(
+    _model_path: &Path,
+    _manifest_hash: Option<&B3Hash>,
+) -> Result<KernelBox> {
+    Err(AosError::Config(
+        "MLX Bridge backend requires 'mlx-bridge' feature to be enabled. \
+         Build with: cargo build --features mlx-bridge"
             .to_string(),
     ))
 }
@@ -1351,6 +1705,9 @@ fn create_coreml_backend(
         ));
     }
 
+    // Note: MoE detection happens automatically in backend.load_model()
+    // The backend will detect and log MoE architecture from config.json
+
     Ok(Box::new(backend))
 }
 
@@ -1530,6 +1887,24 @@ pub fn create_backend(choice: BackendChoice) -> Result<KernelBox> {
                 ))
             }
         }
+        BackendChoice::MlxBridge => {
+            // MLX Bridge requires a model path from environment variable
+            let model_path = resolve_mlx_model_path_from_env()?;
+
+            #[cfg(feature = "mlx-bridge")]
+            {
+                create_mlx_bridge_backend(&model_path, None)
+            }
+            #[cfg(not(feature = "mlx-bridge"))]
+            {
+                let _ = model_path;
+                Err(AosError::Config(
+                    "MLX Bridge backend requires 'mlx-bridge' feature to be enabled. \
+                     Build with: cargo build --features mlx-bridge"
+                        .to_string(),
+                ))
+            }
+        }
     }
 }
 
@@ -1565,6 +1940,7 @@ mod tests {
             has_ane: true,
             has_coreml: true,
             has_mlx: true,
+            has_mlx_bridge: false,
             gpu_memory_bytes: None,
         };
 
@@ -1584,6 +1960,7 @@ mod tests {
             has_ane: false,
             has_coreml: false,
             has_mlx: false,
+            has_mlx_bridge: false,
             gpu_memory_bytes: None,
         };
         let ctx = SelectionContext::new(profile, capabilities);
@@ -1610,6 +1987,7 @@ mod tests {
             has_ane: true,
             has_coreml: true,
             has_mlx: false,
+            has_mlx_bridge: false,
             gpu_memory_bytes: None,
         };
         let ctx = SelectionContext::new(profile, capabilities);
@@ -1631,6 +2009,7 @@ mod tests {
             has_ane: false,
             has_coreml: true,
             has_mlx: false,
+            has_mlx_bridge: false,
             gpu_memory_bytes: None,
         };
         let ctx = SelectionContext::new(profile, capabilities);
@@ -1653,6 +2032,7 @@ mod tests {
             has_ane: true,
             has_coreml: true,
             has_mlx: true,
+            has_mlx_bridge: false,
             gpu_memory_bytes: None,
         };
         let ctx = SelectionContext::new(base_profile.clone(), full_caps);
@@ -1665,6 +2045,7 @@ mod tests {
             has_ane: false,
             has_coreml: false,
             has_mlx: true,
+            has_mlx_bridge: false,
             gpu_memory_bytes: None,
         };
         let ctx = SelectionContext::new(base_profile.clone(), no_coreml_caps);
@@ -1682,6 +2063,7 @@ mod tests {
             has_ane: false,
             has_coreml: false,
             has_mlx: false,
+            has_mlx_bridge: false,
             gpu_memory_bytes: None,
         };
         let ctx = SelectionContext::new(base_profile, metal_only_caps);
@@ -1702,6 +2084,7 @@ mod tests {
             has_ane: false,
             has_coreml: false,
             has_mlx: true,
+            has_mlx_bridge: false,
             gpu_memory_bytes: None,
         };
         let ctx = SelectionContext::new(profile, capabilities);
@@ -1726,6 +2109,7 @@ mod tests {
             has_ane: false,
             has_coreml: false,
             has_mlx: false,
+            has_mlx_bridge: false,
             gpu_memory_bytes: None,
         };
         let ctx = SelectionContext::new(profile, capabilities);
@@ -2008,7 +2392,8 @@ pub mod capabilities {
     pub enum BackendType {
         Metal,  // Real Metal backend
         CoreML, // Real CoreML backend
-        Mlx,    // Real MLX backend
+        #[serde(rename = "Mlx")]
+        MLX,    // Real MLX backend
         Cpu,    // Fallback CPU
     }
 
@@ -2060,7 +2445,7 @@ pub mod capabilities {
                 ],
             },
             BackendCapability {
-                backend_type: BackendType::Mlx,
+                backend_type: BackendType::MLX, // Uses MLX per naming contract (serde rename preserves wire format)
                 name: "MLX".to_string(),
                 available: caps.has_mlx,
                 deterministic: false, // MLX execution order not guaranteed
@@ -2130,6 +2515,19 @@ pub mod capabilities {
 /// Compute BLAKE3 hash of all model files in a directory
 #[allow(dead_code)] // Used by verify_model_integrity for backwards compatibility
 fn compute_model_directory_hash(model_path: &Path) -> Result<B3Hash> {
+    // Check for CoreML mlpackage format first
+    let mlpackage_weight_path = model_path.join("Data/com.apple.CoreML/weights/weight.bin");
+    if mlpackage_weight_path.exists() {
+        let bytes = std::fs::read(&mlpackage_weight_path).map_err(|e| {
+            AosError::Io(format!(
+                "Failed to read CoreML weight file '{}': {}",
+                mlpackage_weight_path.display(),
+                e
+            ))
+        })?;
+        return Ok(B3Hash::hash(&bytes));
+    }
+
     let single_model_path = model_path.join("model.safetensors");
 
     if single_model_path.exists() {

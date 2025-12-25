@@ -92,6 +92,9 @@ pub async fn finalize_boot(
     // Phase 11: Adapter Loading
     // =========================================================================
     info!(target: "boot", phase = 11, name = "adapters", "═══ BOOT PHASE 11/12: Adapter Loading ═══");
+
+    // Transition through required states before loading adapters
+    boot_state.load_policies().await;
     boot_state.load_adapters().await;
 
     // Clone in_flight_requests counter for shutdown handler before moving state

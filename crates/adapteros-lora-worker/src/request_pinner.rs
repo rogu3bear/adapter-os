@@ -21,9 +21,18 @@ impl RequestPinner {
 
     /// Capture a snapshot and bump refcounts so mid-request swaps cannot evict adapters.
     pub fn pin(&self) -> Result<PinnedRequest, AosError> {
+        self.pin_internal(false)
+    }
+
+    /// Capture a snapshot even when the active stack is empty (base-only requests).
+    pub fn pin_allow_empty(&self) -> Result<PinnedRequest, AosError> {
+        self.pin_internal(true)
+    }
+
+    fn pin_internal(&self, allow_empty: bool) -> Result<PinnedRequest, AosError> {
         for _ in 0..2 {
             let stack = self.table.get_current_stack_handle();
-            if stack.active.is_empty() {
+            if stack.active.is_empty() && !allow_empty {
                 return Err(AosError::Worker(
                     "No active adapters available to pin".to_string(),
                 ));

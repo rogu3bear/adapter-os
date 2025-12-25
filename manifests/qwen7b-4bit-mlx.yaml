@@ -14,7 +14,18 @@
     "license_hash": null,
     "rope_scaling_override": null
   },
-  "adapters": [],
+  "adapters": [
+    {
+      "id": "readme_adapter",
+      "hash": "3cb7824589bdc9c15ff02651dfe2e4059e3f0c8b8d90904f4023fa00fc04e8cb",
+      "tier": "persistent",
+      "rank": 4,
+      "alpha": 8.0,
+      "target_modules": ["q_proj", "k_proj", "v_proj"]
+    }
+  ],
+  "coreml": null,
+  "fusion": null,
   "router": {
     "k_sparse": 3,
     "gate_quant": "q15",

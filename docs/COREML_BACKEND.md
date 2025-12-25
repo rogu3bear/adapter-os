@@ -718,8 +718,98 @@ unsafe { ffi::swift_coreml_force_mlmultiarray_path(true); }
 
 ---
 
+## LoRA Fusion Workflows
+
+The CoreML backend supports **two distinct approaches** for LoRA adapter integration:
+
+### Offline Pre-Fusion (Production Path)
+
+**Recommended for:** Production deployments with known adapter combinations
+
+**How it works:**
+1. Convert base model to CoreML using `scripts/convert_mlx_to_coreml.py`
+2. Use the `fusion` module to pre-fuse LoRA weights into base model weights
+3. Export fused `.mlpackage` with verification metadata
+4. Deploy the pre-fused package
+
+**Status:** ✅ **FULLY IMPLEMENTED** (see `crates/adapteros-lora-kernel-coreml/src/fusion.rs`)
+
+**Example:**
+```rust
+use adapteros_lora_kernel_coreml::fusion::{
+    LoraFusionConfig, AdapterFusionSpec, fuse_lora_into_model
+};
+
+let config = LoraFusionConfig {
+    base_model_path: "base_weights.safetensors".into(),
+    output_path: "fused_weights.safetensors".into(),
+    adapters: vec![
+        AdapterFusionSpec {
+            weights_path: "adapter_a.safetensors".into(),
+            gate_weight: 0.7,  // Q15 router weight
+            alpha: 32.0,
+            rank: 16,
+        },
+    ],
+    compute_units: ComputeUnits::CpuAndNeuralEngine,
+};
+
+let result = fuse_lora_into_model(&config)?;
+```
+
+**Advantages:**
+- ✅ Zero runtime overhead (fused weights compiled into ANE)
+- ✅ Maximum throughput
+- ✅ Deterministic hash for audit trails
+- ✅ Full ANE optimization
+
+**Disadvantages:**
+- ❌ Cannot hot-swap adapters at runtime
+- ❌ Requires re-fusion for each adapter combination
+
+### Runtime Sidecar (Hot-Swap Path)
+
+**Intended for:** Dynamic adapter switching and multi-tenant serving
+
+**How it would work:**
+1. Load base CoreML model once
+2. Load adapters into cache
+3. Hot-swap active adapters at runtime
+4. LoRA deltas applied via Metal/MLX sidecar
+
+**Status:** ⚠️ **STUB MODE** - Infrastructure exists but LoRA computation is not implemented
+
+**Why stubbed?** CoreML models are compiled and opaque - we cannot access intermediate layer activations. True runtime fusion requires a Metal/MLX sidecar pipeline, which adds ~20-30% overhead and is planned for future work.
+
+**Current Behavior:**
+```rust
+// This API exists but returns stub logits (no actual LoRA computation)
+backend.load_adapter(0, adapter_bytes)?;  // ✅ Caches adapter
+backend.attach_adapter(0)?;                // ✅ Marks as active
+backend.run_step(&ring, &mut io)?;         // ⚠️ Returns stub logits
+```
+
+**Recommendation:** Use **offline pre-fusion** for all production workloads until the sidecar pipeline is implemented.
+
+### Fusion Workflow Comparison
+
+| Feature | Pre-Fusion | Sidecar (Stub) |
+|---------|-----------|----------------|
+| **Production Ready** | ✅ Yes | ❌ No |
+| **Hot-Swap** | ❌ No | ⚠️ Planned |
+| **ANE Optimization** | ✅ Full | ⚠️ Partial |
+| **Runtime Overhead** | ✅ None | ⚠️ ~20-30% |
+| **Multi-Tenant** | ❌ No | ⚠️ Planned |
+
+For detailed fusion API documentation, see:
+- `crates/adapteros-lora-kernel-coreml/README.md` - LoRA fusion workflows
+- `crates/adapteros-lora-kernel-coreml/src/fusion.rs` - Implementation
+
+---
+
 ## See Also
 
+- [crates/adapteros-lora-kernel-coreml/README.md](../crates/adapteros-lora-kernel-coreml/README.md) - LoRA fusion workflows and API
 - [docs/ADR_MULTI_BACKEND_STRATEGY.md](./ADR_MULTI_BACKEND_STRATEGY.md) - Multi-backend architecture decision record
 - [docs/MLX_INTEGRATION.md](./MLX_INTEGRATION.md) - MLX backend guide
 - [docs/METAL_BACKEND.md](./METAL_BACKEND.md) - Metal backend guide

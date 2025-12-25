@@ -263,12 +263,37 @@ typedef struct mlx_sampler_config {
     uint64_t seed;         // Random seed for reproducibility
 } mlx_sampler_config_t;
 
+// Alternative token with probability
+typedef struct mlx_token_alternative {
+    uint32_t token_id;     // Token ID
+    float prob;            // Probability of this token
+} mlx_token_alternative_t;
+
+// Token metadata (confidence and alternatives)
+typedef struct mlx_token_metadata {
+    float confidence;                          // Confidence/probability of the sampled token
+    mlx_token_alternative_t* alternatives;     // Array of alternative tokens
+    int num_alternatives;                      // Number of alternatives
+} mlx_token_metadata_t;
+
 // Sample a token from logits
 // Parameters:
 //   logits: model output logits [vocab_size]
 //   config: sampling configuration
 // Returns: sampled token index
 int mlx_sample_token(mlx_array_t* logits, const mlx_sampler_config_t* config);
+
+// Sample a token from logits with metadata
+// Parameters:
+//   logits: model output logits [vocab_size]
+//   config: sampling configuration
+//   out_metadata: optional pointer to receive token metadata (can be NULL)
+// Returns: sampled token index
+// Note: Caller must free metadata.alternatives if out_metadata is provided
+int mlx_sample_token_with_metadata(mlx_array_t* logits, const mlx_sampler_config_t* config, mlx_token_metadata_t* out_metadata);
+
+// Free token metadata alternatives array
+void mlx_free_token_metadata(mlx_token_metadata_t* metadata);
 
 // ============================================================================
 // KV Cache management

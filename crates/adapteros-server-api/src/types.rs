@@ -1144,6 +1144,15 @@ pub struct WorkerInferRequest {
     /// Stop policy specification (PRD: Hard Deterministic Stop Controller)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stop_policy: Option<adapteros_api_types::inference::StopPolicySpec>,
+
+    /// Enable UTF-8 token healing (default: true)
+    /// When enabled, incomplete multi-byte UTF-8 sequences are buffered until complete
+    #[serde(default = "default_utf8_healing_worker")]
+    pub utf8_healing: bool,
+}
+
+fn default_utf8_healing_worker() -> bool {
+    true
 }
 
 /// Placement decision trace entry (per token)
@@ -2791,6 +2800,11 @@ pub struct InferenceRequestInternal {
     pub created_at: std::time::Instant,
     /// Optional auth token used to reach the worker (ApiKey)
     pub worker_auth_token: Option<String>,
+
+    // === Streaming Options ===
+    /// Enable UTF-8 token healing (default: true)
+    /// When enabled, incomplete multi-byte UTF-8 sequences are buffered until complete
+    pub utf8_healing: Option<bool>,
 }
 
 impl InferenceRequestInternal {
@@ -2835,6 +2849,7 @@ impl InferenceRequestInternal {
             stop_policy: None,
             created_at: std::time::Instant::now(),
             worker_auth_token: None,
+            utf8_healing: None,
         }
     }
 
@@ -3262,6 +3277,7 @@ impl From<(&InferRequest, &Claims)> for InferenceRequestInternal {
             stop_policy: req.stop_policy.clone(),
             created_at: std::time::Instant::now(),
             worker_auth_token: None,
+            utf8_healing: None,
         }
     }
 }

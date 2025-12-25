@@ -782,27 +782,38 @@ pub async fn streaming_infer(
     let tenant_id = claims.tenant_id.clone();
     let user_id = claims.sub.clone();
 
-    // Create the SSE stream
+    // Create cancellation token for client disconnect detection
+    let cancellation_token = CancellationToken::new();
+    let drop_guard = StreamDropGuard {
+        cancellation_token: cancellation_token.clone(),
+        request_id: request_id.clone(),
+    };
+
+    // Create the SSE stream with cancellation support
     let stream = stream::unfold(
-        StreamState::new(
-            state,
-            uds_path_buf,
-            prompt,
-            max_tokens,
-            temperature,
-            request_id_clone,
-            model_name_clone,
-            session_id,
-            adapters,
-            tenant_id,
-            user_id,
-            chat_context_hash,
+        (
+            StreamState::new(
+                state,
+                uds_path_buf,
+                prompt,
+                max_tokens,
+                temperature,
+                request_id_clone,
+                model_name_clone,
+                session_id,
+                adapters,
+                tenant_id,
+                user_id,
+                chat_context_hash,
+                cancellation_token,
+            ),
+            Some(drop_guard), // Keep guard alive while stream is active
         ),
-        |mut stream_state| async move {
+        |(mut stream_state, guard)| async move {
             match stream_state.next_event().await {
                 Some(event) => {
                     let sse_event = stream_state.format_event(event);
-                    Some((Ok(sse_event), stream_state))
+                    Some((Ok(sse_event), (stream_state, guard)))
                 }
                 None => None,
             }
@@ -1342,6 +1353,27 @@ struct StreamState {
 /// Maximum size for words buffer to prevent unbounded growth
 const MAX_WORDS_BUFFER_SIZE: usize = 100_000;
 
+/// Guard that cancels the stream when dropped (client disconnect detection)
+///
+/// When the SSE response body is dropped (client disconnects), this guard
+/// triggers the cancellation token, allowing in-flight operations to abort.
+struct StreamDropGuard {
+    cancellation_token: CancellationToken,
+    request_id: String,
+}
+
+impl Drop for StreamDropGuard {
+    fn drop(&mut self) {
+        if !self.cancellation_token.is_cancelled() {
+            info!(
+                request_id = %self.request_id,
+                "Stream dropped (client disconnect), cancelling"
+            );
+            self.cancellation_token.cancel();
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 enum StreamPhase {
     Start,
@@ -1365,6 +1397,7 @@ impl StreamState {
         tenant_id: String,
         user_id: String,
         chat_context_hash: Option<String>,
+        cancellation_token: CancellationToken,
     ) -> Self {
         Self {
             state,
@@ -1383,7 +1416,7 @@ impl StreamState {
             words: Vec::new(),
             last_activity: Arc::new(TokioMutex::new(std::time::Instant::now())),
             idle_timeout: Duration::from_secs(300), // 5 minutes
-            cancellation_token: CancellationToken::new(),
+            cancellation_token,
             session_id,
             adapters,
             chat_context_hash,
@@ -1542,26 +1575,42 @@ impl StreamState {
         };
 
         // Execute via InferenceCore - the single entry point for all inference
+        // Use tokio::select! to allow cancellation if client disconnects
         let core = InferenceCore::new(&self.state);
-        match core.route_and_infer(internal_request, None).await {
-            Ok(result) => {
-                debug!(
-                    text_len = result.text.len(),
-                    finish_reason = %result.finish_reason,
-                    adapters_used = ?result.adapters_used,
-                    "Received inference response via InferenceCore"
+        let inference_future = core.route_and_infer(internal_request, None);
+
+        tokio::select! {
+            // Client disconnect - cancel inference
+            _ = self.cancellation_token.cancelled() => {
+                warn!(
+                    request_id = %self.request_id,
+                    "Inference cancelled due to client disconnect"
                 );
-
-                // Store stop controller metadata (PRD: Hard Deterministic Stop Controller)
-                self.stop_reason_code = result.stop_reason_code;
-                self.stop_reason_token_index = result.stop_reason_token_index;
-                self.stop_policy_digest_b3 = result.stop_policy_digest_b3.clone();
-
-                Ok(result.text)
+                Err("Stream cancelled by client disconnect".to_string())
             }
-            Err(e) => {
-                error!(error = %e, "InferenceCore inference failed");
-                Err(format!("Inference failed: {}", e))
+            // Normal inference completion
+            result = inference_future => {
+                match result {
+                    Ok(result) => {
+                        debug!(
+                            text_len = result.text.len(),
+                            finish_reason = %result.finish_reason,
+                            adapters_used = ?result.adapters_used,
+                            "Received inference response via InferenceCore"
+                        );
+
+                        // Store stop controller metadata (PRD: Hard Deterministic Stop Controller)
+                        self.stop_reason_code = result.stop_reason_code;
+                        self.stop_reason_token_index = result.stop_reason_token_index;
+                        self.stop_policy_digest_b3 = result.stop_policy_digest_b3.clone();
+
+                        Ok(result.text)
+                    }
+                    Err(e) => {
+                        error!(error = %e, "InferenceCore inference failed");
+                        Err(format!("Inference failed: {}", e))
+                    }
+                }
             }
         }
     }

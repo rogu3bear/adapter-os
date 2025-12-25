@@ -21,10 +21,13 @@ default = ["coreml", "mlx"]
 #
 # Features:
 #   coreml:   CoreML/Neural Engine backend (macOS 13+, default)
-#   mlx:      MLX backend via C++ FFI (default)
+#   mlx:      MLX backend (default) - can use mlx-rs-backend via dependency features
 #   metal:    Metal GPU backend (fallback)
 #   profiler: Kernel profiling support
 #   all:      Enable all backends
+#
+# Note: To use pure Rust mlx-rs backend (no C++ compilation), add to your Cargo.toml:
+#   adapteros-lora-mlx-ffi = { features = ["mlx-rs-backend"] }
 #
 # Usage:
 #   cargo build -p adapteros-lora-backends                      # CoreML + MLX (default)

@@ -71,7 +71,12 @@ impl LoRAQuantizer {
         // Dequantize lora_b
         let lora_b = Self::dequantize_matrix(&weights.lora_b_q15, &weights.scale_b);
 
-        LoRAWeights { lora_a, lora_b }
+        LoRAWeights {
+            lora_a,
+            lora_b,
+            moe_config: None,
+            precomputed_delta: None,
+        }
     }
 
     /// Quantize a 2D matrix with per-row scaling
@@ -229,6 +234,8 @@ mod tests {
         let original = LoRAWeights {
             lora_a: vec![vec![0.1, -0.2, 0.3], vec![-0.1, 0.2, -0.3]],
             lora_b: vec![vec![0.5, -0.5], vec![0.4, -0.4], vec![0.3, -0.3]],
+            moe_config: None,
+            precomputed_delta: None,
         };
 
         // Quantize

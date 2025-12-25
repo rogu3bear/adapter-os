@@ -86,6 +86,8 @@ pub struct InferenceReplayMetadata {
     pub execution_policy_version: Option<i32>,
     /// Stop policy JSON for deterministic replay
     pub stop_policy_json: Option<String>,
+    /// Policy mask digest (BLAKE3 hex) for audit trail completeness
+    pub policy_mask_digest_b3: Option<String>,
     pub created_at: String,
 }
 
@@ -133,6 +135,8 @@ pub struct CreateReplayMetadataParams {
     pub execution_policy_version: Option<i32>,
     /// JSON-serialized StopPolicySpec for deterministic replay
     pub stop_policy_json: Option<String>,
+    /// Policy mask digest (BLAKE3 hex) for audit trail completeness
+    pub policy_mask_digest_b3: Option<String>,
 }
 
 impl Db {
@@ -211,11 +215,11 @@ impl Db {
                 replay_status, latency_ms, tokens_generated, determinism_mode,
                 fallback_triggered, coreml_compute_preference, coreml_compute_units,
                 coreml_gpu_used, fallback_backend, replay_guarantee, execution_policy_id,
-                execution_policy_version, stop_policy_json, created_at
+                execution_policy_version, stop_policy_json, policy_mask_digest_b3, created_at
             )
             VALUES (
                 ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                 datetime('now')
             )
             "#,
@@ -256,6 +260,7 @@ impl Db {
         .bind(&params.execution_policy_id)
         .bind(&params.execution_policy_version)
         .bind(&params.stop_policy_json)
+        .bind(&params.policy_mask_digest_b3)
         .execute(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to create replay metadata: {}", e)))?;
@@ -344,7 +349,7 @@ impl Db {
                                        replay_status, latency_ms, tokens_generated, determinism_mode,
                                        fallback_triggered, coreml_compute_preference, coreml_compute_units,
                                        coreml_gpu_used, fallback_backend, replay_guarantee, execution_policy_id,
-                                       execution_policy_version, stop_policy_json, created_at
+                                       execution_policy_version, stop_policy_json, policy_mask_digest_b3, created_at
                                 FROM inference_replay_metadata
                                 WHERE inference_id = ?
                                 "#,
@@ -410,7 +415,7 @@ impl Db {
                    replay_status, latency_ms, tokens_generated, determinism_mode,
                    fallback_triggered, coreml_compute_preference, coreml_compute_units,
                    coreml_gpu_used, fallback_backend, replay_guarantee, execution_policy_id,
-                   execution_policy_version, stop_policy_json, created_at
+                   execution_policy_version, stop_policy_json, policy_mask_digest_b3, created_at
             FROM inference_replay_metadata
             WHERE inference_id = ?
             "#,
@@ -458,7 +463,7 @@ impl Db {
                                        replay_status, latency_ms, tokens_generated, determinism_mode,
                                        fallback_triggered, coreml_compute_preference, coreml_compute_units,
                                        coreml_gpu_used, fallback_backend, replay_guarantee, execution_policy_id,
-                                       execution_policy_version, stop_policy_json, created_at
+                                       execution_policy_version, stop_policy_json, policy_mask_digest_b3, created_at
                                 FROM inference_replay_metadata
                                 WHERE id = ?
                                 "#,
@@ -520,7 +525,7 @@ impl Db {
                    replay_status, latency_ms, tokens_generated, determinism_mode,
                    fallback_triggered, coreml_compute_preference, coreml_compute_units,
                    coreml_gpu_used, fallback_backend, replay_guarantee, execution_policy_id,
-                   execution_policy_version, stop_policy_json, created_at
+                   execution_policy_version, stop_policy_json, policy_mask_digest_b3, created_at
             FROM inference_replay_metadata
             WHERE id = ?
             "#,
@@ -612,7 +617,7 @@ impl Db {
                                        replay_status, latency_ms, tokens_generated, determinism_mode,
                                        fallback_triggered, coreml_compute_preference, coreml_compute_units,
                                        coreml_gpu_used, fallback_backend, replay_guarantee, execution_policy_id,
-                                       execution_policy_version, stop_policy_json, created_at
+                                       execution_policy_version, stop_policy_json, policy_mask_digest_b3, created_at
                                 FROM inference_replay_metadata
                                 WHERE tenant_id = ?
                                 ORDER BY created_at DESC, inference_id DESC
@@ -666,7 +671,7 @@ impl Db {
                    replay_status, latency_ms, tokens_generated, determinism_mode,
                    fallback_triggered, coreml_compute_preference, coreml_compute_units,
                    coreml_gpu_used, fallback_backend, replay_guarantee, execution_policy_id,
-                   execution_policy_version, stop_policy_json, created_at
+                   execution_policy_version, stop_policy_json, policy_mask_digest_b3, created_at
             FROM inference_replay_metadata
             WHERE tenant_id = ?
             ORDER BY created_at DESC, inference_id DESC
@@ -737,6 +742,7 @@ struct InferenceReplayMetadataRow {
     execution_policy_id: Option<String>,
     execution_policy_version: Option<i32>,
     stop_policy_json: Option<String>,
+    policy_mask_digest_b3: Option<String>,
     created_at: String,
 }
 
@@ -779,6 +785,7 @@ impl From<InferenceReplayMetadataRow> for InferenceReplayMetadata {
             execution_policy_id: row.execution_policy_id,
             execution_policy_version: row.execution_policy_version,
             stop_policy_json: row.stop_policy_json,
+            policy_mask_digest_b3: row.policy_mask_digest_b3,
             created_at: row.created_at,
         }
     }

@@ -529,6 +529,7 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
                     router_seed: None,
                     seed_mode: None,
                     request_seed: None,
+                    determinism: None,
                     fusion_interval: None,
                     backend_profile: None,
                     coreml_mode: None,
@@ -541,6 +542,7 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
                     placement: None,
                     routing_policy: None,
                     stop_policy: None,
+                    determinism: None,
                 };
 
                 // #region agent log

@@ -22,7 +22,8 @@ pub enum BackendType {
     /// CoreML Neural Engine memory
     CoreML,
     /// MLX unified memory (shared CPU/GPU)
-    Mlx,
+    #[serde(rename = "Mlx")]
+    MLX,
 }
 
 impl BackendType {
@@ -31,7 +32,7 @@ impl BackendType {
         match self {
             Self::Metal => "Metal",
             Self::CoreML => "CoreML",
-            Self::Mlx => "MLX",
+            Self::MLX => "MLX",
         }
     }
 }
@@ -497,7 +498,7 @@ impl UnifiedMemoryTracker {
     pub fn check_memory_pressure(&self) -> MemoryPressure {
         let total_vram = self.get_backend_memory(BackendType::Metal)
             + self.get_backend_memory(BackendType::CoreML);
-        let total_unified = self.get_backend_memory(BackendType::Mlx);
+        let total_unified = self.get_backend_memory(BackendType::MLX);
 
         let vram_available = self.limits.max_vram.saturating_sub(total_vram);
         let vram_headroom_pct = (vram_available as f32 / self.limits.max_vram as f32) * 100.0;
@@ -561,7 +562,7 @@ impl UnifiedMemoryTracker {
                 } else {
                     match alloc.backend {
                         BackendType::Metal => 1.0,
-                        BackendType::Mlx => 0.75,
+                        BackendType::MLX => 0.75,
                         BackendType::CoreML => 0.5, // Evict Metal before CoreML
                     }
                 };
@@ -606,12 +607,12 @@ mod tests {
         let tracker = UnifiedMemoryTracker::new(limits);
 
         tracker.track_adapter(1, BackendType::Metal, 1024, 512);
-        tracker.track_adapter(1, BackendType::Mlx, 2048, 1024);
+        tracker.track_adapter(1, BackendType::MLX, 2048, 1024);
 
         assert_eq!(tracker.adapter_count(), 1);
         assert_eq!(tracker.get_adapter_memory(1), 1024 + 512 + 2048 + 1024);
         assert_eq!(tracker.get_backend_memory(BackendType::Metal), 1024 + 512);
-        assert_eq!(tracker.get_backend_memory(BackendType::Mlx), 2048 + 1024);
+        assert_eq!(tracker.get_backend_memory(BackendType::MLX), 2048 + 1024);
     }
 
     #[test]
@@ -637,13 +638,13 @@ mod tests {
 
         tracker.track_adapter(1, BackendType::Metal, 100, 0);
         tracker.track_adapter(2, BackendType::CoreML, 200, 0);
-        tracker.track_adapter(3, BackendType::Mlx, 150, 0);
+        tracker.track_adapter(3, BackendType::MLX, 150, 0);
 
         let candidates = tracker.get_eviction_candidates(&[]);
 
         // Should be sorted: CoreML (0.5), MLX (0.75), Metal (1.0)
         assert_eq!(candidates[0].1, BackendType::CoreML);
-        assert_eq!(candidates[1].1, BackendType::Mlx);
+        assert_eq!(candidates[1].1, BackendType::MLX);
         assert_eq!(candidates[2].1, BackendType::Metal);
     }
 

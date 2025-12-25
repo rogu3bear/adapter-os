@@ -520,6 +520,7 @@ async fn try_adapter_response(state: &AppState, user_message: &str) -> Option<St
         routing_policy: None,
         adapter_strength_overrides: None,
         stop_policy: None,
+        utf8_healing: true,
     };
 
     // Send inference request via UDS

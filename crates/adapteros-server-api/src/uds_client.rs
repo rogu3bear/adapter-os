@@ -1080,6 +1080,7 @@ mod tests {
             adapter_strength_overrides: Some(
                 [("adapter-a".to_string(), 0.8_f32)].into_iter().collect(),
             ),
+            utf8_healing: true,
         };
 
         let serialized =

@@ -44,11 +44,14 @@ pub async fn run_migrations(
     db: &Db,
     _config: Arc<RwLock<Config>>,
     cli: &Cli,
-    _boot_state: &BootStateManager,
+    boot_state: &BootStateManager,
 ) -> Result<bool> {
     let sql_enabled = db.storage_mode().write_to_sql() || db.storage_mode().read_from_sql();
 
     info!(target: "boot", phase = 6, name = "migrations", "═══ BOOT PHASE 6/12: Database Migrations ═══");
+
+    // Transition boot state: DbConnecting → Migrating
+    boot_state.migrating().await;
 
     if sql_enabled {
         // Run migrations with Ed25519 signature verification
@@ -82,6 +85,12 @@ pub async fn run_migrations(
     } else {
         info!("SQL backend disabled; skipping migrations, crash recovery, and SQL seed steps");
     }
+
+    // Transition boot state: Migrating → Seeding (seeding complete)
+    boot_state.seeding().await;
+
+    // Transition boot state: Seeding → LoadingPolicies (for Phase 7)
+    boot_state.load_policies().await;
 
     if cli.migrate_only {
         info!("Migrations complete, exiting");

@@ -287,6 +287,106 @@ int32_t coreml_run_inference(
     }
 }
 
+// Generic inference function with configurable output name
+// Used for hybrid models that output hidden_states instead of logits
+int32_t coreml_run_inference_named_output(
+    void* handle,
+    const uint32_t* input_ids,
+    size_t input_len,
+    float* output_buffer,
+    size_t output_len,
+    const char* output_name,
+    size_t output_name_len
+) {
+    @autoreleasepool {
+        if (!handle) {
+            snprintf(g_last_error, sizeof(g_last_error), "Null model handle");
+            return -1;
+        }
+
+        MLModel *model = (__bridge MLModel*)handle;
+        NSError *error = nil;
+
+        // Create input array
+        NSArray<NSNumber*> *shape = @[@(1), @(input_len)];
+        MLMultiArray *inputArray = [[MLMultiArray alloc] initWithShape:shape
+                                                              dataType:MLMultiArrayDataTypeInt32
+                                                                 error:&error];
+        if (error) {
+            snprintf(g_last_error, sizeof(g_last_error), "Failed to create input array: %s",
+                    [[error localizedDescription] UTF8String]);
+            return -2;
+        }
+
+        int32_t *inputPtr = (int32_t*)inputArray.dataPointer;
+        for (size_t i = 0; i < input_len; i++) {
+            inputPtr[i] = (int32_t)input_ids[i];
+        }
+
+        // Create feature provider
+        MLDictionaryFeatureProvider *inputProvider =
+            [[MLDictionaryFeatureProvider alloc] initWithDictionary:@{@"input_ids": inputArray}
+                                                              error:&error];
+        if (error) {
+            snprintf(g_last_error, sizeof(g_last_error), "Failed to create feature provider: %s",
+                    [[error localizedDescription] UTF8String]);
+            return -3;
+        }
+
+        // Run prediction
+        id<MLFeatureProvider> outputProvider = [model predictionFromFeatures:inputProvider
+                                                                       error:&error];
+        if (error) {
+            snprintf(g_last_error, sizeof(g_last_error), "Prediction failed: %s",
+                    [[error localizedDescription] UTF8String]);
+            return -4;
+        }
+
+        // Get output with configurable name
+        NSString *outputNameStr = [[NSString alloc] initWithBytes:output_name
+                                                           length:output_name_len
+                                                         encoding:NSUTF8StringEncoding];
+        MLFeatureValue *outputValue = [outputProvider featureValueForName:outputNameStr];
+        if (!outputValue || outputValue.type != MLFeatureTypeMultiArray) {
+            // Try fallback names
+            if (!outputValue) {
+                outputValue = [outputProvider featureValueForName:@"final_ln_output"];
+            }
+            if (!outputValue) {
+                outputValue = [outputProvider featureValueForName:@"hidden_states"];
+            }
+            if (!outputValue) {
+                outputValue = [outputProvider featureValueForName:@"logits"];
+            }
+            if (!outputValue || outputValue.type != MLFeatureTypeMultiArray) {
+                snprintf(g_last_error, sizeof(g_last_error), "Output '%s' not found", output_name);
+                return -5;
+            }
+        }
+
+        // Copy output data - handle both FP16 and FP32
+        MLMultiArray *outputArray = outputValue.multiArrayValue;
+        size_t totalElements = (size_t)outputArray.count;
+        size_t copyLen = output_len < totalElements ? output_len : totalElements;
+
+        if (outputArray.dataType == MLMultiArrayDataTypeFloat32) {
+            float *outputPtr = (float*)outputArray.dataPointer;
+            memcpy(output_buffer, outputPtr, copyLen * sizeof(float));
+        } else if (outputArray.dataType == MLMultiArrayDataTypeFloat16) {
+            // Convert FP16 to FP32
+            __fp16 *fp16Ptr = (__fp16*)outputArray.dataPointer;
+            for (size_t i = 0; i < copyLen; i++) {
+                output_buffer[i] = (float)fp16Ptr[i];
+            }
+        } else {
+            snprintf(g_last_error, sizeof(g_last_error), "Unsupported output data type");
+            return -6;
+        }
+
+        return (int32_t)copyLen;
+    }
+}
+
 // Extended inference function with LoRA adapter support
 // Applies LoRA deltas using Q15 quantized gates
 // Formula: output = base_output + sum(gate_i * lora_delta_i)

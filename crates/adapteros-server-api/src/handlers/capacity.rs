@@ -58,6 +58,30 @@ pub struct CapacityUsage {
     pub vram_headroom_pct: f32,
 }
 
+/// GPU memory report response
+#[derive(Debug, Serialize, ToSchema)]
+pub struct MemoryReportResponse {
+    /// Total GPU memory in bytes
+    pub total_gpu_memory_bytes: u64,
+    /// Used GPU memory in bytes
+    pub used_gpu_memory_bytes: u64,
+    /// Available GPU memory in bytes
+    pub available_gpu_memory_bytes: u64,
+    /// GPU memory headroom percentage
+    pub gpu_headroom_pct: f32,
+    /// Per-adapter memory usage
+    pub per_adapter_usage: Vec<AdapterMemoryUsage>,
+}
+
+/// Per-adapter memory usage
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AdapterMemoryUsage {
+    /// Adapter ID
+    pub adapter_id: String,
+    /// Memory used in bytes
+    pub memory_bytes: u64,
+}
+
 /// GET /v1/system/capacity - Get system capacity model
 #[utoipa::path(
     get,
@@ -183,4 +207,62 @@ async fn get_vram_info(state: &AppState) -> (u64, u64) {
         debug!("Worker not available - using VRAM defaults");
         (8 * 1024 * 1024 * 1024, 0) // 8GB total, 0 used
     }
+}
+
+/// GET /v1/system/memory/gpu - Get GPU memory report
+#[utoipa::path(
+    get,
+    path = "/v1/system/memory/gpu",
+    responses(
+        (status = 200, description = "GPU memory report with per-adapter usage", body = MemoryReportResponse)
+    ),
+    tag = "system",
+    security(("bearer_token" = []))
+)]
+pub async fn get_memory_report(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+) -> Result<Json<MemoryReportResponse>, (StatusCode, Json<ErrorResponse>)> {
+    // Permission check: MetricsView required for system memory information
+    require_permission(&claims, Permission::MetricsView)?;
+
+    debug!("Querying GPU memory report");
+
+    // Get VRAM info from worker
+    let (total_vram, used_vram) = get_vram_info(&state).await;
+    let available_vram = total_vram.saturating_sub(used_vram);
+    let gpu_headroom_pct = if total_vram > 0 {
+        (available_vram as f32 / total_vram as f32) * 100.0
+    } else {
+        100.0
+    };
+
+    // Get per-adapter memory usage from database or worker
+    // For now, we'll query the database for adapter load states and estimate memory usage
+    let per_adapter_usage = match state.db.count_adapters_by_load_state().await {
+        Ok(adapter_states) => {
+            // Filter for loaded adapters and create usage entries
+            // TODO: Get actual memory usage from worker when Worker.memory_report() is available
+            adapter_states
+                .into_iter()
+                .filter(|(state, _)| matches!(state.as_str(), "loaded" | "warm" | "hot" | "resident"))
+                .map(|(adapter_id, _count)| AdapterMemoryUsage {
+                    adapter_id,
+                    memory_bytes: 0, // Placeholder - will be populated when worker exposes memory_report
+                })
+                .collect()
+        }
+        Err(e) => {
+            debug!("Failed to query adapter load states: {}", e);
+            vec![]
+        }
+    };
+
+    Ok(Json(MemoryReportResponse {
+        total_gpu_memory_bytes: total_vram,
+        used_gpu_memory_bytes: used_vram,
+        available_gpu_memory_bytes: available_vram,
+        gpu_headroom_pct,
+        per_adapter_usage,
+    }))
 }

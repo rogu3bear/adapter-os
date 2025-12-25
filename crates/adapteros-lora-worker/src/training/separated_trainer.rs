@@ -414,7 +414,12 @@ impl SeparatedLoRATrainer {
             lora_b.push(row);
         }
 
-        LoRAWeights { lora_a, lora_b }
+        LoRAWeights {
+            lora_a,
+            lora_b,
+            moe_config: None,
+            precomputed_delta: None,
+        }
     }
 
     /// Generate unique adapter ID
@@ -477,6 +482,7 @@ mod tests {
             max_seq_length: None,
             gradient_accumulation_steps: None,
             determinism: None,
+            moe_config: None,
         };
 
         let trainer = SeparatedLoRATrainer::new(config).unwrap();

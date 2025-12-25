@@ -689,12 +689,14 @@ mod tests {
         std::fs::create_dir_all(&temp_root).unwrap();
         let temp_file = NamedTempFile::new_in(&temp_root).unwrap();
 
-        // Write invalid magic bytes (file too small for full header)
-        std::fs::write(temp_file.path(), b"BAD!").unwrap();
+        // Write full header with invalid magic bytes
+        let mut invalid_header = vec![0u8; HEADER_SIZE];
+        invalid_header[0..4].copy_from_slice(b"BAD!");
+        std::fs::write(temp_file.path(), &invalid_header).unwrap();
 
         let result = AosWriter::read_header(temp_file.path());
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Invalid magic"));
+        assert!(result.unwrap_err().to_string().contains("invalid AOS magic"));
     }
 
     #[test]

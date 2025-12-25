@@ -207,6 +207,18 @@ impl BackendCoordinator {
             BackendChoice::CPU => Err(AosError::Config(
                 "CPU backend is not supported for inference fallback".to_string(),
             )),
+            BackendChoice::MlxBridge => {
+                // MlxBridge primary -> MLX FFI or Metal fallback
+                if capabilities.has_mlx {
+                    Ok(BackendChoice::Mlx)
+                } else if capabilities.has_metal {
+                    Ok(BackendChoice::Metal)
+                } else if capabilities.has_ane {
+                    Ok(BackendChoice::CoreML)
+                } else {
+                    Err(AosError::Config("No suitable fallback for MlxBridge".to_string()))
+                }
+            }
         }
     }
 

@@ -34,7 +34,7 @@ pub mod writer;
 
 #[cfg(feature = "mmap")]
 pub use implementation::{
-    AosLoader, AosManifest, LoadedAdapter, TrainingConfigManifest,
+    AosLoader, AosManifest, LoadedAdapter, MoEConfigManifest, TrainingConfigManifest,
     HEADER_SIZE as LOADER_HEADER_SIZE,
 };
 #[cfg(feature = "mmap")]

@@ -42,11 +42,12 @@ use adapteros_core::{AosError, B3Hash, Result, CPID};
 use adapteros_types::coreml::CoreMLPlacementSpec;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 /// RoPE scaling configuration
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-pub struct RopeScaling {
+#[serde(rename = "RopeScaling")]
+pub struct RoPEScaling {
     /// Scaling factor
     pub factor: f32,
 
@@ -56,6 +57,10 @@ pub struct RopeScaling {
     /// Scaling type (e.g., "yarn")
     pub scaling_type: String,
 }
+
+/// Deprecated alias for backwards compatibility
+#[deprecated(since = "0.12.0", note = "Use `RoPEScaling` instead (correct RoPE casing)")]
+pub type RopeScaling = RoPEScaling;
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -96,7 +101,7 @@ pub struct Base {
     pub license_hash: Option<B3Hash>,
 
     /// RoPE scaling override (optional)
-    pub rope_scaling_override: Option<RopeScaling>,
+    pub rope_scaling_override: Option<RoPEScaling>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -170,6 +175,37 @@ pub struct Adapter {
     pub auto_promote: bool,
     #[serde(default = "default_eviction_priority")]
     pub eviction_priority: EvictionPriority,
+
+    // MoE free token optimization hints
+    /// Pre-computed free tokens for ultra-low-latency first tokens (MoE models)
+    #[serde(default)]
+    pub free_tokens: Option<Vec<FreeTokenHint>>,
+    /// Hot expert hints for MoE pre-warming (layer_idx -> [expert_ids])
+    #[serde(default)]
+    pub hot_experts: Option<HashMap<usize, Vec<u8>>>,
+}
+
+/// Free token hint for MoE optimization
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct FreeTokenHint {
+    /// Trigger pattern (prefix that activates these free tokens)
+    pub trigger: String,
+    /// Token sequence to emit immediately
+    pub tokens: Vec<String>,
+    /// Confidence score (0.0-1.0)
+    #[serde(default = "default_free_token_confidence")]
+    pub confidence: f32,
+    /// Maximum temperature at which this hint is valid
+    #[serde(default = "default_free_token_max_temp")]
+    pub max_temperature: f32,
+}
+
+fn default_free_token_confidence() -> f32 {
+    0.9
+}
+
+fn default_free_token_max_temp() -> f32 {
+    0.3
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -376,7 +412,7 @@ impl Default for Policies {
             },
             refusal: RefusalPolicy {
                 abstain_threshold: 0.55,
-                missing_fields_templates: HashMap::new(),
+                missing_fields_templates: BTreeMap::new(),
             },
             numeric: NumericPolicy {
                 canonical_units: [
@@ -457,12 +493,12 @@ pub struct EvidencePolicy {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct RefusalPolicy {
     pub abstain_threshold: f32,
-    pub missing_fields_templates: HashMap<String, Vec<String>>,
+    pub missing_fields_templates: BTreeMap<String, Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct NumericPolicy {
-    pub canonical_units: HashMap<String, String>,
+    pub canonical_units: BTreeMap<String, String>,
     pub max_rounding_error: f32,
     pub require_units_in_trace: bool,
 }
@@ -740,7 +776,7 @@ mod tests {
                 },
                 refusal: RefusalPolicy {
                     abstain_threshold: 0.55,
-                    missing_fields_templates: HashMap::new(),
+                    missing_fields_templates: BTreeMap::new(),
                 },
                 numeric: NumericPolicy {
                     canonical_units: [

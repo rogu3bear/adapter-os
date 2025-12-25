@@ -35,7 +35,7 @@ fuzz_target!(|data: &[u8]| {
         let backend_byte = u.int_in_range::<u8>(0..=3).unwrap_or(0);
         let backend = match backend_byte {
             0 => BackendType::Metal,
-            1 => BackendType::Mlx,
+            1 => BackendType::MLX,
             2 => BackendType::CoreML,
             _ => BackendType::Mock,
         };

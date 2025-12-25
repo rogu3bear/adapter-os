@@ -190,6 +190,7 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::diagnostics::get_determinism_status,
         handlers::diagnostics::get_quarantine_status,
         handlers::capacity::get_capacity,
+        handlers::capacity::get_memory_report,
         // Storage handlers
         handlers::storage::get_storage_mode,
         handlers::storage::get_storage_stats,
@@ -404,12 +405,11 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::diagnostics::QuarantineStatusResponse,
         handlers::diagnostics::QuarantinedAdapter,
         handlers::capacity::CapacityResponse,
-        handlers::capacity::CapacityResponse,
         handlers::capacity::CapacityUsage,
         handlers::capacity::NodeHealth,
+        handlers::capacity::MemoryReportResponse,
+        handlers::capacity::AdapterMemoryUsage,
         crate::state::CapacityLimits,
-        handlers::capacity::CapacityUsage,
-        handlers::capacity::NodeHealth,
         crate::types::AuditsQuery,
         crate::types::AuditExtended,
         crate::types::AuditsResponse,
@@ -748,6 +748,33 @@ pub fn build(state: AppState) -> Router {
                 )),
         );
 
+    // Internal routes (worker-to-control-plane communication, no user auth required)
+    // These endpoints are called by workers, not by users. Workers authenticate via:
+    // - UDS peer credentials (local workers)
+    // - Plan/manifest binding validation (registration)
+    // - Worker ID existence check (status updates)
+    let internal_routes = Router::new()
+        // Worker fatal error channel (PRD-09 Phase 4)
+        .route("/v1/workers/fatal", post(handlers::receive_worker_fatal))
+        // PRD-01: Worker Registration & Lifecycle
+        .route(
+            "/v1/workers/register",
+            post(handlers::workers::register_worker),
+        )
+        .route(
+            "/v1/tenants/{tenant_id}/manifests/{manifest_hash}",
+            get(handlers::worker_manifests::fetch_manifest_by_hash),
+        )
+        .route(
+            "/v1/workers/status",
+            post(handlers::workers::notify_worker_status),
+        )
+        .with_state(state.clone())
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            policy_enforcement_middleware,
+        ));
+
     // Protected routes (require auth)
     let protected_routes = Router::new()
         .route(
@@ -954,10 +981,6 @@ pub fn build(state: AppState) -> Router {
             get(handlers::list_process_logs),
         )
         .route(
-            "/v1/tenants/{tenant_id}/manifests/{manifest_hash}",
-            get(handlers::worker_manifests::fetch_manifest_by_hash),
-        )
-        .route(
             "/v1/workers/{worker_id}/crashes",
             get(handlers::list_process_crashes),
         )
@@ -971,8 +994,6 @@ pub fn build(state: AppState) -> Router {
         )
         // Worker stop route
         .route("/v1/workers/{worker_id}/stop", post(handlers::stop_worker))
-        // Worker fatal error channel (PRD-09 Phase 4)
-        .route("/v1/workers/fatal", post(handlers::receive_worker_fatal))
         // Worker health & incidents (PRD-09)
         .route(
             "/v1/workers/{worker_id}/incidents",
@@ -982,15 +1003,8 @@ pub fn build(state: AppState) -> Router {
             "/v1/workers/health/summary",
             get(handlers::get_worker_health_summary),
         )
-        // PRD-01: Worker Registration & Lifecycle
-        .route(
-            "/v1/workers/register",
-            post(handlers::workers::register_worker),
-        )
-        .route(
-            "/v1/workers/status",
-            post(handlers::workers::notify_worker_status),
-        )
+        // PRD-01: Worker history & detail (auth required - user facing)
+        // Note: register and status routes moved to internal_routes (no auth)
         .route(
             "/v1/workers/{worker_id}/history",
             get(handlers::workers::get_worker_history),
@@ -1799,6 +1813,10 @@ pub fn build(state: AppState) -> Router {
             "/v1/system/memory",
             get(handlers::system_info::get_uma_memory),
         )
+        .route(
+            "/v1/system/memory/gpu",
+            get(handlers::capacity::get_memory_report),
+        )
         // Resource usage route
         .route(
             "/v1/system/resource-usage",
@@ -2277,6 +2295,7 @@ pub fn build(state: AppState) -> Router {
         .merge(public_routes)
         .merge(metrics_route)
         .merge(optional_auth_routes)
+        .merge(internal_routes) // Worker-to-CP internal routes (no user auth)
         .merge(protected_routes);
 
     // Add testkit routes if E2E_MODE is enabled
@@ -2323,8 +2342,8 @@ pub fn build(state: AppState) -> Router {
         .layer(axum::middleware::from_fn(request_id::request_id_middleware)) // Request ID tracking (outermost)
         .with_state(state.clone());
 
-    Router::new()
-        .merge(health_routes)
-        .fallback_service(app)
-        .with_state(state)
+    // Health routes are merged first and don't have middleware layers.
+    // API routes (app) have middleware applied. Using merge() instead of
+    // fallback_service() ensures proper HTTP method routing for POST requests.
+    health_routes.merge(app)
 }

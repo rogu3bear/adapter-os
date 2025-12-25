@@ -17,7 +17,12 @@ serde.workspace = true
 serde_json.workspace = true
 safetensors.workspace = true
 
-# FFI bindings
+# MLX Rust bindings (pure Rust, no C++ FFI required)
+mlx-rs = { version = "0.25", optional = true }
+# MLX Language Models (transformer models using mlx-rs)
+mlx-lm = { version = "0.0.1", optional = true }
+
+# Legacy FFI bindings (deprecated - will be removed)
 libc = "0.2"
 core-foundation = "0.9"
 
@@ -67,8 +72,19 @@ default = []
 #   cargo build -p adapteros-lora-mlx-ffi --features mlx  # Real MLX
 # =============================================================================
 
-mlx = []          # Enable real MLX library (requires MLX C++ installed)
-real-mlx = ["mlx"]# Alias for backward compatibility (deprecated)
+# mlx-rs: Pure Rust MLX bindings (recommended)
+#   - Uses mlx-rs crate for all MLX operations
+#   - Uses mlx-lm for transformer model implementation
+#   - No C++ compilation required
+#   - Full Rust stack
+mlx-rs-backend = ["dep:mlx-rs", "dep:mlx-lm"]
+
+# mlx: Legacy C++ FFI (deprecated - will be removed)
+#   - Requires the MLX C++ library to be installed
+#   - Uses custom C++ wrapper compiled via build.rs
+mlx = []
+real-mlx = ["mlx"]  # Alias for backward compatibility (deprecated)
+
 test-utils = []   # Enable test utilities and mocks
 
 [lints.rust]

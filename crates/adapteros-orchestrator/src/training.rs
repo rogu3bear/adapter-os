@@ -1666,6 +1666,7 @@ async fn run_training_job(
         max_seq_length: orchestrator_cfg.max_seq_length,
         gradient_accumulation_steps: orchestrator_cfg.gradient_accumulation_steps,
         determinism: None,
+        moe_config: None,
     };
 
     // If a CoreML placement is provided, align hidden_dim to the placement shapes for training.
@@ -2219,6 +2220,7 @@ async fn run_training_job(
                 max_seq_length: worker_cfg.max_seq_length,
                 gradient_accumulation_steps: worker_cfg.gradient_accumulation_steps,
                 determinism: None,
+                moe_config: None,
             };
 
             // Generate unique adapter ID from job_id

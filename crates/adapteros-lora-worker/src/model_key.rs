@@ -5,9 +5,11 @@
 //! by backend, manifest hash, and additional context manifest fields to avoid
 //! collisions across kernel builds or fusion/quantization modes.
 
+#[cfg(any(test, debug_assertions))]
+use std::path::Path;
+
 use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_lora_kernel_api::attestation::BackendType;
-use std::path::Path;
 
 // =============================================================================
 // PRD-06: QuantizationMode and FusionMode Enums
@@ -56,7 +58,7 @@ impl QuantizationMode {
     pub fn for_backend(backend_type: BackendType) -> Self {
         match backend_type {
             BackendType::Metal | BackendType::CoreML => Self::Fp16Bf16,
-            BackendType::Mlx => Self::ModelQuantized,
+            BackendType::MLX => Self::ModelQuantized,
             BackendType::Mock => Self::Mock,
         }
     }
@@ -314,7 +316,7 @@ impl ModelKey {
     fn backend_type_str_static(backend_type: BackendType) -> &'static str {
         match backend_type {
             BackendType::Metal => "metal",
-            BackendType::Mlx => "mlx",
+            BackendType::MLX => "mlx",
             BackendType::CoreML => "coreml",
             BackendType::Mock => "mock",
         }
@@ -335,7 +337,7 @@ impl ModelKey {
     fn backend_type_str(&self) -> &'static str {
         match self.backend_type {
             BackendType::Metal => "metal",
-            BackendType::Mlx => "mlx",
+            BackendType::MLX => "mlx",
             BackendType::CoreML => "coreml",
             BackendType::Mock => "mock",
         }
@@ -370,7 +372,7 @@ mod tests {
         let key1a = ModelKey::new(BackendType::Metal, hash1, identity.clone());
         let key1b = ModelKey::new(BackendType::Metal, hash1, identity.clone());
         let key2 = ModelKey::new(BackendType::Metal, hash2, identity.clone());
-        let key3 = ModelKey::new(BackendType::Mlx, hash1, identity);
+        let key3 = ModelKey::new(BackendType::MLX, hash1, identity);
 
         // Same backend + same hash = equal
         assert_eq!(key1a, key1b);
@@ -391,7 +393,7 @@ mod tests {
 
         let identity = ModelCacheIdentity::new("k1", "fp16", "per_request");
         let key1 = ModelKey::new(BackendType::Metal, hash1, identity.clone());
-        let key2 = ModelKey::new(BackendType::Mlx, hash1, identity.clone());
+        let key2 = ModelKey::new(BackendType::MLX, hash1, identity.clone());
         let key3 = ModelKey::new(BackendType::Metal, hash2, identity);
 
         set.insert(key1.clone());
@@ -425,7 +427,7 @@ mod tests {
     fn test_model_key_short_hex() {
         let hash = B3Hash::hash(b"test");
         let identity = ModelCacheIdentity::new("k1", "fp16", "per_request");
-        let key = ModelKey::new(BackendType::Mlx, hash, identity);
+        let key = ModelKey::new(BackendType::MLX, hash, identity);
 
         let short = key.short_hex();
         assert!(short.starts_with("mlx:"));
@@ -481,7 +483,7 @@ mod tests {
 pub fn quantization_tag_for_backend(backend_type: BackendType) -> &'static str {
     match backend_type {
         BackendType::Metal | BackendType::CoreML => "fp16_bf16_backend",
-        BackendType::Mlx => "model_quantized",
+        BackendType::MLX => "model_quantized",
         BackendType::Mock => "mock",
     }
 }
@@ -733,7 +735,7 @@ mod tests_v2 {
         let tok_hash = B3Hash::hash(b"tokenizer.json");
         let cfg_hash = B3Hash::hash(b"tokenizer_config.json");
         ModelCacheIdentityV2::for_backend_with_tokenizer(
-            BackendType::Mlx,
+            BackendType::MLX,
             tok_hash,
             cfg_hash,
             "tenant-123".to_string(),
@@ -776,7 +778,7 @@ mod tests_v2 {
         let cfg_hash = B3Hash::hash(b"tokenizer_config.json");
 
         let v2a = ModelCacheIdentityV2::for_backend_with_tokenizer(
-            BackendType::Mlx,
+            BackendType::MLX,
             tok_hash,
             cfg_hash,
             "tenant-123".to_string(),
@@ -785,7 +787,7 @@ mod tests_v2 {
 
         // Different tenant
         let v2_different_tenant = ModelCacheIdentityV2::for_backend_with_tokenizer(
-            BackendType::Mlx,
+            BackendType::MLX,
             tok_hash,
             cfg_hash,
             "tenant-456".to_string(),
@@ -799,7 +801,7 @@ mod tests_v2 {
 
         // Different worker
         let v2_different_worker = ModelCacheIdentityV2::for_backend_with_tokenizer(
-            BackendType::Mlx,
+            BackendType::MLX,
             tok_hash,
             cfg_hash,
             "tenant-123".to_string(),
@@ -819,7 +821,7 @@ mod tests_v2 {
         let cfg_hash = B3Hash::hash(b"tokenizer_config.json");
 
         let v2a = ModelCacheIdentityV2::for_backend_with_tokenizer(
-            BackendType::Mlx,
+            BackendType::MLX,
             tok_hash1,
             cfg_hash,
             "tenant-123".to_string(),
@@ -827,7 +829,7 @@ mod tests_v2 {
         );
 
         let v2b = ModelCacheIdentityV2::for_backend_with_tokenizer(
-            BackendType::Mlx,
+            BackendType::MLX,
             tok_hash2,
             cfg_hash,
             "tenant-123".to_string(),

@@ -2516,7 +2516,7 @@ pub use user_tenant_access::{
 };
 pub mod workers;
 pub use models::Worker;
-pub use workers::{TrainingTask, WorkerHealthRecord, WorkerIncident};
+pub use workers::{TrainingTask, WorkerHealthRecord, WorkerIncident, WorkerIncidentType};
 
 // Document management modules
 pub mod collections;

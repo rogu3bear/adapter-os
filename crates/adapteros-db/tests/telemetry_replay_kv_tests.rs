@@ -188,6 +188,7 @@ async fn replay_round_trip_kv_primary() {
         execution_policy_id: None,
         execution_policy_version: None,
         stop_policy_json: None,
+        policy_mask_digest_b3: None,
     };
 
     let _meta_id = db
@@ -353,6 +354,7 @@ async fn replay_drift_detection_on_sql_mismatch() {
         execution_policy_id: None,
         execution_policy_version: None,
         stop_policy_json: None,
+        policy_mask_digest_b3: None,
     };
 
     db.create_replay_metadata(replay_params.clone())

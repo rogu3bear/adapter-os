@@ -11,10 +11,10 @@ import type { UserRole } from '@/api/types';
  * Return type for useRBAC hook mock
  */
 export interface UseRBACMockReturn {
-  can: Mock<[string], boolean>;
+  can: Mock<(permission: string) => boolean>;
   userRole: UserRole;
   permissions: string[];
-  hasRole: Mock<[string], boolean>;
+  hasRole: Mock<(role: string) => boolean>;
 }
 
 /**

@@ -217,14 +217,14 @@ pub enum AosError {
     },
 
     /// Requested adapter is not present in the current manifest
-    #[error("Adapter '{adapter_id}' not found in manifest. Available adapters: {available:?}")]
+    #[error("Adapter '{adapter_id}' not found in worker manifest. The adapter does not exist in the loaded model configuration. Available adapters in manifest: {available:?}. To fix this, ensure the adapter is registered in the manifest and the worker has loaded the correct manifest version.")]
     AdapterNotInManifest {
         adapter_id: String,
         available: Vec<String>,
     },
 
     /// Requested adapter is not part of the effective adapter set
-    #[error("Adapter '{adapter_id}' is not in the effective adapter set: {effective_set:?}")]
+    #[error("Adapter '{adapter_id}' is not in the effective adapter set. Effective adapter gates restrict which adapters can be used for this request. The adapter must be in the effective set: {effective_set:?}. To fix this, either add the adapter to the effective_adapter_ids list in your request, or remove it from pinned_adapter_ids.")]
     AdapterNotInEffectiveSet {
         adapter_id: String,
         effective_set: Vec<String>,

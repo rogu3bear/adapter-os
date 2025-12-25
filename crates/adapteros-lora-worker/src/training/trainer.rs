@@ -143,6 +143,7 @@ impl TryFrom<BackendKind> for TrainingBackend {
         match kind {
             BackendKind::CoreML => Ok(TrainingBackend::CoreML),
             BackendKind::Mlx => Ok(TrainingBackend::Mlx),
+            BackendKind::MlxBridge => Ok(TrainingBackend::Mlx), // MlxBridge uses Mlx for training
             BackendKind::Metal => Ok(TrainingBackend::Metal),
             BackendKind::CPU => Ok(TrainingBackend::Cpu),
             BackendKind::Auto => Err(AosError::Config(
@@ -259,6 +260,39 @@ pub struct DatasetSubsample {
     pub length: usize,
 }
 
+/// MoE (Mixture of Experts) training configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MoETrainingConfig {
+    /// Number of experts in the base model
+    pub num_experts: usize,
+    /// Number of experts activated per token
+    pub num_experts_per_token: usize,
+    /// LoRA strategy for MoE models
+    #[serde(default)]
+    pub lora_strategy: MoELoRAStrategy,
+    /// Whether to use expert routing weights for LoRA scaling
+    #[serde(default = "default_use_routing_weights")]
+    pub use_routing_weights: bool,
+    /// MoE intermediate size per expert (optional, for validation)
+    #[serde(default)]
+    pub moe_intermediate_size: Option<usize>,
+}
+
+fn default_use_routing_weights() -> bool {
+    true
+}
+
+/// LoRA strategy for MoE models
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum MoELoRAStrategy {
+    /// Shared LoRA with routing-weighted contribution per expert (recommended)
+    /// Formula: expert_out += (gate / 32767.0) * routing_score[e] * (alpha/rank) * (B @ A) @ x
+    #[default]
+    RoutingWeightedShared,
+    /// Per-expert LoRA (higher memory, potentially better quality)
+    PerExpertLoRA,
+}
+
 /// Training configuration with GPU support
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TrainingConfig {
@@ -319,6 +353,22 @@ pub struct TrainingConfig {
     /// Deterministic training/test harness configuration
     #[serde(default)]
     pub determinism: Option<DeterminismConfig>,
+    /// MoE (Mixture of Experts) training configuration
+    /// When set, enables MoE-aware training with routing-weighted LoRA
+    #[serde(default)]
+    pub moe_config: Option<MoETrainingConfig>,
+}
+
+impl TrainingConfig {
+    /// Check if this configuration is for an MoE model
+    pub fn is_moe(&self) -> bool {
+        self.moe_config.is_some()
+    }
+
+    /// Get the number of experts (returns 1 for dense models)
+    pub fn num_experts(&self) -> usize {
+        self.moe_config.as_ref().map(|m| m.num_experts).unwrap_or(1)
+    }
 }
 
 impl Default for TrainingConfig {
@@ -344,6 +394,7 @@ impl Default for TrainingConfig {
             max_seq_length: None,
             gradient_accumulation_steps: None,
             determinism: None,
+            moe_config: None,
         }
     }
 }
@@ -387,6 +438,24 @@ impl TrainingConfig {
             }
         }
         DevicePolicyConfig::default().preferred_order
+    }
+
+    /// Configure for MoE (Mixture of Experts) training
+    pub fn with_moe(mut self, num_experts: usize, num_experts_per_token: usize) -> Self {
+        self.moe_config = Some(MoETrainingConfig {
+            num_experts,
+            num_experts_per_token,
+            lora_strategy: MoELoRAStrategy::RoutingWeightedShared,
+            use_routing_weights: true,
+            moe_intermediate_size: None,
+        });
+        self
+    }
+
+    /// Configure for MoE with full options
+    pub fn with_moe_config(mut self, config: MoETrainingConfig) -> Self {
+        self.moe_config = Some(config);
+        self
     }
 }
 
@@ -473,6 +542,71 @@ pub struct LoRAWeights {
     pub lora_a: Vec<Vec<f32>>,
     /// Up-projection matrix (hidden_dim × rank)
     pub lora_b: Vec<Vec<f32>>,
+    /// MoE configuration (if trained for MoE model)
+    #[serde(default)]
+    pub moe_config: Option<MoETrainingConfig>,
+    /// Precomputed delta (B @ A) for faster inference (optional)
+    #[serde(skip)]
+    pub precomputed_delta: Option<Vec<Vec<f32>>>,
+}
+
+impl LoRAWeights {
+    /// Create new LoRA weights with given dimensions
+    pub fn new(rank: usize, hidden_dim: usize) -> Self {
+        Self {
+            lora_a: vec![vec![0.0; hidden_dim]; rank],
+            lora_b: vec![vec![0.0; rank]; hidden_dim],
+            moe_config: None,
+            precomputed_delta: None,
+        }
+    }
+
+    /// Create new LoRA weights for MoE model
+    pub fn new_moe(rank: usize, hidden_dim: usize, moe_config: MoETrainingConfig) -> Self {
+        Self {
+            lora_a: vec![vec![0.0; hidden_dim]; rank],
+            lora_b: vec![vec![0.0; rank]; hidden_dim],
+            moe_config: Some(moe_config),
+            precomputed_delta: None,
+        }
+    }
+
+    /// Check if these weights are for an MoE model
+    pub fn is_moe(&self) -> bool {
+        self.moe_config.is_some()
+    }
+
+    /// Precompute delta (B @ A) for faster inference
+    pub fn precompute_delta(&mut self) {
+        if self.precomputed_delta.is_some() {
+            return;
+        }
+
+        let rank = self.lora_a.len();
+        let hidden_dim = self.lora_b.len();
+        let in_features = self.lora_a.get(0).map(|v| v.len()).unwrap_or(0);
+
+        // delta = B @ A: (hidden_dim, in_features)
+        let mut delta = vec![vec![0.0f32; in_features]; hidden_dim];
+
+        for out_idx in 0..hidden_dim {
+            for in_idx in 0..in_features {
+                let mut sum = 0.0f32;
+                for r in 0..rank {
+                    // B[out_idx, r] * A[r, in_idx]
+                    sum += self.lora_b[out_idx][r] * self.lora_a[r][in_idx];
+                }
+                delta[out_idx][in_idx] = sum;
+            }
+        }
+
+        self.precomputed_delta = Some(delta);
+    }
+
+    /// Get scaling factor (alpha / rank)
+    pub fn scale(&self, alpha: f32) -> f32 {
+        alpha / self.lora_a.len() as f32
+    }
 }
 
 impl MicroLoRATrainer {
@@ -1911,7 +2045,12 @@ impl MicroLoRATrainer {
             self.training_seed
         );
 
-        Ok(LoRAWeights { lora_a, lora_b })
+        Ok(LoRAWeights {
+            lora_a,
+            lora_b,
+            moe_config: self.config.moe_config.clone(),
+            precomputed_delta: None,
+        })
     }
 
     /// Train with a per-epoch progress callback and GPU acceleration (CoreML-aware)
@@ -2588,6 +2727,62 @@ impl MicroLoRATrainer {
         output
     }
 
+    /// Apply routing-weighted LoRA transformation for MoE models.
+    ///
+    /// For routing-weighted shared LoRA strategy:
+    /// `lora_out = sum(routing_weight[e]) * apply_lora(hidden)`
+    ///
+    /// This uses shared LoRA weights scaled by the sum of routing weights
+    /// for active experts.
+    #[allow(clippy::needless_range_loop)]
+    fn apply_lora_moe(
+        &self,
+        hidden: &[f32],
+        weights: &LoRAWeights,
+        routing_weights: &[f32],
+    ) -> Vec<f32> {
+        // Compute base LoRA output
+        let lora_output = self.apply_lora(hidden, weights);
+
+        // Sum of routing weights for active experts (Q15 normalized)
+        let routing_scale: f32 = routing_weights.iter().sum();
+
+        // Scale LoRA output by routing weights
+        lora_output
+            .into_iter()
+            .map(|v| v * routing_scale)
+            .collect()
+    }
+
+    /// MoE-aware forward pass with routing weights.
+    ///
+    /// Uses routing-weighted shared LoRA: same weights scaled by expert routing.
+    fn forward_moe(
+        &self,
+        weights: &LoRAWeights,
+        example: &PreparedExample,
+        routing_weights: &[f32],
+    ) -> Result<(Vec<f32>, Vec<f32>)> {
+        // Use pre-scaled, padded hidden state from the CoreML pipeline.
+        let mut hidden = example.scaled_input.clone();
+        hidden.truncate(self.config.hidden_dim);
+        if hidden.len() < self.config.hidden_dim {
+            hidden.resize(self.config.hidden_dim, 0.0);
+        }
+
+        // Apply routing-weighted LoRA for MoE
+        let lora_output = self.apply_lora_moe(&hidden, weights, routing_weights);
+
+        // Combine base hidden with routing-weighted LoRA adjustment
+        let output: Vec<f32> = hidden
+            .iter()
+            .zip(lora_output.iter())
+            .map(|(h, l)| h + l * self.config.alpha / self.config.rank as f32)
+            .collect();
+
+        Ok((output, hidden))
+    }
+
     /// Compute loss (simplified cross-entropy)
     fn compute_loss(&self, output: &[f32], target: &[u32]) -> f32 {
         let mut loss = 0.0;
@@ -2715,6 +2910,174 @@ impl MicroLoRATrainer {
         }
 
         Ok(())
+    }
+
+    /// MoE-aware backward pass with routing-weighted gradients.
+    ///
+    /// Gradients are scaled by the routing weights for active experts.
+    /// For routing-weighted shared LoRA:
+    /// `grad_scale = sum(routing_weight[e]) for e in active_experts`
+    fn backward_and_update_moe(
+        &self,
+        weights: &mut LoRAWeights,
+        hidden: &[f32],
+        output: &[f32],
+        target: &[u32],
+        routing_weights: &[f32],
+        _loss: f32,
+        rng: &mut impl Rng,
+    ) -> Result<()> {
+        debug_assert_eq!(
+            weights.lora_a.len(),
+            self.config.rank,
+            "MoE training: LoRA A rows must equal rank"
+        );
+        debug_assert_eq!(
+            weights.lora_b.len(),
+            self.config.hidden_dim,
+            "MoE training: LoRA B rows must equal hidden_dim"
+        );
+
+        // Compute routing scale (sum of active expert weights)
+        let routing_scale: f32 = routing_weights.iter().sum();
+
+        let n = output.len().min(target.len());
+        let learning_rate = self.config.learning_rate;
+        let vocab_scale = (self.config.vocab_size.saturating_sub(1).max(1)) as f32;
+
+        // Compute gradient with routing weight scaling
+        let mut grad_output = vec![0.0; output.len()];
+        for i in 0..n {
+            let target_val = ((target[i] as f32) / vocab_scale) * 2.0 - 1.0;
+            // Scale gradient by routing weight
+            grad_output[i] = 2.0 * (output[i] - target_val) / n as f32 * routing_scale;
+        }
+
+        // Add deterministic noise for regularization
+        let noise_scale = 0.001;
+        for grad in &mut grad_output {
+            *grad += rng.gen_range(-noise_scale..noise_scale);
+        }
+
+        // Gradient clipping
+        const MAX_GRAD_NORM: f32 = 1.0;
+        let grad_norm: f32 = grad_output.iter().map(|g| g * g).sum::<f32>().sqrt();
+        if grad_norm > MAX_GRAD_NORM {
+            let scale = MAX_GRAD_NORM / grad_norm;
+            for grad in &mut grad_output {
+                *grad *= scale;
+            }
+            debug!(
+                "MoE: Clipped gradient norm from {:.4} to {:.4}",
+                grad_norm, MAX_GRAD_NORM
+            );
+        }
+
+        // NaN prevention
+        for grad in &mut grad_output {
+            if !grad.is_finite() {
+                *grad = 0.0;
+            }
+        }
+
+        // Update LoRA_A with routing-scaled gradients
+        const MAX_UPDATE: f32 = 0.1;
+        for r in 0..self.config.rank {
+            for h_idx in 0..self.config.hidden_dim.min(hidden.len()) {
+                if h_idx < weights.lora_a[r].len() {
+                    let grad = grad_output[h_idx] * hidden[h_idx];
+                    let update = (learning_rate * grad).clamp(-MAX_UPDATE, MAX_UPDATE);
+                    weights.lora_a[r][h_idx] -= update;
+                }
+            }
+        }
+
+        // Update LoRA_B with routing-scaled gradients
+        for h_idx in 0..self.config.hidden_dim {
+            if h_idx < weights.lora_b.len() {
+                for r in 0..self.config.rank {
+                    if r < weights.lora_b[h_idx].len() {
+                        let grad = grad_output[h_idx] * hidden[h_idx];
+                        let update = (learning_rate * grad).clamp(-MAX_UPDATE, MAX_UPDATE);
+                        weights.lora_b[h_idx][r] -= update;
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Train one batch for MoE models with simulated routing.
+    ///
+    /// For training, we simulate routing by distributing examples across experts
+    /// using deterministic routing based on the example index and MoE config.
+    fn train_batch_moe(
+        &self,
+        weights: &mut LoRAWeights,
+        batch: &[PreparedExample],
+        rng: &mut impl Rng,
+    ) -> Result<f32> {
+        let moe_config = self.config.moe_config.as_ref().ok_or_else(|| {
+            AosError::Training("MoE batch training requires moe_config".to_string())
+        })?;
+
+        let batch_start = Instant::now();
+        let mut batch_loss = 0.0;
+        let batch_tokens = self.tokens_in_batch(batch);
+        let num_experts_per_token = moe_config.num_experts_per_token;
+
+        for (idx, example) in batch.iter().enumerate() {
+            // Simulate routing weights (uniform distribution for training)
+            // In production, these come from the actual router
+            let routing_weights: Vec<f32> = (0..num_experts_per_token)
+                .map(|e| {
+                    // Deterministic routing weight based on example and expert index
+                    let seed = (idx * 1000 + e) as f32;
+                    let weight = (seed.sin().abs() + 0.5) / num_experts_per_token as f32;
+                    weight.min(1.0)
+                })
+                .collect();
+
+            // Normalize to sum to ~1.0
+            let sum: f32 = routing_weights.iter().sum();
+            let normalized_weights: Vec<f32> = if sum > 0.0 {
+                routing_weights.iter().map(|w| w / sum).collect()
+            } else {
+                vec![1.0 / num_experts_per_token as f32; num_experts_per_token]
+            };
+
+            // MoE forward pass
+            let (output, hidden) = self.forward_moe(weights, example, &normalized_weights)?;
+
+            // Compute loss
+            let loss = self.compute_loss(&output, &example.target_tokens);
+            batch_loss += loss;
+
+            // MoE backward pass with routing weights
+            self.backward_and_update_moe(
+                weights,
+                &hidden,
+                &output,
+                &example.target_tokens,
+                &normalized_weights,
+                loss,
+                rng,
+            )?;
+        }
+
+        // Update CPU metrics
+        let cpu_time_ms = batch_start.elapsed().as_millis() as u64;
+        {
+            let mut metrics = self.performance_metrics.write();
+            metrics.total_cpu_time_ms += cpu_time_ms;
+            metrics.cpu_operations += batch.len() as u64;
+            metrics.total_examples_processed += batch.len() as u64;
+            metrics.total_tokens_processed += batch_tokens;
+            metrics.total_batches += 1;
+        }
+
+        Ok(batch_loss / batch.len() as f32)
     }
 
     /// Generate unique adapter ID
@@ -3411,6 +3774,8 @@ mod tests {
         let weights = LoRAWeights {
             lora_a: vec![vec![1.0, 2.0]],
             lora_b: vec![vec![3.0, 4.0]],
+            moe_config: None,
+            precomputed_delta: None,
         };
         let checkpoint = TrainingCheckpoint::new(
             5, // epoch 5

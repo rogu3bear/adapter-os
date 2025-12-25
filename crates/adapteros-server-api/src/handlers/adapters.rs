@@ -134,24 +134,27 @@ pub async fn promote_adapter_lifecycle(
                 adapteros_core::error::AosError::NotFound(_) => (
                     StatusCode::NOT_FOUND,
                     Json(
-                        ErrorResponse::new("adapter not found")
-                            .with_code("NOT_FOUND")
+                        ErrorResponse::new("Adapter not found")
+                            .with_code("ADAPTER_NOT_FOUND")
                             .with_string_details(format!(
-                                "Adapter '{}' does not exist for tenant '{}'",
+                                "Adapter '{}' does not exist for tenant '{}'. Verify the adapter ID is correct.",
                                 adapter_id, claims.tenant_id
                             )),
                     ),
                 ),
                 adapteros_core::error::AosError::Validation(msg) => (
                     StatusCode::BAD_REQUEST,
-                    Json(ErrorResponse::new(&msg).with_code("BAD_REQUEST")),
+                    Json(ErrorResponse::new(&msg).with_code("LIFECYCLE_PROMOTION_INVALID")),
                 ),
                 _ => (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     Json(
-                        ErrorResponse::new("failed to promote adapter")
-                            .with_code("INTERNAL_ERROR")
-                            .with_string_details(e.to_string()),
+                        ErrorResponse::new("Failed to promote adapter lifecycle state")
+                            .with_code("LIFECYCLE_PROMOTION_FAILED")
+                            .with_string_details(format!(
+                                "Adapter '{}' could not be promoted to the next lifecycle tier. Technical details: {}",
+                                adapter_id, e
+                            )),
                     ),
                 ),
             }
@@ -237,24 +240,27 @@ pub async fn demote_adapter_lifecycle(
                 adapteros_core::error::AosError::NotFound(_) => (
                     StatusCode::NOT_FOUND,
                     Json(
-                        ErrorResponse::new("adapter not found")
-                            .with_code("NOT_FOUND")
+                        ErrorResponse::new("Adapter not found")
+                            .with_code("ADAPTER_NOT_FOUND")
                             .with_string_details(format!(
-                                "Adapter '{}' does not exist for tenant '{}'",
+                                "Adapter '{}' does not exist for tenant '{}'. Verify the adapter ID is correct.",
                                 adapter_id, claims.tenant_id
                             )),
                     ),
                 ),
                 adapteros_core::error::AosError::Validation(msg) => (
                     StatusCode::BAD_REQUEST,
-                    Json(ErrorResponse::new(&msg).with_code("BAD_REQUEST")),
+                    Json(ErrorResponse::new(&msg).with_code("LIFECYCLE_DEMOTION_INVALID")),
                 ),
                 _ => (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     Json(
-                        ErrorResponse::new("failed to demote adapter")
-                            .with_code("INTERNAL_ERROR")
-                            .with_string_details(e.to_string()),
+                        ErrorResponse::new("Failed to demote adapter lifecycle state")
+                            .with_code("LIFECYCLE_DEMOTION_FAILED")
+                            .with_string_details(format!(
+                                "Adapter '{}' could not be demoted to the previous lifecycle tier. Technical details: {}",
+                                adapter_id, e
+                            )),
                     ),
                 ),
             }
@@ -381,11 +387,11 @@ pub async fn get_adapter_lineage(
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(
-                    ErrorResponse::new("database error")
+                    ErrorResponse::new("Failed to retrieve adapter from database")
                         .with_code("DATABASE_ERROR")
                         .with_string_details(format!(
-                            "Database error fetching adapter '{}': {}",
-                            adapter_id, e
+                            "Adapter '{}' metadata could not be loaded for tenant '{}'. This may indicate a temporary database issue. Technical details: {}",
+                            adapter_id, claims.tenant_id, e
                         )),
                 ),
             )
@@ -395,10 +401,10 @@ pub async fn get_adapter_lineage(
             (
                 StatusCode::NOT_FOUND,
                 Json(
-                    ErrorResponse::new("adapter not found")
-                        .with_code("NOT_FOUND")
+                    ErrorResponse::new("Adapter not found")
+                        .with_code("ADAPTER_NOT_FOUND")
                         .with_string_details(format!(
-                            "Adapter '{}' does not exist for tenant '{}'",
+                            "Adapter '{}' does not exist for tenant '{}'. Verify the adapter ID is correct or list available adapters using GET /v1/adapters",
                             adapter_id, claims.tenant_id
                         )),
                 ),
@@ -423,9 +429,12 @@ pub async fn get_adapter_lineage(
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(
-                    ErrorResponse::new("failed to fetch lineage")
-                        .with_code("INTERNAL_ERROR")
-                        .with_string_details(e.to_string()),
+                    ErrorResponse::new("Failed to retrieve adapter lineage tree")
+                        .with_code("LINEAGE_RETRIEVAL_FAILED")
+                        .with_string_details(format!(
+                            "Lineage tree for adapter '{}' could not be constructed. Parent/child relationships may be corrupted. Technical details: {}",
+                            adapter_id, e
+                        )),
                 ),
             )
         })?;
@@ -717,8 +726,12 @@ pub async fn update_adapter_strength(
         return Err((
             StatusCode::BAD_REQUEST,
             Json(
-                ErrorResponse::new("lora_strength must be between 0.0 and 2.0")
-                    .with_code("VALIDATION_ERROR"),
+                ErrorResponse::new("Invalid LoRA strength value")
+                    .with_code("LORA_STRENGTH_OUT_OF_RANGE")
+                    .with_string_details(format!(
+                        "LoRA strength must be between 0.0 and 2.0 (provided: {}). Use 1.0 for standard strength, lower values to reduce adapter influence, higher values to amplify it.",
+                        req.lora_strength
+                    ))
             ),
         ));
     }
@@ -766,9 +779,12 @@ pub async fn update_adapter_strength(
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(
-                    ErrorResponse::new("failed to update adapter strength")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
+                    ErrorResponse::new("Failed to update adapter LoRA strength")
+                        .with_code("STRENGTH_UPDATE_FAILED")
+                        .with_string_details(format!(
+                            "Adapter '{}' LoRA strength could not be updated to {}. The adapter may be locked or in an invalid state. Technical details: {}",
+                            adapter_id, req.lora_strength, e
+                        )),
                 ),
             )
         })?;
@@ -984,9 +1000,12 @@ pub async fn pin_adapter(
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(
-                    ErrorResponse::new("failed to pin adapter")
-                        .with_code("INTERNAL_ERROR")
-                        .with_string_details(e.to_string()),
+                    ErrorResponse::new("Failed to pin adapter to prevent eviction")
+                        .with_code("ADAPTER_PIN_FAILED")
+                        .with_string_details(format!(
+                            "Adapter '{}' could not be pinned. The adapter may already be pinned or in an incompatible state. Technical details: {}",
+                            adapter_id, e
+                        )),
                 ),
             )
         })?;
@@ -4012,13 +4031,19 @@ pub async fn duplicate_adapter(
 }
 
 // Re-export adapter functions from parent handlers module for routes.rs
+// Note: Some functions have moved to submodules:
+// - adapter_lifecycle: promote_adapter_state
+// - adapter_health: get_adapter_activations, get_adapter_health, verify_gpu_integrity
+// - adapter_versions: get_adapter_version, list_adapter_versions
 pub use super::{
-    get_adapter, get_adapter_activations, get_adapter_health, get_adapter_metrics,
-    get_adapter_repository, get_adapter_repository_policy, get_adapter_version, get_commit,
+    get_adapter, get_adapter_metrics,
+    get_adapter_repository, get_adapter_repository_policy, get_commit,
     get_commit_diff, get_quality_metrics, get_system_metrics, list_adapter_repositories,
-    list_adapter_versions, list_adapters, list_commits, promote_adapter_state,
-    verify_gpu_integrity,
+    list_adapters, list_commits,
 };
+pub use super::adapter_lifecycle::promote_adapter_state;
+pub use super::adapter_health::{get_adapter_activations, get_adapter_health, verify_gpu_integrity};
+pub use super::adapter_versions::{get_adapter_version, list_adapter_versions};
 
 // Create an alias for list_adapter_repositories as list_repositories_legacy for backwards compatibility
-pub use list_adapter_repositories as list_repositories_legacy;
+pub use super::list_adapter_repositories as list_repositories_legacy;

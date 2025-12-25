@@ -256,11 +256,12 @@ impl TestAdapterFactory {
         let hash = format!("{:0>64}", adapter_id);
 
         sqlx::query(
-            "INSERT INTO adapters (id, tenant_id, name, tier, hash_b3, rank, alpha, targets_json, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))",
+            "INSERT INTO adapters (id, tenant_id, adapter_id, name, tier, hash_b3, rank, alpha, targets_json, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))",
         )
         .bind(adapter_id)
         .bind(tenant_id)
+        .bind(adapter_id) // Set adapter_id for lookup by pin_adapter
         .bind(format!("Test Adapter {}", adapter_id))
         .bind("persistent")
         .bind(&hash)
@@ -285,11 +286,12 @@ impl TestAdapterFactory {
         let hash = format!("{:0>64}", adapter_id);
 
         sqlx::query(
-            "INSERT INTO adapters (id, tenant_id, name, tier, hash_b3, rank, alpha, targets_json, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))",
+            "INSERT INTO adapters (id, tenant_id, adapter_id, name, tier, hash_b3, rank, alpha, targets_json, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))",
         )
         .bind(adapter_id)
         .bind(tenant_id)
+        .bind(adapter_id) // Set adapter_id for lookup by pin_adapter
         .bind(format!("Test Adapter {}", adapter_id))
         .bind(tier)
         .bind(&hash)

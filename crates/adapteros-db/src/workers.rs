@@ -3,6 +3,106 @@ use adapteros_core::{AosError, Result, WorkerStatus};
 use std::str::FromStr;
 use tracing::{debug, warn};
 
+/// Valid worker incident types matching the database CHECK constraint.
+///
+/// The database constraint in `migrations/0125_worker_health_metrics.sql` enforces:
+/// `CHECK(incident_type IN ('fatal', 'crash', 'hung', 'degraded', 'recovered'))`
+///
+/// Using this enum ensures compile-time validation of incident types,
+/// preventing runtime CHECK constraint violations.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum WorkerIncidentType {
+    /// Worker encountered a fatal error (panic, unrecoverable error)
+    Fatal,
+    /// Worker process crashed or became unresponsive
+    Crash,
+    /// Worker is hung (not responding to health checks)
+    Hung,
+    /// Worker is degraded (responding slowly, above latency threshold)
+    Degraded,
+    /// Worker recovered from a degraded or crashed state
+    Recovered,
+}
+
+impl WorkerIncidentType {
+    /// Returns the string representation matching the database CHECK constraint.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Fatal => "fatal",
+            Self::Crash => "crash",
+            Self::Hung => "hung",
+            Self::Degraded => "degraded",
+            Self::Recovered => "recovered",
+        }
+    }
+
+    /// All valid incident types (for validation and documentation).
+    pub const ALL: &'static [WorkerIncidentType] = &[
+        Self::Fatal,
+        Self::Crash,
+        Self::Hung,
+        Self::Degraded,
+        Self::Recovered,
+    ];
+}
+
+impl std::fmt::Display for WorkerIncidentType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
+impl FromStr for WorkerIncidentType {
+    type Err = AosError;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "fatal" => Ok(Self::Fatal),
+            "crash" => Ok(Self::Crash),
+            "hung" => Ok(Self::Hung),
+            "degraded" => Ok(Self::Degraded),
+            "recovered" => Ok(Self::Recovered),
+            _ => Err(AosError::Validation(format!(
+                "Invalid incident_type '{}'. Must be one of: fatal, crash, hung, degraded, recovered",
+                s
+            ))),
+        }
+    }
+}
+
+// SQLx integration for WorkerIncidentType
+// Allows the enum to be used directly in sqlx queries and FromRow structs
+
+impl<'r> sqlx::Decode<'r, sqlx::Sqlite> for WorkerIncidentType {
+    fn decode(
+        value: sqlx::sqlite::SqliteValueRef<'r>,
+    ) -> std::result::Result<Self, sqlx::error::BoxDynError> {
+        let s = <&str as sqlx::Decode<sqlx::Sqlite>>::decode(value)?;
+        s.parse::<WorkerIncidentType>()
+            .map_err(|e| Box::new(e) as sqlx::error::BoxDynError)
+    }
+}
+
+impl sqlx::Type<sqlx::Sqlite> for WorkerIncidentType {
+    fn type_info() -> sqlx::sqlite::SqliteTypeInfo {
+        <&str as sqlx::Type<sqlx::Sqlite>>::type_info()
+    }
+
+    fn compatible(ty: &sqlx::sqlite::SqliteTypeInfo) -> bool {
+        <&str as sqlx::Type<sqlx::Sqlite>>::compatible(ty)
+    }
+}
+
+impl<'q> sqlx::Encode<'q, sqlx::Sqlite> for WorkerIncidentType {
+    fn encode_by_ref(
+        &self,
+        buf: &mut <sqlx::Sqlite as sqlx::Database>::ArgumentBuffer<'q>,
+    ) -> std::result::Result<sqlx::encode::IsNull, sqlx::error::BoxDynError> {
+        <&str as sqlx::Encode<sqlx::Sqlite>>::encode_by_ref(&self.as_str(), buf)
+    }
+}
+
 /// Builder for creating worker insertion parameters
 #[derive(Debug, Default)]
 pub struct WorkerInsertBuilder {
@@ -492,11 +592,36 @@ impl Db {
     // =========================================================================
 
     /// Insert a worker incident
+    ///
+    /// Uses [`WorkerIncidentType`] enum to ensure compile-time validation of incident types,
+    /// preventing database CHECK constraint violations.
+    ///
+    /// # Arguments
+    /// * `worker_id` - The worker ID
+    /// * `tenant_id` - The tenant ID
+    /// * `incident_type` - The type of incident (uses enum for type safety)
+    /// * `reason` - Human-readable description of what happened
+    /// * `backtrace_snippet` - Optional backtrace for debugging
+    /// * `latency_at_incident_ms` - Optional latency measurement at time of incident
+    ///
+    /// # Example
+    /// ```ignore
+    /// use adapteros_db::workers::WorkerIncidentType;
+    ///
+    /// db.insert_worker_incident(
+    ///     "worker-123",
+    ///     "tenant-456",
+    ///     WorkerIncidentType::Fatal,
+    ///     "PANIC: Out of memory",
+    ///     Some("at src/inference.rs:42"),
+    ///     None,
+    /// ).await?;
+    /// ```
     pub async fn insert_worker_incident(
         &self,
         worker_id: &str,
         tenant_id: &str,
-        incident_type: &str,
+        incident_type: WorkerIncidentType,
         reason: &str,
         backtrace_snippet: Option<&str>,
         latency_at_incident_ms: Option<f64>,
@@ -511,7 +636,7 @@ impl Db {
         .bind(&id)
         .bind(worker_id)
         .bind(tenant_id)
-        .bind(incident_type)
+        .bind(incident_type.as_str())
         .bind(reason)
         .bind(backtrace_snippet)
         .bind(latency_at_incident_ms)
@@ -659,7 +784,9 @@ pub struct WorkerIncident {
     pub id: String,
     pub worker_id: String,
     pub tenant_id: String,
-    pub incident_type: String,
+    /// Strongly-typed incident type (fatal, crash, hung, degraded, recovered).
+    /// Automatically decoded from database TEXT column via sqlx.
+    pub incident_type: WorkerIncidentType,
     pub reason: String,
     pub backtrace_snippet: Option<String>,
     pub latency_at_incident_ms: Option<f64>,
@@ -1374,5 +1501,98 @@ mod tests {
             !is_schema_compatible("2.0.0", "1.0.0"),
             "Worker 2.0.0 should be rejected by CP 1.0.0 (major mismatch)"
         );
+    }
+
+    // =========================================================================
+    // Unit Tests for WorkerIncidentType
+    // =========================================================================
+
+    #[test]
+    fn test_incident_type_as_str() {
+        assert_eq!(WorkerIncidentType::Fatal.as_str(), "fatal");
+        assert_eq!(WorkerIncidentType::Crash.as_str(), "crash");
+        assert_eq!(WorkerIncidentType::Hung.as_str(), "hung");
+        assert_eq!(WorkerIncidentType::Degraded.as_str(), "degraded");
+        assert_eq!(WorkerIncidentType::Recovered.as_str(), "recovered");
+    }
+
+    #[test]
+    fn test_incident_type_display() {
+        assert_eq!(format!("{}", WorkerIncidentType::Fatal), "fatal");
+        assert_eq!(format!("{}", WorkerIncidentType::Crash), "crash");
+        assert_eq!(format!("{}", WorkerIncidentType::Hung), "hung");
+        assert_eq!(format!("{}", WorkerIncidentType::Degraded), "degraded");
+        assert_eq!(format!("{}", WorkerIncidentType::Recovered), "recovered");
+    }
+
+    #[test]
+    fn test_incident_type_from_str_valid() {
+        assert_eq!(
+            "fatal".parse::<WorkerIncidentType>().unwrap(),
+            WorkerIncidentType::Fatal
+        );
+        assert_eq!(
+            "crash".parse::<WorkerIncidentType>().unwrap(),
+            WorkerIncidentType::Crash
+        );
+        assert_eq!(
+            "hung".parse::<WorkerIncidentType>().unwrap(),
+            WorkerIncidentType::Hung
+        );
+        assert_eq!(
+            "degraded".parse::<WorkerIncidentType>().unwrap(),
+            WorkerIncidentType::Degraded
+        );
+        assert_eq!(
+            "recovered".parse::<WorkerIncidentType>().unwrap(),
+            WorkerIncidentType::Recovered
+        );
+    }
+
+    #[test]
+    fn test_incident_type_from_str_case_insensitive() {
+        assert_eq!(
+            "FATAL".parse::<WorkerIncidentType>().unwrap(),
+            WorkerIncidentType::Fatal
+        );
+        assert_eq!(
+            "Crash".parse::<WorkerIncidentType>().unwrap(),
+            WorkerIncidentType::Crash
+        );
+        assert_eq!(
+            "HUNG".parse::<WorkerIncidentType>().unwrap(),
+            WorkerIncidentType::Hung
+        );
+    }
+
+    #[test]
+    fn test_incident_type_from_str_invalid() {
+        assert!("invalid".parse::<WorkerIncidentType>().is_err());
+        assert!("timeout".parse::<WorkerIncidentType>().is_err());
+        assert!("error".parse::<WorkerIncidentType>().is_err());
+        assert!("".parse::<WorkerIncidentType>().is_err());
+    }
+
+    #[test]
+    fn test_incident_type_all_constant() {
+        // Verify ALL contains exactly 5 types
+        assert_eq!(WorkerIncidentType::ALL.len(), 5);
+
+        // Verify each type is in ALL
+        assert!(WorkerIncidentType::ALL.contains(&WorkerIncidentType::Fatal));
+        assert!(WorkerIncidentType::ALL.contains(&WorkerIncidentType::Crash));
+        assert!(WorkerIncidentType::ALL.contains(&WorkerIncidentType::Hung));
+        assert!(WorkerIncidentType::ALL.contains(&WorkerIncidentType::Degraded));
+        assert!(WorkerIncidentType::ALL.contains(&WorkerIncidentType::Recovered));
+    }
+
+    #[test]
+    fn test_incident_type_roundtrip() {
+        // Verify as_str -> from_str roundtrip for all types
+        for incident_type in WorkerIncidentType::ALL {
+            let s = incident_type.as_str();
+            let parsed: WorkerIncidentType = s.parse().unwrap();
+            assert_eq!(*incident_type, parsed);
+        }
     }
 }

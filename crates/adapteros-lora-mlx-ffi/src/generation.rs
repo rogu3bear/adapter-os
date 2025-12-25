@@ -353,6 +353,79 @@ impl MLXGenerator {
         Ok(tokens)
     }
 
+    /// Generate text with streaming callback including token metadata
+    ///
+    /// Like `generate_streaming`, but provides confidence scores and alternatives
+    /// for each generated token.
+    ///
+    /// # Arguments
+    /// * `model` - MLX model
+    /// * `prompt_tokens` - Input token IDs
+    /// * `callback` - Called for each generated token with metadata
+    ///
+    /// # Returns
+    /// Generated token IDs (including prompt)
+    pub fn generate_streaming_with_metadata<F>(
+        &mut self,
+        model: &MLXFFIModel,
+        prompt_tokens: Vec<u32>,
+        mut callback: F,
+    ) -> Result<Vec<u32>>
+    where
+        F: FnMut(u32, f32, Vec<(u32, f32)>, usize) -> Result<bool>, // (token, confidence, alts, pos)
+    {
+        let mut tokens = prompt_tokens.clone();
+        let prompt_len = tokens.len();
+
+        // Clear cache at start
+        if let Some(cache) = &self.cache {
+            cache.clear_all();
+        }
+
+        for step in 0..self.config.max_tokens {
+            // Derive step-specific seed
+            let step_seed = self.derive_step_seed(step);
+            self.rng = rand::rngs::StdRng::from_seed(step_seed);
+
+            // Run forward pass
+            let position = tokens.len() - 1;
+            let logits = model.forward(&tokens, position)?;
+
+            // Apply repetition penalty
+            let penalized_logits = if self.config.repetition_penalty != 1.0 {
+                self.apply_repetition_penalty(&logits, &tokens)?
+            } else {
+                logits
+            };
+
+            // Sample next token with metadata
+            let (next_token, confidence, alternatives) =
+                self.sample_token_with_metadata(&penalized_logits)?;
+
+            // Check for EOS
+            if next_token == self.config.eos_token {
+                break;
+            }
+
+            tokens.push(next_token);
+
+            // Invoke callback with metadata
+            let should_continue = callback(next_token, confidence, alternatives, tokens.len() - 1)?;
+            if !should_continue {
+                tracing::debug!(step = step, "Generation stopped by callback");
+                break;
+            }
+        }
+
+        let generated_count = tokens.len() - prompt_len;
+        tracing::info!(
+            tokens_generated = generated_count,
+            "Streaming generation with metadata complete"
+        );
+
+        Ok(tokens)
+    }
+
     /// Sample next token from logits using configured strategy
     ///
     /// Applies sampling pipeline:
@@ -399,6 +472,73 @@ impl MLXGenerator {
             SamplingStrategy::Greedy => self.sample_greedy(&final_probs),
             SamplingStrategy::Stochastic => self.sample_from_distribution(&final_probs),
         }
+    }
+
+    /// Sample next token from logits with metadata (confidence and alternatives)
+    ///
+    /// Returns: (token_id, confidence, alternatives)
+    /// - confidence: probability of the sampled token
+    /// - alternatives: top 5 alternative tokens with their probabilities
+    fn sample_token_with_metadata(
+        &mut self,
+        logits: &[f32],
+    ) -> Result<(u32, f32, Vec<(u32, f32)>)> {
+        if logits.is_empty() {
+            return Err(AosError::Internal("Empty logits".to_string()));
+        }
+
+        // Determine sampling strategy
+        let strategy = self.config.sampling_strategy();
+
+        // Apply temperature scaling
+        let scaled_logits: Vec<f32> = if self.config.temperature != 1.0 {
+            let temp = self.config.temperature.max(0.01);
+            logits.iter().map(|&l| l / temp).collect()
+        } else {
+            logits.to_vec()
+        };
+
+        // Convert to probabilities via softmax
+        let probs = self.softmax(&scaled_logits);
+
+        // Apply top-k filtering if configured
+        let filtered_probs = if let Some(k) = self.config.top_k {
+            self.apply_top_k(&probs, k)
+        } else {
+            probs.clone()
+        };
+
+        // Apply top-p (nucleus) filtering if configured
+        let final_probs = if let Some(p) = self.config.top_p {
+            self.apply_top_p(&filtered_probs, p)
+        } else {
+            filtered_probs
+        };
+
+        // Sample using selected strategy
+        let token_id = match strategy {
+            SamplingStrategy::Greedy => self.sample_greedy(&final_probs)?,
+            SamplingStrategy::Stochastic => self.sample_from_distribution(&final_probs)?,
+        };
+
+        // Get confidence (probability of sampled token from original softmax)
+        let confidence = probs.get(token_id as usize).copied().unwrap_or(0.0);
+
+        // Get top 5 alternatives (excluding sampled token)
+        let mut indexed_probs: Vec<(u32, f32)> = probs
+            .iter()
+            .enumerate()
+            .map(|(i, &p)| (i as u32, p))
+            .collect();
+        indexed_probs.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+        let alternatives: Vec<(u32, f32)> = indexed_probs
+            .into_iter()
+            .filter(|(id, _)| *id != token_id)
+            .take(5)
+            .collect();
+
+        Ok((token_id, confidence, alternatives))
     }
 
     /// Apply repetition penalty to logits

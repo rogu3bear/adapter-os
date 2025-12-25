@@ -1,0 +1,120 @@
+schema: adapteros.manifest.v3
+base:
+  model_id: "Qwen3-Coder-30B-A3B-Instruct-CoreML"
+  model_hash: "0000000000000000000000000000000000000000000000000000000000000000"  # Update after conversion
+  arch: "Qwen3MoeForCausalLM"
+  vocab_size: 151936
+  hidden_dim: 2048
+  n_layers: 48
+  n_heads: 32
+  config_hash: "0000000000000000000000000000000000000000000000000000000000000000"  # Update from config.json
+  tokenizer_hash: "0000000000000000000000000000000000000000000000000000000000000000"  # Update from tokenizer
+  tokenizer_cfg_hash: "0000000000000000000000000000000000000000000000000000000000000000"
+  backend: coreml
+
+# MoE-specific configuration
+moe:
+  num_experts: 128
+  num_experts_per_tok: 8
+  moe_intermediate_size: 768
+  router_type: "top_k"
+  normalize_router_weights: true
+
+adapters: []
+
+router:
+  # Sparse routing for MoE - use higher k for better quality
+  k_sparse: 8  # Match num_experts_per_tok
+  gate_quant: "q15"
+  entropy_floor: 0.02
+  tau: 1.0
+  sample_tokens_full: 128
+
+telemetry:
+  schema_hash: "0000000000000000000000000000000000000000000000000000000000000000"
+  sampling:
+    token: 0.05
+    router: 1.0
+    inference: 1.0
+  router_full_tokens: 128
+  bundle:
+    max_events: 500000
+    max_bytes: 268435456
+
+policies:
+  egress:
+    mode: "deny_all"
+    serve_requires_pf: false
+    allow_tcp: false
+    allow_udp: false
+    uds_paths:
+      - "/var/run/aos/default"
+
+  determinism:
+    require_metallib_embed: false
+    require_kernel_hash_match: false
+    rng: "hkdf_seeded"
+    retrieval_tie_break:
+      - "score_desc"
+      - "doc_id_asc"
+
+  evidence:
+    require_open_book: false
+    min_spans: 0
+    prefer_latest_revision: true
+    warn_on_superseded: false
+
+  refusal:
+    abstain_threshold: 0.55
+    missing_fields_templates: {}
+
+  numeric:
+    canonical_units: {}
+    max_rounding_error: 0.5
+    require_units_in_trace: false
+
+  rag:
+    index_scope: "per_tenant"
+    doc_tags_required: []
+    embedding_model_hash: "0000000000000000000000000000000000000000000000000000000000000000"
+    topk: 5
+    order:
+      - "score_desc"
+
+  isolation:
+    process_model: "per_tenant"
+    uds_root: "/var/run/aos/default"
+    forbid_shm: false
+
+  performance:
+    # MoE models are larger and slower - adjust thresholds
+    latency_p95_ms: 500  # Higher for 30B MoE model
+    router_overhead_pct_max: 15  # MoE routing overhead
+    throughput_tokens_per_s_min: 5  # Lower for large model
+    max_tokens: 4096
+    cpu_threshold_pct: 95.0
+    memory_threshold_pct: 95.0
+    circuit_breaker_threshold: 10
+
+  memory:
+    min_headroom_pct: 20  # Higher for large MoE model
+    evict_order:
+      - "ephemeral_ttl"
+      - "cold_lru"
+    k_reduce_before_evict: true
+
+  artifacts:
+    require_signature: false
+    require_sbom: false
+    cas_only: false
+
+  drift:
+    os_build_tolerance: 100
+    gpu_driver_tolerance: 100
+    env_hash_tolerance: 100
+    allow_warnings: true
+    block_on_critical: false
+
+seeds:
+  global: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+  manifest_hash: "0000000000000000000000000000000000000000000000000000000000000000"

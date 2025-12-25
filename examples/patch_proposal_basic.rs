@@ -177,10 +177,10 @@ fn create_mock_policies() -> Policies {
         },
         refusal: RefusalPolicy {
             abstain_threshold: 0.55,
-            missing_fields_templates: std::collections::HashMap::new(),
+            missing_fields_templates: std::collections::BTreeMap::new(),
         },
         numeric: NumericPolicy {
-            canonical_units: std::collections::HashMap::new(),
+            canonical_units: std::collections::BTreeMap::new(),
             max_rounding_error: 0.5,
             require_units_in_trace: true,
         },

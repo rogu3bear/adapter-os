@@ -29,6 +29,60 @@ use tokio::sync::mpsc;
 use tokio::time::timeout;
 use tracing::{debug, trace, warn};
 
+/// Alternative token with probability
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TokenAlternative {
+    /// Token text (optional - may not be decoded for performance)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub token: Option<String>,
+    /// Token ID
+    pub token_id: u32,
+    /// Probability of this token
+    pub prob: f32,
+}
+
+/// Output from token generation callback
+///
+/// Contains the sampled token and optional metadata (confidence, alternatives).
+#[derive(Debug, Clone)]
+pub struct TokenGenerationOutput {
+    /// Sampled token ID
+    pub token_id: u32,
+    /// Raw token bytes for UTF-8 processing
+    pub token_bytes: Vec<u8>,
+    /// Confidence/probability of the sampled token (0.0 to 1.0)
+    pub confidence: Option<f32>,
+    /// Top alternative tokens with their probabilities
+    pub alternatives: Option<Vec<(u32, f32)>>,
+}
+
+impl TokenGenerationOutput {
+    /// Create output without metadata (backwards compatible)
+    pub fn new(token_id: u32, token_bytes: Vec<u8>) -> Self {
+        Self {
+            token_id,
+            token_bytes,
+            confidence: None,
+            alternatives: None,
+        }
+    }
+
+    /// Create output with metadata
+    pub fn with_metadata(
+        token_id: u32,
+        token_bytes: Vec<u8>,
+        confidence: f32,
+        alternatives: Vec<(u32, f32)>,
+    ) -> Self {
+        Self {
+            token_id,
+            token_bytes,
+            confidence: Some(confidence),
+            alternatives: Some(alternatives),
+        }
+    }
+}
+
 /// Streaming event emitted during generation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -43,6 +97,12 @@ pub enum StreamEvent {
         delta_us: u64,
         /// Cumulative time since generation start (microseconds)
         elapsed_us: u64,
+        /// Confidence/probability of the sampled token (0.0 to 1.0)
+        #[serde(skip_serializing_if = "Option::is_none")]
+        confidence: Option<f32>,
+        /// Top-k alternative tokens with their probabilities
+        #[serde(skip_serializing_if = "Option::is_none")]
+        alternatives: Option<Vec<TokenAlternative>>,
     },
     /// Generation completed
     Done {
@@ -440,13 +500,16 @@ impl MLXStreamingGenerator {
     ///
     /// Yields tokens as they're generated via the provided channel.
     /// Handles UTF-8 healing, stop detection, and backpressure.
+    ///
+    /// The callback should return a `TokenGenerationOutput` which can include
+    /// optional confidence and alternative token metadata.
     pub async fn generate<F>(
         &mut self,
         mut generate_token_fn: F,
         tx: mpsc::Sender<StreamEvent>,
     ) -> Result<()>
     where
-        F: FnMut(usize, &B3Hash) -> Result<(u32, Vec<u8>)>,
+        F: FnMut(usize, &B3Hash) -> Result<TokenGenerationOutput>,
     {
         debug!(
             max_tokens = self.config.max_tokens,
@@ -492,7 +555,7 @@ impl MLXStreamingGenerator {
             let step_seed = self.derive_step_seed(step);
 
             // Generate next token
-            let (token_id, token_bytes) = match generate_token_fn(step, &step_seed) {
+            let gen_output = match generate_token_fn(step, &step_seed) {
                 Ok(result) => result,
                 Err(e) => {
                     warn!(error = %e, "Token generation failed");
@@ -506,8 +569,12 @@ impl MLXStreamingGenerator {
                 }
             };
 
+            let token_id = gen_output.token_id;
+            let token_confidence = gen_output.confidence;
+            let token_alternatives = gen_output.alternatives;
+
             // Process token through UTF-8 healer
-            let token_text = match self.healer.process(&token_bytes)? {
+            let token_text = match self.healer.process(&gen_output.token_bytes)? {
                 Some(text) => text,
                 None => {
                     // Incomplete UTF-8 - buffer and continue
@@ -526,6 +593,17 @@ impl MLXStreamingGenerator {
             // Check stop sequences before sending
             let should_stop = self.stop_detector.check(&token_text);
 
+            // Convert alternatives to TokenAlternative format
+            let formatted_alternatives = token_alternatives.map(|alts| {
+                alts.into_iter()
+                    .map(|(tid, prob)| TokenAlternative {
+                        token: None, // Text decoding would require tokenizer access
+                        token_id: tid,
+                        prob,
+                    })
+                    .collect()
+            });
+
             // Send token event
             let send_result = tx
                 .send(StreamEvent::Token {
@@ -533,6 +611,8 @@ impl MLXStreamingGenerator {
                     token_id,
                     delta_us,
                     elapsed_us,
+                    confidence: token_confidence,
+                    alternatives: formatted_alternatives,
                 })
                 .await;
 
@@ -578,6 +658,8 @@ impl MLXStreamingGenerator {
                     token_id: 0, // Flushed token
                     delta_us,
                     elapsed_us,
+                    confidence: None,
+                    alternatives: None,
                 })
                 .await;
         }
@@ -657,7 +739,7 @@ impl MLXStreamingGenerator {
     /// # Arguments
     /// * `prompt` - Text prompt to generate from
     /// * `tokenizer` - Tokenizer for encoding/decoding
-    /// * `generate_fn` - Function that generates tokens
+    /// * `generate_fn` - Function that generates tokens (returns TokenGenerationOutput)
     /// * `tx` - Channel sender for streaming events
     ///
     /// # Returns
@@ -670,7 +752,7 @@ impl MLXStreamingGenerator {
         tx: mpsc::Sender<StreamEvent>,
     ) -> Result<()>
     where
-        F: FnMut(usize, &B3Hash) -> Result<(u32, Vec<u8>)>,
+        F: FnMut(usize, &B3Hash) -> Result<TokenGenerationOutput>,
     {
         // Encode prompt to tokens (validates the prompt is encodable)
         let _prompt_tokens = tokenizer.encode(prompt)?;
@@ -699,7 +781,7 @@ impl MLXStreamingGenerator {
         tx: mpsc::Sender<StreamEvent>,
     ) -> Result<()>
     where
-        F: FnMut(usize, &B3Hash) -> Result<(u32, Vec<u8>)>,
+        F: FnMut(usize, &B3Hash) -> Result<TokenGenerationOutput>,
     {
         // Apply chat template
         let formatted_prompt = tokenizer.apply_chat_template(prompt);
@@ -721,8 +803,25 @@ impl SSEFormatter {
     /// Returns formatted SSE string ready to send over HTTP.
     pub fn format(event: &StreamEvent) -> String {
         match event {
-            StreamEvent::Token { text, .. } => {
+            StreamEvent::Token {
+                text,
+                confidence,
+                alternatives,
+                ..
+            } => {
                 // OpenAI-compatible chat completion chunk format
+                let mut delta = serde_json::json!({
+                    "content": text
+                });
+
+                // Add optional metadata fields
+                if let Some(conf) = confidence {
+                    delta["confidence"] = serde_json::json!(conf);
+                }
+                if let Some(alts) = alternatives {
+                    delta["alternatives"] = serde_json::json!(alts);
+                }
+
                 let chunk = serde_json::json!({
                     "id": format!("chatcmpl-{}", uuid::Uuid::new_v4()),
                     "object": "chat.completion.chunk",
@@ -733,9 +832,7 @@ impl SSEFormatter {
                     "model": "adapteros-mlx",
                     "choices": [{
                         "index": 0,
-                        "delta": {
-                            "content": text
-                        },
+                        "delta": delta,
                         "finish_reason": null
                     }]
                 });
@@ -853,6 +950,8 @@ mod tests {
             token_id: 42,
             delta_us: 1000,
             elapsed_us: 5000,
+            confidence: None,
+            alternatives: None,
         };
 
         let sse = SSEFormatter::format(&event);

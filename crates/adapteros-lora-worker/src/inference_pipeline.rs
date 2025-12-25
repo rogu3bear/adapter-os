@@ -132,7 +132,7 @@ impl BackendQuantization {
     fn from_backend_type(backend: BackendType) -> Self {
         match backend {
             BackendType::Metal | BackendType::CoreML => BackendQuantization::BackendFixedFp16Bf16,
-            BackendType::Mlx => BackendQuantization::BackendUsesModelQuantization,
+            BackendType::MLX => BackendQuantization::BackendUsesModelQuantization,
             _ => BackendQuantization::Unknown,
         }
     }

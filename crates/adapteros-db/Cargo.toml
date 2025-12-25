@@ -63,6 +63,7 @@ utoipa = ["dep:utoipa"]
 tempfile = { workspace = true }
 criterion = { workspace = true }
 toml = { workspace = true }
+adapteros-lora-lifecycle = { path = "../adapteros-lora-lifecycle" }
 
 [[bench]]
 name = "kv_vs_sql"

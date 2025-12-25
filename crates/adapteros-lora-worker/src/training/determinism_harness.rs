@@ -124,6 +124,7 @@ pub fn build_harness_training_config(
             max_steps: Some(epochs),
             subsample,
         }),
+        moe_config: None,
     };
 
     // Enforce deterministic GPU fallback policy explicitly.
@@ -251,6 +252,8 @@ mod tests {
             weights: LoRAWeights {
                 lora_a: vec![vec![loss]],
                 lora_b: vec![vec![loss * 2.0]],
+                moe_config: None,
+                precomputed_delta: None,
             },
             cancelled: false,
             stopped_at_epoch: Some(1),

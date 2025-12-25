@@ -67,8 +67,8 @@ mod lora_adapter_tests {
 
         adapter.add_module_weights("q_proj", lora_a, lora_b);
 
-        // Shape is 2x2 = 4 parameters
-        assert_eq!(adapter.parameter_count(), 4);
+        // Shape is 2x2 + 2x2 = 8 parameters (both lora_a and lora_b)
+        assert_eq!(adapter.parameter_count(), 8);
     }
 
     #[test]
@@ -81,8 +81,8 @@ mod lora_adapter_tests {
 
         adapter.add_module_weights("q_proj", lora_a, lora_b);
 
-        // 10x10 = 100 parameters * 4 bytes per f32 = 400 bytes
-        assert_eq!(adapter.memory_usage(), 400);
+        // 10x10 + 10x10 = 200 parameters * 4 bytes per f32 = 800 bytes
+        assert_eq!(adapter.memory_usage(), 800);
     }
 
     #[test]
@@ -114,8 +114,8 @@ mod lora_adapter_tests {
         assert!(adapter.has_module("v_proj"));
         assert!(!adapter.has_module("o_proj"));
 
-        // 3 modules * 4x8 = 96 parameters
-        assert_eq!(adapter.parameter_count(), 96);
+        // 3 modules * (4x8 + 8x4) = 3 * 64 = 192 parameters (both lora_a and lora_b)
+        assert_eq!(adapter.parameter_count(), 192);
     }
 }
 
@@ -419,21 +419,22 @@ mod lora_loading_tests {
     }
 
     #[test]
-    fn test_lora_adapter_load_mock() {
+    fn test_lora_adapter_load_missing_file() {
         let temp_dir = new_test_tempdir();
-        let adapter_path = temp_dir.path().join("adapter");
+        let adapter_path = temp_dir.path().join("nonexistent_adapter.safetensors");
 
         let config = LoRAConfig::default();
 
-        // Load should create a mock adapter (actual file loading not implemented)
+        // Load should fail when file doesn't exist
         let result = LoRAAdapter::load(&adapter_path, "test_adapter".to_string(), config);
 
-        assert!(result.is_ok());
-
-        let adapter = result.unwrap();
-        assert_eq!(adapter.id(), "test_adapter");
-        assert!(adapter.has_module("q_proj"));
-        assert!(adapter.has_module("k_proj"));
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.to_string().contains("Failed to read LoRA file"),
+            "Expected IO error, got: {}",
+            err
+        );
     }
 
     #[test]

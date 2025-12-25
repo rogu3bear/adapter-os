@@ -996,3 +996,275 @@ pub async fn get_worker_history(
 pub struct HistoryQuery {
     pub limit: Option<i32>,
 }
+
+/// Receive fatal error report from worker (PRD-09 Phase 4)
+///
+/// Called by workers via the fatal error channel to report critical errors.
+/// This endpoint records the incident in the database and logs it.
+///
+/// **Permissions:** Internal endpoint - typically called via UDS, but can be exposed for testing.
+///
+/// # Example
+/// ```
+/// POST /v1/workers/fatal
+/// {
+///   "worker_id": "worker-123",
+///   "reason": "Out of memory",
+///   "backtrace_snippet": "...",
+///   "timestamp": "2025-01-15T10:30:00Z"
+/// }
+/// ```
+pub async fn receive_worker_fatal(
+    State(state): State<AppState>,
+    Json(fatal_msg): Json<crate::types::WorkerFatal>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    // Log the fatal error at the control plane
+    tracing::error!(
+        event = "worker.fatal.received",
+        worker_id = %fatal_msg.worker_id,
+        reason = %fatal_msg.reason,
+        timestamp = %fatal_msg.timestamp,
+        has_backtrace = fatal_msg.backtrace_snippet.is_some(),
+        "Control plane received worker fatal error"
+    );
+
+    // Get worker record to retrieve tenant_id
+    let worker = state
+        .db
+        .get_worker(&fatal_msg.worker_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("database error")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(
+                    ErrorResponse::new("worker not found")
+                        .with_code("NOT_FOUND")
+                        .with_string_details(format!("Worker ID: {}", fatal_msg.worker_id)),
+                ),
+            )
+        })?;
+
+    // Insert worker incident with incident_type = "fatal"
+    let incident_id = state
+        .db
+        .insert_worker_incident(
+            &fatal_msg.worker_id,
+            &worker.tenant_id,
+            "fatal",
+            &fatal_msg.reason,
+            fatal_msg.backtrace_snippet.as_deref(),
+            None, // latency_at_incident_ms
+        )
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to record incident")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    // Log successful incident recording
+    tracing::info!(
+        event = "worker.incident.recorded",
+        incident_id = %incident_id,
+        worker_id = %fatal_msg.worker_id,
+        tenant_id = %worker.tenant_id,
+        incident_type = "fatal",
+        "Worker fatal error recorded in database"
+    );
+
+    // Return success response
+    Ok(Json(serde_json::json!({
+        "status": "recorded",
+        "incident_id": incident_id,
+        "worker_id": fatal_msg.worker_id,
+        "timestamp": chrono::Utc::now().to_rfc3339()
+    })))
+}
+
+/// Query parameters for list_worker_incidents
+#[derive(Debug, Deserialize)]
+pub struct ListIncidentsParams {
+    pub limit: Option<i32>,
+}
+
+/// List worker incidents (PRD-09)
+///
+/// Returns a list of incidents for a specific worker, ordered by creation time (newest first).
+///
+/// **Permissions:** Operator, Admin, SRE
+///
+/// # Path Parameters
+/// - `worker_id` - The ID of the worker
+///
+/// # Query Parameters
+/// - `limit` - Maximum number of incidents to return (default: 50)
+#[utoipa::path(
+    get,
+    path = "/v1/workers/{worker_id}/incidents",
+    tag = "workers",
+    params(
+        ("worker_id" = String, Path, description = "Worker ID"),
+        ("limit" = Option<i32>, Query, description = "Maximum incidents to return")
+    ),
+    responses(
+        (status = 200, description = "List of worker incidents"),
+        (status = 404, description = "Worker not found"),
+        (status = 500, description = "Internal server error")
+    )
+)]
+pub async fn list_worker_incidents(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(worker_id): Path<String>,
+    Query(params): Query<ListIncidentsParams>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    // PRD-RECT-002: Use tenant-scoped query to prevent cross-tenant worker access.
+    // Returns 404 for both missing and cross-tenant workers.
+    let _worker = state
+        .db
+        .get_worker_for_tenant(&claims.tenant_id, &worker_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("database error")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?
+        .ok_or_else(|| {
+            // Returns same error for both "not found" and "cross-tenant" cases
+            (
+                StatusCode::NOT_FOUND,
+                Json(
+                    ErrorResponse::new("worker not found")
+                        .with_code("NOT_FOUND")
+                        .with_string_details(format!("Worker ID: {}", worker_id)),
+                ),
+            )
+        })?;
+
+    // Get incidents for the worker
+    let incidents = state
+        .db
+        .list_worker_incidents(&worker_id, params.limit)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("database error")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    Ok(Json(serde_json::json!({
+        "worker_id": worker_id,
+        "incidents": incidents,
+        "count": incidents.len()
+    })))
+}
+
+/// Get worker health summary (PRD-09)
+///
+/// Returns a summary of health status for all workers, including counts by status
+/// and a list of workers with their current health metrics.
+///
+/// **Permissions:** Operator, Admin, SRE
+#[utoipa::path(
+    get,
+    path = "/v1/workers/health/summary",
+    tag = "workers",
+    responses(
+        (status = 200, description = "Worker health summary"),
+        (status = 500, description = "Internal server error")
+    )
+)]
+pub async fn get_worker_health_summary(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    // Get all workers with health metrics
+    let workers = state.db.list_all_workers().await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("database error")
+                    .with_code("DATABASE_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+
+    // Get health records for workers that have them
+    let mut health_records = Vec::new();
+    let mut healthy_count = 0;
+    let mut degraded_count = 0;
+    let mut crashed_count = 0;
+    let mut unknown_count = 0;
+
+    for worker in &workers {
+        let health = state.db.get_worker_health(&worker.id).await.ok().flatten();
+
+        let status = health
+            .as_ref()
+            .map(|h| h.health_status.as_str())
+            .unwrap_or("unknown");
+
+        match status {
+            "healthy" => healthy_count += 1,
+            "degraded" => degraded_count += 1,
+            "crashed" => crashed_count += 1,
+            _ => unknown_count += 1,
+        }
+
+        // Get recent incident count (last 24 hours)
+        let recent_incidents = state
+            .db
+            .get_recent_incident_count(&worker.id, 24)
+            .await
+            .unwrap_or(0);
+
+        health_records.push(serde_json::json!({
+            "worker_id": worker.id,
+            "tenant_id": worker.tenant_id,
+            "status": worker.status,
+            "health_status": status,
+            "avg_latency_ms": health.as_ref().and_then(|h| h.avg_latency_ms),
+            "last_response_at": health.as_ref().and_then(|h| h.last_response_at.clone()),
+            "consecutive_slow": health.as_ref().and_then(|h| h.consecutive_slow_responses),
+            "consecutive_failures": health.as_ref().and_then(|h| h.consecutive_failures),
+            "recent_incidents_24h": recent_incidents
+        }));
+    }
+
+    Ok(Json(serde_json::json!({
+        "summary": {
+            "total": workers.len(),
+            "healthy": healthy_count,
+            "degraded": degraded_count,
+            "crashed": crashed_count,
+            "unknown": unknown_count
+        },
+        "workers": health_records,
+        "timestamp": chrono::Utc::now().to_rfc3339()
+    })))
+}

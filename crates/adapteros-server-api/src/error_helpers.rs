@@ -1,3 +1,6 @@
+// TODO: Migrate callers to ApiError::* methods and remove these helpers
+// Tracking: POST-BETA-CLEANUP
+
 //! Standardized error response helpers for API handlers
 //!
 //! **DEPRECATED**: This module uses the legacy tuple pattern `(StatusCode, Json<ErrorResponse>)`.
@@ -21,7 +24,6 @@ use axum::{http::StatusCode, Json};
 use tracing::error;
 
 /// Standard API result type - all handlers should use this
-#[deprecated(since = "0.11.0", note = "Use crate::api_error::ApiResult instead")]
 pub type ApiResult<T> = Result<Json<T>, (StatusCode, Json<ErrorResponse>)>;
 
 /// Database error handler - logs the error and returns a 500 response
@@ -30,7 +32,6 @@ pub type ApiResult<T> = Result<Json<T>, (StatusCode, Json<ErrorResponse>)>;
 /// ```ignore
 /// state.db.get_adapter(&id).await.map_err(db_error)?;
 /// ```
-#[deprecated(since = "0.11.0", note = "Use ApiError::db_error instead")]
 pub fn db_error<E: std::fmt::Display>(e: E) -> (StatusCode, Json<ErrorResponse>) {
     error!("Database error: {}", e);
     (
@@ -45,7 +46,6 @@ pub fn db_error<E: std::fmt::Display>(e: E) -> (StatusCode, Json<ErrorResponse>)
 /// ```ignore
 /// let adapter = adapters.get(&id).ok_or_else(|| not_found("Adapter"))?;
 /// ```
-#[deprecated(since = "0.11.0", note = "Use ApiError::not_found instead")]
 pub fn not_found(resource: &str) -> (StatusCode, Json<ErrorResponse>) {
     (
         StatusCode::NOT_FOUND,
@@ -59,7 +59,6 @@ pub fn not_found(resource: &str) -> (StatusCode, Json<ErrorResponse>) {
 /// ```ignore
 /// validate_input(&req).map_err(bad_request)?;
 /// ```
-#[deprecated(since = "0.11.0", note = "Use ApiError::bad_request instead")]
 pub fn bad_request<E: std::fmt::Display>(e: E) -> (StatusCode, Json<ErrorResponse>) {
     (
         StatusCode::BAD_REQUEST,
@@ -73,7 +72,6 @@ pub fn bad_request<E: std::fmt::Display>(e: E) -> (StatusCode, Json<ErrorRespons
 /// ```ignore
 /// process_data(&input).map_err(internal_error)?;
 /// ```
-#[deprecated(since = "0.11.0", note = "Use ApiError::internal instead")]
 pub fn internal_error<E: std::fmt::Display>(e: E) -> (StatusCode, Json<ErrorResponse>) {
     error!("Internal error: {}", e);
     (
@@ -88,7 +86,6 @@ pub fn internal_error<E: std::fmt::Display>(e: E) -> (StatusCode, Json<ErrorResp
 /// ```ignore
 /// verify_token(&token).ok_or_else(|| unauthorized("Invalid token"))?;
 /// ```
-#[deprecated(since = "0.11.0", note = "Use ApiError::unauthorized instead")]
 pub fn unauthorized(msg: &str) -> (StatusCode, Json<ErrorResponse>) {
     (
         StatusCode::UNAUTHORIZED,
@@ -102,7 +99,6 @@ pub fn unauthorized(msg: &str) -> (StatusCode, Json<ErrorResponse>) {
 /// ```ignore
 /// check_permission(&user).ok_or_else(|| forbidden("Insufficient permissions"))?;
 /// ```
-#[deprecated(since = "0.11.0", note = "Use ApiError::forbidden instead")]
 pub fn forbidden(msg: &str) -> (StatusCode, Json<ErrorResponse>) {
     (
         StatusCode::FORBIDDEN,
@@ -116,7 +112,6 @@ pub fn forbidden(msg: &str) -> (StatusCode, Json<ErrorResponse>) {
 /// ```ignore
 /// if exists { return Err(conflict("Resource already exists")); }
 /// ```
-#[deprecated(since = "0.11.0", note = "Use ApiError::conflict instead")]
 pub fn conflict(msg: &str) -> (StatusCode, Json<ErrorResponse>) {
     (
         StatusCode::CONFLICT,
@@ -130,7 +125,6 @@ pub fn conflict(msg: &str) -> (StatusCode, Json<ErrorResponse>) {
 /// ```ignore
 /// if size > MAX_SIZE { return Err(payload_too_large("File exceeds maximum size")); }
 /// ```
-#[deprecated(since = "0.11.0", note = "Use ApiError::payload_too_large instead")]
 pub fn payload_too_large(msg: &str) -> (StatusCode, Json<ErrorResponse>) {
     (
         StatusCode::PAYLOAD_TOO_LARGE,
@@ -149,7 +143,6 @@ pub fn payload_too_large(msg: &str) -> (StatusCode, Json<ErrorResponse>) {
 ///     Err(not_implemented("Document processing requires the 'embeddings' feature"))
 /// }
 /// ```
-#[deprecated(since = "0.11.0", note = "Use ApiError::not_implemented instead")]
 pub fn not_implemented(msg: &str) -> (StatusCode, Json<ErrorResponse>) {
     (
         StatusCode::NOT_IMPLEMENTED,
@@ -165,7 +158,6 @@ pub fn not_implemented(msg: &str) -> (StatusCode, Json<ErrorResponse>) {
 /// ```ignore
 /// state.db.create_tenant(&name).await.map_err(|e| db_error_msg("failed to create tenant", e))?;
 /// ```
-#[deprecated(since = "0.11.0", note = "Use ApiError::db_error().with_details() instead")]
 pub fn db_error_msg<E: std::fmt::Display>(msg: &str, e: E) -> (StatusCode, Json<ErrorResponse>) {
     error!("Database error ({}): {}", msg, e);
     (
@@ -186,7 +178,6 @@ pub fn db_error_msg<E: std::fmt::Display>(msg: &str, e: E) -> (StatusCode, Json<
 /// ```ignore
 /// state.db.get_tenant(&id).await.map_err(db_error_with_details)?;
 /// ```
-#[deprecated(since = "0.11.0", note = "Use ApiError::db_error instead")]
 pub fn db_error_with_details<E: std::fmt::Display>(e: E) -> (StatusCode, Json<ErrorResponse>) {
     db_error_msg("database error", e)
 }
@@ -197,7 +188,6 @@ pub fn db_error_with_details<E: std::fmt::Display>(e: E) -> (StatusCode, Json<Er
 /// ```ignore
 /// node.ok_or_else(|| not_found_with_details("node not found", format!("Node ID: {}", id)))?;
 /// ```
-#[deprecated(since = "0.11.0", note = "Use ApiError::not_found_msg().with_details() instead")]
 pub fn not_found_with_details(msg: &str, details: String) -> (StatusCode, Json<ErrorResponse>) {
     (
         StatusCode::NOT_FOUND,
@@ -217,7 +207,6 @@ pub fn not_found_with_details(msg: &str, details: String) -> (StatusCode, Json<E
 /// ```ignore
 /// client.post(&url).send().await.map_err(|e| bad_gateway("failed to contact node agent", e))?;
 /// ```
-#[deprecated(since = "0.11.0", note = "Use ApiError::bad_gateway().with_details() instead")]
 pub fn bad_gateway<E: std::fmt::Display>(msg: &str, e: E) -> (StatusCode, Json<ErrorResponse>) {
     error!("Bad gateway ({}): {}", msg, e);
     (
@@ -236,7 +225,6 @@ pub fn bad_gateway<E: std::fmt::Display>(msg: &str, e: E) -> (StatusCode, Json<E
 /// ```ignore
 /// response.json().await.map_err(|e| internal_error_msg("failed to parse response", e))?;
 /// ```
-#[deprecated(since = "0.11.0", note = "Use ApiError::internal().with_details() instead")]
 pub fn internal_error_msg<E: std::fmt::Display>(
     msg: &str,
     e: E,
@@ -260,7 +248,6 @@ pub fn internal_error_msg<E: std::fmt::Display>(
 /// ```ignore
 /// if !service.is_ready() { return Err(service_unavailable("Worker service is starting up")); }
 /// ```
-#[deprecated(since = "0.11.0", note = "Use ApiError::service_unavailable instead")]
 pub fn service_unavailable(msg: &str) -> (StatusCode, Json<ErrorResponse>) {
     (
         StatusCode::SERVICE_UNAVAILABLE,

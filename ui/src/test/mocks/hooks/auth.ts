@@ -20,14 +20,14 @@ export interface UseAuthMockReturn {
   authError: Error | null;
   accessToken: string | null;
   sessionMode: SessionMode;
-  login: Mock<[LoginRequest], Promise<LoginResponse>>;
-  devBypassLogin: Mock<[], Promise<LoginResponse>>;
-  logout: Mock<[], Promise<void>>;
-  refreshUser: Mock<[], Promise<void>>;
-  refreshSession: Mock<[], Promise<void>>;
-  logoutAllSessions: Mock<[], Promise<void>>;
-  updateProfile: Mock<[{ display_name?: string; avatar_url?: string }], Promise<void>>;
-  clearAuthError: Mock<[], void>;
+  login: Mock<(req: LoginRequest) => Promise<LoginResponse>>;
+  devBypassLogin: Mock<() => Promise<LoginResponse>>;
+  logout: Mock<() => Promise<void>>;
+  refreshUser: Mock<() => Promise<void>>;
+  refreshSession: Mock<() => Promise<void>>;
+  logoutAllSessions: Mock<() => Promise<void>>;
+  updateProfile: Mock<(data: { display_name?: string; avatar_url?: string }) => Promise<void>>;
+  clearAuthError: Mock<() => void>;
 }
 
 /**
@@ -235,10 +235,10 @@ export function createUseAuthFlowMock(options: UseAuthFlowMockOptions = {}): Use
   return {
     state: options.state ?? defaultState,
     health: createUseHealthPollingMock(options.healthOptions),
-    login: vi.fn().mockResolvedValue(undefined) as Mock<[LoginCredentials], Promise<void>>,
-    devBypass: vi.fn().mockResolvedValue(undefined) as Mock<[], Promise<void>>,
-    retryConfig: vi.fn().mockResolvedValue(undefined) as Mock<[], Promise<void>>,
-    clearError: vi.fn() as Mock<[], void>,
+    login: vi.fn().mockResolvedValue(undefined),
+    devBypass: vi.fn().mockResolvedValue(undefined),
+    retryConfig: vi.fn().mockResolvedValue(undefined),
+    clearError: vi.fn(),
     showMfaField: options.showMfaField ?? false,
     canSubmit: options.canSubmit ?? true,
     devBypassAllowed: options.devBypassAllowed ?? false,

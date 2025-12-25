@@ -28,6 +28,7 @@ pub mod access_control;
 pub mod audit_trail;
 pub mod evidence_validation;
 pub mod isolation_verification;
+pub mod policy_adapter_deny_test;
 pub mod policy_rules;
 pub mod security_test_utils;
 pub mod zero_egress;

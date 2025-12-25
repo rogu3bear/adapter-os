@@ -1883,5 +1883,4 @@ fn estimate_progress(op: &adapteros_db::model_operations::ModelOperation) -> Opt
     }
 }
 
-// Re-export model handlers from parent module for routes.rs
-pub use super::{__path_get_base_model_status, get_base_model_status};
+// Note: get_base_model_status is now in handlers::infrastructure module

@@ -37,7 +37,7 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, OnceLock,
 };
-use std::{fs, path::PathBuf, str::FromStr};
+use std::{fs, path::{Path, PathBuf}, str::FromStr};
 use tokio::signal;
 use tokio::sync::Mutex;
 use tracing::{error, info, info_span, warn};
@@ -1227,9 +1227,9 @@ async fn run_worker() -> Result<()> {
     };
     #[cfg(not(all(target_os = "macos", feature = "coreml-backend")))]
     let coreml_primary_runtime: Option<CoremlRuntimeTelemetry> = None;
-    let fallback_coreml_runtime: Option<CoremlRuntimeTelemetry> = None;
+    let mut fallback_coreml_runtime: Option<CoremlRuntimeTelemetry> = None;
 
-    // NOTE: Model cache budget validation moved to startup (line ~835) for fail-fast behavior.
+    // NOTE: Model cache budget validation moved to startup (line ~952) for fail-fast behavior.
     // The budget is validated before any expensive operations like manifest loading.
 
     // Create kernel backend with manifest hash for cache identity and model hash for integrity verification

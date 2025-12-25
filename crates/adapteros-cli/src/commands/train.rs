@@ -137,6 +137,7 @@ impl TrainArgs {
                 coreml_fallback_backend: None,
                 max_tokens_per_batch: None,
                 device_policy: None,
+                moe_config: None,
             };
 
             info!("Using command-line training configuration");

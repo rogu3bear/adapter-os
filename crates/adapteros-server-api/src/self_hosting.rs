@@ -1272,6 +1272,7 @@ mod tests {
             has_ane: true,
             has_coreml: true,
             has_mlx: false,
+            has_mlx_bridge: false,
             gpu_memory_bytes: None,
         };
 

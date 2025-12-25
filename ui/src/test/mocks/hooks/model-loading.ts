@@ -190,9 +190,9 @@ export function createUseModelLoadingStateMock(
  * Return type for useModelLoader hook mock
  */
 export interface UseModelLoaderMockReturn {
-  loadModels: Mock<[], Promise<void>>;
-  retryFailed: Mock<[], Promise<void>>;
-  cancelLoading: Mock<[], void>;
+  loadModels: Mock<() => Promise<void>>;
+  retryFailed: Mock<() => Promise<void>>;
+  cancelLoading: Mock<() => void>;
 }
 
 /**
@@ -211,8 +211,8 @@ export function createUseModelLoaderMock(): UseModelLoaderMockReturn {
  */
 export interface UseChatLoadingPersistenceMockReturn {
   persistedState: null;
-  persist: Mock<[], void>;
-  clear: Mock<[], void>;
+  persist: Mock<() => void>;
+  clear: Mock<() => void>;
   isRecoverable: boolean;
 }
 

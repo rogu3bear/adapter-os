@@ -274,7 +274,7 @@ pub async fn run(
             output.verbose("Using Metal backend (macOS GPU)");
             adapteros_lora_worker::BackendChoice::Metal
         }
-        BackendType::Mlx => {
+        BackendType::MLX => {
             output.verbose("Using MLX backend (Python/MLX)");
 
             #[cfg(not(feature = "multi-backend"))]
@@ -348,7 +348,7 @@ pub async fn run(
 
     // Load LoRA adapters if using MLX backend
     #[cfg(feature = "multi-backend")]
-    if matches!(backend, BackendType::Mlx) {
+    if matches!(backend, BackendType::MLX) {
         output.info("Loading LoRA adapters for MLX backend...");
         let mut adapters_loaded = 0;
 
@@ -396,13 +396,13 @@ pub async fn run(
     }
 
     #[cfg(not(feature = "multi-backend"))]
-    if matches!(backend, BackendType::Mlx) {
+    if matches!(backend, BackendType::MLX) {
         return Err(anyhow::anyhow!(
             "MLX backend requires 'multi-backend' feature"
         ));
     }
 
-    if !matches!(backend, BackendType::Mlx) {
+    if !matches!(backend, BackendType::MLX) {
         output.verbose("Metal backend: adapters loaded from plan");
     }
 
@@ -412,7 +412,7 @@ pub async fn run(
     // Convert BackendType to BackendKind for AvailableBackends
     let backend_kind = match backend {
         BackendType::Metal => adapteros_core::BackendKind::Metal,
-        BackendType::Mlx => adapteros_core::BackendKind::Mlx,
+        BackendType::MLX => adapteros_core::BackendKind::Mlx,
         BackendType::CoreML => adapteros_core::BackendKind::CoreML,
     };
 

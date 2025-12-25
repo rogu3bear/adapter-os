@@ -7,7 +7,7 @@
 //! - Background polling for idle worker crash detection
 
 use crate::uds_client::UdsClient;
-use adapteros_db::workers::WorkerWithBinding;
+use adapteros_db::workers::{WorkerIncidentType, WorkerWithBinding};
 use adapteros_db::Db;
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
@@ -286,7 +286,7 @@ impl WorkerHealthMonitor {
                     // Create incident for degradation
                     self.create_incident_async(
                         worker_id,
-                        "degraded",
+                        WorkerIncidentType::Degraded,
                         &format!(
                             "Worker marked degraded: {} consecutive slow responses (avg {}ms)",
                             metrics.consecutive_slow, metrics.avg_latency_ms as u64
@@ -303,7 +303,7 @@ impl WorkerHealthMonitor {
                     // Create incident for recovery
                     self.create_incident_async(
                         worker_id,
-                        "recovered",
+                        WorkerIncidentType::Recovered,
                         &format!(
                             "Worker recovered: {} consecutive fast responses",
                             metrics.consecutive_fast
@@ -353,7 +353,7 @@ impl WorkerHealthMonitor {
             // Create incident for crash
             self.create_incident_async(
                 worker_id,
-                "crash",
+                WorkerIncidentType::Crash,
                 &format!(
                     "Worker crashed: {} consecutive failures. Last error: {}",
                     metrics.consecutive_failures, error
@@ -574,13 +574,12 @@ impl WorkerHealthMonitor {
     fn create_incident_async(
         &self,
         worker_id: &str,
-        incident_type: &str,
+        incident_type: WorkerIncidentType,
         reason: &str,
         latency_ms: Option<f64>,
     ) {
         let db = self.db.clone();
         let worker_id = worker_id.to_string();
-        let incident_type = incident_type.to_string();
         let reason = reason.to_string();
 
         tokio::spawn(async move {
@@ -590,7 +589,7 @@ impl WorkerHealthMonitor {
                     .insert_worker_incident(
                         &worker_id,
                         &worker.tenant_id,
-                        &incident_type,
+                        incident_type,
                         &reason,
                         None, // backtrace
                         latency_ms,

@@ -182,6 +182,7 @@ async fn test_replay_metadata_round_trip() {
         execution_policy_id: Some("policy-001".to_string()),
         execution_policy_version: Some(1),
         stop_policy_json: None,
+        policy_mask_digest_b3: None,
     };
 
     db.create_replay_metadata(params)

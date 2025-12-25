@@ -57,6 +57,7 @@ async fn create_test_metadata(db: &Db, inference_id: &str, tenant_id: &str) -> S
         execution_policy_id: None,
         execution_policy_version: None,
         stop_policy_json: None,
+        policy_mask_digest_b3: None,
     };
 
     db.create_replay_metadata(params).await.unwrap()
@@ -133,6 +134,7 @@ fn replay_request_seed_hex_round_trips() {
         execution_policy_id: None,
         execution_policy_version: None,
         stop_policy_json: None,
+        policy_mask_digest_b3: None,
         created_at: "now".to_string(),
     };
 
@@ -188,6 +190,7 @@ fn replay_seed_field_expands_for_compatibility() {
         execution_policy_id: None,
         execution_policy_version: None,
         stop_policy_json: None,
+        policy_mask_digest_b3: None,
         created_at: "now".to_string(),
     };
 
@@ -246,6 +249,7 @@ fn replay_seedless_metadata_is_rejected() {
         execution_policy_id: None,
         execution_policy_version: None,
         stop_policy_json: None,
+        policy_mask_digest_b3: None,
         created_at: "now".to_string(),
     };
 
@@ -300,6 +304,7 @@ async fn replay_handler_rejects_seedless_metadata() {
         execution_policy_id: None,
         execution_policy_version: None,
         stop_policy_json: None,
+        policy_mask_digest_b3: None,
     };
 
     state
@@ -740,6 +745,7 @@ async fn test_truncated_flags_stored_correctly() {
         execution_policy_id: None,
         execution_policy_version: None,
         stop_policy_json: None,
+        policy_mask_digest_b3: None,
     };
 
     db.create_replay_metadata(params).await.unwrap();
@@ -808,6 +814,7 @@ async fn test_rag_doc_ids_stored_and_retrieved() {
         execution_policy_id: None,
         execution_policy_version: None,
         stop_policy_json: None,
+        policy_mask_digest_b3: None,
     };
 
     db.create_replay_metadata(params).await.unwrap();
@@ -868,6 +875,7 @@ async fn test_base_only_metadata_sets_flag_and_empty_adapters() {
         execution_policy_id: None,
         execution_policy_version: None,
         stop_policy_json: None,
+        policy_mask_digest_b3: None,
     };
 
     db.create_replay_metadata(params).await.unwrap();
@@ -936,6 +944,7 @@ async fn test_legacy_metadata_without_base_only_remains_non_base() {
         execution_policy_id: None,
         execution_policy_version: None,
         stop_policy_json: None,
+        policy_mask_digest_b3: None,
     };
 
     db.create_replay_metadata(params).await.unwrap();
@@ -994,6 +1003,7 @@ async fn test_base_only_replay_enforces_empty_adapter_list() {
         execution_policy_id: None,
         execution_policy_version: None,
         stop_policy_json: None,
+        policy_mask_digest_b3: None,
     };
 
     db.create_replay_metadata(params).await.unwrap();
@@ -1187,6 +1197,7 @@ async fn test_replay_with_golden_policy_enforcement() {
         execution_policy_id: Some(policy_id.clone()),
         execution_policy_version: Some(policy.version as i32),
         stop_policy_json: None,
+        policy_mask_digest_b3: None,
     };
 
     let metadata_id = db
@@ -1360,6 +1371,7 @@ async fn test_replay_metadata_supports_drift_detection() {
         execution_policy_id: Some(policy_id.clone()),
         execution_policy_version: Some(1),
         stop_policy_json: None,
+        policy_mask_digest_b3: None,
     };
 
     db.create_replay_metadata(metadata_params)

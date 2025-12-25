@@ -274,7 +274,7 @@ fn test_attest_determinism() {
             report.backend_type,
             attestation::BackendType::CoreML
                 | attestation::BackendType::Mock
-                | attestation::BackendType::Mlx
+                | attestation::BackendType::MLX
                 | attestation::BackendType::Metal
         ),
         "Backend type should be valid"

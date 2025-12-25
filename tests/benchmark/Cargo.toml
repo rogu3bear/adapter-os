@@ -13,6 +13,7 @@ categories = ["development-tools::testing"]
 adapteros-core = { path = "../../crates/adapteros-core" }
 adapteros-lora-kernel-api = { path = "../../crates/adapteros-lora-kernel-api" }
 adapteros-lora-kernel-mtl = { path = "../../crates/adapteros-lora-kernel-mtl" }
+adapteros-lora-router = { path = "../../crates/adapteros-lora-router" }
 adapteros-memory = { path = "../../crates/adapteros-memory" }
 adapteros-system-metrics = { path = "../../crates/adapteros-system-metrics" }
 adapteros-telemetry = { path = "../../crates/adapteros-telemetry" }
@@ -73,6 +74,10 @@ harness = false
 
 [[bench]]
 name = "evidence_benchmarks"
+harness = false
+
+[[bench]]
+name = "router_performance"
 harness = false
 
 [features]

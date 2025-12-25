@@ -17,8 +17,20 @@ pub fn routes() -> Router {
     Router::new()
         .route("/", get(index_handler))
         .route("/index.html", get(index_handler))
-        .route("/{*file}", get(static_handler))
-        .fallback(get(index_handler)) // SPA fallback to index.html
+        // Only serve static assets from known paths, not /api/*
+        .route("/static/{*file}", get(static_handler))
+        .route("/assets/{*file}", get(static_handler))
+        .route("/favicon.ico", get(static_handler))
+        // SPA fallback should not catch /api paths
+        .fallback(spa_fallback)
+}
+
+async fn spa_fallback(uri: Uri) -> impl IntoResponse {
+    // Don't serve SPA for API routes - let them 404 properly
+    if uri.path().starts_with("/api/") || uri.path().starts_with("/v1/") {
+        return (StatusCode::NOT_FOUND, "Not Found").into_response();
+    }
+    index_handler().await.into_response()
 }
 
 async fn index_handler() -> impl IntoResponse {

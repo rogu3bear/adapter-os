@@ -90,6 +90,7 @@ impl Db {
             execution_policy_id: params.execution_policy_id.clone(),
             execution_policy_version: params.execution_policy_version,
             stop_policy_json: params.stop_policy_json.clone(),
+            policy_mask_digest_b3: params.policy_mask_digest_b3.clone(),
             created_at: Utc::now().to_rfc3339(),
         }
     }
@@ -135,6 +136,7 @@ impl Db {
             execution_policy_id: meta.execution_policy_id,
             execution_policy_version: meta.execution_policy_version,
             stop_policy_json: meta.stop_policy_json,
+            policy_mask_digest_b3: meta.policy_mask_digest_b3,
             created_at: meta.created_at,
         })
     }

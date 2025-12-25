@@ -172,7 +172,12 @@ fn generate_weights(fingerprint: &B3Hash, rank: usize, hidden_dim: usize) -> LoR
         lora_b.push(row);
     }
 
-    LoRAWeights { lora_a, lora_b }
+    LoRAWeights {
+        lora_a,
+        lora_b,
+        moe_config: None,
+        precomputed_delta: None,
+    }
 }
 
 fn depth_of(path: &str) -> usize {

@@ -302,6 +302,7 @@ async fn generate_streaming_response<
         router_seed: None,
         seed_mode: None,
         request_seed: None,
+        determinism: None,
         fusion_interval: None,
         backend_profile: None,
         coreml_mode: None,
@@ -314,6 +315,7 @@ async fn generate_streaming_response<
         placement: None,
         routing_policy: None,
         stop_policy: None,
+        determinism: None,
     };
 
     debug!(
@@ -439,6 +441,7 @@ pub async fn completion_handler<K: FusedKernels + StrictnessControl + Send + Syn
         fusion_interval: None,
         seed_mode: None,
         request_seed: None,
+        determinism: None,
         backend_profile: None,
         coreml_mode: None,
         pinned_adapter_ids: None,
@@ -450,6 +453,7 @@ pub async fn completion_handler<K: FusedKernels + StrictnessControl + Send + Syn
         placement: None,
         routing_policy: None,
         stop_policy: None,
+        determinism: None,
     };
 
     // Run inference
