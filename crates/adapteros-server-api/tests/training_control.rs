@@ -7,6 +7,7 @@ use adapteros_api_types::{
 };
 use adapteros_core::B3Hash;
 use adapteros_db::adapter_repositories::CreateRepositoryParams;
+use adapteros_orchestrator::training::compute_combined_data_spec_hash;
 use adapteros_orchestrator::TrainingJobStatus;
 use adapteros_server_api::handlers::get_training_logs;
 use adapteros_server_api::handlers::training::{
@@ -345,6 +346,22 @@ async fn seed_dataset_version(
             Some("tester"),
         )
         .await?;
+    // Mark the seeded version as fully validated and trusted so training requests
+    // are not blocked by default "unknown" trust state.
+    state
+        .db
+        .update_dataset_version_structural_validation(version_id, "valid", None)
+        .await?;
+    state
+        .db
+        .update_dataset_version_safety_status(
+            version_id,
+            Some("clean"),
+            Some("clean"),
+            Some("clean"),
+            Some("clean"),
+        )
+        .await?;
     Ok(())
 }
 
@@ -382,7 +399,9 @@ async fn ui_path_computes_data_spec_hash_when_missing() {
 
     let versions = job.dataset_version_ids.expect("dataset_version_ids");
     assert_eq!(versions[0].dataset_version_id, version_id);
-    assert_eq!(job.data_spec_hash, Some(manifest_hash));
+    let combined_hash =
+        compute_combined_data_spec_hash(&[(version_id.to_string(), manifest_hash.clone(), 1.0)]);
+    assert_eq!(job.data_spec_hash, Some(combined_hash));
 }
 
 #[tokio::test]
@@ -420,5 +439,5 @@ async fn cli_path_rejects_data_spec_hash_mismatch() {
     };
 
     assert_eq!(status, StatusCode::BAD_REQUEST);
-    assert_eq!(err.code.as_str(), "VALIDATION_ERROR");
+    assert_eq!(err.code.as_str(), "DATA_SPEC_HASH_MISMATCH");
 }
