@@ -997,7 +997,11 @@ impl PolicyPackValidator for EgressValidator {
 
         // Determine if we should block based on runtime mode
         // In Auto mode (default): block in prod, warn in dev/staging
-        let should_block = runtime_mode == Some("prod");
+        let should_block = match runtime_mode {
+            Some("dev") | Some("staging") => false,
+            Some("prod") | None => true,
+            _ => true,
+        };
 
         // Check for network operations and protocol violations
         if matches!(request.request_type, RequestType::NetworkOperation)
@@ -1010,7 +1014,7 @@ impl PolicyPackValidator for EgressValidator {
                     violations.push(PolicyViolation {
                         violation_id: Uuid::new_v4().to_string(),
                         policy_pack: "Egress Ruleset".to_string(),
-                        severity: ViolationSeverity::Critical,
+                        severity: ViolationSeverity::High,
                         message: msg.to_string(),
                         details: Some(serde_json::json!({
                             "operation": "dns_resolution",
@@ -1040,10 +1044,7 @@ impl PolicyPackValidator for EgressValidator {
             if let Some(data) = &request.context.data {
                 if let Some(protocol) = data.get("protocol") {
                     if protocol == "tcp" || protocol == "udp" {
-                        let msg = format!(
-                            "{} connections are not allowed",
-                            protocol.as_str().unwrap_or("unknown")
-                        );
+                        let msg = "TCP/UDP connections are not allowed".to_string();
                         if should_block {
                             violations.push(PolicyViolation {
                                 violation_id: Uuid::new_v4().to_string(),

@@ -77,8 +77,8 @@ pub use numeric::{
     RoundingMode, UnitConversion, ValidationRules,
 };
 pub use nvd_client::{
-    NvdApiResponse, NvdClient, NvdCve, NvdCveWrapper, NvdCvssData, NvdCvssV30, NvdCvssV31,
-    NvdDescription, NvdError, NvdMetrics, NvdReference, NvdWeakness,
+    NvdApiResponse, NvdClient, NvdClientConfig, NvdCve, NvdCveWrapper, NvdCvssData, NvdCvssV30,
+    NvdCvssV31, NvdDescription, NvdError, NvdMetrics, NvdReference, NvdWeakness,
 };
 pub use output::{LlmOutput, OutputConfig, OutputPolicy, SafetyCheckResult};
 pub use performance::{InferenceMetrics, PerformanceConfig, PerformancePolicy, PerformanceStats};

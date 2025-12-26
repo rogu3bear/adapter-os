@@ -187,6 +187,10 @@ pub struct OsvClientConfig {
     pub request_timeout_secs: u64,
     /// Enable detailed logging
     pub verbose_logging: bool,
+    /// Override OSV base URL (primarily for tests)
+    pub base_url: String,
+    /// Optional mock response for offline testing
+    pub mock_response: Option<OsvResponse>,
 }
 
 impl Default for OsvClientConfig {
@@ -195,6 +199,8 @@ impl Default for OsvClientConfig {
             rate_limit: DEFAULT_RATE_LIMIT,
             request_timeout_secs: REQUEST_TIMEOUT_SECS,
             verbose_logging: false,
+            base_url: OSV_API_ENDPOINT.to_string(),
+            mock_response: None,
         }
     }
 }
@@ -227,6 +233,7 @@ impl OsvClient {
         let http_client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(timeout_secs))
             .user_agent("adapteros-policy/0.1.0 (+https://github.com/rogu3bear/aos)")
+            .no_proxy()
             .build()
             .unwrap_or_else(|_| reqwest::Client::new());
 
@@ -349,9 +356,13 @@ impl OsvClient {
 
     /// Execute HTTP request with error handling
     async fn execute_request(&self, request_body: &OsvQueryRequest) -> Result<OsvResponse> {
+        if let Some(mock) = &self.config.mock_response {
+            return Ok(mock.clone());
+        }
+
         let request = self
             .http_client
-            .post(OSV_API_ENDPOINT)
+            .post(&self.config.base_url)
             .json(request_body)
             .build()
             .map_err(|e| AosError::Network(format!("Failed to build OSV request: {}", e)))?;
@@ -514,6 +525,7 @@ mod tests {
             rate_limit: 2,
             request_timeout_secs: 60,
             verbose_logging: true,
+            ..OsvClientConfig::default()
         };
         let client = OsvClient::with_config(config.clone());
         assert_eq!(client.config.rate_limit, 2);
@@ -602,6 +614,7 @@ mod tests {
             rate_limit: 100, // High limit to avoid blocking in tests
             request_timeout_secs: 5,
             verbose_logging: false,
+            ..OsvClientConfig::default()
         };
         let client = OsvClient::with_config(config);
 
@@ -663,5 +676,47 @@ mod tests {
             Some("2.0.0".to_string())
         );
         assert_eq!(vuln.affected[1].events[1].fixed, Some("2.0.8".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_osv_client_query_package_offline() {
+        let mock_response = OsvResponse {
+            vulns: vec![OsvVulnerability {
+                id: "GHSA-offline-1234".to_string(),
+                cves: vec!["CVE-2024-0001".to_string()],
+                summary: Some("Offline response".to_string()),
+                details: None,
+                published: None,
+                modified: None,
+                affected: vec![],
+                severity: Some("HIGH".to_string()),
+                references: vec![],
+                cwe_ids: vec![],
+            }],
+        };
+
+        let client = OsvClient::with_config(OsvClientConfig {
+            rate_limit: 1000,
+            request_timeout_secs: 5,
+            verbose_logging: false,
+            mock_response: Some(mock_response.clone()),
+            ..OsvClientConfig::default()
+        });
+
+        let response = client
+            .query_package(PackageEcosystem::Rust, "offline-crate", "1.0.0")
+            .await
+            .expect("OSV query should use mock response");
+
+        assert_eq!(response.vulns.len(), 1);
+        assert_eq!(response.vulns[0].id, "GHSA-offline-1234");
+        assert_eq!(
+            response.vulns[0].cves.first(),
+            Some(&"CVE-2024-0001".to_string())
+        );
+        assert_eq!(
+            response.vulns[0].summary.as_deref(),
+            Some("Offline response")
+        );
     }
 }

@@ -165,8 +165,7 @@ fn test_recovery_action_selection() {
         .sign_policy_content(original_content, &signing_keypair)
         .unwrap();
 
-    let mut metadata =
-        PolicyIntegrityMetadata::new(file_hash.clone(), signature, pubkey.clone(), 1);
+    let metadata = PolicyIntegrityMetadata::new(file_hash.clone(), signature, pubkey.clone(), 1);
 
     // Modify policy
     fs::write(&policy_path, b"modified content").unwrap();
@@ -459,7 +458,7 @@ fn test_invalid_signature_format() {
     let policy_content = b"{}";
     fs::write(&policy_path, policy_content).unwrap();
 
-    let mut metadata = PolicyIntegrityMetadata::new(
+    let metadata = PolicyIntegrityMetadata::new(
         compute_blake3_hash(policy_content).unwrap(),
         "invalid_hex_signature".to_string(),
         "pubkey".to_string(),
@@ -488,7 +487,7 @@ fn test_policy_version_rollback_detection() {
     let signing_keypair = Keypair::generate();
     let verifier = PolicyIntegrityVerifier::new();
 
-    let (signature_v2, pubkey, _hash_v2) = verifier
+    let (signature_v2, pubkey, hash_v2) = verifier
         .sign_policy_content(v2_content, &signing_keypair)
         .unwrap();
 
@@ -496,10 +495,10 @@ fn test_policy_version_rollback_detection() {
     let v1_content = b"{\n  \"version\": \"1.0\"\n}";
     fs::write(&policy_path, v1_content).unwrap();
 
-    let hash_v1 = compute_blake3_hash(v1_content).unwrap();
+    let _hash_v1 = compute_blake3_hash(v1_content).unwrap();
 
     // Try to verify v1 with v2 signature
-    let metadata = PolicyIntegrityMetadata::new(hash_v1, signature_v2, pubkey, 1);
+    let metadata = PolicyIntegrityMetadata::new(hash_v2, signature_v2, pubkey, 1);
 
     let mut verifier = PolicyIntegrityVerifier::new();
     verifier.add_trusted_key(signing_keypair.public_key());

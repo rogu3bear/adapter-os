@@ -19,6 +19,7 @@ pub mod registry;
 pub mod unified_enforcement;
 pub mod validation;
 
+use crate::packs::determinism::FORBIDDEN_COMPILER_FLAGS;
 use adapteros_core::{AosError, Result};
 use adapteros_manifest::*;
 
@@ -272,9 +273,8 @@ impl PolicyEngine {
         }
 
         // Check for forbidden compiler flags
-        let forbidden_flags = ["-ffast-math", "-funsafe-math-optimizations"];
         for flag in &report.compiler_flags {
-            for forbidden in &forbidden_flags {
+            for forbidden in FORBIDDEN_COMPILER_FLAGS {
                 if flag.contains(forbidden) {
                     return Err(AosError::PolicyViolation(format!(
                         "Forbidden compiler flag detected: {}",

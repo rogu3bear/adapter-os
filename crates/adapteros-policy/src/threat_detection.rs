@@ -201,7 +201,7 @@ impl ThreatDetectionEngine {
             .checked_sub(retention)
             .unwrap_or(SystemTime::UNIX_EPOCH);
         while let Some(front) = self.window.front() {
-            if front.timestamp < cutoff {
+            if front.timestamp <= cutoff {
                 self.window.pop_front();
             } else {
                 break;

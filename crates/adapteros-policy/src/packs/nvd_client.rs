@@ -159,11 +159,36 @@ impl From<NvdError> for AosError {
     }
 }
 
+/// Configuration for NVD client
+#[derive(Debug, Clone)]
+pub struct NvdClientConfig {
+    /// Base URL for API requests
+    pub base_url: String,
+    /// Maximum retries for transient failures
+    pub max_retries: u32,
+    /// Delay in milliseconds between retries
+    pub retry_delay_ms: u64,
+    /// Optional mock response for offline testing
+    pub mock_response: Option<NvdApiResponse>,
+}
+
+impl Default for NvdClientConfig {
+    fn default() -> Self {
+        Self {
+            base_url: NVD_API_ENDPOINT.to_string(),
+            max_retries: MAX_RETRIES,
+            retry_delay_ms: RETRY_DELAY_MS,
+            mock_response: None,
+        }
+    }
+}
+
 /// NVD API client with rate limiting
 pub struct NvdClient {
     http_client: Client,
     api_key: Option<String>,
     rate_limiter: Arc<RateLimiter<NotKeyed, InMemoryState, DefaultClock>>,
+    config: NvdClientConfig,
 }
 
 impl NvdClient {
@@ -172,6 +197,11 @@ impl NvdClient {
     /// Uses NVD_API_KEY environment variable if available.
     /// Rate limits to 5 req/sec with key, 0.6 req/sec without.
     pub fn new() -> Result<Self> {
+        Self::with_config(NvdClientConfig::default())
+    }
+
+    /// Create a client with custom configuration (primarily for tests)
+    pub fn with_config(config: NvdClientConfig) -> Result<Self> {
         let api_key = std::env::var("NVD_API_KEY").ok();
 
         let rate_limit = if api_key.is_some() {
@@ -184,10 +214,16 @@ impl NvdClient {
 
         let rate_limiter = Arc::new(RateLimiter::direct(Quota::per_second(rate_limit)));
 
+        let http_client = Client::builder()
+            .no_proxy()
+            .build()
+            .unwrap_or_else(|_| Client::new());
+
         Ok(Self {
-            http_client: Client::new(),
+            http_client,
             api_key,
             rate_limiter,
+            config,
         })
     }
 
@@ -214,7 +250,11 @@ impl NvdClient {
         Box<dyn std::future::Future<Output = std::result::Result<Vec<NvdCve>, NvdError>> + 'a>,
     > {
         Box::pin(async move {
-            if attempt > MAX_RETRIES {
+            if let Some(mock) = &self.config.mock_response {
+                return Ok(mock.results.iter().map(|w| w.cve.clone()).collect());
+            }
+
+            if attempt > self.config.max_retries {
                 return Err(NvdError::Transient("Max retries exceeded".to_string()));
             }
 
@@ -224,7 +264,7 @@ impl NvdClient {
                 .map_err(|_| NvdError::RateLimited)?;
 
             // Build request
-            let mut url = reqwest::Url::parse(NVD_API_ENDPOINT)
+            let mut url = reqwest::Url::parse(&self.config.base_url)
                 .map_err(|e| NvdError::Config(format!("Invalid endpoint URL: {}", e)))?;
 
             url.query_pairs_mut().append_pair("cpeName", cpe_search);
@@ -246,7 +286,7 @@ impl NvdClient {
                         "NVD API request failed, will retry"
                     );
                     tokio::time::sleep(tokio::time::Duration::from_millis(
-                        RETRY_DELAY_MS * (attempt as u64 + 1),
+                        self.config.retry_delay_ms * (attempt as u64 + 1),
                     ))
                     .await;
                     return Box::pin(self.query_with_retry(cpe_search, attempt + 1)).await;
@@ -268,7 +308,7 @@ impl NvdClient {
                         "NVD API server error, will retry"
                     );
                     tokio::time::sleep(tokio::time::Duration::from_millis(
-                        RETRY_DELAY_MS * (attempt as u64 + 1),
+                        self.config.retry_delay_ms * (attempt as u64 + 1),
                     ))
                     .await;
                     return Box::pin(self.query_with_retry(cpe_search, attempt + 1)).await;
@@ -516,5 +556,58 @@ mod tests {
 
         let err = NvdError::NotFound;
         assert!(err.to_string().contains("not found"));
+    }
+
+    #[tokio::test]
+    async fn test_nvd_client_query_offline() {
+        let mock_response = NvdApiResponse {
+            results: vec![NvdCveWrapper {
+                cve: NvdCve {
+                    id: "CVE-2024-0002".to_string(),
+                    metrics: NvdMetrics::default(),
+                    descriptions: vec![NvdDescription {
+                        lang: Some("en".to_string()),
+                        value: "Test CVE description".to_string(),
+                    }],
+                    references: vec![NvdReference {
+                        url: "https://example.com/cve/CVE-2024-0002".to_string(),
+                        tags: vec![],
+                        source: "UNIT".to_string(),
+                    }],
+                    published: Some("2024-01-01T00:00:00Z".to_string()),
+                    modified: Some("2024-01-02T00:00:00Z".to_string()),
+                    weaknesses: vec![NvdWeakness {
+                        source: Some("NVD".to_string()),
+                        cwe_id: vec!["CWE-000".to_string()],
+                    }],
+                },
+            }],
+            total_results: Some(1),
+            results_per_page: None,
+            start_index: None,
+            format: None,
+            version: None,
+            timestamp: None,
+        };
+
+        let client = NvdClient::with_config(NvdClientConfig {
+            max_retries: 0,
+            retry_delay_ms: 0,
+            mock_response: Some(mock_response.clone()),
+            ..NvdClientConfig::default()
+        })
+        .expect("Mock-configured client should be created");
+
+        let cves = client
+            .query_cves("cpe:/a:test:pkg:1.0.0")
+            .await
+            .expect("Query should use mock response");
+
+        assert_eq!(cves.len(), 1);
+        assert_eq!(cves[0].id, "CVE-2024-0002");
+        assert_eq!(
+            cves[0].descriptions.first().map(|d| d.value.as_str()),
+            Some("Test CVE description")
+        );
     }
 }
