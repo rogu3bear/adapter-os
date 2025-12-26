@@ -1060,7 +1060,7 @@ pub async fn receive_worker_fatal(
         .insert_worker_incident(
             &fatal_msg.worker_id,
             &worker.tenant_id,
-            "fatal",
+            adapteros_db::WorkerIncidentType::Fatal,
             &fatal_msg.reason,
             fatal_msg.backtrace_snippet.as_deref(),
             None, // latency_at_incident_ms
