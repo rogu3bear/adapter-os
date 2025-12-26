@@ -28,7 +28,7 @@ blake3 = { workspace = true }
 ed25519-dalek = { version = "2.1", features = ["rand_core"] }
 
 # Database - Use same version as rest of project
-sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "macros", "migrate", "chrono", "uuid"] }
+sqlx = { workspace = true, default-features = false, features = ["runtime-tokio", "sqlite", "macros", "migrate", "chrono", "uuid"] }
 
 # Utilities
 uuid = { version = "1.6", features = ["v7", "serde"] }

@@ -3,7 +3,6 @@
 //! Tests cover:
 //! - AWS KMS mock server integration
 //! - GCP KMS error handling
-//! - Azure Key Vault credential rotation
 //! - Key rotation under concurrent load
 //! - Credential leak detection
 //! - Multi-provider fallback chains
@@ -143,23 +142,6 @@ fn create_mock_gcp_config() -> KmsConfig {
         timeout_secs: 5,
         max_retries: 2,
         key_namespace: None,
-    }
-}
-
-/// Simulated Azure Key Vault configuration for testing
-fn create_mock_azure_config() -> KmsConfig {
-    KmsConfig {
-        backend_type: KmsBackendType::AzureKeyVault,
-        endpoint: "https://test-vault.vault.azure.net".to_string(),
-        region: Some("eastus".to_string()),
-        credentials: KmsCredentials::AzureServicePrincipal {
-            tenant_id: "test-tenant-id".to_string(),
-            client_id: "test-client-id".to_string(),
-            client_secret: "test-client-secret".to_string(),
-        },
-        timeout_secs: 5,
-        max_retries: 2,
-        key_namespace: Some("test-ns".to_string()),
     }
 }
 
@@ -323,72 +305,6 @@ async fn test_gcp_kms_error_handling_timeout() -> Result<()> {
 }
 
 // ============================================================================
-// Test: Azure Key Vault Credential Rotation
-// ============================================================================
-
-#[tokio::test]
-async fn test_azure_keyvault_auth_rotation() -> Result<()> {
-    // Simulate credential rotation by swapping credentials
-    let mut config = create_mock_azure_config();
-
-    // Store original credentials
-    let original_secret = match &config.credentials {
-        KmsCredentials::AzureServicePrincipal { client_secret, .. } => client_secret.clone(),
-        _ => panic!("Expected Azure credentials"),
-    };
-
-    // Rotate credentials
-    config.credentials = KmsCredentials::AzureServicePrincipal {
-        tenant_id: "test-tenant-id".to_string(),
-        client_id: "test-client-id".to_string(),
-        client_secret: "rotated-client-secret".to_string(),
-    };
-
-    // Verify rotation occurred
-    let new_secret = match &config.credentials {
-        KmsCredentials::AzureServicePrincipal { client_secret, .. } => client_secret.clone(),
-        _ => panic!("Expected Azure credentials"),
-    };
-
-    assert_ne!(original_secret, new_secret);
-    assert_eq!(new_secret, "rotated-client-secret");
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_azure_keyvault_credential_format_validation() -> Result<()> {
-    // Test various credential formats
-    let test_cases = vec![
-        ("valid-tenant", "valid-client", "valid-secret"),
-        ("", "client", "secret"), // Empty tenant
-        ("tenant", "", "secret"), // Empty client
-        ("tenant", "client", ""), // Empty secret
-    ];
-
-    for (tenant, client, secret) in test_cases {
-        let config = KmsConfig {
-            backend_type: KmsBackendType::AzureKeyVault,
-            endpoint: "https://test-vault.vault.azure.net".to_string(),
-            region: None,
-            credentials: KmsCredentials::AzureServicePrincipal {
-                tenant_id: tenant.to_string(),
-                client_id: client.to_string(),
-                client_secret: secret.to_string(),
-            },
-            timeout_secs: 5,
-            max_retries: 2,
-            key_namespace: None,
-        };
-
-        // Should handle various formats without panicking
-        let _ = config;
-    }
-
-    Ok(())
-}
-
-// ============================================================================
 // Test: Key Rotation Under Concurrent Load
 // ============================================================================
 
@@ -540,13 +456,13 @@ fn test_credential_leak_detection_in_config() {
 fn test_credential_leak_detection_in_errors() {
     // Verify that credential errors properly expose structure (credentials are in memory)
     let config = KmsConfig {
-        backend_type: KmsBackendType::AzureKeyVault,
-        endpoint: "https://vault.azure.net".to_string(),
-        region: None,
-        credentials: KmsCredentials::AzureServicePrincipal {
-            tenant_id: "super-secret-tenant-id".to_string(),
-            client_id: "super-secret-client-id".to_string(),
-            client_secret: "SUPER_SECRET_PASSWORD_12345".to_string(),
+        backend_type: KmsBackendType::AwsKms,
+        endpoint: "https://kms.us-east-1.amazonaws.com".to_string(),
+        region: Some("us-east-1".to_string()),
+        credentials: KmsCredentials::AwsIam {
+            access_key_id: "AKIAIOSFODNN7EXAMPLE".to_string(),
+            secret_access_key: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY".to_string(),
+            session_token: None,
         },
         timeout_secs: 30,
         max_retries: 3,
@@ -559,7 +475,7 @@ fn test_credential_leak_detection_in_errors() {
 
     // Verify error message is created (credentials currently visible in debug)
     assert!(!error_msg.is_empty());
-    assert!(error_msg.contains("AzureServicePrincipal"));
+    assert!(error_msg.contains("AwsIam"));
 
     // In production systems, use Custom Debug impl or Zeroize for secrets
     // Credentials should never be logged to files or external systems
@@ -596,11 +512,14 @@ fn test_aws_credential_sanitization() {
 
 #[tokio::test]
 async fn test_kms_fallback_chain_aws_to_gcp() -> Result<()> {
-    // Create configs in priority order: AWS -> GCP -> Azure
+    // Create configs in priority order: AWS -> GCP -> Mock
     let configs = vec![
         create_mock_aws_config(),
         create_mock_gcp_config(),
-        create_mock_azure_config(),
+        KmsConfig {
+            backend_type: KmsBackendType::Mock,
+            ..Default::default()
+        },
     ];
 
     // Try to find a working backend
@@ -672,12 +591,10 @@ async fn test_kms_provider_factory() -> Result<()> {
     // Test that KmsProvider can be created with different configs
     let aws_config = create_mock_aws_config();
     let gcp_config = create_mock_gcp_config();
-    let azure_config = create_mock_azure_config();
 
     // Create providers (may fail in test environment, but shouldn't panic)
     let _aws_result = KmsProvider::with_kms_config(aws_config);
     let _gcp_result = KmsProvider::with_kms_config(gcp_config);
-    let _azure_result = KmsProvider::with_kms_config(azure_config);
 
     Ok(())
 }
@@ -691,7 +608,6 @@ fn test_kms_config_validation_backend_types() {
     let backends = vec![
         KmsBackendType::AwsKms,
         KmsBackendType::GcpKms,
-        KmsBackendType::AzureKeyVault,
         KmsBackendType::HashicorpVault,
         KmsBackendType::Pkcs11Hsm,
         KmsBackendType::Mock,

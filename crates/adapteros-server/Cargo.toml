@@ -84,7 +84,7 @@ tracing-opentelemetry = { workspace = true }
 mime_guess = "2.0"
 uuid = { version = "1.6", features = ["v7"] }
 chrono = "0.4"
-sqlx = { version = "0.8", features = ["sqlite", "runtime-tokio"] }
+sqlx = { workspace = true, default-features = false, features = ["sqlite", "runtime-tokio"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
