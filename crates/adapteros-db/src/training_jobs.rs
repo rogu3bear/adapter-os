@@ -701,7 +701,7 @@ impl Db {
                     rtj.synthetic_mode, rtj.data_lineage_mode,
                     rtj.retryable, rtj.retry_of_job_id, rtj.stack_id, rtj.adapter_id,
                     rtj.weights_hash_b3, rtj.artifact_path
-             FROM repository_training_jobs rtj INDEXED BY idx_training_jobs_tenant_status_created
+             FROM repository_training_jobs rtj INDEXED BY idx_training_jobs_tenant_status_created_adapter
              WHERE rtj.tenant_id = ?
              ORDER BY rtj.created_at DESC",
         )

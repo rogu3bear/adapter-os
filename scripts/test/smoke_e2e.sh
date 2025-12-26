@@ -11,6 +11,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 API_URL="${API_URL:-http://127.0.0.1:${AOS_SERVER_PORT:-8080}}"
+API_BASE="${API_URL%/}/api"
 DB_PATH="${DB_PATH:-$ROOT/var/smoke-e2e.sqlite3}"
 PID_FILE="${PID_FILE:-$ROOT/var/run/smoke-e2e-api.pid}"
 LOG_FILE="${LOG_FILE:-$ROOT/var/log/smoke-e2e-api.log}"
@@ -64,8 +65,8 @@ trap cleanup EXIT INT TERM
 wait_for_health() {
   local end=$((SECONDS + START_TIMEOUT))
   while (( SECONDS < end )); do
-    if curl -fsS --max-time "$CURL_TIMEOUT" "$API_URL/readyz" >/dev/null 2>&1; then
-      info "API ready at $API_URL"
+    if curl -fsS --max-time "$CURL_TIMEOUT" "$API_BASE/readyz" >/dev/null 2>&1; then
+      info "API ready at $API_BASE"
       return 0
     fi
     sleep 2
@@ -146,11 +147,11 @@ require_cmd cargo
 start_stack
 
 info "Resetting database via testkit"
-call_api POST "$API_URL/testkit/reset" "{}"
+call_api POST "$API_BASE/testkit/reset" "{}"
 expect_status "200" "testkit reset"
 
 info "Seeding deterministic fixtures"
-call_api POST "$API_URL/testkit/seed_minimal" "{}"
+call_api POST "$API_BASE/testkit/seed_minimal" "{}"
 expect_status "200" "seed_minimal"
 PRIMARY_TENANT="$(jq -r '.tenant_id' "$RESP_BODY")"
 SECONDARY_TENANT="$(jq -r '.secondary_tenant_id' "$RESP_BODY")"
@@ -158,7 +159,7 @@ info "Tenants: primary=${PRIMARY_TENANT}, secondary=${SECONDARY_TENANT}"
 
 info "Logging in"
 LOGIN_PAYLOAD=$(jq -n --arg email "$E2E_EMAIL" --arg pass "$E2E_PASS" '{email:$email, username:$email, password:$pass}')
-call_api POST "$API_URL/v1/auth/login" "$LOGIN_PAYLOAD"
+call_api POST "$API_BASE/v1/auth/login" "$LOGIN_PAYLOAD"
 expect_status "200" "login"
 TOKEN_PRIMARY="$(jq -r '.token' "$RESP_BODY")"
 LOGIN_TENANT="$(jq -r '.tenant_id' "$RESP_BODY")"
@@ -167,7 +168,7 @@ info "Login tenant=${LOGIN_TENANT} request_id=${LOGIN_REQ_ID}"
 
 info "Switching tenant -> ${SECONDARY_TENANT}"
 SWITCH_PAYLOAD=$(jq -n --arg tenant "$SECONDARY_TENANT" '{tenant_id:$tenant}')
-call_api POST "$API_URL/v1/auth/tenants/switch" "$SWITCH_PAYLOAD" "$TOKEN_PRIMARY"
+call_api POST "$API_BASE/v1/auth/tenants/switch" "$SWITCH_PAYLOAD" "$TOKEN_PRIMARY"
 expect_status "200" "tenant switch"
 TOKEN_SECONDARY="$(jq -r '.token' "$RESP_BODY")"
 SWITCH_TENANT="$(jq -r '.tenant_id' "$RESP_BODY")"
@@ -175,7 +176,7 @@ SWITCH_REQ_ID="$(get_request_id)"
 info "Switched tenant=${SWITCH_TENANT} request_id=${SWITCH_REQ_ID}"
 
 info "Running inference stub"
-call_api POST "$API_URL/testkit/inference_stub" "$(jq -n --arg prompt "smoke e2e" '{prompt:$prompt}')" "$TOKEN_SECONDARY"
+call_api POST "$API_BASE/testkit/inference_stub" "$(jq -n --arg prompt "smoke e2e" '{prompt:$prompt}')" "$TOKEN_SECONDARY"
 expect_status "200" "inference stub"
 INFER_TRACE_ID="$(jq -r '.run_receipt.trace_id' "$RESP_BODY")"
 INFER_REQ_ID="$(get_request_id)"
@@ -183,24 +184,24 @@ info "Inference trace_id=${INFER_TRACE_ID} request_id=${INFER_REQ_ID}"
 
 info "Creating trace fixture"
 TRACE_PAYLOAD=$(jq -n --arg tenant "$SWITCH_TENANT" '{tenant_id:$tenant, token_count:3}')
-call_api POST "$API_URL/testkit/create_trace_fixture" "$TRACE_PAYLOAD"
+call_api POST "$API_BASE/testkit/create_trace_fixture" "$TRACE_PAYLOAD"
 expect_status "200" "create_trace_fixture"
 TRACE_FIX_ID="$(jq -r '.trace_id' "$RESP_BODY")"
 info "Trace fixture created trace_id=${TRACE_FIX_ID}"
 
 info "Fetching trace ${TRACE_FIX_ID}"
-call_api GET "$API_URL/v1/traces/${TRACE_FIX_ID}" "" "$TOKEN_SECONDARY"
+call_api GET "$API_BASE/v1/traces/${TRACE_FIX_ID}" "" "$TOKEN_SECONDARY"
 expect_status "200" "get_trace"
 TRACE_REQ_ID="$(get_request_id)"
 info "Trace fetch request_id=${TRACE_REQ_ID}"
 
 info "Creating evidence fixture"
 EVIDENCE_PAYLOAD=$(jq -n --arg tenant "$SWITCH_TENANT" --arg inference "$TRACE_FIX_ID" '{tenant_id:$tenant, inference_id:$inference}')
-call_api POST "$API_URL/testkit/create_evidence_fixture" "$EVIDENCE_PAYLOAD"
+call_api POST "$API_BASE/testkit/create_evidence_fixture" "$EVIDENCE_PAYLOAD"
 expect_status "200" "create_evidence_fixture"
 
 info "Listing evidence (tenant ${SWITCH_TENANT})"
-call_api GET "$API_URL/v1/evidence?limit=5" "" "$TOKEN_SECONDARY"
+call_api GET "$API_BASE/v1/evidence?limit=5" "" "$TOKEN_SECONDARY"
 expect_status "200" "list_evidence"
 EVIDENCE_COUNT="$(jq 'length' "$RESP_BODY")"
 EVIDENCE_REQ_ID="$(get_request_id)"
@@ -213,8 +214,6 @@ echo "  tenant switch request: ${SWITCH_REQ_ID}"
 echo "  inference trace_id:    ${INFER_TRACE_ID} (req ${INFER_REQ_ID})"
 echo "  fixture trace_id:      ${TRACE_FIX_ID} (req ${TRACE_REQ_ID})"
 echo "  evidence count:        ${EVIDENCE_COUNT} (req ${EVIDENCE_REQ_ID})"
-
-
 
 
 

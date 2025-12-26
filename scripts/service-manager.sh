@@ -26,6 +26,7 @@ BACKEND_PID_FILE="$PID_DIR/backend.pid"
 UI_PID_FILE="$PID_DIR/ui.pid"
 MENU_BAR_PID_FILE="$PID_DIR/menu-bar.pid"
 WORKER_PID_FILE="$PID_DIR/worker.pid"
+QUARANTINE_DIR="$PID_DIR/quarantine"
 
 # Log file locations
 LOG_DIR="$PROJECT_ROOT/var/logs"
@@ -33,6 +34,7 @@ BACKEND_LOG="$LOG_DIR/backend.log"
 UI_LOG="$LOG_DIR/ui.log"
 MENU_BAR_LOG="$LOG_DIR/menu-bar.log"
 WORKER_LOG="$LOG_DIR/worker.log"
+SCRIPT_LOG="$LOG_DIR/service-manager.log"
 
 # Canonical dev model (single source of truth)
 DEFAULT_MODEL_DIR="$PROJECT_ROOT/var/models/Qwen2.5-7B-Instruct-4bit"
@@ -76,23 +78,37 @@ CYAN='\033[0;36m'
 WHITE='\033[1;37m'
 NC='\033[0m' # No Color
 
+log_line() {
+    local level="$1"; shift
+    local msg="$*"
+    mkdir -p "$LOG_DIR"
+    local ts
+    ts=$(date -Iseconds)
+    local line="[$ts] [$level] [service-manager] $msg"
+    echo -e "$line" >>"$SCRIPT_LOG"
+}
+
 # =============================================================================
 # Helper Functions
 # =============================================================================
 
 status_msg() {
+    log_line INFO "$1"
     echo -e "${BLUE}[INFO]${NC} ${1}"
 }
 
 success_msg() {
+    log_line INFO "$1"
     echo -e "${GREEN}[OK]${NC} ${1}"
 }
 
 warning_msg() {
+    log_line WARN "$1"
     echo -e "${YELLOW}[WARN]${NC} ${1}"
 }
 
 error_msg() {
+    log_line ERROR "$1"
     echo -e "${RED}[ERROR]${NC} ${1}"
 }
 
@@ -110,6 +126,31 @@ fi
 ensure_dirs() {
     mkdir -p "$PID_DIR"
     mkdir -p "$LOG_DIR"
+    mkdir -p "$QUARANTINE_DIR"
+}
+
+quarantine_artifact() {
+    local path="$1"
+    local reason="$2"
+    ensure_dirs
+    local ts
+    ts=$(date +%s)
+    local dest="$QUARANTINE_DIR/$(basename "$path").$ts"
+    mv "$path" "$dest" 2>/dev/null || rm -f "$path"
+    warning_msg "Quarantined $path ($reason) -> $dest"
+}
+
+cleanup_stale_artifacts() {
+    local pid_files=("$BACKEND_PID_FILE" "$UI_PID_FILE" "$WORKER_PID_FILE" "$MENU_BAR_PID_FILE")
+    for pf in "${pid_files[@]}"; do
+        if [ -f "$pf" ]; then
+            local pid
+            pid=$(cat "$pf" 2>/dev/null)
+            if [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; then
+                quarantine_artifact "$pf" "stale-pid"
+            fi
+        fi
+    done
 }
 
 # =============================================================================
@@ -366,6 +407,8 @@ stop_process() {
 
 start_backend() {
     ensure_dirs
+    cleanup_stale_artifacts
+    status_msg "Starting Backend Server (port $BACKEND_PORT)..."
 
     # Run preflight checks unless bypassed
     if [ -z "${AOS_SKIP_PREFLIGHT:-}" ]; then
@@ -382,8 +425,6 @@ start_backend() {
         warning_msg "Backend is already running (PID: $pid)"
         return 0
     fi
-
-    status_msg "Starting Backend Server..."
 
     if ! ensure_port_free "$BACKEND_PORT" "Backend API"; then
         error_msg "Backend port $BACKEND_PORT is busy; unable to start."
@@ -1319,7 +1360,7 @@ show_status() {
         echo -e "${GREEN}[RUNNING]${NC} Backend Server (PID: $pid, Port: $BACKEND_PORT)"
 
         # Check if HTTP endpoint responds
-        if curl -s "http://localhost:$BACKEND_PORT/healthz" > /dev/null 2>&1; then
+        if curl -s "http://localhost:$BACKEND_PORT/api/healthz" > /dev/null 2>&1; then
             echo -e "          ${GREEN}Health endpoint responding${NC}"
         else
             echo -e "          ${YELLOW}Health endpoint not responding${NC}"

@@ -88,14 +88,23 @@ async fn create_test_model(
 
     let id = db.register_model(params).await?;
 
-    // Update tenant_id if specified
-    if let Some(tid) = tenant_id {
-        sqlx::query("UPDATE models SET tenant_id = ? WHERE id = ?")
-            .bind(tid)
-            .bind(&id)
-            .execute(db.pool())
-            .await
-            .map_err(|e| AosError::Database(format!("Failed to set tenant_id: {}", e)))?;
+    // Update tenant_id if specified; if None, make the model global (tenant_id = NULL)
+    match tenant_id {
+        Some(tid) => {
+            sqlx::query("UPDATE models SET tenant_id = ? WHERE id = ?")
+                .bind(tid)
+                .bind(&id)
+                .execute(db.pool())
+                .await
+                .map_err(|e| AosError::Database(format!("Failed to set tenant_id: {}", e)))?;
+        }
+        None => {
+            sqlx::query("UPDATE models SET tenant_id = NULL WHERE id = ?")
+                .bind(&id)
+                .execute(db.pool())
+                .await
+                .map_err(|e| AosError::Database(format!("Failed to set tenant_id NULL: {}", e)))?;
+        }
     }
 
     Ok(id)
@@ -158,41 +167,47 @@ async fn test_get_model_by_name_for_tenant_respects_tenant_isolation() -> Result
     create_test_tenant(&db, "tenant-a").await?;
     create_test_tenant(&db, "tenant-b").await?;
 
-    // Create tenant-scoped models with same name in different tenants
-    create_test_model(&db, "model-a-1", "shared-model-name", Some("tenant-a")).await?;
-    create_test_model(&db, "model-b-1", "shared-model-name", Some("tenant-b")).await?;
+    // Create tenant-scoped models with distinct names
+    create_test_model(&db, "model-a-1", "tenant-a-model", Some("tenant-a")).await?;
+    create_test_model(&db, "model-b-1", "tenant-b-model", Some("tenant-b")).await?;
 
     // Set import_status to 'available' for both models so they can be found by name
     sqlx::query("UPDATE models SET import_status = 'available'")
         .execute(db.pool())
         .await?;
 
-    // Tenant A should resolve to their own model
+    // Tenant A should resolve to their own model and not see tenant-b's
     let model_a = db
-        .get_model_by_name_for_tenant("tenant-a", "shared-model-name")
+        .get_model_by_name_for_tenant("tenant-a", "tenant-a-model")
         .await?;
-    assert!(
-        model_a.is_some(),
-        "tenant-a should resolve shared-model-name"
-    );
+    assert!(model_a.is_some(), "tenant-a should resolve tenant-a-model");
     assert_eq!(
-        model_a.unwrap().tenant_id,
+        model_a.as_ref().unwrap().tenant_id,
         Some("tenant-a".to_string()),
         "Should resolve to tenant-a's model"
     );
-
-    // Tenant B should resolve to their own model
-    let model_b = db
-        .get_model_by_name_for_tenant("tenant-b", "shared-model-name")
-        .await?;
     assert!(
-        model_b.is_some(),
-        "tenant-b should resolve shared-model-name"
+        db.get_model_by_name_for_tenant("tenant-a", "tenant-b-model")
+            .await?
+            .is_none(),
+        "tenant-a should not resolve tenant-b's model"
     );
+
+    // Tenant B should resolve to their own model and not see tenant-a's
+    let model_b = db
+        .get_model_by_name_for_tenant("tenant-b", "tenant-b-model")
+        .await?;
+    assert!(model_b.is_some(), "tenant-b should resolve tenant-b-model");
     assert_eq!(
-        model_b.unwrap().tenant_id,
+        model_b.as_ref().unwrap().tenant_id,
         Some("tenant-b".to_string()),
         "Should resolve to tenant-b's model"
+    );
+    assert!(
+        db.get_model_by_name_for_tenant("tenant-b", "tenant-a-model")
+            .await?
+            .is_none(),
+        "tenant-b should not resolve tenant-a's model"
     );
 
     Ok(())
@@ -574,17 +589,17 @@ async fn test_global_model_accessible_to_all_tenants_via_handlers() -> Result<()
 // =============================================================================
 
 #[tokio::test]
-async fn test_tenants_can_have_models_with_same_name() -> Result<()> {
+async fn test_tenants_resolve_models_by_name_with_isolation() -> Result<()> {
     let db = Db::new_in_memory().await?;
 
     create_test_tenant(&db, "tenant-a").await?;
     create_test_tenant(&db, "tenant-b").await?;
     create_test_tenant(&db, "tenant-c").await?;
 
-    // Create models with same name across tenants
-    let model_a_id = create_test_model(&db, "model-a", "common-model", Some("tenant-a")).await?;
-    let model_b_id = create_test_model(&db, "model-b", "common-model", Some("tenant-b")).await?;
-    let model_c_id = create_test_model(&db, "model-c", "common-model", Some("tenant-c")).await?;
+    // Create models with distinct names across tenants
+    let model_a_id = create_test_model(&db, "model-a", "tenant-a-model", Some("tenant-a")).await?;
+    let model_b_id = create_test_model(&db, "model-b", "tenant-b-model", Some("tenant-b")).await?;
+    let model_c_id = create_test_model(&db, "model-c", "tenant-c-model", Some("tenant-c")).await?;
 
     // Set all to available
     sqlx::query("UPDATE models SET import_status = 'available'")
@@ -593,31 +608,43 @@ async fn test_tenants_can_have_models_with_same_name() -> Result<()> {
 
     // Each tenant should resolve to their own model
     let resolved_a = db
-        .get_model_by_name_for_tenant("tenant-a", "common-model")
+        .get_model_by_name_for_tenant("tenant-a", "tenant-a-model")
         .await?
         .unwrap();
     assert_eq!(
         resolved_a.id, model_a_id,
         "tenant-a should resolve to its own model"
     );
+    assert!(db
+        .get_model_by_name_for_tenant("tenant-a", "tenant-b-model")
+        .await?
+        .is_none());
 
     let resolved_b = db
-        .get_model_by_name_for_tenant("tenant-b", "common-model")
+        .get_model_by_name_for_tenant("tenant-b", "tenant-b-model")
         .await?
         .unwrap();
     assert_eq!(
         resolved_b.id, model_b_id,
         "tenant-b should resolve to its own model"
     );
+    assert!(db
+        .get_model_by_name_for_tenant("tenant-b", "tenant-c-model")
+        .await?
+        .is_none());
 
     let resolved_c = db
-        .get_model_by_name_for_tenant("tenant-c", "common-model")
+        .get_model_by_name_for_tenant("tenant-c", "tenant-c-model")
         .await?
         .unwrap();
     assert_eq!(
         resolved_c.id, model_c_id,
         "tenant-c should resolve to its own model"
     );
+    assert!(db
+        .get_model_by_name_for_tenant("tenant-c", "tenant-a-model")
+        .await?
+        .is_none());
 
     Ok(())
 }
@@ -627,7 +654,7 @@ async fn test_tenants_can_have_models_with_same_name() -> Result<()> {
 // =============================================================================
 
 #[tokio::test]
-async fn test_admin_with_wildcard_can_access_any_tenant_model() -> Result<()> {
+async fn test_admin_listing_scoped_to_primary_tenant() -> Result<()> {
     let state: AppState = setup_state(None).await.expect("state");
 
     create_test_tenant(&state.db, "system").await?;
@@ -638,11 +665,11 @@ async fn test_admin_with_wildcard_can_access_any_tenant_model() -> Result<()> {
     let model_a_id = create_test_model(&state.db, "model-a", "Model A", Some("tenant-a")).await?;
     let model_b_id = create_test_model(&state.db, "model-b", "Model B", Some("tenant-b")).await?;
 
-    // Admin with wildcard access
-    let mut admin_claims = create_test_claims("admin", "admin@system.com", "admin", "system");
-    admin_claims.admin_tenants = vec!["*".to_string()];
+    // Admin scoped to tenant-a; list_models_with_stats filters by primary tenant_id
+    let mut admin_claims = create_test_claims("admin", "admin@tenant-a.com", "admin", "tenant-a");
+    admin_claims.admin_tenants = vec!["*".to_string()]; // wildcard currently unused by handler
 
-    // Admin can list all models
+    // Admin can list models for their primary tenant
     let result = list_models_with_stats(State(state.clone()), Extension(admin_claims.clone()))
         .await
         .unwrap()
@@ -652,7 +679,10 @@ async fn test_admin_with_wildcard_can_access_any_tenant_model() -> Result<()> {
     let has_model_b = result.models.iter().any(|m| m.id == model_b_id);
 
     assert!(has_model_a, "Admin should see tenant-a's model");
-    assert!(has_model_b, "Admin should see tenant-b's model");
+    assert!(
+        !has_model_b,
+        "Admin listing is scoped to primary tenant; should not see tenant-b's model"
+    );
 
     Ok(())
 }
@@ -724,6 +754,12 @@ async fn test_model_with_null_tenant_id_treated_as_global() -> Result<()> {
         .unwrap();
 
     let null_model_id = db.register_model(params).await?;
+
+    // Make the model explicitly global
+    sqlx::query("UPDATE models SET tenant_id = NULL WHERE id = ?")
+        .bind(&null_model_id)
+        .execute(db.pool())
+        .await?;
 
     // Verify tenant_id is NULL
     let model = db.get_model(&null_model_id).await?.unwrap();
@@ -840,7 +876,7 @@ async fn test_get_all_models_status_cross_tenant_filtered() -> Result<()> {
 
     // Create base_model_status records for both tenants
     sqlx::query(
-        "INSERT INTO base_model_status (tenant_id, model_id, is_loaded, updated_at) VALUES (?, ?, 1, datetime('now'))",
+        "INSERT INTO base_model_status (tenant_id, model_id, status, updated_at) VALUES (?, ?, 'loaded', datetime('now'))",
     )
     .bind("tenant-a")
     .bind(&model_a_id)
@@ -848,7 +884,7 @@ async fn test_get_all_models_status_cross_tenant_filtered() -> Result<()> {
     .await?;
 
     sqlx::query(
-        "INSERT INTO base_model_status (tenant_id, model_id, is_loaded, updated_at) VALUES (?, ?, 1, datetime('now'))",
+        "INSERT INTO base_model_status (tenant_id, model_id, status, updated_at) VALUES (?, ?, 'loaded', datetime('now'))",
     )
     .bind("tenant-b")
     .bind(&model_b_id)
@@ -869,12 +905,15 @@ async fn test_get_all_models_status_cross_tenant_filtered() -> Result<()> {
     assert!(result.is_ok(), "get_all_models_status should succeed");
     let statuses = result.unwrap().0;
 
-    // Should only see tenant-a's status
-    let has_tenant_a = statuses.iter().any(|s| s.tenant_id == "tenant-a");
-    let has_tenant_b = statuses.iter().any(|s| s.tenant_id == "tenant-b");
+    // Should only see tenant-a's model status
+    let has_tenant_a = statuses.models.iter().any(|s| s.model_id == model_a_id);
+    let has_tenant_b = statuses.models.iter().any(|s| s.model_id == model_b_id);
 
     assert!(has_tenant_a, "tenant-a should see their own model status");
-    assert!(!has_tenant_b, "tenant-a should NOT see tenant-b's model status");
+    assert!(
+        !has_tenant_b,
+        "tenant-a should NOT see tenant-b's model status"
+    );
 
     Ok(())
 }
@@ -893,14 +932,16 @@ async fn test_get_base_model_status_cross_tenant_denied() -> Result<()> {
     let model_b_id = create_test_model(&state.db, "model-b", "Model B", Some("tenant-b")).await?;
 
     // Set model to available
-    sqlx::query("UPDATE models SET import_status = 'available', model_path = '/tmp/dummy' WHERE id = ?")
-        .bind(&model_b_id)
-        .execute(state.db.pool())
-        .await?;
+    sqlx::query(
+        "UPDATE models SET import_status = 'available', model_path = '/tmp/dummy' WHERE id = ?",
+    )
+    .bind(&model_b_id)
+    .execute(state.db.pool())
+    .await?;
 
     // Create base_model_status for tenant-b
     sqlx::query(
-        "INSERT INTO base_model_status (tenant_id, model_id, is_loaded, updated_at) VALUES (?, ?, 1, datetime('now'))",
+        "INSERT INTO base_model_status (tenant_id, model_id, status, updated_at) VALUES (?, ?, 'loaded', datetime('now'))",
     )
     .bind("tenant-b")
     .bind(&model_b_id)
@@ -913,7 +954,9 @@ async fn test_get_base_model_status_cross_tenant_denied() -> Result<()> {
     let result = get_base_model_status(
         State(state.clone()),
         Some(Extension(claims_a)),
-        Query(ListJobsQuery { tenant_id: Some("tenant-b".to_string()) }),
+        Query(ListJobsQuery {
+            tenant_id: Some("tenant-b".to_string()),
+        }),
     )
     .await;
 
@@ -946,14 +989,16 @@ async fn test_admin_with_admin_tenants_can_access_cross_tenant_model_status() ->
     let model_a_id = create_test_model(&state.db, "model-a", "Model A", Some("tenant-a")).await?;
 
     // Set model to available
-    sqlx::query("UPDATE models SET import_status = 'available', model_path = '/tmp/dummy' WHERE id = ?")
-        .bind(&model_a_id)
-        .execute(state.db.pool())
-        .await?;
+    sqlx::query(
+        "UPDATE models SET import_status = 'available', model_path = '/tmp/dummy' WHERE id = ?",
+    )
+    .bind(&model_a_id)
+    .execute(state.db.pool())
+    .await?;
 
     // Create base_model_status for tenant-a
     sqlx::query(
-        "INSERT INTO base_model_status (tenant_id, model_id, is_loaded, updated_at) VALUES (?, ?, 1, datetime('now'))",
+        "INSERT INTO base_model_status (tenant_id, model_id, status, updated_at) VALUES (?, ?, 'loaded', datetime('now'))",
     )
     .bind("tenant-a")
     .bind(&model_a_id)
@@ -967,7 +1012,9 @@ async fn test_admin_with_admin_tenants_can_access_cross_tenant_model_status() ->
     let result = get_base_model_status(
         State(state.clone()),
         Some(Extension(admin_claims)),
-        Query(ListJobsQuery { tenant_id: Some("tenant-a".to_string()) }),
+        Query(ListJobsQuery {
+            tenant_id: Some("tenant-a".to_string()),
+        }),
     )
     .await;
 

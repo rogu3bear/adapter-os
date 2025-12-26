@@ -127,6 +127,13 @@ async fn create_test_training_job(
     .await
     .map_err(|e| AosError::Database(format!("Failed to create test training job: {}", e)))?;
 
+    // Align training job with tenant for isolation queries
+    sqlx::query("UPDATE repository_training_jobs SET tenant_id = ? WHERE id = ?")
+        .bind(tenant_id)
+        .bind(job_id)
+        .execute(db.pool())
+        .await?;
+
     Ok(())
 }
 
@@ -155,16 +162,43 @@ async fn create_test_adapter(
 }
 
 async fn create_test_repo(db: &Db, tenant_id: &str, name: &str) -> Result<String> {
+    // Ensure tenant exists to satisfy FK constraints; ignore if already present
+    sqlx::query("INSERT OR IGNORE INTO tenants (id, name, itar_flag) VALUES (?, ?, 0)")
+        .bind(tenant_id)
+        .bind(tenant_id)
+        .execute(db.pool())
+        .await?;
+
     db.create_adapter_repository(CreateRepositoryParams {
         tenant_id,
         name,
-        base_model_id: Some("base-model"),
+        base_model_id: None,
         default_branch: None,
         created_by: Some("tester"),
         description: Some("test repo"),
     })
     .await
     .map_err(|e| AosError::Database(format!("Failed to create repo: {}", e)))
+}
+
+/// Create a code repository record for list/detail tests
+async fn create_test_code_repo(db: &Db, tenant_id: &str, repo_id: &str) -> Result<()> {
+    sqlx::query("INSERT OR IGNORE INTO tenants (id, name, itar_flag) VALUES (?, ?, 0)")
+        .bind(tenant_id)
+        .bind(tenant_id)
+        .execute(db.pool())
+        .await?;
+
+    db.register_repository(
+        tenant_id,
+        repo_id,
+        &format!("/repos/{tenant_id}/{repo_id}"),
+        &[String::from("rust")],
+        "main",
+    )
+    .await?;
+
+    Ok(())
 }
 
 async fn create_test_version(
@@ -375,6 +409,9 @@ async fn test_cross_tenant_adapter_versions_are_isolated() -> Result<()> {
 async fn test_dataset_validate_enforces_tenant_isolation() -> Result<()> {
     let state: AppState = setup_state(None).await.expect("state");
 
+    create_test_tenant(&state.db, "tenant-a").await?;
+    create_test_tenant(&state.db, "tenant-b").await?;
+
     // Seed dataset with tenant-a ownership
     let dataset_id = "ds-iso";
     state
@@ -386,7 +423,7 @@ async fn test_dataset_validate_enforces_tenant_isolation() -> Result<()> {
             "jsonl",
             "hash-iso",
             "var/ds",
-            Some("tester"),
+            None,
         )
         .await?;
     sqlx::query("UPDATE training_datasets SET tenant_id = ? WHERE id = ?")
@@ -428,8 +465,10 @@ async fn test_repository_list_filtered_by_tenant() -> Result<()> {
     let state: AppState = setup_state(None).await.expect("state");
 
     // Seed repos for two tenants
-    let repo_a = create_test_repo(&state.db, "tenant-a", "repo-a").await?;
-    let repo_b = create_test_repo(&state.db, "tenant-b", "repo-b").await?;
+    let repo_a = "repo-a".to_string();
+    let repo_b = "repo-b".to_string();
+    create_test_code_repo(&state.db, "tenant-a", &repo_a).await?;
+    create_test_code_repo(&state.db, "tenant-b", &repo_b).await?;
 
     let mut claims_a = test_admin_claims();
     claims_a.tenant_id = "tenant-a".to_string();
@@ -476,7 +515,8 @@ async fn test_repository_list_filtered_by_tenant() -> Result<()> {
 async fn test_repository_detail_respects_tenant() -> Result<()> {
     let state: AppState = setup_state(None).await.expect("state");
 
-    let repo_a = create_test_repo(&state.db, "tenant-a", "repo-a-detail").await?;
+    let repo_a = "repo-a-detail".to_string();
+    create_test_code_repo(&state.db, "tenant-a", &repo_a).await?;
 
     let mut claims_b = test_admin_claims();
     claims_b.tenant_id = "tenant-b".to_string();
@@ -666,7 +706,7 @@ async fn test_cross_tenant_base_model_access_denied() -> Result<()> {
         .await?;
 
     // Global model (tenant_id NULL) should be visible to all tenants
-    sqlx::query("INSERT INTO models (id, name, hash_b3, license_hash_b3, config_hash_b3, tokenizer_hash_b3, tokenizer_cfg_hash_b3, metadata_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+    sqlx::query("INSERT INTO models (id, name, hash_b3, license_hash_b3, config_hash_b3, tokenizer_hash_b3, tokenizer_cfg_hash_b3, metadata_json, tenant_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
         .bind("model-global-id")
         .bind("model-global")
         .bind("hash-g")
@@ -674,6 +714,7 @@ async fn test_cross_tenant_base_model_access_denied() -> Result<()> {
         .bind("config-hash-g")
         .bind("tokenizer-hash-g")
         .bind("tokenizer-cfg-hash-g")
+        .bind(None::<String>)
         .bind(None::<String>)
         .execute(db.pool())
         .await?;

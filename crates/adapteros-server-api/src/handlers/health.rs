@@ -96,6 +96,31 @@ pub struct ReadyzChecks {
 pub struct ReadyzResponse {
     pub ready: bool,
     pub checks: ReadyzChecks,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metrics: Option<ReadyMetrics>,
+    pub boot_trace_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_error_code: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub phases: Vec<crate::boot_state::PhaseStatus>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, Default)]
+pub struct ReadyMetrics {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub boot_phases_ms: Vec<BootPhaseDuration>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub db_latency_ms: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub worker_latency_ms: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub models_latency_ms: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct BootPhaseDuration {
+    pub state: String,
+    pub elapsed_ms: u64,
 }
 
 /// Readiness check
@@ -144,6 +169,10 @@ pub async fn ready(State(state): State<AppState>) -> impl IntoResponse {
                     worker: worker_check,
                     models_seeded: models_seeded_check,
                 },
+                metrics: None,
+                boot_trace_id: String::new(),
+                last_error_code: None,
+                phases: Vec::new(),
             }),
         );
     };
@@ -327,6 +356,46 @@ pub async fn ready(State(state): State<AppState>) -> impl IntoResponse {
         StatusCode::SERVICE_UNAVAILABLE
     };
 
+    // Emit readiness metrics and boot phase durations for observability
+    let registry = state.metrics_registry.clone();
+    if let Some(latency) = db_check.latency_ms {
+        registry
+            .set_gauge("readyz_db_latency_ms".to_string(), latency as f64)
+            .await;
+    }
+    if let Some(latency) = worker_check.latency_ms {
+        registry
+            .set_gauge("readyz_worker_latency_ms".to_string(), latency as f64)
+            .await;
+    }
+    if let Some(latency) = models_seeded_check.latency_ms {
+        registry
+            .set_gauge("readyz_models_latency_ms".to_string(), latency as f64)
+            .await;
+    }
+
+    let boot_phase_metrics = boot_state
+        .transition_history()
+        .into_iter()
+        .map(|t| BootPhaseDuration {
+            state: t.to.as_str().to_string(),
+            elapsed_ms: t.elapsed.as_millis() as u64,
+        })
+        .collect::<Vec<_>>();
+
+    for phase in &boot_phase_metrics {
+        registry
+            .set_gauge(
+                format!("boot_phase_duration_ms.{}", phase.state),
+                phase.elapsed_ms as f64,
+            )
+            .await;
+    }
+
+    let db_latency_ms = db_check.latency_ms;
+    let worker_latency_ms = worker_check.latency_ms;
+    let models_latency_ms = models_seeded_check.latency_ms;
+
     (
         status_code,
         Json(ReadyzResponse {
@@ -336,6 +405,15 @@ pub async fn ready(State(state): State<AppState>) -> impl IntoResponse {
                 worker: worker_check,
                 models_seeded: models_seeded_check,
             },
+            metrics: Some(ReadyMetrics {
+                boot_phases_ms: boot_phase_metrics,
+                db_latency_ms,
+                worker_latency_ms,
+                models_latency_ms,
+            }),
+            boot_trace_id: boot_state.boot_trace_id(),
+            last_error_code: boot_state.last_error_code(),
+            phases: boot_state.phase_statuses(),
         }),
     )
 }

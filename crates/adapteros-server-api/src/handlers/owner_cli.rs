@@ -352,10 +352,8 @@ async fn execute_command(command: &str) -> Result<CliRunResponse, AosError> {
         child.wait_with_output(),
     )
     .await
-    .map_err(|_| {
-        AosError::Timeout {
-            duration: std::time::Duration::from_secs(COMMAND_TIMEOUT_SECS),
-        }
+    .map_err(|_| AosError::Timeout {
+        duration: std::time::Duration::from_secs(COMMAND_TIMEOUT_SECS),
     })?
     .map_err(|e| AosError::Internal(format!("Failed to wait for aosctl process: {}", e)))?;
 

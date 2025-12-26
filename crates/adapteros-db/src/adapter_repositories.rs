@@ -706,11 +706,14 @@ impl Db {
         Ok(repo)
     }
 
-    pub async fn list_adapter_repositories(
+    /// List repositories for a tenant with optional filters and pagination.
+    pub async fn list_adapter_repositories_paged(
         &self,
         tenant_id: &str,
         base_model_id: Option<&str>,
         archived: Option<bool>,
+        limit: Option<usize>,
+        offset: Option<usize>,
     ) -> Result<Vec<AdapterRepository>> {
         let mut qb = QueryBuilder::<Sqlite>::new(
             r#"
@@ -734,6 +737,13 @@ impl Db {
 
         qb.push(" ORDER BY name");
 
+        if let Some(lim) = limit {
+            qb.push(" LIMIT ").push_bind(lim as i64);
+        }
+        if let Some(off) = offset {
+            qb.push(" OFFSET ").push_bind(off as i64);
+        }
+
         let repos = qb
             .build_query_as::<AdapterRepository>()
             .fetch_all(self.pool())
@@ -741,6 +751,17 @@ impl Db {
             .map_err(|e| AosError::Database(e.to_string()))?;
 
         Ok(repos)
+    }
+
+    /// Backward-compatible listing without pagination.
+    pub async fn list_adapter_repositories(
+        &self,
+        tenant_id: &str,
+        base_model_id: Option<&str>,
+        archived: Option<bool>,
+    ) -> Result<Vec<AdapterRepository>> {
+        self.list_adapter_repositories_paged(tenant_id, base_model_id, archived, None, None)
+            .await
     }
 
     pub async fn get_adapter_repository_policy(
@@ -1875,7 +1896,7 @@ impl Db {
         tenant_id: &str,
     ) -> Result<Vec<RepositoryGroup>> {
         let repos = self
-            .list_adapter_repositories(tenant_id, None, None)
+            .list_adapter_repositories_paged(tenant_id, None, None, None, None)
             .await?;
         let mut grouped = Vec::<RepositoryGroup>::new();
 

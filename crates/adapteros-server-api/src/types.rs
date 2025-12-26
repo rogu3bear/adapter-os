@@ -946,10 +946,14 @@ pub struct ListCommitsQuery {
 }
 
 /// List adapters query parameters
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Default)]
 pub struct ListAdaptersQuery {
     pub tier: Option<String>,
     pub framework: Option<String>,
+    #[serde(default)]
+    pub limit: Option<usize>,
+    #[serde(default)]
+    pub offset: Option<usize>,
 }
 
 /// Telemetry bundle response

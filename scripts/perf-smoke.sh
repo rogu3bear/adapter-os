@@ -36,6 +36,7 @@ cd "$ROOT_DIR" || exit 1
 
 : "${AOS_SERVER_PORT:=8080}"
 : "${AOS_SERVER_URL:=http://localhost:${AOS_SERVER_PORT}}"
+API_BASE="${AOS_SERVER_URL%/}/api"
 
 : "${PERF_READY_TIMEOUT_S:=120}"
 : "${PERF_INFER_TIMEOUT_S:=120}"
@@ -48,9 +49,9 @@ cd "$ROOT_DIR" || exit 1
 
 : "${PERF_SKIP_DEV_UP:=0}"
 
-ready_url="${AOS_SERVER_URL}/readyz"
-infer_url="${AOS_SERVER_URL}/v1/infer"
-login_url="${AOS_SERVER_URL}/v1/auth/login"
+ready_url="${API_BASE}/readyz"
+infer_url="${API_BASE}/v1/infer"
+login_url="${API_BASE}/v1/auth/login"
 
 seconds_to_ms() {
   local s="${1:-}"
@@ -206,7 +207,7 @@ main() {
   ready_threshold_ms="$(seconds_to_ms "$PERF_READY_THRESHOLD_S")"
   infer_threshold_ms="$(seconds_to_ms "$PERF_INFER_THRESHOLD_S")"
 
-  log "server: $AOS_SERVER_URL"
+  log "server: $AOS_SERVER_URL (api: $API_BASE)"
   log "thresholds: ready<=$(fmt_ms_s "$ready_threshold_ms")s infer<=$(fmt_ms_s "$infer_threshold_ms")s"
 
   local ready_ms=0 infer_ms=0

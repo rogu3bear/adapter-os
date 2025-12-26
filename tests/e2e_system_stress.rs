@@ -412,10 +412,7 @@ async fn test_memory_pressure_simulation() {
 
     println!("Created {} adapters for memory pressure test", count);
 
-    assert!(
-        count >= 90,
-        "At least 90% of adapters should be created"
-    );
+    assert!(count >= 90, "At least 90% of adapters should be created");
 
     // Test that we can query adapters by rank (for eviction priority)
     let low_rank = sqlx::query(
@@ -564,13 +561,12 @@ async fn test_consistent_results_under_load() {
         .expect("Failed to create adapter");
 
     // Get expected values
-    let expected: (String, String, String, i64) = sqlx::query_as(
-        "SELECT id, tenant_id, tier, rank FROM adapters WHERE id = ?",
-    )
-    .bind("consistency-test-adapter")
-    .fetch_one(harness.db().pool())
-    .await
-    .expect("Adapter should exist");
+    let expected: (String, String, String, i64) =
+        sqlx::query_as("SELECT id, tenant_id, tier, rank FROM adapters WHERE id = ?")
+            .bind("consistency-test-adapter")
+            .fetch_one(harness.db().pool())
+            .await
+            .expect("Adapter should exist");
 
     // Read the same adapter 100 times concurrently
     let mut tasks = vec![];
@@ -579,12 +575,11 @@ async fn test_consistent_results_under_load() {
         let db = harness.db().clone();
 
         let task = tokio::spawn(async move {
-            let result: Result<(String, String, String, i64), _> = sqlx::query_as(
-                "SELECT id, tenant_id, tier, rank FROM adapters WHERE id = ?",
-            )
-            .bind("consistency-test-adapter")
-            .fetch_one(db.pool())
-            .await;
+            let result: Result<(String, String, String, i64), _> =
+                sqlx::query_as("SELECT id, tenant_id, tier, rank FROM adapters WHERE id = ?")
+                    .bind("consistency-test-adapter")
+                    .fetch_one(db.pool())
+                    .await;
 
             (i, result)
         });

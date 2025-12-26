@@ -36,7 +36,12 @@ pub trait AdapterKvOps {
     async fn get_adapter_kv(&self, adapter_id: &str) -> Result<Option<Adapter>>;
 
     /// List adapters for a tenant
-    async fn list_adapters_for_tenant_kv(&self, tenant_id: &str) -> Result<Vec<Adapter>>;
+    async fn list_adapters_for_tenant_kv(
+        &self,
+        tenant_id: &str,
+        limit: Option<usize>,
+        offset: Option<usize>,
+    ) -> Result<Vec<Adapter>>;
 
     /// Delete an adapter
     async fn delete_adapter_kv(&self, id: &str) -> Result<()>;
@@ -409,7 +414,12 @@ impl AdapterKvOps for AdapterKvRepository {
         Ok(adapter_kv.map(|kv| kv.into()))
     }
 
-    async fn list_adapters_for_tenant_kv(&self, tenant_id: &str) -> Result<Vec<Adapter>> {
+    async fn list_adapters_for_tenant_kv(
+        &self,
+        tenant_id: &str,
+        limit: Option<usize>,
+        offset: Option<usize>,
+    ) -> Result<Vec<Adapter>> {
         let adapters_kv = self
             .repo
             .list_by_tenant(tenant_id)
@@ -418,7 +428,13 @@ impl AdapterKvOps for AdapterKvRepository {
 
         let mut adapters: Vec<Adapter> = adapters_kv.into_iter().map(|kv| kv.into()).collect();
         Self::sort_adapters_deterministically(&mut adapters);
-        Ok(adapters)
+        let start = offset.unwrap_or(0);
+        let limited = if let Some(lim) = limit {
+            adapters.into_iter().skip(start).take(lim).collect()
+        } else {
+            adapters.into_iter().skip(start).collect()
+        };
+        Ok(limited)
     }
 
     async fn delete_adapter_kv(&self, id: &str) -> Result<()> {

@@ -10,7 +10,7 @@ use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
 use adapteros_db::adapter_repositories::CreateRepositoryParams;
 use axum::{
-    extract::{Extension, Path, State},
+    extract::{Extension, Path, Query, State},
     http::StatusCode,
     response::Json,
 };
@@ -103,6 +103,16 @@ pub struct RepoTrainingJobLinkResponse {
     pub created_at: String,
 }
 
+/// Paging parameters for repository listings
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, Default)]
+#[serde(rename_all = "snake_case")]
+pub struct ListReposPaging {
+    #[serde(default)]
+    pub limit: Option<usize>,
+    #[serde(default)]
+    pub offset: Option<usize>,
+}
+
 /// Adapter version response
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
@@ -171,12 +181,17 @@ pub struct TagVersionRequest {
 pub async fn list_repos(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    Query(paging): Query<ListReposPaging>,
 ) -> Result<Json<Vec<RepoSummaryResponse>>, ApiError> {
     require_permission(&claims, Permission::AdapterList)?;
 
+    let limit = paging.limit.unwrap_or(100).min(500);
+    let offset = paging.offset.unwrap_or(0);
+    let start = std::time::Instant::now();
+
     let repos = state
         .db
-        .list_adapter_repositories(&claims.tenant_id, None, None)
+        .list_adapter_repositories_paged(&claims.tenant_id, None, None, Some(limit), Some(offset))
         .await
         .map_err(|e| {
             ApiError::new(
@@ -202,6 +217,21 @@ pub async fn list_repos(
             description: repo.description,
         })
         .collect();
+
+    let elapsed_ms = start.elapsed().as_millis() as f64;
+    let _ = state
+        .metrics_registry
+        .record_metric("http.list_repos.duration_ms".to_string(), elapsed_ms)
+        .await;
+    if elapsed_ms > 200.0 {
+        tracing::warn!(
+            tenant_id = %claims.tenant_id,
+            elapsed_ms,
+            limit,
+            offset,
+            "list_repos exceeded latency budget (200ms)"
+        );
+    }
 
     Ok(Json(response))
 }

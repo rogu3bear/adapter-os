@@ -1026,7 +1026,7 @@ pub fn default_schema() -> ConfigSchema {
             })
             .default_value("sql_only")
             .description("Storage backend selection: sql_only, dual_write, kv_primary, kv_only")
-            .category("DATABASE")
+            .category("STORAGE")
             .config_key("database.storage_mode")
             .toml_key("db.storage_mode")
             .build(),
@@ -1045,7 +1045,7 @@ pub fn default_schema() -> ConfigSchema {
             })
             .default_value("sql_only")
             .description("Storage backend alias (same as AOS_STORAGE_BACKEND)")
-            .category("DATABASE")
+            .category("STORAGE")
             .config_key("database.storage_mode")
             .toml_key("db.storage_mode")
             .build(),
@@ -1056,7 +1056,7 @@ pub fn default_schema() -> ConfigSchema {
             .config_type(ConfigType::Path { must_exist: false })
             .default_value("var/aos-kv.redb")
             .description("Path to KV (redb) file when using KV storage modes")
-            .category("DATABASE")
+            .category("STORAGE")
             .config_key("database.kv_path")
             .toml_key("db.kv_path")
             .build(),
@@ -1067,7 +1067,7 @@ pub fn default_schema() -> ConfigSchema {
             .config_type(ConfigType::Path { must_exist: false })
             .default_value("var/aos-kv-index")
             .description("Path to KV Tantivy index (search) when using KV modes")
-            .category("DATABASE")
+            .category("STORAGE")
             .config_key("database.kv_tantivy_path")
             .toml_key("db.kv_tantivy_path")
             .build(),
@@ -1078,6 +1078,15 @@ pub fn default_schema() -> ConfigSchema {
             .config_type(ConfigType::Duration)
             .default_value("30s")
             .description("Database connection timeout duration")
+            .category("DATABASE")
+            .build(),
+    );
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_SKIP_MIGRATION_SIGNATURES")
+            .config_type(ConfigType::Bool)
+            .default_value("false")
+            .description("Development/testing only: bypass migration signature verification")
             .category("DATABASE")
             .build(),
     );
@@ -1156,6 +1165,22 @@ pub fn default_schema() -> ConfigSchema {
             .description(
                 "Log output format: json (production), text (simple), pretty (development)",
             )
+            .category("LOGGING")
+            .build(),
+    );
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_LOG_PROFILE")
+            .config_type(ConfigType::Enum {
+                values: vec![
+                    "json".to_string(),
+                    "plain".to_string(),
+                    "debug".to_string(),
+                    "trace".to_string(),
+                ],
+            })
+            .default_value("json")
+            .description("Logging profile switch: json (default), plain (human-readable), debug (json + debug level), trace (json + trace level)")
             .category("LOGGING")
             .build(),
     );
@@ -1610,6 +1635,15 @@ pub fn default_schema() -> ConfigSchema {
     // =========================================================================
 
     schema.add_variable(
+        ConfigVariable::new("AOS_DEV_NO_AUTH")
+            .config_type(ConfigType::Bool)
+            .default_value("false")
+            .description("Development/testing only: disable auth enforcement for local runs")
+            .category("SECURITY")
+            .build(),
+    );
+
+    schema.add_variable(
         ConfigVariable::new("AOS_SIGNING_KEY")
             .config_type(ConfigType::String)
             .description("Ed25519 signing key for manifest/artifact signing")
@@ -1618,45 +1652,6 @@ pub fn default_schema() -> ConfigSchema {
             .build(),
     );
 
-    // =========================================================================
-    // STORAGE - Storage backend configuration
-    // =========================================================================
-
-    schema.add_variable(
-        ConfigVariable::new("AOS_STORAGE_BACKEND")
-            .config_type(ConfigType::Enum {
-                values: vec![
-                    "sql".to_string(),
-                    "dual".to_string(),
-                    "kv-primary".to_string(),
-                    "kv-only".to_string(),
-                ],
-            })
-            .default_value("sql")
-            .description("Storage backend selection: sql (current default), dual (write both/read SQL), kv-primary (write both/read KV), kv-only (future target)")
-            .category("STORAGE")
-            .build(),
-    );
-
-    schema.add_variable(
-        ConfigVariable::new("AOS_KV_PATH")
-            .config_type(ConfigType::Path { must_exist: false })
-            .default_value("var/aos-kv.redb")
-            .description("Path to KV database file (redb)")
-            .category("STORAGE")
-            .build(),
-    );
-
-    schema.add_variable(
-        ConfigVariable::new("AOS_TANTIVY_PATH")
-            .config_type(ConfigType::Path { must_exist: false })
-            .default_value("var/aos-search")
-            .description("Path to Tantivy search index directory")
-            .category("STORAGE")
-            .build(),
-    );
-
-    // =========================================================================
     // ADAPTER_GC - Adapter garbage collection configuration
     // =========================================================================
 

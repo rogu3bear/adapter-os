@@ -106,12 +106,23 @@ pub async fn finalize_boot(
     info!(target: "boot", phase = 12, name = "finalization", "═══ BOOT PHASE 12/12: Finalization ═══");
 
     // Build router with UI
-    let api_routes = routes::build(state);
+    let api_routes = routes::build(state.clone());
 
-    // NOTE: Legacy root-level API shims removed due to fallback handler conflict.
-    // All API endpoints should use the `/api/*` prefix.
+    // Provide root-level compat shims for health/readiness while keeping /api canonical.
+    let compat_routes = axum::Router::new()
+        .route(
+            "/readyz",
+            axum::routing::get(adapteros_server_api::handlers::health::ready),
+        )
+        .route(
+            "/healthz",
+            axum::routing::get(adapteros_server_api::handlers::health::health),
+        )
+        .with_state(state);
+
     let app = axum::Router::new()
         .nest("/api", api_routes) // API routes under /api prefix
+        .merge(compat_routes) // Backwards-compatible root probes
         .merge(ui_routes); // UI fallback for non-API paths
 
     // =========================================================================

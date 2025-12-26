@@ -4035,15 +4035,16 @@ pub async fn duplicate_adapter(
 // - adapter_lifecycle: promote_adapter_state
 // - adapter_health: get_adapter_activations, get_adapter_health, verify_gpu_integrity
 // - adapter_versions: get_adapter_version, list_adapter_versions
-pub use super::{
-    get_adapter, get_adapter_metrics,
-    get_adapter_repository, get_adapter_repository_policy, get_commit,
-    get_commit_diff, get_quality_metrics, get_system_metrics, list_adapter_repositories,
-    list_adapters, list_commits,
+pub use super::adapter_health::{
+    get_adapter_activations, get_adapter_health, verify_gpu_integrity,
 };
 pub use super::adapter_lifecycle::promote_adapter_state;
-pub use super::adapter_health::{get_adapter_activations, get_adapter_health, verify_gpu_integrity};
 pub use super::adapter_versions::{get_adapter_version, list_adapter_versions};
+pub use super::{
+    get_adapter, get_adapter_metrics, get_adapter_repository, get_adapter_repository_policy,
+    get_commit, get_commit_diff, get_quality_metrics, get_system_metrics,
+    list_adapter_repositories, list_adapters, list_commits,
+};
 
 // Create an alias for list_adapter_repositories as list_repositories_legacy for backwards compatibility
 pub use super::list_adapter_repositories as list_repositories_legacy;

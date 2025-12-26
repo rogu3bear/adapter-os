@@ -36,7 +36,8 @@ fn test_lock_acquisition_fails_when_process_exists() {
 
     let err = result.err().expect("Should be an error");
     assert!(
-        err.to_string().contains("Another aos-cp process is running"),
+        err.to_string()
+            .contains("Another aos-cp process is running"),
         "Error should mention existing process"
     );
 }

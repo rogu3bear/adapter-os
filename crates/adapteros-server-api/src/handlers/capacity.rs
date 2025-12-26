@@ -245,7 +245,9 @@ pub async fn get_memory_report(
             // TODO: Get actual memory usage from worker when Worker.memory_report() is available
             adapter_states
                 .into_iter()
-                .filter(|(state, _)| matches!(state.as_str(), "loaded" | "warm" | "hot" | "resident"))
+                .filter(|(state, _)| {
+                    matches!(state.as_str(), "loaded" | "warm" | "hot" | "resident")
+                })
                 .map(|(adapter_id, _count)| AdapterMemoryUsage {
                     adapter_id,
                     memory_bytes: 0, // Placeholder - will be populated when worker exposes memory_report

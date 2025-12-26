@@ -2,24 +2,143 @@
 //!
 //! This module provides:
 //! - [`initialize_logging`]: Sets up tracing with console, file, and OpenTelemetry outputs
+//!   using a deterministic log profile switch.
 //! - [`cleanup_old_logs`]: Removes log files older than the retention period
 
 use anyhow::Result;
+use std::fmt as stdfmt;
+use tracing::field::{Field, Visit};
 use tracing::{info, warn};
 use tracing_appender::{
     non_blocking::WorkerGuard,
     rolling::{RollingFileAppender, Rotation},
 };
+use tracing_subscriber::registry::LookupSpan;
 use tracing_subscriber::{
-    fmt::{self, format::FmtSpan},
+    fmt as tracing_fmt,
+    fmt::{
+        format::{FmtSpan, FormatEvent, FormatFields, Writer},
+        FmtContext,
+    },
     layer::SubscriberExt,
     util::SubscriberInitExt,
     EnvFilter, Layer,
 };
 
+use adapteros_core::time;
 use adapteros_server_api::config::{LoggingConfig, OtelConfig};
 
 use crate::otel::{self, OtelGuard};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LogProfile {
+    Json,
+    Plain,
+    Debug,
+    Trace,
+}
+
+impl LogProfile {
+    fn from_env() -> Self {
+        match std::env::var("AOS_LOG_PROFILE")
+            .unwrap_or_else(|_| "json".to_string())
+            .to_lowercase()
+            .as_str()
+        {
+            "plain" => LogProfile::Plain,
+            "debug" => LogProfile::Debug,
+            "trace" => LogProfile::Trace,
+            _ => LogProfile::Json,
+        }
+    }
+}
+
+#[derive(Clone)]
+struct StructuredJsonFormatter {
+    component: &'static str,
+}
+
+impl StructuredJsonFormatter {
+    fn new(component: &'static str) -> Self {
+        Self { component }
+    }
+}
+
+impl<S, N> FormatEvent<S, N> for StructuredJsonFormatter
+where
+    S: tracing::Subscriber + for<'a> LookupSpan<'a>,
+    N: for<'a> FormatFields<'a> + 'static,
+{
+    fn format_event(
+        &self,
+        ctx: &FmtContext<'_, S, N>,
+        mut writer: Writer<'_>,
+        event: &tracing::Event<'_>,
+    ) -> stdfmt::Result {
+        struct JsonVisitor<'a> {
+            payload: &'a mut serde_json::Map<String, serde_json::Value>,
+        }
+
+        impl<'a> Visit for JsonVisitor<'a> {
+            fn record_str(&mut self, field: &Field, value: &str) {
+                self.payload.insert(
+                    field.name().to_string(),
+                    serde_json::Value::String(value.to_string()),
+                );
+            }
+
+            fn record_debug(&mut self, field: &Field, value: &dyn stdfmt::Debug) {
+                self.payload.insert(
+                    field.name().to_string(),
+                    serde_json::Value::String(format!("{:?}", value)),
+                );
+            }
+        }
+
+        let mut payload = serde_json::Map::new();
+
+        payload.insert(
+            "ts".to_string(),
+            serde_json::Value::String(time::now_rfc3339()),
+        );
+        payload.insert(
+            "level".to_string(),
+            serde_json::Value::String(event.metadata().level().to_string()),
+        );
+        payload.insert(
+            "component".to_string(),
+            serde_json::Value::String(self.component.to_string()),
+        );
+        let phase = ctx
+            .lookup_current()
+            .map(|s| s.name().to_string())
+            .unwrap_or_default();
+        payload.insert("phase".to_string(), serde_json::Value::String(phase));
+
+        // Standard keys with deterministic presence (empty string if absent)
+        for key in ["trace_id", "span_id", "request_id", "tenant", "error_code"] {
+            payload.insert(key.to_string(), serde_json::Value::String(String::new()));
+        }
+
+        let mut visitor = JsonVisitor {
+            payload: &mut payload,
+        };
+        event.record(&mut visitor);
+        if let Some(code_value) = payload.get("code").cloned() {
+            payload
+                .entry("error_code".to_string())
+                .or_insert(code_value);
+        }
+
+        let json = serde_json::Value::Object(payload);
+        let mut buf = Vec::new();
+        if serde_json::to_writer(&mut buf, &json).is_ok() {
+            let _ = writeln!(writer, "{}", String::from_utf8_lossy(&buf));
+        }
+
+        Ok(())
+    }
+}
 
 /// Cleanup old log files based on retention policy
 ///
@@ -122,9 +241,27 @@ pub fn initialize_logging(
     config: &LoggingConfig,
     otel_config: &OtelConfig,
 ) -> Result<(Option<WorkerGuard>, Option<OtelGuard>)> {
-    // Parse log level from config or environment
+    let profile = LogProfile::from_env();
+
+    // Honor existing RUST_LOG; otherwise set a deterministic baseline per profile.
+    let filter_source = std::env::var("RUST_LOG").unwrap_or_else(|_| match profile {
+        LogProfile::Plain | LogProfile::Json => config.level.clone(),
+        LogProfile::Debug => "debug".to_string(),
+        LogProfile::Trace => "trace".to_string(),
+    });
+
+    if std::env::var("RUST_LOG").is_err() {
+        std::env::set_var("RUST_LOG", &filter_source);
+    }
+
+    if matches!(profile, LogProfile::Debug | LogProfile::Trace)
+        && std::env::var("RUST_BACKTRACE").is_err()
+    {
+        std::env::set_var("RUST_BACKTRACE", "1");
+    }
+
     let env_filter =
-        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(&config.level));
+        EnvFilter::try_new(&filter_source).unwrap_or_else(|_| EnvFilter::new(&config.level));
 
     // Determine rotation strategy
     let rotation = match config.rotation.as_str() {
@@ -140,6 +277,11 @@ pub fn initialize_logging(
         }
     };
 
+    let use_json = config.json_format || !matches!(profile, LogProfile::Plain);
+    let component = "adapteros-server";
+
+    let otel_config = otel_config.clone();
+
     // Set up file logging if log_dir is configured
     let (file_layer, guard) = if let Some(ref log_dir) = config.log_dir {
         // Ensure log directory exists
@@ -149,18 +291,16 @@ pub fn initialize_logging(
         let file_appender = RollingFileAppender::new(rotation, log_dir, &config.log_prefix);
         let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
 
-        let file_layer = if config.json_format {
-            fmt::layer()
-                .json()
+        let file_layer = if use_json {
+            let mut layer = tracing_fmt::layer()
+                .event_format(StructuredJsonFormatter::new(component))
                 .with_writer(non_blocking)
-                .with_span_events(FmtSpan::CLOSE)
-                .with_target(true)
-                .with_thread_ids(true)
-                .with_file(true)
-                .with_line_number(true)
-                .boxed()
+                .with_target(false)
+                .with_ansi(false);
+            layer.set_span_events(FmtSpan::CLOSE);
+            layer.boxed()
         } else {
-            fmt::layer()
+            tracing_fmt::layer()
                 .with_writer(non_blocking)
                 .with_ansi(false) // No ANSI colors in log files
                 .with_target(true)
@@ -176,14 +316,24 @@ pub fn initialize_logging(
     };
 
     // Console layer (always enabled)
-    let console_layer = fmt::layer()
-        .with_target(true)
-        .with_thread_ids(false) // Cleaner console output
-        .with_file(false)
-        .with_line_number(false);
+    let console_layer = if use_json {
+        let mut layer = tracing_fmt::layer()
+            .event_format(StructuredJsonFormatter::new(component))
+            .with_target(false)
+            .with_ansi(false);
+        layer.set_span_events(FmtSpan::CLOSE);
+        layer.boxed()
+    } else {
+        tracing_fmt::layer()
+            .with_target(true)
+            .with_thread_ids(false) // Cleaner console output
+            .with_file(false)
+            .with_line_number(false)
+            .boxed()
+    };
 
     // Try to initialize OpenTelemetry (graceful degradation on failure)
-    let (otel_tracer, otel_guard) = match otel::init_otel(otel_config) {
+    let (otel_tracer, otel_guard) = match otel::init_otel(&otel_config) {
         Ok(Some((tracer, guard))) => (Some(tracer), Some(guard)),
         Ok(None) => (None, None),
         Err(e) => {

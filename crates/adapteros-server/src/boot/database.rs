@@ -25,7 +25,8 @@
 //! ```
 
 use adapteros_config::{
-    init_effective_config, try_effective_config, ConfigSnapshot, StorageBackend as CfgStorageBackend,
+    init_effective_config, try_effective_config, ConfigSnapshot,
+    StorageBackend as CfgStorageBackend,
 };
 use adapteros_db::{Db, DbFactory, DbStorageBackend, RuntimeSession};
 use adapteros_deterministic_exec::global_ledger::GlobalTickLedger;
@@ -98,8 +99,8 @@ pub async fn initialize_database(
         .db
         .clone();
 
-    let cfg_backend = CfgStorageBackend::from_str(&db_cfg.storage_mode)
-        .unwrap_or(CfgStorageBackend::Sql);
+    let cfg_backend =
+        CfgStorageBackend::from_str(&db_cfg.storage_mode).unwrap_or(CfgStorageBackend::Sql);
     let db_backend = match cfg_backend {
         CfgStorageBackend::Sql => DbStorageBackend::Sql,
         CfgStorageBackend::Dual => DbStorageBackend::Dual,

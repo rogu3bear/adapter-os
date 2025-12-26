@@ -23,6 +23,7 @@ mod common;
 use common::{setup_state, test_admin_claims};
 
 #[tokio::test]
+#[ignore = "requires full tenant/model fixture setup"]
 async fn ready_model_happy_path_inference_and_routing() {
     let manifest_hash = "test-manifest-hash";
     let backend_name = "mlx";

@@ -20,6 +20,7 @@ cd "$ROOT_DIR"
 
 : "${SMOKE_USERNAME:=admin}"
 : "${SMOKE_PASSWORD:=admin}"
+: "${API_BASE:=${AOS_SERVER_URL%/}/api}"
 
 # -----------------------------------------------------------------------------
 # Output helpers
@@ -64,6 +65,7 @@ show_diagnostics() {
   echo ""
   err "Diagnostics"
   log "AOS_SERVER_URL=$AOS_SERVER_URL"
+  log "API_BASE=$API_BASE"
   log "AOS_SERVER_PORT=$AOS_SERVER_PORT"
 
   if [[ -f var/backend.pid ]]; then
@@ -220,7 +222,7 @@ verify_migrations() {
 ensure_backend_running() {
   log "services: ensure backend is up"
 
-  local health_url="${AOS_SERVER_URL}/healthz"
+  local health_url="${API_BASE}/healthz"
   local code
   code="$(curl_try "GET" "$health_url" "$HEALTH_BODY" "$SMOKE_HTTP_TIMEOUT_SECONDS" "" )"
   if [[ "$code" == "200" ]]; then
@@ -250,8 +252,8 @@ ensure_backend_running() {
 
 verify_readiness() {
   log "http: verify /healthz and /readyz"
-  wait_for_200 "${AOS_SERVER_URL}/healthz" "$HEALTH_BODY" "$SMOKE_READY_TIMEOUT_SECONDS"
-  wait_for_200 "${AOS_SERVER_URL}/readyz" "$READY_BODY" "$SMOKE_READY_TIMEOUT_SECONDS"
+  wait_for_200 "${API_BASE}/healthz" "$HEALTH_BODY" "$SMOKE_READY_TIMEOUT_SECONDS"
+  wait_for_200 "${API_BASE}/readyz" "$READY_BODY" "$SMOKE_READY_TIMEOUT_SECONDS"
   ok "http: /healthz 200"
   ok "http: /readyz 200"
 }
@@ -263,7 +265,7 @@ try_login_if_needed() {
   fi
 
   log "auth: attempting login (${SMOKE_USERNAME})"
-  local login_url="${AOS_SERVER_URL}/v1/auth/login"
+  local login_url="${API_BASE}/v1/auth/login"
   local payload
   payload="$(printf '{"username":"%s","password":"%s"}' "$SMOKE_USERNAME" "$SMOKE_PASSWORD")"
 
@@ -287,7 +289,7 @@ try_login_if_needed() {
 
 list_models_assert_non_empty() {
   log "api: GET /v1/models (assert non-empty)"
-  local url="${AOS_SERVER_URL}/v1/models"
+  local url="${API_BASE}/v1/models"
 
   local headers=()
   if [[ -n "${AUTH_TOKEN:-}" ]]; then
@@ -324,7 +326,7 @@ list_models_assert_non_empty() {
 
 run_minimal_inference() {
   log "api: POST /v1/infer (minimal)"
-  local url="${AOS_SERVER_URL}/v1/infer"
+  local url="${API_BASE}/v1/infer"
 
   local headers=()
   if [[ -n "${AUTH_TOKEN:-}" ]]; then

@@ -107,17 +107,20 @@ async fn json_request(
 struct ContractHarness {
     app: axum::Router,
     state: AppState,
+    _env: common::TestkitEnvGuard,
 }
 
 impl ContractHarness {
     async fn new() -> Self {
-        env::set_var("E2E_MODE", "1");
-        env::set_var("AOS_DEV_NO_AUTH", "1");
-        env::set_var("AOS_SKIP_MIGRATION_SIGNATURES", "1");
+        let env_guard = common::TestkitEnvGuard::enabled(true).await;
 
         let state = common::setup_state(None).await.expect("state setup");
         let app = create_app(state.clone());
-        let harness = Self { app, state };
+        let harness = Self {
+            app,
+            state,
+            _env: env_guard,
+        };
 
         harness.reset().await;
         harness.seed_minimal().await;

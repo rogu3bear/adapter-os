@@ -530,6 +530,13 @@ impl MetricsRegistry {
         self.registry.clone()
     }
 
+    /// Record a gauge value, replacing any existing points for the series
+    pub async fn set_gauge(&self, series_name: String, value: f64) {
+        let timestamp = current_timestamp_ms();
+        let mut series = self.time_series.write().await;
+        series.insert(series_name, vec![MetricDataPoint { timestamp, value }]);
+    }
+
     /// Record a metric data point with current timestamp
     pub async fn record_metric(&self, series_name: String, value: f64) {
         let timestamp = current_timestamp_ms();
@@ -1330,6 +1337,25 @@ mod tests {
         assert_eq!(series.points.len(), 2);
         assert_eq!(series.points[0].value, 42.0);
         assert_eq!(series.points[1].value, 43.0);
+    }
+
+    #[tokio::test]
+    async fn test_metrics_registry_set_gauge_overwrites() {
+        let registry = MetricsRegistry::new();
+
+        registry
+            .set_gauge("gauge_metric".to_string(), 1.0)
+            .await;
+        registry
+            .set_gauge("gauge_metric".to_string(), 2.0)
+            .await;
+
+        let series = registry
+            .get_series_async("gauge_metric")
+            .await
+            .expect("gauge series");
+        assert_eq!(series.points.len(), 1);
+        assert_eq!(series.points[0].value, 2.0);
     }
 
     #[tokio::test]

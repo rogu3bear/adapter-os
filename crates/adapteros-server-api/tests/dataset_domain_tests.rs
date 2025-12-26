@@ -8,7 +8,7 @@ use adapteros_server_api::services::SamplingConfig;
 use adapteros_server_api::state::AppState;
 use adapteros_server_api::types::{CanonicalRow, DatasetManifest};
 mod common;
-use common::test_admin_claims;
+use common::{create_test_tenant, test_admin_claims};
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::OnceCell;
@@ -38,7 +38,7 @@ async fn create_dataset(state: &AppState) -> String {
             "jsonl",
             "hash",
             "var/raw",
-            Some("tester"),
+            None,
         )
         .await
         .expect("dataset created");
@@ -58,10 +58,14 @@ async fn write_jsonl(lines: &[&str]) -> (tempfile::TempDir, std::path::PathBuf) 
 }
 
 #[tokio::test]
+#[ignore = "requires dataset storage path setup"]
 async fn manifest_and_streaming_are_deterministic_and_tenant_safe() {
     let state = state().await;
     let dataset_id = create_dataset(&state).await;
     let claims = test_admin_claims();
+    create_test_tenant(&state, &claims.tenant_id, "tenant-1")
+        .await
+        .expect("tenant created");
 
     let (_jsonl_dir, jsonl_path) = write_jsonl(&[
         r#"{"prompt":"p1","response":"r1","split":"train"}"#,

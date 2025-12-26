@@ -201,7 +201,9 @@ impl Plugin for ErrorPlugin {
 
     async fn on_event(&self, _event: &PluginEvent) -> Result<()> {
         self.call_count.fetch_add(1, Ordering::SeqCst);
-        Err(AosError::Internal("ErrorPlugin intentional error".to_string()))
+        Err(AosError::Internal(
+            "ErrorPlugin intentional error".to_string(),
+        ))
     }
 }
 

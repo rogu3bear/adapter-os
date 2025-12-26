@@ -27,13 +27,14 @@ mod merkle_chain_integrity {
 
         let sample_data = "id-1|2025-01-01T00:00:00Z|tenant-1|policy-v1|adapter.load|allow|||||||";
         let hash = B3Hash::hash(sample_data.as_bytes());
+        let hash_hex = hash.to_hex();
 
-        assert!(!hash.to_string().is_empty());
-        assert_eq!(hash.to_string().len(), 64); // BLAKE3 produces 256-bit (64 hex chars)
+        assert!(!hash_hex.is_empty());
+        assert_eq!(hash_hex.len(), 64); // BLAKE3 produces 256-bit (64 hex chars)
 
         println!("BLAKE3 hash linkage verified:");
         println!("  Input: {}", &sample_data[..50]);
-        println!("  Hash: {}", hash);
+        println!("  Hash: {}", hash_hex);
     }
 
     /// Test: First entry has no previous_hash

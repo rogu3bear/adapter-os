@@ -126,6 +126,14 @@ TRAIN_TIMEOUT_SEC="${AOS_TRAIN_TIMEOUT_SEC:-1800}"
 INFER_PROMPT="${AOS_INFER_PROMPT:-Explain (briefly) what AdapterOS is and how LoRA adapters are used in it.}"
 INFER_MAX_TOKENS="${AOS_INFER_MAX_TOKENS:-160}"
 
+normalize_base_url() {
+  if [[ "$BASE_URL" != *"/api" && "$BASE_URL" != *"/api/" ]]; then
+    BASE_URL="${BASE_URL%/}/api"
+  else
+    BASE_URL="${BASE_URL%/}"
+  fi
+}
+
 while (($# > 0)); do
   case "$1" in
     --base-url) BASE_URL="$2"; shift 2 ;;
@@ -150,6 +158,8 @@ while (($# > 0)); do
       ;;
   esac
 done
+
+normalize_base_url
 
 if [[ -z "${BASE_URL}" ]]; then
   die "BASE_URL is empty"

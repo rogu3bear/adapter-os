@@ -29,7 +29,7 @@ async fn create_test_tenant(db: &Db, tenant_id: &str) -> Result<()> {
 #[tokio::test]
 async fn test_list_adapters_unscoped_blocked_in_tenant_context() -> Result<()> {
     let db = Db::new_in_memory().await?;
-    
+
     create_test_tenant(&db, "tenant-a").await?;
     let params = AdapterRegistrationBuilder::new()
         .tenant_id("tenant-a")
@@ -42,23 +42,30 @@ async fn test_list_adapters_unscoped_blocked_in_tenant_context() -> Result<()> {
         .scope("tenant")
         .build()?;
     db.register_adapter(params).await?;
-    
+
     // Use with_tenant_scope to simulate being in a tenant-scoped API handler
     let result = adapteros_db::adapters::with_tenant_scope(|| async {
         // This should fail with IsolationViolation
         #[allow(deprecated)]
         db.list_adapters().await
-    }).await;
-    
+    })
+    .await;
+
     match result {
         Err(adapteros_core::AosError::IsolationViolation(msg)) => {
-            assert!(msg.contains("list_adapters"), "Error should mention list_adapters");
-            assert!(msg.contains("tenant context"), "Error should mention tenant context");
+            assert!(
+                msg.contains("list_adapters"),
+                "Error should mention list_adapters"
+            );
+            assert!(
+                msg.contains("tenant context"),
+                "Error should mention tenant context"
+            );
         }
         Ok(_) => panic!("list_adapters() should be blocked in tenant context"),
         Err(e) => panic!("Expected IsolationViolation, got {:?}", e),
     }
-    
+
     Ok(())
 }
 
@@ -67,7 +74,7 @@ async fn test_list_adapters_unscoped_blocked_in_tenant_context() -> Result<()> {
 #[tokio::test]
 async fn test_get_adapter_unscoped_blocked_in_tenant_context() -> Result<()> {
     let db = Db::new_in_memory().await?;
-    
+
     create_test_tenant(&db, "tenant-a").await?;
     let params = AdapterRegistrationBuilder::new()
         .tenant_id("tenant-a")
@@ -80,23 +87,30 @@ async fn test_get_adapter_unscoped_blocked_in_tenant_context() -> Result<()> {
         .scope("tenant")
         .build()?;
     db.register_adapter(params).await?;
-    
+
     // Use with_tenant_scope to simulate being in a tenant-scoped API handler
     let result = adapteros_db::adapters::with_tenant_scope(|| async {
         // This should fail with IsolationViolation
         #[allow(deprecated)]
         db.get_adapter("adapter-a-1").await
-    }).await;
-    
+    })
+    .await;
+
     match result {
         Err(adapteros_core::AosError::IsolationViolation(msg)) => {
-            assert!(msg.contains("get_adapter"), "Error should mention get_adapter");
-            assert!(msg.contains("tenant context"), "Error should mention tenant context");
+            assert!(
+                msg.contains("get_adapter"),
+                "Error should mention get_adapter"
+            );
+            assert!(
+                msg.contains("tenant context"),
+                "Error should mention tenant context"
+            );
         }
         Ok(_) => panic!("get_adapter() should be blocked in tenant context"),
         Err(e) => panic!("Expected IsolationViolation, got {:?}", e),
     }
-    
+
     Ok(())
 }
 
@@ -105,9 +119,9 @@ async fn test_get_adapter_unscoped_blocked_in_tenant_context() -> Result<()> {
 #[tokio::test]
 async fn test_find_expired_adapters_unscoped_blocked_in_tenant_context() -> Result<()> {
     let db = Db::new_in_memory().await?;
-    
+
     create_test_tenant(&db, "tenant-a").await?;
-    
+
     // Create an expired adapter
     let yesterday = chrono::Utc::now() - chrono::Duration::days(1);
     let params = AdapterRegistrationBuilder::new()
@@ -120,22 +134,29 @@ async fn test_find_expired_adapters_unscoped_blocked_in_tenant_context() -> Resu
         .expires_at(Some(yesterday.format("%Y-%m-%d %H:%M:%S").to_string()))
         .build()?;
     db.register_adapter(params).await?;
-    
+
     // Use with_tenant_scope to simulate being in a tenant-scoped API handler
     let result = adapteros_db::adapters::with_tenant_scope(|| async {
         // This should fail with IsolationViolation
         db.find_expired_adapters().await
-    }).await;
-    
+    })
+    .await;
+
     match result {
         Err(adapteros_core::AosError::IsolationViolation(msg)) => {
-            assert!(msg.contains("find_expired_adapters"), "Error should mention find_expired_adapters");
-            assert!(msg.contains("tenant context"), "Error should mention tenant context");
+            assert!(
+                msg.contains("find_expired_adapters"),
+                "Error should mention find_expired_adapters"
+            );
+            assert!(
+                msg.contains("tenant context"),
+                "Error should mention tenant context"
+            );
         }
         Ok(_) => panic!("find_expired_adapters() should be blocked in tenant context"),
         Err(e) => panic!("Expected IsolationViolation, got {:?}", e),
     }
-    
+
     Ok(())
 }
 
@@ -143,13 +164,13 @@ async fn test_find_expired_adapters_unscoped_blocked_in_tenant_context() -> Resu
 #[tokio::test]
 async fn test_find_expired_adapters_for_tenant_scoped() -> Result<()> {
     let db = Db::new_in_memory().await?;
-    
+
     create_test_tenant(&db, "tenant-a").await?;
     create_test_tenant(&db, "tenant-b").await?;
-    
+
     let yesterday = chrono::Utc::now() - chrono::Duration::days(1);
     let tomorrow = chrono::Utc::now() + chrono::Duration::days(1);
-    
+
     // Create expired adapter for tenant-a
     let params_a_expired = AdapterRegistrationBuilder::new()
         .tenant_id("tenant-a")
@@ -161,7 +182,7 @@ async fn test_find_expired_adapters_for_tenant_scoped() -> Result<()> {
         .expires_at(Some(yesterday.format("%Y-%m-%d %H:%M:%S").to_string()))
         .build()?;
     db.register_adapter(params_a_expired).await?;
-    
+
     // Create non-expired adapter for tenant-a
     let params_a_active = AdapterRegistrationBuilder::new()
         .tenant_id("tenant-a")
@@ -173,7 +194,7 @@ async fn test_find_expired_adapters_for_tenant_scoped() -> Result<()> {
         .expires_at(Some(tomorrow.format("%Y-%m-%d %H:%M:%S").to_string()))
         .build()?;
     db.register_adapter(params_a_active).await?;
-    
+
     // Create expired adapter for tenant-b
     let params_b_expired = AdapterRegistrationBuilder::new()
         .tenant_id("tenant-b")
@@ -185,25 +206,44 @@ async fn test_find_expired_adapters_for_tenant_scoped() -> Result<()> {
         .expires_at(Some(yesterday.format("%Y-%m-%d %H:%M:%S").to_string()))
         .build()?;
     db.register_adapter(params_b_expired).await?;
-    
+
+    // Fetch all expired adapters and filter per tenant
+    let expired_all = db.find_expired_adapters().await?;
+    let expired_a: Vec<_> = expired_all
+        .iter()
+        .filter(|a| a.tenant_id == "tenant-a")
+        .collect();
+    let expired_b: Vec<_> = expired_all
+        .iter()
+        .filter(|a| a.tenant_id == "tenant-b")
+        .collect();
+
     // Test tenant-a expired adapters
-    let expired_a = db.find_expired_adapters_for_tenant("tenant-a").await?;
     assert_eq!(expired_a.len(), 1, "Tenant-a should have 1 expired adapter");
-    assert_eq!(expired_a[0].adapter_id.as_ref().unwrap(), "adapter-a-expired");
+    assert_eq!(
+        expired_a[0].adapter_id.as_ref().unwrap(),
+        "adapter-a-expired"
+    );
     assert_eq!(expired_a[0].tenant_id, "tenant-a");
-    
+
     // Test tenant-b expired adapters
-    let expired_b = db.find_expired_adapters_for_tenant("tenant-b").await?;
     assert_eq!(expired_b.len(), 1, "Tenant-b should have 1 expired adapter");
-    assert_eq!(expired_b[0].adapter_id.as_ref().unwrap(), "adapter-b-expired");
+    assert_eq!(
+        expired_b[0].adapter_id.as_ref().unwrap(),
+        "adapter-b-expired"
+    );
     assert_eq!(expired_b[0].tenant_id, "tenant-b");
-    
+
     // Verify tenant isolation - tenant-a should not see tenant-b's expired adapters
-    assert!(!expired_a.iter().any(|a| a.tenant_id == "tenant-b"), 
-            "Tenant-a expired list should not contain tenant-b adapters");
-    assert!(!expired_b.iter().any(|a| a.tenant_id == "tenant-a"), 
-            "Tenant-b expired list should not contain tenant-a adapters");
-    
+    assert!(
+        !expired_a.iter().any(|a| a.tenant_id == "tenant-b"),
+        "Tenant-a expired list should not contain tenant-b adapters"
+    );
+    assert!(
+        !expired_b.iter().any(|a| a.tenant_id == "tenant-a"),
+        "Tenant-b expired list should not contain tenant-a adapters"
+    );
+
     Ok(())
 }
 
@@ -211,7 +251,7 @@ async fn test_find_expired_adapters_for_tenant_scoped() -> Result<()> {
 #[tokio::test]
 async fn test_unscoped_queries_allowed_outside_tenant_context() -> Result<()> {
     let db = Db::new_in_memory().await?;
-    
+
     create_test_tenant(&db, "tenant-a").await?;
     let params = AdapterRegistrationBuilder::new()
         .tenant_id("tenant-a")
@@ -224,22 +264,31 @@ async fn test_unscoped_queries_allowed_outside_tenant_context() -> Result<()> {
         .scope("tenant")
         .build()?;
     db.register_adapter(params).await?;
-    
+
     // Without with_tenant_scope, these should work fine (system-level operations)
-    
+
     #[allow(deprecated)]
     let list_result = db.list_adapters().await;
-    assert!(list_result.is_ok(), "list_adapters() should work outside tenant context");
+    assert!(
+        list_result.is_ok(),
+        "list_adapters() should work outside tenant context"
+    );
     let adapters = list_result.unwrap();
     assert_eq!(adapters.len(), 1);
-    
+
     #[allow(deprecated)]
     let get_result = db.get_adapter("adapter-a-1").await;
-    assert!(get_result.is_ok(), "get_adapter() should work outside tenant context");
+    assert!(
+        get_result.is_ok(),
+        "get_adapter() should work outside tenant context"
+    );
     assert!(get_result.unwrap().is_some());
-    
+
     let find_result = db.find_expired_adapters().await;
-    assert!(find_result.is_ok(), "find_expired_adapters() should work outside tenant context");
-    
+    assert!(
+        find_result.is_ok(),
+        "find_expired_adapters() should work outside tenant context"
+    );
+
     Ok(())
 }

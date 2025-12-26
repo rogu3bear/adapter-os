@@ -222,14 +222,15 @@ impl Db {
         if self.storage_mode().write_to_sql() {
             sqlx::query(
                 r#"
-                INSERT INTO repositories (id, tenant_id, repo_id, path, languages_json, frameworks_json, default_branch, status, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, NULL, ?, 'registered', datetime('now'), datetime('now'))
+                INSERT INTO repositories (id, tenant_id, repo_id, path, languages, languages_json, frameworks_json, default_branch, status, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, NULL, ?, 'registered', datetime('now'), datetime('now'))
                 "#,
             )
             .bind(&id)
             .bind(tenant_id)
             .bind(repo_id)
             .bind(path)
+            .bind(&languages_json)
             .bind(&languages_json)
             .bind(default_branch)
             .execute(self.pool())

@@ -746,7 +746,10 @@ mod tests {
         let input = "Failed to open /Users/admin/secrets/config.json";
         let result = redact_error_details(input);
         assert!(!result.contains("/Users/"), "Path should be redacted");
-        assert!(result.contains("[PATH]"), "Should contain [PATH] placeholder");
+        assert!(
+            result.contains("[PATH]"),
+            "Should contain [PATH] placeholder"
+        );
     }
 
     #[test]
@@ -815,7 +818,10 @@ mod tests {
             !result.contains("/tmp/adapter-12345"),
             "Temp path should be redacted"
         );
-        assert!(result.contains("[TEMP]"), "Should contain [TEMP] placeholder");
+        assert!(
+            result.contains("[TEMP]"),
+            "Should contain [TEMP] placeholder"
+        );
     }
 
     #[test]
@@ -826,15 +832,24 @@ mod tests {
             !result.contains(r"C:\Users"),
             "Windows path should be redacted"
         );
-        assert!(result.contains("[PATH]"), "Should contain [PATH] placeholder");
+        assert!(
+            result.contains("[PATH]"),
+            "Should contain [PATH] placeholder"
+        );
     }
 
     #[test]
     fn test_redacts_home_paths() {
         let input = "Config at ~/secrets/config.json";
         let result = redact_error_details(input);
-        assert!(!result.contains("~/secrets"), "Home path should be redacted");
-        assert!(result.contains("[PATH]"), "Should contain [PATH] placeholder");
+        assert!(
+            !result.contains("~/secrets"),
+            "Home path should be redacted"
+        );
+        assert!(
+            result.contains("[PATH]"),
+            "Should contain [PATH] placeholder"
+        );
     }
 
     #[test]
@@ -864,9 +879,8 @@ mod tests {
 
     #[test]
     fn test_with_redacted_details_method() {
-        let error = ApiError::internal("failed").with_redacted_details(
-            "Error at /Users/admin/secrets/config.json: connection refused",
-        );
+        let error = ApiError::internal("failed")
+            .with_redacted_details("Error at /Users/admin/secrets/config.json: connection refused");
         let details = error.details.unwrap();
         assert!(!details.contains("/Users/"), "Path should be redacted");
         assert!(

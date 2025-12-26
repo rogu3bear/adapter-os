@@ -74,10 +74,7 @@ async fn test_determinism_policy_enforcement() {
         .await
         .expect("Adapter should exist");
 
-    assert_eq!(
-        tier, "persistent",
-        "Adapter should have deterministic tier"
-    );
+    assert_eq!(tier, "persistent", "Adapter should have deterministic tier");
 
     println!("✓ Determinism policy enforcement test passed");
 }
@@ -99,12 +96,11 @@ async fn test_router_policy_enforcement() {
     }
 
     // Verify all adapters have rank (required for routing)
-    let adapters: Vec<(String, i64)> = sqlx::query_as(
-        "SELECT id, rank FROM adapters WHERE id LIKE 'router-adapter-%'",
-    )
-    .fetch_all(harness.db().pool())
-    .await
-    .expect("Should be able to fetch router adapters");
+    let adapters: Vec<(String, i64)> =
+        sqlx::query_as("SELECT id, rank FROM adapters WHERE id LIKE 'router-adapter-%'")
+            .fetch_all(harness.db().pool())
+            .await
+            .expect("Should be able to fetch router adapters");
 
     assert_eq!(adapters.len(), 3, "Should have 3 router adapters");
 

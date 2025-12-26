@@ -10,14 +10,13 @@ use tower::ServiceExt;
 mod common;
 
 #[tokio::test]
-async fn testkit_routes_disabled_by_default() {
-    // Ensure env not set
-    std::env::remove_var("E2E_MODE");
+async fn testkit_routes_toggle_with_env() {
+    let _env = common::TestkitEnvGuard::disabled().await;
 
-    let state = common::setup_state(None).await.expect("setup state");
-    let app = create_app(state);
+    let state_disabled = common::setup_state(None).await.expect("setup state");
+    let app_disabled = create_app(state_disabled);
 
-    let response = app
+    let response = app_disabled
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -27,15 +26,10 @@ async fn testkit_routes_disabled_by_default() {
         )
         .await
         .expect("router responds");
-
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
-}
 
-#[tokio::test]
-async fn testkit_happy_path() {
-    std::env::set_var("E2E_MODE", "1");
-    std::env::set_var("AOS_SKIP_MIGRATION_SIGNATURES", "1");
-    std::env::set_var("AOS_DEV_NO_AUTH", "1");
+    // Happy path with E2E mode enabled
+    common::set_testkit_env(true);
 
     let state = common::setup_state(None).await.expect("setup state");
     let app = create_app(state);

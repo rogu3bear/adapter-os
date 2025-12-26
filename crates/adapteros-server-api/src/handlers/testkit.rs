@@ -1079,6 +1079,26 @@ pub async fn create_training_job_stub(
     })
     .to_string();
 
+    sqlx::query(
+        r#"
+        INSERT OR IGNORE INTO git_repositories (
+            id, repo_id, path, branch, analysis_json, evidence_json, security_scan_json, status, created_by
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'ready', ?)
+        "#,
+    )
+    .bind("git-repo-e2e")
+    .bind(&repo_id)
+    .bind("/tmp/repo-e2e")
+    .bind("main")
+    .bind("{}")
+    .bind("{}")
+    .bind("{}")
+    .bind(POLICY_ACTOR)
+    .execute(state.db.pool())
+    .await
+    .map_err(map_err)?;
+
     sqlx::query("DELETE FROM repository_training_jobs WHERE id = ?")
         .bind(&job_id)
         .execute(state.db.pool())
@@ -1087,8 +1107,8 @@ pub async fn create_training_job_stub(
 
     sqlx::query(
         r#"
-        INSERT INTO repository_training_jobs (id, repo_id, training_config_json, status, progress_json, created_by, created_at, updated_at, started_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO repository_training_jobs (id, repo_id, training_config_json, status, progress_json, created_by)
+        VALUES (?, ?, ?, ?, ?, ?)
         "#,
     )
     .bind(&job_id)
@@ -1097,9 +1117,6 @@ pub async fn create_training_job_stub(
     .bind(&status)
     .bind(&progress_json)
     .bind(POLICY_ACTOR)
-    .bind(FIXED_TS)
-    .bind(FIXED_TS)
-    .bind(FIXED_TS)
     .execute(state.db.pool())
     .await
     .map_err(map_err)?;
@@ -1211,14 +1228,20 @@ pub async fn diverge_policy_audit_chain(
     Query(params): Query<DivergeAuditQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
     ensure_e2e_mode()?;
-    let tenant_id = params
-        .tenant_id
-        .or_else(|| claims.as_ref().map(|c| c.tenant_id.clone()))
-        .unwrap_or_else(|| TENANT_ID.to_string());
+    let Some(Extension(claims)) = claims else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(
+                ErrorResponse::new("authentication required")
+                    .with_code("UNAUTHORIZED")
+                    .with_string_details("Provide claims to diverge audit chain"),
+            ),
+        ));
+    };
 
-    if let Some(Extension(ref c)) = claims {
-        validate_tenant_isolation(c, &tenant_id)?;
-    }
+    let tenant_id = params.tenant_id.unwrap_or_else(|| claims.tenant_id.clone());
+
+    validate_tenant_isolation(&claims, &tenant_id)?;
 
     let (entry_id, entry_hash, chain_sequence) = state
         .db

@@ -35,9 +35,7 @@ use crate::shutdown::ShutdownCoordinator;
 /// # Errors
 ///
 /// Returns an error if the config lock is poisoned.
-pub fn build_api_config(
-    server_config: Arc<RwLock<Config>>,
-) -> Result<Arc<RwLock<ApiConfig>>> {
+pub fn build_api_config(server_config: Arc<RwLock<Config>>) -> Result<Arc<RwLock<ApiConfig>>> {
     let cfg = server_config
         .read()
         .map_err(|e| anyhow::anyhow!("Config lock poisoned: {}", e))?;
@@ -198,10 +196,8 @@ pub fn spawn_sighup_handler(
                                         new_config.self_hosting.repo_allowlist.clone();
                                     api_cfg.self_hosting.promotion_threshold =
                                         new_config.self_hosting.promotion_threshold;
-                                    api_cfg.self_hosting.require_human_approval = new_config
-                                        .self_hosting
-                                        .mode
-                                        .eq_ignore_ascii_case("safe");
+                                    api_cfg.self_hosting.require_human_approval =
+                                        new_config.self_hosting.mode.eq_ignore_ascii_case("safe");
                                     // Reload paths config
                                     api_cfg.paths.artifacts_root =
                                         new_config.paths.artifacts_root.clone();
@@ -209,8 +205,7 @@ pub fn spawn_sighup_handler(
                                         new_config.paths.bundles_root.clone();
                                     api_cfg.paths.adapters_root =
                                         new_config.paths.adapters_root.clone();
-                                    api_cfg.paths.plan_dir =
-                                        new_config.paths.plan_dir.clone();
+                                    api_cfg.paths.plan_dir = new_config.paths.plan_dir.clone();
                                     api_cfg.paths.datasets_root =
                                         new_config.paths.datasets_root.clone();
                                     api_cfg.paths.documents_root =

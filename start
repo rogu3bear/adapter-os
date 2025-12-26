@@ -28,8 +28,15 @@ source scripts/lib/freeze-guard.sh
 : "${AOS_SERVER_PORT:=8080}"
 : "${AOS_UI_PORT:=3200}"
 : "${AOS_VAR_DIR:=var}"
+: "${AOS_LOG_DIR:=$AOS_VAR_DIR/logs}"
 : "${SKIP_WORKER:=0}"
 : "${AOS_QUICK_BOOT:=0}"
+: "${AOS_LOG_PROFILE:=json}"
+
+VERBOSE=0
+TRACE=0
+SCRIPT_LOG="$AOS_LOG_DIR/start.log"
+READYZ_TIMELINE_PATH="$AOS_LOG_DIR/readyz-timeline.jsonl"
 
 # Animation characters
 SPINNER_CHARS="⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
@@ -273,7 +280,96 @@ check_aosctl_installation() {
 
 ensure_var_dirs() {
     mkdir -p "$AOS_VAR_DIR/run"
-    mkdir -p "$AOS_VAR_DIR/logs"
+    mkdir -p "$AOS_LOG_DIR"
+}
+
+log_line() {
+    local level="$1"; shift
+    local msg="$*"
+    ensure_var_dirs
+    local ts
+    ts=$(date -Iseconds)
+    local line="[$ts] [$level] [start] $msg"
+    echo -e "$line"
+    echo -e "$line" >>"$SCRIPT_LOG"
+}
+
+log_readyz_timeline() {
+    local status="$1"
+    local body="$2"
+    ensure_var_dirs
+    READYZ_STATUS="$status" READYZ_BODY="$body" READYZ_LOG_PATH="$READYZ_TIMELINE_PATH" python - <<'PY'
+import json
+import os
+import time
+
+status = os.environ.get("READYZ_STATUS", "")
+body = os.environ.get("READYZ_BODY", "")
+path = os.environ.get("READYZ_LOG_PATH", "")
+
+try:
+    parsed = json.loads(body)
+except Exception:
+    parsed = body
+
+entry = {
+    "ts_ms": int(time.time() * 1000),
+    "status": status,
+    "body": parsed,
+}
+
+if path:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "a", encoding="utf-8") as handle:
+        json.dump(entry, handle)
+        handle.write("\n")
+PY
+}
+
+dump_env_summary() {
+    log_line INFO "env: AOS_SERVER_PORT=$AOS_SERVER_PORT AOS_UI_PORT=$AOS_UI_PORT AOS_VAR_DIR=$AOS_VAR_DIR AOS_LOG_DIR=$AOS_LOG_DIR SKIP_WORKER=$SKIP_WORKER"
+    local server_bin=""
+    for candidate in target/release/adapteros-server target/debug/adapteros-server; do
+        if [ -f "$candidate" ]; then
+            server_bin="$candidate"
+            break
+        fi
+    done
+    log_line INFO "paths: backend_bin=${server_bin:-missing} script_log=$SCRIPT_LOG backend_log=$AOS_LOG_DIR/backend.log ui_log=$AOS_LOG_DIR/ui.log"
+}
+
+quarantine_artifact() {
+    local path="$1"
+    local reason="$2"
+    ensure_var_dirs
+    local quarantine_dir="$AOS_VAR_DIR/run/quarantine"
+    mkdir -p "$quarantine_dir"
+    local ts
+    ts=$(date +%s)
+    local dest="$quarantine_dir/$(basename "$path").$ts"
+    mv "$path" "$dest" 2>/dev/null || rm -f "$path"
+    log_line WARN "quarantined $path ($reason) -> $dest"
+}
+
+check_stale_artifacts() {
+    local pid_files=("$AOS_VAR_DIR/backend.pid" "$AOS_VAR_DIR/ui.pid" "$AOS_VAR_DIR/worker.pid")
+    for pf in "${pid_files[@]}"; do
+        if [ -f "$pf" ]; then
+            local pid
+            pid=$(cat "$pf" 2>/dev/null)
+            if [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; then
+                quarantine_artifact "$pf" "stale-pid"
+            fi
+        fi
+    done
+    if command -v lsof >/dev/null 2>&1; then
+        local sockets=("$AOS_VAR_DIR/run/worker.sock" "$AOS_VAR_DIR/run/backend.sock")
+        for sock in "${sockets[@]}"; do
+            if [ -S "$sock" ] && ! lsof "$sock" >/dev/null 2>&1; then
+                quarantine_artifact "$sock" "stale-socket"
+            fi
+        done
+    fi
 }
 
 show_help() {
@@ -336,7 +432,7 @@ show_status() {
 
     if [ "$backend_status" = "running" ]; then
         # Check if health endpoint responds
-        if curl -sf "http://localhost:$AOS_SERVER_PORT/healthz" >/dev/null 2>&1; then
+        if curl -sf "http://localhost:$AOS_SERVER_PORT/api/healthz" >/dev/null 2>&1; then
             print_step "success" "Backend API     ${FG_GREEN}HEALTHY${FG_RESET}  (PID $backend_pid, port $AOS_SERVER_PORT)"
         else
             print_step "running" "Backend API     ${FG_YELLOW}STARTING${FG_RESET} (PID $backend_pid, port $AOS_SERVER_PORT)"
@@ -429,26 +525,36 @@ do_preflight() {
 # Start backend with progress animation
 start_backend_animated() {
     print_step "running" "Starting Backend API..."
+    log_line INFO "backend:start requested (port=$AOS_SERVER_PORT verbose=$VERBOSE trace=$TRACE)"
 
     ensure_var_dirs
 
     # Run preflight silently
     if ! freeze_check_port "$AOS_SERVER_PORT" "Backend API" 2>/dev/null; then
         update_step "error" "Backend API - port $AOS_SERVER_PORT in use"
+        log_line ERROR "backend:start blocked (port-in-use $AOS_SERVER_PORT)"
         return 1
     fi
 
     # Delegate to service-manager
     if [ -x scripts/service-manager.sh ]; then
+        local tail_pid=""
         if scripts/service-manager.sh start-backend >/dev/null 2>&1; then
+            if [ $VERBOSE -eq 1 ] || [ $TRACE -eq 1 ]; then
+                touch "$AOS_LOG_DIR/backend.log"
+                tail -n 20 -F "$AOS_LOG_DIR/backend.log" &
+                tail_pid=$!
+            fi
             # Wait for health check (configurable timeout)
             local waited=0
             local health_timeout="${AOS_HEALTH_TIMEOUT:-15}"
             while [ $waited -lt "$health_timeout" ]; do
-                if curl -sf --max-time 2 "http://localhost:$AOS_SERVER_PORT/healthz" >/dev/null 2>&1; then
+                if curl -sf --max-time 2 "http://localhost:$AOS_SERVER_PORT/api/healthz" >/dev/null 2>&1; then
                     local pid
                     pid=$(cat "$AOS_VAR_DIR/backend.pid" 2>/dev/null)
                     update_step "success" "Backend API     ${FG_GREEN}READY${FG_RESET}  (PID $pid, port $AOS_SERVER_PORT)"
+                    log_line INFO "backend:ready pid=$pid port=$AOS_SERVER_PORT"
+                    if [ -n "$tail_pid" ]; then kill "$tail_pid" 2>/dev/null; fi
                     #region agent log
                     BACKEND_PID="$pid" python - <<'PY'
 import json, os, time
@@ -485,6 +591,7 @@ PY
             else
                 update_step "error" "Backend API     ${FG_RED}CRASHED${FG_RESET} (process not running)"
             fi
+            log_line ERROR "backend:health_timeout pid=${pid:-none} timeout=${health_timeout}s"
             [ "${AOS_BOOT_VERBOSE:-0}" = "1" ] && tail -20 "$AOS_VAR_DIR/logs/backend.log" 2>/dev/null
             #region agent log
             BACKEND_PID="$pid" python - <<'PY'
@@ -508,9 +615,11 @@ with open(log_path, "a") as f:
     f.write(json.dumps(payload) + "\n")
 PY
             #endregion agent log
+            if [ -n "$tail_pid" ]; then kill "$tail_pid" 2>/dev/null; fi
             return 1
         else
             update_step "error" "Backend API - failed to start"
+            log_line ERROR "backend:start failed (service-manager start-backend)"
             #region agent log
             python - <<'PY'
 import json, os, time
@@ -543,10 +652,17 @@ PY
 # Start UI with progress animation
 start_ui_animated() {
     print_step "running" "Starting UI Server..."
+    log_line INFO "ui:start requested (port=$AOS_UI_PORT verbose=$VERBOSE trace=$TRACE)"
 
     # Delegate to service-manager
     if [ -x scripts/service-manager.sh ]; then
+        local tail_pid=""
         if scripts/service-manager.sh start ui >/dev/null 2>&1; then
+            if [ $VERBOSE -eq 1 ] || [ $TRACE -eq 1 ]; then
+                touch "$AOS_LOG_DIR/ui.log"
+                tail -n 20 -F "$AOS_LOG_DIR/ui.log" &
+                tail_pid=$!
+            fi
             # Wait for response
             local waited=0
             while [ $waited -lt 20 ]; do
@@ -554,6 +670,8 @@ start_ui_animated() {
                     local pid
                     pid=$(cat "$AOS_VAR_DIR/ui.pid" 2>/dev/null)
                     update_step "success" "UI Server       ${FG_GREEN}READY${FG_RESET}  (PID $pid, port $AOS_UI_PORT)"
+                    log_line INFO "ui:ready pid=$pid port=$AOS_UI_PORT"
+                    if [ -n "$tail_pid" ]; then kill "$tail_pid" 2>/dev/null; fi
                     #region agent log
                     UI_PID="$pid" python - <<'PY'
 import json, os, time
@@ -584,6 +702,8 @@ PY
             local pid
             pid=$(cat "$AOS_VAR_DIR/ui.pid" 2>/dev/null)
             update_step "success" "UI Server       ${FG_YELLOW}STARTED${FG_RESET} (PID $pid, port $AOS_UI_PORT)"
+            log_line WARN "ui:started_without_ready pid=${pid:-none} port=$AOS_UI_PORT"
+            if [ -n "$tail_pid" ]; then kill "$tail_pid" 2>/dev/null; fi
             #region agent log
             UI_PID="$pid" python - <<'PY'
 import json, os, time
@@ -632,6 +752,7 @@ PY
         fi
     else
         update_step "error" "UI Server - service-manager.sh not found"
+        log_line ERROR "ui:start failed (service-manager missing)"
         return 1
     fi
 }
@@ -644,6 +765,8 @@ start_backend() {
     echo ""
 
     ensure_var_dirs
+    dump_env_summary
+    check_stale_artifacts
 
     # Preflight
     print_step "running" "Running preflight checks..."
@@ -706,40 +829,22 @@ PY
 
     # Preflight with animation
     print_step "running" "Running preflight checks..."
+    log_line INFO "preflight:start"
 
     local preflight_failed=0
 
     # Port checks
     if ! freeze_check_port "$AOS_SERVER_PORT" "Backend API"; then
         preflight_failed=1
+        log_line WARN "preflight:backend_port_busy port=$AOS_SERVER_PORT"
     fi
 
     if ! freeze_check_port "$AOS_UI_PORT" "UI Server"; then
         preflight_failed=1
+        log_line WARN "preflight:ui_port_busy port=$AOS_UI_PORT"
     fi
 
-    #region agent log
-    PREFLIGHT_FAILED="$preflight_failed" python - <<'PY'
-import json, os, time
-log_path = "/Users/mln-dev/Dev/adapter-os/.cursor/debug.log"
-os.makedirs(os.path.dirname(log_path), exist_ok=True)
-payload = {
-    "sessionId": "debug-session",
-    "runId": os.environ.get("AOS_DEBUG_RUN_ID", "pre-fix"),
-    "hypothesisId": "H4",
-    "location": "start_all:preflight",
-    "message": "preflight complete",
-    "data": {
-        "preflight_failed": os.environ.get("PREFLIGHT_FAILED"),
-        "server_port": os.environ.get("AOS_SERVER_PORT", "8080"),
-        "ui_port": os.environ.get("AOS_UI_PORT", "3200")
-    },
-    "timestamp": int(time.time() * 1000)
-}
-with open(log_path, "a") as f:
-    f.write(json.dumps(payload) + "\n")
-PY
-    #endregion agent log
+    log_line INFO "preflight:complete status=$preflight_failed"
 
     if [ $preflight_failed -eq 1 ]; then
         update_step "error" "Preflight checks failed (see above)"
@@ -845,9 +950,18 @@ PY
         print_step "running" "Checking inference readiness..."
         local readyz_timeout="${AOS_READYZ_TIMEOUT:-30}"
         local readyz_waited=0
+        ensure_var_dirs
+        local readyz_tmp="$AOS_VAR_DIR/run/readyz-last.json"
         while [ $readyz_waited -lt "$readyz_timeout" ]; do
-            if curl -sf --max-time 2 "http://localhost:$AOS_SERVER_PORT/readyz" >/dev/null 2>&1; then
-                update_step "success" "Inference       ${FG_GREEN}READY${FG_RESET}  (/readyz check passed)"
+            local readyz_status
+            local readyz_body=""
+            readyz_status=$(curl -s -o "$readyz_tmp" -w "%{http_code}" --max-time 2 "http://localhost:$AOS_SERVER_PORT/api/readyz" 2>/dev/null || echo "000")
+            if [ -f "$readyz_tmp" ]; then
+                readyz_body="$(cat "$readyz_tmp")"
+            fi
+            log_readyz_timeline "$readyz_status" "$readyz_body"
+            if [ "$readyz_status" = "200" ]; then
+                update_step "success" "Inference       ${FG_GREEN}READY${FG_RESET}  (/api/readyz check passed)"
                 inference_ready=1
                 break
             fi
@@ -855,11 +969,11 @@ PY
             ((readyz_waited++))
         done
         if [ $inference_ready -eq 0 ]; then
-            update_step "error" "Inference       ${FG_RED}NOT READY${FG_RESET} (/readyz timeout after ${readyz_timeout}s)"
+            update_step "error" "Inference       ${FG_RED}NOT READY${FG_RESET} (/api/readyz timeout after ${readyz_timeout}s)"
             echo ""
             echo -e "  ${FG_RED}Inference readiness check failed.${FG_RESET} Common fixes:"
             echo "    - Seed models: aosctl models seed --model-path \$AOS_MODEL_PATH"
-            echo "    - Check status: curl http://localhost:$AOS_SERVER_PORT/readyz | jq"
+            echo "    - Check status: curl http://localhost:$AOS_SERVER_PORT/api/readyz | jq"
             echo ""
             return 1
         fi
@@ -893,6 +1007,7 @@ PY
         fi
         echo ""
         echo -e "${FG_GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${FG_RESET}"
+        log_line INFO "startup:complete backend=ok ui=ok worker=$worker_ok"
     elif [ $backend_ok -eq 1 ]; then
         echo -e "${FG_YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${FG_RESET}"
         echo ""
@@ -901,6 +1016,7 @@ PY
         echo "  API: http://localhost:$AOS_SERVER_PORT"
         echo ""
         echo -e "${FG_YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${FG_RESET}"
+        log_line WARN "startup:partial backend=ok ui=fail worker=$worker_ok"
     else
         echo -e "${FG_RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${FG_RESET}"
         echo ""
@@ -909,6 +1025,7 @@ PY
         echo "  Check logs: var/logs/"
         echo ""
         echo -e "${FG_RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${FG_RESET}"
+        log_line ERROR "startup:failed backend=$backend_ok ui=$ui_ok worker=$worker_ok"
         return 1
     fi
 
@@ -1038,6 +1155,16 @@ main() {
                 ;;
             --quick)
                 AOS_QUICK_BOOT=1
+                ;;
+            --verbose)
+                VERBOSE=1
+                export AOS_BOOT_VERBOSE=1
+                ;;
+            --trace)
+                TRACE=1
+                VERBOSE=1
+                export AOS_BOOT_VERBOSE=1
+                export AOS_LOG_PROFILE="trace"
                 ;;
             --)
                 shift

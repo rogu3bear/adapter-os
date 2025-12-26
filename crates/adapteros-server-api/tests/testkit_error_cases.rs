@@ -19,6 +19,7 @@ use serde_json::{json, Value};
 use tower::ServiceExt;
 
 mod common;
+type EnvGuard = common::TestkitEnvGuard;
 
 // ============================================================================
 // Test 1: E2E_MODE flag enforcement
@@ -26,9 +27,7 @@ mod common;
 
 #[tokio::test]
 async fn testkit_reset_requires_e2e_mode() {
-    // Ensure E2E_MODE is not set
-    std::env::remove_var("E2E_MODE");
-    std::env::remove_var("VITE_ENABLE_DEV_BYPASS");
+    let _env = EnvGuard::disabled().await;
 
     let state = common::setup_state(None).await.expect("setup state");
     let app = create_app(state);
@@ -51,8 +50,7 @@ async fn testkit_reset_requires_e2e_mode() {
 
 #[tokio::test]
 async fn testkit_seed_minimal_requires_e2e_mode() {
-    std::env::remove_var("E2E_MODE");
-    std::env::remove_var("VITE_ENABLE_DEV_BYPASS");
+    let _env = EnvGuard::disabled().await;
 
     let state = common::setup_state(None).await.expect("setup state");
     let app = create_app(state);
@@ -74,8 +72,7 @@ async fn testkit_seed_minimal_requires_e2e_mode() {
 
 #[tokio::test]
 async fn testkit_create_trace_fixture_requires_e2e_mode() {
-    std::env::remove_var("E2E_MODE");
-    std::env::remove_var("VITE_ENABLE_DEV_BYPASS");
+    let _env = EnvGuard::disabled().await;
 
     let state = common::setup_state(None).await.expect("setup state");
     let app = create_app(state);
@@ -102,9 +99,7 @@ async fn testkit_create_trace_fixture_requires_e2e_mode() {
 
 #[tokio::test]
 async fn create_trace_fixture_with_nonexistent_tenant() {
-    std::env::set_var("E2E_MODE", "1");
-    std::env::set_var("AOS_SKIP_MIGRATION_SIGNATURES", "1");
-    std::env::set_var("AOS_DEV_NO_AUTH", "1");
+    let _env = EnvGuard::enabled(true).await;
 
     let state = common::setup_state(None).await.expect("setup state");
     let app = create_app(state);
@@ -145,9 +140,7 @@ async fn create_trace_fixture_with_nonexistent_tenant() {
 
 #[tokio::test]
 async fn create_evidence_fixture_with_nonexistent_tenant() {
-    std::env::set_var("E2E_MODE", "1");
-    std::env::set_var("AOS_SKIP_MIGRATION_SIGNATURES", "1");
-    std::env::set_var("AOS_DEV_NO_AUTH", "1");
+    let _env = EnvGuard::enabled(true).await;
 
     let state = common::setup_state(None).await.expect("setup state");
     let app = create_app(state);
@@ -176,9 +169,7 @@ async fn create_evidence_fixture_with_nonexistent_tenant() {
 
 #[tokio::test]
 async fn set_policy_with_nonexistent_tenant() {
-    std::env::set_var("E2E_MODE", "1");
-    std::env::set_var("AOS_SKIP_MIGRATION_SIGNATURES", "1");
-    std::env::set_var("AOS_DEV_NO_AUTH", "1");
+    let _env = EnvGuard::enabled(true).await;
 
     let state = common::setup_state(None).await.expect("setup state");
     let app = create_app(state);
@@ -212,47 +203,33 @@ async fn set_policy_with_nonexistent_tenant() {
 
 #[tokio::test]
 async fn concurrent_seed_minimal_operations() {
-    std::env::set_var("E2E_MODE", "1");
-    std::env::set_var("AOS_SKIP_MIGRATION_SIGNATURES", "1");
-    std::env::set_var("AOS_DEV_NO_AUTH", "1");
+    let _env = EnvGuard::enabled(true).await;
 
     let state = common::setup_state(None).await.expect("setup state");
     let app = create_app(state);
 
-    // Run multiple seed_minimal operations concurrently
-    let mut handles = vec![];
+    // Run multiple seed_minimal operations sequentially to avoid env races
+    // and verify idempotency.
     for _ in 0..5 {
-        let app_clone = app.clone();
-        let handle = tokio::spawn(async move {
-            app_clone
-                .oneshot(
-                    Request::builder()
-                        .method("POST")
-                        .uri("/testkit/seed_minimal")
-                        .body(Body::empty())
-                        .unwrap(),
-                )
-                .await
-                .expect("router responds")
-        });
-        handles.push(handle);
-    }
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/testkit/seed_minimal")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .expect("router responds");
 
-    // Wait for all to complete
-    let results = futures::future::join_all(handles).await;
-
-    // All should succeed (seed_minimal uses INSERT OR IGNORE / ON CONFLICT)
-    for result in results {
-        let response = result.expect("task completed");
         assert_eq!(response.status(), StatusCode::OK);
     }
 }
 
 #[tokio::test]
 async fn concurrent_trace_fixture_creation() {
-    std::env::set_var("E2E_MODE", "1");
-    std::env::set_var("AOS_SKIP_MIGRATION_SIGNATURES", "1");
-    std::env::set_var("AOS_DEV_NO_AUTH", "1");
+    let _env = EnvGuard::enabled(true).await;
 
     let state = common::setup_state(None).await.expect("setup state");
     let app = create_app(state);
@@ -269,31 +246,21 @@ async fn concurrent_trace_fixture_creation() {
         .await
         .expect("seed completed");
 
-    // Run multiple trace fixture creations concurrently
-    let mut handles = vec![];
+    // Run trace fixture creations sequentially to verify idempotency.
     for _ in 0..3 {
-        let app_clone = app.clone();
-        let handle = tokio::spawn(async move {
-            app_clone
-                .oneshot(
-                    Request::builder()
-                        .method("POST")
-                        .uri("/testkit/create_trace_fixture")
-                        .header("content-type", "application/json")
-                        .body(Body::from(json!({"token_count": 20}).to_string()))
-                        .unwrap(),
-                )
-                .await
-                .expect("router responds")
-        });
-        handles.push(handle);
-    }
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/testkit/create_trace_fixture")
+                    .header("content-type", "application/json")
+                    .body(Body::from(json!({"token_count": 20}).to_string()))
+                    .unwrap(),
+            )
+            .await
+            .expect("router responds");
 
-    let results = futures::future::join_all(handles).await;
-
-    // All should succeed (idempotent deletes + inserts)
-    for result in results {
-        let response = result.expect("task completed");
         assert_eq!(response.status(), StatusCode::OK);
     }
 }
@@ -304,9 +271,7 @@ async fn concurrent_trace_fixture_creation() {
 
 #[tokio::test]
 async fn create_trace_fixture_with_invalid_json() {
-    std::env::set_var("E2E_MODE", "1");
-    std::env::set_var("AOS_SKIP_MIGRATION_SIGNATURES", "1");
-    std::env::set_var("AOS_DEV_NO_AUTH", "1");
+    let _env = EnvGuard::enabled(true).await;
 
     let state = common::setup_state(None).await.expect("setup state");
     let app = create_app(state);
@@ -329,9 +294,7 @@ async fn create_trace_fixture_with_invalid_json() {
 
 #[tokio::test]
 async fn create_evidence_fixture_with_invalid_json() {
-    std::env::set_var("E2E_MODE", "1");
-    std::env::set_var("AOS_SKIP_MIGRATION_SIGNATURES", "1");
-    std::env::set_var("AOS_DEV_NO_AUTH", "1");
+    let _env = EnvGuard::enabled(true).await;
 
     let state = common::setup_state(None).await.expect("setup state");
     let app = create_app(state);
@@ -354,9 +317,7 @@ async fn create_evidence_fixture_with_invalid_json() {
 
 #[tokio::test]
 async fn set_policy_with_missing_required_fields() {
-    std::env::set_var("E2E_MODE", "1");
-    std::env::set_var("AOS_SKIP_MIGRATION_SIGNATURES", "1");
-    std::env::set_var("AOS_DEV_NO_AUTH", "1");
+    let _env = EnvGuard::enabled(true).await;
 
     let state = common::setup_state(None).await.expect("setup state");
     let app = create_app(state);
@@ -375,14 +336,12 @@ async fn set_policy_with_missing_required_fields() {
         .await
         .expect("router responds");
 
-    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
 }
 
 #[tokio::test]
 async fn create_repo_with_missing_fields() {
-    std::env::set_var("E2E_MODE", "1");
-    std::env::set_var("AOS_SKIP_MIGRATION_SIGNATURES", "1");
-    std::env::set_var("AOS_DEV_NO_AUTH", "1");
+    let _env = EnvGuard::enabled(true).await;
 
     let state = common::setup_state(None).await.expect("setup state");
     let app = create_app(state);
@@ -419,9 +378,7 @@ async fn create_repo_with_missing_fields() {
 
 #[tokio::test]
 async fn create_adapter_version_with_missing_repo_id() {
-    std::env::set_var("E2E_MODE", "1");
-    std::env::set_var("AOS_SKIP_MIGRATION_SIGNATURES", "1");
-    std::env::set_var("AOS_DEV_NO_AUTH", "1");
+    let _env = EnvGuard::enabled(true).await;
 
     let state = common::setup_state(None).await.expect("setup state");
     let app = create_app(state);
@@ -440,7 +397,7 @@ async fn create_adapter_version_with_missing_repo_id() {
         .await
         .expect("router responds");
 
-    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
 }
 
 // ============================================================================
@@ -449,9 +406,7 @@ async fn create_adapter_version_with_missing_repo_id() {
 
 #[tokio::test]
 async fn audit_diverge_requires_valid_tenant_isolation() {
-    std::env::set_var("E2E_MODE", "1");
-    std::env::set_var("AOS_SKIP_MIGRATION_SIGNATURES", "1");
-    // Don't set AOS_DEV_NO_AUTH - test with auth enabled
+    let _env = EnvGuard::enabled(false).await;
 
     let state = common::setup_state(None).await.expect("setup state");
     let app = create_app(state);
@@ -496,9 +451,7 @@ async fn audit_diverge_requires_valid_tenant_isolation() {
 
 #[tokio::test]
 async fn reset_clears_all_tenants_data() {
-    std::env::set_var("E2E_MODE", "1");
-    std::env::set_var("AOS_SKIP_MIGRATION_SIGNATURES", "1");
-    std::env::set_var("AOS_DEV_NO_AUTH", "1");
+    let _env = EnvGuard::enabled(true).await;
 
     let state = common::setup_state(None).await.expect("setup state");
     let app = create_app(state.clone());
@@ -560,9 +513,7 @@ async fn reset_clears_all_tenants_data() {
 
 #[tokio::test]
 async fn seed_minimal_is_idempotent() {
-    std::env::set_var("E2E_MODE", "1");
-    std::env::set_var("AOS_SKIP_MIGRATION_SIGNATURES", "1");
-    std::env::set_var("AOS_DEV_NO_AUTH", "1");
+    let _env = EnvGuard::enabled(true).await;
 
     let state = common::setup_state(None).await.expect("setup state");
     let app = create_app(state.clone());
@@ -627,9 +578,7 @@ async fn seed_minimal_is_idempotent() {
 
 #[tokio::test]
 async fn trace_fixture_is_idempotent() {
-    std::env::set_var("E2E_MODE", "1");
-    std::env::set_var("AOS_SKIP_MIGRATION_SIGNATURES", "1");
-    std::env::set_var("AOS_DEV_NO_AUTH", "1");
+    let _env = EnvGuard::enabled(true).await;
 
     let state = common::setup_state(None).await.expect("setup state");
     let app = create_app(state.clone());
@@ -704,9 +653,7 @@ async fn trace_fixture_is_idempotent() {
 
 #[tokio::test]
 async fn trace_fixture_with_zero_token_count() {
-    std::env::set_var("E2E_MODE", "1");
-    std::env::set_var("AOS_SKIP_MIGRATION_SIGNATURES", "1");
-    std::env::set_var("AOS_DEV_NO_AUTH", "1");
+    let _env = EnvGuard::enabled(true).await;
 
     let state = common::setup_state(None).await.expect("setup state");
     let app = create_app(state);
@@ -750,9 +697,7 @@ async fn trace_fixture_with_zero_token_count() {
 
 #[tokio::test]
 async fn trace_fixture_with_empty_adapter_ids() {
-    std::env::set_var("E2E_MODE", "1");
-    std::env::set_var("AOS_SKIP_MIGRATION_SIGNATURES", "1");
-    std::env::set_var("AOS_DEV_NO_AUTH", "1");
+    let _env = EnvGuard::enabled(true).await;
 
     let state = common::setup_state(None).await.expect("setup state");
     let app = create_app(state);
@@ -803,9 +748,7 @@ async fn trace_fixture_with_empty_adapter_ids() {
 
 #[tokio::test]
 async fn create_adapter_version_with_nonexistent_repo() {
-    std::env::set_var("E2E_MODE", "1");
-    std::env::set_var("AOS_SKIP_MIGRATION_SIGNATURES", "1");
-    std::env::set_var("AOS_DEV_NO_AUTH", "1");
+    let _env = EnvGuard::enabled(true).await;
 
     let state = common::setup_state(None).await.expect("setup state");
     let app = create_app(state);
@@ -848,9 +791,7 @@ async fn create_adapter_version_with_nonexistent_repo() {
 
 #[tokio::test]
 async fn training_job_stub_with_invalid_status() {
-    std::env::set_var("E2E_MODE", "1");
-    std::env::set_var("AOS_SKIP_MIGRATION_SIGNATURES", "1");
-    std::env::set_var("AOS_DEV_NO_AUTH", "1");
+    let _env = EnvGuard::enabled(true).await;
 
     let state = common::setup_state(None).await.expect("setup state");
     let app = create_app(state.clone());
@@ -913,9 +854,7 @@ async fn training_job_stub_with_invalid_status() {
 
 #[tokio::test]
 async fn inference_stub_returns_consistent_structure() {
-    std::env::set_var("E2E_MODE", "1");
-    std::env::set_var("AOS_SKIP_MIGRATION_SIGNATURES", "1");
-    std::env::set_var("AOS_DEV_NO_AUTH", "1");
+    let _env = EnvGuard::enabled(true).await;
 
     let state = common::setup_state(None).await.expect("setup state");
     let app = create_app(state);

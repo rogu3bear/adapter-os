@@ -8,7 +8,9 @@
 
 use adapteros_core::Result;
 use adapteros_db::Db;
-use adapteros_server_api::handlers::health::{ReadyzCheck, ReadyzChecks, ReadyzResponse};
+use adapteros_server_api::handlers::health::{
+    ReadyMetrics, ReadyzCheck, ReadyzChecks, ReadyzResponse,
+};
 
 mod common;
 
@@ -171,6 +173,10 @@ fn test_readyz_response_structure() {
                 latency_ms: Some(30),
             },
         },
+        metrics: None,
+        boot_trace_id: String::new(),
+        last_error_code: None,
+        phases: Vec::new(),
     };
     assert!(response.ready);
     assert!(response.checks.db.ok);
@@ -202,6 +208,10 @@ fn test_readyz_response_not_ready() {
                 latency_ms: None,
             },
         },
+        metrics: None,
+        boot_trace_id: String::new(),
+        last_error_code: None,
+        phases: Vec::new(),
     };
     assert!(!response.ready);
     assert!(!response.checks.db.ok);
@@ -278,6 +288,10 @@ fn test_readyz_response_serialization() {
                 latency_ms: Some(30),
             },
         },
+        metrics: None,
+        boot_trace_id: String::new(),
+        last_error_code: None,
+        phases: Vec::new(),
     };
 
     let json = serde_json::to_string(&response).expect("Failed to serialize");
@@ -457,6 +471,10 @@ async fn test_readyz_structure_for_no_workers_scenario() {
                 latency_ms: Some(8),
             },
         },
+        metrics: None,
+        boot_trace_id: String::new(),
+        last_error_code: None,
+        phases: Vec::new(),
     };
 
     // Verify structure
@@ -495,6 +513,10 @@ async fn test_readyz_structure_for_no_models_scenario() {
                 latency_ms: Some(5),
             },
         },
+        metrics: None,
+        boot_trace_id: String::new(),
+        last_error_code: None,
+        phases: Vec::new(),
     };
 
     // Verify structure
@@ -536,6 +558,10 @@ async fn test_readyz_structure_for_db_timeout_scenario() {
                 latency_ms: None,
             },
         },
+        metrics: None,
+        boot_trace_id: String::new(),
+        last_error_code: None,
+        phases: Vec::new(),
     };
 
     // Verify structure
@@ -582,6 +608,10 @@ async fn test_readyz_structure_for_db_unreachable_scenario() {
                 latency_ms: None,
             },
         },
+        metrics: None,
+        boot_trace_id: String::new(),
+        last_error_code: None,
+        phases: Vec::new(),
     };
 
     // Verify structure
@@ -732,6 +762,10 @@ fn test_readyz_response_all_checks_failed() {
                 latency_ms: None,
             },
         },
+        metrics: None,
+        boot_trace_id: String::new(),
+        last_error_code: None,
+        phases: Vec::new(),
     };
 
     assert!(!response.ready);
@@ -761,6 +795,15 @@ fn test_readyz_response_json_roundtrip() {
                 latency_ms: Some(30),
             },
         },
+        metrics: Some(ReadyMetrics {
+            boot_phases_ms: Vec::new(),
+            db_latency_ms: Some(10),
+            worker_latency_ms: Some(20),
+            models_latency_ms: Some(30),
+        }),
+        boot_trace_id: "trace-id".to_string(),
+        last_error_code: None,
+        phases: Vec::new(),
     };
 
     let json = serde_json::to_string(&original).expect("Failed to serialize");

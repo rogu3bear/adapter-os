@@ -289,11 +289,7 @@ async fn test_adapter_state_transitions() {
         .await
         .unwrap();
 
-    assert_eq!(
-        state,
-        "deprecated",
-        "Lifecycle state should be updated"
-    );
+    assert_eq!(state, "deprecated", "Lifecycle state should be updated");
 
     println!("✓ Adapter state transitions test passed");
 }

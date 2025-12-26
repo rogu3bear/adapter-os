@@ -25,7 +25,18 @@ use super::adapter_utils::{rollup_health_flag, select_primary_subcode};
 const METRIC_ADAPTER_HEALTH_CORRUPT: &str = "adapter_versions_health_corrupt";
 const METRIC_ADAPTER_HEALTH_UNSAFE: &str = "adapter_versions_health_unsafe";
 
-
+#[utoipa::path(
+    get,
+    path = "/v1/adapters/verify-gpu",
+    params(
+        ("adapter_id" = Option<String>, Query, description = "Optional adapter ID filter")
+    ),
+    responses(
+        (status = 200, description = "GPU integrity report", body = adapteros_lora_lifecycle::GpuIntegrityReport),
+        (status = 500, description = "Verification failed", body = ErrorResponse)
+    ),
+    tag = "adapters"
+)]
 pub async fn verify_gpu_integrity(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -89,7 +100,19 @@ pub async fn verify_gpu_integrity(
     }
 }
 
-
+#[utoipa::path(
+    get,
+    path = "/v1/adapters/{adapter_id}/activations",
+    tag = "adapters",
+    params(
+        ("adapter_id" = String, Path, description = "Adapter ID"),
+        ("limit" = Option<i32>, Query, description = "Maximum activations to return")
+    ),
+    responses(
+        (status = 200, description = "Adapter activations", body = Vec<AdapterActivationResponse>),
+        (status = 404, description = "Adapter not found", body = ErrorResponse)
+    )
+)]
 pub async fn get_adapter_activations(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -156,7 +179,6 @@ pub async fn get_adapter_activations(
 
     Ok(Json(responses))
 }
-
 
 /// Get adapter health (activation logs, memory usage, policy violations)
 pub async fn get_adapter_health(

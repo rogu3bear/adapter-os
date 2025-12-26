@@ -377,7 +377,9 @@ async fn get_model_by_name_for_tenant_scoping() -> Result<()> {
     create_tenant(&db, "tenant-a").await?;
     create_tenant(&db, "tenant-b").await?;
 
-    let model_id = db.register_model(minimal_model_params("shared-name")).await?;
+    let model_id = db
+        .register_model(minimal_model_params("shared-name"))
+        .await?;
     set_model_tenant(&db, &model_id, Some("tenant-a")).await?;
     db.update_model_import_status(&model_id, "available", None)
         .await?;
@@ -389,7 +391,9 @@ async fn get_model_by_name_for_tenant_scoping() -> Result<()> {
     assert_eq!(model_a.id, model_id);
     assert_eq!(model_a.tenant_id.as_deref(), Some("tenant-a"));
 
-    let model_b = db.get_model_by_name_for_tenant("tenant-b", "shared-name").await?;
+    let model_b = db
+        .get_model_by_name_for_tenant("tenant-b", "shared-name")
+        .await?;
     assert!(model_b.is_none(), "tenant-b should not see tenant-a model");
 
     Ok(())

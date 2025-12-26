@@ -486,7 +486,10 @@ async fn unauthorized_errors_include_request_id_envelope() -> anyhow::Result<()>
             state.clone(),
             auth_middleware,
         ))
-        .layer(middleware::from_fn(observability_middleware))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            observability_middleware,
+        ))
         .layer(middleware::from_fn(request_id_middleware));
 
     let resp = app
@@ -887,7 +890,8 @@ async fn complete_auth_flow_login_refresh_logout_session_expired() -> anyhow::Re
     let csrf_cookie = find_cookie(&cookies, "csrf_token").expect("csrf_token cookie");
 
     let auth_value = cookie_value(auth_cookie, "auth_token").expect("auth cookie value");
-    let refresh_value = cookie_value(refresh_cookie, "refresh_token").expect("refresh cookie value");
+    let refresh_value =
+        cookie_value(refresh_cookie, "refresh_token").expect("refresh cookie value");
     let csrf_value = cookie_value(csrf_cookie, "csrf_token").expect("csrf cookie value");
 
     assert!(!auth_value.is_empty(), "access token should be present");
@@ -915,7 +919,11 @@ async fn complete_auth_flow_login_refresh_logout_session_expired() -> anyhow::Re
                 .body(Body::empty())?,
         )
         .await?;
-    assert_eq!(me_response.status(), StatusCode::OK, "initial access should succeed");
+    assert_eq!(
+        me_response.status(),
+        StatusCode::OK,
+        "initial access should succeed"
+    );
 
     let body_bytes = to_bytes(me_response.into_body(), 16 * 1024).await?;
     let user: UserInfoResponse = serde_json::from_slice(&body_bytes)?;
@@ -940,14 +948,22 @@ async fn complete_auth_flow_login_refresh_logout_session_expired() -> anyhow::Re
 
     let new_cookies = collect_cookies(&refresh_set_cookies);
     let new_auth_cookie = find_cookie(&new_cookies, "auth_token").expect("new auth cookie");
-    let new_refresh_cookie = find_cookie(&new_cookies, "refresh_token").expect("new refresh cookie");
+    let new_refresh_cookie =
+        find_cookie(&new_cookies, "refresh_token").expect("new refresh cookie");
 
     let new_auth_value = cookie_value(new_auth_cookie, "auth_token").expect("new auth value");
-    let new_refresh_value = cookie_value(new_refresh_cookie, "refresh_token").expect("new refresh value");
+    let new_refresh_value =
+        cookie_value(new_refresh_cookie, "refresh_token").expect("new refresh value");
 
     assert_ne!(new_auth_value, auth_value, "access token should rotate");
-    assert_ne!(new_refresh_value, refresh_value, "refresh token should rotate");
-    assert_eq!(refresh_body.token, new_auth_value, "response token matches new cookie");
+    assert_ne!(
+        new_refresh_value, refresh_value,
+        "refresh token should rotate"
+    );
+    assert_eq!(
+        refresh_body.token, new_auth_value,
+        "response token matches new cookie"
+    );
 
     // ══════════════════════════════════════════════════════════════════════════
     // STEP 4: ACCESS protected endpoint with NEW access token → success
@@ -961,7 +977,11 @@ async fn complete_auth_flow_login_refresh_logout_session_expired() -> anyhow::Re
                 .body(Body::empty())?,
         )
         .await?;
-    assert_eq!(me_response2.status(), StatusCode::OK, "access with new token should succeed");
+    assert_eq!(
+        me_response2.status(),
+        StatusCode::OK,
+        "access with new token should succeed"
+    );
 
     // ══════════════════════════════════════════════════════════════════════════
     // STEP 5: LOGOUT → tokens revoked, cookies cleared
@@ -1024,7 +1044,10 @@ async fn complete_auth_flow_login_refresh_logout_session_expired() -> anyhow::Re
     let err: ErrorResponse = serde_json::from_slice(&err_bytes)?;
     // Session lock check happens before token revocation check in middleware,
     // so SESSION_EXPIRED is returned when logout locks the session
-    assert_eq!(err.code, "SESSION_EXPIRED", "error should indicate session expired (locked)");
+    assert_eq!(
+        err.code, "SESSION_EXPIRED",
+        "error should indicate session expired (locked)"
+    );
 
     // ══════════════════════════════════════════════════════════════════════════
     // STEP 7: SESSION EXPIRED scenario (new login then lock session)
@@ -1133,8 +1156,14 @@ async fn refresh_invalidates_prior_tokens() -> anyhow::Result<()> {
     let new_auth_cookie = find_cookie(&new_cookies, "auth_token").expect("new auth cookie");
     let new_auth = cookie_value(new_auth_cookie, "auth_token").expect("new auth value");
 
-    assert_ne!(new_auth, original_auth, "new access token differs from original");
-    assert_eq!(new_body.token, new_auth, "response token matches new cookie");
+    assert_ne!(
+        new_auth, original_auth,
+        "new access token differs from original"
+    );
+    assert_eq!(
+        new_body.token, new_auth,
+        "response token matches new cookie"
+    );
 
     // Attempt to reuse old refresh token → should fail
     let mut stale_headers = HeaderMap::new();
@@ -1144,7 +1173,10 @@ async fn refresh_invalidates_prior_tokens() -> anyhow::Result<()> {
     );
     let reuse_result =
         refresh_token_handler(axum::extract::State(state.clone()), stale_headers).await;
-    assert!(reuse_result.is_err(), "reusing old refresh token should fail");
+    assert!(
+        reuse_result.is_err(),
+        "reusing old refresh token should fail"
+    );
 
     Ok(())
 }

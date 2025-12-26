@@ -59,7 +59,10 @@ pub struct RoPEScaling {
 }
 
 /// Deprecated alias for backwards compatibility
-#[deprecated(since = "0.12.0", note = "Use `RoPEScaling` instead (correct RoPE casing)")]
+#[deprecated(
+    since = "0.12.0",
+    note = "Use `RoPEScaling` instead (correct RoPE casing)"
+)]
 pub type RopeScaling = RoPEScaling;
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
