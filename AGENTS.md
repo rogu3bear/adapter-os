@@ -45,6 +45,9 @@ make clippy
 - Seed derivation: HKDF-SHA256 with BLAKE3 global seed (`crates/adapteros-core/src/seed.rs`).
 - Router determinism: score DESC, index ASC tie-break; Q15 denominator is 32767.0 (`crates/adapteros-lora-router/src/constants.rs`).
 - No `-ffast-math` compiler flags (`Cargo.toml`).
+- Set `AOS_DEBUG_DETERMINISM=1` to log seed inputs and router tie-break details.
+- CI determinism gate runs `make determinism-check` and scans build artifacts for `-ffast-math`.
+- OpenAPI/TypeScript clients must stay in sync; CI regenerates and diffs `docs/api/openapi.json` and `ui/src/api/generated.ts`.
 
 ## Troubleshooting
 
@@ -59,3 +62,8 @@ make clippy
 2. Check feature flags.
 3. `cargo sqlx prepare` for offline mode.
 4. Verify migration signatures: `migrations/signatures.json`.
+
+## Health Endpoints
+
+- Liveness: `/healthz`
+- Readiness: `/readyz` (canonical; no `/api/readyz` alias). `/system/ready` exposes system gate status.

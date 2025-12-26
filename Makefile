@@ -1,4 +1,4 @@
-.PHONY: help build prepare test test-rust test-ui test-e2e test-ignored test-hw clean fmt fmt-check clippy metal ui ui-dev menu-bar menu-bar-dev menu-bar-install infra-check dev dev-no-auth build-mlx test-mlx bench-mlx verify-mlx-env cli setup-git-hooks lint-fix mvp-demo stability-check stability-ci ignored-tests-audit ignored-tests-check
+.PHONY: help build prepare test test-rust test-ui test-e2e test-ignored test-hw clean fmt fmt-check clippy metal ui ui-dev menu-bar menu-bar-dev menu-bar-install infra-check dev dev-no-auth build-mlx test-mlx bench-mlx verify-mlx-env cli setup-git-hooks lint-fix mvp-demo stability-check stability-ci ignored-tests-audit ignored-tests-check sbom sbom-check
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -190,7 +190,7 @@ lint-fix: ## Auto-fix common linting issues (unused imports, formatting, etc.)
 	cargo fmt --all
 	@echo "✅ Auto-fix complete! Run 'make clippy' to check remaining issues."
 
-check: fmt clippy test determinism-check ## Run all checks
+check: fmt clippy test determinism-check sbom-check ## Run all checks
 
 stability-ci: ## Feature matrix build (defaults + all-features)
 	./scripts/ci/feature_matrix.sh
@@ -224,8 +224,11 @@ menu-bar-install: menu-bar ## Install menu bar app to /usr/local/bin
 	cp menu-bar-app/.build/release/AdapterOSMenu /usr/local/bin/aos-menu
 	@echo "Menu bar app installed to /usr/local/bin/aos-menu"
 
-sbom: ## Generate SBOM
-	cargo xtask sbom
+sbom: ## Generate SBOM (target/sbom.spdx.json + sbom/cargo-sbom.json)
+	cargo run -p xtask -- sbom
+
+sbom-check: sbom ## Ensure tracked SBOM matches Cargo.lock
+	git diff --exit-code sbom/cargo-sbom.json
 
 determinism-report: ## Generate determinism report
 	cargo xtask determinism-report
