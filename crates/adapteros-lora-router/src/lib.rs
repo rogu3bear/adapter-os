@@ -1254,24 +1254,47 @@ impl Router {
         }
 
         // Compute scores for each adapter with per-adapter feature scoring and penalties
-        let mut scores: Vec<(usize, f32)> = priors_for_routing
-            .iter()
-            .enumerate()
-            .filter(|(i, _)| *policy_mask.allowed.get(*i).unwrap_or(&false))
-            .map(|(i, &prior)| {
-                // Compute adapter-specific feature score (DIFFERENT for each adapter)
-                let adapter_feature_score =
-                    self.compute_adapter_feature_score(features, &adapter_info[i]);
+        let mut scores: Vec<(usize, f32)> = Vec::with_capacity(priors_for_routing.len());
+        for (i, &prior) in priors_for_routing.iter().enumerate() {
+            if !policy_mask.allowed.get(i).copied().unwrap_or(false) {
+                continue;
+            }
+            if !prior.is_finite() {
+                return Err(AosError::DeterminismViolation(format!(
+                    "Non-finite prior score for adapter {}",
+                    i
+                )));
+            }
 
-                // Compute orthogonality penalty (if enabled)
-                let orthogonal_penalty = self.compute_adapter_orthogonal_penalty(i);
+            // Compute adapter-specific feature score (DIFFERENT for each adapter)
+            let adapter_feature_score = self.compute_adapter_feature_score(features, &adapter_info[i]);
+            if !adapter_feature_score.is_finite() {
+                return Err(AosError::DeterminismViolation(format!(
+                    "Non-finite feature score for adapter {}",
+                    i
+                )));
+            }
 
-                // Combine: prior + features - penalty
-                let score = prior + adapter_feature_score - orthogonal_penalty;
+            // Compute orthogonality penalty (if enabled)
+            let orthogonal_penalty = self.compute_adapter_orthogonal_penalty(i);
+            if !orthogonal_penalty.is_finite() {
+                return Err(AosError::DeterminismViolation(format!(
+                    "Non-finite orthogonal penalty for adapter {}",
+                    i
+                )));
+            }
 
-                (i, score)
-            })
-            .collect();
+            // Combine: prior + features - penalty
+            let score = prior + adapter_feature_score - orthogonal_penalty;
+            if !score.is_finite() {
+                return Err(AosError::DeterminismViolation(format!(
+                    "Non-finite combined score for adapter {}",
+                    i
+                )));
+            }
+
+            scores.push((i, score));
+        }
 
         // Prepare adaptive tie-breakers when adaptive routing is enabled
         let tie_breakers: Vec<u64> = if self.adaptive_routing {
