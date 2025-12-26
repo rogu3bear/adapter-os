@@ -3880,7 +3880,7 @@ pub async fn list_adapters(
         // Get stats
         let (total, selected, avg_gate) = state
             .db
-            .get_adapter_stats(adapter_id_str)
+            .get_adapter_stats(&claims.tenant_id, adapter_id_str)
             .await
             .unwrap_or((0, 0, 0.0));
 
@@ -4038,7 +4038,7 @@ pub async fn get_adapter(
 
     let (total, selected, avg_gate) = state
         .db
-        .get_adapter_stats(&adapter_id)
+        .get_adapter_stats(&claims.tenant_id, &adapter_id)
         .await
         .unwrap_or((0, 0, 0.0));
 
@@ -4548,7 +4548,7 @@ pub async fn get_adapter_metrics(
     for adapter in adapters {
         let (total, selected, avg_gate) = state
             .db
-            .get_adapter_stats(adapter.adapter_id.as_ref().unwrap_or(&adapter.id))
+            .get_adapter_stats(&claims.tenant_id, adapter.adapter_id.as_ref().unwrap_or(&adapter.id))
             .await
             .unwrap_or((0, 0, 0.0));
 

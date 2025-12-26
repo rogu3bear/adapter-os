@@ -125,10 +125,10 @@ pub async fn list_adapters(
         // Get adapter_id - use id if adapter_id is not set
         let adapter_id_str = adapter.adapter_id.as_ref().unwrap_or(&adapter.id);
 
-        // Get stats
+        // Get stats (tenant-scoped)
         let (total, selected, avg_gate) = state
             .db
-            .get_adapter_stats(adapter_id_str)
+            .get_adapter_stats(&claims.tenant_id, adapter_id_str)
             .await
             .unwrap_or((0, 0, 0.0));
 
@@ -1218,7 +1218,7 @@ pub async fn promote_adapter_version_handler(
 
     let (total, selected, avg_gate) = state
         .db
-        .get_adapter_stats(&adapter_id)
+        .get_adapter_stats(&claims.tenant_id, &adapter_id)
         .await
         .unwrap_or((0, 0, 0.0));
 
