@@ -315,6 +315,7 @@ pub struct Router {
 impl Router {
     /// Create a new router with custom feature weights
     pub fn new_with_weights(feature_weights: RouterWeights, k: usize, tau: f32, eps: f32) -> Self {
+        let tau = sanitize_tau(tau);
         Self {
             feature_weights,
             k,
@@ -370,7 +371,7 @@ impl Router {
         Self {
             feature_weights,
             k: k.min(policy_config.k_sparse),
-            tau,
+            tau: sanitize_tau(tau),
             eps: policy_config.entropy_floor,
             _token_count: 0,
             full_log_tokens: policy_config.sample_tokens_full,
@@ -1023,6 +1024,12 @@ impl Router {
         if logits.is_empty() {
             return Vec::new();
         }
+        let tau = sanitize_tau(tau);
+
+        debug_assert!(
+            logits.iter().all(|(_, s)| s.is_finite()),
+            "deterministic_softmax received non-finite logits"
+        );
 
         // Find max for numerical stability (use f64 for intermediate computation)
         let max = logits
