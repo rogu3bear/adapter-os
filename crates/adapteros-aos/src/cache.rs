@@ -126,6 +126,7 @@ impl AdapterCache {
         Arc::clone(&self.metrics)
     }
 
+
     fn evict_for_size(&self, needed_size: u64) -> Result<()> {
         let current_size = self.size_bytes();
         let max_size = self.config.max_size_bytes;
