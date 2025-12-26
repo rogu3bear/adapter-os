@@ -573,6 +573,28 @@ pub trait FusedKernels: Send + Sync {
     ) -> Result<TextGenerationResult> {
         self.generate_text_full(prompt, max_tokens, temperature, top_p)
     }
+
+    /// Generate text with streaming (blocking call with callback)
+    fn generate_text_stream<F>(
+        &self,
+        _prompt: &str,
+        _max_tokens: usize,
+        _temperature: f32,
+        _top_p: f32,
+        _on_token: F,
+    ) -> Result<TextGenerationResult>
+    where
+        F: FnMut(TextToken) -> bool,
+    {
+        Err(adapteros_core::AosError::Kernel(
+            "Streaming text generation not supported by this backend".to_string(),
+        ))
+    }
+
+    /// Pre-warm experts for MoE models
+    fn prewarm_experts(&self, _experts: Vec<(usize, u8)>) -> Result<usize> {
+        Ok(0) // Default: no-op
+    }
 }
 
 /// GPU buffer fingerprint for cross-layer integrity verification
@@ -793,6 +815,24 @@ macro_rules! impl_fused_kernels_for_box {
             ) -> Result<TextGenerationResult> {
                 (**self).generate_text_complete(prompt, max_tokens, temperature, top_p)
             }
+
+            fn generate_text_stream<F>(
+                &self,
+                prompt: &str,
+                max_tokens: usize,
+                temperature: f32,
+                top_p: f32,
+                on_token: F,
+            ) -> Result<TextGenerationResult>
+            where
+                F: FnMut(TextToken) -> bool,
+            {
+                (**self).generate_text_stream(prompt, max_tokens, temperature, top_p, on_token)
+            }
+
+            fn prewarm_experts(&self, experts: Vec<(usize, u8)>) -> Result<usize> {
+                (**self).prewarm_experts(experts)
+            }
         }
     };
 }
@@ -859,7 +899,31 @@ pub struct TextGenerationResult {
     pub usage_stats: Option<TextGenerationUsage>,
     /// Optional timing statistics (TTFT, total latency, tokens/sec)
     pub timing_stats: Option<TextGenerationTiming>,
+    /// Protocol v3: MoE model information
+    pub moe_info: Option<MoEInfo>,
+    /// Protocol v3: Expert routing data for the generated sequence
+    pub expert_routing: Option<SequenceExpertRouting>,
+    /// Protocol v3: Deterministic routing hash (BLAKE3)
+    pub routing_hash: Option<adapteros_core::B3Hash>,
 }
+
+/// MoE (Mixture of Experts) model information
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct MoEInfo {
+    /// Whether the model is an MoE model
+    pub is_moe: bool,
+    /// Number of experts in the model
+    pub num_experts: usize,
+    /// Number of experts activated per token
+    pub experts_per_token: usize,
+}
+
+/// Per-token expert routing: which expert was selected at each layer
+/// Each tuple represents (layer_index, expert_id)
+pub type ExpertRouting = Vec<(usize, u8)>;
+
+/// Expert routing for an entire sequence of tokens
+pub type SequenceExpertRouting = Vec<ExpertRouting>;
 
 /// Usage statistics for text generation
 #[derive(Debug, Clone, Default)]
@@ -889,6 +953,10 @@ pub struct TextToken {
     pub token_id: Option<usize>,
     /// Token index in the generated sequence
     pub index: usize,
+    /// Protocol v3: Expert routing for this token (MoE models)
+    pub expert_routing: Option<ExpertRouting>,
+    /// Whether this is a "free token" (pre-computed)
+    pub is_free: bool,
 }
 
 /// Trait for text generation backends that don't support token-by-token logits inference.
