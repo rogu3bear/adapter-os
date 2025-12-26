@@ -851,10 +851,12 @@ pub async fn start_training(
     }
 
     let data_spec_json = request.data_spec.clone();
-    let mut data_spec_hash = data_spec_json.as_ref().map(|json| {
-        let mut hasher = Hasher::new();
-        hasher.update(json.as_bytes());
-        hasher.finalize().to_hex().to_string()
+    let mut data_spec_hash = request.data_spec_hash.clone().or_else(|| {
+        data_spec_json.as_ref().map(|json| {
+            let mut hasher = Hasher::new();
+            hasher.update(json.as_bytes());
+            hasher.finalize().to_hex().to_string()
+        })
     });
 
     fn parse_backend_kind(label: &str) -> Option<TrainingBackendKind> {
@@ -1140,11 +1142,7 @@ pub async fn start_training(
         }
 
         // Deterministic combined hash over all dataset manifests (weight-sensitive)
-        let combined_hash = if combined_inputs.len() == 1 && data_spec_hash.is_none() {
-            combined_inputs[0].1.clone()
-        } else {
-            compute_combined_data_spec_hash(&combined_inputs)
-        };
+        let combined_hash = compute_combined_data_spec_hash(&combined_inputs);
 
         if let Some(ref expected_hash) = data_spec_hash {
             if expected_hash != &combined_hash {
@@ -1244,7 +1242,7 @@ pub async fn start_training(
     }
 
     // Start training via service
-    let job = state
+    let job = match state
         .training_service
         .start_training(
             request.adapter_name.clone(),
@@ -1282,31 +1280,29 @@ pub async fn start_training(
             data_spec_hash.clone(),
         )
         .await
-        .map_err(|e| {
+    {
+        Ok(job) => job,
+        Err(e) => {
             error!(adapter_name = %request.adapter_name, error = %e, "Failed to start training job");
 
             // Audit log: training start failure
-            tokio::task::block_in_place(|| {
-                tokio::runtime::Handle::current().block_on(async {
-                    if let Err(audit_err) = crate::audit_helper::log_failure(
-                        &state.db,
-                        &claims,
-                        crate::audit_helper::actions::TRAINING_START,
-                        crate::audit_helper::resources::TRAINING_JOB,
-                        Some(&request.adapter_name),
-                        &e.to_string(),
-                    )
-                    .await {
-
-                        tracing::warn!(error = %audit_err, "Audit log failed");
-
-                    }
-                })
-            });
+            if let Err(audit_err) = crate::audit_helper::log_failure(
+                &state.db,
+                &claims,
+                crate::audit_helper::actions::TRAINING_START,
+                crate::audit_helper::resources::TRAINING_JOB,
+                Some(&request.adapter_name),
+                &e.to_string(),
+            )
+            .await
+            {
+                tracing::warn!(error = %audit_err, "Audit log failed");
+            }
 
             let as_aos = AosError::Internal(e.to_string());
-            build_training_error_response(&as_aos)
-        })?;
+            return Err(build_training_error_response(&as_aos));
+        }
+    };
 
     // Audit log: training start success
     if let Err(e) = crate::audit_helper::log_success(
