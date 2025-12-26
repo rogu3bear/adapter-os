@@ -10,6 +10,64 @@ use adapteros_server_api::config::PathsConfig;
 use adapteros_server_api::state::{ApiConfig, AppState, MetricsConfig};
 use adapteros_server_api::telemetry::MetricsRegistry;
 use adapteros_telemetry::MetricsCollector;
+use once_cell::sync::Lazy;
+use tokio::sync::{Mutex, MutexGuard};
+
+/// Global lock to serialize environment mutations across tests.
+pub static ENV_LOCK: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
+
+pub async fn env_lock() -> MutexGuard<'static, ()> {
+    ENV_LOCK.lock().await
+}
+
+/// Clears all testkit-related environment flags so routing is deterministic.
+pub fn clear_testkit_env() {
+    for key in [
+        "E2E_MODE",
+        "AOS_SKIP_MIGRATION_SIGNATURES",
+        "AOS_DEV_NO_AUTH",
+        "VITE_ENABLE_DEV_BYPASS",
+    ] {
+        std::env::remove_var(key);
+    }
+}
+
+/// Enables testkit mode and optional dev-no-auth for fixtures.
+pub fn set_testkit_env(dev_no_auth: bool) {
+    clear_testkit_env();
+    std::env::set_var("E2E_MODE", "1");
+    std::env::set_var("AOS_SKIP_MIGRATION_SIGNATURES", "1");
+    if dev_no_auth {
+        std::env::set_var("AOS_DEV_NO_AUTH", "1");
+    } else {
+        std::env::remove_var("AOS_DEV_NO_AUTH");
+    }
+}
+
+/// RAII guard that holds the environment lock and resets flags on drop.
+pub struct TestkitEnvGuard {
+    _guard: MutexGuard<'static, ()>,
+}
+
+impl TestkitEnvGuard {
+    pub async fn disabled() -> Self {
+        let guard = env_lock().await;
+        clear_testkit_env();
+        Self { _guard: guard }
+    }
+
+    pub async fn enabled(dev_no_auth: bool) -> Self {
+        let guard = env_lock().await;
+        set_testkit_env(dev_no_auth);
+        Self { _guard: guard }
+    }
+}
+
+impl Drop for TestkitEnvGuard {
+    fn drop(&mut self) {
+        clear_testkit_env();
+    }
+}
 
 /// Build a minimal AppState with in-memory DB, metrics, and training service.
 ///
@@ -351,13 +409,15 @@ pub async fn create_test_dataset(state: &AppState, dataset_id: &str) -> anyhow::
     let hash = B3Hash::hash(dataset_id.as_bytes()).to_hex();
 
     adapteros_db::sqlx::query(
-        "INSERT INTO training_datasets (id, hash_b3, validation_status, format)
-         VALUES (?, ?, ?, ?)",
+        "INSERT INTO training_datasets (id, name, hash_b3, validation_status, format, storage_path)
+         VALUES (?, ?, ?, ?, ?, ?)",
     )
+    .bind(dataset_id)
     .bind(dataset_id)
     .bind(hash)
     .bind("valid")
     .bind("jsonl")
+    .bind("var/test-datasets")
     .execute(state.db.pool())
     .await?;
 

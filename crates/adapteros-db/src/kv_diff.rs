@@ -561,7 +561,7 @@ impl Db {
                     continue;
                 };
                 let map: HashMap<String, crate::adapters::Adapter> = kv_repo
-                    .list_adapters_for_tenant_kv(&row.tenant_id)
+                    .list_adapters_for_tenant_kv(&row.tenant_id, None, None)
                     .await?
                     .into_iter()
                     .map(|a| (a.id.clone(), a))

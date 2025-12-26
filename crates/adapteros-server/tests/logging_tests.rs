@@ -9,23 +9,22 @@ use tempfile::TempDir;
 async fn create_file_with_age(dir: &std::path::Path, name: &str, age_days: u64) {
     let file_path = dir.join(name);
     let mut file = File::create(&file_path).expect("Failed to create test file");
-    file.write_all(b"test content").expect("Failed to write test content");
+    file.write_all(b"test content")
+        .expect("Failed to write test content");
     drop(file);
 
     // Set modification time to the past
     let past_time = SystemTime::now() - Duration::from_secs(age_days * 86400 + 100);
-    filetime::set_file_mtime(
-        &file_path,
-        filetime::FileTime::from_system_time(past_time),
-    )
-    .expect("Failed to set file mtime");
+    filetime::set_file_mtime(&file_path, filetime::FileTime::from_system_time(past_time))
+        .expect("Failed to set file mtime");
 }
 
 /// Helper to create a recent file (uses current time)
 async fn create_recent_file(dir: &std::path::Path, name: &str) {
     let file_path = dir.join(name);
     let mut file = File::create(&file_path).expect("Failed to create test file");
-    file.write_all(b"test content").expect("Failed to write test content");
+    file.write_all(b"test content")
+        .expect("Failed to write test content");
 }
 
 #[tokio::test]
@@ -39,12 +38,10 @@ async fn test_cleanup_old_logs_removes_files_older_than_retention() {
     create_file_with_age(log_dir, "old_log_3.log", 30).await;
 
     let retention_days = 7;
-    let deleted_count = adapteros_server::logging::cleanup_old_logs(
-        log_dir.to_str().unwrap(),
-        retention_days,
-    )
-    .await
-    .expect("cleanup_old_logs should succeed");
+    let deleted_count =
+        adapteros_server::logging::cleanup_old_logs(log_dir.to_str().unwrap(), retention_days)
+            .await
+            .expect("cleanup_old_logs should succeed");
 
     assert_eq!(deleted_count, 3, "Should delete all 3 old files");
 
@@ -67,12 +64,10 @@ async fn test_cleanup_old_logs_preserves_recent_files() {
     create_file_with_age(log_dir, "borderline.log", 3).await; // Within retention
 
     let retention_days = 7;
-    let deleted_count = adapteros_server::logging::cleanup_old_logs(
-        log_dir.to_str().unwrap(),
-        retention_days,
-    )
-    .await
-    .expect("cleanup_old_logs should succeed");
+    let deleted_count =
+        adapteros_server::logging::cleanup_old_logs(log_dir.to_str().unwrap(), retention_days)
+            .await
+            .expect("cleanup_old_logs should succeed");
 
     assert_eq!(deleted_count, 1, "Should only delete the 10-day old file");
 
@@ -99,12 +94,10 @@ async fn test_cleanup_old_logs_handles_empty_directory() {
 
     // Directory exists but is empty
     let retention_days = 7;
-    let deleted_count = adapteros_server::logging::cleanup_old_logs(
-        log_dir.to_str().unwrap(),
-        retention_days,
-    )
-    .await
-    .expect("cleanup_old_logs should succeed");
+    let deleted_count =
+        adapteros_server::logging::cleanup_old_logs(log_dir.to_str().unwrap(), retention_days)
+            .await
+            .expect("cleanup_old_logs should succeed");
 
     assert_eq!(deleted_count, 0, "Should return 0 for empty directory");
 }
@@ -118,12 +111,13 @@ async fn test_cleanup_old_logs_handles_missing_directory() {
     let _ = std::fs::remove_dir_all(non_existent_path);
 
     let retention_days = 7;
-    let deleted_count = adapteros_server::logging::cleanup_old_logs(
-        non_existent_path,
-        retention_days,
-    )
-    .await
-    .expect("cleanup_old_logs should succeed for missing directory");
+    let deleted_count =
+        adapteros_server::logging::cleanup_old_logs(non_existent_path, retention_days)
+            .await
+            .expect("cleanup_old_logs should succeed for missing directory");
 
-    assert_eq!(deleted_count, 0, "Should return 0 for non-existent directory");
+    assert_eq!(
+        deleted_count, 0,
+        "Should return 0 for non-existent directory"
+    );
 }

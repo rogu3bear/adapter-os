@@ -190,6 +190,7 @@ fn test_inference_request_internal_with_pinned_adapters() {
         router_seed: None,
         worker_auth_token: None,
         stop_policy: None,
+        utf8_healing: None,
     };
 
     assert_eq!(request.pinned_adapter_ids, Some(pinned));

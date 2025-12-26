@@ -57,9 +57,13 @@
 
 use adapteros_db::Db;
 use parking_lot::RwLock;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tracing::{debug, info, warn};
+use utoipa::ToSchema;
+use uuid::Uuid;
 
 /// Boot lifecycle states
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -274,6 +278,30 @@ impl std::fmt::Display for FailureReason {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub enum PhaseOutcome {
+    Pending,
+    InProgress,
+    Success,
+    Failed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct PhaseStatus {
+    pub name: String,
+    pub status: PhaseOutcome,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub started_at_ms: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub finished_at_ms: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub duration_ms: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hint: Option<String>,
+}
+
 /// Standard failure codes for boot failures
 pub mod failure_codes {
     /// Database connection failed
@@ -300,6 +328,20 @@ pub mod failure_codes {
     pub const SECURITY_CHECK_FAILED: &str = "SECURITY_CHECK_FAILED";
     /// Boot timeout exceeded
     pub const BOOT_TIMEOUT: &str = "BOOT_TIMEOUT";
+    /// Security initialization failed
+    pub const SECURITY_INIT_FAILED: &str = "SECURITY_INIT_FAILED";
+    /// Executor initialization failed
+    pub const EXECUTOR_INIT_FAILED: &str = "EXECUTOR_INIT_FAILED";
+    /// Preflight checks failed
+    pub const PREFLIGHT_FAILED: &str = "PREFLIGHT_FAILED";
+    /// Router build failed
+    pub const ROUTER_BUILD_FAILED: &str = "ROUTER_BUILD_FAILED";
+    /// Bind failed
+    pub const BIND_FAILED: &str = "BIND_FAILED";
+    /// Worker attach failed
+    pub const WORKER_ATTACH_FAILED: &str = "WORKER_ATTACH_FAILED";
+    /// OpenTelemetry initialization failed
+    pub const OTEL_INIT_FAILED: &str = "OTEL_INIT_FAILED";
 }
 
 /// Degraded state reason for non-critical dependency failures
@@ -330,6 +372,8 @@ pub struct BootStateManager {
     current: Arc<RwLock<BootState>>,
     /// Process start time
     start_time: Instant,
+    /// Boot trace identifier for correlating logs/readyz
+    boot_trace_id: String,
     /// Database for audit logging (optional)
     db: Option<Arc<Db>>,
     /// Model loading status
@@ -338,6 +382,10 @@ pub struct BootStateManager {
     failure_reason: Arc<RwLock<Option<FailureReason>>>,
     /// Degraded reasons (components that have failed non-critically)
     degraded_reasons: Arc<RwLock<Vec<DegradedReason>>>,
+    /// Transition history (for metrics and diagnostics)
+    transitions: Arc<RwLock<Vec<StateTransition>>>,
+    /// Phase timing/status tracking
+    phases: Arc<RwLock<HashMap<String, PhaseStatus>>>,
 }
 
 impl BootStateManager {
@@ -346,10 +394,13 @@ impl BootStateManager {
         Self {
             current: Arc::new(RwLock::new(BootState::Stopped)),
             start_time: Instant::now(),
+            boot_trace_id: Uuid::new_v4().to_string(),
             db: None,
             model_status: Arc::new(RwLock::new(ModelLoadingStatus::default())),
             failure_reason: Arc::new(RwLock::new(None)),
             degraded_reasons: Arc::new(RwLock::new(Vec::new())),
+            transitions: Arc::new(RwLock::new(Vec::new())),
+            phases: Arc::new(RwLock::new(std::collections::HashMap::new())),
         }
     }
 
@@ -359,10 +410,13 @@ impl BootStateManager {
         Self {
             current: Arc::clone(&self.current),
             start_time: self.start_time,
+            boot_trace_id: self.boot_trace_id.clone(),
             db: Some(db),
             model_status: Arc::clone(&self.model_status),
             failure_reason: Arc::clone(&self.failure_reason),
             degraded_reasons: Arc::clone(&self.degraded_reasons),
+            transitions: Arc::clone(&self.transitions),
+            phases: Arc::clone(&self.phases),
         }
     }
 
@@ -381,9 +435,104 @@ impl BootStateManager {
         self.current_state().is_ready()
     }
 
+    /// Boot trace identifier for correlating logs/readyz
+    pub fn boot_trace_id(&self) -> String {
+        self.boot_trace_id.clone()
+    }
+
+    /// Begin tracking a boot phase
+    pub fn start_phase(&self, name: &str) {
+        let mut phases = self.phases.write();
+        let status = PhaseStatus {
+            name: name.to_string(),
+            status: PhaseOutcome::InProgress,
+            started_at_ms: Some(self.start_time.elapsed().as_millis() as u64),
+            finished_at_ms: None,
+            duration_ms: None,
+            error_code: None,
+            hint: None,
+        };
+        phases.insert(name.to_string(), status);
+    }
+
+    /// Mark a boot phase as successful
+    pub fn finish_phase_ok(&self, name: &str) {
+        let mut phases = self.phases.write();
+        let entry = phases
+            .entry(name.to_string())
+            .or_insert_with(|| PhaseStatus {
+                name: name.to_string(),
+                status: PhaseOutcome::Pending,
+                started_at_ms: Some(self.start_time.elapsed().as_millis() as u64),
+                finished_at_ms: None,
+                duration_ms: None,
+                error_code: None,
+                hint: None,
+            });
+        entry.status = PhaseOutcome::Success;
+        let now_ms = self.start_time.elapsed().as_millis() as u64;
+        entry.finished_at_ms = Some(now_ms);
+        entry.duration_ms = entry.started_at_ms.map(|s| now_ms.saturating_sub(s));
+    }
+
+    /// Mark a boot phase as failed with an error code/hint
+    pub fn finish_phase_err(&self, name: &str, code: &str, hint: Option<String>) {
+        let mut phases = self.phases.write();
+        let entry = phases
+            .entry(name.to_string())
+            .or_insert_with(|| PhaseStatus {
+                name: name.to_string(),
+                status: PhaseOutcome::Pending,
+                started_at_ms: Some(self.start_time.elapsed().as_millis() as u64),
+                finished_at_ms: None,
+                duration_ms: None,
+                error_code: None,
+                hint: None,
+            });
+        entry.status = PhaseOutcome::Failed;
+        let now_ms = self.start_time.elapsed().as_millis() as u64;
+        entry.finished_at_ms = Some(now_ms);
+        entry.duration_ms = entry.started_at_ms.map(|s| now_ms.saturating_sub(s));
+        entry.error_code = Some(code.to_string());
+        entry.hint = hint;
+    }
+
+    /// Snapshot of all boot phases
+    pub fn phase_statuses(&self) -> Vec<PhaseStatus> {
+        let phases = self.phases.read();
+        let mut vals: Vec<_> = phases.values().cloned().collect();
+        vals.sort_by(|a, b| a.name.cmp(&b.name));
+        vals
+    }
+
     /// Check if server is accepting requests (Ready or FullyReady)
     pub fn is_accepting_requests(&self) -> bool {
         self.current_state().is_ready()
+    }
+
+    /// Get last boot error code if any
+    pub fn last_error_code(&self) -> Option<String> {
+        if let Some(reason) = &*self.failure_reason.read() {
+            return Some(reason.code.clone());
+        }
+        let phases = self.phases.read();
+        phases
+            .values()
+            .filter(|p| matches!(p.status, PhaseOutcome::Failed))
+            .max_by(|a, b| {
+                let a_time = a
+                    .finished_at_ms
+                    .or(a.started_at_ms)
+                    .unwrap_or_default();
+                let b_time = b
+                    .finished_at_ms
+                    .or(b.started_at_ms)
+                    .unwrap_or_default();
+                a_time
+                    .cmp(&b_time)
+                    .then_with(|| a.name.cmp(&b.name))
+            })
+            .and_then(|p| p.error_code.clone())
     }
 
     /// Check if all models are loaded and healthy
@@ -414,6 +563,11 @@ impl BootStateManager {
     /// Get count of models still loading
     pub fn pending_model_count(&self) -> usize {
         self.model_status.read().pending.len()
+    }
+
+    /// Get recorded transition history (monotonic since process start)
+    pub fn transition_history(&self) -> Vec<StateTransition> {
+        self.transitions.read().clone()
     }
 
     /// Get count of ready models
@@ -498,6 +652,8 @@ impl BootStateManager {
             elapsed,
             timestamp: Instant::now(),
         };
+
+        self.transitions.write().push(transition.clone());
 
         // Emit audit log if database is available
         if let Some(ref db) = self.db {
@@ -823,10 +979,13 @@ impl Clone for BootStateManager {
         Self {
             current: Arc::clone(&self.current),
             start_time: self.start_time,
+            boot_trace_id: self.boot_trace_id.clone(),
             db: self.db.clone(),
             model_status: Arc::clone(&self.model_status),
             failure_reason: Arc::clone(&self.failure_reason),
             degraded_reasons: Arc::clone(&self.degraded_reasons),
+            transitions: Arc::clone(&self.transitions),
+            phases: Arc::clone(&self.phases),
         }
     }
 }

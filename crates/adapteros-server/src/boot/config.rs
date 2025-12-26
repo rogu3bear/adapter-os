@@ -11,9 +11,11 @@
 //! - Boot timeout configuration
 
 use adapteros_config::{path_resolver::PathSource, resolve_base_model_location};
+use adapteros_core::time;
 use adapteros_server_api::boot_state::BootStateManager;
 use adapteros_server_api::config::Config;
 use anyhow::Result;
+use serde_json::json;
 use std::sync::{Arc, RwLock};
 use tracing::{error, info, warn};
 
@@ -62,6 +64,9 @@ pub struct ConfigContext {
 /// - Logging initialization fails
 /// - CORS configuration validation fails
 pub async fn initialize_config(cli: &Cli) -> Result<ConfigContext> {
+    let boot_state = BootStateManager::new();
+    boot_state.start_phase("config_load");
+
     // Load configuration early - needed for logging setup
     // Use eprintln for errors here since logging isn't initialized yet
     let server_config = match Config::load(&cli.config) {
@@ -74,6 +79,7 @@ pub async fn initialize_config(cli: &Cli) -> Result<ConfigContext> {
             std::process::exit(1);
         }
     };
+    boot_state.finish_phase_ok("config_load");
 
     // Harmonize critical config with canonical env vars so scripts/UI and the server agree.
     // Precedence: explicit env > config file > defaults.
@@ -179,16 +185,51 @@ pub async fn initialize_config(cli: &Cli) -> Result<ConfigContext> {
         cfg.security.session_ttl_seconds = cfg.auth.session_lifetime;
     }
 
-    // Set up panic hook to capture panics to log
+    // Validate required secrets after logging is configured
+    {
+        let cfg = server_config
+            .read()
+            .map_err(|e| anyhow::anyhow!("Config lock poisoned: {}", e))?;
+        if let Err(e) = cfg.validate_secrets() {
+            error!(error = %e, "FATAL: secret validation failed");
+            std::process::exit(1);
+        }
+    }
+
+    // Set up panic hook to capture panics to log and write crash snapshots
     {
         let cfg = server_config
             .read()
             .map_err(|e| anyhow::anyhow!("Config lock poisoned: {}", e))?;
 
         if cfg.logging.capture_panics {
+            let log_dir = cfg
+                .logging
+                .log_dir
+                .clone()
+                .unwrap_or_else(|| "var/logs".to_string());
+            let log_prefix = cfg.logging.log_prefix.clone();
+            let boot_trace_id = boot_state.boot_trace_id();
+
+            // Minimal redacted config summary for crash reports
+            let config_summary = json!({
+                "server": {
+                    "bind": cfg.server.bind,
+                    "port": cfg.server.port,
+                    "production_mode": cfg.server.production_mode,
+                },
+                "db": {
+                    "path": cfg.db.path,
+                    "storage_mode": cfg.db.storage_mode,
+                },
+                "logging": {
+                    "log_dir": cfg.logging.log_dir,
+                    "json_format": cfg.logging.json_format,
+                }
+            });
+
             let default_hook = std::panic::take_hook();
             std::panic::set_hook(Box::new(move |panic_info| {
-                // Log the panic using tracing
                 let location = panic_info
                     .location()
                     .map(|l| format!("{}:{}:{}", l.file(), l.line(), l.column()))
@@ -202,14 +243,36 @@ pub async fn initialize_config(cli: &Cli) -> Result<ConfigContext> {
                     "Unknown panic payload".to_string()
                 };
 
-                // Log to tracing (will go to file if configured)
+                let backtrace = std::backtrace::Backtrace::force_capture().to_string();
+                let ts = time::now_rfc3339();
+                let crash_dir = std::path::Path::new(&log_dir);
+                let _ = std::fs::create_dir_all(crash_dir);
+                let crash_path = crash_dir.join(format!("crash-{}.json", ts.replace(':', "-")));
+
+                // Try to capture the tail of the latest log file (best effort)
+                let log_tail = latest_log_tail(&log_dir, &log_prefix, 200);
+
+                let snapshot = serde_json::json!({
+                    "ts": ts,
+                    "trace_id": boot_trace_id,
+                    "location": location,
+                    "message": message,
+                    "backtrace": backtrace,
+                    "config": config_summary,
+                    "log_tail": log_tail,
+                });
+
+                if let Ok(mut file) = std::fs::File::create(&crash_path) {
+                    let _ = serde_json::to_writer_pretty(&mut file, &snapshot);
+                }
+
                 error!(
                     panic.location = %location,
                     panic.message = %message,
+                    crash_path = %crash_path.display(),
                     "PANIC CAPTURED"
                 );
 
-                // Also call default hook for stderr output
                 default_hook(panic_info);
             }));
             info!("Panic capture hook installed");
@@ -231,7 +294,6 @@ pub async fn initialize_config(cli: &Cli) -> Result<ConfigContext> {
     }
 
     // Initialize boot state manager (without DB until connected)
-    let boot_state = BootStateManager::new();
     boot_state.start().await;
 
     // Get boot timeout from config (default: 300 seconds)
@@ -256,4 +318,44 @@ pub async fn initialize_config(cli: &Cli) -> Result<ConfigContext> {
         _log_guard,
         _otel_guard,
     })
+}
+
+fn latest_log_tail(log_dir: &str, prefix: &str, max_lines: usize) -> Vec<String> {
+    let path = std::path::Path::new(log_dir);
+    if !path.exists() {
+        return Vec::new();
+    }
+
+    let mut newest: Option<std::path::PathBuf> = None;
+    if let Ok(entries) = std::fs::read_dir(path) {
+        for entry in entries.flatten() {
+            let p = entry.path();
+            if let Some(fname) = p.file_name().and_then(|n| n.to_str()) {
+                if fname.starts_with(prefix) {
+                    let modified = entry.metadata().ok().and_then(|m| m.modified().ok());
+                    let is_newer = newest
+                        .as_ref()
+                        .and_then(|cur| cur.metadata().ok().and_then(|m| m.modified().ok()));
+                    if is_newer.map_or(true, |cur_mod| modified.map_or(false, |m| m > cur_mod)) {
+                        newest = Some(p);
+                    }
+                }
+            }
+        }
+    }
+
+    let Some(log_path) = newest else {
+        return Vec::new();
+    };
+    if let Ok(content) = std::fs::read_to_string(&log_path) {
+        let lines: Vec<_> = content
+            .lines()
+            .rev()
+            .take(max_lines)
+            .map(str::to_string)
+            .collect();
+        return lines.into_iter().rev().collect();
+    }
+
+    Vec::new()
 }

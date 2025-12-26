@@ -27,8 +27,14 @@ fn create_test_bundle_dir(dir: &Path) -> Result<()> {
     fs::create_dir_all(&weights_dir)?;
 
     // Write some weight files
-    fs::write(weights_dir.join("layer1.safetensors"), b"fake_weights_layer1")?;
-    fs::write(weights_dir.join("layer2.safetensors"), b"fake_weights_layer2")?;
+    fs::write(
+        weights_dir.join("layer1.safetensors"),
+        b"fake_weights_layer1",
+    )?;
+    fs::write(
+        weights_dir.join("layer2.safetensors"),
+        b"fake_weights_layer2",
+    )?;
 
     // Create manifest.json
     let manifest = serde_json::json!({
@@ -282,7 +288,10 @@ fn test_corrupt_bundle_invalid_signature() -> Result<()> {
     // Verify should fail
     let result = signature.verify();
     assert!(result.is_err());
-    assert!(result.unwrap_err().to_string().contains("verification failed"));
+    assert!(result
+        .unwrap_err()
+        .to_string()
+        .contains("verification failed"));
 
     Ok(())
 }

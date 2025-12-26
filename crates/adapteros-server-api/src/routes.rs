@@ -77,13 +77,12 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::get_adapter,
         handlers::register_adapter,
         handlers::delete_adapter,
-        handlers::load_adapter,
-        handlers::unload_adapter,
-        handlers::verify_gpu_integrity,
-        handlers::get_adapter_activations,
+        handlers::adapter_lifecycle::load_adapter,
+        handlers::adapter_lifecycle::unload_adapter,
+        handlers::adapter_health::verify_gpu_integrity,
+        handlers::adapter_health::get_adapter_activations,
         handlers::routing_decisions::get_adapter_usage,
-        handlers::promote_adapter_state,
-        handlers::list_repositories_legacy,
+        handlers::adapter_lifecycle::promote_adapter_state,
         handlers::get_quality_metrics,
         handlers::get_adapter_metrics,
         handlers::get_system_metrics,
@@ -100,8 +99,8 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::chat_sessions::delete_contact,
         handlers::chat_sessions::get_contact_interactions,
         handlers::streaming::activity_stream,
-        handlers::streaming::discovery_stream,
-        handlers::streaming::contacts_stream,
+        handlers::discovery::discovery_stream,
+        handlers::discovery::contacts_stream,
         // Training handlers
         handlers::list_training_jobs,
         handlers::get_training_job,
@@ -150,7 +149,7 @@ use utoipa_swagger_ui::SwaggerUi;
         domain_adapters::execute_domain_adapter,
         domain_adapters::delete_domain_adapter,
         // Model status handlers
-        handlers::models::get_base_model_status,
+        handlers::infrastructure::get_base_model_status,
         // Audit logs handler
         handlers::admin::query_audit_logs,
         handlers::plugins::enable_plugin,
@@ -728,7 +727,7 @@ pub fn build(state: AppState) -> Router {
     let optional_auth_routes = Router::new()
         .route(
             "/v1/models/status",
-            get(handlers::models::get_base_model_status),
+            get(handlers::infrastructure::get_base_model_status),
         )
         .with_state(state.clone())
         .layer(
@@ -1575,11 +1574,11 @@ pub fn build(state: AppState) -> Router {
         )
         .route(
             "/v1/streams/discovery",
-            get(handlers::streaming::discovery_stream),
+            get(handlers::discovery::discovery_stream),
         )
         .route(
             "/v1/streams/contacts",
-            get(handlers::streaming::contacts_stream),
+            get(handlers::discovery::contacts_stream),
         )
         // Dataset routes
         .route(
@@ -1769,10 +1768,7 @@ pub fn build(state: AppState) -> Router {
             post(handlers::code::create_commit_delta),
         )
         // Repository routes (deprecated - use /v1/code/repositories instead)
-        .route(
-            "/v1/repositories",
-            get(handlers::adapters::list_repositories_legacy),
-        )
+        .route("/v1/repositories", get(handlers::list_adapter_repositories))
         // System overview routes
         .route(
             "/v1/system/overview",
@@ -2336,7 +2332,8 @@ pub fn build(state: AppState) -> Router {
             state.clone(),
             drain_middleware,
         )) // Reject new requests during drain
-        .layer(axum::middleware::from_fn(
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
             crate::middleware::observability_middleware,
         )) // Logging + error envelope
         .layer(axum::middleware::from_fn(request_id::request_id_middleware)) // Request ID tracking (outermost)

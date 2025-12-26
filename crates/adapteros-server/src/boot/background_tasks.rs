@@ -136,7 +136,10 @@ pub async fn spawn_all_background_tasks(
                     }
                 }
             },
-            &format!("{}s interval, read-only, deterministic ordering", interval_secs),
+            &format!(
+                "{}s interval, read-only, deterministic ordering",
+                interval_secs
+            ),
         ) {
             if strict_mode {
                 boot_state
@@ -255,7 +258,8 @@ pub async fn spawn_all_background_tasks(
                         "Log cleanup",
                         async move {
                             let mut interval = tokio::time::interval(Duration::from_secs(86400)); // 24 hours
-                            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                            interval
+                                .set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
                             loop {
                                 interval.tick().await;

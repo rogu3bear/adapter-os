@@ -7,13 +7,13 @@
 //! - PF (packet filter) rule validation on macOS/Linux
 //! - Environment fingerprint verification and drift detection
 
-use adapteros_boot::{load_or_generate_worker_keypair, derive_kid_from_verifying_key};
-use adapteros_core::AosError;
-use adapteros_server_api::config::Config;
-use anyhow::Result;
 use crate::cli::Cli;
 use crate::pid_lock::PidFileLock;
 use crate::security::PfGuard;
+use adapteros_boot::{derive_kid_from_verifying_key, load_or_generate_worker_keypair};
+use adapteros_core::AosError;
+use adapteros_server_api::config::Config;
+use anyhow::Result;
 use ed25519_dalek::SigningKey;
 use std::sync::{Arc, RwLock};
 use tracing::{error, info, trace, warn};
@@ -127,9 +127,8 @@ pub fn log_effective_config(config: &Arc<RwLock<Config>>) -> Result<()> {
         anyhow::anyhow!("config lock poisoned at startup")
     })?;
 
-    let parse_env_u16 = |key: &str| -> Option<u16> {
-        std::env::var(key).ok().and_then(|v| v.parse::<u16>().ok())
-    };
+    let parse_env_u16 =
+        |key: &str| -> Option<u16> { std::env::var(key).ok().and_then(|v| v.parse::<u16>().ok()) };
     let env_truthy = |key: &str| -> bool {
         std::env::var(key)
             .ok()
@@ -197,6 +196,22 @@ pub fn log_effective_config(config: &Arc<RwLock<Config>>) -> Result<()> {
         jwt_issuer = %cfg.security.jwt_issuer,
         key_provider_mode = %cfg.security.key_provider_mode,
         "Effective security configuration"
+    );
+    let redact = |s: &str| -> String {
+        if s.is_empty() {
+            "[missing]".to_string()
+        } else {
+            format!("[len={}]", s.len())
+        }
+    };
+    info!(
+        jwt_secret = %redact(&cfg.security.jwt_secret),
+        metrics_token = %if cfg.metrics.enabled {
+            redact(&cfg.metrics.bearer_token)
+        } else {
+            "[disabled]".to_string()
+        },
+        "Secret configuration (redacted)"
     );
     info!(
         rate_limit_rpm = cfg.rate_limits.requests_per_minute,

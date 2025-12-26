@@ -1,10 +1,13 @@
 use crate::middleware::context::RequestContext;
+use crate::middleware::trace_context::TraceContextExtension;
 use crate::request_id::{RequestId, REQUEST_ID_HEADER};
+use crate::state::AppState;
 use crate::types::ApiErrorBody;
 use axum::body::to_bytes;
 use axum::{
     body::Body,
     extract::Request,
+    extract::State,
     http::{header, HeaderValue, StatusCode},
     middleware::Next,
     response::{IntoResponse, Response},
@@ -18,18 +21,40 @@ use uuid::Uuid;
 
 /// Wraps each HTTP request with request/response logging and enforces a
 /// consistent JSON error envelope on 4xx/5xx responses.
-pub async fn observability_middleware(req: Request<Body>, next: Next) -> Response {
+pub async fn observability_middleware(
+    State(state): State<AppState>,
+    req: Request<Body>,
+    next: Next,
+) -> Response {
+    observability_middleware_inner(Some(state), req, next).await
+}
+
+async fn observability_middleware_inner(
+    state: Option<AppState>,
+    req: Request<Body>,
+    next: Next,
+) -> Response {
     let method = req.method().clone();
     let path = req.uri().path().to_string();
 
     // Prefer the request ID already injected by the request_id middleware; fall back
     // to any header-supplied value or generate one if missing.
     let request_id = extract_request_id(&req);
+    let (trace_id, span_id) = req
+        .extensions()
+        .get::<TraceContextExtension>()
+        .map(|ctx| (Some(ctx.trace_id.clone()), Some(ctx.span_id.clone())))
+        .unwrap_or((None, None));
+    let trace_id = trace_id.unwrap_or_default();
+    let span_id = span_id.unwrap_or_default();
 
     let start = Instant::now();
     info!(
         target: "api",
         request_id = %request_id,
+        trace_id = trace_id.as_str(),
+        span_id = span_id.as_str(),
+        component = "adapteros-server-api",
         method = %method,
         path = %path,
         "request_start"
@@ -55,6 +80,11 @@ pub async fn observability_middleware(req: Request<Body>, next: Next) -> Respons
         .unwrap_or((None, None, None, None, None));
 
     ensure_request_id_header(&mut response, &request_id);
+    if !trace_id.is_empty() {
+        if let Ok(header_value) = HeaderValue::from_str(&trace_id) {
+            response.headers_mut().insert("Trace-Id", header_value);
+        }
+    }
 
     if status.is_client_error() || status.is_server_error() {
         let (parts, body) = response.into_parts();
@@ -97,6 +127,9 @@ pub async fn observability_middleware(req: Request<Body>, next: Next) -> Respons
         error!(
             target: "api",
             request_id = %request_id,
+            trace_id = trace_id.as_str(),
+            span_id = span_id.as_str(),
+            component = "adapteros-server-api",
             method = %method,
             path = %path,
             status = status.as_u16(),
@@ -113,11 +146,18 @@ pub async fn observability_middleware(req: Request<Body>, next: Next) -> Respons
             "request_error"
         );
 
+        if let Some(state) = state.as_ref() {
+            record_http_metrics(state, status, duration_ms as f64).await;
+        }
+
         new_response
     } else {
         info!(
             target: "api",
             request_id = %request_id,
+            trace_id = trace_id.as_str(),
+            span_id = span_id.as_str(),
+            component = "adapteros-server-api",
             method = %method,
             path = %path,
             status = status.as_u16(),
@@ -129,7 +169,24 @@ pub async fn observability_middleware(req: Request<Body>, next: Next) -> Respons
             auth_mode = auth_mode.as_deref().unwrap_or(""),
             "request_complete"
         );
+        if let Some(state) = state.as_ref() {
+            record_http_metrics(state, status, duration_ms as f64).await;
+        }
         response
+    }
+}
+
+async fn record_http_metrics(state: &AppState, status: StatusCode, duration_ms: f64) {
+    let registry = state.metrics_registry.clone();
+    registry
+        .record_metric("http_request_duration_ms".to_string(), duration_ms)
+        .await;
+
+    if status.is_client_error() || status.is_server_error() {
+        let class = status.as_u16() / 100;
+        registry
+            .record_metric(format!("http_request_error_total.{}xx", class), 1.0)
+            .await;
     }
 }
 
@@ -341,11 +398,16 @@ mod tests {
         body::{to_bytes, Body},
         http::{Request, StatusCode},
         middleware,
+        middleware::Next,
         routing::get,
         Router,
     };
     use serde_json::json;
     use tower::ServiceExt;
+
+    async fn observability_middleware_test(req: Request<Body>, next: Next) -> Response {
+        super::observability_middleware_inner(None, req, next).await
+    }
 
     #[tokio::test]
     async fn envelopes_errors_and_sets_request_id() {
@@ -354,7 +416,7 @@ mod tests {
                 "/",
                 get(|| async { (StatusCode::BAD_REQUEST, Json(json!({"error": "bad input"}))) }),
             )
-            .layer(middleware::from_fn(observability_middleware));
+            .layer(middleware::from_fn(observability_middleware_test));
 
         let response = app
             .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
@@ -381,7 +443,7 @@ mod tests {
     async fn passes_success_and_injects_request_id() {
         let app = Router::new()
             .route("/", get(|| async { (StatusCode::OK, "ok") }))
-            .layer(middleware::from_fn(observability_middleware));
+            .layer(middleware::from_fn(observability_middleware_test));
 
         let response = app
             .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())

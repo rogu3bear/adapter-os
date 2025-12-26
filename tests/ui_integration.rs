@@ -403,7 +403,9 @@ async fn test_policy_studio_endpoints() {
     assert_eq!(policy_studio_endpoints.len(), 6);
 
     // All Policy Studio endpoints are required for tenant customization workflow
-    assert!(policy_studio_endpoints.iter().any(|e| e.contains("customize")));
+    assert!(policy_studio_endpoints
+        .iter()
+        .any(|e| e.contains("customize")));
     assert!(policy_studio_endpoints.iter().any(|e| e.contains("submit")));
 }
 
@@ -427,10 +429,14 @@ async fn test_policy_review_queue_endpoints() {
     assert_eq!(review_queue_endpoints.len(), 4);
 
     // All Review Queue endpoints are required for policy approval workflow
-    assert!(review_queue_endpoints.iter().any(|e| e.contains("pending-reviews")));
+    assert!(review_queue_endpoints
+        .iter()
+        .any(|e| e.contains("pending-reviews")));
     assert!(review_queue_endpoints.iter().any(|e| e.contains("approve")));
     assert!(review_queue_endpoints.iter().any(|e| e.contains("reject")));
-    assert!(review_queue_endpoints.iter().any(|e| e.contains("activate")));
+    assert!(review_queue_endpoints
+        .iter()
+        .any(|e| e.contains("activate")));
 }
 
 #[tokio::test]

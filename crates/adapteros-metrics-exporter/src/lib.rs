@@ -892,23 +892,23 @@ impl MetricsExporter {
             match family.get_name() {
                 "mplora_http_requests_total" => {
                     for metric in family.get_metric() {
-                        if metric.has_counter() {
-                            total_requests += metric.get_counter().get_value();
+                        if let Some(counter) = metric.get_counter().as_ref() {
+                            total_requests += counter.value();
                         }
                     }
                 }
                 "mplora_jobs_active" => {
                     for metric in family.get_metric() {
-                        if metric.has_gauge() {
-                            queue_depth += metric.get_gauge().get_value();
+                        if let Some(gauge) = metric.get_gauge().as_ref() {
+                            queue_depth += gauge.value();
                         }
                     }
                 }
                 "mplora_http_request_duration_seconds" => {
                     for metric in family.get_metric() {
-                        if metric.has_histogram() {
-                            avg_latency_ms += metric.get_histogram().get_sample_sum() * 1000.0;
-                            request_count = metric.get_histogram().get_sample_count();
+                        if let Some(histogram) = metric.get_histogram().as_ref() {
+                            avg_latency_ms += histogram.sample_sum() * 1000.0;
+                            request_count = histogram.sample_count();
                         }
                     }
                 }

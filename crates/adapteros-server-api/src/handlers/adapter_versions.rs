@@ -33,6 +33,20 @@ pub struct ListAdapterVersionsParams {
     pub state: Option<String>,
 }
 
+#[utoipa::path(
+    tag = "system",
+    get,
+    path = "/v1/adapter-repositories/{repo_id}/versions",
+    params(
+        ("repo_id" = String, Path, description = "Repository ID"),
+        ListAdapterVersionsParams
+    ),
+    responses(
+        (status = 200, description = "List of adapter versions", body = Vec<AdapterVersionResponse>),
+        (status = 404, description = "Repository not found", body = ErrorResponse),
+        (status = 401, description = "Unauthorized", body = ErrorResponse)
+    )
+)]
 pub async fn list_adapter_versions(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -198,7 +212,17 @@ pub async fn list_adapter_versions(
     Ok(Json(responses))
 }
 
-
+#[utoipa::path(
+    tag = "system",
+    post,
+    path = "/v1/adapter-versions/draft",
+    request_body = CreateDraftVersionRequest,
+    responses(
+        (status = 201, description = "Draft version created", body = CreateDraftVersionResponse),
+        (status = 400, description = "Validation error", body = ErrorResponse),
+        (status = 404, description = "Repository not found", body = ErrorResponse)
+    )
+)]
 pub async fn create_draft_version(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -262,7 +286,18 @@ pub async fn create_draft_version(
     ))
 }
 
-
+#[utoipa::path(
+    tag = "system",
+    get,
+    path = "/v1/adapter-versions/{version_id}",
+    params(
+        ("version_id" = String, Path, description = "Version ID")
+    ),
+    responses(
+        (status = 200, description = "Version", body = AdapterVersionResponse),
+        (status = 404, description = "Version not found", body = ErrorResponse)
+    )
+)]
 pub async fn get_adapter_version(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -384,7 +419,16 @@ pub async fn get_adapter_version(
     }))
 }
 
-
+#[utoipa::path(
+    tag = "system",
+    post,
+    path = "/v1/adapter-versions/{version_id}/promote",
+    request_body = PromoteVersionRequest,
+    responses(
+        (status = 204, description = "Version promoted"),
+        (status = 404, description = "Version not found", body = ErrorResponse)
+    )
+)]
 pub async fn promote_adapter_version_handler(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -473,7 +517,19 @@ pub async fn promote_adapter_version_handler(
     Ok(StatusCode::NO_CONTENT)
 }
 
-
+#[utoipa::path(
+    tag = "system",
+    post,
+    path = "/v1/adapter-repositories/{repo_id}/versions/rollback",
+    request_body = RollbackVersionRequest,
+    params(
+        ("repo_id" = String, Path, description = "Repository ID")
+    ),
+    responses(
+        (status = 204, description = "Rollback succeeded"),
+        (status = 404, description = "Repository or version not found", body = ErrorResponse)
+    )
+)]
 pub async fn rollback_adapter_version_handler(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -535,7 +591,19 @@ pub async fn rollback_adapter_version_handler(
     Ok(StatusCode::NO_CONTENT)
 }
 
-
+#[utoipa::path(
+    tag = "system",
+    post,
+    path = "/v1/adapter-versions/{version_id}/tag",
+    request_body = TagVersionRequest,
+    params(
+        ("version_id" = String, Path, description = "Version ID")
+    ),
+    responses(
+        (status = 204, description = "Tag upserted"),
+        (status = 404, description = "Version not found", body = ErrorResponse)
+    )
+)]
 pub async fn tag_adapter_version_handler(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -567,7 +635,19 @@ pub async fn tag_adapter_version_handler(
     Ok(StatusCode::NO_CONTENT)
 }
 
-
+#[utoipa::path(
+    tag = "system",
+    post,
+    path = "/v1/adapter-repositories/{repo_id}/resolve-version",
+    request_body = ResolveVersionRequest,
+    params(
+        ("repo_id" = String, Path, description = "Repository ID")
+    ),
+    responses(
+        (status = 200, description = "Resolved version", body = ResolveVersionResponse),
+        (status = 404, description = "No matching version", body = ErrorResponse)
+    )
+)]
 pub async fn resolve_adapter_version_handler(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,

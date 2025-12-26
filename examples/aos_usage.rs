@@ -78,10 +78,7 @@ fn sample_training_data() -> Vec<TrainingExample> {
 fn sample_weights() -> AdapterWeights {
     let created_at = Utc::now().to_rfc3339();
     let positive = WeightGroup {
-        lora_a: vec![
-            vec![0.1, 0.2, 0.3, 0.4],
-            vec![0.5, 0.6, 0.7, 0.8],
-        ],
+        lora_a: vec![vec![0.1, 0.2, 0.3, 0.4], vec![0.5, 0.6, 0.7, 0.8]],
         lora_b: vec![
             vec![0.01, 0.02],
             vec![0.03, 0.04],
@@ -98,10 +95,7 @@ fn sample_weights() -> AdapterWeights {
     };
 
     let negative = WeightGroup {
-        lora_a: vec![
-            vec![-0.1, -0.2, -0.3, -0.4],
-            vec![-0.5, -0.6, -0.7, -0.8],
-        ],
+        lora_a: vec![vec![-0.1, -0.2, -0.3, -0.4], vec![-0.5, -0.6, -0.7, -0.8]],
         lora_b: vec![
             vec![-0.01, -0.02],
             vec![-0.03, -0.04],

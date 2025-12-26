@@ -11,14 +11,14 @@
 //! This is part of Boot Phase 9c - Metrics initialization, which occurs after
 //! database setup and before service initialization.
 
+use crate::cli::normalize_jwt_mode;
+use crate::shutdown::ShutdownCoordinator;
 use adapteros_core::AosError;
 use adapteros_lora_worker::memory::UmaPressureMonitor;
 use adapteros_metrics_exporter::MetricsExporter;
 use adapteros_server_api::config::Config;
 use adapteros_server_api::state::BackgroundTaskTracker;
 use anyhow::Result;
-use crate::cli::normalize_jwt_mode;
-use crate::shutdown::ShutdownCoordinator;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
@@ -218,9 +218,7 @@ pub async fn initialize_metrics(
         let cfg = config
             .read()
             .map_err(|e| anyhow::anyhow!("Config lock poisoned: {}", e))?;
-        Arc::new(MetricsExporter::new(
-            cfg.metrics.histogram_buckets.clone(),
-        )?)
+        Arc::new(MetricsExporter::new(cfg.metrics.histogram_buckets.clone())?)
     };
 
     // Build JWT secret

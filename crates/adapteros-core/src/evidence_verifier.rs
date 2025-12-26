@@ -16,9 +16,7 @@
 //! assert!(result.is_valid);
 //! ```
 
-use crate::evidence_envelope::{
-    EvidenceEnvelope, EvidenceScope, EVIDENCE_ENVELOPE_SCHEMA_VERSION,
-};
+use crate::evidence_envelope::{EvidenceEnvelope, EvidenceScope, EVIDENCE_ENVELOPE_SCHEMA_VERSION};
 use crate::{AosError, B3Hash, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -227,10 +225,7 @@ impl EvidenceVerifier {
     ///
     /// # Returns
     /// Chain verification result
-    pub fn verify_chain(
-        &self,
-        envelopes: &[EvidenceEnvelope],
-    ) -> Result<ChainVerificationResult> {
+    pub fn verify_chain(&self, envelopes: &[EvidenceEnvelope]) -> Result<ChainVerificationResult> {
         if envelopes.is_empty() {
             return Ok(ChainVerificationResult::default());
         }
@@ -586,8 +581,7 @@ mod tests {
     fn test_valid_chain_verification() {
         let verifier = EvidenceVerifier::new();
 
-        let env1 =
-            EvidenceEnvelope::new_policy("tenant-1".to_string(), sample_policy_ref(), None);
+        let env1 = EvidenceEnvelope::new_policy("tenant-1".to_string(), sample_policy_ref(), None);
 
         let env2 = EvidenceEnvelope::new_policy(
             "tenant-1".to_string(),

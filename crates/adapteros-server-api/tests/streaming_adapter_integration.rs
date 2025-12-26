@@ -384,7 +384,10 @@ fn test_streaming_routing_determinism_mode() {
         "adapters": ["adapter1"]
     });
 
-    assert_eq!(request["routing_determinism_mode"].as_str().unwrap(), "deterministic");
+    assert_eq!(
+        request["routing_determinism_mode"].as_str().unwrap(),
+        "deterministic"
+    );
     assert_eq!(request["seed"].as_u64().unwrap(), 42);
 }
 
@@ -496,7 +499,10 @@ fn test_streaming_with_session_id() {
         "adapters": ["conversational-adapter"]
     });
 
-    assert_eq!(request["session_id"].as_str().unwrap(), "chat-session-abc123");
+    assert_eq!(
+        request["session_id"].as_str().unwrap(),
+        "chat-session-abc123"
+    );
 }
 
 /// Test streaming with collection-scoped RAG

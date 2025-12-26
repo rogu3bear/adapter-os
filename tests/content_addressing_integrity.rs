@@ -71,8 +71,7 @@ fn test_cas_load_fails_on_tampered_data() {
         .truncate(true)
         .open(&file_path)
         .expect("open file for tampering");
-    file.write_all(tampered_data)
-        .expect("write tampered data");
+    file.write_all(tampered_data).expect("write tampered data");
     drop(file);
 
     // Attempt to load - should fail with hash mismatch
@@ -174,7 +173,10 @@ fn test_cas_exists_check() {
     let hash = store.store("adapter", data).expect("store data");
 
     // Should exist
-    assert!(store.exists("adapter", &hash), "Stored artifact should exist");
+    assert!(
+        store.exists("adapter", &hash),
+        "Stored artifact should exist"
+    );
 
     // Random hash should not exist
     let random_hash = B3Hash::hash(b"nonexistent");
@@ -237,7 +239,9 @@ fn test_cas_class_isolation() {
     let store = CasStore::new(temp.path()).expect("create store");
 
     let data = b"shared data";
-    let hash1 = store.store("adapter", data).expect("store in adapter class");
+    let hash1 = store
+        .store("adapter", data)
+        .expect("store in adapter class");
     let hash2 = store.store("model", data).expect("store in model class");
 
     // Hashes should be the same (same content)
@@ -269,9 +273,7 @@ fn test_cas_atomic_write() {
     let hex = hash.to_hex();
     let dir_path = temp.path().join("adapter").join(&hex[..2]).join(&hex[2..4]);
 
-    let entries: Vec<_> = fs::read_dir(&dir_path)
-        .expect("read directory")
-        .collect();
+    let entries: Vec<_> = fs::read_dir(&dir_path).expect("read directory").collect();
 
     for entry in entries {
         let entry = entry.expect("valid entry");
@@ -310,7 +312,11 @@ fn test_cas_large_data() {
 
     // Verify it loads correctly
     let loaded = store.load("adapter", &hash).expect("load large data");
-    assert_eq!(loaded.len(), data.len(), "Large data should load completely");
+    assert_eq!(
+        loaded.len(),
+        data.len(),
+        "Large data should load completely"
+    );
     assert_eq!(loaded, data, "Large data should match");
 }
 

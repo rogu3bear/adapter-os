@@ -149,7 +149,10 @@ impl From<serde_json::Error> for AosError {
 
 impl From<ZipError> for AosError {
     fn from(err: ZipError) -> Self {
-        AosError::Storage(AosStorageError::Io(format!("Zip operation failed: {}", err)))
+        AosError::Storage(AosStorageError::Io(format!(
+            "Zip operation failed: {}",
+            err
+        )))
     }
 }
 

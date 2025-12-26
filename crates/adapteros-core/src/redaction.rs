@@ -88,10 +88,7 @@ static REDACTION_PATTERNS: Lazy<Vec<(Regex, &'static str)>> = Lazy::new(|| {
         // Temp file paths (before general paths)
         (Regex::new(r"/tmp/[^\s]+").unwrap(), "[TEMP]"),
         // Stack trace locations (file.rs:123:45)
-        (
-            Regex::new(r"\b[a-z_]+\.rs:\d+:\d+\b").unwrap(),
-            "[SOURCE]",
-        ),
+        (Regex::new(r"\b[a-z_]+\.rs:\d+:\d+\b").unwrap(), "[SOURCE]"),
         // Windows file paths (C:\Users\... or \\server\share)
         (
             Regex::new(r"(?i)([a-z]:\\[^\s]+|\\\\[^\s]+)").unwrap(),
@@ -103,10 +100,7 @@ static REDACTION_PATTERNS: Lazy<Vec<(Regex, &'static str)>> = Lazy::new(|| {
             "[PATH]",
         ),
         // Home directory paths
-        (
-            Regex::new(r"~(/[a-zA-Z0-9_\-\.]+)+").unwrap(),
-            "[PATH]",
-        ),
+        (Regex::new(r"~(/[a-zA-Z0-9_\-\.]+)+").unwrap(), "[PATH]"),
     ]
 });
 
@@ -199,9 +193,7 @@ impl fmt::Display for SecretString {
 
 impl fmt::Debug for SecretString {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_tuple("SecretString")
-            .field(&"[REDACTED]")
-            .finish()
+        f.debug_tuple("SecretString").field(&"[REDACTED]").finish()
     }
 }
 
@@ -230,7 +222,10 @@ mod tests {
         let input = "Failed to open /Users/admin/secrets/config.json";
         let result = redact_sensitive(input);
         assert!(!result.contains("/Users/"), "Path should be redacted");
-        assert!(result.contains("[PATH]"), "Should contain [PATH] placeholder");
+        assert!(
+            result.contains("[PATH]"),
+            "Should contain [PATH] placeholder"
+        );
     }
 
     #[test]
@@ -245,7 +240,10 @@ mod tests {
     fn test_redacts_bearer_tokens() {
         let input = "Authorization: Bearer sk-12345abcdefghijklmnop";
         let result = redact_sensitive(input);
-        assert!(!result.contains("sk-12345"), "Bearer token should be redacted");
+        assert!(
+            !result.contains("sk-12345"),
+            "Bearer token should be redacted"
+        );
         assert!(
             result.contains("Bearer [REDACTED]"),
             "Should contain Bearer [REDACTED]"
@@ -268,7 +266,10 @@ mod tests {
         // API routes should NOT be redacted (no file extension)
         let input = "Not found: /api/v1/users";
         let result = redact_sensitive(input);
-        assert!(result.contains("/api/v1/users"), "API route should be preserved");
+        assert!(
+            result.contains("/api/v1/users"),
+            "API route should be preserved"
+        );
     }
 
     #[test]

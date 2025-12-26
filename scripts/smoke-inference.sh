@@ -18,6 +18,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # Configuration
 : "${AOS_SERVER_PORT:=8080}"
 BASE_URL="http://localhost:$AOS_SERVER_PORT"
+API_BASE="${BASE_URL%/}/api"
 SKIP_INFERENCE=0
 VERBOSE=0
 
@@ -27,6 +28,7 @@ while [[ $# -gt 0 ]]; do
     --port)
       AOS_SERVER_PORT="$2"
       BASE_URL="http://localhost:$AOS_SERVER_PORT"
+      API_BASE="${BASE_URL%/}/api"
       shift 2
       ;;
     --skip-inference)
@@ -55,7 +57,7 @@ echo "==============================================="
 echo "  AdapterOS Inference Smoke Test"
 echo "==============================================="
 echo ""
-echo "  Target: $BASE_URL"
+echo "  Target: $BASE_URL (api: $API_BASE)"
 echo ""
 
 TESTS_PASSED=0
@@ -63,7 +65,7 @@ TESTS_FAILED=0
 
 # Test 1: /healthz
 echo -n "1. Checking /healthz... "
-if curl -sf --max-time 5 "$BASE_URL/healthz" > /dev/null 2>&1; then
+if curl -sf --max-time 5 "$API_BASE/healthz" > /dev/null 2>&1; then
   echo -e "${FG_GREEN}PASS${FG_RESET}"
   ((TESTS_PASSED++))
 else
@@ -74,7 +76,7 @@ fi
 
 # Test 2: /readyz
 echo -n "2. Checking /readyz... "
-READYZ_RESPONSE=$(curl -sf --max-time 5 "$BASE_URL/readyz" 2>/dev/null || echo '{"ready":false}')
+READYZ_RESPONSE=$(curl -sf --max-time 5 "$API_BASE/readyz" 2>/dev/null || echo '{"ready":false}')
 READYZ_STATUS=$(echo "$READYZ_RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); print('ready' if d.get('ready',False) else 'not_ready')" 2>/dev/null || echo "error")
 
 if [[ "$READYZ_STATUS" == "ready" ]]; then
@@ -106,7 +108,7 @@ fi
 # Test 3: Inference endpoint (optional)
 if [[ "$SKIP_INFERENCE" != "1" ]]; then
   echo -n "3. Checking inference endpoint... "
-  INFER_RESPONSE=$(curl -sf -X POST "$BASE_URL/v1/infer" \
+  INFER_RESPONSE=$(curl -sf -X POST "$API_BASE/v1/infer" \
     -H "Content-Type: application/json" \
     -d '{"prompt": "Hello", "max_tokens": 1}' 2>/dev/null || echo '{"error":true}')
 
@@ -141,8 +143,8 @@ else
   echo "==============================================="
   echo ""
   echo "  Troubleshooting:"
-  echo "    - Check if server is running: curl $BASE_URL/healthz"
-  echo "    - Check readiness details: curl $BASE_URL/readyz | jq"
+  echo "    - Check if server is running: curl $API_BASE/healthz"
+  echo "    - Check readiness details: curl $API_BASE/readyz | jq"
   echo "    - View logs: tail -f var/logs/backend.log"
   echo ""
   exit 1

@@ -20,10 +20,22 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 // Import helper functions from other modules
 use super::adapter_utils::{
-    guard_in_flight_requests, lora_scope_from_provenance, lora_tier_from_provenance,
-    parse_hash_b3,
+    guard_in_flight_requests, lora_scope_from_provenance, lora_tier_from_provenance, parse_hash_b3,
 };
 
+#[utoipa::path(
+    post,
+    path = "/v1/adapters/{adapter_id}/load",
+    tag = "adapters",
+    params(
+        ("adapter_id" = String, Path, description = "Adapter ID")
+    ),
+    responses(
+        (status = 200, description = "Adapter loaded", body = AdapterResponse),
+        (status = 404, description = "Adapter not found", body = ErrorResponse),
+        (status = 500, description = "Failed to load adapter", body = ErrorResponse)
+    )
+)]
 pub async fn load_adapter(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -320,7 +332,19 @@ pub async fn load_adapter(
     }))
 }
 
-
+#[utoipa::path(
+    post,
+    path = "/v1/adapters/{adapter_id}/unload",
+    tag = "adapters",
+    params(
+        ("adapter_id" = String, Path, description = "Adapter ID")
+    ),
+    responses(
+        (status = 200, description = "Adapter unloaded"),
+        (status = 404, description = "Adapter not found", body = ErrorResponse),
+        (status = 500, description = "Failed to unload adapter", body = ErrorResponse)
+    )
+)]
 pub async fn unload_adapter(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -535,7 +559,19 @@ pub async fn unload_adapter(
     Ok(StatusCode::OK)
 }
 
-
+#[utoipa::path(
+    post,
+    path = "/v1/adapters/{adapter_id}/state/promote",
+    tag = "adapters",
+    params(
+        ("adapter_id" = String, Path, description = "Adapter ID")
+    ),
+    responses(
+        (status = 200, description = "Adapter state promoted", body = AdapterStateResponse),
+        (status = 400, description = "Invalid state transition", body = ErrorResponse),
+        (status = 404, description = "Adapter not found", body = ErrorResponse)
+    )
+)]
 pub async fn promote_adapter_state(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -616,8 +652,6 @@ pub async fn promote_adapter_state(
         timestamp: chrono::Utc::now().to_rfc3339(),
     }))
 }
-
-
 
 /// Download adapter manifest as JSON
 pub async fn download_adapter_manifest(

@@ -30,12 +30,12 @@ async fn main() -> Result<()> {
 
     // Configure small training run with defaults
     let config = TrainingConfig {
-        rank: 4,          // Small rank for test
-        alpha: 8.0,       // 2x rank
+        rank: 4,    // Small rank for test
+        alpha: 8.0, // 2x rank
         learning_rate: 1e-3,
         batch_size: 2,
         epochs: 1,
-        hidden_dim: 64,   // Small hidden dim for fast training
+        hidden_dim: 64, // Small hidden dim for fast training
         ..Default::default()
     };
 
@@ -87,14 +87,17 @@ async fn main() -> Result<()> {
     }
 
     println!("\nAdd this to your manifest's adapters array:");
-    println!(r#"{{
+    println!(
+        r#"{{
     "id": "readme_adapter",
     "hash": "{}",
     "tier": "persistent",
     "rank": {},
     "alpha": {},
     "target_modules": ["q_proj", "k_proj", "v_proj"]
-}}"#, packaged.hash_b3, config.rank, config.alpha);
+}}"#,
+        packaged.hash_b3, config.rank, config.alpha
+    );
 
     Ok(())
 }

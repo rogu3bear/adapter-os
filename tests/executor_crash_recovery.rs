@@ -204,10 +204,9 @@ async fn test_worker_crash_during_adapter_load() {
 
             // Simulate recovery task
             let recovered_state = Arc::new(MockWorkerState::new());
-            recovered_state.state_counter.store(
-                worker_state.get_state_version(),
-                Ordering::SeqCst,
-            );
+            recovered_state
+                .state_counter
+                .store(worker_state.get_state_version(), Ordering::SeqCst);
 
             let state_for_recovery = recovered_state.clone();
             let audit_for_recovery = audit_log.clone();
@@ -432,10 +431,7 @@ async fn test_worker_crash_during_inference() {
         executor
             .spawn_deterministic(desc.clone(), async move {
                 state.start_request();
-                audit
-                    .lock()
-                    .unwrap()
-                    .push(format!("request-{}-started", i));
+                audit.lock().unwrap().push(format!("request-{}-started", i));
 
                 // Simulate inference work
                 exec.delay(10 + i * 5).await;
@@ -443,7 +439,10 @@ async fn test_worker_crash_during_inference() {
                 // Request 1 will crash mid-inference
                 if i == 1 {
                     state.inject_crash();
-                    audit.lock().unwrap().push("crash-during-inference".to_string());
+                    audit
+                        .lock()
+                        .unwrap()
+                        .push("crash-during-inference".to_string());
                     results
                         .lock()
                         .unwrap()
@@ -489,7 +488,9 @@ async fn test_worker_crash_during_inference() {
             assert!(audit.contains(&"crash-during-inference".to_string()));
 
             // Some requests should have started
-            assert!(audit.iter().any(|e| e.contains("request-") && e.contains("-started")));
+            assert!(audit
+                .iter()
+                .any(|e| e.contains("request-") && e.contains("-started")));
 
             // Results should show crashed request
             let results = request_results.lock().unwrap();
@@ -637,7 +638,10 @@ async fn test_multiple_crash_recovery_cycles() {
             recovered1
                 .spawn_deterministic("recovery-1".to_string(), async move {
                     recovery_count.fetch_add(1, Ordering::SeqCst);
-                    audit.lock().unwrap().push("recovery-1-complete".to_string());
+                    audit
+                        .lock()
+                        .unwrap()
+                        .push("recovery-1-complete".to_string());
                 })
                 .expect("recovery 1");
 
@@ -688,7 +692,10 @@ async fn test_multiple_crash_recovery_cycles() {
             recovered2
                 .spawn_deterministic("recovery-2".to_string(), async move {
                     recovery_count.fetch_add(1, Ordering::SeqCst);
-                    audit.lock().unwrap().push("recovery-2-complete".to_string());
+                    audit
+                        .lock()
+                        .unwrap()
+                        .push("recovery-2-complete".to_string());
                 })
                 .expect("recovery 2");
 
@@ -782,10 +789,7 @@ async fn test_crash_with_concurrent_operations() {
             let loaded = worker_state.adapters_loaded.lock().unwrap().len();
             let loading = worker_state.adapters_loading.lock().unwrap().len();
 
-            assert!(
-                loaded + loading > 0,
-                "Some adapters should be in progress"
-            );
+            assert!(loaded + loading > 0, "Some adapters should be in progress");
             assert!(loading > 0, "Some adapters should still be loading");
 
             // Recovery

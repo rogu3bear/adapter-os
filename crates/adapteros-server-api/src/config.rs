@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
 
@@ -199,6 +199,40 @@ impl Config {
         let contents = fs::read_to_string(path)?;
         let config: Config = toml::from_str(&contents)?;
         Ok(config)
+    }
+
+    /// Validate required secret material is present and non-trivial.
+    pub fn validate_secrets(&self) -> Result<()> {
+        let mut errors = Vec::new();
+
+        let jwt_secret = self.security.jwt_secret.trim();
+        if jwt_secret.is_empty() {
+            errors.push("security.jwt_secret is required but missing".to_string());
+        } else {
+            let weak_markers = ["secret", "changeme", "password", "insecure"];
+            if weak_markers
+                .iter()
+                .any(|w| jwt_secret.eq_ignore_ascii_case(w))
+            {
+                errors.push("security.jwt_secret uses a placeholder value".to_string());
+            }
+            if self.server.production_mode && jwt_secret.len() < 32 {
+                errors.push(format!(
+                    "security.jwt_secret must be at least 32 characters in production mode (got {})",
+                    jwt_secret.len()
+                ));
+            }
+        }
+
+        if self.metrics.enabled && self.metrics.bearer_token.trim().is_empty() {
+            errors.push("metrics.bearer_token must be set when metrics are enabled".to_string());
+        }
+
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            bail!(errors.join("; "))
+        }
     }
 }
 

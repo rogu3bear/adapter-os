@@ -77,9 +77,17 @@ pub async fn list_adapters(
     // Role check: all roles can list adapters
     crate::permissions::require_permission(&claims, crate::permissions::Permission::AdapterList)?;
 
+    let limit = query.limit.unwrap_or(100).min(500);
+    let offset = query.offset.unwrap_or(0);
+    let start = std::time::Instant::now();
+
     let adapters = state
         .db
-        .list_adapters_for_tenant(&claims.tenant_id)
+        .list_adapters_for_tenant_paged(
+            &claims.tenant_id,
+            Some(limit),
+            Some(offset),
+        )
         .await
         .map_err(|e| {
             (
@@ -185,12 +193,31 @@ pub async fn list_adapters(
         });
     }
 
+    let elapsed_ms = start.elapsed().as_millis() as f64;
+    let _ = state
+        .metrics_registry
+        .record_metric("http.list_adapters.duration_ms".to_string(), elapsed_ms)
+        .await;
+    if elapsed_ms > 200.0 {
+        tracing::warn!(
+            tenant_id = %claims.tenant_id,
+            elapsed_ms,
+            limit,
+            offset,
+            "list_adapters exceeded latency budget (200ms)"
+        );
+    }
+
     Ok(Json(responses))
 }
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct ListAdapterRepositoriesParams {
     pub base_model_id: Option<String>,
     pub archived: Option<bool>,
+    #[serde(default)]
+    pub limit: Option<usize>,
+    #[serde(default)]
+    pub offset: Option<usize>,
 }
 
 /// Create a new adapter repository
@@ -609,12 +636,18 @@ pub async fn list_adapter_repositories(
 ) -> Result<Json<Vec<AdapterRepositoryResponse>>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::AdapterList)?;
 
+    let limit = params.limit.unwrap_or(100).min(500);
+    let offset = params.offset.unwrap_or(0);
+    let start = std::time::Instant::now();
+
     let repos = state
         .db
-        .list_adapter_repositories(
+        .list_adapter_repositories_paged(
             &claims.tenant_id,
             params.base_model_id.as_deref(),
             params.archived,
+            Some(limit),
+            Some(offset),
         )
         .await
         .map_err(|e| {
@@ -646,6 +679,24 @@ pub async fn list_adapter_repositories(
             training_policy: None,
         })
         .collect();
+
+    let elapsed_ms = start.elapsed().as_millis() as f64;
+    let _ = state
+        .metrics_registry
+        .record_metric(
+            "http.list_adapter_repositories.duration_ms".to_string(),
+            elapsed_ms,
+        )
+        .await;
+    if elapsed_ms > 200.0 {
+        tracing::warn!(
+            tenant_id = %claims.tenant_id,
+            elapsed_ms,
+            limit,
+            offset,
+            "list_adapter_repositories exceeded latency budget (200ms)"
+        );
+    }
 
     Ok(Json(responses))
 }

@@ -185,7 +185,16 @@ pub async fn log_failure_or_warn(
     resource_id: Option<&str>,
     operation_error: &str,
 ) {
-    if let Err(e) = log_failure(db, claims, action, resource_type, resource_id, operation_error).await {
+    if let Err(e) = log_failure(
+        db,
+        claims,
+        action,
+        resource_type,
+        resource_id,
+        operation_error,
+    )
+    .await
+    {
         // CRITICAL: Primary audit chain failed - log via tracing as fallback evidence
         error!(
             event_type = "audit.chain_failure",

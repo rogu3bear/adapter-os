@@ -671,14 +671,11 @@ pub async fn execute_replay(
     });
 
     // Restore policy_mask_digest from metadata for audit trail completeness
-    let stored_policy_mask_digest = metadata
-        .policy_mask_digest_b3
-        .as_ref()
-        .and_then(|hex_str| {
-            hex::decode(hex_str)
-                .ok()
-                .and_then(|bytes| bytes.try_into().ok())
-        });
+    let stored_policy_mask_digest = metadata.policy_mask_digest_b3.as_ref().and_then(|hex_str| {
+        hex::decode(hex_str)
+            .ok()
+            .and_then(|bytes| bytes.try_into().ok())
+    });
 
     // Log warning if policy_mask_digest is missing (indicates incomplete audit trail)
     if stored_policy_mask_digest.is_none() && metadata.policy_mask_digest_b3.is_some() {

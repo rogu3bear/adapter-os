@@ -114,7 +114,7 @@ echo "Waiting for API liveness..."
 api_liveness_timeout=60
 api_waited=0
 while (( api_waited < api_liveness_timeout )); do
-  if curl -fsS --max-time 2 "http://127.0.0.1:${API_PORT}/healthz" >/dev/null 2>&1; then
+  if curl -fsS --max-time 2 "http://127.0.0.1:${API_PORT}/api/healthz" >/dev/null 2>&1; then
     echo "✓ API is alive"
     break
   fi

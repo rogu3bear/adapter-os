@@ -108,7 +108,8 @@ async fn init_test_db() -> Db {
             tenant_id TEXT DEFAULT 'default',
             failed_attempts INTEGER NOT NULL DEFAULT 0,
             last_failed_at TEXT,
-            lockout_until TEXT
+            lockout_until TEXT,
+            token_rotated_at TEXT
         )",
     )
     .execute(db.pool())
@@ -116,7 +117,7 @@ async fn init_test_db() -> Db {
     .expect("Failed to create users table");
 
     sqlx::query(
-        "CREATE TABLE IF NOT EXISTS user_sessions (
+        "CREATE TABLE IF NOT EXISTS auth_sessions (
             jti TEXT PRIMARY KEY,
             session_id TEXT,
             user_id TEXT NOT NULL,
@@ -294,6 +295,19 @@ mod token_revocation_tests {
         let db = init_test_db().await;
         let user_id = "user-revoke-all";
         let tenant_id = "tenant-revoke-all";
+
+        // Seed the user so token rotation updates succeed
+        sqlx::query(
+            "INSERT OR IGNORE INTO users (id, email, display_name, pw_hash, role, tenant_id)
+             VALUES (?, ?, ?, 'test-hash', 'admin', ?)",
+        )
+        .bind(user_id)
+        .bind("user-revoke-all@example.com")
+        .bind("Revoke All User")
+        .bind(tenant_id)
+        .execute(db.pool())
+        .await
+        .expect("Failed to insert test user");
 
         // Create multiple sessions
         for i in 1..=3 {

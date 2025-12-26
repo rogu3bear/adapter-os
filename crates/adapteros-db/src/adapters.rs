@@ -996,7 +996,19 @@ impl Db {
         "idx_adapters_tenant_active_tier_created"
     }
 
+    /// Backward-compatible listing without pagination (defaults to full set).
     pub async fn list_adapters_for_tenant(&self, tenant_id: &str) -> Result<Vec<Adapter>> {
+        self.list_adapters_for_tenant_paged(tenant_id, None, None)
+            .await
+    }
+
+    /// List adapters for a tenant with optional limit/offset.
+    pub async fn list_adapters_for_tenant_paged(
+        &self,
+        tenant_id: &str,
+        limit: Option<usize>,
+        offset: Option<usize>,
+    ) -> Result<Vec<Adapter>> {
         // Phase 2: Rate Limiting
         if !self.check_rate_limit(tenant_id) {
             return Err(AosError::QuotaExceeded {
@@ -1009,7 +1021,10 @@ impl Db {
         // Try KV first if enabled
         if self.storage_mode().read_from_kv() {
             if let Some(repo) = self.get_adapter_kv_repo(tenant_id) {
-                match repo.list_adapters_for_tenant_kv(tenant_id).await {
+                match repo
+                    .list_adapters_for_tenant_kv(tenant_id, limit, offset)
+                    .await
+                {
                     Ok(adapters) if !adapters.is_empty() => {
                         debug!(tenant_id = %tenant_id, count = adapters.len(), mode = "kv-primary", "Retrieved adapters from KV");
                         return Ok(adapters);
@@ -1034,12 +1049,18 @@ impl Db {
 
         // SQL fallback or primary read
         // Optimization: Use Migration 0210 composite index explicitly
-        let query = format!(
-            "SELECT {} FROM adapters INDEXED BY idx_adapters_tenant_active_tier_created 
-             WHERE tenant_id = ? AND active = 1 
+        let mut query = format!(
+            "SELECT {} FROM adapters INDEXED BY idx_adapters_tenant_active_tier_created \
+             WHERE tenant_id = ? AND active = 1 \
              ORDER BY tier ASC, created_at DESC",
             ADAPTER_SELECT_FIELDS
         );
+        if limit.is_some() {
+            query.push_str(" LIMIT ?");
+        }
+        if offset.is_some() {
+            query.push_str(" OFFSET ?");
+        }
 
         #[cfg(test)]
         {
@@ -1066,10 +1087,14 @@ impl Db {
         let tenant_id_owned = tenant_id.to_string();
 
         let adapters_future = async move {
-            sqlx::query_as::<_, Adapter>(&query)
-                .bind(tenant_id_owned)
-                .fetch_all(&pool)
-                .await
+            let mut q = sqlx::query_as::<_, Adapter>(&query).bind(tenant_id_owned);
+            if let Some(lim) = limit {
+                q = q.bind(lim as i64);
+            }
+            if let Some(off) = offset {
+                q = q.bind(off as i64);
+            }
+            q.fetch_all(&pool).await
         };
 
         let adapters = if timeout_duration.as_millis() > 0 {

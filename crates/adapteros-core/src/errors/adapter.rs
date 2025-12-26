@@ -38,7 +38,9 @@ pub enum AosAdapterError {
     },
 
     /// Per-layer hash verification failed
-    #[error("Per-layer hash mismatch for {adapter_id} at {layer_id}: expected {expected}, got {actual}")]
+    #[error(
+        "Per-layer hash mismatch for {adapter_id} at {layer_id}: expected {expected}, got {actual}"
+    )]
     LayerHashMismatch {
         adapter_id: String,
         layer_id: String,

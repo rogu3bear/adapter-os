@@ -283,11 +283,8 @@ async fn persistent_adapters_can_be_deprecated() -> Result<()> {
 #[tokio::test]
 async fn warm_adapters_can_be_deprecated() -> Result<()> {
     // Validate that warm adapters can enter deprecated state
-    let result = validate_state_transition(
-        LifecycleState::Active,
-        LifecycleState::Deprecated,
-        "warm",
-    );
+    let result =
+        validate_state_transition(LifecycleState::Active, LifecycleState::Deprecated, "warm");
 
     assert!(
         result.is_ok(),
@@ -300,11 +297,8 @@ async fn warm_adapters_can_be_deprecated() -> Result<()> {
 #[tokio::test]
 async fn ephemeral_adapters_can_transition_to_retired() -> Result<()> {
     // Ephemeral adapters should skip deprecated and go directly to retired
-    let result = validate_state_transition(
-        LifecycleState::Active,
-        LifecycleState::Retired,
-        "ephemeral",
-    );
+    let result =
+        validate_state_transition(LifecycleState::Active, LifecycleState::Retired, "ephemeral");
 
     // Note: This should fail because Active → Retired is not a valid transition
     // Ephemeral adapters should still follow: Active → Retired (but cannot go through Deprecated)
@@ -396,9 +390,7 @@ async fn tier_affects_eviction_order() -> Result<()> {
     use adapteros_lora_lifecycle::EvictionPriority;
 
     // Verify numeric ordering of eviction priorities
-    assert!(
-        EvictionPriority::Critical.numeric_value() > EvictionPriority::High.numeric_value()
-    );
+    assert!(EvictionPriority::Critical.numeric_value() > EvictionPriority::High.numeric_value());
     assert!(EvictionPriority::High.numeric_value() > EvictionPriority::Normal.numeric_value());
     assert!(EvictionPriority::Normal.numeric_value() > EvictionPriority::Low.numeric_value());
     assert!(EvictionPriority::Low.numeric_value() > EvictionPriority::Never.numeric_value());

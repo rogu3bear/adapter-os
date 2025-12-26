@@ -14,6 +14,8 @@ NC='\033[0m' # No Color
 # Configuration
 REPORT_FILE="${1:-diagnostic_report_$(date +%Y%m%d_%H%M%S).txt}"
 API_BASE="${AOS_API_BASE:-http://localhost:8080}"
+API_ROOT="${API_BASE%/}"
+PROBE_BASE="${API_ROOT}/api"
 VERBOSE="${VERBOSE:-0}"
 
 # Helper functions
@@ -152,16 +154,16 @@ check_command() {
     echo "=== HEALTH CHECKS ==="
     separator
 
-    echo "Testing /healthz endpoint:"
-    if curl -f -s -m 5 "$API_BASE/healthz" >/dev/null 2>&1; then
+    echo "Testing /api/healthz endpoint:"
+    if curl -f -s -m 5 "$PROBE_BASE/healthz" >/dev/null 2>&1; then
         success "Health endpoint OK"
     else
         error "Health endpoint failed or unreachable"
     fi
     echo
 
-    echo "Testing /readyz endpoint:"
-    if readyz_response=$(curl -f -s -m 5 "$API_BASE/readyz" 2>/dev/null); then
+    echo "Testing /api/readyz endpoint:"
+    if readyz_response=$(curl -f -s -m 5 "$PROBE_BASE/readyz" 2>/dev/null); then
         success "Ready endpoint OK"
         if check_command jq; then
             echo "$readyz_response" | jq .
@@ -178,7 +180,7 @@ check_command() {
     echo "=== SYSTEM METRICS ==="
     separator
 
-    if metrics=$(curl -f -s -m 5 "$API_BASE/api/v1/metrics/system" 2>/dev/null); then
+    if metrics=$(curl -f -s -m 5 "$PROBE_BASE/v1/metrics/system" 2>/dev/null); then
         if check_command jq; then
             echo "Memory:"
             echo "$metrics" | jq '.memory'
@@ -374,7 +376,7 @@ check_command() {
     echo
 
     echo "Testing API connectivity:"
-    if curl -f -s -m 5 "$API_BASE/healthz" >/dev/null 2>&1; then
+    if curl -f -s -m 5 "$PROBE_BASE/healthz" >/dev/null 2>&1; then
         success "API reachable"
     else
         error "API unreachable"
@@ -482,7 +484,7 @@ check_command() {
     separator
 
     echo "Health Status:"
-    if curl -f -s -m 5 "$API_BASE/healthz" >/dev/null 2>&1; then
+    if curl -f -s -m 5 "$PROBE_BASE/healthz" >/dev/null 2>&1; then
         success "System is responsive"
     else
         error "System is not responsive"
@@ -543,7 +545,7 @@ info "Diagnostic report saved to: $REPORT_FILE"
 echo
 
 # Suggest next steps based on findings
-if ! curl -f -s -m 5 "$API_BASE/healthz" >/dev/null 2>&1; then
+if ! curl -f -s -m 5 "$PROBE_BASE/healthz" >/dev/null 2>&1; then
     echo -e "${YELLOW}NEXT STEPS:${NC}"
     echo "1. Start the service: make dev"
     echo "2. Check logs: tail -50 var/aos-cp.log"

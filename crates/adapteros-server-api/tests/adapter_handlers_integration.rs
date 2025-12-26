@@ -35,6 +35,7 @@ async fn list_adapters_returns_tenant_scoped_results() -> Result<()> {
         Query(ListAdaptersQuery {
             tier: None,
             framework: None,
+            ..Default::default()
         }),
     )
     .await;
@@ -51,6 +52,7 @@ async fn list_adapters_returns_tenant_scoped_results() -> Result<()> {
         Query(ListAdaptersQuery {
             tier: None,
             framework: None,
+            ..Default::default()
         }),
     )
     .await;
@@ -326,6 +328,7 @@ async fn list_adapters_filters_by_tier() -> Result<()> {
         Query(ListAdaptersQuery {
             tier: Some("warm".to_string()),
             framework: None,
+            ..Default::default()
         }),
     )
     .await;
@@ -341,6 +344,7 @@ async fn list_adapters_filters_by_tier() -> Result<()> {
         Query(ListAdaptersQuery {
             tier: Some("ephemeral".to_string()),
             framework: None,
+            ..Default::default()
         }),
     )
     .await;

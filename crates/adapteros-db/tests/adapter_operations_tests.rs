@@ -470,8 +470,7 @@ async fn list_adapters_by_state() -> Result<()> {
     register_adapter(&db, "tenant-a", "idle-1", "b3:hash-idle-1").await?;
     register_adapter(&db, "tenant-a", "loading-1", "b3:hash-loading-1").await?;
 
-    db.update_adapter_state("loading-1", "warm", "test")
-        .await?;
+    db.update_adapter_state("loading-1", "warm", "test").await?;
 
     let unloaded_adapters = db.list_adapters_by_state("tenant-a", "unloaded").await?;
     assert!(unloaded_adapters

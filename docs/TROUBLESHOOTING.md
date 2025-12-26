@@ -73,9 +73,9 @@ Run this first when investigating any issue:
 # Check if service is running
 ps aux | grep adapteros-server
 
-# Check health endpoints
-curl -f http://localhost:8080/healthz && echo "✓ Health OK" || echo "✗ Health FAIL"
-curl -f http://localhost:8080/readyz && echo "✓ Ready OK" || echo "✗ Ready FAIL"
+# Check health endpoints (canonical /api paths; root aliases remain for compat)
+curl -f http://localhost:8080/api/healthz && echo "✓ Health OK" || echo "✗ Health FAIL"
+curl -f http://localhost:8080/api/readyz && echo "✓ Ready OK" || echo "✗ Ready FAIL"
 
 # Check recent logs (macOS/Linux)
 tail -20 var/aos-cp.log 2>/dev/null || journalctl -u adapteros-server -n 20
@@ -423,6 +423,39 @@ cargo sqlx migrate run
 ---
 
 ## Runtime Issues
+
+### Validate Readiness/Health Probes (Canonical + Compat)
+
+**Goal:** Confirm `/api/readyz` and `/readyz` (compat) match, plus `/api/healthz` and `/healthz`, using curl output as evidence.
+
+**Steps (dev mode example on :8080):**
+
+```bash
+export AOS_DEV_JWT_SECRET=devsecret
+cargo run -p adapteros-server &
+SERVER_PID=$!
+sleep 3  # wait for boot
+
+curl -i http://localhost:8080/api/readyz
+curl -i http://localhost:8080/readyz
+curl -i http://localhost:8080/api/healthz
+curl -i http://localhost:8080/healthz
+
+kill $SERVER_PID
+```
+
+**Expected curl transcript (no workers registered in dev):**
+
+```
+/api/readyz 503 {"ready":false,"checks":{"db":{"ok":true,"latency_ms":0},"worker":{"ok":false,"hint":"no workers registered","latency_ms":0},"models_seeded":{"ok":true,"latency_ms":0}}}
+/readyz     503 same payload as above
+/api/healthz 200 {"schema_version":"1.0","status":"healthy","version":"0.1.0","models":null}
+/healthz     200 same payload as above
+```
+
+**Notes:**
+- Ready will stay 503 until a worker registers; health remains 200 in this state.
+- Root aliases `/readyz` and `/healthz` are provided for backwards compatibility; `/api/*` is canonical.
 
 ### Server Won't Start
 

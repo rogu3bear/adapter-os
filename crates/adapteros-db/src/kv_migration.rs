@@ -2098,7 +2098,7 @@ impl Db {
             tenant_id.to_string(),
         );
         let kv_adapters = adapter_repo
-            .list_adapters_for_tenant_kv(tenant_id)
+            .list_adapters_for_tenant_kv(tenant_id, None, None)
             .await
             .unwrap_or_default();
 

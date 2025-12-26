@@ -7,6 +7,8 @@
 //! - MLX runtime initialization (feature-gated)
 //! - Shutdown coordinator and background task tracking
 
+use crate::cli::Cli;
+use crate::shutdown::ShutdownCoordinator;
 use adapteros_config::{resolve_manifest_path, ConfigLoader};
 use adapteros_core::{derive_seed, AosError, B3Hash};
 use adapteros_deterministic_exec::{init_global_executor, EnforcementMode, ExecutorConfig};
@@ -14,8 +16,6 @@ use adapteros_manifest::ManifestV3;
 use adapteros_server_api::config::Config;
 use adapteros_server_api::state::BackgroundTaskTracker;
 use anyhow::Result;
-use crate::cli::Cli;
-use crate::shutdown::ShutdownCoordinator;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 use tracing::{info, warn};

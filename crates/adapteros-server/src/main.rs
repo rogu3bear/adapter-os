@@ -5,15 +5,16 @@
 
 mod assets;
 
+use adapteros_server::boot::api_config::{build_api_config, spawn_sighup_handler};
+use adapteros_server::boot::background_tasks::spawn_all_background_tasks;
+use adapteros_server::boot::migrations::run_migrations;
 use adapteros_server::boot::{
     bind_and_serve, build_app_state, finalize_boot, initialize_config, initialize_database,
     initialize_executor, initialize_federation, initialize_metrics, initialize_security,
     log_effective_config, run_preflight_checks, write_boot_report, BindMode, ServerBindConfig,
 };
-use adapteros_server::boot::api_config::{build_api_config, spawn_sighup_handler};
-use adapteros_server::boot::background_tasks::spawn_all_background_tasks;
-use adapteros_server::boot::migrations::run_migrations;
 use adapteros_server::cli::Cli;
+use adapteros_server_api::boot_state::failure_codes;
 use anyhow::Result;
 use clap::Parser;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
@@ -32,6 +33,7 @@ async fn main() -> Result<()> {
     // Phase 1: Configuration
     // =========================================================================
     let config_ctx = initialize_config(&cli).await?;
+    let boot_state = config_ctx.boot_state.clone();
 
     // Handle OpenAPI generation (early exit)
     if cli.generate_openapi {
@@ -50,7 +52,18 @@ async fn main() -> Result<()> {
         // =====================================================================
         // Phase 2: Security Initialization
         // =====================================================================
-        let security_ctx = initialize_security(config_ctx.server_config.clone(), &cli).await?;
+        boot_state.start_phase("security_init");
+        let security_ctx = initialize_security(config_ctx.server_config.clone(), &cli)
+            .await
+            .map_err(|e| {
+                boot_state.finish_phase_err(
+                    "security_init",
+                    failure_codes::SECURITY_INIT_FAILED,
+                    Some(e.to_string()),
+                );
+                e
+            })?;
+        boot_state.finish_phase_ok("security_init");
 
         // Log effective configuration
         log_effective_config(&config_ctx.server_config)?;
@@ -58,33 +71,75 @@ async fn main() -> Result<()> {
         // =====================================================================
         // Phase 3: Deterministic Executor
         // =====================================================================
-        let executor_ctx = initialize_executor(config_ctx.server_config.clone(), &cli).await?;
+        boot_state.start_phase("executor_init");
+        let executor_ctx = initialize_executor(config_ctx.server_config.clone(), &cli)
+            .await
+            .map_err(|e| {
+                boot_state.finish_phase_err(
+                    "executor_init",
+                    failure_codes::EXECUTOR_INIT_FAILED,
+                    Some(e.to_string()),
+                );
+                e
+            })?;
+        boot_state.finish_phase_ok("executor_init");
 
         // =====================================================================
         // Phase 4: Security Preflight Checks
         // =====================================================================
-        run_preflight_checks(config_ctx.server_config.clone(), &cli).await?;
+        boot_state.start_phase("preflight");
+        run_preflight_checks(config_ctx.server_config.clone(), &cli)
+            .await
+            .map_err(|e| {
+                boot_state.finish_phase_err(
+                    "preflight",
+                    failure_codes::PREFLIGHT_FAILED,
+                    Some(e.to_string()),
+                );
+                e
+            })?;
+        boot_state.finish_phase_ok("preflight");
 
         // =====================================================================
         // Phase 5: Database Connection
         // =====================================================================
+        boot_state.start_phase("db_connect");
         let db_ctx = initialize_database(
             config_ctx.server_config.clone(),
             config_ctx.boot_state.clone(),
             &cli,
         )
-        .await?;
+        .await
+        .map_err(|e| {
+            boot_state.finish_phase_err(
+                "db_connect",
+                failure_codes::DB_CONN_FAILED,
+                Some(e.to_string()),
+            );
+            e
+        })?;
+        boot_state.finish_phase_ok("db_connect");
 
         // =====================================================================
         // Phase 6: Database Migrations
         // =====================================================================
+        boot_state.start_phase("migrations");
         let _migrate_only = run_migrations(
             &db_ctx.db,
             config_ctx.server_config.clone(),
             &cli,
             &db_ctx.boot_state,
         )
-        .await?;
+        .await
+        .map_err(|e| {
+            boot_state.finish_phase_err(
+                "migrations",
+                failure_codes::MIGRATION_FAILED,
+                Some(e.to_string()),
+            );
+            e
+        })?;
+        boot_state.finish_phase_ok("migrations");
 
         // =====================================================================
         // Phases 7-8: Policy & Backend (already extracted to separate crates)
@@ -93,7 +148,16 @@ async fn main() -> Result<()> {
         // =====================================================================
         // Phase 9a: API Configuration
         // =====================================================================
-        let api_config = build_api_config(config_ctx.server_config.clone())?;
+        boot_state.start_phase("router_build");
+        let api_config = build_api_config(config_ctx.server_config.clone()).map_err(|e| {
+            boot_state.finish_phase_err(
+                "router_build",
+                failure_codes::ROUTER_BUILD_FAILED,
+                Some(e.to_string()),
+            );
+            e
+        })?;
+        boot_state.finish_phase_ok("router_build");
 
         // =====================================================================
         // Phase 9b: Federation
@@ -120,7 +184,9 @@ async fn main() -> Result<()> {
         // Phase 9c: Metrics
         // =====================================================================
         let production_mode = {
-            let cfg = config_ctx.server_config.read()
+            let cfg = config_ctx
+                .server_config
+                .read()
                 .map_err(|e| anyhow::anyhow!("Config lock poisoned: {}", e))?;
             cfg.server.production_mode
         };
@@ -157,6 +223,7 @@ async fn main() -> Result<()> {
         // =====================================================================
         // Phase 10b: Background Tasks
         // =====================================================================
+        boot_state.start_phase("worker_attach");
         let shutdown_coordinator = spawn_all_background_tasks(
             &state,
             &db_ctx.db,
@@ -167,7 +234,16 @@ async fn main() -> Result<()> {
             state.metrics_registry.clone(),
             config_ctx.server_config.clone(),
         )
-        .await?;
+        .await
+        .map_err(|e| {
+            boot_state.finish_phase_err(
+                "worker_attach",
+                failure_codes::WORKER_ATTACH_FAILED,
+                Some(e.to_string()),
+            );
+            e
+        })?;
+        boot_state.finish_phase_ok("worker_attach");
 
         // =====================================================================
         // Phases 11-12: Finalization
@@ -179,7 +255,15 @@ async fn main() -> Result<()> {
             ui_routes,
             &db_ctx.boot_state,
         )
-        .await?;
+        .await
+        .map_err(|e| {
+            boot_state.finish_phase_err(
+                "router_build",
+                failure_codes::ROUTER_BUILD_FAILED,
+                Some(e.to_string()),
+            );
+            e
+        })?;
 
         // Write boot report
         write_boot_report(
@@ -189,11 +273,7 @@ async fn main() -> Result<()> {
             cli.strict,
         )?;
 
-        Ok::<_, anyhow::Error>((
-            db_ctx.boot_state,
-            boot_artifacts,
-            shutdown_coordinator,
-        ))
+        Ok::<_, anyhow::Error>((db_ctx.boot_state, boot_artifacts, shutdown_coordinator))
     })
     .await;
 
@@ -262,7 +342,14 @@ async fn main() -> Result<()> {
         in_flight_requests: boot_artifacts.in_flight_requests,
     };
 
-    bind_and_serve(mode, boot_artifacts.app, server_config).await?;
+    boot_state.start_phase("bind");
+    bind_and_serve(mode, boot_artifacts.app, server_config)
+        .await
+        .map_err(|e| {
+            boot_state.finish_phase_err("bind", failure_codes::BIND_FAILED, Some(e.to_string()));
+            e
+        })?;
+    boot_state.finish_phase_ok("bind");
 
     // Final MLX cleanup after all other components
     #[cfg(feature = "multi-backend")]

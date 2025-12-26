@@ -88,8 +88,7 @@ async fn test_store_evidence_envelope_with_chain_validation() {
     insert_test_tenant(&db, "tenant-1").await;
 
     // Store first envelope (no previous_root)
-    let env1 =
-        EvidenceEnvelope::new_telemetry("tenant-1".to_string(), sample_bundle_ref(1), None);
+    let env1 = EvidenceEnvelope::new_telemetry("tenant-1".to_string(), sample_bundle_ref(1), None);
     let id1 = db.store_evidence_envelope(&env1).await.unwrap();
     assert!(!id1.is_empty());
 
@@ -139,8 +138,7 @@ async fn test_get_evidence_chain_tail() {
     assert!(tail.is_none());
 
     // Store first envelope
-    let env1 =
-        EvidenceEnvelope::new_telemetry("tenant-1".to_string(), sample_bundle_ref(1), None);
+    let env1 = EvidenceEnvelope::new_telemetry("tenant-1".to_string(), sample_bundle_ref(1), None);
     db.store_evidence_envelope(&env1).await.unwrap();
 
     // Tail should be the first envelope with sequence 1
@@ -182,8 +180,7 @@ async fn test_chain_divergence_detection_on_mismatch() {
     insert_test_tenant(&db, "tenant-1").await;
 
     // Store first envelope
-    let env1 =
-        EvidenceEnvelope::new_telemetry("tenant-1".to_string(), sample_bundle_ref(1), None);
+    let env1 = EvidenceEnvelope::new_telemetry("tenant-1".to_string(), sample_bundle_ref(1), None);
     db.store_evidence_envelope(&env1).await.unwrap();
 
     // Try to store second envelope with WRONG previous_root
@@ -237,8 +234,7 @@ async fn test_chain_divergence_missing_previous() {
     insert_test_tenant(&db, "tenant-1").await;
 
     // Store first envelope
-    let env1 =
-        EvidenceEnvelope::new_telemetry("tenant-1".to_string(), sample_bundle_ref(1), None);
+    let env1 = EvidenceEnvelope::new_telemetry("tenant-1".to_string(), sample_bundle_ref(1), None);
     db.store_evidence_envelope(&env1).await.unwrap();
 
     // Try to store second envelope without previous_root (invalid)
@@ -271,8 +267,7 @@ async fn test_query_evidence_envelopes_by_tenant() {
     insert_test_tenant(&db, "tenant-2").await;
 
     // Store envelopes for tenant-1
-    let env1 =
-        EvidenceEnvelope::new_telemetry("tenant-1".to_string(), sample_bundle_ref(1), None);
+    let env1 = EvidenceEnvelope::new_telemetry("tenant-1".to_string(), sample_bundle_ref(1), None);
     db.store_evidence_envelope(&env1).await.unwrap();
 
     let env2 = EvidenceEnvelope::new_telemetry(
@@ -283,8 +278,7 @@ async fn test_query_evidence_envelopes_by_tenant() {
     db.store_evidence_envelope(&env2).await.unwrap();
 
     // Store envelope for tenant-2
-    let env3 =
-        EvidenceEnvelope::new_telemetry("tenant-2".to_string(), sample_bundle_ref(1), None);
+    let env3 = EvidenceEnvelope::new_telemetry("tenant-2".to_string(), sample_bundle_ref(1), None);
     db.store_evidence_envelope(&env3).await.unwrap();
 
     // Query tenant-1 only
@@ -324,8 +318,7 @@ async fn test_query_evidence_envelopes_by_scope() {
     db.store_evidence_envelope(&telem2).await.unwrap();
 
     // Store policy envelope
-    let policy1 =
-        EvidenceEnvelope::new_policy("tenant-1".to_string(), sample_policy_ref(1), None);
+    let policy1 = EvidenceEnvelope::new_policy("tenant-1".to_string(), sample_policy_ref(1), None);
     db.store_evidence_envelope(&policy1).await.unwrap();
 
     // Store inference envelope
@@ -467,12 +460,10 @@ async fn test_cross_tenant_isolation_for_envelopes() {
     insert_test_tenant(&db, "tenant-2").await;
 
     // Create independent chains for each tenant with same scope
-    let env1_t1 =
-        EvidenceEnvelope::new_policy("tenant-1".to_string(), sample_policy_ref(1), None);
+    let env1_t1 = EvidenceEnvelope::new_policy("tenant-1".to_string(), sample_policy_ref(1), None);
     db.store_evidence_envelope(&env1_t1).await.unwrap();
 
-    let env1_t2 =
-        EvidenceEnvelope::new_policy("tenant-2".to_string(), sample_policy_ref(10), None);
+    let env1_t2 = EvidenceEnvelope::new_policy("tenant-2".to_string(), sample_policy_ref(10), None);
     db.store_evidence_envelope(&env1_t2).await.unwrap();
 
     // Each tenant should have independent chain tails
@@ -643,8 +634,7 @@ async fn test_get_evidence_envelope_by_id() {
     insert_test_tenant(&db, "tenant-1").await;
 
     // Store envelope
-    let original =
-        EvidenceEnvelope::new_policy("tenant-1".to_string(), sample_policy_ref(1), None);
+    let original = EvidenceEnvelope::new_policy("tenant-1".to_string(), sample_policy_ref(1), None);
     let id = db.store_evidence_envelope(&original).await.unwrap();
 
     // Retrieve by ID
@@ -668,8 +658,7 @@ async fn test_get_evidence_envelope_preserves_all_scopes() {
     insert_test_tenant(&db, "tenant-1").await;
 
     // Test telemetry envelope
-    let telem =
-        EvidenceEnvelope::new_telemetry("tenant-1".to_string(), sample_bundle_ref(1), None);
+    let telem = EvidenceEnvelope::new_telemetry("tenant-1".to_string(), sample_bundle_ref(1), None);
     let telem_id = db.store_evidence_envelope(&telem).await.unwrap();
     let retrieved_telem = db.get_evidence_envelope(&telem_id).await.unwrap().unwrap();
     assert_eq!(retrieved_telem.scope, EvidenceScope::Telemetry);

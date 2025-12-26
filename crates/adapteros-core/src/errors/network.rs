@@ -77,7 +77,7 @@ impl AosNetworkError {
             Self::UdsConnectionFailed { .. } => true,
             Self::WorkerNotResponding { .. } => true,
             Self::CircuitBreakerOpen { .. } => false, // Must wait for timeout
-            Self::Unavailable(_) => true, // Service might become available
+            Self::Unavailable(_) => true,             // Service might become available
             Self::Http(_) | Self::Network(_) | Self::InvalidResponse { .. } => false,
         }
     }

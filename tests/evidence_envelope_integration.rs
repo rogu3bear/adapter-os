@@ -508,8 +508,7 @@ async fn test_mixed_evidence_chain() -> anyhow::Result<()> {
         cpid: Some("cp-001".to_string()),
         sequence_no: Some(1),
     };
-    let telem_env1 =
-        EvidenceEnvelope::new_telemetry("tenant-test".to_string(), bundle_ref1, None);
+    let telem_env1 = EvidenceEnvelope::new_telemetry("tenant-test".to_string(), bundle_ref1, None);
     db.store_evidence_envelope(&telem_env1).await?;
 
     // Add second to each chain

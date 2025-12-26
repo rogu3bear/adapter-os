@@ -84,9 +84,10 @@ async fn test_create_repo() {
 
     // Create a base model for the FK constraint
     adapteros_db::sqlx::query(
-        "INSERT OR IGNORE INTO models (id, name, hash_b3, config_hash_b3, tokenizer_hash_b3, tokenizer_cfg_hash_b3)
-         VALUES ('qwen2.5-7b', 'Qwen 2.5 7B', 'test_hash_123', 'config_hash', 'tok_hash', 'tok_cfg_hash')"
+        "INSERT OR IGNORE INTO models (id, tenant_id, name, hash_b3, config_hash_b3, tokenizer_hash_b3, tokenizer_cfg_hash_b3)
+         VALUES ('qwen2.5-7b', ?, 'Qwen 2.5 7B', 'test_hash_123', 'config_hash', 'tok_hash', 'tok_cfg_hash')",
     )
+    .bind(&claims.tenant_id)
     .execute(state.db.pool())
     .await
     .unwrap();
@@ -126,7 +127,12 @@ async fn test_list_repos() {
         .await
         .unwrap();
 
-    let result = list_repos(State(state.clone()), Extension(claims)).await;
+    let result = list_repos(
+        State(state.clone()),
+        Extension(claims),
+        axum::extract::Query(Default::default()),
+    )
+    .await;
 
     assert!(result.is_ok(), "list_repos should succeed");
     let repos = result.unwrap().0;
@@ -328,7 +334,12 @@ async fn test_list_repos_tenant_isolation() {
 
     // List repos for tenant-1
     let claims = test_admin_claims(); // tenant-1
-    let result = list_repos(State(state.clone()), Extension(claims)).await;
+    let result = list_repos(
+        State(state.clone()),
+        Extension(claims),
+        axum::extract::Query(Default::default()),
+    )
+    .await;
 
     let repos = result.unwrap().0;
 

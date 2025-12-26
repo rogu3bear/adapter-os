@@ -12,6 +12,11 @@
 set -e
 
 BASE_URL="${1:-${AOS_API_BASE_URL:-http://localhost:${AOS_SERVER_PORT:-8080}}}"
+if [[ "$BASE_URL" != *"/api" && "$BASE_URL" != *"/api/" ]]; then
+    BASE_URL="${BASE_URL%/}/api"
+else
+    BASE_URL="${BASE_URL%/}"
+fi
 TOKEN="${2:-${AOS_AUTH_TOKEN:-}}"
 
 # Colors for output

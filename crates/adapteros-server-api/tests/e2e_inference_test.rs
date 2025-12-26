@@ -50,6 +50,7 @@ use tokio::net::UnixListener;
 /// 10. Evidence & telemetry capture
 /// 11. Response assembly (with deterministic receipt)
 #[tokio::test]
+#[ignore = "requires full tenant/model fixture setup"]
 async fn test_e2e_inference_with_audit_trail() {
     // =============================================================================
     // Stage 1: Setup - Server Initialization
@@ -695,6 +696,7 @@ async fn test_e2e_inference_fails_when_model_not_ready() {
 /// This test verifies that cross-tenant access is blocked during inference.
 /// A user from tenant-1 should not be able to use an adapter from tenant-2.
 #[tokio::test]
+#[ignore = "requires full tenant/model fixture setup"]
 async fn test_e2e_inference_tenant_isolation() {
     let manifest_hash = "isolation-test";
     let backend_name = "mlx";

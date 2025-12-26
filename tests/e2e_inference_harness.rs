@@ -39,7 +39,10 @@ impl KernelTestHarness<MockKernels> {
 impl<K: FusedKernels> KernelTestHarness<K> {
     /// Create with a custom kernel backend
     pub fn new(kernels: K, vocab_size: usize) -> Self {
-        Self { kernels, vocab_size }
+        Self {
+            kernels,
+            vocab_size,
+        }
     }
 
     /// Run a single inference step and return the output logits
@@ -156,9 +159,7 @@ fn test_mock_kernels_multi_step() {
     let mut harness = KernelTestHarness::with_mock();
 
     let steps = 10;
-    let all_logits = harness
-        .run_sequence(&[1], steps, &[0], &[32767])
-        .unwrap();
+    let all_logits = harness.run_sequence(&[1], steps, &[0], &[32767]).unwrap();
 
     assert_eq!(
         all_logits.len(),
@@ -345,10 +346,10 @@ mod mlx_ffi_tests {
 // The Worker now uses FusedKernels::supports_text_generation() for detection,
 // not string matching on device_name(). These tests verify the trait-based approach.
 
-use adapteros_lora_kernel_api::TextGenerationResult;
 use adapteros_lora_kernel_api::attestation::{
-    DeterminismReport, BackendType, RngSeedingMethod, FloatingPointMode,
+    BackendType, DeterminismReport, FloatingPointMode, RngSeedingMethod,
 };
+use adapteros_lora_kernel_api::TextGenerationResult;
 
 /// Mock kernel that implements text-generation via the FusedKernels trait
 /// Used to test the Worker's text-generation path without requiring MLX/Python
@@ -487,7 +488,10 @@ fn test_mock_text_gen_kernel_run_step_returns_error() {
 
     let result = kernels.run_step(&ring, &mut io);
 
-    assert!(result.is_err(), "run_step should return error for text-gen kernels");
+    assert!(
+        result.is_err(),
+        "run_step should return error for text-gen kernels"
+    );
     let err_msg = result.unwrap_err().to_string();
     assert!(
         err_msg.contains("does not support run_step"),
@@ -506,8 +510,14 @@ fn test_mock_text_gen_kernel_generate_text_complete() {
     assert!(result.is_ok(), "generate_text_complete should succeed");
     let gen_result = result.unwrap();
     assert!(!gen_result.text.is_empty(), "Should generate text");
-    assert!(gen_result.text.contains("Hello, world!"), "Response should reference prompt");
-    assert!(gen_result.tokens_generated > 0, "Should generate some tokens");
+    assert!(
+        gen_result.text.contains("Hello, world!"),
+        "Response should reference prompt"
+    );
+    assert!(
+        gen_result.tokens_generated > 0,
+        "Should generate some tokens"
+    );
 }
 
 /// Verify the Worker's detection logic would work correctly
@@ -521,11 +531,17 @@ fn test_worker_style_text_gen_detection() {
 
     // MockKernels should NOT be detected
     let mock = MockKernels::new();
-    assert!(!simulate_worker_detection(&mock), "MockKernels should not trigger text-gen path");
+    assert!(
+        !simulate_worker_detection(&mock),
+        "MockKernels should not trigger text-gen path"
+    );
 
     // MockTextGenerationKernel SHOULD be detected
     let text_gen = MockTextGenerationKernel::new(32000);
-    assert!(simulate_worker_detection(&text_gen), "MockTextGenerationKernel should trigger text-gen path");
+    assert!(
+        simulate_worker_detection(&text_gen),
+        "MockTextGenerationKernel should trigger text-gen path"
+    );
 }
 
 /// Verify generate_text_complete forwards to generate_text_full for backward compatibility
@@ -598,9 +614,7 @@ mod mlx_bridge_tests {
     use std::path::PathBuf;
 
     fn get_model_path() -> Option<PathBuf> {
-        std::env::var("TEST_MLX_MODEL_PATH")
-            .ok()
-            .map(PathBuf::from)
+        std::env::var("TEST_MLX_MODEL_PATH").ok().map(PathBuf::from)
     }
 
     /// Verify MLX Bridge implements TextGenerationKernel
@@ -624,8 +638,7 @@ mod mlx_bridge_tests {
 
         let model_path = get_model_path().expect("TEST_MLX_MODEL_PATH not set");
 
-        let bridge =
-            MLXSubprocessBridge::new(model_path, 32000).expect("Failed to create bridge");
+        let bridge = MLXSubprocessBridge::new(model_path, 32000).expect("Failed to create bridge");
 
         // Trait-based detection (the correct way)
         assert!(
@@ -649,8 +662,7 @@ mod mlx_bridge_tests {
 
         let model_path = get_model_path().expect("TEST_MLX_MODEL_PATH not set");
 
-        let bridge =
-            MLXSubprocessBridge::new(model_path, 32000).expect("Failed to create bridge");
+        let bridge = MLXSubprocessBridge::new(model_path, 32000).expect("Failed to create bridge");
 
         // Via TextGenerationKernel trait - use explicit trait dispatch (deprecated)
         assert!(
@@ -668,13 +680,13 @@ mod mlx_bridge_tests {
 
         let model_path = get_model_path().expect("TEST_MLX_MODEL_PATH not set");
 
-        let bridge =
-            MLXSubprocessBridge::new(model_path, 32000).expect("Failed to create bridge");
+        let bridge = MLXSubprocessBridge::new(model_path, 32000).expect("Failed to create bridge");
 
         println!("Testing generate_text_complete via FusedKernels trait...");
 
         // Use explicit trait dispatch (this is what Worker uses)
-        let result = FusedKernels::generate_text_complete(&bridge, "The capital of France is", 20, 0.7, 0.9);
+        let result =
+            FusedKernels::generate_text_complete(&bridge, "The capital of France is", 20, 0.7, 0.9);
 
         match result {
             Ok(gen_result) => {
@@ -710,8 +722,7 @@ mod mlx_bridge_tests {
 
         let model_path = get_model_path().expect("TEST_MLX_MODEL_PATH not set");
 
-        let bridge =
-            MLXSubprocessBridge::new(model_path, 32000).expect("Failed to create bridge");
+        let bridge = MLXSubprocessBridge::new(model_path, 32000).expect("Failed to create bridge");
 
         println!("MLX Bridge created, running generation...");
 
@@ -766,24 +777,17 @@ mod mlx_bridge_tests {
 
         let model_path = get_model_path().expect("TEST_MLX_MODEL_PATH not set");
 
-        let bridge =
-            MLXSubprocessBridge::new(model_path, 32000).expect("Failed to create bridge");
+        let bridge = MLXSubprocessBridge::new(model_path, 32000).expect("Failed to create bridge");
 
         println!("Testing streaming generation with callback...");
 
         let mut tokens_received = Vec::new();
 
-        let result = bridge.generate_stream(
-            "Count to five: 1, 2,",
-            20,
-            0.7,
-            0.9,
-            |token| {
-                println!("Token {}: '{}'", token.index, token.token);
-                tokens_received.push(token.token.clone());
-                true // continue streaming
-            },
-        );
+        let result = bridge.generate_stream("Count to five: 1, 2,", 20, 0.7, 0.9, |token| {
+            println!("Token {}: '{}'", token.index, token.token);
+            tokens_received.push(token.token.clone());
+            true // continue streaming
+        });
 
         match result {
             Ok(final_result) => {
@@ -792,8 +796,14 @@ mod mlx_bridge_tests {
                 println!("Final text: '{}'", final_result.text);
                 println!("Finish reason: {}", final_result.finish_reason);
 
-                assert!(!tokens_received.is_empty(), "Should receive tokens via callback");
-                assert!(!final_result.text.is_empty(), "Final text should not be empty");
+                assert!(
+                    !tokens_received.is_empty(),
+                    "Should receive tokens via callback"
+                );
+                assert!(
+                    !final_result.text.is_empty(),
+                    "Final text should not be empty"
+                );
                 assert!(final_result.token_count > 0, "Should generate tokens");
             }
             Err(e) => {
@@ -811,17 +821,11 @@ mod mlx_bridge_tests {
 
         let model_path = get_model_path().expect("TEST_MLX_MODEL_PATH not set");
 
-        let bridge =
-            MLXSubprocessBridge::new(model_path, 32000).expect("Failed to create bridge");
+        let bridge = MLXSubprocessBridge::new(model_path, 32000).expect("Failed to create bridge");
 
         println!("Testing streaming generation with iterator...");
 
-        let iter_result = bridge.generate_stream_iter(
-            "Hello, world!",
-            10,
-            0.7,
-            0.9,
-        );
+        let iter_result = bridge.generate_stream_iter("Hello, world!", 10, 0.7, 0.9);
 
         match iter_result {
             Ok(iter) => {
@@ -868,8 +872,7 @@ mod mlx_bridge_tests {
 
         let model_path = get_model_path().expect("TEST_MLX_MODEL_PATH not set");
 
-        let bridge =
-            MLXSubprocessBridge::new(model_path, 32000).expect("Failed to create bridge");
+        let bridge = MLXSubprocessBridge::new(model_path, 32000).expect("Failed to create bridge");
 
         println!("Testing early termination of streaming...");
 

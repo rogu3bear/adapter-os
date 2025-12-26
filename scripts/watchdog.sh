@@ -208,8 +208,9 @@ main() {
     fi
 
 
-    last_health="$(curl_status_code "http://${host}:${backend_port}/healthz")"
-    last_ready="$(curl_status_code "http://${host}:${backend_port}/readyz")"
+    local api_base="http://${host}:${backend_port}/api"
+    last_health="$(curl_status_code "${api_base}/healthz")"
+    last_ready="$(curl_status_code "${api_base}/readyz")"
     last_ui_code="000"
     if [ "$require_ui" = "1" ]; then
       last_ui_code="$(curl_status_code "http://${host}:${ui_port}/")"

@@ -171,9 +171,7 @@ pub async fn initialize_federation(
     ));
 
     let federation_shutdown_rx = shutdown_coordinator.subscribe_shutdown();
-    let federation_handle = federation_daemon
-        .clone()
-        .start(federation_shutdown_rx);
+    let federation_handle = federation_daemon.clone().start(federation_shutdown_rx);
     shutdown_coordinator.set_federation_handle(federation_handle);
     background_tasks.record_spawned("Federation daemon", false);
     info!("Federation daemon started (300s interval)");
