@@ -726,10 +726,7 @@ fn test_memory_pressure_eviction_order() {
                 allocated.push(seq_id);
             }
             Err(e) => {
-                panic!(
-                    "Unexpected allocation failure at iteration {}: {:?}",
-                    i, e
-                );
+                panic!("Unexpected allocation failure at iteration {}: {:?}", i, e);
             }
         }
     }
@@ -753,11 +750,7 @@ fn test_memory_pressure_eviction_order() {
     quota_manager.reset_evictions();
     quota_manager.record_eviction();
     quota_manager.record_eviction();
-    assert_eq!(
-        quota_manager.evictions(),
-        2,
-        "Should track eviction events"
-    );
+    assert_eq!(quota_manager.evictions(), 2, "Should track eviction events");
 
     // Clean up
     for seq_id in allocated {
@@ -853,10 +846,7 @@ fn test_adapter_eviction_under_pressure() {
         Some(5 * BYTES_PER_MB), // 5MB quota
     ));
 
-    let mut cache = KvCache::new_with_quota(
-        10 * BYTES_PER_MB,
-        Some(quota_manager.clone()),
-    );
+    let mut cache = KvCache::new_with_quota(10 * BYTES_PER_MB, Some(quota_manager.clone()));
 
     // Allocate multiple "adapters" (sequences)
     let adapter_size = 1 * BYTES_PER_MB; // 1MB per adapter

@@ -577,9 +577,7 @@ mod tests {
 
         // Should fail in release builds
         let Err(err) = result else {
-            panic!(
-                "Remote backend should be rejected in release builds, but creation succeeded"
-            );
+            panic!("Remote backend should be rejected in release builds, but creation succeeded");
         };
 
         // Verify it's an EgressViolation error
@@ -677,4 +675,3 @@ mod tests {
         }
     }
 }
-

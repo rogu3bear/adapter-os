@@ -415,10 +415,10 @@ fn compile_real_wrapper(include_dir: &Path, lib_dir: &Path) {
         // GCC/Clang: Aggressive optimization and warning flags for performance-critical code
         build.flag_if_supported("-fPIC"); // Position-independent code
         build.flag_if_supported("-O3"); // Maximum optimization (performance-critical)
-        // NOTE: -march=native is intentionally NOT used here due to Apple clang 17.0 bug
-        // that causes "No way to correctly truncate anything but float to bfloat" error
-        // when compiling MLX headers with bfloat16 types. The performance impact is minimal
-        // as MLX operations run on GPU anyway.
+                                        // NOTE: -march=native is intentionally NOT used here due to Apple clang 17.0 bug
+                                        // that causes "No way to correctly truncate anything but float to bfloat" error
+                                        // when compiling MLX headers with bfloat16 types. The performance impact is minimal
+                                        // as MLX operations run on GPU anyway.
         build.flag_if_supported("-Wall"); // All warnings
         build.flag_if_supported("-Wextra"); // Extra warnings
         build.flag_if_supported("-fvisibility=hidden"); // Hidden symbols by default

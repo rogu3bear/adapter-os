@@ -38,8 +38,7 @@ fn test_router_determinism_config_serialization_compat() {
 
     // GOLDEN BASELINE - Version: 1.0.0
     // Format: {"field_a":value,"field_b":value} (alphabetical order by serde default)
-    const GOLDEN_JSON: &str =
-        r#"{"ieee754_deterministic":true,"enable_decision_hashing":true}"#;
+    const GOLDEN_JSON: &str = r#"{"ieee754_deterministic":true,"enable_decision_hashing":true}"#;
 
     assert_eq!(
         json, GOLDEN_JSON,
@@ -72,8 +71,7 @@ fn test_router_determinism_config_default_serialization() {
     let json = serde_json::to_string(&config).expect("serialization should succeed");
 
     // GOLDEN: Default config
-    const GOLDEN_DEFAULT: &str =
-        r#"{"ieee754_deterministic":true,"enable_decision_hashing":true}"#;
+    const GOLDEN_DEFAULT: &str = r#"{"ieee754_deterministic":true,"enable_decision_hashing":true}"#;
 
     assert_eq!(
         json, GOLDEN_DEFAULT,
@@ -349,8 +347,7 @@ fn test_backward_compat_router_determinism_config() {
 fn test_backward_compat_decision_hash() {
     let old_json = r#"{"input_hash":"old_input","output_hash":"old_output","combined_hash":"old_combined","tau":0.9,"eps":0.03,"k":2}"#;
 
-    let hash: DecisionHash =
-        serde_json::from_str(old_json).expect("should deserialize old format");
+    let hash: DecisionHash = serde_json::from_str(old_json).expect("should deserialize old format");
 
     assert_eq!(hash.input_hash, "old_input");
     assert_eq!(hash.k, 2);

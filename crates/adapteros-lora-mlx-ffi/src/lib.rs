@@ -52,13 +52,13 @@ pub use lora::{LoRAAdapter, LoRAConfig};
 pub use memory_pool::{MLXMemoryPool, MLXMemoryPoolConfig, MemoryPoolStats, MemoryPressureEvent};
 #[cfg(feature = "mlx-rs-backend")]
 pub use model::{MlxRsModel, MlxRsModelConfig};
-pub use quantization::{
-    MLXQuantizer, QuantizationConfig, QuantizationMetadata, QuantizationStats, QuantizedTensor,
-    WeightCompressor,
-};
 pub use moe::{
     compute_topk_gating, switch_glu_forward_quantized, QuantizedExpertWeights, QuantizedMoeConfig,
     QuantizedMoeLayer,
+};
+pub use quantization::{
+    MLXQuantizer, QuantizationConfig, QuantizationMetadata, QuantizationStats, QuantizedTensor,
+    WeightCompressor,
 };
 pub use routing::apply_multi_lora;
 pub use safetensors_loader::{SafetensorsLoader, TensorInfo};

@@ -54,7 +54,9 @@ fn test_per_adapter_scores_differ() {
 
     // Route with adapter info
     let mask = allow_all_mask(&adapter_info);
-    let decision = router.route_with_adapter_info(&feature_vec, &priors, &adapter_info, &mask).expect("router decision");
+    let decision = router
+        .route_with_adapter_info(&feature_vec, &priors, &adapter_info, &mask)
+        .expect("router decision");
 
     // Python adapter should be selected first because features match
     // (If per-adapter scoring works correctly)
@@ -132,7 +134,9 @@ fn test_features_affect_ranking_with_varied_priors() {
 
     // Route with adapter info
     let mask = allow_all_mask(&adapter_info);
-    let decision = router.route_with_adapter_info(&feature_vec, &priors, &adapter_info, &mask).expect("router decision");
+    let decision = router
+        .route_with_adapter_info(&feature_vec, &priors, &adapter_info, &mask)
+        .expect("router decision");
 
     // Even though JS has highest prior (2.0), Rust should get a feature boost
     // for matching language + framework
@@ -242,17 +246,23 @@ fn test_orthogonality_penalty_reduces_similar_selection() {
     let mask = allow_all_mask(&adapter_info);
 
     // First routing: select adapters 0, 1, 2
-    let decision1 = router.route_with_adapter_info(&feature_vec, &priors, &adapter_info, &mask).expect("router decision");
+    let decision1 = router
+        .route_with_adapter_info(&feature_vec, &priors, &adapter_info, &mask)
+        .expect("router decision");
     assert_eq!(decision1.indices.len(), 3);
 
     // Second routing: adapters that were selected in first round should be penalized
-    let decision2 = router.route_with_adapter_info(&feature_vec, &priors, &adapter_info, &mask).expect("router decision");
+    let decision2 = router
+        .route_with_adapter_info(&feature_vec, &priors, &adapter_info, &mask)
+        .expect("router decision");
 
     // With penalties, at least one adapter should change
     // (The exact behavior depends on penalty strength, but diversity should increase)
 
     // Third routing: continue to build history
-    let decision3 = router.route_with_adapter_info(&feature_vec, &priors, &adapter_info, &mask).expect("router decision");
+    let decision3 = router
+        .route_with_adapter_info(&feature_vec, &priors, &adapter_info, &mask)
+        .expect("router decision");
 
     // After multiple rounds, we should see rotation in adapter selection
     // Count unique adapters across all decisions
@@ -304,7 +314,9 @@ fn test_framework_matching_boosts_score() {
     let priors = vec![1.0, 1.0];
 
     let mask = allow_all_mask(&adapter_info);
-    let decision = router.route_with_adapter_info(&feature_vec, &priors, &adapter_info, &mask).expect("router decision");
+    let decision = router
+        .route_with_adapter_info(&feature_vec, &priors, &adapter_info, &mask)
+        .expect("router decision");
 
     // Django adapter should score higher due to framework matching
     let django_score = decision
@@ -367,7 +379,9 @@ fn test_tier_boosts() {
     let priors = vec![1.0, 1.0, 1.0];
 
     let mask = allow_all_mask(&adapter_info);
-    let decision = router.route_with_adapter_info(&feature_vec, &priors, &adapter_info, &mask).expect("router decision");
+    let decision = router
+        .route_with_adapter_info(&feature_vec, &priors, &adapter_info, &mask)
+        .expect("router decision");
 
     // Higher tiers should get score boosts
     let tier0_score = decision.candidates[0].raw_score;

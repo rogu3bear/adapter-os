@@ -8,8 +8,8 @@
 //! 5. Multi-backend segment handling
 
 use adapteros_aos::writer::{
-    compute_scope_hash, open_aos, parse_segments, select_segment, AosWriter,
-    BackendTag, AOS_MAGIC, HAS_INDEX_FLAG, HEADER_SIZE, INDEX_ENTRY_SIZE,
+    compute_scope_hash, open_aos, parse_segments, select_segment, AosWriter, BackendTag, AOS_MAGIC,
+    HAS_INDEX_FLAG, HEADER_SIZE, INDEX_ENTRY_SIZE,
 };
 use adapteros_core::{AosError, B3Hash, Result};
 use serde::{Deserialize, Serialize};

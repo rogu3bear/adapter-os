@@ -7,7 +7,9 @@
 //! 4. Custom weights change routing behavior
 //! 5. Weight normalization requirements
 
-use adapteros_lora_router::{policy_mask::PolicyMask, AdapterInfo, CodeFeatures, Router, RouterWeights};
+use adapteros_lora_router::{
+    policy_mask::PolicyMask, AdapterInfo, CodeFeatures, Router, RouterWeights,
+};
 use std::fs;
 use tempfile::TempDir;
 
@@ -61,12 +63,12 @@ fn test_save_and_load_weights_roundtrip() {
 
     // Create custom weights
     let original_weights = RouterWeights::new_with_dir_weights(
-        0.35, // language
-        0.25, // framework
-        0.2,  // symbols
-        0.1,  // paths
-        0.05, // verb
-        0.03, // orthogonal
+        0.35,  // language
+        0.25,  // framework
+        0.2,   // symbols
+        0.1,   // paths
+        0.05,  // verb
+        0.03,  // orthogonal
         0.015, // diversity
         0.005, // similarity
     );
@@ -78,14 +80,38 @@ fn test_save_and_load_weights_roundtrip() {
     let loaded_weights = RouterWeights::load(&json_path).expect("load weights");
 
     // Verify all fields match
-    assert_eq!(loaded_weights.language_weight, original_weights.language_weight);
-    assert_eq!(loaded_weights.framework_weight, original_weights.framework_weight);
-    assert_eq!(loaded_weights.symbol_hits_weight, original_weights.symbol_hits_weight);
-    assert_eq!(loaded_weights.path_tokens_weight, original_weights.path_tokens_weight);
-    assert_eq!(loaded_weights.prompt_verb_weight, original_weights.prompt_verb_weight);
-    assert_eq!(loaded_weights.orthogonal_weight, original_weights.orthogonal_weight);
-    assert_eq!(loaded_weights.diversity_weight, original_weights.diversity_weight);
-    assert_eq!(loaded_weights.similarity_penalty, original_weights.similarity_penalty);
+    assert_eq!(
+        loaded_weights.language_weight,
+        original_weights.language_weight
+    );
+    assert_eq!(
+        loaded_weights.framework_weight,
+        original_weights.framework_weight
+    );
+    assert_eq!(
+        loaded_weights.symbol_hits_weight,
+        original_weights.symbol_hits_weight
+    );
+    assert_eq!(
+        loaded_weights.path_tokens_weight,
+        original_weights.path_tokens_weight
+    );
+    assert_eq!(
+        loaded_weights.prompt_verb_weight,
+        original_weights.prompt_verb_weight
+    );
+    assert_eq!(
+        loaded_weights.orthogonal_weight,
+        original_weights.orthogonal_weight
+    );
+    assert_eq!(
+        loaded_weights.diversity_weight,
+        original_weights.diversity_weight
+    );
+    assert_eq!(
+        loaded_weights.similarity_penalty,
+        original_weights.similarity_penalty
+    );
 }
 
 #[test]
@@ -169,31 +195,57 @@ fn test_save_and_load_toml_roundtrip() {
 
     // Create custom weights
     let original_weights = RouterWeights::new_with_dir_weights(
-        0.35, // language
-        0.25, // framework
-        0.2,  // symbols
-        0.1,  // paths
-        0.05, // verb
-        0.03, // orthogonal
+        0.35,  // language
+        0.25,  // framework
+        0.2,   // symbols
+        0.1,   // paths
+        0.05,  // verb
+        0.03,  // orthogonal
         0.015, // diversity
         0.005, // similarity
     );
 
     // Save to TOML file
-    original_weights.save_toml(&toml_path).expect("save weights");
+    original_weights
+        .save_toml(&toml_path)
+        .expect("save weights");
 
     // Load from TOML file
     let loaded_weights = RouterWeights::load_toml(&toml_path).expect("load weights");
 
     // Verify all fields match
-    assert_eq!(loaded_weights.language_weight, original_weights.language_weight);
-    assert_eq!(loaded_weights.framework_weight, original_weights.framework_weight);
-    assert_eq!(loaded_weights.symbol_hits_weight, original_weights.symbol_hits_weight);
-    assert_eq!(loaded_weights.path_tokens_weight, original_weights.path_tokens_weight);
-    assert_eq!(loaded_weights.prompt_verb_weight, original_weights.prompt_verb_weight);
-    assert_eq!(loaded_weights.orthogonal_weight, original_weights.orthogonal_weight);
-    assert_eq!(loaded_weights.diversity_weight, original_weights.diversity_weight);
-    assert_eq!(loaded_weights.similarity_penalty, original_weights.similarity_penalty);
+    assert_eq!(
+        loaded_weights.language_weight,
+        original_weights.language_weight
+    );
+    assert_eq!(
+        loaded_weights.framework_weight,
+        original_weights.framework_weight
+    );
+    assert_eq!(
+        loaded_weights.symbol_hits_weight,
+        original_weights.symbol_hits_weight
+    );
+    assert_eq!(
+        loaded_weights.path_tokens_weight,
+        original_weights.path_tokens_weight
+    );
+    assert_eq!(
+        loaded_weights.prompt_verb_weight,
+        original_weights.prompt_verb_weight
+    );
+    assert_eq!(
+        loaded_weights.orthogonal_weight,
+        original_weights.orthogonal_weight
+    );
+    assert_eq!(
+        loaded_weights.diversity_weight,
+        original_weights.diversity_weight
+    );
+    assert_eq!(
+        loaded_weights.similarity_penalty,
+        original_weights.similarity_penalty
+    );
 }
 
 #[test]
@@ -232,14 +284,38 @@ fn test_default_weights_sum_to_one() {
 fn test_default_weights_all_positive() {
     let weights = RouterWeights::default();
 
-    assert!(weights.language_weight > 0.0, "language_weight should be positive");
-    assert!(weights.framework_weight > 0.0, "framework_weight should be positive");
-    assert!(weights.symbol_hits_weight > 0.0, "symbol_hits_weight should be positive");
-    assert!(weights.path_tokens_weight > 0.0, "path_tokens_weight should be positive");
-    assert!(weights.prompt_verb_weight > 0.0, "prompt_verb_weight should be positive");
-    assert!(weights.orthogonal_weight >= 0.0, "orthogonal_weight should be non-negative");
-    assert!(weights.diversity_weight >= 0.0, "diversity_weight should be non-negative");
-    assert!(weights.similarity_penalty >= 0.0, "similarity_penalty should be non-negative");
+    assert!(
+        weights.language_weight > 0.0,
+        "language_weight should be positive"
+    );
+    assert!(
+        weights.framework_weight > 0.0,
+        "framework_weight should be positive"
+    );
+    assert!(
+        weights.symbol_hits_weight > 0.0,
+        "symbol_hits_weight should be positive"
+    );
+    assert!(
+        weights.path_tokens_weight > 0.0,
+        "path_tokens_weight should be positive"
+    );
+    assert!(
+        weights.prompt_verb_weight > 0.0,
+        "prompt_verb_weight should be positive"
+    );
+    assert!(
+        weights.orthogonal_weight >= 0.0,
+        "orthogonal_weight should be non-negative"
+    );
+    assert!(
+        weights.diversity_weight >= 0.0,
+        "diversity_weight should be non-negative"
+    );
+    assert!(
+        weights.similarity_penalty >= 0.0,
+        "similarity_penalty should be non-negative"
+    );
 }
 
 #[test]
@@ -500,7 +576,10 @@ fn test_custom_weights_change_decisions() {
     assert_eq!(decision_custom.indices.len(), 3);
 
     // The decisions might differ in ranking or gates
-    println!("Default weights decision: {:?}", decision_default.candidates);
+    println!(
+        "Default weights decision: {:?}",
+        decision_default.candidates
+    );
     println!("Custom weights decision: {:?}", decision_custom.candidates);
 
     // At minimum, verify entropy differs (different weight distributions affect entropy)
@@ -710,21 +789,21 @@ fn test_proportional_weights_produce_same_results() {
 #[test]
 fn test_total_weight_calculation() {
     let weights = RouterWeights::new_with_dir_weights(
-        0.27272728,
-        0.22727273,
-        0.18181819,
-        0.13636364,
-        0.09090909,
-        0.04545455,
-        0.02727273,
+        0.27272728, 0.22727273, 0.18181819, 0.13636364, 0.09090909, 0.04545455, 0.02727273,
         0.01818182,
     );
 
     let total = weights.total_weight();
 
     // Sum of all weights
-    let expected = 0.27272728 + 0.22727273 + 0.18181819 + 0.13636364 +
-                   0.09090909 + 0.04545455 + 0.02727273 + 0.01818182;
+    let expected = 0.27272728
+        + 0.22727273
+        + 0.18181819
+        + 0.13636364
+        + 0.09090909
+        + 0.04545455
+        + 0.02727273
+        + 0.01818182;
 
     assert!(
         (total - expected).abs() < 0.0001,

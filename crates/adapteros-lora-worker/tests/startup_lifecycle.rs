@@ -160,7 +160,9 @@ fn test_worker_fails_fast_on_missing_cache_budget() -> anyhow::Result<()> {
     // Create a temporary manifest file (even though we won't reach model loading)
     let temp_dir = tempfile::tempdir()?;
     let manifest_path = temp_dir.path().join("test-manifest.yaml");
-    fs::write(&manifest_path, r#"
+    fs::write(
+        &manifest_path,
+        r#"
 schema: adapteros.manifest.v3
 base:
   model_id: test-model
@@ -173,7 +175,8 @@ base:
   config_hash: "0000000000000000000000000000000000000000000000000000000000000000"
   tokenizer_hash: "0000000000000000000000000000000000000000000000000000000000000000"
   tokenizer_cfg_hash: "0000000000000000000000000000000000000000000000000000000000000000"
-"#)?;
+"#,
+    )?;
 
     // Spawn worker WITHOUT setting AOS_MODEL_CACHE_MAX_MB
     // This should fail fast at startup, NOT when trying to load a model
@@ -191,7 +194,7 @@ base:
         .arg(uds_path)
         .arg("--manifest")
         .arg(manifest_path.to_str().unwrap())
-        .env_remove("AOS_MODEL_CACHE_MAX_MB")  // Ensure it's not set
+        .env_remove("AOS_MODEL_CACHE_MAX_MB") // Ensure it's not set
         .env("AOS_DEV_NO_AUTH", "1")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -215,8 +218,15 @@ base:
     let _ = fs::remove_file(uds_path);
 
     // Verify exit code is 1 (EXIT_CONFIG_ERROR)
-    assert!(!status.success(), "Worker should fail when cache budget not configured");
-    assert_eq!(status.code(), Some(1), "Worker should exit with code 1 (EXIT_CONFIG_ERROR)");
+    assert!(
+        !status.success(),
+        "Worker should fail when cache budget not configured"
+    );
+    assert_eq!(
+        status.code(),
+        Some(1),
+        "Worker should exit with code 1 (EXIT_CONFIG_ERROR)"
+    );
 
     // Verify the worker failed FAST (within a few seconds, not after expensive operations)
     // The comment in aos_worker.rs says this should save "100-200ms of wasted work"

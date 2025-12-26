@@ -44,11 +44,11 @@
 //! These are REAL measurements, not simulated.
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use serde::{Deserialize, Serialize};
+use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
-use std::io::{BufRead, BufReader, Write};
 use std::time::{Duration, Instant};
-use serde::{Deserialize, Serialize};
 
 /// Model info for benchmark reporting
 #[derive(Debug, Clone)]
@@ -64,11 +64,16 @@ fn find_model_path() -> Option<ModelInfo> {
     if let Ok(path) = std::env::var("MLX_BENCHMARK_MODEL") {
         let p = PathBuf::from(&path);
         if p.exists() {
-            let name = p.file_name()
+            let name = p
+                .file_name()
                 .map(|s| s.to_string_lossy().to_string())
                 .unwrap_or_else(|| "unknown".to_string());
             let is_moe = name.contains("A3B") || name.contains("moe") || name.contains("MoE");
-            return Some(ModelInfo { path: p, name, is_moe });
+            return Some(ModelInfo {
+                path: p,
+                name,
+                is_moe,
+            });
         }
     }
 
@@ -83,11 +88,7 @@ fn find_model_path() -> Option<ModelInfo> {
     ];
 
     // Try different base paths
-    let base_paths = [
-        "./var/models",
-        "../var/models",
-        "../../var/models",
-    ];
+    let base_paths = ["./var/models", "../var/models", "../../var/models"];
 
     for base in base_paths {
         for (model_name, is_moe) in &candidates {
@@ -114,11 +115,7 @@ fn find_all_models() -> Vec<ModelInfo> {
         ("Qwen3-Coder-30B-A3B-Instruct-MLX-4bit", true),
     ];
 
-    let base_paths = [
-        "./var/models",
-        "../var/models",
-        "../../var/models",
-    ];
+    let base_paths = ["./var/models", "../var/models", "../../var/models"];
 
     for base in base_paths {
         for (model_name, is_moe) in &candidates {
@@ -259,7 +256,9 @@ fn run_generation(
                 }
                 tokens = index + 1;
             }
-            BridgeResponse::StreamEnd { tokens: t, timing, .. } => {
+            BridgeResponse::StreamEnd {
+                tokens: t, timing, ..
+            } => {
                 let total = start.elapsed();
                 let ttft = first_token_time.map(|ft| ft.duration_since(start));
 
@@ -280,7 +279,9 @@ fn run_generation(
                     tokens_per_second: t as f64 / total.as_secs_f64(),
                 });
             }
-            BridgeResponse::GenerateResponse { tokens: t, timing, .. } => {
+            BridgeResponse::GenerateResponse {
+                tokens: t, timing, ..
+            } => {
                 let total = start.elapsed();
 
                 if let Some(stats) = timing {
@@ -471,7 +472,10 @@ fn bench_time_to_first_token(c: &mut Criterion) {
     let prompts = [
         ("short", "Hi"),
         ("medium", "def hello():"),
-        ("long", "Write a Python function that calculates the factorial of a number"),
+        (
+            "long",
+            "Write a Python function that calculates the factorial of a number",
+        ),
     ];
 
     for (name, prompt) in prompts {

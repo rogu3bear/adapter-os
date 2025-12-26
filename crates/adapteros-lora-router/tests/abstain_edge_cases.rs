@@ -107,7 +107,10 @@ fn test_empty_adapter_list() {
         0,
         "Empty adapter list should have no gates"
     );
-    assert_eq!(decision.entropy, 0.0, "Empty decision should have zero entropy");
+    assert_eq!(
+        decision.entropy, 0.0,
+        "Empty decision should have zero entropy"
+    );
 }
 
 /// Test entropy computation on various distributions
@@ -172,7 +175,10 @@ fn test_empty_adapter_list_zero_entropy() {
     // Should not panic, should produce empty decision with zero entropy
     assert_eq!(decision.indices.len(), 0);
     assert_eq!(decision.gates_q15.len(), 0);
-    assert_eq!(decision.entropy, 0.0, "Empty decision should have zero entropy");
+    assert_eq!(
+        decision.entropy, 0.0,
+        "Empty decision should have zero entropy"
+    );
 }
 
 /// Test determinism of routing decisions

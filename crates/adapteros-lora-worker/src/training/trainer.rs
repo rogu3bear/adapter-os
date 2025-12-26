@@ -2748,10 +2748,7 @@ impl MicroLoRATrainer {
         let routing_scale: f32 = routing_weights.iter().sum();
 
         // Scale LoRA output by routing weights
-        lora_output
-            .into_iter()
-            .map(|v| v * routing_scale)
-            .collect()
+        lora_output.into_iter().map(|v| v * routing_scale).collect()
     }
 
     /// MoE-aware forward pass with routing weights.

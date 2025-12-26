@@ -610,7 +610,10 @@ pub fn is_moe_model(model_path: &std::path::Path) -> bool {
         Ok(contents) => {
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&contents) {
                 // Check for num_experts field (common in MoE configs)
-                if let Some(num_experts) = json.get("num_experts").or_else(|| json.get("num_local_experts")) {
+                if let Some(num_experts) = json
+                    .get("num_experts")
+                    .or_else(|| json.get("num_local_experts"))
+                {
                     if let Some(n) = num_experts.as_u64() {
                         if n > 0 {
                             debug!(
@@ -2393,7 +2396,7 @@ pub mod capabilities {
         Metal,  // Real Metal backend
         CoreML, // Real CoreML backend
         #[serde(rename = "Mlx")]
-        MLX,    // Real MLX backend
+        MLX, // Real MLX backend
         Cpu,    // Fallback CPU
     }
 

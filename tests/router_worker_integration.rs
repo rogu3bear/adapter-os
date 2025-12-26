@@ -75,11 +75,11 @@ fn test_decision_to_router_ring_preserves_gates() -> Result<()> {
 #[test]
 fn test_q15_to_f32_conversion() {
     let test_cases = vec![
-        (32767, 1.0),      // Max Q15 → 1.0
-        (16383, 0.5),      // Half max → 0.5
-        (0, 0.0),          // Zero → 0.0
-        (-16383, -0.5),    // Negative half → -0.5
-        (-32767, -1.0),    // Min Q15 → -1.0
+        (32767, 1.0),   // Max Q15 → 1.0
+        (16383, 0.5),   // Half max → 0.5
+        (0, 0.0),       // Zero → 0.0
+        (-16383, -0.5), // Negative half → -0.5
+        (-32767, -1.0), // Min Q15 → -1.0
     ];
 
     for (q15_gate, expected_f32) in test_cases {

@@ -232,23 +232,38 @@ pub struct MoEGpuFingerprint {
 pub type MoeConfig = MoEConfig;
 
 /// Deprecated: Use [`MoELoRAStrategy`] instead
-#[deprecated(since = "0.2.0", note = "Use `MoELoRAStrategy` instead (correct MoE/LoRA casing)")]
+#[deprecated(
+    since = "0.2.0",
+    note = "Use `MoELoRAStrategy` instead (correct MoE/LoRA casing)"
+)]
 pub type MoeLoraStrategy = MoELoRAStrategy;
 
 /// Deprecated: Use [`MoELoRATarget`] instead
-#[deprecated(since = "0.2.0", note = "Use `MoELoRATarget` instead (correct MoE/LoRA casing)")]
+#[deprecated(
+    since = "0.2.0",
+    note = "Use `MoELoRATarget` instead (correct MoE/LoRA casing)"
+)]
 pub type MoeLoraTarget = MoELoRATarget;
 
 /// Deprecated: Use [`MoELoRAWeights`] instead
-#[deprecated(since = "0.2.0", note = "Use `MoELoRAWeights` instead (correct MoE/LoRA casing)")]
+#[deprecated(
+    since = "0.2.0",
+    note = "Use `MoELoRAWeights` instead (correct MoE/LoRA casing)"
+)]
 pub type MoeLoraWeights = MoELoRAWeights;
 
 /// Deprecated: Use [`MoEAdapterWeights`] instead
-#[deprecated(since = "0.2.0", note = "Use `MoEAdapterWeights` instead (correct MoE casing)")]
+#[deprecated(
+    since = "0.2.0",
+    note = "Use `MoEAdapterWeights` instead (correct MoE casing)"
+)]
 pub type MoeAdapterWeights = MoEAdapterWeights;
 
 /// Deprecated: Use [`MoEGpuFingerprint`] instead
-#[deprecated(since = "0.2.0", note = "Use `MoEGpuFingerprint` instead (correct MoE casing)")]
+#[deprecated(
+    since = "0.2.0",
+    note = "Use `MoEGpuFingerprint` instead (correct MoE casing)"
+)]
 pub type MoeGpuFingerprint = MoEGpuFingerprint;
 
 /// Deprecated: Use [`PerExpertLoRA`] variant instead

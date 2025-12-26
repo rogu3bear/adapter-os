@@ -421,8 +421,8 @@ mod mlx_rs_impl {
         pub fn topk(&self, k: i32, axis: i32) -> Result<(Self, Self)> {
             // Use mlx-rs topk_axis which returns only values
             // Then use argpartition to get the indices
-            use mlx_rs::ops::indexing::topk_axis;
             use mlx_rs::ops::argpartition_axis;
+            use mlx_rs::ops::indexing::topk_axis;
 
             // Get top-k values
             let k_values = topk_axis(&self.inner, k, axis)

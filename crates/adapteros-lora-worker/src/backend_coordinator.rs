@@ -216,7 +216,9 @@ impl BackendCoordinator {
                 } else if capabilities.has_ane {
                     Ok(BackendChoice::CoreML)
                 } else {
-                    Err(AosError::Config("No suitable fallback for MlxBridge".to_string()))
+                    Err(AosError::Config(
+                        "No suitable fallback for MlxBridge".to_string(),
+                    ))
                 }
             }
         }
