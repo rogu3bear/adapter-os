@@ -27,6 +27,7 @@ pub enum Screen {
 pub enum Mode {
     Normal,
     ServiceSelect,
+    ConfigEdit,
 }
 
 pub struct App {
@@ -35,6 +36,8 @@ pub struct App {
     pub current_mode: Mode,
     pub selected_menu_item: usize,
     pub selected_service: usize,
+    pub selected_config_field: usize,
+    pub config_edit_value: String,
 
     // Status
     pub model_status: ModelStatus,
@@ -87,6 +90,8 @@ impl App {
             current_mode: Mode::Normal,
             selected_menu_item: 0,
             selected_service: 0,
+            selected_config_field: 0,
+            config_edit_value: String::new(),
 
             model_status: ModelStatus {
                 name: "llama-7b-lora-q15".to_string(),
@@ -226,6 +231,16 @@ impl App {
             debug!(count = self.adapters.len(), "Updated adapter list from API");
         }
 
+        // Fetch logs from API
+        if let Ok(logs) = self.api_client.get_logs().await {
+            if !logs.is_empty() {
+                self.recent_logs = logs;
+            } else if self.recent_logs.is_empty() {
+                // Generate mock logs if none available and we have none
+                self.generate_mock_logs();
+            }
+        }
+
         // Fetch database stats
         if let Ok(db_stats) = self.db_client.get_stats_summary().await {
             debug!(
@@ -276,6 +291,11 @@ impl App {
                     self.selected_service -= 1;
                 }
             }
+            Mode::ConfigEdit => {
+                if self.selected_config_field > 0 {
+                    self.selected_config_field -= 1;
+                }
+            }
             Mode::Normal => {
                 if self.selected_menu_item > 0 {
                     self.selected_menu_item -= 1;
@@ -289,6 +309,12 @@ impl App {
             Mode::ServiceSelect => {
                 if self.selected_service < self.services.len() - 1 {
                     self.selected_service += 1;
+                }
+            }
+            Mode::ConfigEdit => {
+                if self.selected_config_field < 7 {
+                    // Total of 8 config fields
+                    self.selected_config_field += 1;
                 }
             }
             Mode::Normal => {
@@ -331,12 +357,19 @@ impl App {
                 2 => self.debug_service().await?,
                 3 => self.current_screen = Screen::Metrics,
                 4 => self.current_screen = Screen::Logs,
-                5 => self.current_screen = Screen::Config,
+                5 => {
+                    self.current_screen = Screen::Config;
+                    self.current_mode = Mode::ConfigEdit;
+                }
                 6 => self.toggle_production_mode(),
                 _ => {}
             },
             Mode::ServiceSelect => {
                 self.boot_single_service(self.selected_service).await?;
+                self.current_mode = Mode::Normal;
+            }
+            Mode::ConfigEdit => {
+                self.save_config_value();
                 self.current_mode = Mode::Normal;
             }
         }
@@ -353,9 +386,15 @@ impl App {
         self.on_left();
     }
 
+    pub fn on_backspace(&mut self) {
+        if self.current_mode == Mode::ConfigEdit {
+            self.config_edit_value.pop();
+        }
+    }
+
     pub fn on_escape(&mut self) {
         match self.current_mode {
-            Mode::ServiceSelect => {
+            Mode::ServiceSelect | Mode::ConfigEdit => {
                 self.current_mode = Mode::Normal;
             }
             Mode::Normal => {
@@ -369,6 +408,35 @@ impl App {
     }
 
     pub async fn on_char(&mut self, c: char) -> Result<()> {
+        if self.current_mode == Mode::ConfigEdit {
+            if c == '\n' {
+                self.save_config_value();
+                self.current_mode = Mode::Normal;
+            } else {
+                self.config_edit_value.push(c);
+            }
+            return Ok(());
+        }
+
+        if self.current_mode == Mode::ServiceSelect {
+            match c {
+                's' | 'S' => {
+                    self.boot_single_service(self.selected_service).await?;
+                    self.current_mode = Mode::Normal;
+                }
+                'r' | 'R' => {
+                    self.restart_service(self.selected_service).await?;
+                    self.current_mode = Mode::Normal;
+                }
+                'x' | 'X' => {
+                    self.stop_service(self.selected_service).await?;
+                    self.current_mode = Mode::Normal;
+                }
+                _ => {}
+            }
+            return Ok(());
+        }
+
         match c {
             'h' => self.show_help = !self.show_help,
             's' => self.current_screen = Screen::Services,
@@ -519,6 +587,91 @@ impl App {
             warn!("Production mode enabled - enforcing security policies");
         } else {
             info!("Development mode enabled");
+        }
+    }
+
+    fn save_config_value(&mut self) {
+        let val = self.config_edit_value.trim();
+        if val.is_empty() {
+            return;
+        }
+
+        match self.selected_config_field {
+            0 => {
+                if let Ok(p) = val.parse() {
+                    self.config.server_port = p;
+                }
+            }
+            1 => {
+                if let Ok(c) = val.parse() {
+                    self.config.max_connections = c;
+                }
+            }
+            2 => self.config.model_path = val.to_string(),
+            3 => {
+                if let Ok(k) = val.parse() {
+                    self.config.k_sparse_value = k;
+                }
+            }
+            4 => {
+                if let Ok(b) = val.parse() {
+                    self.config.batch_size = b;
+                }
+            }
+            5 => {
+                if let Ok(s) = val.parse() {
+                    self.config.cache_size_mb = s;
+                }
+            }
+            6 => {
+                self.config.jwt_mode = if val.to_uppercase() == "EDDSA" {
+                    JwtMode::EdDsa
+                } else {
+                    JwtMode::Hmac
+                };
+            }
+            7 => {
+                self.config.require_pf_deny = val.to_lowercase() == "yes"
+                    || val.to_lowercase() == "true"
+                    || val.to_lowercase() == "1";
+            }
+            _ => {}
+        }
+
+        self.confirmation_message = Some("Config updated (not saved to disk yet)".to_string());
+        self.config_edit_value.clear();
+    }
+
+    fn generate_mock_logs(&mut self) {
+        let components = ["Database", "Router", "API", "Auth", "Worker"];
+        let messages = [
+            "Initializing component...",
+            "Connection established",
+            "Processing request",
+            "Authentication successful",
+            "Task completed",
+            "Cache miss for key: user_123",
+            "Starting background sync",
+        ];
+
+        let now = chrono::Utc::now();
+        for i in 0..10 {
+            let component = components[i % components.len()].to_string();
+            let message = messages[i % messages.len()].to_string();
+            let level = if i % 5 == 0 {
+                LogLevel::Error
+            } else if i % 3 == 0 {
+                LogLevel::Warn
+            } else {
+                LogLevel::Info
+            };
+
+            self.recent_logs.push(LogEntry {
+                timestamp: now - Duration::from_secs((10 - i) as u64 * 60),
+                level,
+                component,
+                message,
+            });
         }
     }
 }

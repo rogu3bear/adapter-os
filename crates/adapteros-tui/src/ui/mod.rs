@@ -64,20 +64,35 @@ fn draw_logs(f: &mut Frame, app: &App, area: Rect) {
     let mut lines = vec![
         Line::from(vec![
             Span::styled("Level: ", Style::default().add_modifier(Modifier::BOLD)),
-            Span::raw("[ERR] [WRN] [INF] [DBG]  Component: [All]  Search: []"),
+            Span::styled("[ERR] ", Style::default().fg(Color::Red)),
+            Span::styled("[WRN] ", Style::default().fg(Color::Yellow)),
+            Span::styled("[INF] ", Style::default().fg(Color::Green)),
+            Span::styled("[DBG] ", Style::default().fg(Color::Blue)),
+            Span::raw(" Component: [All]  Search: []"),
         ]),
         Line::from(""),
     ];
 
     // Add log entries
     for entry in &app.recent_logs {
+        let level_style = match entry.level {
+            crate::app::types::LogLevel::Error => Style::default().fg(Color::Red),
+            crate::app::types::LogLevel::Warn => Style::default().fg(Color::Yellow),
+            crate::app::types::LogLevel::Info => Style::default().fg(Color::Green),
+            crate::app::types::LogLevel::Debug => Style::default().fg(Color::Blue),
+        };
+
         lines.push(Line::from(vec![
-            Span::raw(format!("{} ", entry.timestamp.format("%H:%M:%S%.3f"))),
+            Span::raw(format!("{} ", entry.timestamp.format("%H:%M:%S"))),
             Span::styled(
-                &entry.component,
-                Style::default().add_modifier(Modifier::BOLD),
+                format!("[{:<5}] ", entry.level.as_str()),
+                level_style.add_modifier(Modifier::BOLD),
             ),
-            Span::raw(format!(" {}", entry.message)),
+            Span::styled(
+                format!("{:<10} ", entry.component),
+                Style::default().fg(Color::Cyan),
+            ),
+            Span::raw(&entry.message),
         ]));
     }
 
@@ -264,78 +279,86 @@ fn draw_config(f: &mut Frame, app: &App, area: Rect) {
     let block = Block::default()
         .title(" Configuration Editor ")
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Blue));
+        .border_style(Style::default().fg(if app.current_mode == crate::app::Mode::ConfigEdit {
+            Color::Yellow
+        } else {
+            Color::Blue
+        }));
 
-    let config_text = vec![
+    let mut config_text = vec![
         Line::from(vec![Span::styled(
             "Server Configuration",
             Style::default().add_modifier(Modifier::BOLD),
         )]),
         Line::from(""),
-        Line::from(vec![
-            Span::raw("Production Mode:    "),
-            Span::styled(
-                if app.production_mode { "[ON]" } else { "[OFF]" },
-                Style::default().fg(if app.production_mode {
-                    Color::Green
-                } else {
-                    Color::Red
-                }),
-            ),
-        ]),
-        Line::from(format!("Server Port:        {}", app.config.server_port)),
-        Line::from(format!(
-            "Max Connections:    {}",
-            app.config.max_connections
-        )),
-        Line::from(""),
-        Line::from(vec![Span::styled(
-            "Model Configuration",
-            Style::default().add_modifier(Modifier::BOLD),
-        )]),
-        Line::from(""),
-        Line::from(format!("Model Path:         {}", app.config.model_path)),
-        Line::from(format!("K-Sparse Value:     {}", app.config.k_sparse_value)),
-        Line::from(format!("Batch Size:         {}", app.config.batch_size)),
-        Line::from(format!(
-            "Cache Size:         {} MB",
-            app.config.cache_size_mb
-        )),
-        Line::from(""),
-        Line::from(vec![Span::styled(
-            "Security Configuration",
-            Style::default().add_modifier(Modifier::BOLD),
-        )]),
-        Line::from(""),
-        Line::from(vec![
-            Span::raw("JWT Mode:           "),
-            Span::styled(
-                app.config.jwt_mode.as_str(),
-                Style::default().fg(
-                    if app.config.jwt_mode == crate::app::types::JwtMode::EdDsa {
-                        Color::Green
-                    } else {
-                        Color::Yellow
-                    },
-                ),
-            ),
-        ]),
-        Line::from(vec![
-            Span::raw("Require PF Deny:    "),
-            Span::styled(
-                if app.config.require_pf_deny {
-                    "[YES]"
-                } else {
-                    "[NO]"
-                },
-                Style::default().fg(if app.config.require_pf_deny {
-                    Color::Green
-                } else {
-                    Color::Red
-                }),
-            ),
-        ]),
     ];
+
+    let fields = [
+        ("Server Port:        ", format!("{}", app.config.server_port)),
+        ("Max Connections:    ", format!("{}", app.config.max_connections)),
+        ("Model Path:         ", app.config.model_path.clone()),
+        ("K-Sparse Value:     ", format!("{}", app.config.k_sparse_value)),
+        ("Batch Size:         ", format!("{}", app.config.batch_size)),
+        ("Cache Size:         ", format!("{} MB", app.config.cache_size_mb)),
+        ("JWT Mode:           ", app.config.jwt_mode.as_str().to_string()),
+        (
+            "Require PF Deny:    ",
+            if app.config.require_pf_deny {
+                "YES".to_string()
+            } else {
+                "NO".to_string()
+            },
+        ),
+    ];
+
+    for (i, (label, value)) in fields.iter().enumerate() {
+        let is_selected =
+            app.current_mode == crate::app::Mode::ConfigEdit && i == app.selected_config_field;
+
+        let mut spans = vec![
+            Span::raw(if is_selected { "> " } else { "  " }),
+            Span::raw(*label),
+        ];
+
+        if is_selected {
+            spans.push(Span::styled(
+                format!("{} ", value),
+                Style::default().add_modifier(Modifier::DIM),
+            ));
+            spans.push(Span::styled(
+                format!(" [{}]", app.config_edit_value),
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+            ));
+        } else {
+            spans.push(Span::styled(
+                value.to_string(),
+                Style::default().fg(Color::Cyan),
+            ));
+        }
+
+        config_text.push(Line::from(spans));
+    }
+
+    config_text.push(Line::from(""));
+    config_text.push(Line::from(vec![
+        Span::raw("Production Mode:    "),
+        Span::styled(
+            if app.production_mode { "[ON]" } else { "[OFF]" },
+            Style::default().fg(if app.production_mode {
+                Color::Green
+            } else {
+                Color::Red
+            }),
+        ),
+    ]));
+
+    if app.current_mode == crate::app::Mode::ConfigEdit {
+        config_text.push(Line::from(""));
+        config_text.push(Line::from(vec![Span::styled(
+            "EDIT MODE: Type new value and press Enter to apply, Esc to cancel",
+            Style::default().fg(Color::Yellow),
+        )]));
+    }
 
     let paragraph = Paragraph::new(config_text)
         .block(block)

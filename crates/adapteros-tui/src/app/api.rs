@@ -3,7 +3,7 @@ use reqwest::Client;
 use serde_json::Value;
 use tracing::{debug, info};
 
-use super::types::SystemMetrics;
+use super::types::{LogEntry, LogLevel, SystemMetrics};
 
 pub struct ApiClient {
     client: Client,
@@ -208,6 +208,28 @@ impl ApiClient {
                     version: None,
                     uptime_seconds: 0,
                 })
+            }
+        }
+    }
+
+    /// Get recent logs from the server
+    pub async fn get_logs(&self) -> Result<Vec<LogEntry>> {
+        let url = format!("{}/api/logs/query", self.base_url);
+
+        match self.client.get(&url).query(&[("limit", "100")]).send().await {
+            Ok(response) => {
+                if response.status().is_success() {
+                    let logs: Vec<LogEntry> = response.json().await?;
+                    debug!("Received {} logs", logs.len());
+                    Ok(logs)
+                } else {
+                    debug!("Logs API returned status: {}", response.status());
+                    Ok(vec![])
+                }
+            }
+            Err(e) => {
+                debug!("Failed to fetch logs: {}", e);
+                Ok(vec![])
             }
         }
     }

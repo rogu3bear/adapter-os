@@ -146,7 +146,7 @@ fn draw_service_details(f: &mut Frame, app: &App, area: Rect) {
 
     details.push(Line::from(""));
     details.push(Line::from(vec![Span::styled(
-        "[S] Start  [D] Debug  [L] Logs  [R] Restart  [Esc] Back",
+        "[S] Start  [X] Stop  [R] Restart  [D] Debug  [L] Logs  [Esc] Back",
         Style::default().fg(Color::Cyan),
     )]));
 
