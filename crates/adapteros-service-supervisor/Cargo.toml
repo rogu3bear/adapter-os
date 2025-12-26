@@ -29,7 +29,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 
 # Authentication
-jsonwebtoken = "10.2"
+jsonwebtoken = { workspace = true }
 ed25519-dalek = { version = "2.1", features = ["rand_core"] }
 adapteros-crypto = { path = "../adapteros-crypto" }
 adapteros-core = { path = "../adapteros-core" }

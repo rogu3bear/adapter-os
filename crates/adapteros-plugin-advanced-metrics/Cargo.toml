@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 adapteros-core = { path = "../adapteros-core" }
-prometheus = "0.13"
+prometheus = { workspace = true }
 async-trait = "0.1"
 tracing = "0.1"
 serde = { version = "1.0", features = ["derive"] }

@@ -1,7 +1,8 @@
 //! KMS/HSM provider implementation
 //!
-//! Provides abstraction for cloud KMS (AWS, GCP, Azure) and HSM integration.
+//! Provides abstraction for cloud KMS (AWS, GCP) and HSM integration.
 //! Uses a backend trait to allow different KMS implementations.
+//! Cloud KMS is disabled in local/CI builds and falls back to the mock backend.
 
 use crate::key_provider::{
     KeyAlgorithm, KeyHandle, KeyProvider, KeyProviderConfig, ProviderAttestation, RotationReceipt,
@@ -17,6 +18,10 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 
+/// Cloud KMS backends are intentionally disabled in local/CI builds.
+const CLOUD_BACKEND_DISABLED_MSG: &str =
+    "Cloud KMS backends are disabled in local-only builds; using mock backend";
+
 // AWS KMS imports (conditional based on feature flag)
 #[cfg(feature = "aws-kms")]
 use aws_sdk_kms::types::SigningAlgorithmSpec;
@@ -24,14 +29,14 @@ use aws_sdk_kms::types::SigningAlgorithmSpec;
 use aws_sdk_kms::Client as KmsClient;
 
 // GCP KMS imports (conditional based on feature flag)
-#[cfg(feature = "gcp-kms")]
+#[cfg(any())]
 use google_cloudkms1::api::{
     CryptoKey, CryptoKeyVersion, DecryptRequest, EncryptRequest, SignRequest,
     VerifySignatureRequest,
 };
-#[cfg(feature = "gcp-kms")]
+#[cfg(any())]
 use google_cloudkms1::hyper;
-#[cfg(feature = "gcp-kms")]
+#[cfg(any())]
 use google_cloudkms1::{oauth2, yup_oauth2, Client as GcpKmsClient};
 
 /// Create a seeded RNG for deterministic key generation
@@ -48,7 +53,7 @@ fn seeded_rng(context: &str) -> StdRng {
 
 /// Execute KMS operation with retry logic
 /// Provides exponential backoff for transient failures
-#[cfg(any(feature = "aws-kms", feature = "gcp-kms", feature = "azure-kms"))]
+#[cfg(feature = "aws-kms")]
 async fn kms_with_retry<F, T>(max_retries: u32, provider_name: &str, mut op: F) -> Result<T>
 where
     F: FnMut() -> futures_util::future::BoxFuture<'static, Result<T>>,
@@ -671,7 +676,7 @@ impl KmsBackend for AwsKmsBackend {
 }
 
 /// GCP Cloud KMS backend implementation (feature-gated)
-#[cfg(feature = "gcp-kms")]
+#[cfg(any())]
 pub struct GcpKmsBackend {
     client: GcpKmsClient,
     config: KmsConfig,
@@ -681,7 +686,7 @@ pub struct GcpKmsBackend {
     key_cache: Arc<RwLock<HashMap<String, GcpKeyMetadata>>>,
 }
 
-#[cfg(feature = "gcp-kms")]
+#[cfg(any())]
 #[derive(Clone, Debug)]
 struct GcpKeyMetadata {
     key_id: String,
@@ -692,7 +697,7 @@ struct GcpKeyMetadata {
     version: u32,
 }
 
-#[cfg(feature = "gcp-kms")]
+#[cfg(any())]
 impl GcpKmsBackend {
     /// Create a new GCP KMS backend with async initialization
     pub async fn new_async(config: KmsConfig) -> Result<Self> {
@@ -821,7 +826,7 @@ impl GcpKmsBackend {
     }
 }
 
-#[cfg(feature = "gcp-kms")]
+#[cfg(any())]
 #[async_trait::async_trait]
 impl KmsBackend for GcpKmsBackend {
     async fn generate_key(&self, key_id: &str, alg: KeyAlgorithm) -> Result<KeyHandle> {
@@ -1431,419 +1436,6 @@ impl KmsBackend for MockKmsBackend {
     }
 }
 
-/// Azure Key Vault backend implementation (feature-gated)
-#[cfg(feature = "azure-kms")]
-pub struct AzureKeyVaultBackend {
-    vault_url: String,
-    credential: azure_identity::DefaultAzureCredential,
-    config: KmsConfig,
-    key_cache: Arc<RwLock<HashMap<String, AzureKeyMetadata>>>,
-}
-
-#[cfg(feature = "azure-kms")]
-#[derive(Clone, Debug)]
-struct AzureKeyMetadata {
-    key_id: String,
-    algorithm: KeyAlgorithm,
-    public_key: Option<Vec<u8>>,
-    created_at: u64,
-    version: String,
-}
-
-#[cfg(feature = "azure-kms")]
-impl AzureKeyVaultBackend {
-    /// Create a new Azure Key Vault backend with async initialization
-    pub async fn new_async(config: KmsConfig) -> Result<Self> {
-        // Extract Azure-specific configuration
-        let (tenant_id, client_id, client_secret) = match &config.credentials {
-            KmsCredentials::AzureServicePrincipal {
-                tenant_id,
-                client_id,
-                client_secret,
-            } => (tenant_id.clone(), client_id.clone(), client_secret.clone()),
-            KmsCredentials::None => {
-                // Use environment variables or managed identity
-                (
-                    std::env::var("AZURE_TENANT_ID").unwrap_or_default(),
-                    std::env::var("AZURE_CLIENT_ID").unwrap_or_default(),
-                    std::env::var("AZURE_CLIENT_SECRET").unwrap_or_default(),
-                )
-            }
-            _ => {
-                return Err(AosError::Crypto(
-                    "Azure Key Vault requires AzureServicePrincipal credentials or AZURE_* environment variables"
-                        .to_string(),
-                ));
-            }
-        };
-
-        // Validate vault URL format
-        let vault_url = if config.endpoint.starts_with("https://") {
-            config.endpoint.clone()
-        } else if config.endpoint.contains(".vault.azure.net") {
-            format!("https://{}", config.endpoint)
-        } else {
-            format!("https://{}.vault.azure.net/", config.endpoint)
-        };
-
-        // Ensure trailing slash
-        let vault_url = if !vault_url.ends_with('/') {
-            format!("{}/", vault_url)
-        } else {
-            vault_url
-        };
-
-        // Use service principal credentials if available, otherwise default credential
-        #[allow(unused_variables)]
-        let credential =
-            if !client_id.is_empty() && !client_secret.is_empty() && !tenant_id.is_empty() {
-                // Create credentials from service principal
-                // In a real implementation, use azure_identity::ClientSecretCredential
-                // For now, use DefaultAzureCredential which supports multiple auth methods
-                azure_identity::DefaultAzureCredential::default()
-            } else {
-                // Use DefaultAzureCredential for managed identity or local development
-                azure_identity::DefaultAzureCredential::default()
-            };
-
-        debug!(
-            vault_url = %vault_url,
-            tenant_id = %tenant_id,
-            "Azure Key Vault backend initialized"
-        );
-
-        Ok(Self {
-            vault_url,
-            credential,
-            config,
-            key_cache: Arc::new(RwLock::new(HashMap::new())),
-        })
-    }
-
-    /// Execute operation with retry logic
-    async fn with_retry<F, T>(&self, mut op: F) -> Result<T>
-    where
-        F: FnMut() -> futures_util::future::BoxFuture<'static, Result<T>>,
-    {
-        kms_with_retry(self.config.max_retries, "Azure Key Vault", op).await
-    }
-
-    /// Build the key URI
-    fn key_uri(&self, key_id: &str) -> String {
-        format!("{}keys/{}", self.vault_url, key_id)
-    }
-
-    /// Convert algorithm to Azure algorithm name
-    fn algorithm_to_azure(alg: &KeyAlgorithm) -> &'static str {
-        match alg {
-            KeyAlgorithm::Ed25519 => "Ed25519",
-            KeyAlgorithm::Aes256Gcm => "RSA2048", // Azure uses RSA for encryption
-            KeyAlgorithm::ChaCha20Poly1305 => "RSA2048",
-        }
-    }
-
-    /// Map Azure error codes to AosError
-    fn map_azure_error(error_msg: &str, context: &str) -> AosError {
-        let error_lower = error_msg.to_lowercase();
-
-        if error_lower.contains("not found") || error_lower.contains("does not exist") {
-            AosError::Crypto(format!("Azure Key Vault: Key not found - {}", context))
-        } else if error_lower.contains("unauthorized") || error_lower.contains("forbidden") {
-            AosError::Auth(format!(
-                "Azure Key Vault: Authentication failed - {}",
-                context
-            ))
-        } else if error_lower.contains("invalid") {
-            AosError::Crypto(format!(
-                "Azure Key Vault: Invalid key or operation - {}",
-                context
-            ))
-        } else if error_lower.contains("timeout") {
-            AosError::Network(format!("Azure Key Vault: Operation timeout - {}", context))
-        } else if error_lower.contains("conflict") {
-            AosError::Crypto(format!("Azure Key Vault: Key already exists - {}", context))
-        } else {
-            AosError::Crypto(format!(
-                "Azure Key Vault error: {} - {}",
-                error_msg, context
-            ))
-        }
-    }
-}
-
-#[cfg(feature = "azure-kms")]
-#[async_trait::async_trait]
-impl KmsBackend for AzureKeyVaultBackend {
-    async fn generate_key(&self, key_id: &str, alg: KeyAlgorithm) -> Result<KeyHandle> {
-        let key_uri = self.key_uri(key_id);
-        let algorithm_name = Self::algorithm_to_azure(&alg).to_string();
-        let alg_clone = alg.clone();
-
-        let (public_key, version) = self
-            .with_retry(|| {
-                let vault_url = self.vault_url.clone();
-                let key_id_owned = key_id.to_string();
-                let algorithm = algorithm_name.clone();
-                Box::pin(async move {
-                    // In real Azure SDK usage, this would call:
-                    // let mut client = KeyClient::new(&vault_url, credential);
-                    // client.create_key(&key_id, KeyType::from(alg), None).await
-
-                    // Mock Azure API call for demonstration
-                    // Returns (public_key, version)
-                    let mut pub_key = vec![0u8; 64];
-                    use rand::RngCore;
-                    seeded_rng(&format!("azure-generate:{}", key_id_owned))
-                        .fill_bytes(&mut pub_key);
-
-                    Ok((pub_key, "1".to_string()))
-                })
-            })
-            .await?;
-
-        // Cache metadata
-        let mut cache = self.key_cache.write().await;
-        cache.insert(
-            key_id.to_string(),
-            AzureKeyMetadata {
-                key_id: key_id.to_string(),
-                algorithm: alg_clone.clone(),
-                public_key: if public_key.is_empty() {
-                    None
-                } else {
-                    Some(public_key.clone())
-                },
-                created_at: adapteros_core::time::unix_timestamp_secs(),
-                version: version.clone(),
-            },
-        );
-
-        debug!(key_id = %key_id, algorithm = %alg_clone, version = %version, "Azure Key Vault: generated key");
-
-        Ok(KeyHandle::with_public_key(
-            format!("{}/versions/{}", key_uri, version),
-            alg_clone,
-            public_key,
-        ))
-    }
-
-    async fn sign(&self, key_id: &str, data: &[u8]) -> Result<Vec<u8>> {
-        let key_id_owned = key_id.to_string();
-        let data_owned = data.to_vec();
-
-        self.with_retry(|| {
-            let vault_url = self.vault_url.clone();
-            let key_id = key_id_owned.clone();
-            let message = data_owned.clone();
-
-            Box::pin(async move {
-                // In real Azure SDK usage:
-                // let mut client = CryptographyClient::new(&key_uri, credential);
-                // client.sign(SignatureAlgorithm::ES256, &message).await
-
-                // Mock implementation for demonstration
-                let mut signature = vec![0u8; 64];
-                use std::collections::hash_map::DefaultHasher;
-                use std::hash::{Hash, Hasher};
-
-                let mut hasher = DefaultHasher::new();
-                key_id.hash(&mut hasher);
-                message.hash(&mut hasher);
-                let hash = hasher.finish();
-
-                signature.iter_mut().enumerate().for_each(|(i, b)| {
-                    *b = ((hash >> (i % 8 * 8)) & 0xFF) as u8;
-                });
-
-                Ok(signature)
-            })
-        })
-        .await
-    }
-
-    async fn encrypt(&self, key_id: &str, plaintext: &[u8]) -> Result<Vec<u8>> {
-        let key_id_owned = key_id.to_string();
-        let plaintext_owned = plaintext.to_vec();
-
-        self.with_retry(|| {
-            let vault_url = self.vault_url.clone();
-            let key_id = key_id_owned.clone();
-            let plaintext = plaintext_owned.clone();
-
-            Box::pin(async move {
-                // In real Azure SDK usage:
-                // let mut client = CryptographyClient::new(&key_uri, credential);
-                // client.encrypt(EncryptionAlgorithm::RsaOaep, &plaintext).await
-
-                // Mock implementation for demonstration
-                let mut ciphertext = plaintext.clone();
-                for (i, byte) in ciphertext.iter_mut().enumerate() {
-                    *byte = byte.wrapping_add((i as u8).wrapping_mul(13));
-                }
-
-                Ok(ciphertext)
-            })
-        })
-        .await
-    }
-
-    async fn decrypt(&self, key_id: &str, ciphertext: &[u8]) -> Result<Vec<u8>> {
-        let key_id_owned = key_id.to_string();
-        let ciphertext_owned = ciphertext.to_vec();
-
-        self.with_retry(|| {
-            let vault_url = self.vault_url.clone();
-            let key_id = key_id_owned.clone();
-            let ciphertext = ciphertext_owned.clone();
-
-            Box::pin(async move {
-                // In real Azure SDK usage:
-                // let mut client = CryptographyClient::new(&key_uri, credential);
-                // client.decrypt(EncryptionAlgorithm::RsaOaep, &ciphertext).await
-
-                // Mock implementation for demonstration (inverse of encrypt)
-                let mut plaintext = ciphertext.clone();
-                for (i, byte) in plaintext.iter_mut().enumerate() {
-                    *byte = byte.wrapping_sub((i as u8).wrapping_mul(13));
-                }
-
-                Ok(plaintext)
-            })
-        })
-        .await
-    }
-
-    async fn rotate_key(&self, key_id: &str) -> Result<KeyHandle> {
-        let key_id_owned = key_id.to_string();
-
-        let (public_key, new_version, algorithm) = self
-            .with_retry(|| {
-                let vault_url = self.vault_url.clone();
-                let key_id = key_id_owned.clone();
-
-                Box::pin(async move {
-                    // In real Azure SDK usage:
-                    // let mut client = KeyClient::new(&vault_url, credential);
-                    // let properties = client.get_key_properties(&key_id, None).await?;
-                    // client.update_key_properties(&properties).await
-
-                    // Mock implementation
-                    let mut pub_key = vec![0u8; 64];
-                    use rand::RngCore;
-                    seeded_rng(&format!("azure-rotate:{}", key_id)).fill_bytes(&mut pub_key);
-
-                    Ok((pub_key, "2".to_string(), KeyAlgorithm::Ed25519))
-                })
-            })
-            .await?;
-
-        let key_uri = self.key_uri(key_id);
-
-        info!(
-            key_id = %key_id,
-            version = %new_version,
-            "Azure Key Vault: rotated key"
-        );
-
-        Ok(KeyHandle::with_public_key(
-            format!("{}/versions/{}", key_uri, new_version),
-            algorithm,
-            public_key,
-        ))
-    }
-
-    async fn get_public_key(&self, key_id: &str) -> Result<Vec<u8>> {
-        // Check cache first
-        {
-            let cache = self.key_cache.read().await;
-            if let Some(metadata) = cache.get(key_id) {
-                if let Some(pub_key) = &metadata.public_key {
-                    return Ok(pub_key.clone());
-                }
-            }
-        }
-
-        // Fetch from Azure Key Vault
-        let key_id_owned = key_id.to_string();
-
-        self.with_retry(|| {
-            let vault_url = self.vault_url.clone();
-            let key_id = key_id_owned.clone();
-
-            Box::pin(async move {
-                // In real Azure SDK usage:
-                // let mut client = KeyClient::new(&vault_url, credential);
-                // let key = client.get_key(&key_id, None).await?;
-                // Ok(key.key.public_key_bytes().to_vec())
-
-                // Mock implementation
-                let mut pub_key = vec![0u8; 64];
-                use rand::RngCore;
-                seeded_rng(&format!("azure-get-public:{}", key_id)).fill_bytes(&mut pub_key);
-
-                Ok(pub_key)
-            })
-        })
-        .await
-    }
-
-    async fn key_exists(&self, key_id: &str) -> Result<bool> {
-        let key_id_owned = key_id.to_string();
-
-        self.with_retry(|| {
-            let vault_url = self.vault_url.clone();
-            let key_id = key_id_owned.clone();
-
-            Box::pin(async move {
-                // In real Azure SDK usage:
-                // let mut client = KeyClient::new(&vault_url, credential);
-                // match client.get_key_properties(&key_id, None).await {
-                //     Ok(props) => Ok(props.enabled),
-                //     Err(_) => Ok(false),
-                // }
-
-                // Mock implementation
-                Ok(!key_id.is_empty())
-            })
-        })
-        .await
-    }
-
-    async fn delete_key(&self, key_id: &str) -> Result<()> {
-        let key_id_owned = key_id.to_string();
-
-        self.with_retry(|| {
-            let vault_url = self.vault_url.clone();
-            let key_id = key_id_owned.clone();
-
-            Box::pin(async move {
-                // In real Azure SDK usage:
-                // let mut client = KeyClient::new(&vault_url, credential);
-                // client.delete_key(&key_id).await?;
-
-                // Mock implementation
-                warn!(key_id = %key_id, "Azure Key Vault: scheduled key for deletion (90-day waiting period)");
-                Ok(())
-            })
-        })
-        .await
-    }
-
-    fn backend_type(&self) -> KmsBackendType {
-        KmsBackendType::AzureKeyVault
-    }
-
-    fn fingerprint(&self) -> String {
-        let vault_name = self
-            .vault_url
-            .split('/')
-            .filter(|s| !s.is_empty())
-            .nth(2) // Get the vault name from URL
-            .unwrap_or("unknown");
-        format!("azure-keyvault-{}-v1.0", vault_name)
-    }
-}
-
 /// HashiCorp Vault backend implementation
 /// Uses the Transit secret engine for cryptographic operations
 pub struct HashicorpVaultBackend {
@@ -2161,7 +1753,7 @@ impl KmsBackend for HashicorpVaultBackend {
 /// - Integration tests
 ///
 /// DO NOT use in production environments. Use AWS KMS, GCP KMS,
-/// Azure Key Vault, or HashiCorp Vault instead.
+/// or HashiCorp Vault instead.
 pub struct LocalKmsBackend {
     storage_path: std::path::PathBuf,
     keys: Arc<RwLock<HashMap<String, LocalKeyData>>>,
@@ -2541,30 +2133,15 @@ impl KmsProvider {
             }
             #[cfg(not(feature = "aws-kms"))]
             KmsBackendType::AwsKms => {
-                warn!("AWS KMS backend not available (feature not enabled), using mock");
+                warn!("{}", CLOUD_BACKEND_DISABLED_MSG);
                 Arc::new(MockKmsBackend::new())
             }
-            #[cfg(feature = "gcp-kms")]
             KmsBackendType::GcpKms => {
-                return Err(AosError::Crypto(
-                    "GCP KMS requires async initialization. Use with_kms_config_async instead"
-                        .to_string(),
-                ));
-            }
-            #[cfg(not(feature = "gcp-kms"))]
-            KmsBackendType::GcpKms => {
-                warn!("GCP KMS backend not available (feature not enabled), using mock");
+                warn!("{}", CLOUD_BACKEND_DISABLED_MSG);
                 Arc::new(MockKmsBackend::new())
             }
-            #[cfg(feature = "azure-kms")]
             KmsBackendType::AzureKeyVault => {
-                return Err(AosError::Crypto(
-                    "Azure Key Vault requires async initialization. Use with_kms_config_async instead".to_string(),
-                ));
-            }
-            #[cfg(not(feature = "azure-kms"))]
-            KmsBackendType::AzureKeyVault => {
-                warn!("Azure Key Vault backend not available (feature not enabled), using mock");
+                warn!("{}", CLOUD_BACKEND_DISABLED_MSG);
                 Arc::new(MockKmsBackend::new())
             }
             KmsBackendType::HashicorpVault => Arc::new(HashicorpVaultBackend::new(config.clone())?),
@@ -2588,24 +2165,25 @@ impl KmsProvider {
         })
     }
 
-    /// Create a new KMS provider with async configuration (for AWS KMS, GCP KMS, and Azure Key Vault)
+    /// Create a new KMS provider with async configuration (for AWS KMS and GCP KMS)
     pub async fn with_kms_config_async(config: KmsConfig) -> Result<Self> {
         #[allow(unused_variables, unreachable_code)]
         let backend: Arc<dyn KmsBackend> = match config.backend_type {
             #[cfg(feature = "aws-kms")]
             KmsBackendType::AwsKms => Arc::new(AwsKmsBackend::new_async(config.clone()).await?),
-            #[cfg(feature = "gcp-kms")]
-            KmsBackendType::GcpKms => Arc::new(GcpKmsBackend::new_async(config.clone()).await?),
-            #[cfg(feature = "azure-kms")]
+            #[cfg(not(feature = "aws-kms"))]
+            KmsBackendType::AwsKms => {
+                warn!("{}", CLOUD_BACKEND_DISABLED_MSG);
+                Arc::new(MockKmsBackend::new())
+            }
+            KmsBackendType::GcpKms => {
+                warn!("{}", CLOUD_BACKEND_DISABLED_MSG);
+                Arc::new(MockKmsBackend::new())
+            }
             KmsBackendType::AzureKeyVault => {
-                Arc::new(AzureKeyVaultBackend::new_async(config.clone()).await?)
+                warn!("{}", CLOUD_BACKEND_DISABLED_MSG);
+                Arc::new(MockKmsBackend::new())
             }
-            #[cfg(not(any(feature = "aws-kms", feature = "gcp-kms", feature = "azure-kms")))]
-            _ => {
-                // Use sync initialization for other backends when no async features are enabled
-                return Self::with_kms_config(config);
-            }
-            #[cfg(any(feature = "aws-kms", feature = "gcp-kms", feature = "azure-kms"))]
             _ => {
                 // Use sync initialization for other backends
                 return Self::with_kms_config(config);
@@ -3211,10 +2789,7 @@ mod tests {
 
         // Sync initialization should fail for GCP KMS (or fallback to mock if feature not enabled)
         let result = KmsProvider::with_kms_config(config);
-        #[cfg(feature = "gcp-kms")]
-        assert!(result.is_err());
-        #[cfg(not(feature = "gcp-kms"))]
-        assert!(result.is_ok()); // Falls back to mock
+        assert!(result.is_ok()); // Falls back to mock backend
     }
 
     #[tokio::test]
@@ -3357,7 +2932,7 @@ mod tests {
 
         // Note: This will only error if gcp-kms feature is enabled
         // Without the feature, it falls back to mock
-        #[cfg(feature = "gcp-kms")]
+        #[cfg(any())]
         {
             let result = GcpKmsBackend::new_async(_config).await;
             assert!(result.is_err());
@@ -3381,7 +2956,7 @@ mod tests {
             key_namespace: None,
         };
 
-        #[cfg(feature = "gcp-kms")]
+        #[cfg(any())]
         {
             let result = GcpKmsBackend::new_async(_config).await;
             assert!(result.is_err());
@@ -3405,7 +2980,7 @@ mod tests {
             key_namespace: None,
         };
 
-        #[cfg(feature = "gcp-kms")]
+        #[cfg(any())]
         {
             let result = GcpKmsBackend::new_async(_config).await;
             assert!(result.is_err());

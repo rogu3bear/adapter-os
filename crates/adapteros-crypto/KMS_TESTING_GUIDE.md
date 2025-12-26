@@ -1,12 +1,14 @@
 # KMS Provider Integration Tests
 
-Comprehensive test suite for KMS (Key Management Service) provider implementations covering AWS, GCP, Azure, HashiCorp Vault, and PKCS#11 HSM backends.
+Comprehensive test suite for KMS (Key Management Service) provider implementations covering AWS, GCP, HashiCorp Vault, and PKCS#11 HSM backends.
+
+> Note: Cloud KMS backends (AWS/GCP/Azure) are disabled in this local/CI build and fall back to the mock backend. Tests run fully offline.
 
 ## Overview
 
 The KMS security test suite (`tests/kms_security.rs`) provides:
 
-- **22 integration tests** covering all major KMS scenarios
+- **20+ integration tests** covering all major KMS scenarios
 - **Mock KMS servers** for offline testing without cloud credentials
 - **Credential rotation testing** for production credential refresh
 - **Concurrent load testing** for key operations under stress
@@ -51,26 +53,7 @@ let _config = KmsConfig {
 };
 ```
 
-### 3. Azure Key Vault Credential Rotation (2 tests)
-
-**Purpose:** Validate credential refresh flows (critical for production)
-
-Tests:
-- Rotating service principal credentials
-- Various credential format validation
-- Blank credential handling
-
-**Production Pattern:**
-```rust
-// Simulate credential rotation
-config.credentials = KmsCredentials::AzureServicePrincipal {
-    tenant_id: "test-tenant-id".to_string(),
-    client_id: "test-client-id".to_string(),
-    client_secret: "new-rotated-secret".to_string(), // Updated
-};
-```
-
-### 4. Key Rotation Under Concurrent Load (2 tests)
+### 3. Key Rotation Under Concurrent Load (2 tests)
 
 **Purpose:** Stress test key rotation with 10-20 concurrent operations
 
@@ -89,7 +72,7 @@ Expected operations: num_keys * (get + store) = 10 * 2 = 20+
 - 5ms latency: ~55ms for 10 keys (5ms overhead per op)
 - 20ms latency: ~205ms for 10 keys
 
-### 5. Credential Leak Detection (3 tests)
+### 4. Credential Leak Detection (3 tests)
 
 **Purpose:** Identify if sensitive data is exposed in logs/debug output
 
@@ -111,32 +94,31 @@ let debug_str = format!("{:?}", config);
 // After fix: "secret_access_key: \"***REDACTED***\""
 ```
 
-### 6. KMS Fallback Chain (2 tests)
+### 5. KMS Fallback Chain (2 tests)
 
 **Purpose:** Validate provider fallback for multi-KMS resilience
 
 Tests:
-- `test_kms_fallback_chain_aws_to_gcp()`: Try AWS → GCP → Azure in order
+- `test_kms_fallback_chain_aws_to_gcp()`: Try AWS → GCP → Mock in order
 - `test_kms_fallback_with_retry_logic()`: Retry same provider before fallback
 
 **Recommended Chain:**
 ```
 Primary: AWS KMS (most features)
 Secondary: GCP KMS (good feature coverage)
-Tertiary: Azure Key Vault (good feature coverage)
 Fallback: Mock Backend (local development)
 ```
 
-### 7. Configuration Validation (3 tests)
+### 6. Configuration Validation (3 tests)
 
 **Purpose:** Validate KMS config parameters
 
 Tests:
-- Backend type support (6 types: AWS, GCP, Azure, HashiCorp, PKCS#11, Mock)
+- Backend type support (5 types: AWS, GCP, HashiCorp, PKCS#11, Mock)
 - Timeout validation (0-300 seconds)
 - Retry logic validation (0-10 retries)
 
-### 8. Multi-Tenant Isolation (1 test)
+### 7. Multi-Tenant Isolation (1 test)
 
 **Purpose:** Verify keys don't leak between tenants
 
@@ -145,7 +127,7 @@ Tests:
 - Verify isolation is maintained
 - No cross-tenant key access
 
-### 9. Performance & Metrics (2 tests)
+### 8. Performance & Metrics (2 tests)
 
 **Purpose:** Measure KMS operation performance
 
@@ -198,7 +180,7 @@ cargo test -p adapteros-crypto --test kms_security
 ```
 running 22 tests
 ...
-test result: ok. 22 passed; 0 failed
+test result: ok.
 ```
 
 ### Specific Test Categories
@@ -257,10 +239,6 @@ export AWS_REGION=us-east-1
 # GCP
 export GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json
 
-# Azure
-export AZURE_TENANT_ID=...
-export AZURE_CLIENT_ID=...
-export AZURE_CLIENT_SECRET=...
 ```
 
 ## Security Considerations
@@ -362,7 +340,7 @@ async fn benchmark_kms_operations() -> Result<()> {
 - Network latency → Increase timeout_secs in config
 
 **Credential Errors:**
-- AWS/GCP/Azure SDK not installed → Features are optional, tests skip gracefully
+- AWS/GCP SDK not installed → Features are optional, tests skip gracefully
 - Invalid credentials → Tests use mock server, not real credentials
 
 ### Debug Mode
@@ -416,14 +394,13 @@ cargo test -p adapteros-crypto --test kms_security || exit 1
 
 - [AWS KMS Documentation](https://docs.aws.amazon.com/kms/)
 - [GCP Cloud KMS](https://cloud.google.com/kms/docs)
-- [Azure Key Vault](https://docs.microsoft.com/en-us/azure/key-vault/)
 - [PKCS#11 Standard](http://docs.oasis-open.org/pkcs11/pkcs11-base/v2.40/os/pkcs11-base-v2.40-os.html)
 - [Zeroize Documentation](https://docs.rs/zeroize/)
 
 ## Test Statistics
 
-- **Total Tests:** 22
-- **Test Categories:** 9
+- **Total Tests:** ~20
+- **Test Categories:** 8
 - **Average Test Duration:** ~7ms
 - **Total Suite Time:** ~150ms (with feature compilation)
 - **Code Coverage:** 85%+ (integration paths)
