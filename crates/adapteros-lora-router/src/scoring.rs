@@ -1,7 +1,7 @@
 //! Pluggable scoring functions for adapter routing
 
 use super::{Decision, Router, ROUTER_GATE_Q15_DENOM};
-use adapteros_core::Result;
+use adapteros_core::{AosError, Result};
 use smallvec::SmallVec;
 
 /// Trait for pluggable scoring functions
@@ -95,6 +95,16 @@ impl ScoringFunction for EntropyFloorScorer {
         tau: f32,
         eps: f32,
     ) -> Result<Decision> {
+        if !tau.is_finite() || tau <= 0.0 {
+            return Err(AosError::Config(
+                "EntropyFloorScorer requires positive, finite tau".to_string(),
+            ));
+        }
+        if priors.iter().any(|p| !p.is_finite()) {
+            return Err(AosError::DeterminismViolation(
+                "Non-finite prior provided to EntropyFloorScorer".to_string(),
+            ));
+        }
         // Select top K by priors
         let mut scores: Vec<(usize, f32)> = priors
             .iter()
@@ -217,6 +227,16 @@ impl ScoringFunction for AdapterAwareScorer {
         tau: f32,
         eps: f32,
     ) -> Result<Decision> {
+        if !tau.is_finite() || tau <= 0.0 {
+            return Err(AosError::Config(
+                "AdapterAwareScorer requires positive, finite tau".to_string(),
+            ));
+        }
+        if priors.iter().any(|p| !p.is_finite()) {
+            return Err(AosError::DeterminismViolation(
+                "Non-finite prior provided to AdapterAwareScorer".to_string(),
+            ));
+        }
         // Base: priors
         let mut scores: Vec<(usize, f32)> =
             priors.iter().enumerate().map(|(i, &p)| (i, p)).collect();
@@ -239,6 +259,12 @@ impl ScoringFunction for AdapterAwareScorer {
             // Language: apply small bump if dominant language exists
             if self.dominant_lang.is_some() {
                 s.1 += 0.05;
+            }
+            if !s.1.is_finite() {
+                return Err(AosError::DeterminismViolation(format!(
+                    "Non-finite score during adapter-aware scoring for adapter {}",
+                    s.0
+                )));
             }
         }
 
