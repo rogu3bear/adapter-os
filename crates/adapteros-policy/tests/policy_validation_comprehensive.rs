@@ -16,8 +16,7 @@ use adapteros_policy::policy_packs::{
     PolicyRequest, Priority, RequestType,
 };
 use adapteros_policy::registry::{PolicyId, POLICY_INDEX};
-use adapteros_policy::validation::{get_policy_schema, validate_customization, ValidationResult};
-use adapteros_policy::ViolationSeverity;
+use adapteros_policy::validation::{get_policy_schema, validate_customization};
 use chrono::Utc;
 
 // ========== Test 1: All 25 Policy Packs Validation ==========

@@ -106,6 +106,17 @@ impl Version {
     pub fn as_tuple(&self) -> (u32, u32, u32) {
         (self.major, self.minor, self.patch)
     }
+
+    /// Smallest bump to represent the next patch version (drops pre-release/build metadata)
+    pub fn next_patch(&self) -> Self {
+        Self {
+            major: self.major,
+            minor: self.minor,
+            patch: self.patch.saturating_add(1),
+            pre_release: None,
+            build: None,
+        }
+    }
 }
 
 impl fmt::Display for Version {
@@ -145,13 +156,18 @@ impl Ord for Version {
 }
 
 /// Represents a version range constraint for matching CVE-affected versions
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub enum VersionRange {
     /// Exact version match (e.g., "=1.2.3")
     Exact(Version),
 
-    /// Inclusive range (e.g., ">=1.0.0,<2.0.0")
-    Range(Version, Version),
+    /// Half-open range >=min, <max (e.g., ">=1.0.0,<2.0.0")
+    Range {
+        min: Version,
+        max: Version,
+        min_inclusive: bool,
+        max_inclusive: bool,
+    },
 
     /// Greater than or equal (e.g., ">=1.2.3")
     GreaterOrEqual(Version),
@@ -179,6 +195,36 @@ pub enum VersionRange {
 }
 
 impl VersionRange {
+    /// Build a range while validating ordering and inclusivity rules.
+    fn build_range(
+        min: Version,
+        max: Version,
+        min_inclusive: bool,
+        max_inclusive: bool,
+        raw: &str,
+    ) -> Result<Self> {
+        if min > max {
+            return Err(AosError::Validation(format!(
+                "Invalid range ordering: {} (min {:?} > max {:?})",
+                raw, min, max
+            )));
+        }
+
+        if min == max && !(min_inclusive && max_inclusive) {
+            return Err(AosError::Validation(format!(
+                "Invalid range ordering: {} (exclusive bounds collapse at {:?})",
+                raw, min
+            )));
+        }
+
+        Ok(VersionRange::Range {
+            min,
+            max,
+            min_inclusive,
+            max_inclusive,
+        })
+    }
+
     /// Parse a version range from a string
     ///
     /// Supports:
@@ -267,7 +313,11 @@ impl VersionRange {
 
     /// Parse compound range like ">=1.0.0,<2.0.0"
     fn parse_compound_range(s: &str) -> Result<Self> {
-        let parts: Vec<&str> = s.split(',').map(|p| p.trim()).collect();
+        let parts: Vec<&str> = s
+            .split(',')
+            .map(|p| p.trim())
+            .filter(|p| !p.is_empty())
+            .collect();
         if parts.len() != 2 {
             return Err(AosError::Validation(format!(
                 "Invalid compound range: {}",
@@ -275,35 +325,70 @@ impl VersionRange {
             )));
         }
 
-        let first = Self::parse(parts[0])?;
-        let second = Self::parse(parts[1])?;
+        let mut min: Option<Version> = None;
+        let mut max: Option<Version> = None;
+        let mut min_inclusive = false;
+        let mut max_inclusive = false;
 
-        // Extract min and max versions
-        let (min, max) = match (first, second) {
-            (VersionRange::GreaterOrEqual(min), VersionRange::LessThan(max)) => (min, max),
-            (VersionRange::GreaterOrEqual(min), VersionRange::LessOrEqual(max)) => (min, max),
-            (VersionRange::GreaterThan(min), VersionRange::LessThan(max)) => (min, max),
-            (VersionRange::GreaterThan(min), VersionRange::LessOrEqual(max)) => (min, max),
-            (VersionRange::LessThan(max), VersionRange::GreaterOrEqual(min)) => (min, max),
-            (VersionRange::LessOrEqual(max), VersionRange::GreaterOrEqual(min)) => (min, max),
-            (VersionRange::LessThan(max), VersionRange::GreaterThan(min)) => (min, max),
-            (VersionRange::LessOrEqual(max), VersionRange::GreaterThan(min)) => (min, max),
-            _ => {
-                return Err(AosError::Validation(format!(
-                    "Unsupported compound range: {}",
-                    s
-                )))
+        for part in parts {
+            match Self::parse(part)? {
+                VersionRange::GreaterOrEqual(v) => {
+                    min = Some(v);
+                    min_inclusive = true;
+                }
+                VersionRange::GreaterThan(v) => {
+                    min = Some(v);
+                    min_inclusive = false;
+                }
+                VersionRange::LessOrEqual(v) => {
+                    max = Some(v);
+                    max_inclusive = true;
+                }
+                VersionRange::LessThan(v) => {
+                    max = Some(v);
+                    max_inclusive = false;
+                }
+                _ => {
+                    return Err(AosError::Validation(format!(
+                        "Unsupported compound range segment: {}",
+                        part
+                    )))
+                }
             }
-        };
+        }
 
-        Ok(VersionRange::Range(min, max))
+        let min = min.ok_or_else(|| {
+            AosError::Validation(format!("Compound range missing lower bound: {}", s))
+        })?;
+        let max = max.ok_or_else(|| {
+            AosError::Validation(format!("Compound range missing upper bound: {}", s))
+        })?;
+
+        VersionRange::build_range(min, max, min_inclusive, max_inclusive, s)
     }
 
     /// Check if a version matches this range
     pub fn matches(&self, version: &Version) -> bool {
         match self {
             VersionRange::Exact(v) => version == v,
-            VersionRange::Range(min, max) => version >= min && version <= max,
+            VersionRange::Range {
+                min,
+                max,
+                min_inclusive,
+                max_inclusive,
+            } => {
+                let lower_ok = if *min_inclusive {
+                    version >= min
+                } else {
+                    version > min
+                };
+                let upper_ok = if *max_inclusive {
+                    version <= max
+                } else {
+                    version < max
+                };
+                lower_ok && upper_ok
+            }
             VersionRange::GreaterOrEqual(v) => version >= v,
             VersionRange::GreaterThan(v) => version > v,
             VersionRange::LessOrEqual(v) => version <= v,
@@ -346,7 +431,7 @@ impl VersionRange {
     pub fn min_version(&self) -> Option<&Version> {
         match self {
             VersionRange::Exact(v) => Some(v),
-            VersionRange::Range(min, _) => Some(min),
+            VersionRange::Range { min, .. } => Some(min),
             VersionRange::GreaterOrEqual(v) => Some(v),
             VersionRange::GreaterThan(v) => Some(v),
             VersionRange::Caret(v) => Some(v),
@@ -361,7 +446,7 @@ impl VersionRange {
     pub fn max_version(&self) -> Option<&Version> {
         match self {
             VersionRange::Exact(v) => Some(v),
-            VersionRange::Range(_, max) => Some(max),
+            VersionRange::Range { max, .. } => Some(max),
             VersionRange::LessOrEqual(v) => Some(v),
             VersionRange::LessThan(v) => Some(v),
             VersionRange::Any => None,
@@ -378,7 +463,19 @@ impl fmt::Display for VersionRange {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             VersionRange::Exact(v) => write!(f, "={}", v),
-            VersionRange::Range(min, max) => write!(f, ">={},<{}", min, max),
+            VersionRange::Range {
+                min,
+                max,
+                min_inclusive,
+                max_inclusive,
+            } => write!(
+                f,
+                "{}{},{}{}",
+                if *min_inclusive { ">=" } else { ">" },
+                min,
+                if *max_inclusive { "<=" } else { "<" },
+                max
+            ),
             VersionRange::GreaterOrEqual(v) => write!(f, ">={}", v),
             VersionRange::GreaterThan(v) => write!(f, ">{}", v),
             VersionRange::LessOrEqual(v) => write!(f, "<={}", v),
@@ -388,6 +485,118 @@ impl fmt::Display for VersionRange {
             VersionRange::Wildcard(major, minor) => write!(f, "{}.{}.*", major, minor),
             VersionRange::Any => write!(f, "*"),
         }
+    }
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_false() -> bool {
+    false
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+enum RangeSerde {
+    WithFlags {
+        min: Version,
+        max: Version,
+        #[serde(default = "default_true")]
+        min_inclusive: bool,
+        #[serde(default = "default_false")]
+        max_inclusive: bool,
+    },
+    LegacyTuple((Version, Version)),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+enum VersionRangeSerde {
+    Exact(Version),
+    Range(RangeSerde),
+    GreaterOrEqual(Version),
+    GreaterThan(Version),
+    LessOrEqual(Version),
+    LessThan(Version),
+    Caret(Version),
+    Tilde(Version),
+    Wildcard(u32, u32),
+    Any,
+}
+
+impl From<VersionRange> for VersionRangeSerde {
+    fn from(value: VersionRange) -> Self {
+        match value {
+            VersionRange::Exact(v) => VersionRangeSerde::Exact(v),
+            VersionRange::Range {
+                min,
+                max,
+                min_inclusive,
+                max_inclusive,
+            } => VersionRangeSerde::Range(RangeSerde::WithFlags {
+                min,
+                max,
+                min_inclusive,
+                max_inclusive,
+            }),
+            VersionRange::GreaterOrEqual(v) => VersionRangeSerde::GreaterOrEqual(v),
+            VersionRange::GreaterThan(v) => VersionRangeSerde::GreaterThan(v),
+            VersionRange::LessOrEqual(v) => VersionRangeSerde::LessOrEqual(v),
+            VersionRange::LessThan(v) => VersionRangeSerde::LessThan(v),
+            VersionRange::Caret(v) => VersionRangeSerde::Caret(v),
+            VersionRange::Tilde(v) => VersionRangeSerde::Tilde(v),
+            VersionRange::Wildcard(major, minor) => VersionRangeSerde::Wildcard(major, minor),
+            VersionRange::Any => VersionRangeSerde::Any,
+        }
+    }
+}
+
+impl TryFrom<VersionRangeSerde> for VersionRange {
+    type Error = AosError;
+
+    fn try_from(value: VersionRangeSerde) -> std::result::Result<Self, Self::Error> {
+        match value {
+            VersionRangeSerde::Exact(v) => Ok(VersionRange::Exact(v)),
+            VersionRangeSerde::Range(range) => {
+                let (min, max, min_inclusive, max_inclusive) = match range {
+                    RangeSerde::WithFlags {
+                        min,
+                        max,
+                        min_inclusive,
+                        max_inclusive,
+                    } => (min, max, min_inclusive, max_inclusive),
+                    RangeSerde::LegacyTuple((min, max)) => (min, max, true, false),
+                };
+                VersionRange::build_range(min, max, min_inclusive, max_inclusive, "range")
+            }
+            VersionRangeSerde::GreaterOrEqual(v) => Ok(VersionRange::GreaterOrEqual(v)),
+            VersionRangeSerde::GreaterThan(v) => Ok(VersionRange::GreaterThan(v)),
+            VersionRangeSerde::LessOrEqual(v) => Ok(VersionRange::LessOrEqual(v)),
+            VersionRangeSerde::LessThan(v) => Ok(VersionRange::LessThan(v)),
+            VersionRangeSerde::Caret(v) => Ok(VersionRange::Caret(v)),
+            VersionRangeSerde::Tilde(v) => Ok(VersionRange::Tilde(v)),
+            VersionRangeSerde::Wildcard(major, minor) => Ok(VersionRange::Wildcard(major, minor)),
+            VersionRangeSerde::Any => Ok(VersionRange::Any),
+        }
+    }
+}
+
+impl Serialize for VersionRange {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        VersionRangeSerde::from(self.clone()).serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for VersionRange {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let helper = VersionRangeSerde::deserialize(deserializer)?;
+        VersionRange::try_from(helper).map_err(serde::de::Error::custom)
     }
 }
 
@@ -493,30 +702,22 @@ impl OsvVersionRange {
         // Maven uses different syntax: [1.0.0] (exact), (1.0.0,2.0.0) (range)
         let s = s.trim();
 
-        if s.starts_with('[') && s.ends_with(']') {
-            let inner = s.trim_start_matches('[').trim_end_matches(']');
+        if (s.starts_with('[') || s.starts_with('(')) && (s.ends_with(']') || s.ends_with(')')) {
+            let start_inclusive = s.starts_with('[');
+            let end_inclusive = s.ends_with(']');
+            let inner = &s[1..s.len() - 1];
+
             if inner.contains(',') {
                 let parts: Vec<&str> = inner.split(',').collect();
                 if parts.len() == 2 {
                     let min = Version::parse(parts[0].trim())?;
                     let max = Version::parse(parts[1].trim())?;
-                    return Ok(VersionRange::Range(min, max));
+
+                    return VersionRange::build_range(min, max, start_inclusive, end_inclusive, s);
                 }
             } else {
-                let version = Version::parse(inner)?;
+                let version = Version::parse(inner.trim())?;
                 return Ok(VersionRange::Exact(version));
-            }
-        }
-
-        if s.starts_with('(') && s.ends_with(')') {
-            let inner = s.trim_start_matches('(').trim_end_matches(')');
-            if inner.contains(',') {
-                let parts: Vec<&str> = inner.split(',').collect();
-                if parts.len() == 2 {
-                    let min = Version::parse(parts[0].trim())?;
-                    let max = Version::parse(parts[1].trim())?;
-                    return Ok(VersionRange::Range(min, max));
-                }
             }
         }
 
@@ -775,6 +976,84 @@ mod tests {
         assert!(range.matches(&v2));
         assert!(range.matches(&v3));
         assert!(!range.matches(&v4));
+    }
+
+    #[test]
+    fn test_version_range_compound_prerelease_window() {
+        let range = VersionRange::parse(">1.2.3-rc.1,<1.2.3").unwrap();
+        let lower = Version::parse("1.2.3-rc.1").unwrap();
+        let mid = Version::parse("1.2.3-rc.2").unwrap();
+        let upper = Version::parse("1.2.3").unwrap();
+
+        assert!(!range.matches(&lower));
+        assert!(range.matches(&mid));
+        assert!(!range.matches(&upper));
+    }
+
+    #[test]
+    fn test_version_range_compound_single_point_inclusive() {
+        let range = VersionRange::parse(">=1.2.3,<=1.2.3").unwrap();
+        let below = Version::parse("1.2.2").unwrap();
+        let exact = Version::parse("1.2.3").unwrap();
+        let above = Version::parse("1.2.4").unwrap();
+
+        assert!(!range.matches(&below));
+        assert!(range.matches(&exact));
+        assert!(!range.matches(&above));
+    }
+
+    #[test]
+    fn test_version_range_compound_invalid_collapsed() {
+        assert!(VersionRange::parse(">1.2.3,<1.2.3").is_err());
+    }
+
+    #[test]
+    fn test_version_range_serde_legacy_tuple_roundtrip() {
+        let json = r#"{"Range":[{"major":1,"minor":0,"patch":0,"pre_release":null,"build":null},{"major":2,"minor":0,"patch":0,"pre_release":null,"build":null}]}"#;
+        let range: VersionRange = serde_json::from_str(json).unwrap();
+
+        match range {
+            VersionRange::Range {
+                min,
+                max,
+                min_inclusive,
+                max_inclusive,
+            } => {
+                assert_eq!(min.to_string(), "1.0.0");
+                assert_eq!(max.to_string(), "2.0.0");
+                assert!(min_inclusive);
+                assert!(!max_inclusive);
+            }
+            _ => panic!("Expected Range variant"),
+        }
+    }
+
+    #[test]
+    fn test_version_range_serde_with_flags_roundtrip() {
+        let range = VersionRange::Range {
+            min: Version::parse("1.2.3").unwrap(),
+            max: Version::parse("2.0.0").unwrap(),
+            min_inclusive: false,
+            max_inclusive: true,
+        };
+
+        let serialized = serde_json::to_string(&range).unwrap();
+        let deserialized: VersionRange = serde_json::from_str(&serialized).unwrap();
+
+        match deserialized {
+            VersionRange::Range {
+                min,
+                max,
+                min_inclusive,
+                max_inclusive,
+            } => {
+                assert_eq!(min.to_string(), "1.2.3");
+                assert_eq!(max.to_string(), "2.0.0");
+                assert!(!min_inclusive);
+                assert!(max_inclusive);
+            }
+            _ => panic!("Expected Range variant"),
+        }
     }
 
     #[test]

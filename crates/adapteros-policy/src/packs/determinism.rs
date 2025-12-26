@@ -8,6 +8,14 @@ use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+/// Compiler flags that break determinism and must be rejected.
+pub const FORBIDDEN_COMPILER_FLAGS: &[&str] = &[
+    "-ffast-math",
+    "-funsafe-math-optimizations",
+    "-fno-math-errno",
+    "-ffinite-math-only",
+];
+
 /// Determinism policy configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeterminismConfig {
@@ -92,10 +100,7 @@ impl Default for DeterminismConfig {
                 rust_version: "1.75.0".to_string(),
                 metal_sdk_version: "3.0".to_string(),
                 kernel_compiler_version: "1.0".to_string(),
-                allowed_compiler_flags: vec![
-                    "-O2".to_string(),
-                    "-ffast-math".to_string(), // Note: This should be disabled for determinism
-                ],
+                allowed_compiler_flags: vec!["-O2".to_string()],
             },
         }
     }
@@ -277,9 +282,8 @@ impl DeterminismPolicy {
         }
 
         // Check for forbidden compiler flags
-        let forbidden_flags = ["-ffast-math", "-funsafe-math-optimizations"];
         for flag in &report.compiler_flags {
-            for forbidden in &forbidden_flags {
+            for forbidden in FORBIDDEN_COMPILER_FLAGS {
                 if flag.contains(forbidden) {
                     return Err(AosError::PolicyViolation(format!(
                         "Forbidden compiler flag detected: {}",
@@ -390,14 +394,7 @@ impl Policy for DeterminismPolicy {
 
         // Check compiler flags for forbidden options
         if let Some(flags) = metadata.get("compiler_flags") {
-            let forbidden_flags = [
-                "-ffast-math",
-                "-funsafe-math-optimizations",
-                "-fno-math-errno",
-                "-ffinite-math-only",
-            ];
-
-            for forbidden in &forbidden_flags {
+            for forbidden in FORBIDDEN_COMPILER_FLAGS {
                 if flags.contains(forbidden) {
                     violations.push(Violation {
                         severity: Severity::Critical,
@@ -547,5 +544,22 @@ mod tests {
         // Invalid version
         toolchain_info.insert("rust".to_string(), "1.70.0".to_string());
         assert!(policy.validate_toolchain(&toolchain_info).is_err());
+    }
+
+    #[test]
+    fn default_allowed_flags_exclude_forbidden_entries() {
+        let config = DeterminismConfig::default();
+
+        for forbidden in FORBIDDEN_COMPILER_FLAGS {
+            assert!(
+                !config
+                    .toolchain_requirements
+                    .allowed_compiler_flags
+                    .iter()
+                    .any(|flag| flag.contains(forbidden)),
+                "Allowed compiler flags must not include forbidden flag {}",
+                forbidden
+            );
+        }
     }
 }

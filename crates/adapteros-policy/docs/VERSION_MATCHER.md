@@ -46,7 +46,7 @@ Represents version range constraints for CVE matching:
 
 **Enum Variants:**
 - `Exact(Version)` - Exact version match
-- `Range(Version, Version)` - Inclusive min-max range
+- `Range { min, max, min_inclusive, max_inclusive }` - Bounded range with explicit inclusivity
 - `GreaterOrEqual(Version)` - >= constraint
 - `GreaterThan(Version)` - > constraint
 - `LessOrEqual(Version)` - <= constraint
@@ -77,6 +77,11 @@ VersionRange::parse("<=2.0.0")?             // Less or equal
 VersionRange::parse(">=1.0.0,<2.0.0")?     // Compound range
 VersionRange::parse("*")?                   // Any version
 ```
+
+**Serialization Compatibility:**
+- New serialization keeps inclusivity flags: `Range { min, max, min_inclusive, max_inclusive }`.
+- Legacy payloads serialized as tuples (e.g., `"Range":[min,max]`) still deserialize and default to `min_inclusive=true`, `max_inclusive=false`.
+- When persisting or sending `VersionRange`, prefer the flag-aware shape; legacy readers remain compatible via the tuple fallback.
 
 #### `OsvVersionRange`
 Handles ecosystem-specific version ranges from OSV database:
