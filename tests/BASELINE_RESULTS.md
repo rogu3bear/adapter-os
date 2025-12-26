@@ -4,7 +4,7 @@ This document tracks baseline performance metrics for AdapterOS concurrent adapt
 
 ## Test Environment
 
-- **Date**: 2024-12-24
+- **Date**: 2025-12-24
 - **AdapterOS Version**: v0.1.0-dev
 - **Platform**: macOS (Darwin 25.1.0)
 - **Architecture**: Apple Silicon

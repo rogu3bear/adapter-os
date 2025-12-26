@@ -27,7 +27,7 @@
 //!   cargo bench --package adapteros-lora-worker --bench mlx_bridge_streaming
 //! ```
 //!
-//! ## Baseline Results (2024-12-24, Apple Silicon)
+//! ## Baseline Results (2025-12-24, Apple Silicon)
 //!
 //! ### Qwen2.5-7B-Instruct-4bit (Dense)
 //! | Mode | TTFT | Total (20 tokens) | Tokens/sec |

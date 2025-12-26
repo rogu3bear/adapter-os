@@ -395,5 +395,5 @@ These are inconsistent with existing `MLX*` types (`MLXFFIBackend`, `MLXKVCache`
 
 | Date | Change |
 |------|--------|
-| 2024-12-25 | Initial rename map |
-| 2024-12-25 | Complete rewrite with verified grep counts |
+| 2025-12-25 | Initial rename map |
+| 2025-12-25 | Complete rewrite with verified grep counts |
