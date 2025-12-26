@@ -1,7 +1,7 @@
 # MoE "Free Token" Optimization with Static LoRA Adapters
 
 **Status**: Implementation Complete (Phase 1-3)
-**Date**: 2024-12-25
+**Date**: 2025-12-25
 **Context**: MoE cold-start penalty (~5s TTFT) vs warm (~250ms)
 
 ## Implementation Status

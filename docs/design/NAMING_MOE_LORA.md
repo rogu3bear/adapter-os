@@ -145,4 +145,4 @@ lora_contrib = (gate_q15 / 32767.0) * routing_weight * (alpha / rank) * (B @ A) 
 
 | Date | Change |
 |------|--------|
-| 2024-12-25 | Initial contract established |
+| 2025-12-25 | Initial contract established |
