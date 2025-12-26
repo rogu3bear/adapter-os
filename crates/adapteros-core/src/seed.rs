@@ -64,11 +64,22 @@ use sha2::Sha256;
 use std::collections::HashMap;
 use std::fmt;
 use std::str::FromStr;
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 
 lazy_static::lazy_static! {
     /// Seed registry to prevent reuse
     static ref SEED_REGISTRY: Mutex<HashMap<(String, u64), bool>> = Mutex::new(HashMap::new());
+}
+
+fn determinism_debug_enabled() -> bool {
+    static FLAG: OnceLock<bool> = OnceLock::new();
+    *FLAG.get_or_init(|| match std::env::var("AOS_DEBUG_DETERMINISM") {
+        Ok(val) => {
+            let normalized = val.to_ascii_lowercase();
+            normalized == "1" || normalized == "true" || normalized == "yes"
+        }
+        Err(_) => false,
+    })
 }
 
 /// Seed label enum for type-safe seed derivation
@@ -178,11 +189,24 @@ pub fn derive_seed(global: &B3Hash, label: &str) -> [u8; 32] {
 
     // Compute checksum for audit
     let checksum = B3Hash::hash(&okm);
-    tracing::debug!(
-        label = label,
-        checksum = %checksum.to_hex()[..16],
-        "Derived seed with validation"
-    );
+    if determinism_debug_enabled() {
+        let global_hex = global.to_hex();
+        let checksum_hex = checksum.to_hex();
+        tracing::info!(
+            target: "determinism",
+            label = label,
+            global_prefix = %global_hex.get(..16).unwrap_or(&global_hex),
+            checksum_prefix = %checksum_hex.get(..16).unwrap_or(&checksum_hex),
+            "Derived seed with validation (AOS_DEBUG_DETERMINISM=1)"
+        );
+    } else {
+        let checksum_hex = checksum.to_hex();
+        tracing::debug!(
+            label = label,
+            checksum = %checksum_hex.get(..16).unwrap_or(&checksum_hex),
+            "Derived seed with validation"
+        );
+    }
 
     okm
 }
@@ -199,6 +223,18 @@ pub fn derive_seed_typed(
     worker_id: u32,
     nonce: u64,
 ) -> [u8; 32] {
+    if determinism_debug_enabled() {
+        let manifest_hex = manifest_hash.to_hex();
+        tracing::info!(
+            target: "determinism",
+            label = %label.as_str(),
+            manifest_prefix = %manifest_hex.get(..16).unwrap_or(&manifest_hex),
+            worker_id,
+            nonce,
+            "Deriving typed seed (AOS_DEBUG_DETERMINISM=1)"
+        );
+    }
+
     let composite_label = format!(
         "{}:{}:{}:{}",
         label.as_str(),
@@ -244,6 +280,19 @@ pub fn derive_request_seed(
                     "Strict seed_mode requires manifest hash".to_string(),
                 )
             })?;
+            if determinism_debug_enabled() {
+                let manifest_hex = manifest_hash.to_hex();
+                tracing::info!(
+                    target: "determinism",
+                    mode = %mode,
+                    tenant_id,
+                    request_id,
+                    worker_id,
+                    nonce,
+                    manifest_prefix = %manifest_hex.get(..16).unwrap_or(&manifest_hex),
+                    "Deriving strict request seed (AOS_DEBUG_DETERMINISM=1)"
+                );
+            }
             let label = format!(
                 "request:{}:{}:{}:{}:{}",
                 manifest_hash.to_hex(),
@@ -258,6 +307,19 @@ pub fn derive_request_seed(
             let manifest_hash = manifest
                 .cloned()
                 .unwrap_or_else(|| B3Hash::hash(format!("no_manifest:{}", tenant_id).as_bytes()));
+            if determinism_debug_enabled() {
+                let manifest_hex = manifest_hash.to_hex();
+                tracing::info!(
+                    target: "determinism",
+                    mode = %mode,
+                    tenant_id,
+                    request_id,
+                    worker_id,
+                    nonce,
+                    manifest_prefix = %manifest_hex.get(..16).unwrap_or(&manifest_hex),
+                    "Deriving best-effort request seed (AOS_DEBUG_DETERMINISM=1)"
+                );
+            }
             let label = format!(
                 "request:{}:{}:{}:{}:{}",
                 manifest_hash.to_hex(),

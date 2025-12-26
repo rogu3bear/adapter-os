@@ -130,10 +130,7 @@ fn golden_moe_select_topk_partial_ties() {
         indices[1], 2,
         "GOLDEN: expert 2 second (tied highest, higher ID)"
     );
-    assert_eq!(
-        indices[2], 1,
-        "GOLDEN: expert 1 third (next highest score)"
-    );
+    assert_eq!(indices[2], 1, "GOLDEN: expert 1 third (next highest score)");
 
     // Gates should sum to 1.0
     let gate_sum: f32 = gates.iter().sum();

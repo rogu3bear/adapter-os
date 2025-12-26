@@ -696,7 +696,10 @@ mod tests {
 
         let result = AosWriter::read_header(temp_file.path());
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("invalid AOS magic"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("invalid AOS magic"));
     }
 
     #[test]

@@ -47,7 +47,10 @@ pub struct RoPEScaling {
 }
 
 /// Deprecated alias for backwards compatibility
-#[deprecated(since = "0.12.0", note = "Use `RoPEScaling` instead (correct RoPE casing)")]
+#[deprecated(
+    since = "0.12.0",
+    note = "Use `RoPEScaling` instead (correct RoPE casing)"
+)]
 pub type RopeScaling = RoPEScaling;
 
 /// Forward pass output with hidden states
@@ -575,7 +578,11 @@ impl MlxRsModel {
     /// Returns (total_requests, failed_requests, circuit_open)
     pub fn health_stats(&self) -> (u64, u64, bool) {
         let health = self.health.lock().unwrap();
-        (health.total_requests, health.failed_requests, health.circuit_open)
+        (
+            health.total_requests,
+            health.failed_requests,
+            health.circuit_open,
+        )
     }
 }
 

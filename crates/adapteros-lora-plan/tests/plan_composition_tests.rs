@@ -12,7 +12,7 @@ use adapteros_core::{AosError, B3Hash};
 use adapteros_lora_plan::{build_plan, PlanMeta, TensorLayout};
 use adapteros_manifest::{
     Adapter, AdapterCategory, AdapterScope, AdapterTier, AssuranceTier, Base, BundleCfg,
-    DeterminismPolicy, DriftPolicy, EgressPolicy, EvidencePolicy, EvictionPriority,
+    DeterminismPolicy, DriftPolicy, EgressPolicy, EvictionPriority, EvidencePolicy,
     IsolationPolicy, ManifestV3, MemoryPolicy, NumericPolicy, PerformancePolicy, Policies,
     RagPolicy, RefusalPolicy, RouterCfg, Sampling, Seeds, TelemetryCfg,
 };
@@ -296,7 +296,9 @@ fn test_plan_composition_single_adapter() {
     // Verify plan has correct adapter count
     assert_eq!(
         plan.manifest_hash,
-        manifest.compute_hash().expect("Manifest hash should compute")
+        manifest
+            .compute_hash()
+            .expect("Manifest hash should compute")
     );
 
     // Verify layout includes the adapter
@@ -382,8 +384,8 @@ fn test_plan_composition_adapter_memory_layout() {
     );
 
     // adapter-2 should start after adapter-1
-    let adapter1_end = adapter1.lora_b_offset
-        + (adapter1.rank_padded * manifest.base.hidden_dim) as usize;
+    let adapter1_end =
+        adapter1.lora_b_offset + (adapter1.rank_padded * manifest.base.hidden_dim) as usize;
     assert!(
         adapter2.lora_a_offset >= adapter1_end,
         "Adapter 2 should start after Adapter 1"
@@ -496,10 +498,7 @@ fn test_invalid_plan_zero_k_sparse() {
     manifest.router.k_sparse = 0;
 
     let result = manifest.validate();
-    assert!(
-        result.is_err(),
-        "k_sparse=0 should fail validation"
-    );
+    assert!(result.is_err(), "k_sparse=0 should fail validation");
 
     let err = result.unwrap_err();
     assert!(
@@ -624,8 +623,7 @@ fn test_plan_hash_stability_serialization() {
 
     // Serialize to JSON and back
     let json = manifest.to_json().expect("Should serialize");
-    let deserialized =
-        ManifestV3::from_json(&json).expect("Should deserialize");
+    let deserialized = ManifestV3::from_json(&json).expect("Should deserialize");
 
     let hash1 = manifest.compute_hash().expect("Hash 1 should compute");
     let hash2 = deserialized.compute_hash().expect("Hash 2 should compute");
@@ -645,8 +643,9 @@ fn test_plan_hash_includes_all_components() {
 
     // Change base model
     manifest.base.model_id = "different-model".to_string();
-    let hash_after_base =
-        manifest.compute_hash().expect("Hash after base change should compute");
+    let hash_after_base = manifest
+        .compute_hash()
+        .expect("Hash after base change should compute");
     assert_ne!(
         base_hash, hash_after_base,
         "Changing base model should change hash"
@@ -658,8 +657,9 @@ fn test_plan_hash_includes_all_components() {
     let base_hash = manifest.compute_hash().expect("Base hash should compute");
 
     manifest.adapters[0].rank = 32;
-    let hash_after_adapter =
-        manifest.compute_hash().expect("Hash after adapter change should compute");
+    let hash_after_adapter = manifest
+        .compute_hash()
+        .expect("Hash after adapter change should compute");
     assert_ne!(
         base_hash, hash_after_adapter,
         "Changing adapter rank should change hash"
@@ -671,8 +671,9 @@ fn test_plan_hash_includes_all_components() {
     let base_hash = manifest.compute_hash().expect("Base hash should compute");
 
     manifest.router.k_sparse = 5;
-    let hash_after_router =
-        manifest.compute_hash().expect("Hash after router change should compute");
+    let hash_after_router = manifest
+        .compute_hash()
+        .expect("Hash after router change should compute");
     assert_ne!(
         base_hash, hash_after_router,
         "Changing router config should change hash"
@@ -703,8 +704,7 @@ fn test_adapter_with_dependencies() {
 
     // Build plan
     let metallib = vec![0u8; 1024];
-    let _plan =
-        build_plan(&manifest, &metallib).expect("Plan should build with dependencies");
+    let _plan = build_plan(&manifest, &metallib).expect("Plan should build with dependencies");
 
     // Verify layout preserves adapter order
     let layout = TensorLayout::from_manifest(&manifest).expect("Layout should compute");
@@ -720,17 +720,17 @@ fn test_compute_plan_id_consistency() {
     let kernel_hashes = vec![B3Hash::hash(b"kernel1"), B3Hash::hash(b"kernel2")];
     let layout_hash = B3Hash::hash(b"layout");
 
-    let id1 =
-        PlanMeta::compute_plan_id(&manifest_hash, &kernel_hashes, &layout_hash);
-    let id2 =
-        PlanMeta::compute_plan_id(&manifest_hash, &kernel_hashes, &layout_hash);
+    let id1 = PlanMeta::compute_plan_id(&manifest_hash, &kernel_hashes, &layout_hash);
+    let id2 = PlanMeta::compute_plan_id(&manifest_hash, &kernel_hashes, &layout_hash);
 
     assert_eq!(id1, id2, "compute_plan_id should be deterministic");
 
     // Different inputs should produce different IDs
     let kernel_hashes2 = vec![B3Hash::hash(b"kernel3")];
-    let id3 =
-        PlanMeta::compute_plan_id(&manifest_hash, &kernel_hashes2, &layout_hash);
+    let id3 = PlanMeta::compute_plan_id(&manifest_hash, &kernel_hashes2, &layout_hash);
 
-    assert_ne!(id1, id3, "Different kernel hashes should produce different IDs");
+    assert_ne!(
+        id1, id3,
+        "Different kernel hashes should produce different IDs"
+    );
 }

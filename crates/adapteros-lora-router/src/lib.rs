@@ -24,6 +24,7 @@ use rand_core::SeedableRng;
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 use std::collections::HashSet;
+use std::sync::OnceLock;
 
 /// Q15 gate constants for router outputs (deterministic, non-negative gates)
 ///
@@ -45,6 +46,17 @@ use std::collections::HashSet;
 /// **DO NOT CHANGE TO 32768** - This would break determinism proofs and replay verification.
 pub const ROUTER_GATE_Q15_DENOM: f32 = 32767.0;
 pub const ROUTER_GATE_Q15_MAX: i16 = 32767;
+
+fn determinism_debug_enabled() -> bool {
+    static FLAG: OnceLock<bool> = OnceLock::new();
+    *FLAG.get_or_init(|| match std::env::var("AOS_DEBUG_DETERMINISM") {
+        Ok(val) => {
+            let normalized = val.to_ascii_lowercase();
+            normalized == "1" || normalized == "true" || normalized == "yes"
+        }
+        Err(_) => false,
+    })
+}
 
 /// Router determinism configuration
 ///
@@ -1250,6 +1262,22 @@ impl Router {
         } else {
             Vec::new()
         };
+        if self.adaptive_routing && determinism_debug_enabled() {
+            let seed_hash = B3Hash::hash(
+                &determinism
+                    .expect("determinism context required for adaptive routing")
+                    .router_tiebreak_seed(),
+            );
+            let seed_hex = seed_hash.to_hex();
+            tracing::info!(
+                target: "determinism",
+                tie_seed_prefix = %seed_hex.get(..16).unwrap_or(&seed_hex),
+                tie_breakers = tie_breakers.len(),
+                "Adaptive routing tie-break seed (AOS_DEBUG_DETERMINISM=1)"
+            );
+        }
+        let log_ties = determinism_debug_enabled();
+        let mut tie_events: Vec<(usize, usize, f32, f32)> = Vec::new();
 
         // Sort by score descending, then by deterministic/adaptive tie-break
         //
@@ -1278,6 +1306,9 @@ impl Router {
 
             if diff.abs() <= tie_threshold {
                 // Scores are within tolerance - treat as tie, use tie-breaker
+                if log_ties {
+                    tie_events.push((a.0, b.0, a.1, b.1));
+                }
                 if self.adaptive_routing {
                     tie_breakers
                         .get(b.0)
@@ -1295,6 +1326,26 @@ impl Router {
                 std::cmp::Ordering::Less
             }
         });
+
+        if log_ties && !tie_events.is_empty() {
+            tracing::info!(
+                target: "determinism",
+                tie_count = tie_events.len(),
+                adaptive = self.adaptive_routing,
+                "Router tie-break events (AOS_DEBUG_DETERMINISM=1)"
+            );
+            for (idx_a, idx_b, score_a, score_b) in tie_events.iter().take(10) {
+                tracing::debug!(
+                    target: "determinism",
+                    a_idx = *idx_a,
+                    b_idx = *idx_b,
+                    a_score = *score_a,
+                    b_score = *score_b,
+                    adaptive = self.adaptive_routing,
+                    "Tie-break comparison"
+                );
+            }
+        }
 
         // Take top K
         let top_k: Vec<(usize, f32)> = scores.into_iter().take(self.k).collect();
@@ -2719,17 +2770,9 @@ mod tests {
             let q_clamped = q.max(0);
 
             if gate * ROUTER_GATE_Q15_DENOM < 0.5 {
-                assert_eq!(
-                    q_clamped, 0,
-                    "Gate {} should round to Q15 = 0",
-                    gate
-                );
+                assert_eq!(q_clamped, 0, "Gate {} should round to Q15 = 0", gate);
             } else {
-                assert!(
-                    q_clamped >= 1,
-                    "Gate {} should round to Q15 >= 1",
-                    gate
-                );
+                assert!(q_clamped >= 1, "Gate {} should round to Q15 >= 1", gate);
             }
         }
     }

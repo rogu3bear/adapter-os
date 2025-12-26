@@ -49,15 +49,13 @@ pub use ffi::{
 };
 // Re-export main types (correct casing per naming contract)
 pub use moe::{
-    MoEAdapterWeights, MoEConfig, MoEGpuFingerprint, MoELoRAStrategy, MoELoRATarget,
-    MoELoRAWeights,
+    MoEAdapterWeights, MoEConfig, MoEGpuFingerprint, MoELoRAStrategy, MoELoRATarget, MoELoRAWeights,
 };
 
 // Re-export deprecated aliases for backwards compatibility
 #[allow(deprecated)]
 pub use moe::{
-    MoeAdapterWeights, MoeConfig, MoeGpuFingerprint, MoeLoraStrategy, MoeLoraTarget,
-    MoeLoraWeights,
+    MoeAdapterWeights, MoeConfig, MoeGpuFingerprint, MoeLoraStrategy, MoeLoraTarget, MoeLoraWeights,
 };
 
 pub use hybrid::{HybridCoreMLBackend, LmHeadLoRA};
@@ -2015,7 +2013,10 @@ impl CoreMLBackend {
 
     /// Get total MoE adapter memory usage
     pub fn moe_adapter_memory_bytes(&self) -> usize {
-        self.moe_adapter_cache.values().map(|w| w.memory_bytes()).sum()
+        self.moe_adapter_cache
+            .values()
+            .map(|w| w.memory_bytes())
+            .sum()
     }
 
     /// Apply MoE LoRA fusion to expert outputs
@@ -2041,9 +2042,10 @@ impl CoreMLBackend {
         gate_q15: i16,
     ) -> Result<()> {
         // Get the adapter weights
-        let adapter = self.moe_adapter_cache.get(&adapter_id).ok_or_else(|| {
-            AosError::Kernel(format!("MoE adapter {} not loaded", adapter_id))
-        })?;
+        let adapter = self
+            .moe_adapter_cache
+            .get(&adapter_id)
+            .ok_or_else(|| AosError::Kernel(format!("MoE adapter {} not loaded", adapter_id)))?;
 
         // Get the target weights
         let weights = adapter.targets.get(&target).ok_or_else(|| {
@@ -2070,7 +2072,9 @@ impl CoreMLBackend {
         // Check if we should use routing weights
         let use_routing = matches!(
             adapter.strategy,
-            moe::MoeLoraStrategy::RoutingWeightedShared { use_routing_weights: true }
+            moe::MoeLoraStrategy::RoutingWeightedShared {
+                use_routing_weights: true
+            }
         );
 
         let out_features = weights.out_features;
@@ -2114,11 +2118,7 @@ impl CoreMLBackend {
     /// Run a step with MoE LoRA fusion (stub implementation for testing)
     #[cfg(any(test, debug_assertions, feature = "coreml-stub"))]
     #[allow(dead_code)]
-    fn run_step_moe_with_lora_stub(
-        &mut self,
-        ring: &RouterRing,
-        io: &mut IoBuffers,
-    ) -> Result<()> {
+    fn run_step_moe_with_lora_stub(&mut self, ring: &RouterRing, io: &mut IoBuffers) -> Result<()> {
         let moe_config = self.moe_config.as_ref().ok_or_else(|| {
             AosError::Kernel("MoE run_step called but no MoE config set".to_string())
         })?;
@@ -2531,9 +2531,7 @@ impl CoreMLBackend {
     pub fn get_moe_fingerprints(&self) -> HashMap<u16, moe::MoeGpuFingerprint> {
         self.moe_adapter_cache
             .keys()
-            .filter_map(|&id| {
-                self.generate_moe_fingerprint(id).map(|fp| (id, fp))
-            })
+            .filter_map(|&id| self.generate_moe_fingerprint(id).map(|fp| (id, fp)))
             .collect()
     }
 
@@ -2543,9 +2541,9 @@ impl CoreMLBackend {
         adapter_id: u16,
         expected: &moe::MoeGpuFingerprint,
     ) -> Result<bool> {
-        let actual = self.generate_moe_fingerprint(adapter_id).ok_or_else(|| {
-            AosError::Kernel(format!("MoE adapter {} not loaded", adapter_id))
-        })?;
+        let actual = self
+            .generate_moe_fingerprint(adapter_id)
+            .ok_or_else(|| AosError::Kernel(format!("MoE adapter {} not loaded", adapter_id)))?;
 
         // Compare combined hashes
         if actual.combined_hash != expected.combined_hash {

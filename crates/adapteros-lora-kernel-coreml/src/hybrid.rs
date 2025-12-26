@@ -249,13 +249,7 @@ impl HybridCoreMLBackend {
             rank,
         };
 
-        tracing::debug!(
-            slot,
-            rank,
-            alpha,
-            scale,
-            "Loaded LM head LoRA adapter"
-        );
+        tracing::debug!(slot, rank, alpha, scale, "Loaded LM head LoRA adapter");
 
         self.adapters.insert(slot, lora);
 
@@ -332,7 +326,12 @@ impl HybridCoreMLBackend {
         let last_hidden = &hidden_states[last_token_start..last_token_start + self.hidden_size];
 
         // logits[v] = sum_h last_hidden[h] * lm_head[v, h]
-        let mut logits = matvec_accelerate(&self.lm_head, last_hidden, self.vocab_size, self.hidden_size)?;
+        let mut logits = matvec_accelerate(
+            &self.lm_head,
+            last_hidden,
+            self.vocab_size,
+            self.hidden_size,
+        )?;
 
         let lm_head_elapsed = lm_head_start.elapsed();
         tracing::trace!(
@@ -353,7 +352,8 @@ impl HybridCoreMLBackend {
             if let Some(lora) = self.adapters.get(&adapter_idx) {
                 // LoRA: delta = B @ A @ hidden
                 // A: [rank, hidden_size], hidden: [hidden_size] -> a_out: [rank]
-                let a_out = matvec_accelerate(&lora.lora_a, last_hidden, lora.rank, self.hidden_size)?;
+                let a_out =
+                    matvec_accelerate(&lora.lora_a, last_hidden, lora.rank, self.hidden_size)?;
 
                 // B: [vocab_size, rank], a_out: [rank] -> delta: [vocab_size]
                 let delta = matvec_accelerate(&lora.lora_b, &a_out, self.vocab_size, lora.rank)?;
@@ -524,10 +524,7 @@ impl FusedKernels for HybridCoreMLBackend {
             // FixedSeed(0) indicates no randomness used in inference
             rng_seed_method: RngSeedingMethod::FixedSeed(0),
             floating_point_mode: FloatingPointMode::Deterministic,
-            compiler_flags: vec![
-                "-O3".to_string(),
-                "-ffast-math=off".to_string(),
-            ],
+            compiler_flags: vec!["-O3".to_string(), "-ffast-math=off".to_string()],
             deterministic: true,
         })
     }
@@ -558,7 +555,12 @@ fn convert_tensor_to_f32(data: &[u8], dtype: safetensors::Dtype) -> Result<Vec<f
             let num_floats = data.len() / 4;
             let mut result = Vec::with_capacity(num_floats);
             for i in 0..num_floats {
-                let bytes = [data[i * 4], data[i * 4 + 1], data[i * 4 + 2], data[i * 4 + 3]];
+                let bytes = [
+                    data[i * 4],
+                    data[i * 4 + 1],
+                    data[i * 4 + 2],
+                    data[i * 4 + 3],
+                ];
                 result.push(f32::from_le_bytes(bytes));
             }
             Ok(result)
@@ -596,10 +598,7 @@ fn convert_tensor_to_f32(data: &[u8], dtype: safetensors::Dtype) -> Result<Vec<f
 }
 
 /// Try multiple tensor names and return the first found
-fn get_tensor_any_name(
-    tensors: &SafeTensors,
-    names: &[&str],
-) -> Result<(Vec<f32>, Vec<usize>)> {
+fn get_tensor_any_name(tensors: &SafeTensors, names: &[&str]) -> Result<(Vec<f32>, Vec<usize>)> {
     for name in names {
         if let Ok(tensor) = tensors.tensor(name) {
             let data = convert_tensor_to_f32(tensor.data(), tensor.dtype())?;
@@ -656,11 +655,7 @@ mod tests {
 
     #[test]
     fn test_convert_f16_tensor() {
-        let halfs: Vec<f16> = vec![
-            f16::from_f32(1.0),
-            f16::from_f32(2.0),
-            f16::from_f32(3.0),
-        ];
+        let halfs: Vec<f16> = vec![f16::from_f32(1.0), f16::from_f32(2.0), f16::from_f32(3.0)];
         let mut bytes = Vec::new();
         for h in &halfs {
             bytes.extend_from_slice(&h.to_le_bytes());

@@ -179,7 +179,10 @@ impl AdapterCache {
     /// Get count of MoE adapters in cache
     pub fn moe_count(&self) -> usize {
         let cache = self.cache.read();
-        cache.iter().filter(|(_, adapter)| adapter.is_moe_adapter()).count()
+        cache
+            .iter()
+            .filter(|(_, adapter)| adapter.is_moe_adapter())
+            .count()
     }
 
     /// Evict all MoE adapters from cache

@@ -18,9 +18,8 @@ use safetensors::{serialize, tensor::TensorView};
 
 /// Create safetensors adapter weights from raw f32 values
 fn create_adapter_weights(values: &[f32]) -> Vec<u8> {
-    let bytes = unsafe {
-        std::slice::from_raw_parts(values.as_ptr() as *const u8, values.len() * 4)
-    };
+    let bytes =
+        unsafe { std::slice::from_raw_parts(values.as_ptr() as *const u8, values.len() * 4) };
     let tensor = TensorView::new(safetensors::Dtype::F32, vec![values.len()], bytes)
         .expect("create tensor view");
     serialize(
@@ -72,7 +71,8 @@ fn test_fusion_formula_single_adapter() {
         let adapter_logits = io.output_logits.clone();
 
         // Compute contribution (difference from base)
-        let contrib: Vec<f32> = adapter_logits.iter()
+        let contrib: Vec<f32> = adapter_logits
+            .iter()
             .zip(base_logits.iter())
             .map(|(a, b)| a - b)
             .collect();
@@ -108,7 +108,8 @@ fn test_fusion_formula_single_adapter() {
                 assert!(
                     avg_ratio > expected_ratio * 0.5 && avg_ratio < expected_ratio * 3.0,
                     "Average scaling ratio {} is too far from expected {} (softmax-adjusted)",
-                    avg_ratio, expected_ratio
+                    avg_ratio,
+                    expected_ratio
                 );
             }
         }
@@ -133,11 +134,11 @@ fn test_fusion_formula_multiple_gates() {
 
     // Test gate values: 0%, 25%, 50%, 75%, 100%
     let test_gates = [
-        (0, 0i16),           // 0%
-        (1, 8192i16),        // 25% (32767 * 0.25 ≈ 8192)
-        (2, 16384i16),       // 50%
-        (3, 24576i16),       // 75%
-        (4, 32767i16),       // 100%
+        (0, 0i16),     // 0%
+        (1, 8192i16),  // 25% (32767 * 0.25 ≈ 8192)
+        (2, 16384i16), // 50%
+        (3, 24576i16), // 75%
+        (4, 32767i16), // 100%
     ];
 
     let mut results = Vec::new();
@@ -189,8 +190,12 @@ fn test_fusion_formula_multi_adapter_accumulation() {
     io_adapter1.input_ids = vec![1];
     let mut ring_adapter1 = RouterRing::new(1);
     ring_adapter1.set(&[1], &[gate1_q15]);
-    backend.run_step(&mut ring_adapter1, &mut io_adapter1).unwrap();
-    let contrib1: Vec<f32> = io_adapter1.output_logits.iter()
+    backend
+        .run_step(&mut ring_adapter1, &mut io_adapter1)
+        .unwrap();
+    let contrib1: Vec<f32> = io_adapter1
+        .output_logits
+        .iter()
         .zip(base_logits.iter())
         .map(|(a, b)| a - b)
         .collect();
@@ -201,8 +206,12 @@ fn test_fusion_formula_multi_adapter_accumulation() {
     io_adapter2.input_ids = vec![1];
     let mut ring_adapter2 = RouterRing::new(1);
     ring_adapter2.set(&[2], &[gate2_q15]);
-    backend.run_step(&mut ring_adapter2, &mut io_adapter2).unwrap();
-    let contrib2: Vec<f32> = io_adapter2.output_logits.iter()
+    backend
+        .run_step(&mut ring_adapter2, &mut io_adapter2)
+        .unwrap();
+    let contrib2: Vec<f32> = io_adapter2
+        .output_logits
+        .iter()
         .zip(base_logits.iter())
         .map(|(a, b)| a - b)
         .collect();
@@ -213,7 +222,9 @@ fn test_fusion_formula_multi_adapter_accumulation() {
     let mut ring_multi = RouterRing::new(2);
     ring_multi.set(&[1, 2], &[gate1_q15, gate2_q15]);
     backend.run_step(&mut ring_multi, &mut io_multi).unwrap();
-    let contrib_both: Vec<f32> = io_multi.output_logits.iter()
+    let contrib_both: Vec<f32> = io_multi
+        .output_logits
+        .iter()
         .zip(base_logits.iter())
         .map(|(a, b)| a - b)
         .collect();
@@ -228,7 +239,11 @@ fn test_fusion_formula_multi_adapter_accumulation() {
         assert!(
             (actual - expected_sum).abs() < tolerance,
             "Additivity violated at index {}: expected ~{:.4} ({}+{}), got {:.4}",
-            i, expected_sum, contrib1[i], contrib2[i], actual
+            i,
+            expected_sum,
+            contrib1[i],
+            contrib2[i],
+            actual
         );
     }
 
@@ -252,7 +267,10 @@ fn test_q15_gate_conversion() {
         assert!(
             error < 0.001,
             "Q15 conversion mismatch: Q15={} expected={} actual={} error={}",
-            q15, expected_f32, actual_f32, error
+            q15,
+            expected_f32,
+            actual_f32,
+            error
         );
     }
 
@@ -387,8 +405,12 @@ fn test_adapter_delta_scaling_linearity() {
     io_quarter.input_ids = vec![1];
     let mut ring_quarter = RouterRing::new(1);
     ring_quarter.set(&[1], &[8192i16]); // 0.25
-    backend.run_step(&mut ring_quarter, &mut io_quarter).unwrap();
-    let quarter_contrib: Vec<f32> = io_quarter.output_logits.iter()
+    backend
+        .run_step(&mut ring_quarter, &mut io_quarter)
+        .unwrap();
+    let quarter_contrib: Vec<f32> = io_quarter
+        .output_logits
+        .iter()
         .zip(base.iter())
         .map(|(a, b)| a - b)
         .collect();
@@ -399,7 +421,9 @@ fn test_adapter_delta_scaling_linearity() {
     let mut ring_half = RouterRing::new(1);
     ring_half.set(&[1], &[16384i16]); // 0.5
     backend.run_step(&mut ring_half, &mut io_half).unwrap();
-    let half_contrib: Vec<f32> = io_half.output_logits.iter()
+    let half_contrib: Vec<f32> = io_half
+        .output_logits
+        .iter()
         .zip(base.iter())
         .map(|(a, b)| a - b)
         .collect();
@@ -416,7 +440,8 @@ fn test_adapter_delta_scaling_linearity() {
         assert!(
             (ratio - 2.0).abs() < 0.5, // Relaxed due to normalization
             "Linear scaling violated at index {}: ratio={} (expected ~2.0)",
-            i, ratio
+            i,
+            ratio
         );
     }
 

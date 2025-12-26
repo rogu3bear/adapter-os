@@ -45,8 +45,7 @@ fn test_q15_constants_are_correct() {
         "Q15 max value MUST be 32767 (i16::MAX)"
     );
     assert_eq!(
-        ROUTER_GATE_Q15_MAX as f32,
-        ROUTER_GATE_Q15_DENOM,
+        ROUTER_GATE_Q15_MAX as f32, ROUTER_GATE_Q15_DENOM,
         "Max and denom should match for 1.0 representation"
     );
 }
@@ -142,10 +141,7 @@ fn test_q15_max_gate_converts_to_32767() {
     let gate_f32 = 1.0f32;
     let gate_q15 = (gate_f32 * ROUTER_GATE_Q15_DENOM).round() as i16;
 
-    assert_eq!(
-        gate_q15, 32767,
-        "1.0 gate should convert to Q15 = 32767"
-    );
+    assert_eq!(gate_q15, 32767, "1.0 gate should convert to Q15 = 32767");
 
     // Verify round-trip
     let recovered = gate_q15 as f32 / ROUTER_GATE_Q15_DENOM;
@@ -206,10 +202,7 @@ fn test_q15_negative_values_are_clamped_to_zero() {
         gate_q15_raw < 0,
         "Negative gate should produce negative Q15 before clamping"
     );
-    assert_eq!(
-        gate_q15_clamped, 0,
-        "Negative Q15 should be clamped to 0"
-    );
+    assert_eq!(gate_q15_clamped, 0, "Negative Q15 should be clamped to 0");
 }
 
 #[test]
@@ -245,9 +238,7 @@ fn test_q15_conversion_ensures_non_negative_output() {
 #[test]
 fn test_q15_very_small_positive_gates() {
     // Test gates that are very small but positive
-    let tiny_gates = vec![
-        1e-8, 1e-7, 1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1,
-    ];
+    let tiny_gates = vec![1e-8, 1e-7, 1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1];
 
     for gate in tiny_gates {
         let q = (gate * ROUTER_GATE_Q15_DENOM).round() as i16;
@@ -256,7 +247,8 @@ fn test_q15_very_small_positive_gates() {
         // Very small values should round to 0 or 1
         if gate * ROUTER_GATE_Q15_DENOM < 0.5 {
             assert_eq!(
-                q_clamped, 0,
+                q_clamped,
+                0,
                 "Gate {} should round to Q15 = 0 (product = {})",
                 gate,
                 gate * ROUTER_GATE_Q15_DENOM
@@ -278,10 +270,7 @@ fn test_q15_minimum_representable_value() {
     let min_value = 1.0 / ROUTER_GATE_Q15_DENOM;
     let gate_q15 = (min_value * ROUTER_GATE_Q15_DENOM).round() as i16;
 
-    assert_eq!(
-        gate_q15, 1,
-        "Minimum representable Q15 value should be 1"
-    );
+    assert_eq!(gate_q15, 1, "Minimum representable Q15 value should be 1");
 
     let recovered = gate_q15 as f32 / ROUTER_GATE_Q15_DENOM;
     assert!(
@@ -386,8 +375,8 @@ fn test_q15_rounding_error_accumulation() {
     // Test that rounding errors don't accumulate excessively
     let test_cases = vec![
         vec![1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0], // Three equal parts
-        vec![0.1, 0.2, 0.3, 0.4],               // Unequal distribution
-        vec![0.5, 0.3, 0.15, 0.05],             // Decreasing values
+        vec![0.1, 0.2, 0.3, 0.4],              // Unequal distribution
+        vec![0.5, 0.3, 0.15, 0.05],            // Decreasing values
     ];
 
     for gates_f32 in test_cases {

@@ -14,7 +14,9 @@
 //! - health_monitor
 //! - set_health_monitor
 
-use crate::{adapter_hotswap, CoremlVerificationSnapshot, HealthMonitor, HotSwapManager, KvCache, Worker};
+use crate::{
+    adapter_hotswap, CoremlVerificationSnapshot, HealthMonitor, HotSwapManager, KvCache, Worker,
+};
 use adapteros_core::{B3Hash, Result};
 use adapteros_lora_kernel_api::FusedKernels;
 use adapteros_telemetry::TelemetryWriter;

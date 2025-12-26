@@ -25,12 +25,10 @@ fn select_topk_experts_reference(logits: &[f32], k: usize) -> (Vec<usize>, Vec<f
     let mut indexed: Vec<(usize, f32)> = probs.into_iter().enumerate().collect();
 
     // Sort by score descending, then by index ascending (deterministic tie-breaking)
-    indexed.sort_by(|a, b| {
-        match b.1.partial_cmp(&a.1) {
-            Some(std::cmp::Ordering::Equal) => a.0.cmp(&b.0),
-            Some(ord) => ord,
-            None => std::cmp::Ordering::Equal,
-        }
+    indexed.sort_by(|a, b| match b.1.partial_cmp(&a.1) {
+        Some(std::cmp::Ordering::Equal) => a.0.cmp(&b.0),
+        Some(ord) => ord,
+        None => std::cmp::Ordering::Equal,
     });
 
     // Take top k
@@ -216,10 +214,7 @@ fn test_select_topk_experts_single_expert() {
     let (indices, gates) = select_topk_experts_reference(&logits, 1);
 
     assert_eq!(indices, vec![1], "Should select expert with highest score");
-    assert!(
-        (gates[0] - 1.0).abs() < 1e-6,
-        "Single gate should be 1.0"
-    );
+    assert!((gates[0] - 1.0).abs() < 1e-6, "Single gate should be 1.0");
 }
 
 /// Test numerical stability with very large logits.
@@ -245,7 +240,9 @@ fn test_select_topk_experts_large_logits() {
 /// Test numerical stability with very negative logits.
 #[test]
 fn test_select_topk_experts_negative_logits() {
-    let negative_logits = vec![-100.0f32, -50.0, -100.0, -100.0, -100.0, -100.0, -100.0, -100.0];
+    let negative_logits = vec![
+        -100.0f32, -50.0, -100.0, -100.0, -100.0, -100.0, -100.0, -100.0,
+    ];
     let (indices, gates) = select_topk_experts_reference(&negative_logits, 2);
 
     // Expert 1 has highest (least negative) score

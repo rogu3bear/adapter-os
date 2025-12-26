@@ -417,7 +417,10 @@ pub struct RoPEConfig {
 }
 
 /// Deprecated alias for backwards compatibility
-#[deprecated(since = "0.12.0", note = "Use `RoPEConfig` instead (correct RoPE casing)")]
+#[deprecated(
+    since = "0.12.0",
+    note = "Use `RoPEConfig` instead (correct RoPE casing)"
+)]
 pub type RopeConfig = RoPEConfig;
 
 #[cfg(test)]

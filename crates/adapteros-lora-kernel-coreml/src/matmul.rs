@@ -24,13 +24,19 @@ pub fn matmul_accelerate(
     if a.len() != m * k {
         return Err(AosError::Kernel(format!(
             "Matrix A size mismatch: expected {} ({}x{}), got {}",
-            m * k, m, k, a.len()
+            m * k,
+            m,
+            k,
+            a.len()
         )));
     }
     if b.len() != k * n {
         return Err(AosError::Kernel(format!(
             "Matrix B size mismatch: expected {} ({}x{}), got {}",
-            k * n, k, n, b.len()
+            k * n,
+            k,
+            n,
+            b.len()
         )));
     }
 
@@ -46,14 +52,14 @@ pub fn matmul_accelerate(
             m as i32,
             n as i32,
             k as i32,
-            1.0,            // alpha
+            1.0, // alpha
             a.as_ptr(),
-            k as i32,       // lda (leading dimension of A)
+            k as i32, // lda (leading dimension of A)
             b.as_ptr(),
-            n as i32,       // ldb (leading dimension of B)
-            0.0,            // beta
+            n as i32, // ldb (leading dimension of B)
+            0.0,      // beta
             c.as_mut_ptr(),
-            n as i32,       // ldc (leading dimension of C)
+            n as i32, // ldc (leading dimension of C)
         );
     }
 
@@ -62,13 +68,7 @@ pub fn matmul_accelerate(
 
 /// Fallback for non-macOS platforms
 #[cfg(not(target_os = "macos"))]
-pub fn matmul_accelerate(
-    a: &[f32],
-    b: &[f32],
-    m: usize,
-    k: usize,
-    n: usize,
-) -> Result<Vec<f32>> {
+pub fn matmul_accelerate(a: &[f32], b: &[f32], m: usize, k: usize, n: usize) -> Result<Vec<f32>> {
     matmul_naive(a, b, m, k, n)
 }
 
@@ -85,13 +85,15 @@ pub fn matmul_naive(
     if a.len() != m * k {
         return Err(AosError::Kernel(format!(
             "Matrix A size mismatch: expected {}, got {}",
-            m * k, a.len()
+            m * k,
+            a.len()
         )));
     }
     if b.len() != k * n {
         return Err(AosError::Kernel(format!(
             "Matrix B size mismatch: expected {}, got {}",
-            k * n, b.len()
+            k * n,
+            b.len()
         )));
     }
 
@@ -123,13 +125,15 @@ pub fn matvec_accelerate(
     if a.len() != m * n {
         return Err(AosError::Kernel(format!(
             "Matrix A size mismatch: expected {}, got {}",
-            m * n, a.len()
+            m * n,
+            a.len()
         )));
     }
     if x.len() != n {
         return Err(AosError::Kernel(format!(
             "Vector x size mismatch: expected {}, got {}",
-            n, x.len()
+            n,
+            x.len()
         )));
     }
 
@@ -143,14 +147,14 @@ pub fn matvec_accelerate(
             CblasNoTrans,
             m as i32,
             n as i32,
-            1.0,           // alpha
+            1.0, // alpha
             a.as_ptr(),
-            n as i32,      // lda
+            n as i32, // lda
             x.as_ptr(),
-            1,             // incX
-            0.0,           // beta
+            1,   // incX
+            0.0, // beta
             y.as_mut_ptr(),
-            1,             // incY
+            1, // incY
         );
     }
 
@@ -158,12 +162,7 @@ pub fn matvec_accelerate(
 }
 
 #[cfg(not(target_os = "macos"))]
-pub fn matvec_accelerate(
-    a: &[f32],
-    x: &[f32],
-    m: usize,
-    n: usize,
-) -> Result<Vec<f32>> {
+pub fn matvec_accelerate(a: &[f32], x: &[f32], m: usize, n: usize) -> Result<Vec<f32>> {
     matvec_naive(a, x, m, n)
 }
 
@@ -177,13 +176,15 @@ pub fn matvec_naive(
     if a.len() != m * n {
         return Err(AosError::Kernel(format!(
             "Matrix A size mismatch: expected {}, got {}",
-            m * n, a.len()
+            m * n,
+            a.len()
         )));
     }
     if x.len() != n {
         return Err(AosError::Kernel(format!(
             "Vector x size mismatch: expected {}, got {}",
-            n, x.len()
+            n,
+            x.len()
         )));
     }
 
@@ -207,20 +208,14 @@ pub fn axpy(alpha: f32, x: &[f32], y: &mut [f32]) -> Result<()> {
     if x.len() != y.len() {
         return Err(AosError::Kernel(format!(
             "Vector size mismatch: x={}, y={}",
-            x.len(), y.len()
+            x.len(),
+            y.len()
         )));
     }
 
     #[cfg(target_os = "macos")]
     unsafe {
-        cblas_saxpy(
-            x.len() as i32,
-            alpha,
-            x.as_ptr(),
-            1,
-            y.as_mut_ptr(),
-            1,
-        );
+        cblas_saxpy(x.len() as i32, alpha, x.as_ptr(), 1, y.as_mut_ptr(), 1);
     }
 
     #[cfg(not(target_os = "macos"))]
@@ -280,14 +275,7 @@ extern "C" {
         incY: i32,
     );
 
-    fn cblas_saxpy(
-        N: i32,
-        alpha: f32,
-        X: *const f32,
-        incX: i32,
-        Y: *mut f32,
-        incY: i32,
-    );
+    fn cblas_saxpy(N: i32, alpha: f32, X: *const f32, incX: i32, Y: *mut f32, incY: i32);
 }
 
 #[cfg(test)]
@@ -346,7 +334,9 @@ mod tests {
         let vocab_size = 128;
 
         let hidden_states: Vec<f32> = (0..hidden_size).map(|i| i as f32 * 0.01).collect();
-        let lm_head: Vec<f32> = (0..vocab_size * hidden_size).map(|i| (i % 100) as f32 * 0.001).collect();
+        let lm_head: Vec<f32> = (0..vocab_size * hidden_size)
+            .map(|i| (i % 100) as f32 * 0.001)
+            .collect();
 
         // logits = hidden_states @ lm_head.T
         // But lm_head is [vocab, hidden], so we need hidden @ lm_head^T

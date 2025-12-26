@@ -5,7 +5,9 @@
 //! - AvailableBackends for representing configured backends
 //! - ensure_preload_allowed for memory pressure guardrails
 
-use crate::device_placement::{LaneDescriptor, PlacementDecision, PlacementEngine, TelemetryCollector};
+use crate::device_placement::{
+    LaneDescriptor, PlacementDecision, PlacementEngine, TelemetryCollector,
+};
 use crate::kernel_wrapper::BackendLane;
 use crate::memory::MemoryPressureLevel;
 use adapteros_core::{AosError, BackendKind, Result};

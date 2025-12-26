@@ -180,7 +180,11 @@ async fn test_moe_adapter_creation_and_loading() {
     let mut writer = AosWriter::new();
     let weights = create_dummy_lora_safetensors();
     writer
-        .add_segment(BackendTag::Canonical, Some("test/moe/qwen3".to_string()), &weights)
+        .add_segment(
+            BackendTag::Canonical,
+            Some("test/moe/qwen3".to_string()),
+            &weights,
+        )
         .expect("Failed to add segment");
 
     writer
@@ -254,7 +258,11 @@ async fn test_moe_adapter_validation_mismatch() {
     let mut writer = AosWriter::new();
     let weights = create_dummy_lora_safetensors();
     writer
-        .add_segment(BackendTag::Canonical, Some("test/moe/mismatch".to_string()), &weights)
+        .add_segment(
+            BackendTag::Canonical,
+            Some("test/moe/mismatch".to_string()),
+            &weights,
+        )
         .unwrap();
     writer.write_archive(&aos_path, &manifest).unwrap();
 
@@ -270,9 +278,14 @@ async fn test_moe_adapter_validation_mismatch() {
         use_routing_weights: true,
     };
 
-    let result = manager.load_moe_validated(&aos_path, &expected_config).await;
+    let result = manager
+        .load_moe_validated(&aos_path, &expected_config)
+        .await;
 
-    assert!(result.is_err(), "Should fail validation due to expert count mismatch");
+    assert!(
+        result.is_err(),
+        "Should fail validation due to expert count mismatch"
+    );
     let err = result.unwrap_err().to_string();
     assert!(
         err.contains("expert count mismatch") || err.contains("128") && err.contains("64"),
@@ -313,7 +326,11 @@ async fn test_dense_adapter_rejected_as_moe() {
     let mut writer = AosWriter::new();
     let weights = create_dummy_lora_safetensors();
     writer
-        .add_segment(BackendTag::Canonical, Some("test/dense/llama".to_string()), &weights)
+        .add_segment(
+            BackendTag::Canonical,
+            Some("test/dense/llama".to_string()),
+            &weights,
+        )
         .unwrap();
     writer.write_archive(&aos_path, &manifest).unwrap();
 
@@ -322,7 +339,10 @@ async fn test_dense_adapter_rejected_as_moe() {
     // Try to load as MoE adapter - should fail
     let result = manager.load_moe(&aos_path).await;
 
-    assert!(result.is_err(), "Dense adapter should be rejected by load_moe");
+    assert!(
+        result.is_err(),
+        "Dense adapter should be rejected by load_moe"
+    );
     let err = result.unwrap_err().to_string();
     assert!(
         err.contains("not configured for MoE"),
@@ -331,7 +351,10 @@ async fn test_dense_adapter_rejected_as_moe() {
     );
 
     // But regular load should work fine
-    let adapter = manager.load(&aos_path).await.expect("Regular load should work");
+    let adapter = manager
+        .load(&aos_path)
+        .await
+        .expect("Regular load should work");
     assert!(!adapter.is_moe_adapter(), "Should not be MoE adapter");
 
     println!("✓ Dense adapter correctly rejected by load_moe, accepted by load");

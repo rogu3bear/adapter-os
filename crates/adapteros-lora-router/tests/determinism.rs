@@ -1054,14 +1054,12 @@ fn stress_test_near_equal_scores_determinism() {
             assert_eq!(
                 first_decision.indices, decision.indices,
                 "Seed {:?} (index {}): cross-instance indices should match",
-                s,
-                idx
+                s, idx
             );
             assert_eq!(
                 first_decision.gates_q15, decision.gates_q15,
                 "Seed {:?} (index {}): cross-instance gates should match",
-                s,
-                idx
+                s, idx
             );
         }
     }
@@ -1110,11 +1108,18 @@ fn stress_test_adaptive_routing_near_equal_scores() {
 
     for iteration in 0..ITERATIONS {
         let weights_vec = vec![1.0; ADAPTER_COUNT];
-        let mut router = Router::new(weights_vec, K, 1.0, 0.01, [0u8; 32]).expect("router creation");
+        let mut router =
+            Router::new(weights_vec, K, 1.0, 0.01, [0u8; 32]).expect("router creation");
         router.set_routing_determinism_mode(true);
 
         let decision = router
-            .route_with_adapter_info_with_ctx(&[], &priors, &adapter_info, &mask, Some(&determinism_ctx))
+            .route_with_adapter_info_with_ctx(
+                &[],
+                &priors,
+                &adapter_info,
+                &mask,
+                Some(&determinism_ctx),
+            )
             .expect("router decision");
 
         if let Some(ref baseline) = baseline_decision {
@@ -1181,13 +1186,7 @@ fn test_relative_epsilon_edge_cases() {
         let adapter_info = make_adapters(5);
         let mask = allow_all_mask(&adapter_info);
         // Scores very close to zero, differing by less than f32::EPSILON
-        let priors: Vec<f32> = vec![
-            1e-8,
-            1e-8 + 1e-10,
-            1e-8 + 2e-10,
-            1e-8 + 3e-10,
-            1e-8 + 4e-10,
-        ];
+        let priors: Vec<f32> = vec![1e-8, 1e-8 + 1e-10, 1e-8 + 2e-10, 1e-8 + 3e-10, 1e-8 + 4e-10];
 
         let mut baseline: Option<Decision> = None;
         for _ in 0..100 {
@@ -1198,7 +1197,10 @@ fn test_relative_epsilon_edge_cases() {
                 .expect("router decision");
 
             if let Some(ref b) = baseline {
-                assert_eq!(b.indices, decision.indices, "Near-zero scores: indices should be stable");
+                assert_eq!(
+                    b.indices, decision.indices,
+                    "Near-zero scores: indices should be stable"
+                );
             } else {
                 baseline = Some(decision);
             }
@@ -1213,7 +1215,7 @@ fn test_relative_epsilon_edge_cases() {
         let base = 1e6_f32;
         let priors: Vec<f32> = vec![
             base,
-            base + 0.1,   // Difference of 0.1 is tiny relative to 1e6
+            base + 0.1, // Difference of 0.1 is tiny relative to 1e6
             base + 0.2,
             base + 0.3,
             base - 0.1,
@@ -1228,7 +1230,10 @@ fn test_relative_epsilon_edge_cases() {
                 .expect("router decision");
 
             if let Some(ref b) = baseline {
-                assert_eq!(b.indices, decision.indices, "Large scores: indices should be stable");
+                assert_eq!(
+                    b.indices, decision.indices,
+                    "Large scores: indices should be stable"
+                );
             } else {
                 baseline = Some(decision);
             }
@@ -1241,11 +1246,11 @@ fn test_relative_epsilon_edge_cases() {
         let mask = allow_all_mask(&adapter_info);
         let priors: Vec<f32> = vec![
             0.9,
-            0.9 + 1e-7,  // Near-equal to first
+            0.9 + 1e-7, // Near-equal to first
             0.5,
-            0.5 + 1e-7,  // Near-equal to third
+            0.5 + 1e-7, // Near-equal to third
             0.1,
-            0.1 + 1e-7,  // Near-equal to fifth
+            0.1 + 1e-7, // Near-equal to fifth
         ];
 
         let mut baseline: Option<Decision> = None;
@@ -1257,7 +1262,10 @@ fn test_relative_epsilon_edge_cases() {
                 .expect("router decision");
 
             if let Some(ref b) = baseline {
-                assert_eq!(b.indices, decision.indices, "Mixed scores: indices should be stable");
+                assert_eq!(
+                    b.indices, decision.indices,
+                    "Mixed scores: indices should be stable"
+                );
             } else {
                 baseline = Some(decision);
             }
@@ -1268,7 +1276,11 @@ fn test_relative_epsilon_edge_cases() {
         let selected: Vec<u16> = baseline.indices.iter().cloned().collect();
         // All selected indices should be from the high-scoring group (0, 1) or middle (2, 3)
         for &idx in &selected {
-            assert!(idx <= 3, "Should select from higher-scoring adapters, got {}", idx);
+            assert!(
+                idx <= 3,
+                "Should select from higher-scoring adapters, got {}",
+                idx
+            );
         }
     }
 }

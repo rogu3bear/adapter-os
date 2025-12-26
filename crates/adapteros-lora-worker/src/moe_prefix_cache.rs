@@ -145,7 +145,10 @@ impl ExpertHeatMap {
 
     /// Get the hot experts for a specific layer
     pub fn get_hot_experts(&self, layer_idx: usize) -> &[u8] {
-        self.hot_experts.get(layer_idx).map(|v| v.as_slice()).unwrap_or(&[])
+        self.hot_experts
+            .get(layer_idx)
+            .map(|v| v.as_slice())
+            .unwrap_or(&[])
     }
 
     /// Check if routing is stable enough for free token predictions
@@ -173,11 +176,13 @@ impl ExpertHeatMap {
 
     /// Get memory usage in bytes
     pub fn memory_bytes(&self) -> usize {
-        let per_layer_bytes: usize = self.per_layer
+        let per_layer_bytes: usize = self
+            .per_layer
             .iter()
             .map(|m| m.len() * (std::mem::size_of::<u8>() + std::mem::size_of::<u32>()))
             .sum();
-        let hot_experts_bytes: usize = self.hot_experts
+        let hot_experts_bytes: usize = self
+            .hot_experts
             .iter()
             .map(|v| v.len() * std::mem::size_of::<u8>())
             .sum();
@@ -294,11 +299,15 @@ impl PrecomputedTokens {
 
     /// Get total memory usage in bytes
     pub fn memory_bytes(&self) -> usize {
-        self.tokens.iter().map(|t| {
-            t.text.len()
-                + t.logits.as_ref().map(|l| l.len() * 4).unwrap_or(0)
-                + t.expert_routing.len() * std::mem::size_of::<(usize, u8)>()
-        }).sum::<usize>() + std::mem::size_of::<Self>()
+        self.tokens
+            .iter()
+            .map(|t| {
+                t.text.len()
+                    + t.logits.as_ref().map(|l| l.len() * 4).unwrap_or(0)
+                    + t.expert_routing.len() * std::mem::size_of::<(usize, u8)>()
+            })
+            .sum::<usize>()
+            + std::mem::size_of::<Self>()
     }
 }
 
@@ -428,13 +437,19 @@ impl MoEPrefixEntry {
     pub fn total_bytes(&self) -> u64 {
         self.kv_bytes
             + self.heat_map.memory_bytes() as u64
-            + self.free_tokens.as_ref().map(|t| t.memory_bytes() as u64).unwrap_or(0)
+            + self
+                .free_tokens
+                .as_ref()
+                .map(|t| t.memory_bytes() as u64)
+                .unwrap_or(0)
             + (self.expert_routing.len() * std::mem::size_of::<Vec<(usize, u8)>>()) as u64
     }
 
     /// Get free tokens if valid for the given temperature
     pub fn get_free_tokens(&self, temperature: f32) -> Option<&PrecomputedTokens> {
-        self.free_tokens.as_ref().filter(|t| t.is_valid_for_temperature(temperature))
+        self.free_tokens
+            .as_ref()
+            .filter(|t| t.is_valid_for_temperature(temperature))
     }
 
     /// Check if this entry has stable routing patterns
@@ -462,10 +477,22 @@ pub struct FreeTokenMetrics {
 impl std::fmt::Debug for FreeTokenMetrics {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("FreeTokenMetrics")
-            .field("tokens_delivered", &self.tokens_delivered.load(Ordering::Relaxed))
-            .field("tokens_validated", &self.tokens_validated.load(Ordering::Relaxed))
-            .field("tokens_rejected", &self.tokens_rejected.load(Ordering::Relaxed))
-            .field("latency_saved_ms", &self.latency_saved_ms.load(Ordering::Relaxed))
+            .field(
+                "tokens_delivered",
+                &self.tokens_delivered.load(Ordering::Relaxed),
+            )
+            .field(
+                "tokens_validated",
+                &self.tokens_validated.load(Ordering::Relaxed),
+            )
+            .field(
+                "tokens_rejected",
+                &self.tokens_rejected.load(Ordering::Relaxed),
+            )
+            .field(
+                "latency_saved_ms",
+                &self.latency_saved_ms.load(Ordering::Relaxed),
+            )
             .finish()
     }
 }
@@ -495,7 +522,8 @@ impl FreeTokenMetrics {
     /// Record a validated free token
     pub fn record_validated(&self, latency_saved_ms: u64) {
         self.tokens_validated.fetch_add(1, Ordering::Relaxed);
-        self.latency_saved_ms.fetch_add(latency_saved_ms, Ordering::Relaxed);
+        self.latency_saved_ms
+            .fetch_add(latency_saved_ms, Ordering::Relaxed);
     }
 
     /// Record a rejected free token
@@ -714,7 +742,8 @@ impl MoEPrefixCache {
 
             for key in &evicted_keys {
                 if let Some(entry) = entries.remove(key) {
-                    self.used_bytes.fetch_sub(entry.total_bytes(), Ordering::SeqCst);
+                    self.used_bytes
+                        .fetch_sub(entry.total_bytes(), Ordering::SeqCst);
                     stats.evictions += 1;
                     stats.entry_count = stats.entry_count.saturating_sub(1);
                 }
@@ -735,10 +764,7 @@ impl MoEPrefixCache {
         // Check if free tokens are disabled for this adapter
         if let Some(id) = adapter_id {
             if self.adapter_metrics.should_disable(id, 0.9, 100) {
-                tracing::debug!(
-                    adapter_id = id,
-                    "Free tokens disabled due to low accuracy"
-                );
+                tracing::debug!(adapter_id = id, "Free tokens disabled due to low accuracy");
                 return None;
             }
         }
@@ -763,12 +789,7 @@ impl MoEPrefixCache {
     }
 
     /// Record validation result for a free token
-    pub fn record_validation(
-        &self,
-        adapter_id: &str,
-        matched: bool,
-        latency_saved_ms: u64,
-    ) {
+    pub fn record_validation(&self, adapter_id: &str, matched: bool, latency_saved_ms: u64) {
         let metrics = self.adapter_metrics.get_or_create(adapter_id);
         if matched {
             metrics.record_validated(latency_saved_ms);
@@ -787,12 +808,14 @@ impl MoEPrefixCache {
         }
 
         Some(
-            entry.heat_map.hot_experts
+            entry
+                .heat_map
+                .hot_experts
                 .iter()
                 .enumerate()
                 .filter(|(_, experts)| !experts.is_empty())
                 .map(|(layer, experts)| (layer, experts.clone()))
-                .collect()
+                .collect(),
         )
     }
 
@@ -858,8 +881,7 @@ mod tests {
 
     #[test]
     fn test_free_token() {
-        let token = FreeToken::new("hello", 1234, 0.95)
-            .with_expert_routing(vec![(0, 5), (1, 10)]);
+        let token = FreeToken::new("hello", 1234, 0.95).with_expert_routing(vec![(0, 5), (1, 10)]);
 
         assert_eq!(token.text, "hello");
         assert_eq!(token.token_id, 1234);
@@ -869,10 +891,7 @@ mod tests {
 
     #[test]
     fn test_precomputed_tokens_confidence() {
-        let tokens = vec![
-            FreeToken::new("a", 1, 0.9),
-            FreeToken::new("b", 2, 0.8),
-        ];
+        let tokens = vec![FreeToken::new("a", 1, 0.9), FreeToken::new("b", 2, 0.8)];
 
         let precomputed = PrecomputedTokens::new(tokens, FreeTokenSource::ManifestDeclared);
 

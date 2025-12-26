@@ -7,7 +7,7 @@
 
 #![cfg(feature = "mlx-bridge")]
 
-use adapteros_lora_worker::mlx_subprocess_bridge::{MlxBridgeConfig, MLXSubprocessBridge};
+use adapteros_lora_worker::mlx_subprocess_bridge::{MLXSubprocessBridge, MlxBridgeConfig};
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -79,10 +79,7 @@ fn test_config_with_custom_values() {
 
 #[test]
 fn test_bridge_creation_fails_with_invalid_path() {
-    let result = MLXSubprocessBridge::new(
-        PathBuf::from("/nonexistent/model/path"),
-        32000,
-    );
+    let result = MLXSubprocessBridge::new(PathBuf::from("/nonexistent/model/path"), 32000);
     assert!(result.is_err());
     let err = result.unwrap_err();
     assert!(err.to_string().contains("does not exist"));
@@ -104,13 +101,10 @@ fn test_bridge_creation_with_real_model() {
 
     // This would need a real model path to work
     // For CI, we'd need to download a small test model
-    let model_path = std::env::var("MLX_TEST_MODEL_PATH")
-        .expect("Set MLX_TEST_MODEL_PATH to run this test");
+    let model_path =
+        std::env::var("MLX_TEST_MODEL_PATH").expect("Set MLX_TEST_MODEL_PATH to run this test");
 
-    let result = MLXSubprocessBridge::new(
-        PathBuf::from(model_path),
-        32000,
-    );
+    let result = MLXSubprocessBridge::new(PathBuf::from(model_path), 32000);
 
     match result {
         Ok(bridge) => {
@@ -133,13 +127,11 @@ fn test_bridge_health_check() {
         return;
     }
 
-    let model_path = std::env::var("MLX_TEST_MODEL_PATH")
-        .expect("Set MLX_TEST_MODEL_PATH to run this test");
+    let model_path =
+        std::env::var("MLX_TEST_MODEL_PATH").expect("Set MLX_TEST_MODEL_PATH to run this test");
 
-    let bridge = MLXSubprocessBridge::new(
-        PathBuf::from(model_path),
-        32000,
-    ).expect("Failed to create bridge");
+    let bridge = MLXSubprocessBridge::new(PathBuf::from(model_path), 32000)
+        .expect("Failed to create bridge");
 
     // Health check before loading should work
     let health = bridge.check_bridge_health();

@@ -45,12 +45,10 @@ fn test_q15_denominator_invariant_32767() {
 #[test]
 fn test_q15_max_matches_denominator_invariant() {
     assert_eq!(
-        ROUTER_GATE_Q15_MAX as f32,
-        ROUTER_GATE_Q15_DENOM,
+        ROUTER_GATE_Q15_MAX as f32, ROUTER_GATE_Q15_DENOM,
         "INVARIANT: Q15_MAX ({}) as f32 must equal Q15_DENOM ({}) \
          for exact 1.0 representation",
-        ROUTER_GATE_Q15_MAX,
-        ROUTER_GATE_Q15_DENOM
+        ROUTER_GATE_Q15_MAX, ROUTER_GATE_Q15_DENOM
     );
 }
 
@@ -78,16 +76,16 @@ fn test_q15_max_is_i16_max() {
 fn test_q15_encoding_formula_golden() {
     // Golden test cases: (input_f32, expected_q15)
     let golden_cases: Vec<(f32, i16)> = vec![
-        (0.0, 0),           // Zero
-        (1.0, 32767),       // Maximum (exact)
-        (0.5, 16384),       // Half: 0.5 * 32767 = 16383.5 → rounds to 16384
-        (0.25, 8192),       // Quarter: 0.25 * 32767 = 8191.75 → rounds to 8192
-        (0.75, 24575),      // Three-quarters: 0.75 * 32767 = 24575.25 → rounds to 24575
-        (0.1, 3277),        // 0.1 * 32767 = 3276.7 → rounds to 3277
-        (0.01, 328),        // 0.01 * 32767 = 327.67 → rounds to 328
-        (0.001, 33),        // 0.001 * 32767 = 32.767 → rounds to 33
-        (0.333, 10911),     // 1/3 approx: 0.333 * 32767 = 10911.411 → rounds to 10911
-        (0.666, 21823),     // 2/3 approx: 0.666 * 32767 = 21822.822 → rounds to 21823
+        (0.0, 0),       // Zero
+        (1.0, 32767),   // Maximum (exact)
+        (0.5, 16384),   // Half: 0.5 * 32767 = 16383.5 → rounds to 16384
+        (0.25, 8192),   // Quarter: 0.25 * 32767 = 8191.75 → rounds to 8192
+        (0.75, 24575),  // Three-quarters: 0.75 * 32767 = 24575.25 → rounds to 24575
+        (0.1, 3277),    // 0.1 * 32767 = 3276.7 → rounds to 3277
+        (0.01, 328),    // 0.01 * 32767 = 327.67 → rounds to 328
+        (0.001, 33),    // 0.001 * 32767 = 32.767 → rounds to 33
+        (0.333, 10911), // 1/3 approx: 0.333 * 32767 = 10911.411 → rounds to 10911
+        (0.666, 21823), // 2/3 approx: 0.666 * 32767 = 21822.822 → rounds to 21823
     ];
 
     for (input, expected) in golden_cases {
@@ -111,8 +109,8 @@ fn test_q15_decoding_formula_golden() {
     let golden_cases: Vec<(i16, f32)> = vec![
         (0, 0.0),
         (32767, 1.0),
-        (16384, 16384.0 / 32767.0),  // ~0.50001526
-        (8192, 8192.0 / 32767.0),    // ~0.25000763
+        (16384, 16384.0 / 32767.0), // ~0.50001526
+        (8192, 8192.0 / 32767.0),   // ~0.25000763
     ];
 
     for (input, expected) in golden_cases {
@@ -120,7 +118,9 @@ fn test_q15_decoding_formula_golden() {
         assert!(
             (computed - expected).abs() < 1e-7,
             "GOLDEN: Q15_DECODE({}) must be ~{}, got {}",
-            input, expected, computed
+            input,
+            expected,
+            computed
         );
     }
 }
@@ -144,7 +144,10 @@ fn test_q15_not_using_32768_regression() {
 
     // Verify recovery is exact with 32767 denominator
     let recovered_correct = q15_correct as f32 / 32767.0;
-    assert_eq!(recovered_correct, 1.0, "32767 denominator gives exact 1.0 recovery");
+    assert_eq!(
+        recovered_correct, 1.0,
+        "32767 denominator gives exact 1.0 recovery"
+    );
 
     // With 32768 denominator, recovery would NOT be exact 1.0
     let recovered_if_32768 = 32767_f32 / 32768.0;

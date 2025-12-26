@@ -117,16 +117,16 @@ pub mod limiter;
 pub mod linter_runner;
 pub mod llm_backend;
 pub mod memory;
+pub mod metrics;
 #[cfg(feature = "mlx-bridge")]
 pub mod mlx_subprocess_bridge;
+pub mod model_handle_cache;
+pub mod model_key;
+pub mod model_loader;
 #[cfg(feature = "mlx-bridge")]
 pub mod moe_prefix_cache;
 #[cfg(feature = "mlx-bridge")]
 pub mod moe_types;
-pub mod metrics;
-pub mod model_handle_cache;
-pub mod model_key;
-pub mod model_loader;
 pub mod panic_utils;
 pub mod patch_generator;
 pub mod patch_telemetry;
@@ -205,14 +205,14 @@ pub use linter_runner::{
 pub use llm_backend::{create_llm_backend, LlmBackendType, LocalLlmBackend, LocalLlmConfig};
 pub use memory::UmaPressureMonitor as MemoryMonitor;
 #[cfg(feature = "mlx-bridge")]
-pub use mlx_subprocess_bridge::{GenerationResult, MlxBridgeConfig, MLXSubprocessBridge};
-#[cfg(feature = "mlx-bridge")]
-pub use moe_types::{ExpertId, ExpertRouting, LayerIdx, SequenceExpertRouting};
+pub use mlx_subprocess_bridge::{GenerationResult, MLXSubprocessBridge, MlxBridgeConfig};
 pub use model_handle_cache::{
     CacheStats, CachedModelEntry, ModelHandle, ModelHandleCache, DEFAULT_MAX_PINNED_ENTRIES,
 };
 pub use model_key::{FusionMode, ModelCacheIdentityV2, ModelKey, QuantizationMode};
 pub use model_loader::{ModelInfo, ModelLoader, QwenModel, QwenModelConfig, TransformerLayer};
+#[cfg(feature = "mlx-bridge")]
+pub use moe_types::{ExpertId, ExpertRouting, LayerIdx, SequenceExpertRouting};
 pub use prefix_kv_cache::{PrefixKvCache, PrefixKvCacheStats, PrefixKvEntry};
 pub use stop_controller::{StopController, StopDecision};
 pub use telemetry_adapter::{
@@ -2281,7 +2281,10 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
 
         let (backend_supports_text_generation, device_name) = {
             let kernels = self.kernels.lock().await;
-            (kernels.supports_streaming_text_generation(), kernels.device_name().to_string())
+            (
+                kernels.supports_streaming_text_generation(),
+                kernels.device_name().to_string(),
+            )
         };
 
         if backend_supports_text_generation {
@@ -2369,7 +2372,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 determinism_mode_applied: Some(request.determinism_mode.clone()),
                 unavailable_pinned_adapters,
                 pinned_routing_fallback,
-                placement_trace: None, // No placement for text-gen mode
+                placement_trace: None,  // No placement for text-gen mode
                 stop_reason_code: None, // Text-gen backends handle stop internally
                 stop_reason_token_index: Some(generation_result.tokens_generated as u32),
                 stop_policy_digest_b3: Some(stop_policy_digest.to_hex()),
@@ -2417,8 +2420,11 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 determinism_ctx.as_ref(),
             )?;
 
-            let decision =
-                self.apply_routing_policy_to_decision(decision, request.routing_policy.as_ref(), base_only_request)?;
+            let decision = self.apply_routing_policy_to_decision(
+                decision,
+                request.routing_policy.as_ref(),
+                base_only_request,
+            )?;
 
             // Collect router decision for control plane transmission
             let input_token_id = if step == 0 {

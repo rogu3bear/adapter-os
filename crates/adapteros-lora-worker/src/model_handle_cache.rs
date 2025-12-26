@@ -2276,10 +2276,12 @@ mod tests {
         assert!(cache.is_pinned(&key2));
 
         // Third base model load should succeed (model loaded) but NOT be pinned
-        let result = cache.get_or_load_base_model(&key3, || {
-            Ok((ModelHandle::Metal(Arc::new(vec![3])), 1))
-        });
-        assert!(result.is_ok(), "Model should load even when pin limit exceeded");
+        let result =
+            cache.get_or_load_base_model(&key3, || Ok((ModelHandle::Metal(Arc::new(vec![3])), 1)));
+        assert!(
+            result.is_ok(),
+            "Model should load even when pin limit exceeded"
+        );
         assert_eq!(cache.len(), 3, "Model should be in cache");
         assert_eq!(cache.pinned_count(), 2, "Pinned count should not increase");
         assert!(!cache.is_pinned(&key3), "Third model should NOT be pinned");
@@ -2300,7 +2302,11 @@ mod tests {
 
         // Second pin of same key should succeed (idempotent)
         assert!(cache.pin(&key));
-        assert_eq!(cache.pinned_count(), 1, "Pinning same key twice shouldn't double-count");
+        assert_eq!(
+            cache.pinned_count(),
+            1,
+            "Pinning same key twice shouldn't double-count"
+        );
     }
 
     #[test]
@@ -2344,8 +2350,8 @@ mod tests {
         use adapteros_telemetry::metrics::critical_components::CriticalComponentMetrics;
 
         let metrics = Arc::new(CriticalComponentMetrics::new().expect("metrics"));
-        let cache = ModelHandleCache::new_with_metrics(1024, metrics.clone())
-            .with_max_pinned_entries(2);
+        let cache =
+            ModelHandleCache::new_with_metrics(1024, metrics.clone()).with_max_pinned_entries(2);
 
         let key1 = make_key(BackendType::Metal, b"model1");
         let key2 = make_key(BackendType::Metal, b"model2");

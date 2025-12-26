@@ -174,7 +174,10 @@ mod mlx_rs_impl {
         /// // indices: which experts to use
         /// // gates: how much weight to give each expert's output
         /// ```
-        pub fn select_topk_experts(&self, router_logits: &MlxArray) -> Result<(MlxArray, MlxArray)> {
+        pub fn select_topk_experts(
+            &self,
+            router_logits: &MlxArray,
+        ) -> Result<(MlxArray, MlxArray)> {
             let k = self.config.num_experts_per_token;
             let probs = router_logits.softmax(-1)?;
 
@@ -198,7 +201,10 @@ mod mlx_rs_impl {
             since = "0.1.0",
             note = "use select_topk_experts instead for clearer semantics"
         )]
-        pub fn compute_topk_gating(&self, router_logits: &MlxArray) -> Result<(MlxArray, MlxArray)> {
+        pub fn compute_topk_gating(
+            &self,
+            router_logits: &MlxArray,
+        ) -> Result<(MlxArray, MlxArray)> {
             self.select_topk_experts(router_logits)
         }
 
@@ -402,9 +408,10 @@ impl QuantizedMoeLayer {
         expert_indices: *mut mlx_array_t,
         expert_scores: *mut mlx_array_t,
     ) -> Result<*mut mlx_array_t> {
-        let weights = self.expert_weights.as_ref().ok_or_else(|| {
-            AosError::Internal("MoE layer weights not initialized".to_string())
-        })?;
+        let weights = self
+            .expert_weights
+            .as_ref()
+            .ok_or_else(|| AosError::Internal("MoE layer weights not initialized".to_string()))?;
 
         unsafe {
             mlx_clear_error();
@@ -980,11 +987,9 @@ mod tests {
             let layer = MlxRsMoeLayer::new(config);
 
             // Create test logits
-            let logits = MlxArray::from_slice_f32(
-                &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0],
-                &[1, 1, 8],
-            )
-            .unwrap();
+            let logits =
+                MlxArray::from_slice_f32(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0], &[1, 1, 8])
+                    .unwrap();
 
             // Call both methods
             let (new_indices, new_gates) = layer.select_topk_experts(&logits).unwrap();

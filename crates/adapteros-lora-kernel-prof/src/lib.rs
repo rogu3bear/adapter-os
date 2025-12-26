@@ -169,15 +169,19 @@ impl MetalProfiler {
         let cpu_elapsed_ns = cpu_elapsed.as_nanos() as u64;
 
         // Use GPU timing as primary, fall back to CPU if something goes wrong
-        let execution_ns = if elapsed_ns > 0 { elapsed_ns } else { cpu_elapsed_ns };
+        let execution_ns = if elapsed_ns > 0 {
+            elapsed_ns
+        } else {
+            cpu_elapsed_ns
+        };
 
         // Query device for estimated thread count from command buffer
         // Note: Actual thread counts require MTLCounterSampleBuffer which needs
         // more complex setup. For now we provide timing measurements.
         let counters = ProfileCounters {
-            threads: 0, // Requires MTLCounterSampleBuffer for actual counts
+            threads: 0,   // Requires MTLCounterSampleBuffer for actual counts
             occupancy: 0, // Requires GPU-specific performance counters
-            mem_read: 0, // Requires MTLCounterSet for memory bandwidth
+            mem_read: 0,  // Requires MTLCounterSet for memory bandwidth
             mem_write: 0, // Requires MTLCounterSet for memory bandwidth
             execution_ns,
         };
@@ -233,7 +237,7 @@ impl MetalProfiler {
         let counters = ProfileCounters {
             threads: thread_count,
             occupancy,
-            mem_read: 0, // Would need MTLCounterSet integration
+            mem_read: 0,  // Would need MTLCounterSet integration
             mem_write: 0, // Would need MTLCounterSet integration
             execution_ns,
         };
