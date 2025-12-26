@@ -16,7 +16,7 @@ pub mod path_routing;
 pub mod policy_mask;
 pub mod scoring;
 
-use adapteros_core::{determinism::DeterminismContext, B3Hash, Result};
+use adapteros_core::{determinism::DeterminismContext, AosError, B3Hash, Result};
 use policy_mask::{PolicyMask, PolicyOverrideFlags};
 use rand::Rng;
 use rand_chacha::ChaCha20Rng;
@@ -56,6 +56,20 @@ fn determinism_debug_enabled() -> bool {
         }
         Err(_) => false,
     })
+}
+
+/// Ensure temperature is usable for deterministic softmax.
+/// Falls back to 1.0 when tau is non-positive or non-finite.
+fn sanitize_tau(tau: f32) -> f32 {
+    if !tau.is_finite() || tau <= 0.0 {
+        tracing::warn!(
+            tau = tau,
+            "Router temperature must be positive and finite; falling back to 1.0"
+        );
+        1.0
+    } else {
+        tau
+    }
 }
 
 /// Router determinism configuration
