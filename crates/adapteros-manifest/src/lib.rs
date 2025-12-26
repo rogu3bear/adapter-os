@@ -42,7 +42,7 @@ use adapteros_core::{AosError, B3Hash, Result, CPID};
 use adapteros_types::coreml::CoreMLPlacementSpec;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 /// RoPE scaling configuration
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]

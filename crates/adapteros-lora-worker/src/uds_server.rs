@@ -542,7 +542,6 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
                     placement: None,
                     routing_policy: None,
                     stop_policy: None,
-                    determinism: None,
                 };
 
                 // #region agent log
