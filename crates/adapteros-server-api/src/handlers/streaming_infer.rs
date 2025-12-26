@@ -153,6 +153,7 @@ impl From<(&StreamingInferRequest, &Claims)> for InferenceRequestInternal {
             router_seed: None, // Use default router behavior for streaming
             worker_auth_token: None,
             policy_mask_digest: None, // Streaming requests don't use policy hooks
+            utf8_healing: None,
         }
     }
 }

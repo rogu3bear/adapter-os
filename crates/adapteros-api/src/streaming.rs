@@ -315,7 +315,6 @@ async fn generate_streaming_response<
         placement: None,
         routing_policy: None,
         stop_policy: None,
-        determinism: None,
     };
 
     debug!(
@@ -453,7 +452,6 @@ pub async fn completion_handler<K: FusedKernels + StrictnessControl + Send + Syn
         placement: None,
         routing_policy: None,
         stop_policy: None,
-        determinism: None,
     };
 
     // Run inference
