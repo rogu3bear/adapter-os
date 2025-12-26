@@ -185,6 +185,17 @@ jobs:
         run: cargo test --test determinism_smoke -- --nocapture
       - name: Run determinism check
         run: make determinism-check
+      - name: Scan build for -ffast-math flags
+        run: |
+          set -euo pipefail
+          if [ ! -d target ]; then
+            cargo check --locked --all-features
+          fi
+          if rg "-ffast-math" target; then
+            echo "::error::-ffast-math detected in build outputs"
+            exit 1
+          fi
+          echo "✓ No -ffast-math flags detected in build artifacts"
 
   cli-models-seed:
     name: CLI Models Seed
@@ -314,6 +325,20 @@ jobs:
 
       - name: Generate OpenAPI spec from Rust backend
         run: cargo run -p adapteros-server-api --bin export-openapi -- target/codegen/openapi.json
+
+      - name: Check committed OpenAPI spec drift
+        run: |
+          if [ -f docs/api/openapi.json ]; then
+            if ! diff -u docs/api/openapi.json target/codegen/openapi.json > /tmp/openapi.diff; then
+              echo "::error::docs/api/openapi.json is out of date. Regenerate the spec and commit the changes."
+              head -n 200 /tmp/openapi.diff
+              exit 1
+            else
+              echo "✓ docs/api/openapi.json matches generated spec"
+            fi
+          else
+            echo "::warning::docs/api/openapi.json missing; skipping drift check"
+          fi
 
       - name: Generate TypeScript types from OpenAPI spec
         run: |

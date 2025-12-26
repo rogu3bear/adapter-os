@@ -66,7 +66,7 @@ pub fn generate_sbom() -> Result<()> {
     // Serialize to JSON
     let json = doc.to_json()?;
 
-    // Write to target/sbom.spdx.json
+    // Write to target/sbom.spdx.json for local validation
     let output_dir = workspace_root.join("target");
     fs::create_dir_all(&output_dir)?;
 
@@ -74,6 +74,13 @@ pub fn generate_sbom() -> Result<()> {
     fs::write(&output_path, &json).context("Failed to write SBOM")?;
 
     println!("✓ SBOM generated: {}", output_path.display());
+
+    // Mirror into tracked snapshot to keep CI and lockfile in sync
+    let tracked_dir = workspace_root.join("sbom");
+    fs::create_dir_all(&tracked_dir)?;
+    let tracked_path = tracked_dir.join("cargo-sbom.json");
+    fs::write(&tracked_path, &json).context("Failed to write tracked SBOM")?;
+    println!("✓ SBOM snapshot updated: {}", tracked_path.display());
 
     // Sign if key is present
     if let Ok(key_hex) = std::env::var("SBOM_SIGNING_KEY") {
