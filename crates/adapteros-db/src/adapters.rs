@@ -1654,15 +1654,22 @@ impl Db {
     }
 
     /// Get adapter activation stats
-    pub async fn get_adapter_stats(&self, adapter_id: &str) -> Result<(i64, i64, f64)> {
+    pub async fn get_adapter_stats(
+        &self,
+        tenant_id: &str,
+        adapter_id: &str,
+    ) -> Result<(i64, i64, f64)> {
         let row = sqlx::query(
             "SELECT 
-                COUNT(*) as total,
-                SUM(selected) as selected_count,
-                AVG(gate_value) as avg_gate
-             FROM adapter_activations 
-             WHERE adapter_id = ?",
+                COUNT(aa.id) as total,
+                SUM(aa.selected) as selected_count,
+                AVG(aa.gate_value) as avg_gate
+             FROM adapter_activations aa
+             JOIN adapters a ON aa.adapter_id = a.id
+             WHERE a.tenant_id = ? AND (a.adapter_id = ? OR a.id = ?)",
         )
+        .bind(tenant_id)
+        .bind(adapter_id)
         .bind(adapter_id)
         .fetch_one(self.pool())
         .await
@@ -1680,43 +1687,44 @@ impl Db {
     /// Update adapter state
     pub async fn update_adapter_state(
         &self,
+        tenant_id: &str,
         adapter_id: &str,
         state: &str,
         reason: &str,
     ) -> Result<()> {
         sqlx::query(
-            "UPDATE adapters SET current_state = ?, updated_at = datetime('now') WHERE adapter_id = ?"
+            "UPDATE adapters SET current_state = ?, updated_at = datetime('now') WHERE tenant_id = ? AND (adapter_id = ? OR id = ?)"
         )
         .bind(state)
+        .bind(tenant_id)
+        .bind(adapter_id)
         .bind(adapter_id)
         .execute(self.pool())
         .await
         .map_err(|e| AosError::database(e.to_string()))?;
 
         // KV write (dual-write mode)
-        if let Some(tenant_id) = self.get_adapter_tenant_id(adapter_id).await? {
-            if let Some(repo) = self.get_adapter_kv_repo(&tenant_id) {
-                if let Err(e) = repo
-                    .update_adapter_state_kv(adapter_id, state, reason)
-                    .await
-                {
-                    if self.dual_write_requires_strict() {
-                        error!(
-                            error = %e,
-                            adapter_id = %adapter_id,
-                            tenant_id = %tenant_id,
-                            mode = "dual-write-strict",
-                            "CONSISTENCY WARNING: SQL state update committed but KV write failed in strict mode. Use ensure_consistency() to repair."
-                        );
-                        return Err(AosError::database(format!(
-                            "State update succeeded in SQL but failed in KV (strict mode): {e}"
-                        )));
-                    } else {
-                        warn!(error = %e, adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "dual-write", "Failed to update adapter state in KV backend");
-                    }
+        if let Some(repo) = self.get_adapter_kv_repo(tenant_id) {
+            if let Err(e) = repo
+                .update_adapter_state_kv(adapter_id, state, reason)
+                .await
+            {
+                if self.dual_write_requires_strict() {
+                    error!(
+                        error = %e,
+                        adapter_id = %adapter_id,
+                        tenant_id = %tenant_id,
+                        mode = "dual-write-strict",
+                        "CONSISTENCY WARNING: SQL state update committed but KV write failed in strict mode. Use ensure_consistency() to repair."
+                    );
+                    return Err(AosError::database(format!(
+                        "State update succeeded in SQL but failed in KV (strict mode): {e}"
+                    )));
                 } else {
-                    debug!(adapter_id = %adapter_id, tenant_id = %tenant_id, state = %state, mode = "dual-write", "Adapter state updated in both SQL and KV backends");
+                    warn!(error = %e, adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "dual-write", "Failed to update adapter state in KV backend");
                 }
+            } else {
+                debug!(adapter_id = %adapter_id, tenant_id = %tenant_id, state = %state, mode = "dual-write", "Adapter state updated in both SQL and KV backends");
             }
         }
 
@@ -1726,40 +1734,45 @@ impl Db {
     // Pin/unpin functionality moved to pinned_adapters.rs
 
     /// Update adapter memory usage
-    pub async fn update_adapter_memory(&self, adapter_id: &str, memory_bytes: i64) -> Result<()> {
+    pub async fn update_adapter_memory(
+        &self,
+        tenant_id: &str,
+        adapter_id: &str,
+        memory_bytes: i64,
+    ) -> Result<()> {
         sqlx::query(
-            "UPDATE adapters SET memory_bytes = ?, updated_at = datetime('now') WHERE adapter_id = ?"
+            "UPDATE adapters SET memory_bytes = ?, updated_at = datetime('now') WHERE tenant_id = ? AND (adapter_id = ? OR id = ?)"
         )
         .bind(memory_bytes)
+        .bind(tenant_id)
+        .bind(adapter_id)
         .bind(adapter_id)
         .execute(self.pool())
         .await
         .map_err(|e| AosError::database(e.to_string()))?;
 
         // KV write (dual-write mode)
-        if let Some(tenant_id) = self.get_adapter_tenant_id(adapter_id).await? {
-            if let Some(repo) = self.get_adapter_kv_repo(&tenant_id) {
-                if let Err(e) = repo
-                    .update_adapter_memory_kv(adapter_id, memory_bytes)
-                    .await
-                {
-                    if self.dual_write_requires_strict() {
-                        error!(
-                            error = %e,
-                            adapter_id = %adapter_id,
-                            tenant_id = %tenant_id,
-                            mode = "dual-write-strict",
-                            "CONSISTENCY WARNING: SQL memory update committed but KV write failed in strict mode. Use ensure_consistency() to repair."
-                        );
-                        return Err(AosError::database(format!(
-                            "Memory update succeeded in SQL but failed in KV (strict mode): {e}"
-                        )));
-                    } else {
-                        warn!(error = %e, adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "dual-write", "Failed to update adapter memory in KV backend");
-                    }
+        if let Some(repo) = self.get_adapter_kv_repo(tenant_id) {
+            if let Err(e) = repo
+                .update_adapter_memory_kv(adapter_id, memory_bytes)
+                .await
+            {
+                if self.dual_write_requires_strict() {
+                    error!(
+                        error = %e,
+                        adapter_id = %adapter_id,
+                        tenant_id = %tenant_id,
+                        mode = "dual-write-strict",
+                        "CONSISTENCY WARNING: SQL memory update committed but KV write failed in strict mode. Use ensure_consistency() to repair."
+                    );
+                    return Err(AosError::database(format!(
+                        "Memory update succeeded in SQL but failed in KV (strict mode): {e}"
+                    )));
                 } else {
-                    debug!(adapter_id = %adapter_id, tenant_id = %tenant_id, memory_bytes = %memory_bytes, mode = "dual-write", "Adapter memory updated in both SQL and KV backends");
+                    warn!(error = %e, adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "dual-write", "Failed to update adapter memory in KV backend");
                 }
+            } else {
+                debug!(adapter_id = %adapter_id, tenant_id = %tenant_id, memory_bytes = %memory_bytes, mode = "dual-write", "Adapter memory updated in both SQL and KV backends");
             }
         }
 
