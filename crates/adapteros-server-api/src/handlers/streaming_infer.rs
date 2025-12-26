@@ -1573,6 +1573,7 @@ impl StreamState {
             created_at: std::time::Instant::now(),
             worker_auth_token: None,
             policy_mask_digest: None, // Streaming doesn't use policy enforcement hooks
+            utf8_healing: None,
         };
 
         // Execute via InferenceCore - the single entry point for all inference

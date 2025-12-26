@@ -944,6 +944,7 @@ impl<'a> InferenceCore<'a> {
             placement: None,
             adapter_strength_overrides: request.adapter_strength_overrides.clone(),
             stop_policy: request.stop_policy.clone(),
+            utf8_healing: request.utf8_healing.unwrap_or(true),
         };
 
         // 4. Call worker via UDS
