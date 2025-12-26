@@ -1121,6 +1121,8 @@ pub struct Worker<K: FusedKernels + StrictnessControl + Send + Sync> {
     evidence_retriever: Option<EvidenceRetriever>,
     /// KV cache for transformer attention with generation tracking
     kv_cache: Arc<StdMutex<KvCache>>,
+    /// MoE-specific prefix cache for expert pre-warming and free tokens
+    moe_prefix_cache: Arc<crate::moe_prefix_cache::MoEPrefixCache>,
     /// Last stack hash for change detection (reserved for stack caching)
     _last_stack_hash: RwLock<Option<B3Hash>>,
     /// Backends available to this worker (primary + optional fallback)
@@ -1255,6 +1257,10 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             adapteros_core::constants::BYTES_PER_GB,
             quota_manager,
         ))); // 1GB default
+
+        // Initialize MoE prefix cache (512MB default budget for metadata)
+        let moe_prefix_cache = Arc::new(crate::moe_prefix_cache::MoEPrefixCache::new(512 * 1024 * 1024));
+
         let last_stack_hash = RwLock::new(None);
 
         // Initialize profiler
@@ -1382,6 +1388,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             embedding_model,
             evidence_retriever,
             kv_cache,
+            moe_prefix_cache,
             _last_stack_hash: last_stack_hash,
             available_backends,
             coreml_package_hash,
