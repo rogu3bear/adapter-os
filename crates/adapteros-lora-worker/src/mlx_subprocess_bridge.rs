@@ -313,6 +313,9 @@ enum BridgeRequest {
         collect_routing: bool,
     },
     HealthCheck,
+    Prewarm {
+        experts: Vec<(usize, u8)>,
+    },
     Shutdown,
 }
 
@@ -406,6 +409,10 @@ enum BridgeResponse {
     HealthResponse {
         status: String,
         model_loaded: bool,
+    },
+    PrewarmResponse {
+        status: String,
+        experts_loaded: usize,
     },
     ShutdownAck,
     Error {
@@ -1070,6 +1077,45 @@ impl MLXSubprocessBridge {
             ))),
             _ => Err(AosError::Kernel(format!(
                 "Unexpected response to health check: {:?}",
+                response
+            ))),
+        }
+    }
+
+    /// Pre-warm specific experts in the model
+    pub fn prewarm_experts(&self, experts: Vec<(usize, u8)>) -> Result<usize> {
+        if experts.is_empty() {
+            return Ok(0);
+        }
+
+        self.ensure_running()?;
+
+        self.send_request(&BridgeRequest::Prewarm { experts })?;
+
+        let mut process_guard = self.process.lock().unwrap();
+        let process = process_guard
+            .as_mut()
+            .ok_or_else(|| AosError::Kernel("Bridge process not started".to_string()))?;
+
+        let response = Self::read_response(&mut process.stdout)?;
+
+        match response {
+            BridgeResponse::PrewarmResponse {
+                status,
+                experts_loaded,
+            } => {
+                if status == "success" {
+                    Ok(experts_loaded)
+                } else {
+                    Err(AosError::Kernel("Pre-warm failed".to_string()))
+                }
+            }
+            BridgeResponse::Error { error, error_type } => Err(AosError::Kernel(format!(
+                "Pre-warm failed ({}): {}",
+                error_type, error
+            ))),
+            _ => Err(AosError::Kernel(format!(
+                "Unexpected response to pre-warm: {:?}",
                 response
             ))),
         }

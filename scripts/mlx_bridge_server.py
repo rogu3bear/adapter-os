@@ -118,10 +118,10 @@ class MLXBridgeServer:
                 raise RuntimeError(f"Failed to import mlx-lm. Is it installed? Error: {e}")
 
             # Load model and tokenizer
-            log("Loading model and tokenizer...")
+            log("Loading model and tokenizer (lazy=True)...")
             try:
-                # Try standard load first
-                self.model, self.tokenizer = self.load_fn(self.model_path)
+                # Try standard load first with lazy=True
+                self.model, self.tokenizer = self.load_fn(self.model_path, lazy=True)
             except Exception as e:
                 # Fallback: load with slow tokenizer for problematic tokenizer.json files
                 log(f"Standard load failed: {e}")
@@ -140,9 +140,9 @@ class MLXBridgeServer:
                         tokenizer_json.rename(tokenizer_backup)
                         renamed = True
 
-                    # Load model using mlx-lm utils
-                    log("Loading model weights with mlx_lm.utils.load_model...")
-                    model_result = utils.load_model(Path(self.model_path), lazy=False)
+                    # Load model using mlx-lm utils with lazy=True
+                    log("Loading model weights with mlx_lm.utils.load_model(lazy=True)...")
+                    model_result = utils.load_model(Path(self.model_path), lazy=True)
                     # load_model returns (model, config) tuple
                     if isinstance(model_result, tuple):
                         self.model, model_config = model_result
@@ -579,6 +579,44 @@ class MLXBridgeServer:
             log(error_msg)
             send_error(error_msg, "diagnose_error")
 
+    def handle_prewarm(self, request: dict):
+        """Handle prewarm request - trigger loading of specific experts"""
+        try:
+            import mlx.core as mx
+            experts = request.get("experts", [])  # List of [layer_idx, expert_id]
+            log(f"Pre-warming {len(experts)} experts...")
+
+            loaded_count = 0
+            for layer_idx, expert_id in experts:
+                try:
+                    # Access the specific expert weights to trigger lazy loading
+                    # This structure works for Qwen3-MoE and Mixtral-style models in mlx-lm
+                    if hasattr(self.model, 'model') and hasattr(self.model.model, 'layers'):
+                        layer = self.model.model.layers[layer_idx]
+                        if hasattr(layer, 'mlp') and hasattr(layer.mlp, 'switch_mlp'):
+                            # Qwen3-style
+                            experts_module = layer.mlp.switch_mlp
+                            # Experts are typically stacked in a single linear layer or in a list
+                            # For stacked experts, we index the weight matrix
+                            if hasattr(experts_module, 'gate_proj'):
+                                mx.eval(experts_module.gate_proj.weight[expert_id])
+                                mx.eval(experts_module.up_proj.weight[expert_id])
+                                mx.eval(experts_module.down_proj.weight[expert_id])
+                                loaded_count += 1
+                except Exception as e:
+                    log(f"Failed to pre-warm expert {expert_id} in layer {layer_idx}: {e}")
+
+            send_response({
+                "type": "prewarm_response",
+                "status": "success",
+                "experts_loaded": loaded_count
+            })
+
+        except Exception as e:
+            error_msg = f"Pre-warm failed: {str(e)}\n{traceback.format_exc()}"
+            log(error_msg)
+            send_error(error_msg, "prewarm_error")
+
     def run(self):
         """Main request handling loop"""
         log("Bridge server ready, waiting for requests...")
@@ -599,6 +637,8 @@ class MLXBridgeServer:
                         self.handle_health_check()
                     elif request_type == "diagnose":
                         self.handle_diagnose()
+                    elif request_type == "prewarm":
+                        self.handle_prewarm(request)
                     elif request_type == "shutdown":
                         log("Received shutdown request")
                         send_response({"type": "shutdown_ack"})
