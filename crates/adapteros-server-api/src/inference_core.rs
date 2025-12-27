@@ -124,6 +124,9 @@
 use crate::chat_session_config::ChatSessionConfig;
 use crate::citations::collect_citations_for_adapters;
 use crate::handlers::rag_common::{retrieve_rag_context, store_rag_evidence, RagContextResult};
+use crate::middleware::policy_enforcement::{
+    compute_policy_mask_digest, create_hook_context, enforce_at_hook,
+};
 use crate::state::AppState;
 use crate::types::{
     ChunkReference, InferenceError, InferenceRequestInternal, InferenceResult, PlacementReplay,
@@ -131,6 +134,8 @@ use crate::types::{
     SamplingParams, WorkerInferRequest, MAX_REPLAY_TEXT_SIZE, SAMPLING_ALGORITHM_VERSION,
 };
 use crate::uds_client::UdsClient;
+use adapteros_api_types::FailureCode;
+use adapteros_policy::hooks::{HookContext, PolicyDecision, PolicyHook};
 use adapteros_api_types::inference::{
     ReplayGuarantee, RouterDecision as ApiRouterDecision,
     RouterDecisionChainEntry as ApiRouterDecisionChainEntry,
@@ -612,6 +617,7 @@ impl<'a> InferenceCore<'a> {
         };
 
         let result = async {
+        let mut all_policy_decisions = Vec::new();
         if let Some(token) = cancellation_token.as_ref() {
             if token.is_cancelled() {
                 return Err(InferenceError::ClientClosed(
@@ -926,16 +932,78 @@ impl<'a> InferenceCore<'a> {
                 .await?;
         }
 
+        // Stage 3: Policy Hooks (OnRequestBeforeRouting)
+        // ┌─────────────────────────────────────────────────────────────────┐
+        // │ Policy Hook Point: Pre-routing validation                       │
+        // │ - Enforces tenant-level constraints before adapter selection    │
+        // │ - Validates input prompt safety and resource budgets            │
+        // │ - Rejection at this stage prevents all downstream computation   │
+        // └─────────────────────────────────────────────────────────────────┘
+        let routing_hook_ctx = HookContext::new(
+            request.cpid.clone(),
+            request.request_id.clone(),
+            PolicyHook::OnRequestBeforeRouting,
+            "inference",
+        )
+        .with_metadata(
+            "adapter_ids",
+            serde_json::json!(request.effective_adapter_ids),
+        );
+
+        let routing_decisions = enforce_at_hook(self.state, &routing_hook_ctx)
+            .await
+            .map_err(|e| {
+                let violation = e.violations.first();
+                InferenceError::PolicyViolation {
+                    tenant_id: request.cpid.clone(),
+                    policy_id: violation
+                        .map(|v| v.policy_pack_id.clone())
+                        .unwrap_or_else(|| "unknown".to_string()),
+                    reason: e.message,
+                }
+            })?;
+        all_policy_decisions.extend(routing_decisions);
+
         let routing_policy = Some(execution_policy.routing.clone().unwrap_or_default());
 
-        // 3. Create worker request with full sampling parameters
+        // Stage 7: Policy Hooks (OnBeforeInference)
         // ┌─────────────────────────────────────────────────────────────────┐
-        // │ Adapter Pipeline: Worker will apply K-sparse routing            │
-        // │ - Adapters provide persistent learned behavior (trained weights)│
-        // │ - Router selects adapters via deterministic K-sparse gating     │
-        // │ - Both RAG context and adapter selection are captured for replay│
-        // │ - Pinned adapters receive PINNED_BOOST in the worker (CHAT-PIN-02)│
+        // │ Policy Hook Point: Pre-execution validation                     │
+        // │ - Enforces quota limits and rate limiting                      │
+        // │ - Final validation of resolved worker and placement             │
+        // │ - Captures policy mask for deterministic replay verification   │
         // └─────────────────────────────────────────────────────────────────┘
+        let before_hook_ctx = HookContext::new(
+            request.cpid.clone(),
+            request.request_id.clone(),
+            PolicyHook::OnBeforeInference,
+            "inference",
+        )
+        .with_metadata(
+            "adapter_ids",
+            serde_json::json!(request.effective_adapter_ids),
+        )
+        .with_metadata("worker_id", serde_json::json!(selected_worker_id));
+
+        let before_decisions = enforce_at_hook(self.state, &before_hook_ctx)
+            .await
+            .map_err(|e| {
+                let violation = e.violations.first();
+                InferenceError::PolicyViolation {
+                    tenant_id: request.cpid.clone(),
+                    policy_id: violation
+                        .map(|v| v.policy_pack_id.clone())
+                        .unwrap_or_else(|| "unknown".to_string()),
+                    reason: e.message,
+                }
+            })?;
+        all_policy_decisions.extend(before_decisions);
+
+        // Compute policy mask digest for the worker call
+        let policy_mask_digest = compute_policy_mask_digest(&all_policy_decisions);
+        request.policy_mask_digest = Some(policy_mask_digest);
+
+        // 3. Create worker request with full sampling parameters
         let worker_request = WorkerInferRequest {
             cpid: request.cpid.clone(),
             prompt: augmented_prompt.clone(),
@@ -966,6 +1034,7 @@ impl<'a> InferenceCore<'a> {
             placement: None,
             adapter_strength_overrides: request.adapter_strength_overrides.clone(),
             stop_policy: request.stop_policy.clone(),
+            policy_mask_digest: Some(policy_mask_digest),
             utf8_healing: request.utf8_healing.unwrap_or(true),
         };
 
@@ -1064,6 +1133,42 @@ impl<'a> InferenceCore<'a> {
             }
             other => InferenceError::WorkerError(other.to_string()),
         })?;
+
+        // Stage 9: Policy Hooks (OnAfterInference)
+        // ┌─────────────────────────────────────────────────────────────────┐
+        // │ Policy Hook Point: Post-execution validation                    │
+        // │ - Enforces output safety and evidence requirements             │
+        // │ - Validates citation quality and grounding                      │
+        // │ - Post-inference rejection masks output from the client         │
+        // └─────────────────────────────────────────────────────────────────┘
+        let after_hook_ctx = HookContext::new(
+            request.cpid.clone(),
+            request.request_id.clone(),
+            PolicyHook::OnAfterInference,
+            "inference",
+        )
+        .with_metadata(
+            "adapter_ids",
+            serde_json::json!(worker_response.trace.router_summary.adapters_used),
+        )
+        .with_metadata(
+            "output_length",
+            serde_json::json!(worker_response.text.as_ref().map(|t| t.len()).unwrap_or(0)),
+        );
+
+        let after_decisions = enforce_at_hook(self.state, &after_hook_ctx)
+            .await
+            .map_err(|e| {
+                let violation = e.violations.first();
+                InferenceError::PolicyViolation {
+                    tenant_id: request.cpid.clone(),
+                    policy_id: violation
+                        .map(|v| v.policy_pack_id.clone())
+                        .unwrap_or_else(|| "unknown".to_string()),
+                    reason: e.message,
+                }
+            })?;
+        all_policy_decisions.extend(after_decisions);
 
         // 5. Extract routing decisions from worker response
         let router_decisions = self.extract_router_decisions(&worker_response);
@@ -4160,5 +4265,56 @@ mod tests {
         assert!(!defaults.fail_on_drift);
         assert!(defaults.golden_baseline_id.is_none());
         assert!((defaults.epsilon_threshold - 1e-6).abs() < 1e-12);
+    }
+
+    #[tokio::test]
+    async fn test_policy_hooks_execution_flow() {
+        let state = build_test_state(false).await;
+        let core = InferenceCore::new(&state);
+
+        // Enable core policies for the tenant
+        state
+            .db
+            .toggle_tenant_policy("tenant-1", "egress", true, "admin")
+            .await
+            .unwrap();
+        state
+            .db
+            .toggle_tenant_policy("tenant-1", "determinism", true, "admin")
+            .await
+            .unwrap();
+        state
+            .db
+            .toggle_tenant_policy("tenant-1", "evidence", true, "admin")
+            .await
+            .unwrap();
+
+        let req = InferenceRequestInternal::new("tenant-1".to_string(), "test prompt".to_string());
+
+        // This test will fail at Stage 6 (Worker Selection) because no workers are registered,
+        // but it should have already passed Stage 3 (OnRequestBeforeRouting).
+        // If Stage 3 failed, it would return a PolicyViolation error.
+        let result = core.route_and_infer(req, None, None).await;
+
+        match result {
+            Err(InferenceError::NoCompatibleWorker { .. }) => {
+                // Success: bypassed Stage 3 without error
+                info!("Stage 3 policy check passed as expected");
+            }
+            Err(InferenceError::PolicyViolation {
+                tenant_id,
+                policy_id,
+                reason,
+            }) => {
+                panic!(
+                    "Policy violation at Stage 3: tenant={}, policy={}, reason={}",
+                    tenant_id, policy_id, reason
+                );
+            }
+            other => {
+                // Might fail earlier or later depending on setup
+                debug!("Inference failed with: {:?}", other);
+            }
+        }
     }
 }

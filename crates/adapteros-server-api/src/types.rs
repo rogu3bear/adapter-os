@@ -1158,6 +1158,10 @@ pub struct WorkerInferRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stop_policy: Option<adapteros_api_types::inference::StopPolicySpec>,
 
+    /// BLAKE3 digest of policy decisions applied during request processing
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy_mask_digest: Option<[u8; 32]>,
+
     /// Enable UTF-8 token healing (default: true)
     /// When enabled, incomplete multi-byte UTF-8 sequences are buffered until complete
     #[serde(default = "default_utf8_healing_worker")]
@@ -2811,6 +2815,8 @@ pub struct InferenceRequestInternal {
     /// When a session_id is provided and multi-turn context is built, this hash
     /// enables deterministic replay verification. Stored in replay_metadata.
     pub chat_context_hash: Option<String>,
+    /// User claims for policy enforcement
+    pub claims: Option<crate::auth::Claims>,
     /// BLAKE3 digest of policy decisions applied during request processing
     ///
     /// This captures the policy enforcement state for deterministic replay.
@@ -3147,6 +3153,15 @@ pub enum InferenceError {
         /// Optional model key identifier (for diagnostics)
         model_key: Option<String>,
     },
+    /// Policy violation blocked inference
+    PolicyViolation {
+        /// Tenant ID for the request
+        tenant_id: String,
+        /// ID of the policy that was violated
+        policy_id: String,
+        /// Reason for the violation
+        reason: String,
+    },
 }
 
 impl std::fmt::Display for InferenceError {
@@ -3195,6 +3210,15 @@ impl std::fmt::Display for InferenceError {
                 "Model cache budget exceeded: needed {} MB, freed {} MB (pinned={}, active={}), max {} MB",
                 needed_mb, freed_mb, pinned_count, active_count, max_mb
             ),
+            Self::PolicyViolation {
+                tenant_id,
+                policy_id,
+                reason,
+            } => write!(
+                f,
+                "Policy violation for tenant {} (policy: {}): {}",
+                tenant_id, policy_id, reason
+            ),
         }
     }
 }
@@ -3221,6 +3245,7 @@ impl InferenceError {
             Self::AdapterNotFound(_) => StatusCode::NOT_FOUND,
             Self::WorkerIdUnavailable { .. } => StatusCode::SERVICE_UNAVAILABLE,
             Self::CacheBudgetExceeded { .. } => StatusCode::SERVICE_UNAVAILABLE,
+            Self::PolicyViolation { .. } => StatusCode::FORBIDDEN,
         }
     }
 
@@ -3242,6 +3267,7 @@ impl InferenceError {
             Self::AdapterNotFound(_) => "ADAPTER_NOT_FOUND",
             Self::WorkerIdUnavailable { .. } => "WORKER_ID_UNAVAILABLE",
             Self::CacheBudgetExceeded { .. } => "CACHE_BUDGET_EXCEEDED",
+            Self::PolicyViolation { .. } => "POLICY_VIOLATION",
         }
     }
 
@@ -3278,6 +3304,7 @@ impl InferenceError {
             Self::AdapterNotFound(_) => None,
             Self::WorkerIdUnavailable { .. } => Some(FailureCode::BackendFallback),
             Self::CacheBudgetExceeded { .. } => Some(FailureCode::OutOfMemory),
+            Self::PolicyViolation { .. } => Some(FailureCode::PolicyDivergence),
         }
     }
 }
@@ -3327,6 +3354,7 @@ impl From<(&InferRequest, &Claims)> for InferenceRequestInternal {
             session_id: req.session_id.clone(),
             pinned_adapter_ids: None, // Populated by InferenceCore from session
             chat_context_hash: None,
+            claims: Some(claims.clone()),
             policy_mask_digest: None, // Computed by handler from enforce_at_hook
             model: req.model.clone(),
             stop_policy: req.stop_policy.clone(),

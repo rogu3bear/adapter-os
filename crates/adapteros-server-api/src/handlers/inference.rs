@@ -231,6 +231,7 @@ pub async fn infer(
     internal.prompt = base_prompt;
     internal.chat_context_hash = chat_context_hash;
     internal.policy_mask_digest = policy_mask_digest;
+    internal.claims = Some(claims.clone());
     if let Some(token) = api_key {
         internal.worker_auth_token = Some(token.0 .0.clone());
     }
