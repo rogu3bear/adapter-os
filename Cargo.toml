@@ -204,6 +204,7 @@ toml = "0.8"
 rusqlite = { version = "0.32.1", features = ["bundled"] }
 refinery = { version = "0.8", features = ["rusqlite"] }
 sqlx = { version = "0.8.2", default-features = false, features = ["runtime-tokio", "sqlite", "macros", "migrate", "chrono", "uuid"] }
+libsqlite3-sys = { version = "=0.30.1", features = ["bundled"] }
 
 # Compression & Archive
 zstd = "0.13"
@@ -268,7 +269,6 @@ zeroize = "1.0"
 async-trait = "0.1"
 regex = "1.10"
 once_cell = "1.19"
-libsqlite3-sys = "=0.30.1"
 
 # Auth & Security
 argon2 = "0.5"

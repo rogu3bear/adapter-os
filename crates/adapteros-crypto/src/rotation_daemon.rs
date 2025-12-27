@@ -174,7 +174,7 @@ impl RotationDaemon {
 
         // Check if KEK needs rotation
         let kek_id = "kek-master";
-        if let Some(last_rotation) = history.iter().filter(|e| e.key_id == kek_id).next_back() {
+        if let Some(last_rotation) = history.iter().rfind(|e| e.key_id == kek_id) {
             let elapsed = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()

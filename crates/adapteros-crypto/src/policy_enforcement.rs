@@ -533,8 +533,10 @@ mod tests {
     #[tokio::test]
     async fn test_validate_hardware_backing() {
         let audit_logger = Arc::new(CryptoAuditLogger::new());
-        let mut policy = CryptoPolicy::default();
-        policy.require_hardware_backing = true;
+        let policy = CryptoPolicy {
+            require_hardware_backing: true,
+            ..Default::default()
+        };
 
         let enforcer = CryptoPolicyEnforcer::new(policy, audit_logger);
 
@@ -582,9 +584,11 @@ mod tests {
         let audit_logger = Arc::new(CryptoAuditLogger::new());
         let enforcer = CryptoPolicyEnforcer::with_default_policy(audit_logger);
 
-        let mut new_policy = CryptoPolicy::default();
-        new_policy.version = "2.0.0".to_string();
-        new_policy.fips_mode = true;
+        let new_policy = CryptoPolicy {
+            version: "2.0.0".to_string(),
+            fips_mode: true,
+            ..Default::default()
+        };
 
         enforcer.update_policy(new_policy).await;
 
@@ -596,10 +600,11 @@ mod tests {
     #[tokio::test]
     async fn test_fips_mode_enforcement() {
         let audit_logger = Arc::new(CryptoAuditLogger::new());
-        let mut policy = CryptoPolicy::default();
-        policy.fips_mode = true;
-        policy.approved_algorithms.clear();
-        policy.approved_algorithms.insert("aes256gcm".to_string());
+        let policy = CryptoPolicy {
+            fips_mode: true,
+            approved_algorithms: HashSet::from(["aes256gcm".to_string()]),
+            ..Default::default()
+        };
 
         let enforcer = CryptoPolicyEnforcer::new(policy, audit_logger);
 
