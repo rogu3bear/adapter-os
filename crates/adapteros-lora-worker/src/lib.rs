@@ -1560,6 +1560,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         // Load MoE cache snapshot if exists
         let adapter_paths = resolve_worker_adapter_paths();
         let adapters_path = adapter_paths.repo_root.join(tenant_id);
+        #[cfg(feature = "mlx-bridge")]
         let moe_cache_path = adapters_path.join("moe_cache.json");
         #[cfg(feature = "mlx-bridge")]
         if let Err(e) = moe_prefix_cache.load_snapshot(&moe_cache_path) {
@@ -2296,7 +2297,6 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         }
 
         // Generate tokens using autoregressive loop
-        let formatted_prompt = validated_prompt.formatted_prompt;
         let prompt_tokens = validated_prompt.tokens;
 
         // ============================================================================
@@ -2305,7 +2305,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         #[cfg(feature = "mlx-bridge")]
         let mut free_tokens: Vec<crate::moe_prefix_cache::FreeToken> = Vec::new();
         #[cfg(not(feature = "mlx-bridge"))]
-        let mut free_tokens: Vec<()> = Vec::new();
+        let free_tokens: Vec<()> = Vec::new();
         let mut free_token_ids: Vec<u32> = Vec::new();
         let mut free_token_text = String::new();
 
@@ -2372,8 +2372,6 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
 
         // If free tokens satisfied the entire request, return early!
         if !free_tokens.is_empty() && max_tokens_remaining == 0 {
-            let free_token_text_clone = free_token_text.clone();
-
             let (backend_used, fallback_triggered) = {
                 let kernels = self.kernels.lock().await;
                 (kernels.device_name().to_string(), false)
@@ -2825,6 +2823,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             }
 
             // Update MoE prefix cache with newly observed routing data
+            #[cfg(feature = "mlx-bridge")]
             if is_moe {
                 if let Some(ref routing) = generation_result.expert_routing {
                     debug!(
@@ -2832,7 +2831,6 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                         "Updating MoE prefix cache with expert routing data"
                     );
                     let num_layers = self.kernels.lock().await.num_experts();
-                    #[cfg(feature = "mlx-bridge")]
                     self.moe_prefix_cache.upsert_routing(
                         &prompt_tokens,
                         routing.clone(),
@@ -3592,18 +3590,20 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         }
 
         // Persist MoE cache snapshot
-        let adapter_paths = resolve_worker_adapter_paths();
-        let adapters_path = adapter_paths.repo_root.join(&self.tenant_namespace);
-        // Ensure directory exists
-        if let Err(e) = std::fs::create_dir_all(&adapters_path) {
-            warn!(error = %e, path = %adapters_path.display(), "Failed to create tenant directory for cache");
-        }
-        let moe_cache_path = adapters_path.join("moe_cache.json");
         #[cfg(feature = "mlx-bridge")]
-        if let Err(e) = self.moe_prefix_cache.save_snapshot(&moe_cache_path) {
-            warn!(path = %moe_cache_path.display(), error = %e, "Failed to save MoE cache snapshot");
-        } else {
-            debug!(path = %moe_cache_path.display(), "Saved MoE cache snapshot");
+        {
+            let adapter_paths = resolve_worker_adapter_paths();
+            let adapters_path = adapter_paths.repo_root.join(&self.tenant_namespace);
+            // Ensure directory exists
+            if let Err(e) = std::fs::create_dir_all(&adapters_path) {
+                warn!(error = %e, path = %adapters_path.display(), "Failed to create tenant directory for cache");
+            }
+            let moe_cache_path = adapters_path.join("moe_cache.json");
+            if let Err(e) = self.moe_prefix_cache.save_snapshot(&moe_cache_path) {
+                warn!(path = %moe_cache_path.display(), error = %e, "Failed to save MoE cache snapshot");
+            } else {
+                debug!(path = %moe_cache_path.display(), "Saved MoE cache snapshot");
+            }
         }
 
         Ok(())

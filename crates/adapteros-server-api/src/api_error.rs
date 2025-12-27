@@ -71,13 +71,7 @@ pub struct ApiError {
 
 impl fmt::Display for ApiError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "[{}] {}: {}",
-            self.code,
-            self.status,
-            self.message
-        )?;
+        write!(f, "[{}] {}: {}", self.code, self.status, self.message)?;
         if let Some(details) = &self.details {
             write!(f, " ({})", details)?;
         }

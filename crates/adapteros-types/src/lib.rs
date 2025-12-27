@@ -38,6 +38,15 @@ pub mod training;
 /// CoreML placement specification types
 pub mod coreml;
 
+/// Fusion interval policy shared across inference components
+pub mod fusion;
+
+/// Inference requests/responses and receipts
+pub mod inference;
+
+/// Manifest metadata shared between DB/API layers
+pub mod manifest;
+
 /// Repository assurance tiers
 pub mod repository;
 
@@ -95,6 +104,9 @@ pub use coreml::{
     CoreMLGating, CoreMLMode, CoreMLOpKind, CoreMLPlacementBinding, CoreMLPlacementShape,
     CoreMLPlacementSpec, CoreMLProjection, CoreMLTargetRef,
 };
+pub use fusion::FusionInterval;
+pub use inference::{InferRequest, RunReceipt, StopReasonCode, STOP_Q15_DENOM};
+pub use manifest::Manifest;
 pub use repository::RepoTier;
 pub use routing::{RouterCandidate, RouterDecision, RouterModelType};
 pub use telemetry::{EventType, LogLevel, TelemetryBundle, TelemetryEvent, TelemetryFilters};

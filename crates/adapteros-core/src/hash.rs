@@ -84,6 +84,12 @@ impl B3Hash {
     }
 }
 
+impl Default for B3Hash {
+    fn default() -> Self {
+        Self::zero()
+    }
+}
+
 impl fmt::Debug for B3Hash {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "B3Hash({})", self.to_short_hex())
