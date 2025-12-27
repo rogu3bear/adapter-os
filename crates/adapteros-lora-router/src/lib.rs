@@ -1138,19 +1138,23 @@ impl Router {
             *g /= sum_gates;
         }
 
-        // Quantize to Q15 (denominator 32767.0) so that identical inputs produce the same gates_q15 on every run
-        let gates_q15: SmallVec<[i16; 8]> = gates.iter().map(|&g| quantize_gate(g)).collect();
-
         let entropy = Self::compute_entropy(&gates);
 
-        let candidate_entries: Vec<DecisionCandidate> = top_k
+        let mut candidate_entries: Vec<DecisionCandidate> = top_k
             .iter()
-            .zip(gates_q15.iter())
-            .map(|((adapter_idx, raw_score), &gate_q15)| DecisionCandidate {
+            .zip(gates.iter())
+            .map(|((adapter_idx, raw_score), &gate_f32)| DecisionCandidate {
                 adapter_idx: *adapter_idx as u16,
                 raw_score: *raw_score,
-                gate_q15,
+                gate_q15: quantize_gate(gate_f32),
             })
+            .collect();
+
+        Self::sort_candidates_by_quantized_gate(&mut candidate_entries);
+
+        let gates_q15: SmallVec<[i16; 8]> = candidate_entries
+            .iter()
+            .map(|candidate| candidate.gate_q15)
             .collect();
 
         let indices: SmallVec<[u16; 8]> = candidate_entries
@@ -1202,6 +1206,16 @@ impl Router {
             .filter(|&&g| g > 0.0)
             .map(|&g| -g * g.log2())
             .sum()
+    }
+
+    /// Order candidates by quantized gate (desc), then raw score, then index for deterministic ties.
+    fn sort_candidates_by_quantized_gate(candidates: &mut Vec<DecisionCandidate>) {
+        candidates.sort_by(|a, b| {
+            b.gate_q15
+                .cmp(&a.gate_q15)
+                .then_with(|| b.raw_score.total_cmp(&a.raw_score))
+                .then_with(|| a.adapter_idx.cmp(&b.adapter_idx))
+        });
     }
 
     /// Deterministic softmax using f64 intermediate precision and Kahan summation
@@ -1654,22 +1668,26 @@ impl Router {
             *g /= sum_gates;
         }
 
-        // Quantize to Q15 so identical inputs keep the same per-token gates across runs
-        let gates_q15: SmallVec<[i16; 8]> = gates.iter().map(|&g| quantize_gate(g)).collect();
-
         let entropy = Self::compute_entropy(&gates);
 
         // Check abstain conditions and emit telemetry if triggered
         self.check_abstain_conditions(entropy, &gates);
 
-        let candidate_entries: Vec<DecisionCandidate> = top_k
+        let mut candidate_entries: Vec<DecisionCandidate> = top_k
             .iter()
-            .zip(gates_q15.iter())
-            .map(|((adapter_idx, raw_score), &gate_q15)| DecisionCandidate {
+            .zip(gates.iter())
+            .map(|((adapter_idx, raw_score), &gate_f32)| DecisionCandidate {
                 adapter_idx: *adapter_idx as u16,
                 raw_score: *raw_score,
-                gate_q15,
+                gate_q15: quantize_gate(gate_f32),
             })
+            .collect();
+
+        Self::sort_candidates_by_quantized_gate(&mut candidate_entries);
+
+        let gates_q15: SmallVec<[i16; 8]> = candidate_entries
+            .iter()
+            .map(|candidate| candidate.gate_q15)
             .collect();
 
         let indices: SmallVec<[u16; 8]> = candidate_entries
@@ -1872,19 +1890,23 @@ impl Router {
             *g /= sum_gates;
         }
 
-        // Quantize to Q15
-        let gates_q15: SmallVec<[i16; 8]> = gates.iter().map(|&g| quantize_gate(g)).collect();
-
         let entropy = Self::compute_entropy(&gates);
 
-        let candidate_entries: Vec<DecisionCandidate> = top_k
+        let mut candidate_entries: Vec<DecisionCandidate> = top_k
             .iter()
-            .zip(gates_q15.iter())
-            .map(|((adapter_idx, raw_score), &gate_q15)| DecisionCandidate {
+            .zip(gates.iter())
+            .map(|((adapter_idx, raw_score), &gate_f32)| DecisionCandidate {
                 adapter_idx: *adapter_idx as u16,
                 raw_score: *raw_score,
-                gate_q15,
+                gate_q15: quantize_gate(gate_f32),
             })
+            .collect();
+
+        Self::sort_candidates_by_quantized_gate(&mut candidate_entries);
+
+        let gates_q15: SmallVec<[i16; 8]> = candidate_entries
+            .iter()
+            .map(|candidate| candidate.gate_q15)
             .collect();
 
         let indices: SmallVec<[u16; 8]> = candidate_entries

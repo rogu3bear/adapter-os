@@ -12,15 +12,20 @@ export interface TopologyCluster {
   position?: TopologyNodePosition;
   radius?: number;
   metadata?: Record<string, unknown>;
+  description?: string;
+  version?: string;
+  defaultAdapterId?: string | null;
 }
 
 export interface TopologyAdapter {
   id: string;
   name?: string;
   clusterId: string;
+  clusterIds?: string[];
   score?: number;
   status?: string;
   position?: TopologyNodePosition;
+  transitionProbabilities?: Record<string, number>;
   metadata?: Record<string, unknown>;
 }
 
@@ -45,6 +50,7 @@ export interface TopologyGraph {
   links: TopologyLink[];
   startingClusterId?: string | null;
   version?: string;
+  clustersVersion?: string;
   predictedPath?: PredictedPathNode[];
 }
 

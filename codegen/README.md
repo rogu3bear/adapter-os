@@ -79,8 +79,8 @@ The generated types are type-safe, tree-shakeable, and optimized for TypeScript 
 - `--enum`: Generate native TypeScript enums
 - `--alphabetize`: Sort types alphabetically for consistent diffs
 - `--empty-objects-unknown`: Treat empty objects as `Record<string, unknown>`
-- `--path-params-as-types`: Generate path parameters as type-safe unions
 - `--default-non-nullable=false`: Make all fields nullable by default (safe default)
+- `--path-params-as-types` is currently disabled to avoid template path index collisions with literal routes (e.g. `/healthz/all`)
 
 ### 3. Python SDK Generation
 

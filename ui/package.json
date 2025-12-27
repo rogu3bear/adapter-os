@@ -123,7 +123,7 @@
         "build:service-panel": "tsc --noEmit && VITE_BUILD_MODE=service-panel vite build",
         "build:test": "tsc --noEmit && pnpm test",
         "gen:openapi": "cd .. && cargo run -p adapteros-server-api --bin export-openapi -- target/codegen/openapi.json",
-        "gen:api-types": "openapi-typescript ../target/codegen/openapi.json --output src/api/generated.ts --export-type --enum --alphabetize --empty-objects-unknown --path-params-as-types --default-non-nullable=false",
+        "gen:api-types": "openapi-typescript ../target/codegen/openapi.json --output src/api/generated.ts --export-type --enum --alphabetize --empty-objects-unknown --default-non-nullable=false",
         "gen:types": "pnpm run gen:openapi && pnpm run gen:api-types",
         "check:types": "tsc --noEmit",
         "check:types:strict": "tsc --noEmit --strict",

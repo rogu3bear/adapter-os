@@ -613,19 +613,17 @@ export function GalaxyCanvas({
     const y = event.clientY - rect.top;
     let nearestCluster: NodeState | null = null;
     let nearestDistance = Number.POSITIVE_INFINITY;
-    Object.values(nodesRef.current)
-      .filter((n): n is NodeState => n.type === 'cluster')
-      .forEach((node) => {
-        const dist = Math.hypot(node.x - x, node.y - y);
-        if (dist < node.radius + 18 && dist < nearestDistance) {
-          nearestCluster = node;
-          nearestDistance = dist;
-        }
-      });
-    const clusterId = nearestCluster?.id;
-    if (clusterId) {
-      onClusterClick(clusterId);
+    const clusterNodes: NodeState[] = Object.values(nodesRef.current);
+    for (const node of clusterNodes) {
+      if (node.type !== 'cluster') continue;
+      const dist = Math.hypot(node.x - x, node.y - y);
+      if (dist < node.radius + 18 && dist < nearestDistance) {
+        nearestCluster = node;
+        nearestDistance = dist;
+      }
     }
+    if (!nearestCluster) return;
+    onClusterClick(nearestCluster.id);
   };
 
   return (

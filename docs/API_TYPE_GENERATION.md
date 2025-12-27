@@ -195,8 +195,8 @@ TypeScript generation uses these `openapi-typescript` flags:
 - `--enum`: Generate native TS enums
 - `--alphabetize`: Consistent ordering
 - `--empty-objects-unknown`: Safe empty object handling
-- `--path-params-as-types`: Type-safe path parameters
 - `--default-non-nullable=false`: Nullable by default
+- `--path-params-as-types` is currently disabled to avoid template path indexers conflicting with literal sibling routes (e.g. `/healthz/all`)
 
 ### package.json Scripts
 
