@@ -1749,6 +1749,7 @@ dependencies = [
  "adapteros-graph",
  "adapteros-telemetry",
  "adapteros-telemetry-types",
+ "adapteros-types",
  "anyhow",
  "blake3",
  "chrono",

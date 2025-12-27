@@ -1629,7 +1629,7 @@ async fn setup_tenant_scoped_test_data(db: &Db, tenant_id: &str) -> Result<()> {
 async fn validate_query_plan(
     db: &Db,
     query: &str,
-    params: Vec<sqlx::types::JsonValue>,
+    params: Vec<String>,
     expected_no_temp_btree: bool,
 ) -> Result<()> {
     // Build the query with placeholders
@@ -1721,7 +1721,7 @@ async fn test_migration_0210_adapter_listing_query_plan() -> Result<()> {
 
     // Test query: SELECT * FROM adapters WHERE tenant_id = ? AND active = 1 ORDER BY tier ASC, created_at DESC
     let query = "SELECT * FROM adapters WHERE tenant_id = ? AND active = 1 ORDER BY tier ASC, created_at DESC";
-    let params = vec![sqlx::types::JsonValue::String(tenant_id.to_string())];
+    let params = vec![tenant_id.to_string()];
 
     validate_query_plan(&db, query, params, true).await?;
 
@@ -1739,8 +1739,8 @@ async fn test_migration_0210_adapter_hash_lookup_query_plan() -> Result<()> {
     // Test query: SELECT * FROM adapters WHERE tenant_id = ? AND hash_b3 = ? AND active = 1
     let query = "SELECT * FROM adapters WHERE tenant_id = ? AND hash_b3 = ? AND active = 1";
     let params = vec![
-        sqlx::types::JsonValue::String(tenant_id.to_string()),
-        sqlx::types::JsonValue::String(format!("b3:hash_{}_0", tenant_id)),
+        tenant_id.to_string(),
+        format!("b3:hash_{}_0", tenant_id),
     ];
 
     validate_query_plan(&db, query, params, true).await?;
@@ -1758,7 +1758,7 @@ async fn test_migration_0210_adapter_ttl_enforcement_query_plan() -> Result<()> 
 
     // Test query: SELECT * FROM adapters WHERE tenant_id = ? AND expires_at IS NOT NULL AND expires_at < datetime('now')
     let query = "SELECT * FROM adapters WHERE tenant_id = ? AND expires_at IS NOT NULL AND expires_at < datetime('now')";
-    let params = vec![sqlx::types::JsonValue::String(tenant_id.to_string())];
+    let params = vec![tenant_id.to_string()];
 
     validate_query_plan(&db, query, params, true).await?;
 
@@ -1777,7 +1777,7 @@ async fn test_migration_0210_document_listing_query_plan() -> Result<()> {
 
     // Test query: SELECT * FROM documents WHERE tenant_id = ? ORDER BY created_at DESC
     let query = "SELECT * FROM documents WHERE tenant_id = ? ORDER BY created_at DESC";
-    let params = vec![sqlx::types::JsonValue::String(tenant_id.to_string())];
+    let params = vec![tenant_id.to_string()];
 
     validate_query_plan(&db, query, params, true).await?;
 
@@ -1795,8 +1795,8 @@ async fn test_migration_0210_training_jobs_query_plan() -> Result<()> {
     // Test query: SELECT * FROM repository_training_jobs WHERE tenant_id = ? AND status = ? ORDER BY created_at DESC
     let query = "SELECT * FROM repository_training_jobs WHERE tenant_id = ? AND status = ? ORDER BY created_at DESC";
     let params = vec![
-        sqlx::types::JsonValue::String(tenant_id.to_string()),
-        sqlx::types::JsonValue::String("running".to_string()),
+        tenant_id.to_string(),
+        "running".to_string(),
     ];
 
     validate_query_plan(&db, query, params, true).await?;
@@ -1814,7 +1814,7 @@ async fn test_migration_0210_chat_messages_query_plan() -> Result<()> {
 
     // Test query: SELECT * FROM chat_messages WHERE tenant_id = ? AND deleted_at IS NULL ORDER BY created_at DESC
     let query = "SELECT * FROM chat_messages WHERE tenant_id = ? AND deleted_at IS NULL ORDER BY created_at DESC";
-    let params = vec![sqlx::types::JsonValue::String(tenant_id.to_string())];
+    let params = vec![tenant_id.to_string()];
 
     validate_query_plan(&db, query, params, true).await?;
 

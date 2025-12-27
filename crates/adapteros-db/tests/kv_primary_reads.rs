@@ -161,6 +161,7 @@ async fn insert_adapter_to_kv(
         archived_by: None,
         archive_reason: None,
         purged_at: None,
+        recommended_for_moe: Some(true),
         base_model_id: None,
         manifest_schema_version: None,
         content_hash_b3: None,

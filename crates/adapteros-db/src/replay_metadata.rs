@@ -853,6 +853,7 @@ mod tests {
             execution_policy_id: None,
             execution_policy_version: None,
             stop_policy_json: None,
+            policy_mask_digest_b3: None,
         };
 
         let id = db.create_replay_metadata(params).await.unwrap();
@@ -945,6 +946,7 @@ mod tests {
             execution_policy_id: None,
             execution_policy_version: None,
             stop_policy_json: None,
+            policy_mask_digest_b3: None,
         };
 
         db.create_replay_metadata(params).await.unwrap();
@@ -1006,6 +1008,7 @@ mod tests {
                 execution_policy_id: None,
                 execution_policy_version: None,
                 stop_policy_json: None,
+                policy_mask_digest_b3: None,
             };
 
             db.create_replay_metadata(params).await.unwrap();
@@ -1074,6 +1077,7 @@ mod tests {
             execution_policy_id: None,
             execution_policy_version: None,
             stop_policy_json: None,
+            policy_mask_digest_b3: None,
         };
 
         db.create_replay_metadata(params).await.unwrap();
@@ -1129,6 +1133,7 @@ mod tests {
             execution_policy_id: None,
             execution_policy_version: None,
             stop_policy_json: None,
+            policy_mask_digest_b3: None,
         };
 
         let id = db.create_replay_metadata(params).await.unwrap();
