@@ -7,7 +7,7 @@
 use crate::adapters::metadata::RoutingDeterminismMode;
 use crate::coreml::CoreMLMode;
 use crate::fusion::FusionInterval;
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 /// Q15 denominator for stop controller thresholds (matches router pattern)
 pub const STOP_Q15_DENOM: f32 = 32767.0;
@@ -55,9 +55,18 @@ impl std::str::FromStr for StopReasonCode {
 /// Inference request (API surface)
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
-#[serde(rename_all = "snake_case", deny_unknown_fields)]
-pub struct InferRequest<Backend = String, Interval = FusionInterval, StopPolicy = serde_json::Value>
-{
+#[serde(
+    rename_all = "snake_case",
+    deny_unknown_fields,
+    bound(
+        deserialize = "Backend: DeserializeOwned, Interval: DeserializeOwned, StopPolicy: DeserializeOwned"
+    )
+)]
+pub struct InferRequest<
+    Backend = String,
+    Interval = FusionInterval,
+    StopPolicy = serde_json::Value,
+> {
     /// Raw prompt text or chat payload.
     pub prompt: String,
     /// Explicit model identifier to target (optional).
