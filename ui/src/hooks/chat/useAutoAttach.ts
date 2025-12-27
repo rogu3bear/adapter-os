@@ -51,23 +51,24 @@ export function useAutoAttach(options: UseAutoAttachOptions) {
 
   const predictedSuggestions = useMemo(() => {
     const path = topologyResult.data?.predictedPath ?? [];
-    return path
-      .map((node, idx) => {
-        const adapterId = node.adapterId ?? node.id;
-        if (!adapterId) return null;
-        const rawConfidence = typeof node.confidence === 'number' && Number.isFinite(node.confidence)
-          ? node.confidence
-          : Math.max(0, 1 - idx * 0.1);
+    const mapped: SuggestedAdapter[] = [];
 
-      return {
+    path.forEach((node, idx) => {
+      const adapterId = node.adapterId ?? node.id;
+      if (!adapterId) return;
+      const rawConfidence = typeof node.confidence === 'number' && Number.isFinite(node.confidence)
+        ? node.confidence
+        : Math.max(0, 1 - idx * 0.1);
+
+      mapped.push({
         id: adapterId,
         confidence: rawConfidence,
         reason: node.clusterId ? `Cluster ${node.clusterId}` : node.kind,
         source: 'router',
-      } satisfies SuggestedAdapter;
-    })
-    .filter(Boolean)
-    .sort((a, b) => (b.confidence - a.confidence) || a.id.localeCompare(b.id));
+      });
+    });
+
+    return mapped.sort((a, b) => (b.confidence - a.confidence) || a.id.localeCompare(b.id));
   }, [topologyResult.data?.predictedPath]);
 
   useEffect(() => {

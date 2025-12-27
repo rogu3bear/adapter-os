@@ -62,11 +62,8 @@ impl std::str::FromStr for StopReasonCode {
         deserialize = "Backend: DeserializeOwned, Interval: DeserializeOwned, StopPolicy: DeserializeOwned"
     )
 )]
-pub struct InferRequest<
-    Backend = String,
-    Interval = FusionInterval,
-    StopPolicy = serde_json::Value,
-> {
+pub struct InferRequest<Backend = String, Interval = FusionInterval, StopPolicy = serde_json::Value>
+{
     /// Raw prompt text or chat payload.
     pub prompt: String,
     /// Explicit model identifier to target (optional).

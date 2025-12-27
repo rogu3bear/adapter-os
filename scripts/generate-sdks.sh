@@ -98,7 +98,6 @@ generate_typescript() {
         --enum \
         --alphabetize \
         --empty-objects-unknown \
-        --path-params-as-types \
         --default-non-nullable=false) || {
         log_error "TypeScript type generation failed"
         return 1
@@ -206,7 +205,6 @@ check_drift() {
         --enum \
         --alphabetize \
         --empty-objects-unknown \
-        --path-params-as-types \
         --default-non-nullable=false) > /dev/null 2>&1
 
     # Compare with current version

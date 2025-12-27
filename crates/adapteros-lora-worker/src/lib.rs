@@ -2836,6 +2836,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                         routing.clone(),
                         &self.tenant_namespace,
                         num_layers,
+                        None,
                     );
                 }
             }

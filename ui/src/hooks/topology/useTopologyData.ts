@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/api/services';
 import { logger, toError } from '@/utils/logger';
+import type { components } from '@/api/generated';
 import type {
   PredictedPathNode,
   TopologyAdapter,
@@ -10,6 +11,12 @@ import type {
   TopologyLink,
   TopologyNodePosition,
 } from '@/types/topology';
+
+type ApiTopologyGraph = components['schemas']['TopologyGraph'];
+type ApiAdapterTopology = components['schemas']['AdapterTopology'];
+type ApiAdjacencyEdge = components['schemas']['AdjacencyEdge'];
+type ApiClusterDefinition = components['schemas']['ClusterDefinition'];
+type ApiPredictedPathNode = components['schemas']['PredictedPathNode'];
 
 interface UseTopologyOptions {
   enabled?: boolean;
@@ -38,8 +45,13 @@ const FALLBACK_GRAPH: TopologyGraph = {
   ],
   startingClusterId: 'core',
   version: 'fallback',
+  clustersVersion: 'fallback',
   predictedPath: [],
 };
+
+const isRecord = (value: unknown): value is Record<string, unknown> => (
+  Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+);
 
 const normalizePosition = (value: unknown): TopologyNodePosition | undefined => {
   if (!value || typeof value !== 'object') return undefined;
@@ -78,12 +90,19 @@ const normalizeCluster = (raw: unknown): TopologyCluster | null => {
 
   return {
     id,
-    name: typeof input.name === 'string' && input.name.trim() ? input.name : id,
+    name: typeof input.name === 'string' && input.name.trim()
+      ? input.name
+      : typeof input.description === 'string' && input.description.trim()
+        ? input.description
+        : id,
     kind: typeof input.kind === 'string' ? input.kind : undefined,
     adapterIds: adapterIds.map((a) => String(a)),
     position: normalizePosition(input.position ?? input.pos),
     radius: typeof input.radius === 'number' ? input.radius : undefined,
     metadata: input.metadata && typeof input.metadata === 'object' ? (input.metadata as Record<string, unknown>) : undefined,
+    description: typeof input.description === 'string' ? input.description : undefined,
+    version: typeof input.version === 'string' ? input.version : undefined,
+    defaultAdapterId: safeId((input as ApiClusterDefinition).default_adapter_id ?? (input as any).defaultAdapterId) ?? null,
   };
 };
 
@@ -92,17 +111,34 @@ const normalizeAdapter = (raw: unknown): TopologyAdapter | null => {
   const input = raw as Record<string, unknown>;
   const id = safeId(input.id ?? input.adapter_id ?? input.name);
   if (!id) return null;
-  const clusterId = safeId(input.clusterId ?? input.cluster_id ?? input.cluster);
-  if (!clusterId) return null;
+  const clusterIdsRaw = Array.isArray((input as ApiAdapterTopology).cluster_ids)
+    ? (input as ApiAdapterTopology).cluster_ids
+    : Array.isArray((input as any).clusterIds)
+      ? (input as any).clusterIds
+      : undefined;
+  const clusterIds = clusterIdsRaw?.map((value: string | number) => safeId(value) ?? '').filter(Boolean) as string[] | undefined;
+  const clusterId = safeId(input.clusterId ?? input.cluster_id ?? input.cluster ?? clusterIds?.[0]);
+  if (!clusterId && !(clusterIds?.length)) return null;
+
+  const transitionSource = (input as ApiAdapterTopology).transition_probabilities ?? (input as any).transitionProbabilities;
+  const transitionProbabilities = isRecord(transitionSource)
+    ? Object.entries(transitionSource as Record<string, unknown>).reduce<Record<string, number>>((acc, [key, value]) => {
+        const weight = Number(value);
+        if (Number.isFinite(weight)) acc[key] = weight;
+        return acc;
+      }, {})
+    : undefined;
 
   return {
     id,
     name: typeof input.name === 'string' && input.name.trim() ? input.name : id,
-    clusterId,
+    clusterId: clusterId ?? (clusterIds?.[0] as string),
+    clusterIds,
     score: typeof input.score === 'number' ? input.score : typeof input.reasoning_score === 'number' ? input.reasoning_score : undefined,
     status: typeof input.status === 'string' ? input.status : undefined,
     position: normalizePosition(input.position ?? input.pos),
     metadata: input.metadata && typeof input.metadata === 'object' ? (input.metadata as Record<string, unknown>) : undefined,
+    transitionProbabilities,
   };
 };
 
@@ -130,30 +166,55 @@ const normalizePredictedPath = (raw: unknown): PredictedPathNode[] => {
 
   if (!items.length) return [];
 
-  return (items as unknown[])
-    .map((item) => {
-      if (!item || typeof item !== 'object') return null;
-      const input = item as Record<string, unknown>;
-      const id = safeId(input.id ?? input.adapter_id ?? input.node_id ?? input.name);
-      if (!id) return null;
-      const adapterId = safeId(input.adapter_id ?? input.adapterId ?? input.node_id ?? input.id) ?? id;
-      const clusterId = safeId(input.cluster_id ?? input.clusterId);
-      const confidenceValue = input.confidence ?? input.score ?? input.gate ?? input.gate_value ?? input.gateValue;
-      const confidence = typeof confidenceValue === 'number'
-        ? confidenceValue
-        : Number.isFinite(Number(confidenceValue))
-          ? Number(confidenceValue)
-          : undefined;
+  const normalized: PredictedPathNode[] = [];
 
-      return {
-        id,
-        adapterId,
-        clusterId: clusterId ?? undefined,
-        confidence,
-        kind: typeof input.kind === 'string' ? input.kind : adapterId ? 'adapter' : undefined,
-      } satisfies PredictedPathNode;
-    })
-    .filter((node): node is PredictedPathNode => Boolean(node));
+  for (const item of items as Array<Partial<ApiPredictedPathNode> & Record<string, unknown>>) {
+    if (!item || typeof item !== 'object') continue;
+    const id = safeId(item.id ?? item.adapter_id ?? item.node_id ?? item.name);
+    if (!id) continue;
+    const adapterId = safeId(item.adapter_id ?? (item as any).adapterId ?? item.node_id ?? item.id) ?? id;
+    const clusterId = safeId(item.cluster_id ?? (item as any).clusterId);
+    const confidenceValue = item.confidence ?? (item as any).score ?? (item as any).gate ?? (item as any).gate_value ?? (item as any).gateValue;
+    const confidence = typeof confidenceValue === 'number'
+      ? confidenceValue
+      : Number.isFinite(Number(confidenceValue))
+        ? Number(confidenceValue)
+        : undefined;
+
+    normalized.push({
+      id,
+      adapterId,
+      clusterId: clusterId ?? undefined,
+      confidence,
+      kind: typeof item.kind === 'string' ? item.kind : adapterId ? 'adapter' : undefined,
+    });
+  }
+
+  return normalized;
+};
+
+const normalizeAdjacencyLinks = (raw: unknown): TopologyLink[] => {
+  if (!raw || typeof raw !== 'object') return [];
+  const adjacency = raw as Record<string, unknown>;
+  const links: TopologyLink[] = [];
+  Object.entries(adjacency).forEach(([key, value]) => {
+    const source = safeId(key);
+    if (!source) return;
+    const edges = Array.isArray(value) ? value : [];
+    edges.forEach((edge) => {
+      if (!edge || typeof edge !== 'object') return;
+      const edgeRecord = edge as Partial<ApiAdjacencyEdge> & Record<string, unknown>;
+      const target = safeId(edgeRecord.to_cluster_id ?? (edgeRecord as any).toClusterId ?? edgeRecord.target ?? edgeRecord.id);
+      if (!target) return;
+      const weight = typeof edgeRecord.probability === 'number'
+        ? edgeRecord.probability
+        : typeof edgeRecord.weight === 'number'
+          ? edgeRecord.weight
+          : undefined;
+      links.push({ source, target, weight, kind: 'cluster' });
+    });
+  });
+  return links;
 };
 
 const normalizeFromNodes = (raw: Record<string, unknown>): TopologyGraph | null => {
@@ -199,18 +260,24 @@ const normalizeTopologyResponse = (raw: unknown): TopologyGraph => {
   const clustersRaw = Array.isArray(input.clusters) ? input.clusters : null;
   const adaptersRaw = Array.isArray(input.adapters) ? input.adapters : null;
   const linksRaw = Array.isArray(input.links) ? input.links : Array.isArray(input.edges) ? input.edges : null;
+  const adjacencyLinks = normalizeAdjacencyLinks((input as ApiTopologyGraph).adjacency ?? (input as any).adjacency);
 
   if (clustersRaw || adaptersRaw) {
     const clusters = (clustersRaw ?? []).map(normalizeCluster).filter((c): c is TopologyCluster => Boolean(c));
     const adapters = (adaptersRaw ?? []).map(normalizeAdapter).filter((a): a is TopologyAdapter => Boolean(a));
-    const links = (linksRaw ?? []).map(normalizeLink).filter((l): l is TopologyLink => Boolean(l));
+    const links = [
+      ...adjacencyLinks,
+      ...(linksRaw ?? []).map(normalizeLink).filter((l): l is TopologyLink => Boolean(l)),
+    ];
     const startingClusterId = safeId(
       input.start_cluster ?? input.starting_cluster ?? input.origin_cluster ?? clusters[0]?.id
     );
 
     // If adapters reference clusters not present, create lightweight placeholders
     const missingClusters = new Set(
-      adapters.map((a) => a.clusterId).filter((id) => !clusters.find((c) => c.id === id))
+      adapters
+        .flatMap((a) => [a.clusterId, ...(a.clusterIds ?? [])])
+        .filter((id) => id && !clusters.find((c) => c.id === id))
     );
     if (missingClusters.size > 0) {
       missingClusters.forEach((id) => {
@@ -220,7 +287,9 @@ const normalizeTopologyResponse = (raw: unknown): TopologyGraph => {
 
     // Fill adapterIds on clusters
     clusters.forEach((cluster) => {
-      cluster.adapterIds = adapters.filter((a) => a.clusterId === cluster.id).map((a) => a.id);
+      cluster.adapterIds = adapters
+        .filter((a) => a.clusterId === cluster.id || (a.clusterIds ?? []).includes(cluster.id))
+        .map((a) => a.id);
     });
 
     if (!clusters.length && !adapters.length) {
@@ -234,6 +303,7 @@ const normalizeTopologyResponse = (raw: unknown): TopologyGraph => {
       links,
       startingClusterId: startingClusterId ?? null,
       version: typeof input.version === 'string' ? input.version : undefined,
+      clustersVersion: typeof (input as ApiTopologyGraph).clusters_version === 'string' ? (input as ApiTopologyGraph).clusters_version : undefined,
       predictedPath: normalizePredictedPath(input.predicted_path ?? input.predictedPath),
     };
   }

@@ -30,7 +30,6 @@ pub mod dev;
 pub mod diag;
 pub mod diag_health;
 pub mod doctor;
-// pub mod diag_bundle;  // Temporarily disabled - functionality moved to diag.rs
 pub mod datasets;
 pub mod drift_check;
 pub mod explain;
@@ -65,9 +64,6 @@ pub mod profile;
 pub mod quantize_qwen;
 pub mod register_adapter;
 pub mod registry;
-// Legacy registry commands - consolidated into registry.rs
-// pub mod registry_migrate;  // Consolidated into registry.rs
-// pub mod sync_registry;     // Consolidated into registry.rs
 #[cfg(feature = "replay")]
 pub mod replay;
 #[cfg(feature = "replay")]
@@ -88,9 +84,6 @@ pub mod storage;
 pub mod telemetry;
 #[cfg(feature = "tui")]
 pub mod tui;
-// Legacy telemetry commands - consolidated into telemetry.rs
-// pub mod telemetry_list;     // Consolidated into telemetry.rs
-// pub mod verify_telemetry;   // Consolidated into telemetry.rs
 pub mod telemetry_show;
 #[cfg(feature = "trace")]
 pub mod trace;
@@ -106,8 +99,6 @@ pub mod verify_adapter;
 pub mod verify_adapters;
 pub mod verify_determinism_loop;
 pub mod verify_receipt;
-// Legacy federation command - consolidated into federation.rs
-// pub mod verify_federation;  // Consolidated into federation.rs
 pub mod baseline;
 #[cfg(feature = "orchestrator")]
 pub mod behavior_export;

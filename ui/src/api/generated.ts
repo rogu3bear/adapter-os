@@ -73,7 +73,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/healthz/${string}`]: {
+    "/healthz/{component}": {
         parameters: {
             query?: never;
             header?: never;
@@ -179,7 +179,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/adapter-repositories/${string}/versions`]: {
+    "/v1/adapter-repositories/{repo_id}/versions": {
         parameters: {
             query?: never;
             header?: never;
@@ -214,7 +214,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/adapter-stacks/${string}`]: {
+    "/v1/adapter-stacks/{id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -232,7 +232,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/adapter-stacks/${string}/activate`]: {
+    "/v1/adapter-stacks/{id}/activate": {
         parameters: {
             query?: never;
             header?: never;
@@ -249,7 +249,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/adapter-stacks/${string}/history`]: {
+    "/v1/adapter-stacks/{id}/history": {
         parameters: {
             query?: never;
             header?: never;
@@ -300,7 +300,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/adapters/${string}`]: {
+    "/v1/adapters/{adapter_id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -318,7 +318,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/adapters/${string}/activations`]: {
+    "/v1/adapters/{adapter_id}/activations": {
         parameters: {
             query?: never;
             header?: never;
@@ -334,7 +334,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/adapters/${string}/evidence`]: {
+    "/v1/adapters/{adapter_id}/evidence": {
         parameters: {
             query?: never;
             header?: never;
@@ -351,7 +351,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/adapters/${string}/load`]: {
+    "/v1/adapters/{adapter_id}/load": {
         parameters: {
             query?: never;
             header?: never;
@@ -367,7 +367,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/adapters/${string}/state/promote`]: {
+    "/v1/adapters/{adapter_id}/state/promote": {
         parameters: {
             query?: never;
             header?: never;
@@ -383,7 +383,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/adapters/${string}/unload`]: {
+    "/v1/adapters/{adapter_id}/unload": {
         parameters: {
             query?: never;
             header?: never;
@@ -399,7 +399,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/adapters/${string}/usage`]: {
+    "/v1/adapters/{adapter_id}/usage": {
         parameters: {
             query?: never;
             header?: never;
@@ -705,7 +705,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/auth/sessions/${string}`]: {
+    "/v1/auth/sessions/{jti}": {
         parameters: {
             query?: never;
             header?: never;
@@ -739,7 +739,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/batches/${string}`]: {
+    "/v1/batches/{batch_id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -756,7 +756,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/batches/${string}/items`]: {
+    "/v1/batches/{batch_id}/items": {
         parameters: {
             query?: never;
             header?: never;
@@ -773,7 +773,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/chat/messages/${string}/evidence`]: {
+    "/v1/chat/messages/{message_id}/evidence": {
         parameters: {
             query?: never;
             header?: never;
@@ -817,7 +817,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/chat/sessions/${string}`]: {
+    "/v1/chat/sessions/{session_id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -841,7 +841,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/chat/sessions/${string}/collection`]: {
+    "/v1/chat/sessions/{session_id}/collection": {
         parameters: {
             query?: never;
             header?: never;
@@ -861,7 +861,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/chat/sessions/${string}/messages`]: {
+    "/v1/chat/sessions/{session_id}/messages": {
         parameters: {
             query?: never;
             header?: never;
@@ -885,7 +885,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/chat/sessions/${string}/provenance`]: {
+    "/v1/chat/sessions/{session_id}/provenance": {
         parameters: {
             query?: never;
             header?: never;
@@ -907,7 +907,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/chat/sessions/${string}/summary`]: {
+    "/v1/chat/sessions/{session_id}/summary": {
         parameters: {
             query?: never;
             header?: never;
@@ -1047,7 +1047,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/code/repositories/${string}`]: {
+    "/v1/code/repositories/{repo_id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -1081,7 +1081,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/code/scan/${string}`]: {
+    "/v1/code/scan/{job_id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -1116,7 +1116,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/collections/${string}`]: {
+    "/v1/collections/{id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -1134,7 +1134,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/collections/${string}/documents`]: {
+    "/v1/collections/{id}/documents": {
         parameters: {
             query?: never;
             header?: never;
@@ -1151,7 +1151,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/collections/${string}/documents/${string}`]: {
+    "/v1/collections/{id}/documents/{doc_id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -1185,7 +1185,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/commits/${string}`]: {
+    "/v1/commits/{sha}": {
         parameters: {
             query?: never;
             header?: never;
@@ -1202,7 +1202,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/commits/${string}/diff`]: {
+    "/v1/commits/{sha}/diff": {
         parameters: {
             query?: never;
             header?: never;
@@ -1237,7 +1237,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/contacts/${string}`]: {
+    "/v1/contacts/{id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -1255,7 +1255,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/contacts/${string}/interactions`]: {
+    "/v1/contacts/{id}/interactions": {
         parameters: {
             query?: never;
             header?: never;
@@ -1336,7 +1336,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/datasets/${string}`]: {
+    "/v1/datasets/{dataset_id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -1354,7 +1354,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/datasets/${string}/evidence`]: {
+    "/v1/datasets/{dataset_id}/evidence": {
         parameters: {
             query?: never;
             header?: never;
@@ -1371,7 +1371,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/datasets/${string}/files`]: {
+    "/v1/datasets/{dataset_id}/files": {
         parameters: {
             query?: never;
             header?: never;
@@ -1388,7 +1388,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/datasets/${string}/preview`]: {
+    "/v1/datasets/{dataset_id}/preview": {
         parameters: {
             query?: never;
             header?: never;
@@ -1405,7 +1405,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/datasets/${string}/safety`]: {
+    "/v1/datasets/{dataset_id}/safety": {
         parameters: {
             query?: never;
             header?: never;
@@ -1421,7 +1421,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/datasets/${string}/statistics`]: {
+    "/v1/datasets/{dataset_id}/statistics": {
         parameters: {
             query?: never;
             header?: never;
@@ -1438,7 +1438,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/datasets/${string}/trust_override`]: {
+    "/v1/datasets/{dataset_id}/trust_override": {
         parameters: {
             query?: never;
             header?: never;
@@ -1454,7 +1454,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/datasets/${string}/validate`]: {
+    "/v1/datasets/{dataset_id}/validate": {
         parameters: {
             query?: never;
             header?: never;
@@ -1471,7 +1471,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/datasets/${string}/versions`]: {
+    "/v1/datasets/{dataset_id}/versions": {
         parameters: {
             query?: never;
             header?: never;
@@ -1489,7 +1489,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/datasets/${string}/versions/${string}/safety`]: {
+    "/v1/datasets/{dataset_id}/versions/{version_id}/safety": {
         parameters: {
             query?: never;
             header?: never;
@@ -1506,7 +1506,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/datasets/${string}/versions/${string}/trust-override`]: {
+    "/v1/datasets/{dataset_id}/versions/{version_id}/trust-override": {
         parameters: {
             query?: never;
             header?: never;
@@ -1523,7 +1523,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/datasets/chunked-upload/${string}`]: {
+    "/v1/datasets/chunked-upload/{session_id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -1544,7 +1544,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/datasets/chunked-upload/${string}/chunk`]: {
+    "/v1/datasets/chunked-upload/{session_id}/chunk": {
         parameters: {
             query?: never;
             header?: never;
@@ -1574,7 +1574,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/datasets/chunked-upload/${string}/complete`]: {
+    "/v1/datasets/chunked-upload/{session_id}/complete": {
         parameters: {
             query?: never;
             header?: never;
@@ -1602,7 +1602,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/datasets/chunked-upload/${string}/status`]: {
+    "/v1/datasets/chunked-upload/{session_id}/status": {
         parameters: {
             query?: never;
             header?: never;
@@ -1752,7 +1752,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/documents/${string}`]: {
+    "/v1/documents/{id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -1770,7 +1770,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/documents/${string}/chunks`]: {
+    "/v1/documents/{id}/chunks": {
         parameters: {
             query?: never;
             header?: never;
@@ -1787,7 +1787,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/documents/${string}/download`]: {
+    "/v1/documents/{id}/download": {
         parameters: {
             query?: never;
             header?: never;
@@ -1804,7 +1804,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/documents/${string}/process`]: {
+    "/v1/documents/{id}/process": {
         parameters: {
             query?: never;
             header?: never;
@@ -1821,7 +1821,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/documents/${string}/retry`]: {
+    "/v1/documents/{id}/retry": {
         parameters: {
             query?: never;
             header?: never;
@@ -1898,7 +1898,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/domain-adapters/${string}`]: {
+    "/v1/domain-adapters/{adapter_id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -1916,7 +1916,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/domain-adapters/${string}/execute`]: {
+    "/v1/domain-adapters/{adapter_id}/execute": {
         parameters: {
             query?: never;
             header?: never;
@@ -1933,7 +1933,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/domain-adapters/${string}/load`]: {
+    "/v1/domain-adapters/{adapter_id}/load": {
         parameters: {
             query?: never;
             header?: never;
@@ -1950,7 +1950,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/domain-adapters/${string}/manifest`]: {
+    "/v1/domain-adapters/{adapter_id}/manifest": {
         parameters: {
             query?: never;
             header?: never;
@@ -1967,7 +1967,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/domain-adapters/${string}/test`]: {
+    "/v1/domain-adapters/{adapter_id}/test": {
         parameters: {
             query?: never;
             header?: never;
@@ -1984,7 +1984,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/domain-adapters/${string}/unload`]: {
+    "/v1/domain-adapters/{adapter_id}/unload": {
         parameters: {
             query?: never;
             header?: never;
@@ -2019,7 +2019,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/evidence/${string}`]: {
+    "/v1/evidence/{id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -2138,7 +2138,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/git/sessions/${string}/end`]: {
+    "/v1/git/sessions/{session_id}/end": {
         parameters: {
             query?: never;
             header?: never;
@@ -2189,7 +2189,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/golden/${string}/approve`]: {
+    "/v1/golden/{run_id}/approve": {
         parameters: {
             query?: never;
             header?: never;
@@ -2206,7 +2206,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/golden/${string}/gates`]: {
+    "/v1/golden/{run_id}/gates": {
         parameters: {
             query?: never;
             header?: never;
@@ -2223,7 +2223,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/golden/${string}/promote`]: {
+    "/v1/golden/{run_id}/promote": {
         parameters: {
             query?: never;
             header?: never;
@@ -2240,7 +2240,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/golden/${string}/promotion`]: {
+    "/v1/golden/{run_id}/promotion": {
         parameters: {
             query?: never;
             header?: never;
@@ -2257,7 +2257,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/golden/${string}/rollback`]: {
+    "/v1/golden/{stage}/rollback": {
         parameters: {
             query?: never;
             header?: never;
@@ -2308,7 +2308,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/golden/runs/${string}`]: {
+    "/v1/golden/runs/{name}": {
         parameters: {
             query?: never;
             header?: never;
@@ -2444,7 +2444,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/journeys/${string}/${string}`]: {
+    "/v1/journeys/{journey_type}/{id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -2632,7 +2632,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/models/${string}/load`]: {
+    "/v1/models/{model_id}/load": {
         parameters: {
             query?: never;
             header?: never;
@@ -2675,7 +2675,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/models/${string}/status`]: {
+    "/v1/models/{model_id}/status": {
         parameters: {
             query?: never;
             header?: never;
@@ -2721,7 +2721,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/models/${string}/unload`]: {
+    "/v1/models/{model_id}/unload": {
         parameters: {
             query?: never;
             header?: never;
@@ -2762,7 +2762,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/models/${string}/validate`]: {
+    "/v1/models/{model_id}/validate": {
         parameters: {
             query?: never;
             header?: never;
@@ -2947,7 +2947,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/nodes/${string}/detail`]: {
+    "/v1/nodes/{node_id}/detail": {
         parameters: {
             query?: never;
             header?: never;
@@ -2981,7 +2981,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/notifications/${string}/read`]: {
+    "/v1/notifications/{notification_id}/read": {
         parameters: {
             query?: never;
             header?: never;
@@ -3066,7 +3066,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/plugins/${string}`]: {
+    "/v1/plugins/{name}": {
         parameters: {
             query?: never;
             header?: never;
@@ -3083,7 +3083,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/plugins/${string}/disable`]: {
+    "/v1/plugins/{name}/disable": {
         parameters: {
             query?: never;
             header?: never;
@@ -3100,7 +3100,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/plugins/${string}/enable`]: {
+    "/v1/plugins/{name}/enable": {
         parameters: {
             query?: never;
             header?: never;
@@ -3206,7 +3206,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/repos/${string}`]: {
+    "/v1/repos/{repo_id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -3275,7 +3275,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/routing/decisions/${string}`]: {
+    "/v1/routing/decisions/{id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -3309,7 +3309,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/routing/sessions/${string}`]: {
+    "/v1/routing/sessions/{request_id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -3368,7 +3368,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/services/${string}/logs`]: {
+    "/v1/services/{service_id}/logs": {
         parameters: {
             query?: never;
             header?: never;
@@ -3388,7 +3388,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/services/${string}/restart`]: {
+    "/v1/services/{service_id}/restart": {
         parameters: {
             query?: never;
             header?: never;
@@ -3408,7 +3408,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/services/${string}/start`]: {
+    "/v1/services/{service_id}/start": {
         parameters: {
             query?: never;
             header?: never;
@@ -3428,7 +3428,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/services/${string}/stop`]: {
+    "/v1/services/{service_id}/stop": {
         parameters: {
             query?: never;
             header?: never;
@@ -3600,7 +3600,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/stream/activity/${string}`]: {
+    "/v1/stream/activity/{workspace_id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -3852,7 +3852,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/tenants/${string}/default-stack`]: {
+    "/v1/tenants/{tenant_id}/default-stack": {
         parameters: {
             query?: never;
             header?: never;
@@ -3871,7 +3871,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/tenants/${string}/execution-policy`]: {
+    "/v1/tenants/{tenant_id}/execution-policy": {
         parameters: {
             query?: never;
             header?: never;
@@ -3908,7 +3908,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/tenants/${string}/execution-policy/${string}`]: {
+    "/v1/tenants/{tenant_id}/execution-policy/{policy_id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -3935,7 +3935,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/tenants/${string}/execution-policy/history`]: {
+    "/v1/tenants/{tenant_id}/execution-policy/history": {
         parameters: {
             query?: never;
             header?: never;
@@ -3961,7 +3961,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/tenants/${string}/policy-bindings`]: {
+    "/v1/tenants/{tenant_id}/policy-bindings": {
         parameters: {
             query?: never;
             header?: never;
@@ -3982,7 +3982,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/tenants/${string}/policy-bindings/${string}/toggle`]: {
+    "/v1/tenants/{tenant_id}/policy-bindings/{policy_pack_id}/toggle": {
         parameters: {
             query?: never;
             header?: never;
@@ -4004,7 +4004,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/tenants/${string}/revoke-all-tokens`]: {
+    "/v1/tenants/{tenant_id}/revoke-all-tokens": {
         parameters: {
             query?: never;
             header?: never;
@@ -4060,7 +4060,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/traces/${string}`]: {
+    "/v1/traces/{trace_id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -4109,7 +4109,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/training/jobs/${string}`]: {
+    "/v1/training/jobs/{job_id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -4126,7 +4126,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/training/jobs/${string}/cancel`]: {
+    "/v1/training/jobs/{job_id}/cancel": {
         parameters: {
             query?: never;
             header?: never;
@@ -4143,7 +4143,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/training/jobs/${string}/chat_bootstrap`]: {
+    "/v1/training/jobs/{job_id}/chat_bootstrap": {
         parameters: {
             query?: never;
             header?: never;
@@ -4164,7 +4164,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/training/jobs/${string}/logs`]: {
+    "/v1/training/jobs/{job_id}/logs": {
         parameters: {
             query?: never;
             header?: never;
@@ -4181,7 +4181,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/training/jobs/${string}/metrics`]: {
+    "/v1/training/jobs/{job_id}/metrics": {
         parameters: {
             query?: never;
             header?: never;
@@ -4198,7 +4198,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/training/jobs/${string}/retry`]: {
+    "/v1/training/jobs/{job_id}/retry": {
         parameters: {
             query?: never;
             header?: never;
@@ -4219,7 +4219,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/training/repos/${string}/versions/${string}/promote`]: {
+    "/v1/training/repos/{repo_id}/versions/{version_id}/promote": {
         parameters: {
             query?: never;
             header?: never;
@@ -4287,7 +4287,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/training/templates/${string}`]: {
+    "/v1/training/templates/{template_id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -4321,7 +4321,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/tutorials/${string}/complete`]: {
+    "/v1/tutorials/{tutorial_id}/complete": {
         parameters: {
             query?: never;
             header?: never;
@@ -4338,7 +4338,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/tutorials/${string}/dismiss`]: {
+    "/v1/tutorials/{tutorial_id}/dismiss": {
         parameters: {
             query?: never;
             header?: never;
@@ -4355,7 +4355,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/tutorials/${string}/incomplete`]: {
+    "/v1/tutorials/{tutorial_id}/incomplete": {
         parameters: {
             query?: never;
             header?: never;
@@ -4372,7 +4372,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/tutorials/${string}/undismiss`]: {
+    "/v1/tutorials/{tutorial_id}/undismiss": {
         parameters: {
             query?: never;
             header?: never;
@@ -4389,7 +4389,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/workers/${string}/detail`]: {
+    "/v1/workers/{worker_id}/detail": {
         parameters: {
             query?: never;
             header?: never;
@@ -4424,7 +4424,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/workspaces/${string}`]: {
+    "/v1/workspaces/{workspace_id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -4443,7 +4443,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/workspaces/${string}/members`]: {
+    "/v1/workspaces/{workspace_id}/members": {
         parameters: {
             query?: never;
             header?: never;
@@ -4461,7 +4461,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/workspaces/${string}/members/${string}`]: {
+    "/v1/workspaces/{workspace_id}/members/{member_id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -4479,7 +4479,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/workspaces/${string}/resources`]: {
+    "/v1/workspaces/{workspace_id}/resources": {
         parameters: {
             query?: never;
             header?: never;
@@ -4497,7 +4497,7 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    [path: `/v1/workspaces/${string}/resources/${string}`]: {
+    "/v1/workspaces/{workspace_id}/resources/{resource_id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -6753,7 +6753,7 @@ export type components = {
             router_decision_chain?: components["schemas"]["RouterDecisionChainEntry"][] | null;
             router_decisions: components["schemas"]["RouterDecision"][];
         };
-        /** @description Inference request */
+        /** @description Inference request (API surface) */
         InferRequest: {
             /**
              * @description Explicit adapter list to use for inference (legacy field)
@@ -6781,30 +6781,45 @@ export type components = {
             effective_adapter_ids?: string[] | null;
             /** @description Fusion interval policy (per_request|per_segment|per_token) */
             fusion_interval?: string;
+            /** @description Maximum number of tokens to generate (fallbacks to manifest defaults). */
             max_tokens?: number | null;
+            /** @description Explicit model identifier to target (optional). */
             model?: string | null;
+            /** @description Raw prompt text or chat payload. */
             prompt: string;
             /** @description Enable RAG context retrieval for this inference request */
             rag_enabled?: boolean | null;
             /** @description Enable reasoning-aware routing and hot-swaps */
             reasoning_mode?: boolean | null;
+            /** @description Require evidence payloads in receipts. */
             require_evidence?: boolean | null;
             /** @description Per-request override for router determinism (e.g., "deterministic", "adaptive") */
             routing_determinism_mode?: string;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Random seed for deterministic sampling.
+             */
             seed?: number | null;
             /** @description Chat session ID for trace linkage */
             session_id?: string | null;
             /** @description Adapter stack identifier to use for inference */
             stack_id?: string | null;
             stop_policy?: null | components["schemas"]["StopPolicySpec"];
+            /** @description Enable server-sent event streaming. */
             stream?: boolean | null;
-            /** Format: float */
+            /**
+             * Format: float
+             * @description Sampling temperature override.
+             */
             temperature?: number | null;
             /** @description Tenant ID (usually extracted from JWT claims, but can be explicit) */
             tenant_id?: string | null;
+            /** @description Top-K sampling cap. */
             top_k?: number | null;
-            /** Format: float */
+            /**
+             * Format: float
+             * @description Top-P (nucleus) sampling cap.
+             */
             top_p?: number | null;
         };
         /** @description Inference response */
@@ -8384,6 +8399,7 @@ export type components = {
         };
         /** @description Verifiable run receipt (hash chain over per-token decisions) */
         RunReceipt: {
+            /** @description Optional attestation payload. */
             attestation?: string | null;
             /**
              * Format: int32
@@ -8419,6 +8435,7 @@ export type components = {
              *     Binds the receipt to the exact kernel/quant/fusion/tokenizer/tenant/worker combination.
              */
             model_cache_identity_v2_digest_b3?: string | null;
+            /** @description Digest over output tokens. */
             output_digest: string;
             /** @description Whether the prefix KV cache was hit (true) or missed (false) */
             prefix_cache_hit?: boolean;
@@ -8434,8 +8451,11 @@ export type components = {
             prefix_kv_bytes?: number;
             /** @description Cryptographic key for the prefix KV cache entry used */
             prefix_kv_key_b3?: string | null;
+            /** @description Digest over receipt contents. */
             receipt_digest: string;
+            /** @description Head hash for the run's trace chain. */
             run_head_hash: string;
+            /** @description Optional signature covering the receipt. */
             signature?: string | null;
             /** @description BLAKE3 digest of the StopPolicySpec used for this inference */
             stop_policy_digest_b3?: string | null;
@@ -8455,6 +8475,7 @@ export type components = {
              * @description Tenant's allocated KV cache quota in bytes
              */
             tenant_kv_quota_bytes?: number;
+            /** @description Unique trace identifier for this run. */
             trace_id: string;
         };
         /** @description Runtime paths configuration */
@@ -8821,10 +8842,6 @@ export type components = {
         };
         /**
          * @description Exhaustive stop reason codes for inference termination.
-         *
-         *     Every inference run MUST emit exactly one of these codes to explain
-         *     why generation stopped. This enables deterministic behavior auditing
-         *     and cost attribution.
          * @enum {string}
          */
         StopReasonCode: StopReasonCode;

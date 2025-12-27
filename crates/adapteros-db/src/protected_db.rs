@@ -1,4 +1,5 @@
-use crate::Db;
+use crate::{Db, KvDb, Result, StorageMode};
+use adapteros_core::AosError;
 use std::marker::PhantomData;
 use std::ops::Deref;
 use std::sync::Arc;
@@ -53,6 +54,35 @@ impl ProtectedDb {
     /// Convenience helper to unlock lifecycle-scoped writes without threading the token explicitly.
     pub fn write_guard(&self) -> WriteCapableDb<'_> {
         self.write(self.lifecycle_token())
+    }
+
+    /// Mutate the storage mode when this handle is uniquely owned.
+    pub fn set_storage_mode(&mut self, mode: StorageMode) -> Result<()> {
+        self.with_db_mut(|db| db.set_storage_mode(mode))
+    }
+
+    /// Attach a KV backend when this handle is uniquely owned.
+    pub fn attach_kv_backend(&mut self, kv: KvDb) -> Result<()> {
+        self.with_db_mut(|db| {
+            db.attach_kv_backend(kv);
+            Ok(())
+        })
+    }
+
+    /// Detach the KV backend when this handle is uniquely owned.
+    pub fn detach_kv_backend(&mut self) -> Result<()> {
+        self.with_db_mut(|db| {
+            db.detach_kv_backend();
+            Ok(())
+        })
+    }
+
+    fn with_db_mut<T>(&mut self, f: impl FnOnce(&mut Db) -> Result<T>) -> Result<T> {
+        Arc::get_mut(&mut self.inner).map(f).unwrap_or_else(|| {
+            Err(AosError::database(
+                "ProtectedDb mutation requires an unshared handle".to_string(),
+            ))
+        })
     }
 }
 

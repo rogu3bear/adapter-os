@@ -18138,7 +18138,7 @@
       },
       "InferRequest": {
         "type": "object",
-        "description": "Inference request",
+        "description": "Inference request (API surface)",
         "required": [
           "prompt"
         ],
@@ -18225,16 +18225,19 @@
               "integer",
               "null"
             ],
+            "description": "Maximum number of tokens to generate (fallbacks to manifest defaults).",
             "minimum": 0
           },
           "model": {
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "description": "Explicit model identifier to target (optional)."
           },
           "prompt": {
-            "type": "string"
+            "type": "string",
+            "description": "Raw prompt text or chat payload."
           },
           "rag_enabled": {
             "type": [
@@ -18254,7 +18257,8 @@
             "type": [
               "boolean",
               "null"
-            ]
+            ],
+            "description": "Require evidence payloads in receipts."
           },
           "routing_determinism_mode": {
             "type": "string",
@@ -18266,6 +18270,7 @@
               "null"
             ],
             "format": "int64",
+            "description": "Random seed for deterministic sampling.",
             "minimum": 0
           },
           "session_id": {
@@ -18297,14 +18302,16 @@
             "type": [
               "boolean",
               "null"
-            ]
+            ],
+            "description": "Enable server-sent event streaming."
           },
           "temperature": {
             "type": [
               "number",
               "null"
             ],
-            "format": "float"
+            "format": "float",
+            "description": "Sampling temperature override."
           },
           "tenant_id": {
             "type": [
@@ -18318,6 +18325,7 @@
               "integer",
               "null"
             ],
+            "description": "Top-K sampling cap.",
             "minimum": 0
           },
           "top_p": {
@@ -18325,7 +18333,8 @@
               "number",
               "null"
             ],
-            "format": "float"
+            "format": "float",
+            "description": "Top-P (nucleus) sampling cap."
           }
         },
         "additionalProperties": false
@@ -23807,7 +23816,8 @@
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "description": "Optional attestation payload."
           },
           "billed_input_tokens": {
             "type": "integer",
@@ -23858,7 +23868,8 @@
             "description": "BLAKE3 digest of ModelCacheIdentityV2 canonical bytes.\nBinds the receipt to the exact kernel/quant/fusion/tokenizer/tenant/worker combination."
           },
           "output_digest": {
-            "type": "string"
+            "type": "string",
+            "description": "Digest over output tokens."
           },
           "prefix_cache_hit": {
             "type": "boolean",
@@ -23884,16 +23895,19 @@
             "description": "Cryptographic key for the prefix KV cache entry used"
           },
           "receipt_digest": {
-            "type": "string"
+            "type": "string",
+            "description": "Digest over receipt contents."
           },
           "run_head_hash": {
-            "type": "string"
+            "type": "string",
+            "description": "Head hash for the run's trace chain."
           },
           "signature": {
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "description": "Optional signature covering the receipt."
           },
           "stop_policy_digest_b3": {
             "type": [
@@ -23935,7 +23949,8 @@
             "minimum": 0
           },
           "trace_id": {
-            "type": "string"
+            "type": "string",
+            "description": "Unique trace identifier for this run."
           }
         }
       },
@@ -25100,7 +25115,7 @@
       },
       "StopReasonCode": {
         "type": "string",
-        "description": "Exhaustive stop reason codes for inference termination.\n\nEvery inference run MUST emit exactly one of these codes to explain\nwhy generation stopped. This enables deterministic behavior auditing\nand cost attribution.",
+        "description": "Exhaustive stop reason codes for inference termination.",
         "enum": [
           "LENGTH",
           "BUDGET_MAX",

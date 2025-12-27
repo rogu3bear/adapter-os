@@ -224,7 +224,7 @@ async fn test_update_adapter_memory_writes_to_both() {
 
     // Update memory
     let memory_bytes = 1024 * 1024 * 512; // 512 MB
-    db.update_adapter_memory("memory-update-test", memory_bytes)
+    db.update_adapter_memory("default-tenant", "memory-update-test", memory_bytes)
         .await
         .unwrap();
 
@@ -374,12 +374,12 @@ async fn test_kv_failure_does_not_fail_sql_operation() {
     // Detach KV backend to simulate KV failure
     // (In production, KV failures are logged but don't fail the operation)
     let kv_backend = db.kv_backend().cloned();
-    db.detach_kv_backend();
+    db.detach_kv_backend().unwrap();
     db.set_storage_mode(StorageMode::DualWrite).unwrap();
 
     // Re-attach but we'll verify behavior
     if let Some(kv) = kv_backend {
-        db.attach_kv_backend((*kv).clone());
+        db.attach_kv_backend((*kv).clone()).unwrap();
         db.set_storage_mode(StorageMode::DualWrite).unwrap();
     }
 
@@ -441,7 +441,7 @@ async fn test_consistency_after_multiple_updates() {
         .await
         .unwrap();
 
-    db.update_adapter_memory("consistency-test", 1024 * 1024 * 128)
+    db.update_adapter_memory("default-tenant", "consistency-test", 1024 * 1024 * 128)
         .await
         .unwrap();
 
@@ -450,7 +450,7 @@ async fn test_consistency_after_multiple_updates() {
         .await
         .unwrap();
 
-    db.update_adapter_memory("consistency-test", 1024 * 1024 * 256)
+    db.update_adapter_memory("default-tenant", "consistency-test", 1024 * 1024 * 256)
         .await
         .unwrap();
 
