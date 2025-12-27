@@ -2735,6 +2735,7 @@ impl MicroLoRATrainer {
     /// This uses shared LoRA weights scaled by the sum of routing weights
     /// for active experts.
     #[allow(clippy::needless_range_loop)]
+    #[allow(dead_code)]
     fn apply_lora_moe(
         &self,
         hidden: &[f32],
@@ -2754,6 +2755,7 @@ impl MicroLoRATrainer {
     /// MoE-aware forward pass with routing weights.
     ///
     /// Uses routing-weighted shared LoRA: same weights scaled by expert routing.
+    #[allow(dead_code)]
     fn forward_moe(
         &self,
         weights: &LoRAWeights,
@@ -2914,6 +2916,7 @@ impl MicroLoRATrainer {
     /// Gradients are scaled by the routing weights for active experts.
     /// For routing-weighted shared LoRA:
     /// `grad_scale = sum(routing_weight[e]) for e in active_experts`
+    #[allow(dead_code)]
     fn backward_and_update_moe(
         &self,
         weights: &mut LoRAWeights,
@@ -3009,6 +3012,7 @@ impl MicroLoRATrainer {
     ///
     /// For training, we simulate routing by distributing examples across experts
     /// using deterministic routing based on the example index and MoE config.
+    #[allow(dead_code)]
     fn train_batch_moe(
         &self,
         weights: &mut LoRAWeights,
@@ -3095,7 +3099,8 @@ mod tests {
     use adapteros_core::B3Hash;
     use adapteros_platform::common::PlatformUtils;
     use blake3;
-    use rand::thread_rng;
+    use rand::SeedableRng;
+    use rand_chacha::ChaCha20Rng;
     use std::collections::HashMap;
     use tempfile::TempDir;
 
@@ -3569,7 +3574,10 @@ mod tests {
         let (output, hidden) = trainer.forward(&weights, &prepared).unwrap();
         let target = example.target.clone();
 
-        let mut rng = thread_rng();
+        let mut rng = ChaCha20Rng::from_seed(derive_seed(
+            &B3Hash::hash(b"test_backward_only_updates_lora_weights"),
+            "deterministic-noise",
+        ));
         let base_stub = vec![42.0f32, 43.0];
         let base_before = base_stub.clone();
 

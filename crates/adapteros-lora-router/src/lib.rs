@@ -48,6 +48,12 @@ use std::sync::OnceLock;
 pub const ROUTER_GATE_Q15_DENOM: f32 = 32767.0;
 pub const ROUTER_GATE_Q15_MAX: i16 = 32767;
 
+#[inline]
+pub(crate) fn quantize_gate(gate: f32) -> i16 {
+    let scaled = (gate * ROUTER_GATE_Q15_DENOM).round() as i32;
+    scaled.clamp(0, ROUTER_GATE_Q15_MAX as i32) as i16
+}
+
 fn determinism_debug_enabled() -> bool {
     static FLAG: OnceLock<bool> = OnceLock::new();
     *FLAG.get_or_init(|| match std::env::var("AOS_DEBUG_DETERMINISM") {
@@ -1120,7 +1126,8 @@ impl Router {
 
         // Softmax with temperature using deterministic f64 + Kahan path
         let mut gates: Vec<f32> = Self::deterministic_softmax(&top_k, self.tau);
-        let min_gate = self.eps / self.k as f32;
+        let active_k = gates.len().max(1);
+        let min_gate = self.eps / active_k as f32;
         for g in &mut gates {
             *g = g.max(min_gate);
         }
@@ -1132,13 +1139,7 @@ impl Router {
         }
 
         // Quantize to Q15 (denominator 32767.0) so that identical inputs produce the same gates_q15 on every run
-        let gates_q15: SmallVec<[i16; 8]> = gates
-            .iter()
-            .map(|&g| {
-                let q = (g * ROUTER_GATE_Q15_DENOM).round() as i16;
-                q.max(0)
-            })
-            .collect();
+        let gates_q15: SmallVec<[i16; 8]> = gates.iter().map(|&g| quantize_gate(g)).collect();
 
         let entropy = Self::compute_entropy(&gates);
 
@@ -1640,7 +1641,8 @@ impl Router {
 
         if !zero_temperature {
             // Apply entropy floor
-            let min_gate = self.eps / self.k as f32;
+            let active_k = gates.len().max(1);
+            let min_gate = self.eps / active_k as f32;
             for g in &mut gates {
                 *g = g.max(min_gate);
             }
@@ -1653,13 +1655,7 @@ impl Router {
         }
 
         // Quantize to Q15 so identical inputs keep the same per-token gates across runs
-        let gates_q15: SmallVec<[i16; 8]> = gates
-            .iter()
-            .map(|&g| {
-                let q = (g * ROUTER_GATE_Q15_DENOM).round() as i16;
-                q.max(0)
-            })
-            .collect();
+        let gates_q15: SmallVec<[i16; 8]> = gates.iter().map(|&g| quantize_gate(g)).collect();
 
         let entropy = Self::compute_entropy(&gates);
 
@@ -1863,7 +1859,8 @@ impl Router {
 
         if !zero_temperature {
             // Normalize and apply entropy floor
-            let min_gate = self.eps / self.k as f32;
+            let active_k = gates.len().max(1);
+            let min_gate = self.eps / active_k as f32;
             for g in &mut gates {
                 *g = g.max(min_gate);
             }
@@ -1876,13 +1873,7 @@ impl Router {
         }
 
         // Quantize to Q15
-        let gates_q15: SmallVec<[i16; 8]> = gates
-            .iter()
-            .map(|&g| {
-                let q = (g * ROUTER_GATE_Q15_DENOM).round() as i16;
-                q.max(0)
-            })
-            .collect();
+        let gates_q15: SmallVec<[i16; 8]> = gates.iter().map(|&g| quantize_gate(g)).collect();
 
         let entropy = Self::compute_entropy(&gates);
 
@@ -2190,6 +2181,7 @@ impl From<&Decision> for adapteros_lora_kernel_api::RouterRing {
 }
 
 /// Router decision that can represent either a concrete selection or an abstain outcome.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone)]
 pub enum RoutingDecision {
     /// The router selected one or more adapters.
@@ -2825,7 +2817,7 @@ mod tests {
         // Compute expected gates using deterministic softmax + entropy floor + renorm
         let mut expected_gates = Router::deterministic_softmax(&top_k, 1.0);
         let eps = 0.01;
-        let min_gate = eps / priors.len() as f32;
+        let min_gate = eps / top_k.len().max(1) as f32;
         for g in expected_gates.iter_mut() {
             *g = g.max(min_gate);
         }
@@ -2833,13 +2825,7 @@ mod tests {
         for g in expected_gates.iter_mut() {
             *g /= sum_expected;
         }
-        let expected_q15: Vec<i16> = expected_gates
-            .iter()
-            .map(|&g| {
-                let q = (g * ROUTER_GATE_Q15_DENOM).round() as i16;
-                q.max(0)
-            })
-            .collect();
+        let expected_q15: Vec<i16> = expected_gates.iter().map(|&g| quantize_gate(g)).collect();
 
         assert_eq!(
             decision.gates_q15.as_slice(),

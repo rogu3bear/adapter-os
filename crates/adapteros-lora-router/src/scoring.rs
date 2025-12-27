@@ -1,6 +1,6 @@
 //! Pluggable scoring functions for adapter routing
 
-use super::{Decision, Router, ROUTER_GATE_Q15_DENOM};
+use super::{quantize_gate, Decision, Router};
 use adapteros_core::{AosError, Result};
 use smallvec::SmallVec;
 
@@ -123,8 +123,9 @@ impl ScoringFunction for EntropyFloorScorer {
         let top_k: Vec<(usize, f32)> = scores.into_iter().take(k).collect();
 
         // Apply strong entropy floor - more uniform distribution
-        let min_gate = (eps * 2.0) / k as f32; // Double the entropy floor
-        let mut gates: Vec<f32> = vec![min_gate; k];
+        let active_k = top_k.len().max(1);
+        let min_gate = (eps * 2.0) / active_k as f32; // Double the entropy floor
+        let mut gates: Vec<f32> = vec![min_gate; active_k];
 
         // Add small variation based on scores
         let max_score = top_k
@@ -143,13 +144,7 @@ impl ScoringFunction for EntropyFloorScorer {
         }
 
         // Quantize to Q15
-        let gates_q15: SmallVec<[i16; 8]> = gates
-            .iter()
-            .map(|&g| {
-                let q = (g * ROUTER_GATE_Q15_DENOM).round() as i16;
-                q.max(0)
-            })
-            .collect();
+        let gates_q15: SmallVec<[i16; 8]> = gates.iter().map(|&g| quantize_gate(g)).collect();
 
         let indices: SmallVec<[u16; 8]> = top_k.iter().map(|(i, _)| *i as u16).collect();
 
@@ -276,7 +271,8 @@ impl ScoringFunction for AdapterAwareScorer {
         // Top-k softmax with entropy floor
         let top_k: Vec<(usize, f32)> = scores.into_iter().take(k).collect();
         let mut gates: Vec<f32> = Router::deterministic_softmax(&top_k, tau);
-        let min_gate = eps / k as f32;
+        let active_k = gates.len().max(1);
+        let min_gate = eps / active_k as f32;
         for g in &mut gates {
             *g = g.max(min_gate);
         }
@@ -284,10 +280,7 @@ impl ScoringFunction for AdapterAwareScorer {
         for g in &mut gates {
             *g /= sum_g;
         }
-        let gates_q15: SmallVec<[i16; 8]> = gates
-            .iter()
-            .map(|&g| (g * ROUTER_GATE_Q15_DENOM).round() as i16)
-            .collect();
+        let gates_q15: SmallVec<[i16; 8]> = gates.iter().map(|&g| quantize_gate(g)).collect();
         let indices: SmallVec<[u16; 8]> = top_k.iter().map(|(i, _)| *i as u16).collect();
 
         // Calculate Shannon entropy from gate distribution
