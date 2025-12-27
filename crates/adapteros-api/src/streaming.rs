@@ -286,10 +286,12 @@ async fn generate_streaming_response<
     let mut worker = state.worker.lock().await;
 
     // Create Worker InferenceRequest with proper fields
+    let cpid = uuid::Uuid::new_v4().to_string();
     let inference_req = adapteros_lora_worker::InferenceRequest {
-        cpid: uuid::Uuid::new_v4().to_string(),
+        cpid: cpid.clone(),
         prompt: request.prompt.clone(),
         max_tokens: request.max_tokens,
+        request_id: Some(cpid),
         require_evidence: false,
         reasoning_mode: false,
         request_type: adapteros_lora_worker::RequestType::Normal,
@@ -425,10 +427,12 @@ pub async fn completion_handler<K: FusedKernels + StrictnessControl + Send + Syn
     let mut worker = state.worker.lock().await;
 
     // Create Worker InferenceRequest
+    let cpid = uuid::Uuid::new_v4().to_string();
     let inference_req = adapteros_lora_worker::InferenceRequest {
-        cpid: uuid::Uuid::new_v4().to_string(),
+        cpid: cpid.clone(),
         prompt: request.prompt.clone(),
         max_tokens: request.max_tokens,
+        request_id: Some(cpid),
         require_evidence: false,
         reasoning_mode: false,
         request_type: adapteros_lora_worker::RequestType::Normal,

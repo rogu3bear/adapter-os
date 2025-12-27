@@ -184,14 +184,7 @@ pub struct Model {
     pub imported_by: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct Manifest {
-    pub id: String,
-    pub tenant_id: String,
-    pub hash_b3: String,
-    pub body_json: String,
-    pub created_at: String,
-}
+pub type Manifest = adapteros_types::Manifest;
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Plan {

@@ -124,11 +124,13 @@ fn default_determinism_mode() -> String {
 }
 
 /// Returns true when strict determinism protections should be enforced.
+#[allow(dead_code)]
 pub(crate) fn strict_mode_enabled(strict_flag: bool, determinism_mode: &str) -> bool {
     strict_flag || determinism_mode.eq_ignore_ascii_case("strict")
 }
 
 /// In strict mode, ensure router decision chain has matching gates and adapters.
+#[allow(dead_code)]
 pub(crate) fn enforce_strict_router_chain(
     strict_mode: bool,
     base_only_request: bool,
