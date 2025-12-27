@@ -223,8 +223,8 @@ export const operatorConfig: RoleDashboardConfig = {
   widgets: [
     {
       id: 'active-adapters',
-      title: 'Active Adapters',
-      description: 'Currently loaded adapters and lifecycle states',
+      title: 'Active AI Modules',
+      description: 'Currently loaded AI models and their states',
       component: 'ActiveAdaptersWidget',
       defaultSize: 'large',
       position: { row: 0, col: 0 },
@@ -232,8 +232,8 @@ export const operatorConfig: RoleDashboardConfig = {
     },
     {
       id: 'training-queue',
-      title: 'Training Queue',
-      description: 'Active and queued training jobs',
+      title: 'Learning Tasks',
+      description: 'Active and queued learning jobs',
       component: 'TrainingQueueWidget',
       defaultSize: 'medium',
       position: { row: 0, col: 2 },
@@ -250,8 +250,8 @@ export const operatorConfig: RoleDashboardConfig = {
     },
     {
       id: 'adapter-stacks',
-      title: 'Adapter Stacks',
-      description: 'Active and configured adapter stacks',
+      title: 'AI Module Stacks',
+      description: 'Active and configured module stacks',
       component: 'AdapterStacksWidget',
       defaultSize: 'medium',
       position: { row: 1, col: 1 },
@@ -297,21 +297,21 @@ export const operatorConfig: RoleDashboardConfig = {
   quickActions: [
     {
       id: 'load-adapter',
-      label: 'Load Adapter',
+      label: 'Load AI Module',
       icon: 'Upload',
       variant: 'secondary',
       action: 'modal:load-adapter',
       permissions: ['AdapterLoad'],
-      description: 'Load an adapter into memory',
+      description: 'Load an AI model into memory',
     },
     {
       id: 'start-inference',
-      label: 'Run Inference',
+      label: 'Run Action',
       icon: 'Play',
       variant: 'primary',
       action: 'navigate:/inference',
       permissions: ['InferenceExecute'],
-      description: 'Execute inference operation',
+      description: 'Execute a quick action or test prompt',
     },
     {
       id: 'start-training',
@@ -329,7 +329,7 @@ export const operatorConfig: RoleDashboardConfig = {
       variant: 'secondary',
       action: 'navigate:/training/datasets',
       permissions: ['DatasetUpload'],
-      description: 'Upload training dataset',
+      description: 'Upload a dataset for learning tasks',
     },
     {
       id: 'manage-stack',
@@ -338,7 +338,7 @@ export const operatorConfig: RoleDashboardConfig = {
       variant: 'secondary',
       action: 'navigate:/admin/stacks',
       permissions: ['AdapterStackManage'],
-      description: 'Create and modify adapter stacks',
+      description: 'Create and modify AI module stacks',
     },
     {
       id: 'spawn-worker',

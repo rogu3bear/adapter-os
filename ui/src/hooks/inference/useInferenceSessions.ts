@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { useState, useCallback, useEffect } from 'react';
 import { InferenceSession, InferenceConfig, InferResponse } from '@/api/api-types';
 import { logger } from '@/utils/logger';

@@ -126,6 +126,7 @@ const getServerConfig = () => {
             target: `http://localhost:${process.env.AOS_SERVER_PORT || '8080'}`,
             changeOrigin: true,
             secure: false,
+            rewrite: (path) => `/api${path}`,
           },
         },
       };
@@ -173,6 +174,29 @@ const getServerConfig = () => {
             secure: false,
             cookieDomainRewrite: 'localhost',
             ws: true,
+            configure: (proxy, _options) => {
+              proxy.on('error', (err, _req, _res) => {
+                console.log('proxy error', err);
+              });
+              proxy.on('proxyReq', (proxyReq, req, _res) => {
+                if (req.headers.cookie) {
+                  proxyReq.setHeader('Cookie', req.headers.cookie);
+                }
+              });
+              proxy.on('proxyRes', (proxyRes, req, _res) => {
+                if (req.url?.includes('/stream/')) {
+                  proxyRes.headers['cache-control'] = 'no-cache';
+                  proxyRes.headers['connection'] = 'keep-alive';
+                  proxyRes.headers['x-accel-buffering'] = 'no';
+                }
+              });
+            },
+          },
+          '/v1': {
+            target: `http://localhost:${process.env.AOS_SERVER_PORT || '8080'}`,
+            changeOrigin: true,
+            secure: false,
+            rewrite: (path) => `/api${path}`,
             configure: (proxy, _options) => {
               proxy.on('error', (err, _req, _res) => {
                 console.log('proxy error', err);

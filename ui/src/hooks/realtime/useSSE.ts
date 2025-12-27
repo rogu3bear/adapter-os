@@ -66,12 +66,13 @@ export function useSSE<T = unknown>(
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<Error | null>(null);
   const [connected, setConnected] = useState(false);
-  const [circuitBreaker, setCircuitBreaker] = useState<CircuitBreakerState>({
+  const createCircuitBreakerState = (): CircuitBreakerState => ({
     errorCount: 0,
     isOpen: false,
     openedAt: null,
     lastError: null,
   });
+  const [circuitBreaker, setCircuitBreaker] = useState<CircuitBreakerState>(createCircuitBreakerState);
   const eventSourceRef = useRef<EventSource | null>(null);
   const reconnectAttemptsRef = useRef(0);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -79,6 +80,7 @@ export function useSSE<T = unknown>(
   const connectRef = useRef<(() => void) | null>(null);
   const lastActivityRef = useRef<number>(Date.now());
   const keepaliveIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const circuitBreakerRef = useRef<CircuitBreakerState>(createCircuitBreakerState());
 
   // Store callbacks in refs to avoid reconnection on every parent re-render
   const onErrorRef = useRef(onError);
@@ -89,6 +91,19 @@ export function useSSE<T = unknown>(
   const MAX_RECONNECT_ATTEMPTS = 10;
   const INITIAL_BACKOFF_MS = 1000;
   const MAX_BACKOFF_MS = 30000;
+  const setCircuitBreakerState = useCallback(
+    (updater: CircuitBreakerState | ((prev: CircuitBreakerState) => CircuitBreakerState)) => {
+      setCircuitBreaker((prev) => {
+        const next =
+          typeof updater === 'function'
+            ? (updater as (prevState: CircuitBreakerState) => CircuitBreakerState)(prev)
+            : updater;
+        circuitBreakerRef.current = next;
+        return next;
+      });
+    },
+    []
+  );
 
   // Helper to update last activity timestamp
   const updateLastActivity = useCallback(() => {
@@ -97,16 +112,11 @@ export function useSSE<T = unknown>(
 
   // Circuit breaker helpers
   const recordSuccess = useCallback(() => {
-    setCircuitBreaker({
-      errorCount: 0,
-      isOpen: false,
-      openedAt: null,
-      lastError: null,
-    });
-  }, []);
+    setCircuitBreakerState(createCircuitBreakerState());
+  }, [setCircuitBreakerState]);
 
   const recordError = useCallback((errorMessage: string) => {
-    setCircuitBreaker((prev) => {
+    setCircuitBreakerState((prev) => {
       const newErrorCount = prev.errorCount + 1;
       if (newErrorCount >= circuitBreakerThreshold) {
         logger.warn('SSE circuit breaker opened', {
@@ -124,15 +134,16 @@ export function useSSE<T = unknown>(
       }
       return { ...prev, errorCount: newErrorCount, lastError: errorMessage };
     });
-  }, [circuitBreakerThreshold, endpoint]);
+  }, [circuitBreakerThreshold, endpoint, setCircuitBreakerState]);
 
   const shouldAllowConnection = useCallback(() => {
-    if (!circuitBreaker.isOpen) {
+    const breakerState = circuitBreakerRef.current;
+    if (!breakerState.isOpen) {
       return true;
     }
     // Check if recovery timeout has passed
-    if (circuitBreaker.openedAt) {
-      const elapsed = Date.now() - circuitBreaker.openedAt;
+    if (breakerState.openedAt) {
+      const elapsed = Date.now() - breakerState.openedAt;
       if (elapsed >= circuitBreakerRecoveryMs) {
         logger.info('SSE circuit breaker half-open, attempting recovery', {
           component: 'useSSE',
@@ -142,7 +153,7 @@ export function useSSE<T = unknown>(
       }
     }
     return false;
-  }, [circuitBreaker.isOpen, circuitBreaker.openedAt, circuitBreakerRecoveryMs, endpoint]);
+  }, [circuitBreakerRecoveryMs, endpoint]);
 
   useEffect(() => {
     if (!enabled) {
@@ -156,8 +167,9 @@ export function useSSE<T = unknown>(
     const connect = () => {
       // Check circuit breaker before connecting
       if (!shouldAllowConnection()) {
-        const remainingMs = circuitBreaker.openedAt
-          ? circuitBreakerRecoveryMs - (Date.now() - circuitBreaker.openedAt)
+        const breakerState = circuitBreakerRef.current;
+        const remainingMs = breakerState.openedAt
+          ? circuitBreakerRecoveryMs - (Date.now() - breakerState.openedAt)
           : circuitBreakerRecoveryMs;
         setError(new Error(`Service unavailable (circuit open). Retry in ${Math.ceil(remainingMs / 1000)}s`));
 
@@ -259,7 +271,7 @@ export function useSSE<T = unknown>(
           component: 'useSSE',
           endpoint,
           errorMessage,
-          circuitBreakerErrorCount: circuitBreaker.errorCount + 1,
+          circuitBreakerErrorCount: circuitBreakerRef.current.errorCount + 1,
         }, new Error(errorMessage));
 
         // Close current connection before reconnecting
@@ -289,7 +301,7 @@ export function useSSE<T = unknown>(
             endpoint,
             attempts: MAX_RECONNECT_ATTEMPTS,
             errorMessage,
-            circuitBreakerOpen: circuitBreaker.isOpen,
+            circuitBreakerOpen: circuitBreakerRef.current.isOpen,
           }, new Error('Max reconnection attempts exceeded'));
         }
       };
@@ -353,7 +365,7 @@ export function useSSE<T = unknown>(
     };
     // onError and onMessage are stored in refs to avoid reconnection on parent re-renders
     // Circuit breaker functions are memoized with useCallback
-  }, [endpoint, enabled, shouldAllowConnection, recordSuccess, recordError, updateLastActivity, circuitBreaker.openedAt, circuitBreakerRecoveryMs, circuitBreaker.errorCount, circuitBreaker.isOpen]);
+  }, [endpoint, enabled, shouldAllowConnection, recordSuccess, recordError, updateLastActivity, circuitBreakerRecoveryMs]);
 
   // Manual reconnect function - resets attempts, circuit breaker, and reconnects
   const reconnect = useCallback(() => {
@@ -372,17 +384,12 @@ export function useSSE<T = unknown>(
     reconnectAttemptsRef.current = 0;
     setError(null);
     // Reset circuit breaker on manual reconnect
-    setCircuitBreaker({
-      errorCount: 0,
-      isOpen: false,
-      openedAt: null,
-      lastError: null,
-    });
+    setCircuitBreakerState(createCircuitBreakerState());
     updateLastActivity(); // Reset last activity on manual reconnect
     if (connectRef.current && enabled) {
       connectRef.current();
     }
-  }, [enabled, updateLastActivity]);
+  }, [enabled, updateLastActivity, setCircuitBreakerState]);
 
   useEffect(() => {
     const handleTenantSwitch = () => {

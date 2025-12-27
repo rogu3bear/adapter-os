@@ -118,10 +118,11 @@ export function useNotifications(options: UseNotificationsOptions = {}): UseNoti
 
   const transformSSE = useCallback((sseData: unknown): NotificationData => {
     // SSE data from endpoint has format:
-    // { notifications: Notification[], count: number, timestamp: string }
+    // { notifications: Notification[], unread_count: number, timestamp: string }
     const rawData = sseData as {
       notifications?: Notification[];
       count?: number;
+      unread_count?: number;
       timestamp?: string;
     };
 
@@ -137,11 +138,13 @@ export function useNotifications(options: UseNotificationsOptions = {}): UseNoti
       };
     }
 
+    const unreadCount = rawData.unread_count ?? rawData.count ?? 0;
+
     return {
       notifications: rawData.notifications,
       summary: {
         total_count: rawData.notifications.length,
-        unread_count: rawData.count ?? 0,
+        unread_count: unreadCount,
         by_type: {},
       },
     };
@@ -158,7 +161,7 @@ export function useNotifications(options: UseNotificationsOptions = {}): UseNoti
     refetch,
   } = useSSEWithPollingFallback<NotificationData>({
     sseEndpoint: '/v1/stream/notifications',
-    sseEventType: 'message', // Default event type for notifications SSE
+    sseEventType: 'notification', // Server emits `event: notification`
     pollingFn: fetchNotifications,
     pollingSpeed: 'normal',
     enabled,
@@ -235,7 +238,7 @@ export function useNotifications(options: UseNotificationsOptions = {}): UseNoti
 
   const markAllRead = useCallback(async () => {
     try {
-      const result = await apiClient.markAllNotificationsRead(workspaceId);
+      const result = await apiClient.markAllNotificationsRead(workspaceIdRef.current);
 
       // Update local state optimistically
       setNotifications(prev => prev.map(n => ({ ...n, read_at: new Date().toISOString() })));
@@ -261,17 +264,17 @@ export function useNotifications(options: UseNotificationsOptions = {}): UseNoti
         component: 'useNotifications',
         operation: 'markAllRead',
         count: result.count,
-        workspaceId,
+        workspaceId: workspaceIdRef.current,
       });
     } catch (err) {
       logger.error('Failed to mark all notifications as read', {
         component: 'useNotifications',
         operation: 'markAllRead',
-        workspaceId,
+        workspaceId: workspaceIdRef.current,
       }, toError(err));
       throw err;
     }
-  }, [workspaceId]);
+  }, []);
 
   // ============================================================================
   // Cross-Tab Sync via Storage Events

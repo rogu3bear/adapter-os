@@ -30,6 +30,9 @@ export type {
   UseChatStreamingReturn,
 } from '@/types/hooks/chat';
 
+// Auto-attach helpers
+export { useAutoAttach } from './useAutoAttach';
+
 // Session management
 export {
   useSessionManager,

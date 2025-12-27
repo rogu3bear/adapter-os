@@ -55,3 +55,4 @@ export { useLiveDataStatus } from './useLiveDataStatus';
 export { useNotifications } from './useNotifications';
 export { useSessionExpiryHandler } from './useSessionExpiryHandler';
 export { useSessionTelemetry } from './useSessionTelemetry';
+export { useRouterEvents, type UseRouterEventsResult } from './useRouterEvents';

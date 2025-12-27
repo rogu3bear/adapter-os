@@ -19,6 +19,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { apiClient } from '@/api/services';
 import type { RecentActivityEvent } from '@/api/auth-types';
 import { buildTelemetryLink } from '@/utils/navLinks';
+import { useDemoActivity } from '@/hooks/demo/useDemoActivity';
 
 interface ActivityCardProps {}
 
@@ -127,10 +128,12 @@ const ActivityCard: React.FC<ActivityCardProps> = () => {
     refetchInterval: 30000, // Refresh every 30 seconds
   });
 
-  const activityItems: ActivityItem[] = React.useMemo(() => {
-    if (!events || events.length === 0) return [];
+  const demoEvents = useDemoActivity(events);
 
-    return events.slice(0, 10).map((event) => {
+  const activityItems: ActivityItem[] = React.useMemo(() => {
+    if (!demoEvents || demoEvents.length === 0) return [];
+
+    return demoEvents.slice(0, 10).map((event) => {
       const type = getActivityType(event);
       return {
         id: event.id,
@@ -142,11 +145,13 @@ const ActivityCard: React.FC<ActivityCardProps> = () => {
         badgeVariant: getBadgeVariant(type),
       };
     });
-  }, [events]);
+  }, [demoEvents]);
 
   const handleViewAll = () => {
     navigate(buildTelemetryLink());
   };
+
+  const hasActivity = activityItems && activityItems.length > 0;
 
   return (
     <Card>
@@ -157,7 +162,7 @@ const ActivityCard: React.FC<ActivityCardProps> = () => {
         </CardTitle>
       </CardHeader>
       <CardContent>
-        {isLoading ? (
+        {isLoading && !hasActivity ? (
           <div className="space-y-4">
             {[...Array(5)].map((_, i) => (
               <div key={i} className="flex items-start space-x-3">
@@ -170,7 +175,7 @@ const ActivityCard: React.FC<ActivityCardProps> = () => {
             ))}
             <Skeleton className="h-10 w-full" />
           </div>
-        ) : isError ? (
+        ) : isError && !hasActivity ? (
           <div className="flex flex-col items-center justify-center py-8 text-center">
             <Activity className="h-12 w-12 text-slate-400 mb-3" />
             <p className="text-sm text-slate-600 mb-4">
@@ -184,7 +189,7 @@ const ActivityCard: React.FC<ActivityCardProps> = () => {
               Retry
             </Button>
           </div>
-        ) : !activityItems || activityItems.length === 0 ? (
+        ) : !hasActivity ? (
           <div className="flex flex-col items-center justify-center py-8 text-center">
             <Activity className="h-12 w-12 text-slate-300 mb-3" />
             <p className="text-sm text-slate-600 mb-1">No recent activity</p>

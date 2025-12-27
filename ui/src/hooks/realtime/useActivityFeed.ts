@@ -8,12 +8,12 @@
 //! - CONTRIBUTING.md L123: "Use `tracing` for logging (not `println!`)"
 //! - Dashboard.tsx L220: Uses real-time activity feed from /v1/telemetry/events/recent
 //! - ui/src/hooks/realtime/useSSEWithPollingFallback.ts: Unified SSE + polling implementation
-
 import { useCallback, useMemo, useRef, useEffect } from 'react';
 import { logger } from '@/utils/logger';
 import { apiClient } from '@/api/services';
 import type { RecentActivityEvent } from '@/api/types';
 import { useSSEWithPollingFallback } from '@/hooks/realtime';
+import { useDemoActivity } from '@/hooks/demo/useDemoActivity';
 
 export interface ActivityEvent {
   id: string;
@@ -260,7 +260,7 @@ export function useActivityFeed(options: UseActivityFeedOptions = {}): UseActivi
   // Dedupe and Sort Events
   // ============================================================================
 
-  const events = useMemo(() => {
+  const baseEvents = useMemo(() => {
     if (!rawEvents) return [];
 
     // Dedupe by ID
@@ -278,6 +278,8 @@ export function useActivityFeed(options: UseActivityFeedOptions = {}): UseActivi
     // Limit to maxEvents
     return deduped.slice(0, maxEvents);
   }, [rawEvents, maxEvents]);
+
+  const events = useDemoActivity(baseEvents);
 
   return {
     events,

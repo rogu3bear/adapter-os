@@ -13,6 +13,9 @@ import { useToast } from '@/hooks/use-toast';
 import { Trash2, Wifi, WifiOff, Activity } from 'lucide-react';
 import { useMetricsStream } from '@/hooks/streaming/useStreamingEndpoints';
 import type { MetricsSnapshotEvent } from '@/api/streaming-types';
+import { useUiMode } from '@/hooks/ui/useUiMode';
+import { UiMode } from '@/config/ui-mode';
+import { useAuth } from '@/providers/CoreProviders';
 
 interface AdapterMemoryInfo {
   id: string;
@@ -26,6 +29,9 @@ interface AdapterMemoryInfo {
 export default function MemoryTab() {
   const [useSSE, setUseSSE] = useState(true);
   const [liveMemoryPercent, setLiveMemoryPercent] = useState<number | null>(null);
+  const { uiMode } = useUiMode();
+  const { user } = useAuth();
+  const isKernelMode = uiMode === UiMode.Kernel && user?.role?.toLowerCase() === 'developer';
 
   // SSE stream for live memory percentage
   const { error: sseError, connected: sseConnected, reconnect } = useMetricsStream({
@@ -89,6 +95,24 @@ export default function MemoryTab() {
       default:
         return 'secondary';
     }
+  }, [memoryData]);
+
+  const memoryBlocks = useMemo(() => {
+    if (!memoryData) return [];
+    const total = memoryData.total_memory_mb || 1;
+    return memoryData.adapters.map((adapter, idx) => {
+      const usage = adapter.memory_usage_mb || 0;
+      const percent = Math.max(2, Math.min(100, (usage / total) * 100));
+      return {
+        id: adapter.id || `adapter-${idx}`,
+        label: adapter.name || adapter.id,
+        memoryMb: usage,
+        percent,
+        rank: (adapter as { rank?: number }).rank,
+        pinned: adapter.pinned,
+        state: adapter.state,
+      };
+    });
   }, [memoryData]);
 
   const columns = useMemo<Column<AdapterMemoryInfo>[]>(
@@ -325,6 +349,49 @@ export default function MemoryTab() {
           </div>
         </CardContent>
       </Card>
+
+      {isKernelMode && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle>VRAM Map</CardTitle>
+                <CardDescription>Hot-Swap visualization of adapter blocks</CardDescription>
+              </div>
+              <Badge variant="secondary" className="uppercase text-[11px]">Hot-Swap</Badge>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-wrap gap-2">
+              {memoryBlocks.length === 0 ? (
+                <div className="text-sm text-muted-foreground">No adapters in VRAM.</div>
+              ) : (
+                memoryBlocks.map((block) => (
+                  <div
+                    key={block.id}
+                    className="min-w-[180px] flex-1 rounded-md border border-border/60 bg-slate-950 text-slate-50 p-3 shadow-sm"
+                    style={{ flexBasis: `${Math.min(block.percent * 1.5, 100)}%` }}
+                  >
+                    <div className="flex items-center justify-between text-[11px] uppercase tracking-wide">
+                      <span className="truncate" title={block.label}>{block.label}</span>
+                      <span className="text-slate-300">{block.percent.toFixed(1)}%</span>
+                    </div>
+                    <div className="mt-2 h-2 rounded-sm bg-slate-800">
+                      <div className="h-full rounded-sm bg-emerald-400" style={{ width: `${Math.min(100, block.percent)}%` }} />
+                    </div>
+                    <div className="mt-2 text-[11px] text-slate-200">
+                      {block.memoryMb.toFixed(2)} MB • Rank {block.rank ?? 'n/a'} {block.pinned ? '• pinned' : ''}
+                    </div>
+                    <div className="text-[11px] text-slate-400">
+                      state: {block.state}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Adapter Memory Table */}
       <Card>

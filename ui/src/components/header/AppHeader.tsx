@@ -83,8 +83,11 @@ export function AppHeader({
   const modeLabel: Record<UiMode, string> = {
     [UiMode.User]: 'User',
     [UiMode.Builder]: 'Builder',
+    [UiMode.Kernel]: 'Kernel',
     [UiMode.Audit]: 'Audit',
   };
+  const isDeveloperProfile = user.role?.toLowerCase() === 'developer';
+  const visibleModes = isDeveloperProfile ? UI_MODE_OPTIONS : UI_MODE_OPTIONS.filter(mode => mode !== UiMode.Kernel);
 
   return (
     <header className={cn('border-b border-border/50 bg-background sticky top-0 z-10', className)}>
@@ -206,7 +209,7 @@ export function AppHeader({
               <DropdownMenuContent align="end" className="w-44">
                 <DropdownMenuLabel>Interface mode</DropdownMenuLabel>
                 <DropdownMenuSeparator />
-                {UI_MODE_OPTIONS.map(mode => (
+                {visibleModes.map(mode => (
                   <DropdownMenuItem
                     key={mode}
                     onSelect={() => onChangeUiMode(mode)}
@@ -230,6 +233,8 @@ export function AppHeader({
           <UserMenu
             email={user.email}
             role={user.role}
+            uiMode={uiMode}
+            onChangeUiMode={onChangeUiMode}
             onLogout={onLogout}
           />
         </div>

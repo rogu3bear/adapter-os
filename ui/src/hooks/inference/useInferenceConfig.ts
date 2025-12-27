@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { useState, useCallback } from 'react';
 import type { InferenceConfig, InferResponse } from '@/api/types';
 

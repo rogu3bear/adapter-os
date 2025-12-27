@@ -48,6 +48,8 @@ import { AdapterLifecycleState } from '@/api/system-state-types';
 import { buildAdaptersRegisterLink, buildAdapterDetailLink, buildTrainingJobsLink, buildRouterConfigLink } from '@/utils/navLinks';
 import { useAuth } from '@/providers/CoreProviders';
 import { isDemoMvpMode } from '@/config/demo';
+import { useUiMode } from '@/hooks/ui/useUiMode';
+import { UiMode } from '@/config/ui-mode';
 
 interface AdaptersData {
   adapters: Adapter[];
@@ -58,6 +60,8 @@ function AdaptersPageContent() {
   const { can, userRole, getUser } = useRBAC();
   const user = getUser?.();
   const { sessionMode } = useAuth();
+  const { uiMode } = useUiMode();
+  const isKernelMode = uiMode === UiMode.Kernel && user?.role?.toLowerCase() === 'developer';
   const demoMode = isDemoMvpMode(sessionMode);
   const { errors, addError, clearError } = usePageErrors();
   const navigate = useNavigate();
@@ -81,6 +85,7 @@ function AdaptersPageContent() {
   );
 
   const isRefreshing = !loading && isFetching;
+  const [forceMountingId, setForceMountingId] = useState<string | null>(null);
 
   const adapters = data?.adapters ?? [];
   const totalMemory = data?.totalMemory ?? 0;
@@ -169,6 +174,21 @@ function AdaptersPageContent() {
     },
     [openAction],
   );
+
+  const handleForceMount = useCallback(async (adapterId: string) => {
+    if (!adapterId) return;
+    setForceMountingId(adapterId);
+    try {
+      await apiClient.loadAdapter(adapterId);
+      toast.success('Force mounted adapter into VRAM');
+      await refetch();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unable to mount adapter';
+      toast.error(`Force mount failed: ${message}`);
+    } finally {
+      setForceMountingId(null);
+    }
+  }, [refetch]);
 
   // Adapter operations using shared hook
   const {
@@ -497,6 +517,18 @@ function AdaptersPageContent() {
                         onClick={() => navigate(`${buildRouterConfigLink()}?adapterId=${adapter.id}`)}
                       >
                         Configure
+                      </Button>
+                    )}
+                    {isKernelMode && (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => handleForceMount(adapterKey)}
+                        disabled={forceMountingId === adapterKey}
+                        title="Hot-Swap: force mount into VRAM"
+                        data-cy="force-mount"
+                      >
+                        {forceMountingId === adapterKey ? 'Mounting…' : 'Force Mount'}
                       </Button>
                     )}
                     <Button

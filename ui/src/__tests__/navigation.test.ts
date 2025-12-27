@@ -278,6 +278,14 @@ describe('generateNavigationGroups', () => {
     expect(run).toBeUndefined();
   });
 
+  it('treats kernel mode as builder for navigation', () => {
+    const groups = generateNavigationGroups('developer', [], UiMode.Kernel);
+    const build = groups.find(group => group.title === 'Build');
+    expect(build?.items.map(item => item.label)).toEqual(
+      expect.arrayContaining(['Onboarding', 'Repositories', 'Adapters', 'Router Config', 'Base Models']),
+    );
+  });
+
   it('enforces audit permissions in audit mode', () => {
     const verifyGroups = generateNavigationGroups('auditor', [], UiMode.Audit);
     const verify = verifyGroups.find(group => group.title === 'Verify');

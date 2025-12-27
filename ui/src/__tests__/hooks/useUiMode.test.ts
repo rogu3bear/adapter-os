@@ -47,6 +47,14 @@ describe('useUiMode', () => {
       expect(result.current.uiMode).toBe(UiMode.Builder);
     });
 
+    it('loads stored Kernel mode from localStorage', () => {
+      mockReadLocalStorage.mockReturnValue(UiMode.Kernel);
+
+      const { result } = renderHook(() => useUiMode());
+
+      expect(result.current.uiMode).toBe(UiMode.Kernel);
+    });
+
     it('loads stored Audit mode from localStorage', () => {
       mockReadLocalStorage.mockReturnValue(UiMode.Audit);
 
@@ -79,6 +87,7 @@ describe('useUiMode', () => {
       expect(result.current.availableModes).toEqual(UI_MODE_OPTIONS);
       expect(result.current.availableModes).toContain(UiMode.User);
       expect(result.current.availableModes).toContain(UiMode.Builder);
+      expect(result.current.availableModes).toContain(UiMode.Kernel);
       expect(result.current.availableModes).toContain(UiMode.Audit);
     });
 
@@ -118,6 +127,19 @@ describe('useUiMode', () => {
 
       expect(result.current.uiMode).toBe(UiMode.Audit);
       expect(mockWriteLocalStorage).toHaveBeenCalledWith(UI_MODE_STORAGE_KEY, UiMode.Audit);
+    });
+
+    it('updates mode to Kernel', () => {
+      mockReadLocalStorage.mockReturnValue(UiMode.User);
+
+      const { result } = renderHook(() => useUiMode());
+
+      act(() => {
+        result.current.setUiMode(UiMode.Kernel);
+      });
+
+      expect(result.current.uiMode).toBe(UiMode.Kernel);
+      expect(mockWriteLocalStorage).toHaveBeenCalledWith(UI_MODE_STORAGE_KEY, UiMode.Kernel);
     });
 
     it('updates mode back to User', () => {
@@ -344,15 +366,16 @@ describe('useUiMode', () => {
   });
 
   describe('availableModes', () => {
-    it('returns all three modes', () => {
+    it('returns all four modes', () => {
       mockReadLocalStorage.mockReturnValue(null);
 
       const { result } = renderHook(() => useUiMode());
 
-      expect(result.current.availableModes).toHaveLength(3);
+      expect(result.current.availableModes).toHaveLength(4);
       expect(result.current.availableModes).toEqual([
         UiMode.User,
         UiMode.Builder,
+        UiMode.Kernel,
         UiMode.Audit,
       ]);
     });

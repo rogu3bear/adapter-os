@@ -15,6 +15,8 @@ export interface RouterDecision {
   confidence: number;
   routingPath: string[];
   timestamp: Date;
+  modelType?: 'dense' | 'moe';
+  activeExperts?: number[];
 }
 
 /**

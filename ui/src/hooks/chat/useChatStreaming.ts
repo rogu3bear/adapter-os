@@ -6,6 +6,15 @@ import type { ChatMessage, ThroughputStats } from '@/components/chat/ChatMessage
 import type { StreamingInferRequest } from '@/api/streaming-types';
 import type { UseChatStreamingOptions, UseChatStreamingReturn } from '@/types/hooks';
 
+type StreamTokenChunk = {
+  token: string;
+  content: string;
+  timestamp: number;
+  index: number;
+  logprob?: number | null;
+  routerScore?: number | null;
+};
+
 /**
  * Hook for managing chat message streaming with SSE.
  *
@@ -64,11 +73,12 @@ export function useChatStreaming(options: UseChatStreamingOptions): UseChatStrea
   const [currentRequestId, setCurrentRequestId] = useState<string | null>(null);
   const [tokensReceived, setTokensReceived] = useState(0);
   const [streamDuration, setStreamDuration] = useState<number | null>(null);
-  const [chunks, setChunks] = useState<Array<{ content: string; timestamp: number; index: number }>>([]);
+  const [chunks, setChunks] = useState<StreamTokenChunk[]>([]);
 
   // Refs for cancellation and timing
   const abortControllerRef = useRef<AbortController | null>(null);
   const streamStartTimeRef = useRef<number | null>(null);
+  const tokenMetaRef = useRef<StreamTokenChunk[]>([]);
 
   /**
    * Reset streaming state to initial values
@@ -79,6 +89,7 @@ export function useChatStreaming(options: UseChatStreamingOptions): UseChatStrea
     setTokensReceived(0);
     setStreamDuration(null);
     setChunks([]);
+    tokenMetaRef.current = [];
     streamStartTimeRef.current = null;
   }, []);
 
@@ -95,6 +106,11 @@ export function useChatStreaming(options: UseChatStreamingOptions): UseChatStrea
       if (streamStartTimeRef.current) {
         setStreamDuration(Date.now() - streamStartTimeRef.current);
       }
+
+      tokenMetaRef.current = [];
+      setChunks([]);
+      setStreamedText('');
+      setTokensReceived(0);
 
       logger.info('Stream cancelled by user', {
         component: 'useChatStreaming',
@@ -193,14 +209,39 @@ export function useChatStreaming(options: UseChatStreamingOptions): UseChatStrea
             fullText += token;
             setStreamedText(fullText);
             setTokensReceived(tokenCount);
+            const choice = (chunk as unknown as { choices?: Array<Record<string, unknown>> })?.choices?.[0];
+            let logprob: number | null = null;
+            if (choice && typeof choice === 'object' && 'logprobs' in choice) {
+              const logprobs = (choice as Record<string, unknown>).logprobs as {
+                token_logprobs?: Array<number | null>;
+                top_logprobs?: Array<Record<string, number>>;
+              } | undefined;
+              if (logprobs?.token_logprobs && logprobs.token_logprobs.length > 0) {
+                const value = logprobs.token_logprobs[0];
+                logprob = typeof value === 'number' ? value : value ?? null;
+              } else if (logprobs?.top_logprobs && logprobs.top_logprobs.length > 0) {
+                const first = logprobs.top_logprobs[0];
+                const value = first && typeof first === 'object' ? Object.values(first)[0] : null;
+                logprob = typeof value === 'number' ? value : value ?? null;
+              }
+            }
+            const routerScore =
+              (chunk as unknown as { router_score?: number })?.router_score ??
+              (chunk as unknown as { metadata?: { router_score?: number } })?.metadata?.router_score ??
+              null;
+            const chunkEntry: StreamTokenChunk = {
+              token,
+              content: token,
+              timestamp: Date.now(),
+              index: tokenCount - 1,
+              logprob,
+              routerScore,
+            };
             setChunks(prev => [
               ...prev,
-              {
-                content: token,
-                timestamp: Date.now(),
-                index: tokenCount - 1,
-              },
+              chunkEntry,
             ]);
+            tokenMetaRef.current = [...tokenMetaRef.current.slice(-199), chunkEntry];
           },
 
           onComplete: (completedText, finishReason, metadata) => {
@@ -240,6 +281,7 @@ export function useChatStreaming(options: UseChatStreamingOptions): UseChatStrea
                 metadata?.pinned_routing_fallback === 'stack_only' || metadata?.pinned_routing_fallback === 'partial'
                   ? metadata.pinned_routing_fallback
                   : undefined,
+              tokenStream: tokenMetaRef.current,
             };
 
             logger.info('Stream completed', {

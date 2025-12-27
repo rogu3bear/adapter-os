@@ -32,6 +32,7 @@ export function generateNavigationGroups(
   options: { demoMode?: boolean } = {},
 ): NavGroup[] {
   const demoMode = options.demoMode === true;
+  const effectiveMode = uiMode === UiMode.Kernel ? UiMode.Builder : uiMode;
   const spine = demoMode ? DEMO_PRIMARY_SPINE : PRIMARY_SPINE;
   const spineOrder = new Map<string, number>(spine.map((path, index) => [path, index]));
   const groupsMap = new Map<string, NavGroup>();
@@ -52,7 +53,7 @@ export function generateNavigationGroups(
 
     // Developer bypasses UI mode filtering - sees all routes.
     // Demo mode also bypasses UI mode filtering (demo nav spans chat + training).
-    if (!isDeveloper && !demoMode && route.modes && !route.modes.includes(uiMode)) {
+    if (!isDeveloper && !demoMode && route.modes && !route.modes.includes(effectiveMode)) {
       continue;
     }
 

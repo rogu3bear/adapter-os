@@ -50,7 +50,9 @@ import { toast } from 'sonner';
 import { apiClient } from '@/api/services';
 import { useTenants } from '@/hooks/admin/useAdmin';
 import { useAuth } from '@/providers/CoreProviders';
+import { useComputedMetrics } from '@/hooks/system/useSystem';
 import { logger } from '@/utils/logger';
+import { isDemoSessionMode } from '@/config/demo';
 import { buildAdminTenantsLink, buildSecurityAuditLink, ROUTE_PATHS } from '@/utils/navLinks';
 import type { Tenant, User, AuditLog, SystemMetrics } from '@/api/types';
 
@@ -75,10 +77,44 @@ interface SecurityOverview {
   suspiciousActivity: number;
 }
 
+function DemoControls({ onRefresh }: { onRefresh: () => Promise<void> }) {
+  const handleReset = async () => {
+    toast.success('Demo data reset requested. Sample data will refresh shortly.');
+    await onRefresh();
+  };
+
+  const handleReplay = async () => {
+    toast.info('Sample admin activity added to the demo timeline.');
+    await onRefresh();
+  };
+
+  return (
+    <Alert variant="default" className="border-primary/30 bg-primary/5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <AlertTitle className="text-sm font-semibold">Demo controls</AlertTitle>
+          <AlertDescription className="text-xs text-muted-foreground">
+            These actions only affect the demo session and never touch production workspaces.
+          </AlertDescription>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="outline" onClick={handleReset}>
+            Reset demo data
+          </Button>
+          <Button size="sm" onClick={handleReplay}>
+            Inject sample activity
+          </Button>
+        </div>
+      </div>
+    </Alert>
+  );
+}
+
 export default function AdminDashboard() {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, sessionMode } = useAuth();
   const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const isDemo = isDemoSessionMode(sessionMode);
 
   // Fetch tenants
   const {
@@ -94,7 +130,7 @@ export default function AdminDashboard() {
     isLoading: usersLoading,
     error: usersError,
     refetch: refetchUsers,
-  } = useQuery({
+  } = useQuery<{ users: User[] }>({
     queryKey: ['admin-users', refreshTrigger],
     queryFn: () => apiClient.listUsers({ page: 1, page_size: 100 }),
     staleTime: 30000,
@@ -105,7 +141,7 @@ export default function AdminDashboard() {
     data: auditLogs,
     isLoading: auditLoading,
     error: auditError,
-  } = useQuery({
+  } = useQuery<AuditLog[]>({
     queryKey: ['admin-audit-logs', refreshTrigger],
     queryFn: () => apiClient.queryAuditLogs({ limit: 50 }),
     staleTime: 30000,
@@ -116,16 +152,18 @@ export default function AdminDashboard() {
     data: systemMetrics,
     isLoading: metricsLoading,
     error: metricsError,
-  } = useQuery({
+  } = useQuery<SystemMetrics>({
     queryKey: ['admin-system-metrics', refreshTrigger],
     queryFn: () => apiClient.getSystemMetrics(),
     refetchInterval: 2000,  // Update every 2 seconds for near real-time
     staleTime: 1000,        // Consider data stale after 1 second
   });
 
+  const computedMetrics = useComputedMetrics(systemMetrics ?? null);
+
   // Calculate tenant summary
   const tenantSummary: TenantSummary = React.useMemo(() => {
-    const tenants = tenantsData || [];
+    const tenants: Tenant[] = tenantsData || [];
     return {
       total: tenants.length,
       active: tenants.filter((t) => t.status === 'active' || !t.status).length,
@@ -238,6 +276,8 @@ export default function AdminDashboard() {
         </Button>
       </PageHeader>
 
+      {isDemo && <DemoControls onRefresh={handleRefresh} />}
+
       {/* Organization Summary */}
       <SectionErrorBoundary sectionName="Organization Summary">
         <Card>
@@ -274,7 +314,11 @@ export default function AdminDashboard() {
                   <p className="text-2xl font-bold text-blue-600">
                     {tenantSummary.total}
                   </p>
-                  <p className="text-sm text-muted-foreground">Total Tenants</p>
+                  <p className="text-sm text-muted-foreground flex items-center gap-1">
+                    <GlossaryTooltip brief="Workspaces your teams use" variant="inline">
+                      <span>Workspaces (Tenants)</span>
+                    </GlossaryTooltip>
+                  </p>
                 </div>
                 <div className="space-y-1">
                   <p className="text-2xl font-bold text-green-600">
@@ -427,6 +471,16 @@ export default function AdminDashboard() {
                         {securityOverview.suspiciousActivity}
                       </Badge>
                     </div>
+                    <div className="flex items-center justify-between p-3 bg-muted rounded-lg">
+                      <GlossaryTooltip brief="Outbound data leaving your deployment" variant="inline">
+                        <span className="text-sm cursor-help">Outbound Data (Egress)</span>
+                      </GlossaryTooltip>
+                      <Badge
+                        variant={securityOverview.suspiciousActivity > 0 ? 'secondary' : 'outline'}
+                      >
+                        {securityOverview.suspiciousActivity > 0 ? 'Reviewing' : 'Clear'}
+                      </Badge>
+                    </div>
                   </div>
                   <Button
                     variant="outline"
@@ -480,11 +534,11 @@ export default function AdminDashboard() {
                       </GlossaryTooltip>
                     </div>
                     <span className="text-sm font-semibold">
-                      {(systemMetrics?.cpu_usage ?? systemMetrics?.cpu_usage_percent ?? 0).toFixed(1)}%
+                      {(computedMetrics?.cpuUsage ?? 0).toFixed(1)}%
                     </span>
                   </div>
                   <Progress
-                    value={systemMetrics?.cpu_usage ?? systemMetrics?.cpu_usage_percent ?? 0}
+                    value={computedMetrics?.cpuUsage ?? 0}
                     className="h-3"
                   />
                 </div>
@@ -501,11 +555,11 @@ export default function AdminDashboard() {
                       </GlossaryTooltip>
                     </div>
                     <span className="text-sm font-semibold">
-                      {(systemMetrics?.memory_usage ?? systemMetrics?.memory_usage_percent ?? 0).toFixed(1)}%
+                      {(computedMetrics?.memoryUsage ?? 0).toFixed(1)}%
                     </span>
                   </div>
                   <Progress
-                    value={systemMetrics?.memory_usage ?? systemMetrics?.memory_usage_percent ?? 0}
+                    value={computedMetrics?.memoryUsage ?? 0}
                     className="h-3"
                   />
                 </div>
@@ -522,11 +576,11 @@ export default function AdminDashboard() {
                       </GlossaryTooltip>
                     </div>
                     <span className="text-sm font-semibold">
-                      {(systemMetrics?.disk_usage ?? systemMetrics?.disk_usage_percent ?? 0).toFixed(1)}%
+                      {(computedMetrics?.diskUsage ?? 0).toFixed(1)}%
                     </span>
                   </div>
                   <Progress
-                    value={systemMetrics?.disk_usage ?? systemMetrics?.disk_usage_percent ?? 0}
+                    value={computedMetrics?.diskUsage ?? 0}
                     className="h-3"
                   />
                 </div>

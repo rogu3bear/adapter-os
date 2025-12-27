@@ -28,6 +28,12 @@ export {
   type CommandItemType,
 } from './CommandPaletteContext';
 
+// Global copilot - context-aware assistant drawer
+export {
+  CopilotProvider,
+  useCopilot,
+} from './CopilotContext';
+
 // Information density - UI spacing and sizing preferences
 export {
   DensityProvider,
@@ -49,6 +55,16 @@ export {
   useDatasetChatOptional,
   default as DatasetChatContext,
 } from './DatasetChatContext';
+
+// Chat UI context - router suggestions and attachments
+export {
+  ChatProvider,
+  useChatContext,
+  useChatContextOptional,
+  type SuggestedAdapter,
+  type AttachedAdapter,
+  default as ChatContext,
+} from './ChatContext';
 
 // Evidence drawer - Evidence and router decision display
 export {
