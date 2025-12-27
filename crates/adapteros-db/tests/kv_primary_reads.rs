@@ -14,7 +14,7 @@
 //! - Ensure data consistency between SQL and KV
 
 use adapteros_db::adapters::AdapterRegistrationBuilder;
-use adapteros_db::{Db, KvDb, StorageMode};
+use adapteros_db::{Db, KvDb, ProtectedDb, StorageMode};
 use adapteros_storage::repos::adapter::AdapterRepository;
 use std::sync::Arc;
 use tempfile::TempDir;
@@ -613,7 +613,10 @@ async fn test_kv_primary_state_updates() {
     db.set_storage_mode(StorageMode::KvPrimary).unwrap();
 
     // Update state (dual-write in KvPrimary mode)
-    db.update_adapter_state_tx("state-test-1", "warm", "Test state transition")
+    let db_writer = ProtectedDb::new(db.clone());
+    db_writer
+        .write(db_writer.lifecycle_token())
+        .update_adapter_state_tx("state-test-1", "warm", "Test state transition")
         .await
         .unwrap();
 

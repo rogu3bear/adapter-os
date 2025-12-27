@@ -146,6 +146,8 @@ pub struct AdapterManifest {
     pub category: String,
     pub scope: String,
     pub tier: String,
+    #[serde(default = "default_recommended_for_moe")]
+    pub recommended_for_moe: bool,
     pub target_modules: Vec<String>,
     pub created_at: String,
     pub weights_hash: String,
@@ -168,6 +170,10 @@ pub struct AdapterManifest {
 
 fn default_schema_version() -> String {
     MANIFEST_SCHEMA_VERSION.to_string()
+}
+
+fn default_recommended_for_moe() -> bool {
+    true
 }
 
 fn ensure_scope_metadata(metadata: &mut HashMap<String, String>, scope: &str) -> String {
@@ -298,7 +304,7 @@ pub struct AosSignature {
 /// Options for creating a single-file adapter with extended metadata
 ///
 /// PRD-ART-01: These options enable portable adapters with full provenance
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct CreateOptions {
     /// Base model name (e.g., "qwen2.5-7b")
     pub base_model: Option<String>,
@@ -310,6 +316,21 @@ pub struct CreateOptions {
     pub quantization: Option<String>,
     /// Full training provenance for portability
     pub provenance: Option<ProvenanceData>,
+    /// Whether the adapter is recommended for MoE base models
+    pub recommended_for_moe: bool,
+}
+
+impl Default for CreateOptions {
+    fn default() -> Self {
+        Self {
+            base_model: None,
+            base_model_id: None,
+            backend_family: None,
+            quantization: None,
+            provenance: None,
+            recommended_for_moe: true,
+        }
+    }
 }
 
 impl CreateOptions {
@@ -317,6 +338,12 @@ impl CreateOptions {
     pub fn with_base_model(mut self, name: &str, id: Option<String>) -> Self {
         self.base_model = Some(name.to_string());
         self.base_model_id = id;
+        self
+    }
+
+    /// Mark whether the adapter should be recommended for MoE base models
+    pub fn with_recommended_for_moe(mut self, recommended: bool) -> Self {
+        self.recommended_for_moe = recommended;
         self
     }
 
@@ -391,6 +418,7 @@ impl SingleFileAdapter {
             category: "code".to_string(),
             scope: scope_value,
             tier: "persistent".to_string(),
+            recommended_for_moe: options.recommended_for_moe,
             target_modules: vec![
                 "q_proj".to_string(),
                 "k_proj".to_string(),

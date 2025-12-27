@@ -1258,34 +1258,6 @@ pub fn create_backend_with_model_hashes(
     }
 }
 
-/// Detect if model is MoE (Mixture of Experts) by checking config.json
-#[cfg(feature = "multi-backend")]
-fn is_moe_model(model_path: &Path) -> bool {
-    let config_path = model_path.join("config.json");
-    if !config_path.exists() {
-        return false;
-    }
-
-    match std::fs::read_to_string(&config_path) {
-        Ok(content) => {
-            if let Ok(config) = serde_json::from_str::<Value>(&content) {
-                // Check for num_experts field (MoE indicator)
-                if let Some(num_experts) = config.get("num_experts").and_then(|v| v.as_u64()) {
-                    if num_experts > 1 {
-                        info!(
-                            model_path = %model_path.display(),
-                            num_experts = num_experts,
-                            "Detected MoE model architecture"
-                        );
-                        return true;
-                    }
-                }
-            }
-            false
-        }
-        Err(_) => false,
-    }
-}
 
 /// Internal helper to create MLX backend with optional manifest hash
 #[cfg(feature = "multi-backend")]
@@ -1312,7 +1284,15 @@ fn create_mlx_backend(
             model_path = %model_path_str,
             "Using MLX subprocess bridge for MoE model"
         );
-        return create_mlx_subprocess_backend(&model_path, manifest_hash);
+        #[cfg(feature = "mlx-bridge")]
+        return create_mlx_subprocess_bridge(&model_path, manifest_hash);
+
+        #[cfg(not(feature = "mlx-bridge"))]
+        return Err(AosError::Config(
+            "MoE MLX models require the optional Python bridge ('mlx-bridge' feature). \
+             Rebuild with --features mlx-bridge or use a non-MoE model."
+                .to_string(),
+        ));
     }
 
     use adapteros_lora_mlx_ffi::{
@@ -1377,7 +1357,7 @@ fn create_mlx_backend(
 }
 
 /// Create MLX subprocess bridge backend for MoE models
-#[cfg(feature = "multi-backend")]
+#[cfg(feature = "mlx-bridge")]
 fn create_mlx_subprocess_bridge(
     model_path: &Path,
     manifest_hash: Option<&B3Hash>,

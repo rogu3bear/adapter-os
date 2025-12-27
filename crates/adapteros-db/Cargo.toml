@@ -26,6 +26,7 @@ thiserror.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
+fs2 = { workspace = true }
 
 # Version parsing for semver ordering
 semver = "1.0"

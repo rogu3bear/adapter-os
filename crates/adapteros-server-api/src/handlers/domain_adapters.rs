@@ -400,7 +400,7 @@ pub async fn load_domain_adapter(
                 error!(error = %e, adapter_id = %adapter_id, "Failed to update adapter state via lifecycle manager");
                 // Fallback: update DB state directly
                 state
-                    .db
+                    .lifecycle_db()
                     .update_adapter_state_tx_for_tenant(&adapter.tenant_id, &adapter_id, "cold", "loaded_via_api")
                     .await
                     .map_err(|e| {
@@ -418,7 +418,7 @@ pub async fn load_domain_adapter(
         } else {
             // Adapter not found in lifecycle manager, update DB state directly
             state
-                .db
+                .lifecycle_db()
                 .update_adapter_state_tx_for_tenant(
                     &adapter.tenant_id,
                     &adapter_id,
@@ -441,7 +441,7 @@ pub async fn load_domain_adapter(
     } else {
         // Fallback: direct DB update if no lifecycle manager
         state
-            .db
+            .lifecycle_db()
             .update_adapter_state_tx_for_tenant(
                 &adapter.tenant_id,
                 &adapter_id,
@@ -573,7 +573,7 @@ pub async fn unload_domain_adapter(
 
     // Update adapter state to unloaded in database
     state
-        .db
+        .lifecycle_db()
         .update_adapter_state_tx_for_tenant(
             &adapter.tenant_id,
             &adapter_id,
@@ -725,7 +725,7 @@ pub async fn test_domain_adapter(
         inference_req.max_tokens = 256;
         inference_req.stack_determinism_mode = Some("strict".to_string());
 
-        match core.route_and_infer(inference_req, None).await {
+        match core.route_and_infer(inference_req, None, None).await {
             Ok(response) => {
                 let output_text = response.text;
                 outputs.push(output_text.clone());
@@ -989,7 +989,7 @@ pub async fn execute_domain_adapter(
     inference_req.max_tokens = 512;
     inference_req.stack_determinism_mode = Some("strict".to_string());
 
-    match core.route_and_infer(inference_req, None).await {
+    match core.route_and_infer(inference_req, None, None).await {
         Ok(response) => {
             output_hash = blake3::hash(response.text.as_bytes()).to_hex().to_string();
             trace_events.push("inference_complete".to_string());

@@ -33,9 +33,7 @@ fn create_adapter(
         framework: framework.map(|s| s.to_string()),
         languages,
         tier: tier.to_string(),
-        lora_tier: None,
-        scope_path: None,
-        base_model: None,
+        ..Default::default()
     }
 }
 

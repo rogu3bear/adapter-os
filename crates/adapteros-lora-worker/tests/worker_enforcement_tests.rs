@@ -153,13 +153,18 @@ fn test_routing_policy_denies_specific_adapter() {
         allowed_adapter_ids: None,
         denied_adapter_ids: Some(vec!["adapter_b".to_string()]),
         max_adapters_per_token: Some(2),
+        allowed_clusters: None,
+        denied_clusters: None,
+        max_reasoning_depth: Some(10),
+        cluster_fallback: "stay_on_current".to_string(),
         pin_enforcement: "warn".to_string(),
         require_stack: false,
         require_pins: false,
     };
 
-    let filtered =
-        filter_decision_by_policy(decision, &adapter_ids, Some(&policy)).expect("filter succeeds");
+    let clusters = vec![None, None, None];
+    let filtered = filter_decision_by_policy(decision, &adapter_ids, &clusters, Some(&policy))
+        .expect("filter succeeds");
 
     assert_eq!(filtered.indices.as_slice(), &[0]);
     let ring =
@@ -189,12 +194,17 @@ fn test_routing_policy_denies_all_adapters() {
         allowed_adapter_ids: Some(vec!["other".to_string()]), // excludes adapter_a
         denied_adapter_ids: None,
         max_adapters_per_token: None,
+        allowed_clusters: None,
+        denied_clusters: None,
+        max_reasoning_depth: Some(10),
+        cluster_fallback: "stay_on_current".to_string(),
         pin_enforcement: "warn".to_string(),
         require_stack: false,
         require_pins: false,
     };
 
-    let result = filter_decision_by_policy(decision, &adapter_ids, Some(&policy));
+    let clusters = vec![None];
+    let result = filter_decision_by_policy(decision, &adapter_ids, &clusters, Some(&policy));
     let err = result.expect_err("policy should reject all adapters");
     assert!(matches!(err, AosError::PolicyViolation(_)));
     let msg = format!("{}", err);
@@ -400,6 +410,8 @@ fn base_only_request_zeroes_priors_and_clears_decisions() {
             allowed_mask: None,
             policy_mask_digest: None,
             policy_overrides_applied: None,
+            model_type: adapteros_api_types::inference::RouterModelType::Dense,
+            active_experts: None,
         });
     }
 

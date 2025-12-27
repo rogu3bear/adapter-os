@@ -463,10 +463,14 @@ mod tests {
         let weights_ref = LoRAWeights {
             lora_a: vec![vec![0.1, 0.2]],
             lora_b: vec![vec![0.3, 0.4]],
+            moe_config: None,
+            precomputed_delta: None,
         };
         let weights_candidate = LoRAWeights {
             lora_a: vec![vec![0.2, 0.4]],
             lora_b: vec![vec![0.5, 0.6]],
+            moe_config: None,
+            precomputed_delta: None,
         };
 
         let reference = TrainingResult {

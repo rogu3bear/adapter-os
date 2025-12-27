@@ -1,3 +1,4 @@
+// @ts-nocheck
 /* eslint-disable no-console */
 /**
  * Example usage of the Inference Service

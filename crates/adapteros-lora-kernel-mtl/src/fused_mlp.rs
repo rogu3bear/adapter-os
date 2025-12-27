@@ -8,6 +8,7 @@
 //! - LoRA: https://arxiv.org/abs/2106.09685
 //! - Metal Performance Shaders: https://developer.apple.com/documentation/metalperformanceshaders
 
+use crate::KernelError;
 use adapteros_core::{AosError, Result};
 use metal::*;
 use std::sync::Arc;
@@ -96,6 +97,17 @@ impl FusedMlpKernel {
                 adapter_weights.len(),
                 adapters.len()
             )));
+        }
+
+        let input_bytes = input.length() as usize;
+        let output_bytes = output.length() as usize;
+        if input_bytes > output_bytes {
+            return Err(KernelError::BufferTooSmall {
+                buffer: "output",
+                required: input_bytes,
+                available: output_bytes,
+            }
+            .into_aos());
         }
 
         // Update ring buffer with active adapters

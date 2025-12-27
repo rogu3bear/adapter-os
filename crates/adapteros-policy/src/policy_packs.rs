@@ -507,7 +507,11 @@ impl PolicyPackManager {
                 "k_sparse": 4,
                 "gate_quant": "q15",
                 "entropy_floor": 0.02,
-                "sample_tokens_full": 128
+                "sample_tokens_full": 128,
+                "allowed_clusters": [],
+                "denied_clusters": [],
+                "max_reasoning_depth": 10,
+                "cluster_fallback": "stay_on_current"
             }),
             PolicyPackId::Evidence => serde_json::json!({
                 "require_open_book": true,
@@ -603,7 +607,7 @@ impl PolicyPackManager {
                 "packs": {
                     "egress": {"mode": "deny_all", "serve_requires_pf": true, "allow_tcp": false, "allow_udp": false, "uds_paths": ["/var/run/aos/<tenant>/*.sock"], "media_import": {"require_signature": true, "require_sbom": true}},
                     "determinism": {"require_metallib_embed": true, "require_kernel_hash_match": true, "rng": "hkdf_seeded", "retrieval_tie_break": ["score_desc", "doc_id_asc"]},
-                    "router": {"k_sparse": 4, "gate_quant": "q15", "entropy_floor": 0.02, "sample_tokens_full": 128},
+                    "router": {"k_sparse": 4, "gate_quant": "q15", "entropy_floor": 0.02, "sample_tokens_full": 128, "allowed_clusters": [], "denied_clusters": [], "max_reasoning_depth": 10, "cluster_fallback": "stay_on_current"},
                     "evidence": {"require_open_book": true, "min_spans": 1, "prefer_latest_revision": true, "warn_on_superseded": true},
                     "refusal": {"abstain_threshold": 0.55, "missing_fields_templates": {"torque_spec": ["aircraft_effectivity", "component_pn"]}},
                     "numeric": {"canonical_units": {"torque": "in_lbf", "pressure": "psi"}, "max_rounding_error": 0.5, "require_units_in_trace": true},
@@ -1196,7 +1200,11 @@ impl RouterValidator {
                 "k_sparse": 4,
                 "gate_quant": "q15",
                 "entropy_floor": 0.02,
-                "sample_tokens_full": 128
+                "sample_tokens_full": 128,
+                "allowed_clusters": [],
+                "denied_clusters": [],
+                "max_reasoning_depth": 10,
+                "cluster_fallback": "stay_on_current"
             }),
         }
     }

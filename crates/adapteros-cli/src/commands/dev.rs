@@ -13,6 +13,7 @@ use tracing::{error, info, warn};
 const PID_DIR: &str = "./var/run";
 const API_SERVER_PID: &str = "./var/run/api-server.pid";
 const UI_SERVER_PID: &str = "./var/run/ui-server.pid";
+const WORKER_PID: &str = "./var/run/aos-worker.pid";
 
 #[derive(Debug, Subcommand, Clone)]
 pub enum DevCommand {
@@ -80,6 +81,26 @@ pub async fn handle_dev_command(cmd: DevCommand, output: &OutputWriter) -> Resul
         DevCommand::Status { json } => dev_status(json, output).await,
         DevCommand::Logs { service, lines } => dev_logs(service, lines, output).await,
     }
+}
+
+/// Convenience super-command: bring up API + worker and attach the TUI
+pub async fn dev_all(output: &OutputWriter) -> Result<()> {
+    output.section("Starting development stack");
+    dev_up(false, false, false, output).await?;
+    start_worker(output).await?;
+
+    if output.mode().is_json() {
+        let status = serde_json::json!({
+            "api_server": check_service_status(API_SERVER_PID, "API Server")?,
+            "worker": check_service_status(WORKER_PID, "Worker")?,
+        });
+        output.print_json(&status)?;
+        return Ok(());
+    }
+
+    output.info("Attaching TUI (Ctrl+C to exit)");
+    attach_tui(output).await?;
+    Ok(())
 }
 
 /// Get dev command name for telemetry
@@ -188,6 +209,19 @@ async fn dev_down(output: &OutputWriter) -> Result<()> {
         }
     }
 
+    // Stop worker
+    if let Some(pid) = read_pid_file(WORKER_PID)? {
+        output.progress(format!("Stopping worker (PID {})...", pid));
+        if stop_process(pid)? {
+            fs::remove_file(WORKER_PID).ok();
+            output.progress_done(true);
+            stopped_count += 1;
+        } else {
+            output.progress_done(false);
+            output.warning("Worker process not found (may have already stopped)");
+        }
+    }
+
     if stopped_count == 0 {
         output.warning("No running services found");
     } else {
@@ -204,11 +238,13 @@ async fn dev_status(json: bool, output: &OutputWriter) -> Result<()> {
 
     let api_status = check_service_status(API_SERVER_PID, "API Server")?;
     let ui_status = check_service_status(UI_SERVER_PID, "UI Server")?;
+    let worker_status = check_service_status(WORKER_PID, "Worker")?;
 
     if json {
         let status = serde_json::json!({
             "api_server": api_status,
             "ui_server": ui_status,
+            "worker": worker_status,
         });
         output.result(&serde_json::to_string_pretty(&status)?);
     } else {
@@ -239,6 +275,18 @@ async fn dev_status(json: bool, output: &OutputWriter) -> Result<()> {
             output.kv("  PID", &pid.to_string());
         }
 
+        output.kv(
+            "Worker",
+            if worker_status.running {
+                "Running"
+            } else {
+                "Stopped"
+            },
+        );
+        if let Some(pid) = worker_status.pid {
+            output.kv("  PID", &pid.to_string());
+        }
+
         output.blank();
         if api_status.running || ui_status.running {
             output.info("To stop services: aosctl dev down");
@@ -257,10 +305,15 @@ async fn dev_logs(service: Option<String>, lines: usize, output: &OutputWriter) 
     let log_files = match service.as_deref() {
         Some("api") => vec!["./var/logs/api-server.log"],
         Some("ui") => vec!["./var/logs/ui-server.log"],
-        None => vec!["./var/logs/api-server.log", "./var/logs/ui-server.log"],
+        Some("worker") => vec!["./var/logs/worker.log"],
+        None => vec![
+            "./var/logs/api-server.log",
+            "./var/logs/ui-server.log",
+            "./var/logs/worker.log",
+        ],
         Some(other) => {
             return Err(AosError::Validation(format!(
-                "Unknown service: {}. Use 'api' or 'ui'",
+                "Unknown service: {}. Use 'api', 'ui', or 'worker'",
                 other
             )));
         }
@@ -367,6 +420,52 @@ async fn start_api_server(output: &OutputWriter) -> Result<()> {
     Ok(())
 }
 
+async fn start_worker(output: &OutputWriter) -> Result<()> {
+    fs::create_dir_all("./var/logs")
+        .map_err(|e| AosError::Io(format!("Failed to create log directory: {}", e)))?;
+
+    let stdout_file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("./var/logs/worker.log")
+        .map_err(|e| AosError::Io(format!("Failed to open worker log file: {}", e)))?;
+    let stderr_file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("./var/logs/worker.log")
+        .map_err(|e| AosError::Io(format!("Failed to open worker log file: {}", e)))?;
+
+    let mut child = TokioCommand::new("cargo")
+        .args([
+            "run",
+            "--release",
+            "-p",
+            "adapteros-lora-worker",
+            "--bin",
+            "aos_worker",
+        ])
+        .env("RUST_LOG", "info")
+        .stdout(Stdio::from(stdout_file))
+        .stderr(Stdio::from(stderr_file))
+        .spawn()
+        .map_err(|e| AosError::Io(format!("Failed to start worker: {}", e)))?;
+
+    let pid = child
+        .id()
+        .ok_or_else(|| AosError::Io("Failed to get worker PID".to_string()))?;
+    write_pid_file(WORKER_PID, pid)?;
+
+    let child_pid = pid;
+    tokio::spawn(async move {
+        if let Err(e) = child.wait().await {
+            warn!(pid = child_pid, error = %e, "Error waiting for worker process");
+        }
+    });
+
+    output.verbose(format!("Worker started (PID: {})", pid));
+    Ok(())
+}
+
 /// Start UI dev server
 async fn start_ui_server(output: &OutputWriter) -> Result<()> {
     let ui_dir = Path::new("./ui");
@@ -414,6 +513,22 @@ async fn start_ui_server(output: &OutputWriter) -> Result<()> {
     });
 
     output.verbose(format!("UI server started (PID: {})", pid));
+    Ok(())
+}
+
+async fn attach_tui(output: &OutputWriter) -> Result<()> {
+    #[cfg(feature = "tui")]
+    {
+        crate::commands::tui::run(crate::commands::tui::TuiArgs { server_url: None })
+            .await
+            .map_err(|e| AosError::Internal(e.to_string()))?;
+    }
+
+    #[cfg(not(feature = "tui"))]
+    {
+        output.warning("TUI feature not enabled; rebuild with --features tui to auto-attach");
+    }
+
     Ok(())
 }
 

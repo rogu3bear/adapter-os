@@ -4,6 +4,7 @@
 //! lint rules. It can be used as a standalone tool or integrated into CI/CD pipelines.
 
 use adapteros_lint::architectural::{check_directory, check_file, ArchitecturalViolation};
+use adapteros_lint::driver::run_driver;
 use std::env;
 use std::path::Path;
 use std::process;
@@ -11,19 +12,9 @@ use std::process;
 fn main() {
     let args: Vec<String> = env::args().collect();
 
-    if args.len() < 2 {
-        eprintln!("Usage: {} <command> [args...]", args[0]);
-        eprintln!("Commands:");
-        eprintln!("  check <path>     - Check a single file for architectural violations");
-        eprintln!("  check-all        - Check all handlers for architectural violations");
-        eprintln!("  help             - Show this help message");
-        process::exit(1);
-    }
-
-    let command = &args[1];
-
-    match command.as_str() {
-        "check" => {
+    // CLI mode: explicit commands only.
+    match args.get(1).map(|s| s.as_str()) {
+        Some("check") => {
             if args.len() < 3 {
                 eprintln!("Error: check command requires a file or directory path");
                 process::exit(1);
@@ -39,16 +30,20 @@ fn main() {
                 process::exit(1);
             }
         }
-        "check-all" => {
+        Some("check-all") => {
             check_all_handlers();
         }
-        "help" => {
+        Some("help") => {
             print_help();
         }
-        _ => {
-            eprintln!("Unknown command: {}", command);
-            eprintln!("Use 'help' to see available commands");
+        None => {
+            print_help();
             process::exit(1);
+        }
+        // Driver mode: invoked by cargo/clippy via rustc wrapper.
+        _ => {
+            let code = run_driver(args);
+            process::exit(code);
         }
     }
 }

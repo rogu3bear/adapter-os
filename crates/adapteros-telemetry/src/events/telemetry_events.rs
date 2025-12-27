@@ -1,5 +1,6 @@
 //! Enhanced telemetry events for router and policy decisions
 
+use adapteros_types::routing::RouterModelType;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -219,6 +220,12 @@ pub struct RouterDecisionEvent {
     /// Stack version for telemetry correlation
     #[serde(default)]
     pub stack_version: Option<i64>,
+    /// Model type for this decision (dense vs MoE)
+    #[serde(default = "RouterModelType::dense")]
+    pub model_type: RouterModelType,
+    /// Active experts used for this token when model_type = MoE
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_experts: Option<Vec<u16>>,
 }
 
 /// Candidate adapter entry inside the canonical router decision stream.
@@ -247,6 +254,24 @@ pub struct AbstainEvent {
     pub missing_fields: Vec<String>,
     /// Number of evidence spans found
     pub evidence_span_count: usize,
+    /// Optional request correlation identifier
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
+    /// Stack identifier for correlation
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stack_id: Option<String>,
+    /// Stack version for correlation
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stack_version: Option<i64>,
+    /// BLAKE3 digest of the triggering prompt (hex)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt_digest_b3: Option<String>,
+    /// Character length of the triggering prompt
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt_chars: Option<usize>,
+    /// Tenant identifier for isolation-aware routing
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tenant_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -274,6 +299,12 @@ impl AbstainEvent {
             entropy: None,
             missing_fields: Vec::new(),
             evidence_span_count: 0,
+            request_id: None,
+            stack_id: None,
+            stack_version: None,
+            prompt_digest_b3: None,
+            prompt_chars: None,
+            tenant_id: None,
         }
     }
 
@@ -288,6 +319,12 @@ impl AbstainEvent {
             entropy: Some(entropy),
             missing_fields: Vec::new(),
             evidence_span_count: 0,
+            request_id: None,
+            stack_id: None,
+            stack_version: None,
+            prompt_digest_b3: None,
+            prompt_chars: None,
+            tenant_id: None,
         }
     }
 
@@ -302,6 +339,12 @@ impl AbstainEvent {
             entropy: None,
             missing_fields: Vec::new(),
             evidence_span_count: span_count,
+            request_id: None,
+            stack_id: None,
+            stack_version: None,
+            prompt_digest_b3: None,
+            prompt_chars: None,
+            tenant_id: None,
         }
     }
 
@@ -316,7 +359,32 @@ impl AbstainEvent {
             entropy: None,
             missing_fields: fields,
             evidence_span_count: 0,
+            request_id: None,
+            stack_id: None,
+            stack_version: None,
+            prompt_digest_b3: None,
+            prompt_chars: None,
+            tenant_id: None,
         }
+    }
+
+    /// Attach optional request metadata used by active learning loops
+    pub fn with_context(
+        mut self,
+        request_id: Option<String>,
+        stack_id: Option<String>,
+        stack_version: Option<i64>,
+        prompt_digest_b3: Option<String>,
+        prompt_chars: Option<usize>,
+        tenant_id: Option<String>,
+    ) -> Self {
+        self.request_id = request_id;
+        self.stack_id = stack_id;
+        self.stack_version = stack_version;
+        self.prompt_digest_b3 = prompt_digest_b3;
+        self.prompt_chars = prompt_chars;
+        self.tenant_id = tenant_id;
+        self
     }
 }
 

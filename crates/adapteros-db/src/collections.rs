@@ -252,11 +252,7 @@ impl Db {
         }
 
         if self.storage_mode().write_to_sql() {
-            let mut tx = self
-                .pool()
-                .begin()
-                .await
-                .map_err(db_err("begin transaction"))?;
+            let mut tx = self.begin_write_tx().await?;
 
             sqlx::query("DELETE FROM collection_documents WHERE collection_id = ?")
                 .bind(id)

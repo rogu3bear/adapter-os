@@ -212,11 +212,7 @@ impl Db {
             return Ok(Vec::new());
         }
 
-        let mut tx = self
-            .pool()
-            .begin()
-            .await
-            .map_err(|e| AosError::Database(format!("Failed to begin transaction: {}", e)))?;
+        let mut tx = self.begin_write_tx().await?;
 
         let mut ids = Vec::with_capacity(params_list.len());
 

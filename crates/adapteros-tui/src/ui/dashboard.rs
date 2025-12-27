@@ -1,5 +1,5 @@
 use ratatui::{
-    layout::{Alignment, Constraint, Direction, Layout, Rect},
+    layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, List, ListItem, Paragraph},
@@ -7,73 +7,188 @@ use ratatui::{
 };
 
 use crate::app::types::Status;
-use crate::app::{App, Mode};
+use crate::app::{App, LogFilterMode};
 
 pub fn draw_dashboard(f: &mut Frame, app: &App, area: Rect) {
-    // Split the dashboard into sections
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(12), // ASCII art banner
-            Constraint::Length(10), // System status
-            Constraint::Length(8),  // Main menu
-            Constraint::Min(0),     // Additional info
+            Constraint::Percentage(34),
+            Constraint::Percentage(36),
+            Constraint::Percentage(30),
         ])
         .split(area);
 
-    // Draw ASCII art banner
-    draw_ascii_banner(f, chunks[0]);
-
-    // Draw system status
-    draw_system_status(f, app, chunks[1]);
-
-    // Draw main menu
-    draw_main_menu(f, app, chunks[2]);
-
-    // Draw additional info
-    draw_info_panel(f, app, chunks[3]);
+    draw_adapter_vram(f, app, chunks[0]);
+    draw_request_log(f, app, chunks[1]);
+    draw_health(f, app, chunks[2]);
 }
 
-fn draw_ascii_banner(f: &mut Frame, area: Rect) {
-    let banner_text = vec![
+fn draw_adapter_vram(f: &mut Frame, app: &App, area: Rect) {
+    let block = Block::default()
+        .title(" Active Adapters & VRAM ")
+        .borders(Borders::ALL);
+
+    let loaded: Vec<_> = app.adapters.iter().filter(|a| a.loaded).collect();
+    let headroom = app.metrics.memory_headroom_percent;
+
+    let mut lines = vec![
+        Line::from(vec![
+            Span::styled(
+                "VRAM ",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(format!(
+                "{}/{} MB  ",
+                app.model_status.memory_usage_mb, app.model_status.total_memory_mb
+            )),
+            Span::styled(
+                format!("{:.1}% headroom", headroom),
+                Style::default().fg(if headroom >= 15.0 {
+                    Color::Green
+                } else {
+                    Color::Yellow
+                }),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled(
+                "Loaded ",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(format!(
+                "{} of {} adapters",
+                loaded.len(),
+                app.adapters.len()
+            )),
+        ]),
         Line::from(""),
-        Line::from("   █████╗ ██████╗  █████╗ ██████╗ ████████╗███████╗██████╗  ██████╗ ███████╗"),
-        Line::from("  ██╔══██╗██╔══██╗██╔══██╗██╔══██╗╚══██╔══╝██╔════╝██╔══██╗██╔═══██╗██╔════╝"),
-        Line::from("  ███████║██║  ██║███████║██████╔╝   ██║   █████╗  ██████╔╝██║   ██║███████╗"),
-        Line::from("  ██╔══██║██║  ██║██╔══██║██╔═══╝    ██║   ██╔══╝  ██╔══██╗██║   ██║╚════██║"),
-        Line::from("  ██║  ██║██████╔╝██║  ██║██║        ██║   ███████╗██║  ██║╚██████╔╝███████║"),
-        Line::from("  ╚═╝  ╚═╝╚═════╝ ╚═╝  ╚═╝╚═╝        ╚═╝   ╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚══════╝"),
-        Line::from(""),
-        Line::from("                      SUPERBACKEND CONTROL SYSTEM"),
     ];
 
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Cyan));
+    if loaded.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "No adapters loaded. Swap in adapters to start using VRAM.",
+            Style::default().fg(Color::Gray),
+        )));
+    } else {
+        for adapter in loaded.iter().take(8) {
+            let mem = adapter.memory_mb.unwrap_or(0);
+            lines.push(Line::from(vec![
+                Span::styled(
+                    format!("{:<18}", adapter.id),
+                    Style::default().fg(Color::White),
+                ),
+                Span::raw(" "),
+                Span::styled(
+                    format!("{:>4} MB", mem),
+                    Style::default().fg(Color::Magenta),
+                ),
+                Span::raw("  "),
+                Span::styled(adapter.version.as_str(), Style::default().fg(Color::Gray)),
+            ]));
+        }
+    }
 
-    let paragraph = Paragraph::new(banner_text)
-        .block(block)
-        .style(Style::default().fg(Color::Cyan))
-        .alignment(Alignment::Center);
-
+    let paragraph = Paragraph::new(lines).block(block);
     f.render_widget(paragraph, area);
 }
 
-fn draw_system_status(f: &mut Frame, app: &App, area: Rect) {
+fn draw_request_log(f: &mut Frame, app: &App, area: Rect) {
     let block = Block::default()
-        .title(" System Status ")
+        .title(" Recent Request Log ")
         .borders(Borders::ALL);
 
-    // Count service statuses
+    let filters = format!(
+        "Filters: trace={} tenant={}   [t] trace [n] tenant [x] clear",
+        app.log_filter_trace.as_deref().unwrap_or("any"),
+        app.log_filter_tenant.as_deref().unwrap_or("any")
+    );
+
+    let mut items: Vec<ListItem> = Vec::new();
+
+    if let Some(mode) = app.log_filter_mode {
+        let label = match mode {
+            LogFilterMode::TraceId => "Trace ID",
+            LogFilterMode::Tenant => "Tenant",
+        };
+        items.push(ListItem::new(Line::from(vec![
+            Span::styled(
+                format!("{} filter: ", label),
+                Style::default().add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                app.log_filter_input.as_str(),
+                Style::default().fg(Color::Cyan),
+            ),
+        ])));
+    } else {
+        items.push(ListItem::new(Line::from(filters)));
+    }
+
+    let logs = app.filtered_logs();
+    if logs.is_empty() {
+        items.push(ListItem::new(Line::from(Span::styled(
+            "No request logs yet.",
+            Style::default().fg(Color::Gray),
+        ))));
+    } else {
+        for entry in logs.into_iter().take(10) {
+            let level_style = match entry.level {
+                crate::app::types::LogLevel::Error => Style::default().fg(Color::Red),
+                crate::app::types::LogLevel::Warn => Style::default().fg(Color::Yellow),
+                crate::app::types::LogLevel::Info => Style::default().fg(Color::Green),
+                crate::app::types::LogLevel::Debug => Style::default().fg(Color::Blue),
+            };
+
+            let latency = entry
+                .latency_ms
+                .map(|l| format!("{}ms", l))
+                .unwrap_or_else(|| "-".to_string());
+
+            items.push(ListItem::new(Line::from(vec![
+                Span::styled(
+                    format!("{} ", entry.timestamp.format("%H:%M:%S")),
+                    Style::default().fg(Color::Gray),
+                ),
+                Span::styled(
+                    format!("{:<5}", entry.level.as_str()),
+                    level_style.add_modifier(Modifier::BOLD),
+                ),
+                Span::raw(" "),
+                Span::styled(
+                    entry.trace_id.as_deref().unwrap_or("-"),
+                    Style::default().fg(Color::Cyan),
+                ),
+                Span::raw(" "),
+                Span::styled(
+                    entry.tenant_id.as_deref().unwrap_or("-"),
+                    Style::default().fg(Color::Magenta),
+                ),
+                Span::raw(" "),
+                Span::styled(latency, Style::default().fg(Color::White)),
+                Span::raw(" "),
+                Span::raw(&entry.message),
+            ])));
+        }
+    }
+
+    let list = List::new(items).block(block);
+    f.render_widget(list, area);
+}
+
+fn draw_health(f: &mut Frame, app: &App, area: Rect) {
+    let block = Block::default()
+        .title(" System Health (Heartbeat) ")
+        .borders(Borders::ALL);
+
     let running = app
         .services
         .iter()
         .filter(|s| s.status == Status::Running)
-        .count();
-    let stopped = app
-        .services
-        .iter()
-        .filter(|s| s.status == Status::Stopped)
         .count();
     let failed = app
         .services
@@ -81,253 +196,80 @@ fn draw_system_status(f: &mut Frame, app: &App, area: Rect) {
         .filter(|s| s.status == Status::Failed)
         .count();
 
-    let status_lines = vec![
+    let status_line = if let Some(health) = &app.health_status {
+        let color = match health.status.to_lowercase().as_str() {
+            "healthy" | "ready" | "online" => Color::Green,
+            "degraded" | "warning" => Color::Yellow,
+            _ => Color::Red,
+        };
         Line::from(vec![
-            Span::styled("[OK] ", Style::default().fg(Color::Green)),
-            Span::raw("Database        │ "),
-            Span::styled(
-                format!("{:<12}", "Connected"),
-                Style::default().fg(Color::Green),
+            Span::styled("Status: ", Style::default().add_modifier(Modifier::BOLD)),
+            Span::styled(health.status.as_str(), Style::default().fg(color)),
+            Span::raw("  "),
+            Span::raw(
+                health
+                    .version
+                    .as_deref()
+                    .map(|v| format!("v{}", v))
+                    .unwrap_or_else(|| "version: -".to_string()),
             ),
-            Span::raw(" │ Latency: 1.2ms"),
-        ]),
+        ])
+    } else {
         Line::from(vec![
-            Span::styled("[OK] ", Style::default().fg(Color::Green)),
-            Span::raw("Router          │ "),
+            Span::styled("Status: ", Style::default().add_modifier(Modifier::BOLD)),
             Span::styled(
-                format!("{:<12}", "Ready"),
-                Style::default().fg(Color::Green),
-            ),
-            Span::raw(format!(
-                " │ Adapters: {}/{}",
-                app.metrics.active_adapters, app.metrics.total_adapters
-            )),
-        ]),
-        Line::from(vec![
-            Span::styled(
-                if app.production_mode {
-                    "[OK] "
+                if app.setup_state.infrastructure_online {
+                    "online"
                 } else {
-                    "[!!] "
+                    "offline"
                 },
-                Style::default().fg(if app.production_mode {
-                    Color::Green
-                } else {
-                    Color::Yellow
-                }),
-            ),
-            Span::raw("Security        │ "),
-            Span::styled(
-                format!(
-                    "{:<12}",
-                    if app.production_mode {
-                        "PRODUCTION"
-                    } else {
-                        "DEVELOPMENT"
-                    }
-                ),
-                Style::default().fg(if app.production_mode {
-                    Color::Green
-                } else {
-                    Color::Yellow
-                }),
-            ),
-            Span::raw(" │ "),
-            Span::styled(
-                if app.production_mode {
-                    "All policies enforced"
-                } else {
-                    "Relaxed policies"
-                },
-                Style::default().fg(Color::Gray),
-            ),
-        ]),
-        Line::from(""),
-        Line::from(vec![
-            Span::raw("Services: "),
-            Span::styled(
-                format!("{} running", running),
-                Style::default().fg(Color::Green),
-            ),
-            Span::raw(", "),
-            Span::styled(
-                format!("{} stopped", stopped),
-                Style::default().fg(Color::Gray),
-            ),
-            Span::raw(", "),
-            Span::styled(
-                format!("{} failed", failed),
-                Style::default().fg(Color::Red),
-            ),
-        ]),
-        Line::from(vec![
-            Span::raw("Memory Headroom: "),
-            Span::styled(
-                format!("{:.1}%", app.metrics.memory_headroom_percent),
-                Style::default().fg(if app.metrics.memory_headroom_percent >= 15.0 {
-                    Color::Green
-                } else {
-                    Color::Yellow
-                }),
-            ),
-            Span::raw(if app.metrics.memory_headroom_percent >= 15.0 {
-                " [Good >= 15%]"
-            } else {
-                " [Warning < 15%]"
-            }),
-        ]),
-        Line::from(""),
-        Line::from(vec![
-            Span::styled("Database: ", Style::default().add_modifier(Modifier::BOLD)),
-            Span::styled(
-                if app.db_stats.database_connected {
-                    "Connected "
-                } else {
-                    "Offline "
-                },
-                Style::default().fg(if app.db_stats.database_connected {
+                Style::default().fg(if app.setup_state.infrastructure_online {
                     Color::Green
                 } else {
                     Color::Red
                 }),
             ),
-            Span::raw("│ "),
-            Span::raw(format!("Adapters: {} ", app.db_stats.total_adapters)),
-            Span::raw("│ "),
-            Span::raw(format!("Training: {}", app.db_stats.total_training_jobs)),
-            Span::styled(
-                format!(" ({} active)", app.db_stats.active_training_jobs),
-                Style::default().fg(if app.db_stats.active_training_jobs > 0 {
-                    Color::Cyan
-                } else {
-                    Color::Gray
-                }),
-            ),
-            Span::raw(format!(" │ Tenants: {}", app.db_stats.total_tenants)),
-        ]),
-    ];
+        ])
+    };
 
-    let paragraph = Paragraph::new(status_lines)
-        .block(block)
-        .alignment(Alignment::Left);
-
-    f.render_widget(paragraph, area);
-}
-
-fn draw_main_menu(f: &mut Frame, app: &App, area: Rect) {
-    let block = Block::default()
-        .title(" Main Menu [↑↓ Navigate | Enter Select | Esc Back] ")
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(if app.current_mode == Mode::Normal {
-            Color::Green
-        } else {
-            Color::Gray
-        }));
-
-    // Create the log entries string separately to avoid temporary value issue
-    let log_entries_str = format!("[{} new entries]", app.recent_logs.len());
-
-    let menu_items = [
-        ("Boot All Services", "[Ready to boot]", Color::Green),
-        ("Boot Single Service", "[Select from list]", Color::Cyan),
-        (
-            "Debug Service",
-            if app.services.iter().any(|s| s.status == Status::Failed) {
-                "[Services with errors]"
-            } else {
-                "[All services healthy]"
-            },
-            if app.services.iter().any(|s| s.status == Status::Failed) {
-                Color::Red
-            } else {
-                Color::Green
-            },
+    let heartbeat = Line::from(vec![
+        Span::styled("Heartbeat: ", Style::default().add_modifier(Modifier::BOLD)),
+        Span::raw(format!("{}s ago", app.last_update.elapsed().as_secs())),
+        Span::raw("  Services "),
+        Span::styled(
+            format!("{} running", running),
+            Style::default().fg(Color::Green),
         ),
-        ("Review Health", "[No warnings]", Color::Green),
-        ("View Logs", log_entries_str.as_str(), Color::White),
-        ("Edit Settings", "[All valid]", Color::Green),
-        (
-            "Toggle Production Mode",
-            if app.production_mode {
-                "[Currently: PROD]"
-            } else {
-                "[Currently: DEV]"
-            },
-            if app.production_mode {
-                Color::Red
-            } else {
-                Color::Yellow
-            },
+        Span::raw(", "),
+        Span::styled(
+            format!("{} failed", failed),
+            Style::default().fg(if failed > 0 { Color::Red } else { Color::Gray }),
         ),
-    ];
+    ]);
 
-    let items: Vec<ListItem> = menu_items
-        .iter()
-        .enumerate()
-        .map(|(i, (name, status, color))| {
-            let selected = i == app.selected_menu_item && app.current_mode == Mode::Normal;
-            let prefix = if selected { "> " } else { "  " };
-
-            ListItem::new(Line::from(vec![
-                Span::raw(prefix),
-                Span::styled(
-                    format!("{:<25}", name),
-                    if selected {
-                        Style::default()
-                            .fg(Color::White)
-                            .add_modifier(Modifier::BOLD)
-                    } else {
-                        Style::default().fg(Color::Gray)
-                    },
-                ),
-                Span::raw(" "),
-                Span::styled(format!("{:<25}", status), Style::default().fg(*color)),
-            ]))
-        })
-        .collect();
-
-    let list = List::new(items).block(block);
-    f.render_widget(list, area);
-}
-
-fn draw_info_panel(f: &mut Frame, app: &App, area: Rect) {
-    let block = Block::default()
-        .title(" Quick Stats ")
-        .borders(Borders::ALL);
-
-    let info_lines = vec![
-        Line::from(vec![
-            Span::raw("Inference Latency: "),
-            Span::styled(
-                format!("{}ms", app.metrics.inference_latency_p95_ms),
-                Style::default().fg(Color::Cyan),
-            ),
-            Span::raw(" | Tokens/sec: "),
-            Span::styled(
-                format!("{}", app.metrics.tokens_per_second),
-                Style::default().fg(Color::Cyan),
-            ),
-            Span::raw(" | Queue: "),
-            Span::styled(
-                format!("{}", app.metrics.queue_depth),
-                Style::default().fg(Color::Cyan),
-            ),
-        ]),
-        Line::from(""),
+    let mut lines = vec![
+        status_line,
+        heartbeat,
         Line::from(vec![
             Span::styled(
-                "Tip: ",
-                Style::default()
-                    .fg(Color::Yellow)
-                    .add_modifier(Modifier::BOLD),
+                "Latency P95: ",
+                Style::default().add_modifier(Modifier::BOLD),
             ),
-            Span::raw("Press 'h' for help, 'q' to quit, Tab to switch screens"),
+            Span::raw(format!("{}ms", app.metrics.inference_latency_p95_ms)),
+            Span::raw("  TPS: "),
+            Span::raw(format!("{}", app.metrics.tokens_per_second)),
+            Span::raw("  Queue: "),
+            Span::raw(format!("{}", app.metrics.queue_depth)),
         ]),
     ];
 
-    let paragraph = Paragraph::new(info_lines)
-        .block(block)
-        .alignment(Alignment::Left);
+    if let Some(health) = &app.health_status {
+        lines.push(Line::from(vec![
+            Span::styled("Uptime: ", Style::default().add_modifier(Modifier::BOLD)),
+            Span::raw(format!("{}s", health.uptime_seconds)),
+        ]));
+    }
 
+    let paragraph = Paragraph::new(lines).block(block);
     f.render_widget(paragraph, area);
 }

@@ -368,6 +368,52 @@ fn test_tampered_receipt_detection() {
 }
 
 #[test]
+fn test_adapter_id_history_tamper_is_rejected() {
+    let temp_dir = new_test_tempdir();
+    let bundle_path = create_valid_bundle(&temp_dir.path().to_path_buf());
+
+    let bundle_json = fs::read_to_string(&bundle_path).expect("read bundle");
+    let mut bundle: ReceiptBundle = serde_json::from_str(&bundle_json).expect("parse bundle");
+
+    let mut adapter_bytes = bundle.tokens[0].adapter_ids[0].as_bytes().to_vec();
+    // Flip one byte of the adapter ID to simulate corruption.
+    adapter_bytes[0] = adapter_bytes[0].wrapping_add(1);
+    bundle.tokens[0].adapter_ids[0] =
+        String::from_utf8(adapter_bytes).expect("adapter id remains utf8 after flip");
+
+    let tampered_json = serde_json::to_string_pretty(&bundle).expect("serialize tampered");
+    fs::write(&bundle_path, tampered_json).expect("write tampered bundle");
+
+    use std::process::Command;
+    let output = Command::new("cargo")
+        .args([
+            "run",
+            "--bin",
+            "aosctl",
+            "--",
+            "verify-receipt",
+            "--bundle",
+            bundle_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("Failed to execute verify-receipt");
+
+    assert!(
+        !output.status.success(),
+        "Verification should fail when adapter history is corrupted"
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("TRACE_TAMPER")
+            || stderr.contains("mismatch")
+            || stderr.contains("adapter"),
+        "Error should indicate adapter history mismatch: {}",
+        stderr
+    );
+}
+
+#[test]
 fn test_json_output_format() {
     let temp_dir = new_test_tempdir();
     let bundle_path = create_valid_bundle(&temp_dir.path().to_path_buf());

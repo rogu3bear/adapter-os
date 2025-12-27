@@ -197,8 +197,8 @@ pub async fn ready(State(state): State<AppState>) -> impl IntoResponse {
             worker_check.hint = Some("failed".to_string());
         }
     } else if current.is_degraded() {
-        // Degraded state - system is operational but with reduced functionality
-        // Still return ready=true but with a hint
+        // Degraded state - system is operational but should not advertise ready
+        worker_check.ok = false;
         worker_check.hint = Some("degraded".to_string());
     } else if current.is_maintenance() {
         worker_check.ok = false;

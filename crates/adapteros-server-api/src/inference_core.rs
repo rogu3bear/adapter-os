@@ -138,6 +138,7 @@ use adapteros_api_types::inference::{
 use adapteros_config::PlacementConfig;
 use adapteros_core::{
     determinism_mode::DeterminismMode, identity::IdentityEnvelope, B3Hash, BackendKind,
+    GuardLogLevel, SeedScopeGuard,
 };
 use adapteros_db::workers::WorkerWithBinding;
 use adapteros_db::{chat_sessions::ChatSession, CreateReplayMetadataParams};
@@ -148,12 +149,13 @@ use adapteros_telemetry::{
 };
 use adapteros_types::adapters::metadata::RoutingDeterminismMode;
 use adapteros_types::coreml::CoreMLMode;
-use adapteros_types::routing::{RouterCandidate, RouterDecision};
+use adapteros_types::routing::{RouterCandidate, RouterDecision, RouterModelType};
 use hex;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::Duration;
+use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, info_span, warn};
 
 // =============================================================================
@@ -195,6 +197,11 @@ fn map_router_decisions(
             allowed_mask: None,
             policy_mask_digest,
             policy_overrides_applied: None,
+            model_type: match d.model_type {
+                adapteros_api_types::inference::RouterModelType::Dense => RouterModelType::Dense,
+                adapteros_api_types::inference::RouterModelType::Moe => RouterModelType::Moe,
+            },
+            active_experts: d.active_experts.clone(),
         })
         .collect()
 }
@@ -215,6 +222,7 @@ fn map_router_decision_chain(
                 decision_hash: e.decision_hash.map(|h| RouterDecisionHash {
                     input_hash: h.input_hash,
                     output_hash: h.output_hash,
+                    reasoning_hash: h.reasoning_hash,
                     combined_hash: h.combined_hash,
                     tau: h.tau,
                     eps: h.eps,
@@ -569,6 +577,7 @@ impl<'a> InferenceCore<'a> {
         &self,
         mut request: InferenceRequestInternal,
         replay_context: Option<ReplayContext>,
+        cancellation_token: Option<CancellationToken>,
     ) -> Result<InferenceResult, InferenceError> {
         let start_time = std::time::Instant::now();
         let is_replay = replay_context.is_some();
@@ -594,6 +603,8 @@ impl<'a> InferenceCore<'a> {
         }
 
         let _inference_span_guard = inference_span.enter();
+        // Ensure seed registry is scoped to this inference request to prevent cross-request reuse errors.
+        let _seed_scope = SeedScopeGuard::for_inference(GuardLogLevel::Warn);
 
         let should_capture = match &replay_context {
             None => true,
@@ -601,6 +612,14 @@ impl<'a> InferenceCore<'a> {
         };
 
         let result = async {
+        if let Some(token) = cancellation_token.as_ref() {
+            if token.is_cancelled() {
+                return Err(InferenceError::ClientClosed(
+                    "Request cancelled before dispatch".to_string(),
+                ));
+            }
+        }
+
         if let Some(ref ctx) = replay_context {
             info!(
                 request_id = %request.request_id,
@@ -922,6 +941,8 @@ impl<'a> InferenceCore<'a> {
             prompt: augmented_prompt.clone(),
             max_tokens: request.max_tokens,
             require_evidence: request.require_evidence,
+            admin_override: request.admin_override,
+            reasoning_mode: request.reasoning_mode,
             stack_id: request.stack_id.clone(),
             stack_version: request.stack_version,
             domain_hint: request.domain_hint.clone(),
@@ -991,12 +1012,29 @@ impl<'a> InferenceCore<'a> {
         };
 
         // Wrap the UDS call in routing context to ensure task-local guard is set
-        let worker_response = crate::uds_client::run_with_routing_context(async {
+        let worker_call = crate::uds_client::run_with_routing_context(async {
             uds_client
-                .infer(&uds_path, worker_request, worker_auth_token.as_deref())
+                .infer(
+                    &uds_path,
+                    worker_request,
+                    worker_auth_token.as_deref(),
+                    cancellation_token.clone(),
+                )
                 .await
-        })
-        .await
+        });
+
+        let worker_response = if let Some(token) = cancellation_token.as_ref() {
+            tokio::select! {
+                _ = token.cancelled() => {
+                    return Err(InferenceError::ClientClosed(
+                        "Request cancelled while waiting for worker".to_string()
+                    ));
+                }
+                res = worker_call => res
+            }
+        } else {
+            worker_call.await
+        }
         .map_err(|e| match e {
             crate::uds_client::UdsClientError::WorkerNotAvailable(msg) => {
                 InferenceError::WorkerNotAvailable(msg)
@@ -1020,6 +1058,9 @@ impl<'a> InferenceCore<'a> {
                 max_mb,
                 model_key,
             },
+            crate::uds_client::UdsClientError::Cancelled(msg) => {
+                InferenceError::ClientClosed(msg)
+            }
             other => InferenceError::WorkerError(other.to_string()),
         })?;
 
@@ -1442,6 +1483,14 @@ impl<'a> InferenceCore<'a> {
             adapters_used: worker_response.trace.router_summary.adapters_used,
             router_decisions,
             router_decision_chain,
+            moe_info: worker_response.trace.moe_info.clone(),
+            expert_routing: worker_response.trace.expert_routing.clone(),
+            active_experts: worker_response.trace.active_experts.clone(),
+            model_type: worker_response
+                .trace
+                .model_type
+                .clone()
+                .or(Some(adapteros_api_types::inference::RouterModelType::Dense)),
             rag_evidence,
             citations,
             latency_ms,
@@ -1502,8 +1551,10 @@ impl<'a> InferenceCore<'a> {
         &self,
         request: InferenceRequestInternal,
         replay_context: ReplayContext,
+        cancellation_token: Option<CancellationToken>,
     ) -> Result<InferenceResult, InferenceError> {
-        self.route_and_infer(request, Some(replay_context)).await
+        self.route_and_infer(request, Some(replay_context), cancellation_token)
+            .await
     }
 
     /// Validate that all specified adapters are loadable (not archived/purged)

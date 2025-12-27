@@ -19,14 +19,14 @@
 //! Copyright JKCA | 2025 James KC Auchterlonie
 
 use adapteros_db::adapters::AdapterRegistrationBuilder;
-use adapteros_db::{Db, StorageMode};
+use adapteros_db::{Db, ProtectedDb, StorageMode};
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use tempfile::TempDir;
 use tokio::runtime::Runtime;
 
 /// Test database configuration for benchmarks
 struct BenchDb {
-    db: Db,
+    db: ProtectedDb,
     tenant_id: String,
     _temp_sql_dir: Option<TempDir>,
     _temp_kv_dir: Option<TempDir>,
@@ -65,6 +65,8 @@ impl BenchDb {
         .execute(db.pool())
         .await
         .expect("Failed to create test tenant");
+
+        let db = ProtectedDb::new(db);
 
         Self {
             db,
@@ -416,6 +418,7 @@ fn bench_update_adapter_state(c: &mut Criterion) {
             rt.block_on(async {
                 let result = sql_db
                     .db
+                    .write(sql_db.db.lifecycle_token())
                     .update_adapter_state_tx(
                         black_box("bench-adapter-5"),
                         black_box("warm"),
@@ -433,6 +436,7 @@ fn bench_update_adapter_state(c: &mut Criterion) {
             rt.block_on(async {
                 let result = kv_db
                     .db
+                    .write(kv_db.db.lifecycle_token())
                     .update_adapter_state_tx(
                         black_box("bench-adapter-5"),
                         black_box("warm"),
@@ -450,6 +454,7 @@ fn bench_update_adapter_state(c: &mut Criterion) {
             rt.block_on(async {
                 let result = dual_db
                     .db
+                    .write(dual_db.db.lifecycle_token())
                     .update_adapter_state_tx(
                         black_box("bench-adapter-5"),
                         black_box("warm"),
@@ -467,6 +472,7 @@ fn bench_update_adapter_state(c: &mut Criterion) {
             rt.block_on(async {
                 let result = kv_primary_db
                     .db
+                    .write(kv_primary_db.db.lifecycle_token())
                     .update_adapter_state_tx(
                         black_box("bench-adapter-5"),
                         black_box("warm"),

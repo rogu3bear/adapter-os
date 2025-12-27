@@ -64,5 +64,6 @@ pub fn convert_orchestrator_config(
         manifests_path: "manifests".to_string(),
         base_model: server_orchestrator.base_model.clone(),
         ephemeral_adapter_ttl_hours: server_orchestrator.ephemeral_adapter_ttl_hours as i32,
+        gate_timeout_secs: OrchestratorConfig::default().gate_timeout_secs,
     }
 }

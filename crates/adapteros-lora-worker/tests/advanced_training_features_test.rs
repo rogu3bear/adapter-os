@@ -101,6 +101,8 @@ async fn test_checkpoint_save_load() {
     let weights = LoRAWeights {
         lora_a: vec![vec![1.0, 2.0], vec![3.0, 4.0]],
         lora_b: vec![vec![5.0, 6.0], vec![7.0, 8.0]],
+        moe_config: None,
+        precomputed_delta: None,
     };
 
     let manager = CheckpointManager::new(temp_dir.path(), 2, 3, "test-adapter".to_string());
@@ -140,6 +142,8 @@ async fn test_checkpoint_resumption() {
     let initial_weights = LoRAWeights {
         lora_a: vec![vec![1.0, 2.0]],
         lora_b: vec![vec![3.0, 4.0]],
+        moe_config: None,
+        precomputed_delta: None,
     };
 
     // Save checkpoint at epoch 3
@@ -326,6 +330,8 @@ async fn test_checkpoint_cleanup() {
     let weights = LoRAWeights {
         lora_a: vec![vec![1.0]],
         lora_b: vec![vec![2.0]],
+        moe_config: None,
+        precomputed_delta: None,
     };
 
     // Create 5 checkpoints (exceeds max of 3)

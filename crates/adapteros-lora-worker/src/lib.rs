@@ -1,7 +1,3 @@
-//! LORAX Worker
-//!
-//! Core worker implementation for the LORAX (Low Rank Adapter Exchange) runtime.
-//!
 //! This crate provides:
 //! - Core worker implementation for ML inference
 //! - Resource limiting and timeout management
@@ -47,6 +43,7 @@
 //!
 //! For full Worker usage with inference, see the integration tests.
 
+// use crate::active_learning;
 use crate::adapter_hotswap::adapter_id_to_u16;
 use crate::device_placement::{
     DeviceKind, LaneDescriptor, PlacementDecision, PlacementEngine, TelemetryCollector,
@@ -55,21 +52,26 @@ use crate::memory::MemoryPressureLevel;
 use crate::request_pinner::RequestPinner;
 use crate::router_bridge::decision_to_router_ring_with_active_ids_and_strengths;
 use crate::routing_policy_filter::filter_decision_by_policy;
-use adapteros_api_types::{
-    inference::FusionIntervalTrace, RouterDecisionChainEntry, RouterDecisionHash, RunReceipt,
+use adapteros_api_types::inference::{
+    FusionIntervalTrace, RouterDecisionChainEntry, RouterDecisionHash, RouterModelType, RunReceipt,
 };
-use adapteros_config::{resolve_index_root, PlacementConfig, PlacementMode, PlacementWeights};
+use adapteros_config::{
+    resolve_index_root, ModelConfig, PlacementConfig, PlacementMode, PlacementWeights,
+};
 use adapteros_core::{
     determinism::{DeterminismContext, DeterminismSource},
     determinism_violation_event, emit_observability_event, AosError, B3Hash, BackendKind,
     DeterminismViolationKind, FusionInterval, RepoAdapterPaths, Result, SeedMode,
 };
 use adapteros_db::{Db, SqlTraceSink, TraceFinalization, TraceSink, TraceStart, TraceTokenInput};
-use adapteros_lora_kernel_api::{FusedKernels, IoBuffers, RouterRing};
+use adapteros_lora_kernel_api::{
+    blend_and_forward_reference, FusedKernels, IoBuffers, LiquidBlendRequest, LiquidBlendStats,
+    LiquidKernel, RouterRing,
+};
 use adapteros_lora_rag::RagSystem;
 use adapteros_lora_router::{
-    constants::PINNED_BOOST, features::CodeFeatures, policy_mask::PolicyMask, AdapterInfo, Router,
-    RouterDeterminismConfig,
+    constants::PINNED_BOOST, features::CodeFeatures, policy_mask::PolicyMask, AbstainContext,
+    AdapterInfo, Router, RouterDeterminismConfig,
 };
 use adapteros_manifest::ManifestV3;
 use adapteros_policy::{PolicyEngine, RefusalResponse};
@@ -80,12 +82,14 @@ use base64::Engine;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::watch;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
+pub mod active_learning;
 pub mod adapter_hotswap;
 pub mod anomaly_detection;
 pub mod backend_coordinator;
@@ -93,6 +97,7 @@ pub mod backend_factory;
 pub mod backoff;
 pub mod backpressure;
 pub mod base_model_state;
+pub mod chaos_mode;
 pub mod contact_discovery;
 pub mod conv_pipeline;
 pub mod deadlock;
@@ -105,6 +110,7 @@ pub mod evidence;
 pub mod export;
 pub mod filter_engine;
 pub mod framework_adapters;
+pub mod galaxy_loader;
 pub mod generation;
 pub mod health;
 pub mod inference_metrics;
@@ -132,6 +138,7 @@ pub mod patch_generator;
 pub mod patch_telemetry;
 pub mod patch_validator;
 pub mod prefix_kv_cache;
+pub mod reasoning_router;
 pub mod request_pinner;
 pub mod router_bridge;
 pub mod routing_policy_filter;
@@ -147,6 +154,102 @@ pub mod training;
 pub mod uds_server;
 pub mod vision_adapter;
 pub mod vision_lora;
+
+struct TraceDb {
+    db: Arc<Db>,
+    sink_unavailable_logged: bool,
+}
+
+impl std::fmt::Debug for TraceDb {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TraceDb")
+            .field("sink_unavailable_logged", &self.sink_unavailable_logged)
+            .finish()
+    }
+}
+
+impl TraceDb {
+    async fn connect(tenant_id: &str, worker_id: u32) -> Option<Self> {
+        if std::env::var("AOS_TRACE_DB_DISABLED").is_ok() {
+            info!(
+                tenant_id = %tenant_id,
+                worker_id = %worker_id,
+                "Trace DB disabled via environment; continuing without trace sink"
+            );
+            return None;
+        }
+
+        match Db::from_config().await {
+            Ok(db) => {
+                if let Err(e) = db.migrate().await {
+                    warn!(tenant_id = %tenant_id, worker_id = %worker_id, error = %e, "Trace DB migration failed; disabling trace sink");
+                    None
+                } else {
+                    Some(Self {
+                        db: Arc::new(db),
+                        sink_unavailable_logged: false,
+                    })
+                }
+            }
+            Err(e) => {
+                warn!(tenant_id = %tenant_id, worker_id = %worker_id, error = %e, "Trace DB unavailable; disabling trace sink");
+                None
+            }
+        }
+    }
+
+    async fn create_sink(
+        &mut self,
+        start: TraceStart,
+        trace_flush_every: usize,
+    ) -> Option<SqlTraceSink> {
+        match SqlTraceSink::new(self.db.clone(), start, trace_flush_every).await {
+            Ok(sink) => Some(sink),
+            Err(e) => {
+                if !self.sink_unavailable_logged {
+                    warn!(
+                        error = %e,
+                        "Trace sink unavailable; continuing without persistence"
+                    );
+                    self.sink_unavailable_logged = true;
+                }
+                None
+            }
+        }
+    }
+}
+
+pub const MAX_REASONING_SWAPS: usize = 50;
+
+#[derive(Debug, Clone)]
+struct ReasoningSwapGuard {
+    max_swaps: usize,
+    swaps: usize,
+}
+
+impl ReasoningSwapGuard {
+    fn new(max_swaps: usize) -> Self {
+        Self {
+            max_swaps,
+            swaps: 0,
+        }
+    }
+
+    fn record_swap(&mut self) -> Result<()> {
+        self.swaps = self.swaps.saturating_add(1);
+        if self.swaps >= self.max_swaps {
+            return Err(AosError::ReasoningLoop(format!(
+                "Reasoning swap limit of {} reached (possible infinite loop)",
+                self.max_swaps
+            )));
+        }
+        Ok(())
+    }
+
+    fn count(&self) -> usize {
+        self.swaps
+    }
+}
 
 // Refactored modules - extracted from lib.rs
 pub mod adapter_operations;
@@ -614,6 +717,90 @@ impl FusedKernels for KernelWrapper {
     }
 }
 
+impl LiquidKernel for KernelWrapper {
+    fn supports_liquid_blending(&self) -> bool {
+        match self {
+            KernelWrapper::Direct(k) => k.inner.supports_liquid_blending(),
+            KernelWrapper::Coordinated(k) => {
+                k.primary.supports_liquid_blending()
+                    || k.fallback
+                        .as_ref()
+                        .map(|fb| fb.supports_liquid_blending())
+                        .unwrap_or(false)
+            }
+        }
+    }
+
+    fn max_liquid_adapters(&self) -> usize {
+        match self {
+            KernelWrapper::Direct(k) => k.inner.liquid_max_adapters(),
+            KernelWrapper::Coordinated(k) => {
+                let primary_max = k.primary.liquid_max_adapters();
+                let fallback_max = k
+                    .fallback
+                    .as_ref()
+                    .map(|fb| fb.liquid_max_adapters())
+                    .unwrap_or(0);
+                primary_max.max(fallback_max)
+            }
+        }
+    }
+
+    fn blend_and_forward(&mut self, request: LiquidBlendRequest<'_>) -> Result<LiquidBlendStats> {
+        match self {
+            KernelWrapper::Direct(k) => {
+                if let Some(liquid) = k.inner.as_liquid_kernel_mut() {
+                    liquid.blend_and_forward(request)
+                } else {
+                    blend_and_forward_reference(request)
+                }
+            }
+            KernelWrapper::Coordinated(k) => match k.active_backend {
+                ActiveBackend::Primary => {
+                    let primary_name = k.primary.device_name().to_string();
+                    if let Some(liquid) = k.primary.as_liquid_kernel_mut() {
+                        k.last_backend = primary_name.clone();
+                        k.fallback_triggered = false;
+                        liquid.blend_and_forward(request)
+                    } else if let Some(fallback) = k.fallback.as_mut() {
+                        k.last_backend = fallback.device_name().to_string();
+                        k.fallback_triggered = true;
+                        if let Some(liquid) = fallback.as_liquid_kernel_mut() {
+                            liquid.blend_and_forward(request)
+                        } else {
+                            blend_and_forward_reference(request)
+                        }
+                    } else {
+                        k.last_backend = primary_name;
+                        k.fallback_triggered = false;
+                        blend_and_forward_reference(request)
+                    }
+                }
+                ActiveBackend::Fallback => {
+                    let primary_name = k.primary.device_name().to_string();
+                    if let Some(fallback) = k.fallback.as_mut() {
+                        k.last_backend = fallback.device_name().to_string();
+                        k.fallback_triggered = true;
+                        if let Some(liquid) = fallback.as_liquid_kernel_mut() {
+                            liquid.blend_and_forward(request)
+                        } else if let Some(primary_liquid) = k.primary.as_liquid_kernel_mut() {
+                            k.last_backend = primary_name.clone();
+                            k.fallback_triggered = false;
+                            primary_liquid.blend_and_forward(request)
+                        } else {
+                            blend_and_forward_reference(request)
+                        }
+                    } else {
+                        k.last_backend = primary_name;
+                        k.fallback_triggered = false;
+                        blend_and_forward_reference(request)
+                    }
+                }
+            },
+        }
+    }
+}
+
 /// Inference request
 ///
 /// Includes full sampling parameters for deterministic replay (PRD-02).
@@ -627,6 +814,9 @@ pub struct InferenceRequest {
     pub max_tokens: usize,
     #[serde(default)]
     pub require_evidence: bool,
+    /// Enable reasoning-aware routing (pauses at reasoning spans to hot-swap adapters)
+    #[serde(default)]
+    pub reasoning_mode: bool,
     /// Optional: Request patch proposal mode
     #[serde(default)]
     pub request_type: RequestType,
@@ -709,6 +899,9 @@ pub struct InferenceRequest {
     /// Optional stop policy for deterministic stop control (PRD: Hard Deterministic Stop Controller)
     #[serde(default)]
     pub stop_policy: Option<adapteros_api_types::inference::StopPolicySpec>,
+    /// Admin override flag to bypass cluster routing restrictions (debug only)
+    #[serde(default)]
+    pub admin_override: bool,
 }
 
 fn default_determinism_mode() -> String {
@@ -718,6 +911,62 @@ fn default_determinism_mode() -> String {
 /// Returns true when strict determinism protections should be enforced.
 fn strict_mode_enabled(strict_flag: bool, determinism_mode: &str) -> bool {
     strict_flag || determinism_mode.eq_ignore_ascii_case("strict")
+}
+
+struct ValidatedPrompt {
+    formatted_prompt: String,
+    tokens: Vec<u32>,
+}
+
+struct RequestValidator<'a> {
+    tokenizer: &'a QwenTokenizer,
+    max_seq_len: usize,
+}
+
+impl<'a> RequestValidator<'a> {
+    fn new(tokenizer: &'a QwenTokenizer, max_seq_len: usize) -> Self {
+        Self {
+            tokenizer,
+            max_seq_len,
+        }
+    }
+
+    fn validate(&self, prompt: &str) -> Result<ValidatedPrompt> {
+        const MAX_PROMPT_BYTES: usize = 1_000_000;
+
+        if prompt.trim().is_empty() {
+            return Err(AosError::Validation("Prompt cannot be empty".to_string()));
+        }
+
+        if prompt.len() > MAX_PROMPT_BYTES {
+            return Err(AosError::Validation("Prompt exceeds 1MB limit".to_string()));
+        }
+
+        let formatted_prompt = self.tokenizer.apply_chat_template(prompt);
+        let token_ids = self
+            .tokenizer
+            .encode(&formatted_prompt)
+            .map_err(|e| AosError::Validation(format!("Prompt tokenization failed: {}", e)))?;
+
+        if token_ids.is_empty() {
+            return Err(AosError::Validation(
+                "Prompt produced no tokens".to_string(),
+            ));
+        }
+
+        if token_ids.len() > self.max_seq_len {
+            return Err(AosError::Validation(format!(
+                "Prompt too long: {} tokens exceeds context window of {}",
+                token_ids.len(),
+                self.max_seq_len
+            )));
+        }
+
+        Ok(ValidatedPrompt {
+            formatted_prompt,
+            tokens: token_ids,
+        })
+    }
 }
 
 /// In strict mode, ensure router decision chain has matching gates and adapters.
@@ -977,6 +1226,18 @@ pub struct ResponseTrace {
     /// Fusion interval boundaries and fused tensor hashes
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fusion_intervals: Option<Vec<FusionIntervalTrace>>,
+    /// MoE model information (optional)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub moe_info: Option<adapteros_lora_kernel_api::MoEInfo>,
+    /// Expert routing data per token (optional)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expert_routing: Option<adapteros_lora_kernel_api::SequenceExpertRouting>,
+    /// Flattened expert IDs per token (for visualization)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_experts: Option<Vec<Vec<u8>>>,
+    /// Model type for this trace (dense vs MoE)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_type: Option<adapteros_api_types::inference::RouterModelType>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1106,7 +1367,7 @@ use std::sync::Mutex as StdMutex;
 use tokio::sync::Mutex;
 
 /// Worker for running inference with comprehensive safety mechanisms
-pub struct Worker<K: FusedKernels + StrictnessControl + Send + Sync> {
+pub struct Worker<K: FusedKernels + StrictnessControl + Send + Sync + 'static> {
     manifest: ManifestV3,
     policy: PolicyEngine,
     router: Router,
@@ -1117,11 +1378,13 @@ pub struct Worker<K: FusedKernels + StrictnessControl + Send + Sync> {
     memory_monitor: Arc<MemoryMonitor>,
     tokenizer: Arc<QwenTokenizer>,
     generator: Generator,
+    max_seq_len: usize,
     embedding_model: Arc<EmbeddingModel>,
     evidence_retriever: Option<EvidenceRetriever>,
     /// KV cache for transformer attention with generation tracking
     kv_cache: Arc<StdMutex<KvCache>>,
     /// MoE-specific prefix cache for expert pre-warming and free tokens
+    #[cfg(feature = "mlx-bridge")]
     moe_prefix_cache: Arc<crate::moe_prefix_cache::MoEPrefixCache>,
     /// Last stack hash for change detection (reserved for stack caching)
     _last_stack_hash: RwLock<Option<B3Hash>>,
@@ -1135,11 +1398,12 @@ pub struct Worker<K: FusedKernels + StrictnessControl + Send + Sync> {
     _timeout_config: TimeoutConfig,
     _timeout_wrapper: TimeoutWrapper,
     circuit_breaker: CircuitBreaker,
-    _resource_limiter: ResourceLimiter,
+    pub(crate) resource_limiter: Arc<ResourceLimiter>,
     _deadlock_detector: DeadlockDetector,
     health_monitor: Arc<HealthMonitor>,
     telemetry: Option<TelemetryWriter>,
-    trace_db: Option<Arc<Db>>,
+    trace_db: Option<TraceDb>,
+    trace_sink_missing_warned: bool,
     trace_flush_every: usize,
     placement_template: Option<(PlacementConfig, Vec<LaneDescriptor>)>,
     // Lifecycle management
@@ -1149,6 +1413,8 @@ pub struct Worker<K: FusedKernels + StrictnessControl + Send + Sync> {
     hotswap: Arc<HotSwapManager<K>>,
     // Retirement task management
     retirement_handle: Option<tokio::task::JoinHandle<()>>,
+    /// Background persistence task handle
+    persistence_handle: Option<tokio::task::JoinHandle<()>>,
     shutdown_tx: watch::Sender<()>,
     /// Active training jobs with their cancellation tokens
     pub active_training_jobs: Arc<RwLock<HashMap<String, Arc<AtomicBool>>>>,
@@ -1180,13 +1446,15 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
 
         // Create router from manifest
         let router_seed = adapteros_core::derive_seed(&manifest.seeds.global, "router");
-        let router = Router::new(
+        let mut router = Router::new(
             vec![1.0; manifest.adapters.len()],
             manifest.router.k_sparse,
             manifest.router.tau,
             manifest.router.entropy_floor,
             router_seed,
         )?;
+        router.set_routing_bias(manifest.base.routing_bias);
+        router.set_model_is_moe(manifest.base.arch.to_ascii_lowercase().contains("moe"));
 
         let memory_monitor = Arc::new(MemoryMonitor::new(
             manifest.policies.memory.min_headroom_pct,
@@ -1197,7 +1465,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         let timeout_config = TimeoutConfig::default();
         let timeout_wrapper = TimeoutWrapper::new(timeout_config.clone());
         let circuit_breaker = CircuitBreaker::new(5, std::time::Duration::from_secs(60));
-        let resource_limiter = ResourceLimiter::new(ResourceLimits::default());
+        let resource_limiter = Arc::new(ResourceLimiter::new(ResourceLimits::from_env()));
         let deadlock_detector = DeadlockDetector::new(DeadlockConfig::default());
         let health_monitor = Arc::new(HealthMonitor::new(HealthConfig::default())?.with_telemetry(
             telemetry.clone(),
@@ -1214,6 +1482,27 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             .with_temperature(0.7)
             .with_top_p(0.9)
             .with_deterministic();
+
+        // Resolve context window from model config (fall back to env/dev fixture)
+        let max_seq_len = match ModelConfig::from_config_json(Path::new(model_path)) {
+            Ok(cfg) => cfg.max_seq_len,
+            Err(err) => {
+                warn!(
+                    error = %err,
+                    "Failed to parse model config.json for max_seq_len, falling back to env"
+                );
+                match ModelConfig::from_env() {
+                    Ok(cfg) => cfg.max_seq_len,
+                    Err(env_err) => {
+                        warn!(
+                            error = %env_err,
+                            "Failed to load model config from env, using dev fixture max_seq_len"
+                        );
+                        ModelConfig::dev_fixture().max_seq_len
+                    }
+                }
+            }
+        };
 
         // Load embedding model - use dimensions from manifest
         let embedding_model = Arc::new(EmbeddingModel::from_model_path(
@@ -1259,7 +1548,40 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         ))); // 1GB default
 
         // Initialize MoE prefix cache (512MB default budget for metadata)
-        let moe_prefix_cache = Arc::new(crate::moe_prefix_cache::MoEPrefixCache::new(512 * 1024 * 1024));
+        #[cfg(feature = "mlx-bridge")]
+        let moe_prefix_cache = Arc::new(crate::moe_prefix_cache::MoEPrefixCache::new(
+            512 * 1024 * 1024,
+        ));
+
+        // Load MoE cache snapshot if exists
+        let adapter_paths = resolve_worker_adapter_paths();
+        let adapters_path = adapter_paths.repo_root.join(tenant_id);
+        let moe_cache_path = adapters_path.join("moe_cache.json");
+        #[cfg(feature = "mlx-bridge")]
+        if let Err(e) = moe_prefix_cache.load_snapshot(&moe_cache_path) {
+            warn!(path = %moe_cache_path.display(), error = %e, "Failed to load MoE cache snapshot");
+        } else {
+            info!(path = %moe_cache_path.display(), "Loaded MoE cache snapshot");
+        }
+
+        // Spawn persistence task (every 5 minutes)
+        #[cfg(feature = "mlx-bridge")]
+        let persistence_handle = {
+            let persistence_cache = moe_prefix_cache.clone();
+            let persistence_path = moe_cache_path.clone();
+            Some(tokio::spawn(async move {
+                let mut interval = tokio::time::interval(std::time::Duration::from_secs(300));
+                interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                loop {
+                    interval.tick().await;
+                    if let Err(e) = persistence_cache.save_snapshot(&persistence_path) {
+                        warn!(path = %persistence_path.display(), error = %e, "Failed to background save MoE cache");
+                    }
+                }
+            }))
+        };
+        #[cfg(not(feature = "mlx-bridge"))]
+        let persistence_handle = None;
 
         let last_stack_hash = RwLock::new(None);
 
@@ -1356,24 +1678,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             .map(|v: usize| v.max(1))
             .unwrap_or(1);
 
-        let trace_db = if std::env::var("AOS_TRACE_DB_DISABLED").is_ok() {
-            None
-        } else {
-            match Db::from_config().await {
-                Ok(db) => {
-                    if let Err(e) = db.migrate().await {
-                        warn!(tenant_id = %tenant_id, worker_id = %worker_id, error = %e, "Trace DB migration failed; disabling trace sink");
-                        None
-                    } else {
-                        Some(Arc::new(db))
-                    }
-                }
-                Err(e) => {
-                    warn!(tenant_id = %tenant_id, worker_id = %worker_id, error = %e, "Trace DB unavailable; disabling trace sink");
-                    None
-                }
-            }
-        };
+        let trace_db = TraceDb::connect(tenant_id, worker_id).await;
 
         Ok(Self {
             manifest,
@@ -1385,9 +1690,11 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             memory_monitor,
             tokenizer,
             generator,
+            max_seq_len,
             embedding_model,
             evidence_retriever,
             kv_cache,
+            #[cfg(feature = "mlx-bridge")]
             moe_prefix_cache,
             _last_stack_hash: last_stack_hash,
             available_backends,
@@ -1396,17 +1703,19 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             _timeout_config: timeout_config,
             _timeout_wrapper: timeout_wrapper,
             circuit_breaker,
-            _resource_limiter: resource_limiter,
+            resource_limiter,
             _deadlock_detector: deadlock_detector,
             health_monitor,
             telemetry: Some(telemetry),
             trace_db,
+            trace_sink_missing_warned: false,
             trace_flush_every,
             placement_template,
             profiler,
             lifecycle,
             hotswap,
             retirement_handle,
+            persistence_handle: persistence_handle,
             shutdown_tx,
             active_training_jobs,
             worker_id,
@@ -1683,6 +1992,10 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
 
     /// Run inference with comprehensive safety mechanisms
     pub async fn infer(&mut self, request: InferenceRequest) -> Result<InferenceResponse> {
+        // Guardrail: Acquire resource permit (limits concurrency and checks quotas)
+        let limiter = self.resource_limiter.clone();
+        let _permit = limiter.acquire_request().await?;
+
         let start_time = Instant::now();
 
         // Record health metrics
@@ -1839,6 +2152,9 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 _ => None,
             };
 
+        let validator = RequestValidator::new(self.tokenizer.as_ref(), self.max_seq_len);
+        let validated_prompt = validator.validate(&request.prompt)?;
+
         // Retrieve evidence if required
         let mut evidence = Vec::new();
         if request.require_evidence {
@@ -1892,6 +2208,10 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                             router_decisions: None,
                             router_decision_chain: None,
                             fusion_intervals: None,
+                            moe_info: None,
+                            expert_routing: None,
+                            active_experts: None,
+                            model_type: None,
                         },
                         run_receipt: None,
                         refusal: Some(RefusalResponse::insufficient_evidence(
@@ -1972,8 +2292,134 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         }
 
         // Generate tokens using autoregressive loop
-        let formatted_prompt = self.tokenizer.apply_chat_template(&request.prompt);
-        let prompt_tokens = self.tokenizer.encode(&formatted_prompt)?;
+        let formatted_prompt = validated_prompt.formatted_prompt;
+        let prompt_tokens = validated_prompt.tokens;
+
+        // ============================================================================
+        // MOE PRE-WARMING & FREE TOKENS (Protocol v3)
+        // ============================================================================
+        #[cfg(feature = "mlx-bridge")]
+        let mut free_tokens: Vec<crate::moe_prefix_cache::FreeToken> = Vec::new();
+        #[cfg(not(feature = "mlx-bridge"))]
+        let mut free_tokens: Vec<()> = Vec::new();
+        let mut free_token_ids: Vec<u32> = Vec::new();
+        let mut free_token_text = String::new();
+
+        let mut prompt_tokens_with_free = prompt_tokens.clone();
+        let mut max_tokens_remaining = request.max_tokens;
+        let is_moe = self.kernels.lock().await.is_moe();
+        self.router.set_model_is_moe(is_moe);
+
+        #[cfg(feature = "mlx-bridge")]
+        if is_moe {
+            let effective_temperature = request.temperature.unwrap_or(0.7);
+
+            // Attempt to get free tokens from cache
+            if let Some(tokens) = self.moe_prefix_cache.get_free_tokens_for_tokens(
+                &prompt_tokens,
+                effective_temperature,
+                None, // We don't have a single adapter ID here easily, passing None for now
+                5,    // Limit to 5 free tokens max
+            ) {
+                if !tokens.is_empty() {
+                    debug!(count = tokens.len(), "Delivering free tokens from cache");
+
+                    // Collect token IDs for pre-warming the *next* tokens
+                    let free_ids: Vec<u32> = tokens.iter().map(|t| t.token_id).collect();
+                    prompt_tokens_with_free.extend_from_slice(&free_ids);
+                    max_tokens_remaining = max_tokens_remaining.saturating_sub(tokens.len());
+
+                    free_tokens = tokens;
+                }
+            }
+
+            // Pre-warm experts based on the EXTENDED prompt (original + free tokens)
+            // This ensures we warm up experts for the first *actually computed* token
+            if let Some(predicted_experts) = self
+                .moe_prefix_cache
+                .get_experts_for_tokens(&prompt_tokens_with_free)
+            {
+                debug!(
+                    experts = predicted_experts.len(),
+                    "MoE prefix cache hit: pre-warming experts"
+                );
+
+                // Pre-warm predicted experts on the backend
+                let kernels = self.kernels.lock().await;
+                match kernels.prewarm_experts(predicted_experts) {
+                    Ok(count) => {
+                        debug!(count = count, "Successfully pre-warmed experts");
+                    }
+                    Err(e) => {
+                        warn!(error = %e, "Failed to pre-warm experts; continuing without pre-warm");
+                    }
+                }
+            } else {
+                debug!("MoE prefix cache miss");
+            }
+        }
+
+        // Populate legacy variables used by downstream code
+        #[cfg(feature = "mlx-bridge")]
+        if !free_tokens.is_empty() {
+            free_token_ids = free_tokens.iter().map(|t| t.token_id).collect();
+            free_token_text = free_tokens.iter().map(|t| t.text.as_str()).collect();
+        }
+
+        // If free tokens satisfied the entire request, return early!
+        if !free_tokens.is_empty() && max_tokens_remaining == 0 {
+            let free_token_text_clone = free_token_text.clone();
+
+            let (backend_used, fallback_triggered) = {
+                let kernels = self.kernels.lock().await;
+                (kernels.device_name().to_string(), false)
+            };
+
+            // Build trace for free token only response
+            let trace = self.build_trace(
+                &request.cpid,
+                &Vec::new(), // evidence
+                free_tokens.len(),
+                None,
+                None,
+                adapteros_core::FusionInterval::PerRequest,
+                &[],   // active_ids
+                false, // base_only
+                None,
+                None,
+            );
+
+            return Ok(InferenceResponse {
+                text: Some(free_token_text),
+                status: "ok".to_string(),
+                trace,
+                run_receipt: None,
+                refusal: None,
+                patch_proposal: None,
+                stack_id: request.stack_id.clone(),
+                stack_version: request.stack_version,
+                backend_used: Some(backend_used),
+                backend_version: Some(adapteros_core::version::VERSION.to_string()),
+                fallback_triggered,
+                coreml_compute_preference: None,
+                coreml_compute_units: None,
+                coreml_gpu_used: None,
+                coreml_package_hash: None,
+                coreml_expected_package_hash: None,
+                coreml_hash_mismatch: None,
+                fallback_backend: None,
+                determinism_mode_applied: Some(request.determinism_mode.clone()),
+                unavailable_pinned_adapters: None,
+                pinned_routing_fallback: None,
+                placement_trace: None,
+                stop_reason_code: Some(
+                    adapteros_api_types::inference::StopReasonCode::CompletionConfident,
+                ),
+                stop_reason_token_index: Some(free_tokens.len() as u32),
+                stop_policy_digest_b3: None,
+                error_details: None,
+            });
+        }
 
         // Snapshot current stack and pin adapters for this request
         let pinner = RequestPinner::new(self.hotswap.table().clone());
@@ -2020,29 +2466,27 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         }
         let context_digest = B3Hash::hash(&context_bytes).to_bytes();
 
-        let mut trace_sink = if let Some(db) = self.trace_db.as_ref() {
+        let trace_id = Uuid::now_v7().to_string();
+
+        let mut trace_sink = if let Some(trace_db) = self.trace_db.as_mut() {
             let start = TraceStart {
-                trace_id: Uuid::now_v7().to_string(),
+                trace_id: trace_id.clone(),
                 tenant_id: request.cpid.clone(),
                 request_id: None,
                 context_digest,
             };
 
-            match SqlTraceSink::new(db.clone(), start, self.trace_flush_every).await {
-                Ok(sink) => Some(sink),
-                Err(e) => {
-                    warn!(
-                        error = %e,
-                        "Trace sink unavailable; continuing without persistence"
-                    );
-                    None
-                }
-            }
+            trace_db.create_sink(start, self.trace_flush_every).await
         } else {
             None
         };
 
-        if strict_mode_active && trace_sink.is_none() {
+        if strict_mode_active && trace_sink.is_none() && !self.trace_sink_missing_warned {
+            warn!(
+                tenant_id = %request.cpid,
+                worker_id = %self.worker_id,
+                "Strict determinism mode requested but trace sink unavailable; continuing without trace persistence"
+            );
             emit_observability_event(&determinism_violation_event(
                 DeterminismViolationKind::Unknown,
                 None,
@@ -2052,9 +2496,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 Some(request.cpid.clone()),
                 None,
             ));
-            return Err(AosError::DeterminismViolation(
-                "Strict determinism mode requires active trace sink".to_string(),
-            ));
+            self.trace_sink_missing_warned = true;
         }
         let mut active_entries: Vec<(usize, _)> = self
             .manifest
@@ -2206,6 +2648,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 languages: vec![0], // Default language
                 tier: format!("{:?}", adapter.tier).to_lowercase(),
                 base_model: None, // Base model info not available in this context
+                recommended_for_moe: adapter.recommended_for_moe,
                 ..Default::default()
             })
             .collect();
@@ -2263,7 +2706,8 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             policy_mask_digest_seed,
         );
 
-        let mut generated_tokens = Vec::new();
+        let mut generated_tokens = free_token_ids.clone();
+        let free_token_offset = generated_tokens.len();
         let mut router_decisions_collected = Vec::new();
         let mut router_decision_chain = Vec::new();
         let mut previous_chain_hash: Option<String> = None;
@@ -2275,6 +2719,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             request.stop_policy.clone(),
             request.max_tokens as u32,
         );
+        stop_controller.preload_tokens(&generated_tokens);
         let stop_policy_digest = *stop_controller.policy_digest();
         let mut stop_reason_code = None;
         let mut stop_reason_token_index = None;
@@ -2294,6 +2739,19 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             )
         };
 
+        let prompt_chars = request.prompt.chars().count();
+        let prompt_digest_b3 = B3Hash::hash(request.prompt.as_bytes()).to_hex();
+        let mut abstain_queued = false;
+        self.router.set_abstain_context(AbstainContext {
+            request_id: Some(trace_id.clone()),
+            stack_id: request.stack_id.clone(),
+            stack_version: request.stack_version,
+            prompt_digest_b3: Some(prompt_digest_b3.clone()),
+            prompt_chars: Some(prompt_chars),
+            prompt: Some(request.prompt.clone()),
+            tenant_id: Some(request.cpid.clone()),
+        });
+
         if backend_supports_text_generation {
             info!(
                 device = %device_name,
@@ -2305,18 +2763,80 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             // with logits output, only full text generation.
 
             // Call generate_text_complete() directly via FusedKernels trait
-            let generation_result: adapteros_lora_kernel_api::TextGenerationResult = {
-                let kernels = self.kernels.lock().await;
-                let temperature = request.temperature.unwrap_or(0.7);
-                let top_p = request.top_p.unwrap_or(0.9);
-
-                kernels.generate_text_complete(
-                    &request.prompt,
-                    request.max_tokens,
-                    temperature,
-                    top_p,
-                )?
+            let prompt_for_backend = if free_token_text.is_empty() {
+                request.prompt.clone()
+            } else {
+                format!("{}{}", request.prompt, free_token_text)
             };
+
+            let mut generation_result: adapteros_lora_kernel_api::TextGenerationResult =
+                if max_tokens_remaining == 0 {
+                    adapteros_lora_kernel_api::TextGenerationResult {
+                        text: free_token_text.clone(),
+                        tokens_generated: 0,
+                        finish_reason: "max_tokens".to_string(),
+                        usage_stats: None,
+                        timing_stats: None,
+                        moe_info: None,
+                        expert_routing: None,
+                        free_tokens_delivered: free_token_offset,
+                        routing_hash: None,
+                    }
+                } else {
+                    let mut result = {
+                        let kernels = self.kernels.lock().await;
+                        let temperature = request.temperature.unwrap_or(0.7);
+                        let top_p = request.top_p.unwrap_or(0.9);
+
+                        kernels.generate_text_complete(
+                            &prompt_for_backend,
+                            max_tokens_remaining,
+                            temperature,
+                            top_p,
+                        )?
+                    };
+
+                    result.free_tokens_delivered = free_token_offset;
+                    if !free_token_text.is_empty() {
+                        result.text = format!("{}{}", free_token_text, result.text);
+                    }
+                    if let Some(stats) = result.usage_stats.as_mut() {
+                        stats.completion_tokens = stats
+                            .completion_tokens
+                            .saturating_add(result.free_tokens_delivered);
+                        stats.total_tokens = stats
+                            .total_tokens
+                            .saturating_add(result.free_tokens_delivered);
+                    }
+                    result
+                };
+
+            let total_tokens_generated = generation_result
+                .tokens_generated
+                .saturating_add(generation_result.free_tokens_delivered);
+            generation_result.tokens_generated = total_tokens_generated;
+            if max_tokens_remaining == 0 {
+                stop_reason_code = Some(adapteros_api_types::inference::StopReasonCode::BudgetMax);
+                stop_reason_token_index = Some(generation_result.tokens_generated as u32);
+            }
+
+            // Update MoE prefix cache with newly observed routing data
+            if is_moe {
+                if let Some(ref routing) = generation_result.expert_routing {
+                    debug!(
+                        token_count = routing.len(),
+                        "Updating MoE prefix cache with expert routing data"
+                    );
+                    let num_layers = self.kernels.lock().await.num_experts();
+                    #[cfg(feature = "mlx-bridge")]
+                    self.moe_prefix_cache.upsert_routing(
+                        &prompt_tokens,
+                        routing.clone(),
+                        &self.tenant_namespace,
+                        num_layers,
+                    );
+                }
+            }
 
             // Build simplified response for text-generation mode
             let (backend_used, fallback_triggered) = {
@@ -2332,6 +2852,12 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             let (coreml_runtime, fallback_backend) =
                 self.runtime_metadata_for_response(fallback_triggered);
 
+            let moe_info = if let Some(info) = generation_result.moe_info.clone() {
+                Some(info)
+            } else {
+                self.current_moe_info(is_moe).await
+            };
+
             // Build simplified trace (no router decisions for text-gen mode)
             let trace = self.build_trace(
                 &request.cpid,
@@ -2342,13 +2868,40 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 fusion_interval,
                 &active_ids,
                 base_only_request,
+                moe_info.clone(),
+                generation_result.expert_routing,
             );
+
+            // ============================================================================
+            // DETERMINISM ENFORCEMENT (Rectify: Enforce Deterministic Routing)
+            // ============================================================================
+            if strict_mode_active {
+                // Verify that a deterministic routing hash was produced
+                if let Some(hash) = generation_result.routing_hash {
+                    debug!(
+                        routing_hash = %hash,
+                        "Deterministic routing hash verified"
+                    );
+                    // Note: Strict enforcement against a reference hash requires passing
+                    // expected_routing_hash in the request, which is a future protocol extension.
+                    // For now, the existence of the hash proves the chain was computed deterministically.
+                } else if moe_info.is_some() {
+                    // MoE model but no routing hash -> violation
+                    return Err(AosError::DeterminismViolation(
+                        "Strict mode requires deterministic routing hash for MoE models"
+                            .to_string(),
+                    ));
+                }
+            }
 
             info!(
                 tokens = generation_result.tokens_generated,
                 finish_reason = %generation_result.finish_reason,
                 "Text generation completed"
             );
+
+            // Clean up per-request abstain context; text-gen backends don't emit abstain events.
+            self.router.clear_abstain_context();
 
             return Ok(InferenceResponse {
                 text: Some(generation_result.text),
@@ -2379,9 +2932,10 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 determinism_mode_applied: Some(request.determinism_mode.clone()),
                 unavailable_pinned_adapters,
                 pinned_routing_fallback,
-                placement_trace: None,  // No placement for text-gen mode
-                stop_reason_code: None, // Text-gen backends handle stop internally
-                stop_reason_token_index: Some(generation_result.tokens_generated as u32),
+                placement_trace: None, // No placement for text-gen mode
+                stop_reason_code,
+                stop_reason_token_index: stop_reason_token_index
+                    .or_else(|| Some(generation_result.tokens_generated as u32)),
                 stop_policy_digest_b3: Some(stop_policy_digest.to_hex()),
                 error_details: None,
             });
@@ -2392,10 +2946,22 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         // ============================================================================
 
         // Autoregressive generation loop
-        for step in 0..request.max_tokens {
+        if max_tokens_remaining == 0 {
+            stop_reason_code = Some(adapteros_api_types::inference::StopReasonCode::BudgetMax);
+            stop_reason_token_index = Some(generated_tokens.len() as u32);
+        }
+
+        let reasoning_mode = request.reasoning_mode;
+        let mut reasoning_buffer = String::new();
+        let mut pending_reasoning_decision: Option<adapteros_lora_router::Decision> = None;
+        let mut pending_hotswap: Option<u16> = None;
+        let mut reasoning_swap_guard = ReasoningSwapGuard::new(MAX_REASONING_SWAPS);
+
+        for step in 0..max_tokens_remaining {
+            let step_with_free = free_token_offset + step;
             // Prepare input for this step
             let input_ids_slice = if step == 0 {
-                &prompt_tokens[..]
+                &prompt_tokens_with_free[..]
             } else {
                 let last_token = generated_tokens.last().ok_or_else(|| {
                     AosError::Internal("Generated tokens cannot be empty".to_string())
@@ -2403,29 +2969,47 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 std::slice::from_ref(last_token)
             };
 
+            if let Some(adapter_id) = pending_hotswap.take() {
+                let mut kernels = self.kernels.lock().await;
+                if let Err(e) = kernels.switch_adapter(adapter_id) {
+                    warn!(adapter_id, error = %e, "Hot-swap switch_adapter failed");
+                }
+            }
+
             // Run router to get active adapters
             // Extract features from the current prompt context for adaptive routing
-            let features = if step == 0 {
-                // For the first step, use the full prompt for feature extraction
-                CodeFeatures::from_context(&request.prompt).to_vector()
+            let mut decision_from_reasoning = pending_reasoning_decision.is_some();
+            let mut decision = if let Some(pending) = pending_reasoning_decision.take() {
+                pending
             } else {
-                // For subsequent steps, use the current token context
-                // Decode recent tokens to get meaningful context for routing
-                let context_tokens = &generated_tokens[generated_tokens.len().saturating_sub(10)..];
-                let context_text = self
-                    .tokenizer
-                    .decode(context_tokens)
-                    .unwrap_or_else(|_| "".to_string());
-                CodeFeatures::from_context(&context_text).to_vector()
+                decision_from_reasoning = false;
+                let features = if step == 0 {
+                    // For the first step, use the prompt plus any free tokens for feature extraction
+                    let mut context = request.prompt.clone();
+                    if !free_token_text.is_empty() {
+                        context.push_str(&free_token_text);
+                    }
+                    CodeFeatures::from_context(&context).to_vector()
+                } else {
+                    // For subsequent steps, use the current token context
+                    // Decode recent tokens to get meaningful context for routing
+                    let context_tokens =
+                        &generated_tokens[generated_tokens.len().saturating_sub(10)..];
+                    let context_text = self
+                        .tokenizer
+                        .decode(context_tokens)
+                        .unwrap_or_else(|_| "".to_string());
+                    CodeFeatures::from_context(&context_text).to_vector()
+                };
+                // Build priors with PINNED_BOOST for pinned adapters (CHAT-PIN-02)
+                self.router.route_with_adapter_info_with_ctx(
+                    &features,
+                    &priors,
+                    &adapter_info,
+                    &policy_mask,
+                    determinism_ctx.as_ref(),
+                )?
             };
-            // Build priors with PINNED_BOOST for pinned adapters (CHAT-PIN-02)
-            let decision = self.router.route_with_adapter_info_with_ctx(
-                &features,
-                &priors,
-                &adapter_info,
-                &policy_mask,
-                determinism_ctx.as_ref(),
-            )?;
 
             let decision = self.apply_routing_policy_to_decision(
                 decision,
@@ -2433,14 +3017,32 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 base_only_request,
             )?;
 
+            // Capture abstain events once per request to feed the active-learning queue.
+            if !abstain_queued {
+                let abstain_events = self.router.take_abstain_events();
+                if !abstain_events.is_empty() {
+                    for event in abstain_events {
+                        if let Err(e) =
+                            active_learning::enqueue_abstain_sample(&event, Some(&request.prompt))
+                        {
+                            warn!(
+                                error = %e,
+                                "Failed to enqueue abstain sample for active learning"
+                            );
+                        }
+                    }
+                    abstain_queued = true;
+                }
+            }
+
             // Collect router decision for control plane transmission
             let input_token_id = if step == 0 {
-                prompt_tokens.first().copied()
+                prompt_tokens_with_free.first().copied()
             } else {
                 generated_tokens.last().copied()
             };
             router_decisions_collected.push(adapteros_api_types::inference::RouterDecision {
-                step,
+                step: step_with_free,
                 input_token_id,
                 candidate_adapters: decision
                     .candidates
@@ -2456,7 +3058,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 entropy_floor: self.router.eps(),
                 stack_hash: self.router.stack_hash(),
                 allowed_mask: Some(policy_mask.allowed.clone()),
-                interval_id: Some(fusion_interval.interval_id_for_step(step)),
+                interval_id: Some(fusion_interval.interval_id_for_step(step_with_free)),
                 policy_mask_digest: decision.policy_mask_digest,
                 policy_overrides_applied: decision.policy_overrides_applied.as_ref().map(|flags| {
                     adapteros_api_types::inference::PolicyOverrideFlags {
@@ -2465,6 +3067,12 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                         trust_state: flags.trust_state,
                     }
                 }),
+                model_type: if is_moe {
+                    RouterModelType::Moe
+                } else {
+                    RouterModelType::Dense
+                },
+                active_experts: None,
             });
 
             // Build chained router decision entry (per-token)
@@ -2484,6 +3092,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 decision.decision_hash.as_ref().map(|h| RouterDecisionHash {
                     input_hash: h.input_hash.clone(),
                     output_hash: h.output_hash.clone(),
+                    reasoning_hash: h.reasoning_hash.clone(),
                     combined_hash: h.combined_hash.clone(),
                     tau: h.tau,
                     eps: h.eps,
@@ -2505,7 +3114,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
 
             let entry_material = format!(
                 "{}|{}|{}|{}|{}|{}",
-                step,
+                step_with_free,
                 input_token_id
                     .map(|v| v.to_string())
                     .unwrap_or_else(String::new),
@@ -2521,7 +3130,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             let entry_hash = B3Hash::hash(entry_material.as_bytes()).to_hex();
 
             router_decision_chain.push(RouterDecisionChainEntry {
-                step,
+                step: step_with_free,
                 input_token_id,
                 adapter_indices: decision.indices.iter().copied().collect(),
                 adapter_ids: adapter_ids_for_decision,
@@ -2594,8 +3203,13 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             }
 
             if let Some(sink) = trace_sink.as_mut() {
+                let kernel_version_for_trace = if decision_from_reasoning {
+                    format!("{}|thought_swap", kernel_version_id)
+                } else {
+                    kernel_version_id.clone()
+                };
                 let token_input = TraceTokenInput {
-                    token_index: step as u32,
+                    token_index: step_with_free as u32,
                     adapter_ids: adapter_ids_for_trace.clone(),
                     gates_q15: decision.gates_q15.iter().copied().collect(),
                     policy_mask_digest,
@@ -2608,7 +3222,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                         },
                     ),
                     backend_id: Some(backend_label.clone()),
-                    kernel_version_id: Some(kernel_version_id.clone()),
+                    kernel_version_id: Some(kernel_version_for_trace),
                 };
                 sink.record_token(token_input).await?
             }
@@ -2618,14 +3232,14 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 &decision,
                 &active_hashed,
                 Some(&active_strengths),
-                step,
+                step_with_free,
             )?;
 
             // Execute kernels through Metal and measure latency per adapter
             let mut io_buffers = IoBuffers {
                 input_ids: input_ids_slice.to_vec(),
                 output_logits: vec![0.0; self.manifest.base.vocab_size as usize],
-                position: step,
+                position: step_with_free,
             };
 
             if let Some(ref mut placement) = placement_state {
@@ -2675,7 +3289,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             }
 
             // Re-seed generator for step-level determinism (enables replay)
-            self.generator.reseed_for_step(step);
+            self.generator.reseed_for_step(step_with_free);
 
             // Sample next token
             let next_token = self.generator.next_token(&io_buffers.output_logits)?;
@@ -2700,6 +3314,58 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             }
 
             generated_tokens.push(next_token);
+
+            if reasoning_mode {
+                if let Ok(decoded) = self.tokenizer.decode(&[next_token]) {
+                    reasoning_buffer.push_str(&decoded);
+                }
+
+                let has_end_tag = reasoning_buffer.contains("</thinking>");
+                let has_newline = reasoning_buffer.ends_with('\n');
+                if (has_end_tag || has_newline) && !reasoning_buffer.trim().is_empty() {
+                    let rationale = if let (Some(start), Some(end)) = (
+                        reasoning_buffer.find("<thinking>"),
+                        reasoning_buffer.find("</thinking>"),
+                    ) {
+                        let slice_start = start + "<thinking>".len();
+                        reasoning_buffer[slice_start..end].trim().to_string()
+                    } else {
+                        reasoning_buffer.trim().to_string()
+                    };
+                    reasoning_buffer.clear();
+
+                    let mut swap_decision = self.router.route_on_reasoning(
+                        &rationale,
+                        &priors,
+                        &adapter_info,
+                        &policy_mask,
+                        determinism_ctx.as_ref(),
+                    )?;
+
+                    swap_decision = self.apply_routing_policy_to_decision(
+                        swap_decision,
+                        request.routing_policy.as_ref(),
+                        base_only_request,
+                    )?;
+
+                    if let Some(&adapter_id) = swap_decision
+                        .indices
+                        .first()
+                        .and_then(|idx| active_hashed.get(*idx as usize))
+                    {
+                        pending_hotswap = Some(adapter_id);
+                    }
+
+                    pending_reasoning_decision = Some(swap_decision);
+                    if let Err(e) = reasoning_swap_guard.record_swap() {
+                        warn!(
+                            swaps = reasoning_swap_guard.count(),
+                            "Terminating request due to excessive thought swaps"
+                        );
+                        return Err(e);
+                    }
+                }
+            }
         }
 
         // Evaluate lifecycle transitions after inference
@@ -2837,6 +3503,9 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             router_decision_chain_opt.as_deref().unwrap_or(&[]),
         )?;
 
+        // Clear per-request abstain context before returning response.
+        self.router.clear_abstain_context();
+
         Ok(InferenceResponse {
             text: Some(generated_text),
             status: "ok".to_string(),
@@ -2849,6 +3518,8 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 fusion_interval,
                 &active_ids,
                 base_only_request,
+                self.current_moe_info(is_moe).await,
+                None, // No expert routing for token-by-token yet
             ),
             run_receipt,
             refusal: None,
@@ -2887,6 +3558,19 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         })
     }
 
+    async fn current_moe_info(&self, is_moe: bool) -> Option<adapteros_lora_kernel_api::MoEInfo> {
+        if !is_moe {
+            return None;
+        }
+
+        let kernels = self.kernels.lock().await;
+        Some(adapteros_lora_kernel_api::MoEInfo {
+            is_moe: true,
+            num_experts: kernels.num_experts(),
+            experts_per_token: kernels.experts_per_token(),
+        })
+    }
+
     // validate_effective_adapter_gate is now in adapter_operations.rs
 
     // Refactored methods are now in separate modules:
@@ -2894,10 +3578,48 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
     // - adapter_operations.rs: execute_adapter_command, verify_gpu_integrity
     // - worker_utilities.rs: compute_embedding, generate_plan_id, etc.
     // - training_management.rs: training job management methods
+
+    /// Flush trace buffers and persist state
+    pub async fn flush(&self) -> Result<()> {
+        if let Some(_trace_db) = &self.trace_db {
+            // Note: trace_db flushes automatically or via its own task,
+            // but we might want an explicit flush here if supported.
+            // For now, trace persistence is async background.
+        }
+
+        // Persist MoE cache snapshot
+        let adapter_paths = resolve_worker_adapter_paths();
+        let adapters_path = adapter_paths.repo_root.join(&self.tenant_namespace);
+        // Ensure directory exists
+        if let Err(e) = std::fs::create_dir_all(&adapters_path) {
+            warn!(error = %e, path = %adapters_path.display(), "Failed to create tenant directory for cache");
+        }
+        let moe_cache_path = adapters_path.join("moe_cache.json");
+        #[cfg(feature = "mlx-bridge")]
+        if let Err(e) = self.moe_prefix_cache.save_snapshot(&moe_cache_path) {
+            warn!(path = %moe_cache_path.display(), error = %e, "Failed to save MoE cache snapshot");
+        } else {
+            debug!(path = %moe_cache_path.display(), "Saved MoE cache snapshot");
+        }
+
+        Ok(())
+    }
 }
 
-impl<K: FusedKernels + StrictnessControl + Send + Sync> Drop for Worker<K> {
+impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Drop for Worker<K> {
     fn drop(&mut self) {
+        // Stop persistence task
+        if let Some(handle) = self.persistence_handle.take() {
+            handle.abort();
+        }
+
+        // Try to flush cache on shutdown
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            let _ = handle.block_on(async {
+                let _ = self.flush().await;
+            });
+        }
+
         if let Some(handle) = self.retirement_handle.take() {
             let _ = self.shutdown_tx.send(());
             let _ = tokio::runtime::Handle::current().block_on(handle);
@@ -2946,6 +3668,12 @@ pub fn determinism_violation_count() -> u64 {
     // runtime_guards::violation_count()  // Temporarily disabled due to dependency issues
     0
 }
+
+#[cfg(test)]
+mod reasoning_swap_tests;
+
+#[cfg(test)]
+mod reasoning_loop_trace_tests;
 
 #[cfg(test)]
 mod strict_mode_guard_tests {

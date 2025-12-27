@@ -35,6 +35,24 @@ for violation in violations {
 }
 ```
 
+### rustc / clippy Driver (IDE warnings)
+
+To surface AdapterOS architectural rules as standard warnings in VS Code / Cursor:
+
+```bash
+# Use adapteros-lint as the rustc workspace wrapper
+export RUSTC_WORKSPACE_WRAPPER="$(pwd)/target/debug/adapteros-lint"
+# Optional: pick the underlying compiler (defaults to clippy-driver then rustc fallback)
+export ADAPTEROS_LINT_UNDERLYING=clippy-driver
+
+cargo clippy -p adapteros-server-api
+```
+
+Notes:
+- The driver runs the existing architectural checks against the crate source (prefers `src/`), then forwards all arguments to `clippy-driver`/`rustc`.
+- Diagnostics are emitted in rustc JSON when `--error-format=json` is present, so editors show red squiggles without waiting for CI.
+- `RUSTC_WORKSPACE_WRAPPER` only wraps workspace crates, keeping third-party dependency builds fast.
+
 ## Violation Types
 
 ### LifecycleManagerBypass
@@ -159,4 +177,3 @@ chmod +x .git/hooks/pre-commit
 
 - [AGENTS.md](../../AGENTS.md) - Architectural patterns and standards
 - [docs/ARCHITECTURAL_VIOLATIONS_ANALYSIS.md](../../docs/ARCHITECTURAL_VIOLATIONS_ANALYSIS.md) - Violation analysis
-

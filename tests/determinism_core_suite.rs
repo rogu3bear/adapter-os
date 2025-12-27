@@ -2,16 +2,22 @@
 //! Verifies end-to-end determinism primitives: HKDF router seeds, routing
 //! ordering with Q15 gates/decision hashes, and replay metadata round-trips.
 
-use adapteros_core::B3Hash;
-use adapteros_db::{CreateReplayMetadataParams, Db};
+use adapteros_api_types::inference::PolicyOverrideFlags as ApiPolicyOverrideFlags;
+use adapteros_core::{AosError, B3Hash, Result};
+use adapteros_db::{
+    CreateReplayMetadataParams, Db, SqlTraceSink, TraceFinalization, TraceSink, TraceStart,
+    TraceTokenInput,
+};
 use adapteros_lora_router::{
     policy_mask::PolicyMask, AdapterInfo, Router, RouterDeterminismConfig, RouterWeights,
 };
 use adapteros_lora_worker::services::determinism_policy::{HkdfSeedExpander, SeedDomain};
+use adapteros_lora_worker::DeterministicRng;
 use adapteros_policy::{DeterminismConfig, DeterminismPolicy, RngSeedingMethod};
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
 use sqlx;
+use std::sync::Arc;
 
 #[test]
 fn test_router_seed_derivation_and_policy_hooks() {
@@ -233,6 +239,247 @@ async fn test_replay_metadata_round_trip() {
         stored_rag_doc_ids, rag_doc_ids,
         "RAG doc ID order must persist"
     );
+}
+
+#[tokio::test]
+async fn reasoning_swap_flow_is_deterministic_and_traced() -> Result<()> {
+    let seed = B3Hash::hash(b"reasoning-determinism-core").to_bytes();
+    let first = run_reasoning_trace(seed, "trace-reasoning-1", 6).await?;
+    let second = run_reasoning_trace(seed, "trace-reasoning-2", 6).await?;
+
+    assert_eq!(
+        first.reasoning_segments, second.reasoning_segments,
+        "Reasoning text must be identical for identical seeds"
+    );
+    assert_eq!(
+        first.adapter_choices, second.adapter_choices,
+        "Adapter choices must be deterministic under reasoning swaps"
+    );
+    assert_eq!(
+        first.receipt_digest.to_hex(),
+        second.receipt_digest.to_hex(),
+        "Trace receipts must be stable across runs"
+    );
+    assert_eq!(
+        first.stored_adapter_sequences, second.stored_adapter_sequences,
+        "Persisted swap chain must be deterministic"
+    );
+    assert_eq!(
+        first.stored_adapter_sequences.len(),
+        first.adapter_choices.len(),
+        "Trace DB must capture every reasoning swap, not just the final state"
+    );
+
+    for (idx, stored_ids) in first.stored_adapter_sequences.iter().enumerate() {
+        assert_eq!(
+            stored_ids,
+            &vec![first.adapter_choices[idx].clone()],
+            "Trace DB must preserve swap order"
+        );
+    }
+
+    for kernel_id in &first.kernel_versions {
+        assert_eq!(
+            kernel_id.as_deref(),
+            Some("determinism-kernel|thought_swap"),
+            "Trace entries should tag reasoning swaps"
+        );
+    }
+
+    Ok(())
+}
+
+struct ReasoningRunTrace {
+    reasoning_segments: Vec<String>,
+    adapter_choices: Vec<String>,
+    stored_adapter_sequences: Vec<Vec<String>>,
+    kernel_versions: Vec<Option<String>>,
+    receipt_digest: B3Hash,
+}
+
+async fn run_reasoning_trace(
+    seed: [u8; 32],
+    trace_id: &str,
+    swap_count: usize,
+) -> Result<ReasoningRunTrace> {
+    std::env::set_var("AOS_SKIP_MIGRATION_SIGNATURES", "1");
+    let db = Arc::new(Db::new_in_memory().await?);
+    sqlx::query("INSERT INTO tenants (id, name) VALUES (?, ?)")
+        .bind("tenant-reasoning")
+        .bind("Reasoning Determinism Tenant")
+        .execute(db.pool())
+        .await?;
+
+    let mut sink = SqlTraceSink::new(
+        db.clone(),
+        TraceStart {
+            trace_id: trace_id.to_string(),
+            tenant_id: "tenant-reasoning".to_string(),
+            request_id: Some("req-reasoning".to_string()),
+            context_digest: seed,
+        },
+        8,
+    )
+    .await?;
+
+    let (mut router, adapter_info, priors, policy_mask) = reasoning_router_fixture();
+    let reasoning_segments = generate_reasoning_segments(&seed, swap_count)?;
+    let mut adapter_choices = Vec::with_capacity(swap_count);
+
+    for (idx, rationale) in reasoning_segments.iter().enumerate() {
+        let decision =
+            router.route_on_reasoning(rationale, &priors, &adapter_info, &policy_mask, None)?;
+        let adapter_idx = decision
+            .indices
+            .first()
+            .copied()
+            .ok_or_else(|| AosError::Routing("Empty reasoning decision".to_string()))?;
+        let adapter_id = adapter_info[adapter_idx as usize].id.clone();
+        adapter_choices.push(adapter_id.clone());
+
+        let policy_mask_digest = decision.policy_mask_digest.map(|digest| digest.to_bytes());
+        let policy_overrides_applied =
+            decision
+                .policy_overrides_applied
+                .as_ref()
+                .map(|flags| ApiPolicyOverrideFlags {
+                    allow_list: flags.allow_list,
+                    deny_list: flags.deny_list,
+                    trust_state: flags.trust_state,
+                });
+
+        sink.record_token(TraceTokenInput {
+            token_index: idx as u32,
+            adapter_ids: vec![adapter_id],
+            gates_q15: decision.gates_q15.iter().copied().collect(),
+            policy_mask_digest,
+            allowed_mask: Some(policy_mask.allowed.clone()),
+            policy_overrides_applied,
+            backend_id: Some("determinism-backend".to_string()),
+            kernel_version_id: Some("determinism-kernel|thought_swap".to_string()),
+        })
+        .await?;
+    }
+
+    let receipt = sink
+        .finalize(TraceFinalization {
+            output_tokens: &[7, 11, 13],
+            logical_prompt_tokens: 4,
+            prefix_cached_token_count: 0,
+            billed_input_tokens: 4,
+            logical_output_tokens: 3,
+            billed_output_tokens: 3,
+            stop_reason_code: None,
+            stop_reason_token_index: None,
+            stop_policy_digest_b3: None,
+            tenant_kv_quota_bytes: 0,
+            tenant_kv_bytes_used: 0,
+            kv_evictions: 0,
+            kv_residency_policy_id: None,
+            kv_quota_enforced: false,
+            prefix_kv_key_b3: None,
+            prefix_cache_hit: false,
+            prefix_kv_bytes: 0,
+            model_cache_identity_v2_digest_b3: None,
+        })
+        .await?;
+
+    let stored_rows: Vec<(i64, Vec<u8>, Option<String>)> = sqlx::query_as(
+        "SELECT token_index, selected_adapter_ids, kernel_version_id FROM inference_trace_tokens WHERE trace_id = ? ORDER BY token_index ASC",
+    )
+    .bind(trace_id)
+    .fetch_all(db.pool())
+    .await?;
+
+    let mut stored_adapter_sequences = Vec::with_capacity(stored_rows.len());
+    let mut kernel_versions = Vec::with_capacity(stored_rows.len());
+    for (_, adapter_blob, kernel_version_id) in stored_rows {
+        stored_adapter_sequences.push(decode_adapter_ids(&adapter_blob)?);
+        kernel_versions.push(kernel_version_id);
+    }
+
+    Ok(ReasoningRunTrace {
+        reasoning_segments,
+        adapter_choices,
+        stored_adapter_sequences,
+        kernel_versions,
+        receipt_digest: receipt.receipt_digest,
+    })
+}
+
+fn reasoning_router_fixture() -> (Router, Vec<AdapterInfo>, Vec<f32>, PolicyMask) {
+    let mut router = Router::new_with_weights(RouterWeights::default(), 1, 1.0, 0.02);
+    let adapter_info = vec![
+        AdapterInfo {
+            id: "creative-writer".to_string(),
+            framework: None,
+            languages: vec![0],
+            tier: "default".to_string(),
+            reasoning_specialties: vec!["creative".to_string()],
+            ..Default::default()
+        },
+        AdapterInfo {
+            id: "python-coder".to_string(),
+            framework: None,
+            languages: vec![0],
+            tier: "default".to_string(),
+            reasoning_specialties: vec!["python".to_string()],
+            ..Default::default()
+        },
+    ];
+    let priors = vec![0.55, 0.55];
+    let adapter_ids: Vec<String> = adapter_info.iter().map(|a| a.id.clone()).collect();
+    let policy_mask = PolicyMask::allow_all(&adapter_ids, None);
+
+    (router, adapter_info, priors, policy_mask)
+}
+
+fn generate_reasoning_segments(seed: &[u8; 32], count: usize) -> Result<Vec<String>> {
+    let mut rng = DeterministicRng::new(seed, "reasoning-swap-trace")?;
+    let mut segments = Vec::with_capacity(count);
+    for idx in 0..count {
+        let pick = rng.next_u32() % 2;
+        let rationale = if pick == 0 {
+            format!("<thinking>Step {idx}: python helpers</thinking>")
+        } else {
+            format!("<thinking>Step {idx}: creative narrative</thinking>")
+        };
+        segments.push(rationale);
+    }
+    Ok(segments)
+}
+
+fn decode_adapter_ids(bytes: &[u8]) -> Result<Vec<String>> {
+    if bytes.len() < 4 {
+        return Err(AosError::InvalidHash(
+            "adapter_ids blob missing length".to_string(),
+        ));
+    }
+
+    let mut cursor = 4;
+    let count = u32::from_le_bytes(bytes[..4].try_into().unwrap()) as usize;
+    let mut ids = Vec::with_capacity(count);
+    for _ in 0..count {
+        if bytes.len() < cursor + 4 {
+            return Err(AosError::InvalidHash(
+                "adapter_ids blob truncated before length".to_string(),
+            ));
+        }
+        let len = u32::from_le_bytes(bytes[cursor..cursor + 4].try_into().unwrap()) as usize;
+        cursor += 4;
+        let end = cursor + len;
+        if bytes.len() < end {
+            return Err(AosError::InvalidHash(
+                "adapter_ids blob truncated before data".to_string(),
+            ));
+        }
+        ids.push(
+            String::from_utf8(bytes[cursor..end].to_vec())
+                .map_err(|e| AosError::InvalidHash(format!("adapter_ids decode error: {e}")))?,
+        );
+        cursor = end;
+    }
+    Ok(ids)
 }
 
 async fn ensure_base_only_column(db: &Db) {

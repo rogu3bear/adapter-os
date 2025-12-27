@@ -6,6 +6,7 @@ use async_trait::async_trait;
 use sqlx::{sqlite::SqliteConnectOptions, Row, SqlitePool};
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::time::Duration;
 use tracing::info;
 
 /// SQLite database backend
@@ -227,9 +228,14 @@ impl DatabaseBackend for SqliteBackend {
             .await
             .map_err(|e| AosError::Database(format!("Failed to load migrations: {}", e)))?;
 
-        migrator
-            .run(&self.pool)
+        tokio::time::timeout(Duration::from_secs(30), migrator.run(&self.pool))
             .await
+            .map_err(|_| {
+                AosError::Database(
+                    "Migration timed out while waiting for database lock. Run `aosctl db unlock` and retry."
+                        .to_string(),
+                )
+            })?
             .map_err(|e| AosError::Database(format!("Migration failed: {}", e)))?;
 
         Ok(())

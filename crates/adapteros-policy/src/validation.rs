@@ -270,6 +270,61 @@ fn router_schema() -> HashMap<String, PolicyFieldSchema> {
         },
     );
 
+    schema.insert(
+        "allowed_clusters".to_string(),
+        PolicyFieldSchema {
+            field_name: "allowed_clusters".to_string(),
+            field_type: FieldType::Array,
+            required: false,
+            min_value: None,
+            max_value: None,
+            allowed_values: None,
+            safety_constraint: None,
+        },
+    );
+
+    schema.insert(
+        "denied_clusters".to_string(),
+        PolicyFieldSchema {
+            field_name: "denied_clusters".to_string(),
+            field_type: FieldType::Array,
+            required: false,
+            min_value: None,
+            max_value: None,
+            allowed_values: None,
+            safety_constraint: None,
+        },
+    );
+
+    schema.insert(
+        "max_reasoning_depth".to_string(),
+        PolicyFieldSchema {
+            field_name: "max_reasoning_depth".to_string(),
+            field_type: FieldType::Number,
+            required: false,
+            min_value: Some(0.0),
+            max_value: None,
+            allowed_values: None,
+            safety_constraint: None,
+        },
+    );
+
+    schema.insert(
+        "cluster_fallback".to_string(),
+        PolicyFieldSchema {
+            field_name: "cluster_fallback".to_string(),
+            field_type: FieldType::String,
+            required: false,
+            min_value: None,
+            max_value: None,
+            allowed_values: Some(vec![
+                "stay_on_current".to_string(),
+                "fallback_to_base".to_string(),
+            ]),
+            safety_constraint: None,
+        },
+    );
+
     schema
 }
 

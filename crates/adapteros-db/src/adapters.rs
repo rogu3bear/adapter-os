@@ -38,7 +38,7 @@
 //! - `kv_write_latency_ms`
 //! - `sql_rollback_triggered` (strict mode only)
 
-use crate::Db;
+use crate::{Db, WriteCapableDb};
 use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
@@ -71,7 +71,7 @@ const ADAPTER_COLUMNS_ALIAS_A: &str =
      a.expires_at, a.load_state, a.last_loaded_at, a.aos_file_path, a.aos_file_hash, \
      a.adapter_name, a.tenant_namespace, a.domain, a.purpose, a.revision, a.parent_id, \
      a.fork_type, a.fork_reason, a.version, a.lifecycle_state, a.archived_at, a.archived_by, \
-     a.archive_reason, a.purged_at, a.base_model_id, a.manifest_schema_version, \
+     a.archive_reason, a.purged_at, a.base_model_id, a.recommended_for_moe, a.manifest_schema_version, \
      a.content_hash_b3, a.metadata_json, a.provenance_json, a.created_at, a.updated_at, a.active";
 
 tokio::task_local! {
@@ -176,6 +176,8 @@ pub struct AdapterRegistrationBuilder {
     fork_reason: Option<String>,
     // Base model reference (from migration 0098)
     base_model_id: Option<String>,
+    // MoE recommendation flag (0228)
+    recommended_for_moe: Option<bool>,
     // Artifact hardening (from migration 0153)
     manifest_schema_version: Option<String>,
     content_hash_b3: Option<String>,
@@ -220,6 +222,8 @@ pub struct AdapterRegistrationParams {
     pub fork_reason: Option<String>,
     // Base model reference (from migration 0098)
     pub base_model_id: Option<String>,
+    // MoE recommendation flag (0228)
+    pub recommended_for_moe: Option<bool>,
     // Artifact hardening (from migration 0153)
     pub manifest_schema_version: Option<String>,
     pub content_hash_b3: Option<String>,
@@ -422,6 +426,12 @@ impl AdapterRegistrationBuilder {
         self
     }
 
+    /// Set whether this adapter is recommended for MoE base models
+    pub fn recommended_for_moe(mut self, recommended_for_moe: Option<bool>) -> Self {
+        self.recommended_for_moe = recommended_for_moe;
+        self
+    }
+
     /// Set the manifest schema version (optional, from migration 0153)
     /// Semantic versioning string (e.g., "1.0.0")
     pub fn manifest_schema_version(
@@ -508,6 +518,7 @@ impl AdapterRegistrationBuilder {
             fork_type: self.fork_type,
             fork_reason: self.fork_reason,
             base_model_id: self.base_model_id,
+            recommended_for_moe: self.recommended_for_moe,
             manifest_schema_version: self.manifest_schema_version,
             content_hash_b3: self.content_hash_b3,
             provenance_json: self.provenance_json,
@@ -583,7 +594,8 @@ pub struct Adapter {
 
     // Base model reference (from migration 0098)
     pub base_model_id: Option<String>,
-
+    #[sqlx(default)]
+    pub recommended_for_moe: Option<bool>,
     // Artifact hardening (from migration 0153)
     pub manifest_schema_version: Option<String>,
     pub content_hash_b3: Option<String>,
@@ -755,8 +767,8 @@ impl Db {
         if self.storage_mode().write_to_sql() {
             if let Some(pool) = self.pool_opt() {
                 sqlx::query(
-                    "INSERT INTO adapters (id, tenant_id, adapter_id, name, hash_b3, rank, alpha, lora_strength, tier, targets_json, acl_json, languages_json, framework, category, scope, framework_id, framework_version, repo_id, commit_sha, intent, expires_at, adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason, aos_file_path, aos_file_hash, base_model_id, manifest_schema_version, content_hash_b3, metadata_json, provenance_json, version, lifecycle_state, current_state, pinned, memory_bytes, activation_count, load_state, active)
-                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, '1.0.0', 'draft', 'unloaded', 0, 0, 0, 'cold', 1)"
+                    "INSERT INTO adapters (id, tenant_id, adapter_id, name, hash_b3, rank, alpha, lora_strength, tier, targets_json, acl_json, languages_json, framework, category, scope, framework_id, framework_version, repo_id, commit_sha, intent, expires_at, adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason, aos_file_path, aos_file_hash, base_model_id, recommended_for_moe, manifest_schema_version, content_hash_b3, metadata_json, provenance_json, version, lifecycle_state, current_state, pinned, memory_bytes, activation_count, load_state, active)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, '1.0.0', 'draft', 'unloaded', 0, 0, 0, 'cold', 1)"
                 )
                 .bind(&id)
                 .bind(&params.tenant_id)
@@ -790,6 +802,7 @@ impl Db {
                 .bind(&params.aos_file_path)
                 .bind(&params.aos_file_hash)
                 .bind(&params.base_model_id)
+                .bind(params.recommended_for_moe.unwrap_or(true))
                 .bind(&params.manifest_schema_version)
                 .bind(&params.content_hash_b3)
                 .bind(&params.metadata_json)
@@ -1237,11 +1250,7 @@ impl Db {
     pub async fn delete_adapter_cascade(&self, id: &str) -> Result<()> {
         use tracing::info;
 
-        let mut tx = self
-            .pool()
-            .begin()
-            .await
-            .map_err(|e| AosError::database(e.to_string()))?;
+        let mut tx = self.begin_write_tx().await?;
 
         // Get adapter_id and tenant_id for pinning check and KV dual-write
         let adapter_data: Option<(String, String)> =
@@ -1788,17 +1797,13 @@ impl Db {
     /// (see tests/stability_reinforcement_tests.rs::test_concurrent_state_update_race_condition).
     ///
     /// Citation: Agent G Stability Reinforcement Plan - Patch 1.1
-    pub async fn update_adapter_state_tx(
+    pub(crate) async fn update_adapter_state_tx(
         &self,
         adapter_id: &str,
         state: &str,
         reason: &str,
     ) -> Result<()> {
-        let mut tx = self
-            .pool()
-            .begin()
-            .await
-            .map_err(|e| AosError::database(e.to_string()))?;
+        let mut tx = self.begin_write_tx().await?;
 
         // Lock the row and get tenant_id for KV dual-write
         let row_data: Option<(String, String)> =
@@ -1892,18 +1897,14 @@ impl Db {
     ///     // Another request already changed the state - retry or handle conflict
     /// }
     /// ```
-    pub async fn update_adapter_state_cas(
+    pub(crate) async fn update_adapter_state_cas(
         &self,
         adapter_id: &str,
         expected_state: &str,
         new_state: &str,
         reason: &str,
     ) -> Result<bool> {
-        let mut tx = self
-            .pool()
-            .begin()
-            .await
-            .map_err(|e| AosError::database(e.to_string()))?;
+        let mut tx = self.begin_write_tx().await?;
 
         // Lock the row and verify current state
         let row_data: Option<(String, String, String)> = sqlx::query_as(
@@ -2008,11 +2009,7 @@ impl Db {
         adapter_id: &str,
         memory_bytes: i64,
     ) -> Result<()> {
-        let mut tx = self
-            .pool()
-            .begin()
-            .await
-            .map_err(|e| AosError::database(e.to_string()))?;
+        let mut tx = self.begin_write_tx().await?;
 
         // Verify adapter exists and get tenant_id for KV dual-write
         let row_data: Option<(String, String)> =
@@ -2082,18 +2079,14 @@ impl Db {
     /// interleave, causing inconsistent adapter records.
     ///
     /// Citation: Agent G Stability Reinforcement Plan - Patch 1.1
-    pub async fn update_adapter_state_and_memory(
+    pub(crate) async fn update_adapter_state_and_memory(
         &self,
         adapter_id: &str,
         state: &str,
         memory_bytes: i64,
         reason: &str,
     ) -> Result<()> {
-        let mut tx = self
-            .pool()
-            .begin()
-            .await
-            .map_err(|e| AosError::database(e.to_string()))?;
+        let mut tx = self.begin_write_tx().await?;
 
         // Verify adapter exists and get tenant_id for KV dual-write
         let row_data: Option<(String, String)> =
@@ -2582,8 +2575,8 @@ impl Db {
             return Ok(());
         }
 
-        let min_rev = *revisions.iter().min().unwrap();
-        let max_rev = *revisions.iter().max().unwrap();
+        let min_rev = *revisions.iter().min().unwrap_or(&0);
+        let max_rev = *revisions.iter().max().unwrap_or(&0);
         let gap = max_rev - min_rev;
 
         if gap > max_gap {
@@ -2733,6 +2726,7 @@ impl Db {
                     fork_type: adapter.fork_type.clone(),
                     fork_reason: adapter.fork_reason.clone(),
                     base_model_id: adapter.base_model_id.clone(),
+                    recommended_for_moe: adapter.recommended_for_moe,
                     manifest_schema_version: adapter.manifest_schema_version.clone(),
                     content_hash_b3: adapter.content_hash_b3.clone(),
                     provenance_json: adapter.provenance_json.clone(),
@@ -2802,6 +2796,7 @@ impl Db {
                     fork_type: adapter.fork_type.clone(),
                     fork_reason: adapter.fork_reason.clone(),
                     base_model_id: adapter.base_model_id.clone(),
+                    recommended_for_moe: adapter.recommended_for_moe,
                     manifest_schema_version: adapter.manifest_schema_version.clone(),
                     content_hash_b3: adapter.content_hash_b3.clone(),
                     provenance_json: adapter.provenance_json.clone(),
@@ -3313,7 +3308,7 @@ impl Db {
     // =========================================================================
 
     /// Update adapter state with tenant validation (transactional)
-    pub async fn update_adapter_state_tx_for_tenant(
+    pub(crate) async fn update_adapter_state_tx_for_tenant(
         &self,
         tenant_id: &str,
         adapter_id: &str,
@@ -3342,7 +3337,7 @@ impl Db {
     }
 
     /// Update adapter state with CAS (compare-and-swap) and tenant validation
-    pub async fn update_adapter_state_cas_for_tenant(
+    pub(crate) async fn update_adapter_state_cas_for_tenant(
         &self,
         tenant_id: &str,
         adapter_id: &str,
@@ -3547,6 +3542,7 @@ impl Db {
             fork_type: Some("duplicate".to_string()),
             fork_reason: Some("User-requested copy".to_string()),
             base_model_id: source.base_model_id.clone(),
+            recommended_for_moe: source.recommended_for_moe,
             manifest_schema_version: source.manifest_schema_version.clone(),
             content_hash_b3: source.content_hash_b3.clone(),
             provenance_json: source.provenance_json.clone(),
@@ -3560,5 +3556,91 @@ impl Db {
         self.get_adapter_for_tenant(tenant_id, &new_id)
             .await?
             .ok_or_else(|| AosError::database("Failed to retrieve duplicated adapter".to_string()))
+    }
+}
+
+impl<'a> WriteCapableDb<'a> {
+    /// Transactional adapter state update (global adapter_id scope).
+    pub async fn update_adapter_state_tx(
+        &self,
+        adapter_id: &str,
+        state: &str,
+        reason: &str,
+    ) -> Result<()> {
+        self.db
+            .update_adapter_state_tx(adapter_id, state, reason)
+            .await
+    }
+
+    /// Non-transactional adapter state update (tenant scoped).
+    pub async fn update_adapter_state(
+        &self,
+        tenant_id: &str,
+        adapter_id: &str,
+        state: &str,
+        reason: &str,
+    ) -> Result<()> {
+        self.db
+            .update_adapter_state(tenant_id, adapter_id, state, reason)
+            .await
+    }
+
+    /// Compare-and-swap adapter state transition.
+    pub async fn update_adapter_state_cas(
+        &self,
+        adapter_id: &str,
+        expected_state: &str,
+        new_state: &str,
+        reason: &str,
+    ) -> Result<bool> {
+        self.db
+            .update_adapter_state_cas(adapter_id, expected_state, new_state, reason)
+            .await
+    }
+
+    /// Atomically update state and memory for an adapter.
+    pub async fn update_adapter_state_and_memory(
+        &self,
+        adapter_id: &str,
+        state: &str,
+        memory_bytes: i64,
+        reason: &str,
+    ) -> Result<()> {
+        self.db
+            .update_adapter_state_and_memory(adapter_id, state, memory_bytes, reason)
+            .await
+    }
+
+    /// Transactional tenant-scoped adapter state update.
+    pub async fn update_adapter_state_tx_for_tenant(
+        &self,
+        tenant_id: &str,
+        adapter_id: &str,
+        state: &str,
+        reason: &str,
+    ) -> Result<()> {
+        self.db
+            .update_adapter_state_tx_for_tenant(tenant_id, adapter_id, state, reason)
+            .await
+    }
+
+    /// Tenant-scoped CAS adapter state transition.
+    pub async fn update_adapter_state_cas_for_tenant(
+        &self,
+        tenant_id: &str,
+        adapter_id: &str,
+        expected_state: &str,
+        new_state: &str,
+        reason: &str,
+    ) -> Result<bool> {
+        self.db
+            .update_adapter_state_cas_for_tenant(
+                tenant_id,
+                adapter_id,
+                expected_state,
+                new_state,
+                reason,
+            )
+            .await
     }
 }

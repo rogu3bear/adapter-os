@@ -101,6 +101,7 @@ fn test_default_weights_sum_to_one() {
 }
 
 #[test]
+#[allow(deprecated)]
 fn test_routing_decision_changes_with_weights() {
     // Create features
     let features = CodeFeatures::from_context("Implement this React component");
@@ -113,8 +114,14 @@ fn test_routing_decision_changes_with_weights() {
 
     let priors = vec![1.0, 1.2, 0.8, 1.5, 0.9];
 
-    let decision1 = router1.route(&feature_vec, &priors);
-    let decision2 = router2.route(&feature_vec, &priors);
+    let decision1 = router1
+        .route(&feature_vec, &priors)
+        .into_selected()
+        .expect("deprecated route should still select adapters");
+    let decision2 = router2
+        .route(&feature_vec, &priors)
+        .into_selected()
+        .expect("deprecated route should still select adapters");
 
     // Both should return K=3 adapters
     assert_eq!(decision1.indices.len(), 3);

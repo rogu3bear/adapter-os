@@ -30,6 +30,8 @@ fn test_router_decision_determinism() {
         stack_hash: Some("deterministic-stack-hash-123".to_string()),
         stack_id: Some("deterministic-stack-id".to_string()),
         stack_version: Some(5),
+        model_type: adapteros_types::routing::RouterModelType::Dense,
+        active_experts: None,
     };
 
     let event2 = RouterDecisionEvent {
@@ -53,6 +55,8 @@ fn test_router_decision_determinism() {
         stack_hash: Some("deterministic-stack-hash-123".to_string()), // Same hash
         stack_id: Some("deterministic-stack-id".to_string()), // Same ID
         stack_version: Some(5), // Same version
+        model_type: adapteros_types::routing::RouterModelType::Dense,
+        active_experts: None,
     };
 
     // Emit both events
@@ -101,6 +105,8 @@ fn test_telemetry_event_ordering() {
         stack_hash: Some(format!("stack-hash-{}", i)),
         stack_id: Some(format!("stack-id-{}", i)),
         stack_version: Some(i as i64),
+        model_type: adapteros_types::routing::RouterModelType::Dense,
+        active_experts: None,
     }).collect();
 
     // Emit events in order
@@ -136,6 +142,8 @@ fn test_telemetry_statistics_accuracy() {
         stack_hash: None,
         stack_id: None,
         stack_version: None,
+        model_type: adapteros_types::routing::RouterModelType::Dense,
+        active_experts: None,
     };
 
     // Emit 2 events successfully

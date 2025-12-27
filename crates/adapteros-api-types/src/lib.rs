@@ -33,6 +33,7 @@ pub mod system_state;
 pub mod telemetry;
 pub mod tenant_settings;
 pub mod tenants;
+pub mod topology;
 pub mod training;
 pub mod workers;
 
@@ -64,6 +65,7 @@ pub use tenant_settings::*;
 pub use model_status::*;
 pub use system_state::*;
 pub use tenants::*;
+pub use topology::*;
 pub use training::*;
 pub use workers::*;
 

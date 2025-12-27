@@ -23,6 +23,7 @@ use adapteros_core::{AosError, Result};
 use chrono::Utc;
 use clap::{Args, Subcommand, ValueEnum};
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
@@ -294,6 +295,12 @@ pub enum ConfigCommand {
         after_help = "Examples:\n  aosctl config show-effective\n  aosctl config show-effective --category SERVER\n  aosctl config show-effective --format json\n  aosctl config show-effective --format env > .env.effective"
     )]
     ShowEffective(ShowEffectiveArgs),
+
+    /// Parse aos.toml and validate paths/types without starting services
+    #[command(
+        after_help = "Examples:\n  aosctl config check\n  aosctl config check --path ./configs/aos.toml --json"
+    )]
+    Check(CheckArgs),
 }
 
 /// Type alias for main.rs integration
@@ -407,6 +414,18 @@ pub struct ShowEffectiveArgs {
     pub no_redact: bool,
 }
 
+/// Arguments for config check (manifest validation)
+#[derive(Debug, Clone, Args)]
+pub struct CheckArgs {
+    /// Path to aos.toml (or control-plane config) to validate
+    #[arg(long, env = "AOS_CONFIG_PATH", default_value = "aos.toml")]
+    pub path: PathBuf,
+
+    /// Output JSON for CI pipelines
+    #[arg(long)]
+    pub json: bool,
+}
+
 // ============================================================================
 // Main Entry Point
 // ============================================================================
@@ -418,6 +437,7 @@ pub async fn run_config_command(cmd: ConfigCommand, output: &OutputWriter) -> Re
         ConfigCommand::Migrate(args) => migrate(args, output).await,
         ConfigCommand::Show(args) => show(args, output).await,
         ConfigCommand::ShowEffective(args) => show_effective(args, output).await,
+        ConfigCommand::Check(args) => self::check(args, output).await,
     }
 }
 
@@ -2049,6 +2069,60 @@ fn output_effective_env(entries: &[EffectiveEntry]) -> Result<()> {
 
     println!();
     Ok(())
+}
+
+// ============================================================================
+// Config Check Implementation
+// ============================================================================
+
+pub async fn check(args: CheckArgs, output: &OutputWriter) -> Result<()> {
+    let path_str = args
+        .path
+        .to_str()
+        .ok_or_else(|| AosError::Config("config path is not valid UTF-8".to_string()))?
+        .to_string();
+
+    let loader = adapteros_config::ConfigLoader::new();
+    let config = loader
+        .load(Vec::new(), Some(path_str.clone()))
+        .map_err(|e| AosError::Config(format!("failed to load config: {}", e)))?;
+
+    let validation_errors = config.validate()?;
+    if args.json || output.mode().is_json() {
+        let json_out = json!({
+            "path": path_str,
+            "hash": config.get_metadata().hash,
+            "valid": validation_errors.is_empty(),
+            "errors": validation_errors,
+        });
+        println!("{}", serde_json::to_string_pretty(&json_out)?);
+    } else {
+        output.section("Configuration Check");
+        output.kv("path", &path_str);
+        output.kv("hash", &config.get_metadata().hash);
+        if validation_errors.is_empty() {
+            output.success("Configuration OK");
+        } else {
+            output.error(format!(
+                "{} validation error(s) detected",
+                validation_errors.len()
+            ));
+            for err in &validation_errors {
+                output.result(format!(
+                    "- {}: {} (expected {})",
+                    err.key, err.message, err.expected_type
+                ));
+            }
+        }
+    }
+
+    if validation_errors.is_empty() {
+        Ok(())
+    } else {
+        Err(AosError::Config(
+            "configuration validation failed".to_string(),
+        ))
+    }
 }
 
 // ============================================================================

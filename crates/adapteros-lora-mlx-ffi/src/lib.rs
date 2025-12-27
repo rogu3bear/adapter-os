@@ -20,6 +20,7 @@ pub mod embedding;
 pub mod ffi_error;
 pub mod generation;
 pub mod kv_cache;
+pub mod liquid;
 pub mod lora;
 pub mod memory_pool;
 pub mod moe;
@@ -48,6 +49,7 @@ pub use backend::MLXFFIBackend;
 pub use embedding::{EmbeddingConfig, MLXEmbeddingModel};
 pub use generation::{GenerationConfig, GenerationResult, MLXGenerator};
 pub use kv_cache::{CacheLayer, CacheStats, KVCacheConfig, MLXKVCache, PrefixKvTensors};
+pub use liquid::blend_and_forward_mlx;
 pub use lora::{LoRAAdapter, LoRAConfig};
 pub use memory_pool::{MLXMemoryPool, MLXMemoryPoolConfig, MemoryPoolStats, MemoryPressureEvent};
 #[cfg(feature = "mlx-rs-backend")]

@@ -42,6 +42,7 @@ fn test_all_adapters_denied_by_policy() {
             scope_path: None,
             lora_tier: None,
             base_model: None,
+            ..Default::default()
         })
         .collect();
 
@@ -129,6 +130,7 @@ fn test_entropy_computation() {
             scope_path: None,
             lora_tier: None,
             base_model: None,
+            ..Default::default()
         })
         .collect();
     let mask = allow_all_mask(&adapter_info);
@@ -203,6 +205,7 @@ fn test_routing_determinism() {
             scope_path: None,
             lora_tier: None,
             base_model: None,
+            ..Default::default()
         })
         .collect();
     let mask = allow_all_mask(&adapter_info);
@@ -251,6 +254,7 @@ fn test_partial_adapter_denial() {
             scope_path: None,
             lora_tier: None,
             base_model: None,
+            ..Default::default()
         })
         .collect();
 
@@ -302,6 +306,7 @@ fn test_mismatched_policy_mask_length() {
             scope_path: None,
             lora_tier: None,
             base_model: None,
+            ..Default::default()
         })
         .collect();
 
@@ -347,6 +352,7 @@ fn test_mismatched_priors_length() {
             scope_path: None,
             lora_tier: None,
             base_model: None,
+            ..Default::default()
         })
         .collect();
     let mask = allow_all_mask(&adapter_info);
@@ -385,6 +391,7 @@ fn test_dynamic_abstain_threshold_updates() {
             scope_path: None,
             lora_tier: None,
             base_model: None,
+            ..Default::default()
         })
         .collect();
     let mask = allow_all_mask(&adapter_info);
@@ -441,6 +448,7 @@ fn test_empty_decision_no_abstain_events() {
             scope_path: None,
             lora_tier: None,
             base_model: None,
+            ..Default::default()
         })
         .collect();
 

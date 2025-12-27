@@ -395,7 +395,7 @@ pub async fn get_adapter_health(
     // Get adapter stats
     let (total, selected, avg_gate) = state
         .db
-        .get_adapter_stats(&adapter_id)
+        .get_adapter_stats(&claims.tenant_id, &adapter_id)
         .await
         .unwrap_or((0, 0, 0.0));
 

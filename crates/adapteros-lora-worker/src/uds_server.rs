@@ -85,7 +85,7 @@ fn trip_uds_accept_circuit_breaker(
     }
 }
 
-pub struct UdsServer<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl> {
+pub struct UdsServer<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> {
     socket_path: PathBuf,
     worker: Arc<Mutex<Worker<K>>>,
     api_key_db: Option<std::sync::Arc<Db>>,
@@ -517,6 +517,7 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
                     prompt: "patch proposal".to_string(),
                     max_tokens: 100,
                     require_evidence: false,
+                    reasoning_mode: false,
                     request_type: RequestType::PatchProposal(patch_req.clone()),
                     stack_id: None,
                     stack_version: None,
@@ -542,6 +543,7 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
                     placement: None,
                     routing_policy: None,
                     stop_policy: None,
+                    admin_override: false,
                 };
 
                 // #region agent log

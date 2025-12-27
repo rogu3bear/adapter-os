@@ -1154,6 +1154,7 @@ mod tests {
         IsolationPolicy, MemoryPolicy, NumericPolicy, PerformancePolicy, Policies, RagPolicy,
         RefusalPolicy,
     };
+    use std::collections::BTreeMap;
 
     fn create_mock_policies() -> Policies {
         Policies {
@@ -1179,10 +1180,10 @@ mod tests {
             },
             refusal: RefusalPolicy {
                 abstain_threshold: 0.55,
-                missing_fields_templates: std::collections::HashMap::new(),
+                missing_fields_templates: BTreeMap::new(),
             },
             numeric: NumericPolicy {
-                canonical_units: std::collections::HashMap::new(),
+                canonical_units: BTreeMap::new(),
                 max_rounding_error: 0.5,
                 require_units_in_trace: true,
             },

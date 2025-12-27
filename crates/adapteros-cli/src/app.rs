@@ -1476,7 +1476,7 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
             commit,
             socket,
         } => {
-            adapter_swap::run(tenant, add, remove, *timeout, *commit, socket).await?;
+            adapter_swap::run(tenant, add, remove, *timeout, *commit, socket, output).await?;
         }
         Commands::AdapterInfo { adapter_id } => {
             adapter_info::run(adapter_id).await?;

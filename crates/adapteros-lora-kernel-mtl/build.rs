@@ -277,6 +277,16 @@ fn compile_metal_shaders() {
         }
     }
 
+    // Verify metallib size
+    let metallib_size = std::fs::metadata(kernel_src_dir.join("adapteros_kernels.metallib"))
+        .expect("Failed to read metallib metadata")
+        .len();
+
+    if metallib_size == 0 {
+        eprintln!("❌ Error: Generated metallib is 0 bytes!");
+        std::process::exit(1);
+    }
+
     // Compute BLAKE3 hash
     let metallib_bytes = std::fs::read(kernel_src_dir.join("adapteros_kernels.metallib"))
         .expect("Failed to read metallib");
@@ -347,7 +357,23 @@ fn compile_additional_kernel(
         return;
     }
 
-    let kernel_stem = kernel_path.file_stem().unwrap().to_str().unwrap();
+    let kernel_stem = kernel_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .or_else(|| Path::new(kernel_name).file_stem().and_then(|s| s.to_str()))
+        .map(str::to_owned);
+
+    let kernel_stem = match kernel_stem {
+        Some(stem) => stem,
+        None => {
+            println!(
+                "cargo:warning=Could not derive kernel stem for {}, skipping",
+                kernel_path.display()
+            );
+            return;
+        }
+    };
+
     let air_file = format!("{}.air", kernel_stem);
     let metallib_file = format!("{}.metallib", kernel_stem);
 
@@ -562,7 +588,7 @@ fn generate_signed_manifest() {
 
     // Read the metallib and compute its hash
     let shaders_dir = Path::new("shaders");
-    let metallib_path = shaders_dir.join("aos_kernels.metallib");
+    let metallib_path = shaders_dir.join("adapteros_kernels.metallib");
 
     // Check if metallib exists (might be a fresh build)
     if !metallib_path.exists() {

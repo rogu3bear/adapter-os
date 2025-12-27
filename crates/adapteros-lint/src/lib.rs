@@ -32,5 +32,6 @@
 //! ```
 
 pub mod architectural;
+pub mod driver;
 pub mod runtime_guards;
 pub mod strict_mode;

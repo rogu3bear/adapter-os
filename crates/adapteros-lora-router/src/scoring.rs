@@ -30,6 +30,12 @@ pub trait ScoringFunction: Send + Sync {
     ) -> Result<Decision>;
 }
 
+/// Compute the final score given a similarity signal and routing bias.
+/// Bias allows base-model-specific tuning (e.g., small models lean on adapters).
+pub fn compute_score(similarity: f32, bias: f32) -> f32 {
+    similarity * bias
+}
+
 /// Default weighted scorer using existing Router logic
 pub struct WeightedScorer {
     router: Router,
@@ -112,11 +118,7 @@ impl ScoringFunction for EntropyFloorScorer {
             .map(|(i, &prior)| (i, prior))
             .collect();
 
-        scores.sort_by(|a, b| {
-            b.1.partial_cmp(&a.1)
-                .unwrap_or(std::cmp::Ordering::Equal)
-                .then_with(|| a.0.cmp(&b.0))
-        });
+        scores.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
 
         let top_k: Vec<(usize, f32)> = scores.into_iter().take(k).collect();
 
@@ -269,11 +271,7 @@ impl ScoringFunction for AdapterAwareScorer {
         }
 
         // Sort by score desc, index for stability
-        scores.sort_by(|a, b| {
-            b.1.partial_cmp(&a.1)
-                .unwrap_or(std::cmp::Ordering::Equal)
-                .then_with(|| a.0.cmp(&b.0))
-        });
+        scores.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
 
         // Top-k softmax with entropy floor
         let top_k: Vec<(usize, f32)> = scores.into_iter().take(k).collect();
@@ -406,6 +404,38 @@ mod tests {
         assert_eq!(
             decision1.gates_q15, decision2.gates_q15,
             "Adapter-aware scorer should be deterministic with identical inputs"
+        );
+    }
+
+    #[test]
+    fn test_entropy_floor_invalid_tau_rejected() {
+        let mut scorer = EntropyFloorScorer::new(3, 0.02);
+        let features = vec![0.0f32; 4];
+        let priors = vec![0.1f32, 0.2f32, 0.3f32];
+
+        let err = scorer
+            .score(&features, &priors, 3, 0.0, 0.02)
+            .expect_err("zero tau should be rejected");
+        assert!(
+            format!("{}", err).contains("tau"),
+            "Error should mention tau, got {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_adapter_aware_rejects_non_finite_priors() {
+        let mut scorer = AdapterAwareScorer::new(vec![None], &[0.0]);
+        let features = vec![0.0f32; 1];
+        let priors = vec![f32::NAN];
+
+        let err = scorer
+            .score(&features, &priors, 1, 1.0, 0.02)
+            .expect_err("NaN prior should be rejected");
+        assert!(
+            format!("{}", err).contains("Non-finite"),
+            "Error should mention non-finite priors, got {}",
+            err
         );
     }
 }

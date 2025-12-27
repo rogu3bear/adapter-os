@@ -1063,6 +1063,12 @@ pub struct WorkerInferRequest {
     pub prompt: String,
     pub max_tokens: usize,
     pub require_evidence: bool,
+    /// Admin override for cluster routing restrictions
+    #[serde(default)]
+    pub admin_override: bool,
+    /// Enable reasoning-aware routing mid-generation
+    #[serde(default)]
+    pub reasoning_mode: bool,
     /// Stack identifier associated with this inference (if any)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stack_id: Option<String>,
@@ -1246,6 +1252,19 @@ pub struct WorkerTrace {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub router_decision_chain:
         Option<Vec<adapteros_api_types::inference::RouterDecisionChainEntry>>,
+    /// MoE model information (optional)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub moe_info: Option<adapteros_api_types::inference::MoEInfo>,
+    /// Expert routing data per token (optional)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<Vec<Vec<Vec<usize>>>>)]
+    pub expert_routing: Option<adapteros_api_types::inference::SequenceExpertRouting>,
+    /// Flattened expert IDs per token (for visualization)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_experts: Option<Vec<Vec<u8>>>,
+    /// Model type for this trace (dense vs MoE)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_type: Option<adapteros_api_types::inference::RouterModelType>,
 }
 
 /// Router summary
@@ -2694,6 +2713,10 @@ pub struct InferenceRequestInternal {
     pub cpid: String,
     /// Input prompt text
     pub prompt: String,
+    /// Enable reasoning-aware routing and hot-swaps
+    pub reasoning_mode: bool,
+    /// Admin override flag to bypass cluster routing restrictions
+    pub admin_override: bool,
 
     // === Delivery Mode ===
     /// Whether to stream tokens via SSE
@@ -2818,6 +2841,8 @@ impl InferenceRequestInternal {
             request_id: uuid::Uuid::new_v4().to_string(),
             cpid,
             prompt,
+            reasoning_mode: false,
+            admin_override: false,
             stream: false,
             batch_item_id: None,
             rag_enabled: false,
@@ -2888,6 +2913,19 @@ pub struct InferenceResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub router_decision_chain:
         Option<Vec<adapteros_api_types::inference::RouterDecisionChainEntry>>,
+    /// MoE model information (if applicable)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub moe_info: Option<adapteros_api_types::inference::MoEInfo>,
+    /// Expert routing data per token (MoE models)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<Vec<Vec<Vec<usize>>>>)]
+    pub expert_routing: Option<adapteros_api_types::inference::SequenceExpertRouting>,
+    /// Flattened expert IDs per token for visualization
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_experts: Option<Vec<Vec<u8>>>,
+    /// Model type for this trace (dense vs MoE)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_type: Option<adapteros_api_types::inference::RouterModelType>,
     /// RAG evidence if RAG was used
     pub rag_evidence: Option<RagEvidence>,
     /// Source citations derived from training files or RAG
@@ -3046,6 +3084,8 @@ pub enum InferenceError {
     WorkerError(String),
     /// Request timeout
     Timeout(String),
+    /// Request cancelled due to client disconnect
+    ClientClosed(String),
     /// RAG retrieval failed
     RagError(String),
     /// Permission denied
@@ -3113,6 +3153,7 @@ impl std::fmt::Display for InferenceError {
             Self::WorkerNotAvailable(msg) => write!(f, "Worker not available: {}", msg),
             Self::WorkerError(msg) => write!(f, "Worker error: {}", msg),
             Self::Timeout(msg) => write!(f, "Timeout: {}", msg),
+            Self::ClientClosed(msg) => write!(f, "Client closed request: {}", msg),
             Self::RagError(msg) => write!(f, "RAG error: {}", msg),
             Self::PermissionDenied(msg) => write!(f, "Permission denied: {}", msg),
             Self::BackpressureError(msg) => write!(f, "Backpressure: {}", msg),
@@ -3166,6 +3207,7 @@ impl InferenceError {
             Self::WorkerNotAvailable(_) => StatusCode::SERVICE_UNAVAILABLE,
             Self::WorkerError(_) => StatusCode::INTERNAL_SERVER_ERROR,
             Self::Timeout(_) => StatusCode::REQUEST_TIMEOUT,
+            Self::ClientClosed(_) => StatusCode::from_u16(499).unwrap_or(StatusCode::BAD_REQUEST),
             Self::RagError(_) => StatusCode::INTERNAL_SERVER_ERROR,
             Self::PermissionDenied(_) => StatusCode::FORBIDDEN,
             Self::BackpressureError(_) => StatusCode::SERVICE_UNAVAILABLE,
@@ -3186,6 +3228,7 @@ impl InferenceError {
             Self::WorkerNotAvailable(_) => "SERVICE_UNAVAILABLE",
             Self::WorkerError(_) => "INTERNAL_ERROR",
             Self::Timeout(_) => "REQUEST_TIMEOUT",
+            Self::ClientClosed(_) => "CLIENT_CLOSED_REQUEST",
             Self::RagError(_) => "RAG_ERROR",
             Self::PermissionDenied(_) => "PERMISSION_DENIED",
             Self::BackpressureError(_) => "BACKPRESSURE",
@@ -3219,6 +3262,7 @@ impl InferenceError {
             }
             Self::Timeout(_) => None,
             Self::ValidationError(_) => None,
+            Self::ClientClosed(_) => None,
             Self::RagError(msg) => {
                 if msg.to_lowercase().contains("trace") {
                     Some(FailureCode::TraceWriteFailed)
@@ -3242,10 +3286,14 @@ use crate::auth::Claims;
 /// Convert from standard InferRequest + Claims to internal format
 impl From<(&InferRequest, &Claims)> for InferenceRequestInternal {
     fn from((req, claims): (&InferRequest, &Claims)) -> Self {
+        let is_admin = claims.role.eq_ignore_ascii_case("admin")
+            || claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
         Self {
             request_id: uuid::Uuid::new_v4().to_string(),
             cpid: claims.tenant_id.clone(),
             prompt: req.prompt.clone(),
+            reasoning_mode: req.reasoning_mode.unwrap_or(false),
+            admin_override: is_admin,
             stream: req.stream.unwrap_or(false),
             batch_item_id: None,
             rag_enabled: req.rag_enabled.unwrap_or(false),
@@ -3341,12 +3389,18 @@ impl From<InferenceResult> for InferResponse {
                             allowed_mask: None,
                             policy_mask_digest: None,
                             policy_overrides_applied: None,
+                            model_type: adapteros_api_types::inference::RouterModelType::Dense,
+                            active_experts: None,
                         }
                     })
                     .collect(),
                 router_decision_chain: result.router_decision_chain,
                 latency_ms: result.latency_ms,
                 fusion_intervals: None,
+                moe_info: result.moe_info,
+                expert_routing: result.expert_routing,
+                active_experts: result.active_experts,
+                model_type: result.model_type,
             },
             model,
             prompt_tokens: None,

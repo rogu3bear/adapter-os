@@ -95,7 +95,7 @@ pub async fn load_adapter(
         // Fallback: direct DB update if no lifecycle manager
         // Use transactional version for safety in handlers
         if let Err(e) = state
-            .db
+            .lifecycle_db()
             .update_adapter_state_tx_for_tenant(
                 &adapter.tenant_id,
                 &adapter_id,
@@ -191,7 +191,7 @@ pub async fn load_adapter(
                 // Fallback: update DB state directly
                 // Note: This is a best-effort fallback, the adapter is already loaded
                 let _ = state
-                    .db
+                    .lifecycle_db()
                     .update_adapter_state_tx_for_tenant(
                         &adapter.tenant_id,
                         &adapter_id,
@@ -218,7 +218,7 @@ pub async fn load_adapter(
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
         if let Err(e) = state
-            .db
+            .lifecycle_db()
             .update_adapter_state_tx_for_tenant(
                 &adapter.tenant_id,
                 &adapter_id,
@@ -267,7 +267,7 @@ pub async fn load_adapter(
     // Return the adapter with updated stats
     let (total, selected, avg_gate) = state
         .db
-        .get_adapter_stats(&adapter_id)
+        .get_adapter_stats(&claims.tenant_id, &adapter_id)
         .await
         .unwrap_or((0, 0, 0.0));
 
@@ -407,7 +407,7 @@ pub async fn unload_adapter(
         // Fallback: direct DB update if no lifecycle manager
         // Use transactional version for safety in handlers
         if let Err(e) = state
-            .db
+            .lifecycle_db()
             .update_adapter_state_tx_for_tenant(
                 &adapter.tenant_id,
                 &adapter_id,
@@ -450,7 +450,7 @@ pub async fn unload_adapter(
                 // Fallback: update DB state directly
                 // Note: This is a best-effort fallback, adapter may still be loaded in memory
                 let _ = state
-                    .db
+                    .lifecycle_db()
                     .update_adapter_state_tx_for_tenant(
                         &adapter.tenant_id,
                         &adapter_id,
@@ -468,7 +468,7 @@ pub async fn unload_adapter(
         } else {
             // Adapter not found in lifecycle manager, update DB state directly
             if let Err(e) = state
-                .db
+                .lifecycle_db()
                 .update_adapter_state_tx_for_tenant(
                     &adapter.tenant_id,
                     &adapter_id,
@@ -505,7 +505,7 @@ pub async fn unload_adapter(
     } else {
         // Fallback: direct DB update if no lifecycle manager
         if let Err(e) = state
-            .db
+            .lifecycle_db()
             .update_adapter_state_tx_for_tenant(
                 &adapter.tenant_id,
                 &adapter_id,

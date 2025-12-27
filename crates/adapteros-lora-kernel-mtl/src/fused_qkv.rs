@@ -9,6 +9,7 @@
 //! - LoRA: https://arxiv.org/abs/2106.09685
 //! - Metal Performance Shaders: https://developer.apple.com/documentation/metalperformanceshaders
 
+use crate::KernelError;
 use adapteros_core::{AosError, Result};
 use metal::*;
 use std::sync::Arc;
@@ -244,6 +245,23 @@ impl FusedQkvKernel {
             )));
         }
 
+        let input_bytes = input.length() as usize;
+        for (buffer_name, buffer) in [
+            ("q_output", q_output),
+            ("k_output", k_output),
+            ("v_output", v_output),
+        ] {
+            let available = buffer.length() as usize;
+            if input_bytes > available {
+                return Err(KernelError::BufferTooSmall {
+                    buffer: buffer_name,
+                    required: input_bytes,
+                    available,
+                }
+                .into_aos());
+            }
+        }
+
         let command_buffer = self.command_queue.new_command_buffer();
 
         let encoder = command_buffer.new_compute_command_encoder();
@@ -439,6 +457,17 @@ impl FlashAttentionKernel {
 
     /// Execute the Flash Attention kernel
     pub fn execute(&self, q: &Buffer, k: &Buffer, v: &Buffer, output: &Buffer) -> Result<()> {
+        let required_bytes = q.length() as usize;
+        let output_bytes = output.length() as usize;
+        if required_bytes > output_bytes {
+            return Err(KernelError::BufferTooSmall {
+                buffer: "output",
+                required: required_bytes,
+                available: output_bytes,
+            }
+            .into_aos());
+        }
+
         let command_buffer = self.command_queue.new_command_buffer();
 
         let encoder = command_buffer.new_compute_command_encoder();

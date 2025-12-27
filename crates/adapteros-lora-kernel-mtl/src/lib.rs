@@ -43,6 +43,7 @@ pub mod vision_kernels;
 
 // Production modules
 pub mod debug;
+pub mod error;
 pub mod fused_mlp;
 pub mod fused_qkv;
 pub mod gpu_memory_pool;
@@ -73,6 +74,7 @@ pub use coreml_backend::{
 };
 
 pub use debug::{KernelDebugger, KernelParams};
+pub use error::KernelError;
 pub use fused_mlp::{FusedMlpKernel, LoraConfig};
 pub use fused_qkv::{FlashAttentionKernel, FusedQkvKernel, GqaConfig};
 pub use kv_cache::{CachedFlashAttention, KVCache, KVCacheConfig, KvResidency, LayerKVCache};
@@ -184,7 +186,7 @@ pub struct IntermediateBuffers {
 // Embed precompiled metallib
 // Compiled offline with deterministic build process
 #[cfg(target_os = "macos")]
-const METALLIB_BYTES: &[u8] = include_bytes!("../shaders/aos_kernels.metallib");
+const METALLIB_BYTES: &[u8] = include_bytes!("../shaders/adapteros_kernels.metallib");
 #[cfg(target_os = "macos")]
 const METALLIB_HASH: &str = include_str!("../shaders/kernel_hash.txt");
 
@@ -193,6 +195,15 @@ const METALLIB_HASH: &str = include_str!("../shaders/kernel_hash.txt");
 const METALLIB_BYTES: &[u8] = &[];
 #[cfg(not(target_os = "macos"))]
 const METALLIB_HASH: &str = "0000000000000000000000000000000000000000000000000000000000000000";
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct EmbeddingConfig {
+    pub hidden_size: u32,
+    pub vocab_size: u32,
+    pub batch_size: u32,
+    pub _padding: u32,
+}
 
 /// Metal kernel implementation
 pub struct MetalKernels {
@@ -1085,7 +1096,25 @@ impl MetalKernels {
         );
         encoder.set_buffer(2, Some(&hidden_buffer), 0);
 
+        // Set dimensions for embedding lookup kernel using EmbeddingConfig struct
+        let config = EmbeddingConfig {
+            hidden_size: dimensions.hidden_size as u32,
+            vocab_size: dimensions.vocab_size as u32,
+            batch_size: io.input_ids.len() as u32,
+            _padding: 0,
+        };
+
+        // Pass config struct to kernel buffer index 3 (aligns with kernel signature)
+        // set_bytes copies the struct to a Metal-managed buffer
+        encoder.set_bytes(
+            3,
+            std::mem::size_of::<EmbeddingConfig>() as u64,
+            &config as *const EmbeddingConfig as *const std::ffi::c_void,
+        );
+
         // Dispatch embedding lookup kernel
+        // Kernel expects 1 thread per token (linear x index)
+        // It loops over hidden_size internally
         let threadgroup_size = MTLSize::new(256, 1, 1);
         let threadgroup_count = MTLSize::new(io.input_ids.len().div_ceil(256) as u64, 1, 1);
         encoder.dispatch_thread_groups(threadgroup_count, threadgroup_size);
@@ -1368,6 +1397,10 @@ impl FusedKernels for MetalKernels {
 
         // Create Metal buffer for embedding matrix
         self.create_embedding_buffer(&embedding_weights)?;
+
+        // Parse LM head weights for vocabulary projection
+        let lm_head_weights = self.parse_lm_head_weights(plan_bytes)?;
+        self.lm_head_weights = Some(lm_head_weights);
 
         // Load transformer weights and create intermediate buffers
         // Note: this may fail if layer 0 weights aren't in this shard;

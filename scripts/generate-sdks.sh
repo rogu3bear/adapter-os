@@ -7,7 +7,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 CODEGEN_DIR="$PROJECT_ROOT/codegen"
-OPENAPI_SPEC="$PROJECT_ROOT/target/codegen/openapi.json"
+OPENAPI_SPEC="$PROJECT_ROOT/docs/api/openapi.json"
 
 # Colors for output
 RED='\033[0;31m'
@@ -92,7 +92,7 @@ generate_typescript() {
 
     # Generate types using openapi-typescript with same options as package.json
     (cd "$PROJECT_ROOT/ui" && pnpm exec openapi-typescript \
-        "../$OPENAPI_SPEC" \
+        "$OPENAPI_SPEC" \
         --output src/api/generated.ts \
         --export-type \
         --enum \

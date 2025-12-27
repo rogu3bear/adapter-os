@@ -99,11 +99,11 @@ async fn setup_training_state() -> (AppState, TempDir) {
     let temp_dir = tempfile::tempdir_in(&tmp_root).expect("tempdir");
 
     if let Some(service) = Arc::get_mut(&mut state.training_service) {
-        service.set_db(state.db.clone());
+        service.set_db(state.db.raw().clone());
         service.set_storage_root(temp_dir.path().to_path_buf());
     } else {
         state.training_service = Arc::new(adapteros_orchestrator::TrainingService::with_db(
-            state.db.clone(),
+            state.db.raw().clone(),
             temp_dir.path().to_path_buf(),
         ));
     }

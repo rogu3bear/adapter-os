@@ -52,6 +52,20 @@ pub enum DbCommand {
         verify_only: bool,
     },
 
+    /// Clear a stuck migration lock and reset WAL/shm files
+    #[command(after_help = r#"Examples:
+  # Unlock default database
+  aosctl db unlock
+
+  # Unlock custom database
+  aosctl db unlock --db-path ./var/custom.db
+"#)]
+    Unlock {
+        /// Database path (defaults to DATABASE_URL or ./var/aos-cp.sqlite3)
+        #[arg(long)]
+        db_path: Option<PathBuf>,
+    },
+
     /// Reset database (DEVELOPMENT ONLY - destroys all data)
     #[command(after_help = r#"Examples:
   # Reset default database
@@ -141,6 +155,7 @@ pub async fn handle_db_command(cmd: DbCommand, output: &OutputWriter) -> Result<
             db_path,
             verify_only,
         } => run_migrate(db_path, verify_only, output).await,
+        DbCommand::Unlock { db_path } => run_unlock(db_path, output).await,
         DbCommand::Reset { db_path, force } => run_reset(db_path, force, output).await,
         DbCommand::SeedFixtures {
             db_path,
@@ -356,6 +371,82 @@ async fn run_health(db_path: Option<PathBuf>, json: bool, output: &OutputWriter)
         anyhow::bail!("Database integrity check failed: {}", integrity_result);
     }
 
+    Ok(())
+}
+
+async fn run_unlock(db_path: Option<PathBuf>, output: &OutputWriter) -> Result<()> {
+    use adapteros_db::Db;
+
+    let db_url = if let Some(path) = db_path.clone() {
+        format!("sqlite://{}", path.display())
+    } else if let Ok(url) = std::env::var("DATABASE_URL") {
+        url
+    } else {
+        "sqlite://./var/aos-cp.sqlite3".to_string()
+    };
+
+    let db_file_path = if let Some(path) = db_path.clone() {
+        Some(path)
+    } else if db_url.starts_with("sqlite://") {
+        Some(PathBuf::from(db_url.trim_start_matches("sqlite://")))
+    } else if db_url.starts_with("file:") {
+        Some(PathBuf::from(db_url.trim_start_matches("file:")))
+    } else {
+        None
+    };
+
+    output.info(format!("Clearing migration locks on: {}", db_url));
+
+    let db = Db::connect(&db_url).await?;
+    let pool = db.pool();
+
+    let has_table: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='_sqlx_migrations'",
+    )
+    .fetch_one(pool)
+    .await?;
+
+    if has_table > 0 {
+        let cleared =
+            sqlx::query("DELETE FROM _sqlx_migrations WHERE success = 0 OR success IS NULL")
+                .execute(pool)
+                .await?
+                .rows_affected();
+        output.info(format!("Removed {} dirty migration rows", cleared));
+
+        let _ = sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)")
+            .execute(pool)
+            .await;
+    } else {
+        output.info("No _sqlx_migrations table found; nothing to unlock");
+    }
+
+    drop(db);
+
+    if let Some(path) = db_file_path {
+        let file_name = path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
+        let wal_path = path.with_file_name(format!("{}-wal", file_name));
+        let shm_path = path.with_file_name(format!("{}-shm", file_name));
+
+        for p in [wal_path, shm_path] {
+            if p.exists() {
+                match std::fs::remove_file(&p) {
+                    Ok(_) => output.info(format!("Removed {}", p.display())),
+                    Err(e) => output.warning(format!(
+                        "Failed to remove {}: {} (close other processes and retry)",
+                        p.display(),
+                        e
+                    )),
+                }
+            }
+        }
+    }
+
+    output.success("Migration lock cleared; retry with `aosctl db migrate`");
     Ok(())
 }
 

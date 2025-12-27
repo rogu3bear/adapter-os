@@ -1253,11 +1253,7 @@ impl Db {
         }
 
         // Use a transaction for batch insertion
-        let mut tx = self
-            .pool()
-            .begin()
-            .await
-            .map_err(|e| AosError::Database(format!("Failed to begin transaction: {}", e)))?;
+        let mut tx = self.begin_write_tx().await?;
 
         for metric in metrics {
             sqlx::query(

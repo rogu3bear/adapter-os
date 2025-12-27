@@ -559,11 +559,7 @@ impl Db {
         let new_norm = normalize_adapter_trust_state(new_effective);
         let blocked_transition = new_norm == "blocked" && prev_norm.as_deref() != Some("blocked");
 
-        let mut tx = self
-            .pool()
-            .begin()
-            .await
-            .map_err(|e| AosError::Database(e.to_string()))?;
+        let mut tx = self.begin_write_tx().await?;
 
         let linked_versions: Vec<(String, String, String, String)> = sqlx::query_as(
             r#"
@@ -875,11 +871,7 @@ impl Db {
         validate_release_transition(None, params.release_state)?;
 
         let id = Uuid::now_v7().to_string();
-        let mut tx = self
-            .pool()
-            .begin()
-            .await
-            .map_err(|e| AosError::Database(e.to_string()))?;
+        let mut tx = self.begin_write_tx().await?;
 
         if normalize_release_state(params.release_state) == "active" {
             let existing: Option<String> = sqlx::query_scalar::<Sqlite, String>(
@@ -1073,11 +1065,7 @@ impl Db {
 
         validate_release_transition(None, "draft")?;
 
-        let mut tx = self
-            .pool()
-            .begin()
-            .await
-            .map_err(|e| AosError::Database(e.to_string()))?;
+        let mut tx = self.begin_write_tx().await?;
 
         let adapter_trust_state = if let Some(dataset_ids) = params.dataset_version_ids {
             self.derive_adapter_trust_state_from_dataset_versions_with_tx(&mut tx, dataset_ids)
@@ -1295,11 +1283,7 @@ impl Db {
         reason: Option<&str>,
         train_job_id: Option<&str>,
     ) -> Result<()> {
-        let mut tx = self
-            .pool()
-            .begin()
-            .await
-            .map_err(|e| AosError::Database(e.to_string()))?;
+        let mut tx = self.begin_write_tx().await?;
 
         let version = sqlx::query_as::<Sqlite, AdapterVersion>(
             r#"
@@ -1429,11 +1413,7 @@ impl Db {
         version_id: &str,
         dataset_version_ids: &[String],
     ) -> Result<()> {
-        let mut tx = self
-            .pool()
-            .begin()
-            .await
-            .map_err(|e| AosError::Database(e.to_string()))?;
+        let mut tx = self.begin_write_tx().await?;
 
         self.upsert_adapter_version_dataset_versions_with_tx(
             &mut tx,
@@ -1595,11 +1575,7 @@ impl Db {
         reason: Option<&str>,
         train_job_id: Option<&str>,
     ) -> Result<()> {
-        let mut tx = self
-            .pool()
-            .begin()
-            .await
-            .map_err(|e| AosError::Database(e.to_string()))?;
+        let mut tx = self.begin_write_tx().await?;
 
         let version = sqlx::query_as::<Sqlite, AdapterVersion>(
             r#"
@@ -1720,11 +1696,7 @@ impl Db {
         actor: Option<&str>,
         reason: Option<&str>,
     ) -> Result<()> {
-        let mut tx = self
-            .pool()
-            .begin()
-            .await
-            .map_err(|e| AosError::Database(e.to_string()))?;
+        let mut tx = self.begin_write_tx().await?;
 
         let target_version = sqlx::query_as::<Sqlite, AdapterVersion>(
             r#"
@@ -1991,11 +1963,7 @@ impl Db {
         actor: Option<&str>,
         reason: Option<&str>,
     ) -> Result<()> {
-        let mut tx = self
-            .pool()
-            .begin()
-            .await
-            .map_err(|e| AosError::Database(e.to_string()))?;
+        let mut tx = self.begin_write_tx().await?;
 
         let target_version = sqlx::query_as::<Sqlite, AdapterVersion>(
             r#"
@@ -2116,11 +2084,7 @@ impl Db {
         actor: Option<&str>,
         reason: Option<&str>,
     ) -> Result<Option<String>> {
-        let mut tx = self
-            .pool()
-            .begin()
-            .await
-            .map_err(|e| AosError::Database(e.to_string()))?;
+        let mut tx = self.begin_write_tx().await?;
 
         let failed_version = sqlx::query_as::<Sqlite, AdapterVersion>(
             r#"

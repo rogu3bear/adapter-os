@@ -8,7 +8,10 @@
 //! - KernelWrapper enum unifying both execution strategies
 
 use adapteros_core::{AosError, Result};
-use adapteros_lora_kernel_api::{FusedKernels, IoBuffers, RouterRing};
+use adapteros_lora_kernel_api::{
+    blend_and_forward_reference, FusedKernels, IoBuffers, LiquidBlendRequest, LiquidBlendStats,
+    LiquidKernel, RouterRing,
+};
 
 /// Strictness control for backend execution (strict mode disables fallback)
 pub trait StrictnessControl {
@@ -72,6 +75,61 @@ impl DirectKernels {
             inner,
             last_backend,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use adapteros_lora_kernel_api::{LiquidAdapterRef, LiquidSlice, LiquidTensor, MockKernels};
+
+    #[test]
+    fn direct_wrapper_blends_liquid_adapters() {
+        let adapter1 = LiquidAdapterRef {
+            id: 0,
+            down: LiquidTensor {
+                data: LiquidSlice::F32(&[1.0, 0.0, 0.0, 1.0]),
+                rows: 2,
+                cols: 2,
+            },
+            up: LiquidTensor {
+                data: LiquidSlice::F32(&[1.0, 2.0, 3.0, 4.0]),
+                rows: 2,
+                cols: 2,
+            },
+            alpha: 2.0,
+        };
+
+        let adapter2 = LiquidAdapterRef {
+            id: 1,
+            down: LiquidTensor {
+                data: LiquidSlice::F32(&[1.0, 1.0, 1.0, 1.0]),
+                rows: 2,
+                cols: 2,
+            },
+            up: LiquidTensor {
+                data: LiquidSlice::F32(&[0.5, 0.5, 0.5, 0.5]),
+                rows: 2,
+                cols: 2,
+            },
+            alpha: 1.0,
+        };
+
+        let mut wrapper = KernelWrapper::Direct(DirectKernels::new(Box::new(MockKernels::new())));
+        let mut output = [0.0f32; 2];
+
+        let stats = wrapper
+            .blend_and_forward(LiquidBlendRequest {
+                adapters: &[adapter1, adapter2],
+                coefficients: &[0.5, 0.5],
+                input: &[1.0, 1.0],
+                output: &mut output,
+            })
+            .expect("liquid blend should succeed");
+
+        assert_eq!(stats.adapters, 2);
+        assert!((output[0] - 2.0).abs() < 1e-5);
+        assert!((output[1] - 4.0).abs() < 1e-5);
     }
 }
 
@@ -364,6 +422,132 @@ impl FusedKernels for KernelWrapper {
                 k.primary
                     .generate_text_complete(prompt, max_tokens, temperature, top_p)
             }
+        }
+    }
+
+    fn is_moe(&self) -> bool {
+        match self {
+            KernelWrapper::Direct(k) => k.inner.is_moe(),
+            KernelWrapper::Coordinated(k) => match k.active_backend {
+                ActiveBackend::Primary => k.primary.is_moe(),
+                ActiveBackend::Fallback => k
+                    .fallback
+                    .as_ref()
+                    .map(|fb| fb.is_moe())
+                    .unwrap_or_else(|| k.primary.is_moe()),
+            },
+        }
+    }
+
+    fn num_experts(&self) -> usize {
+        match self {
+            KernelWrapper::Direct(k) => k.inner.num_experts(),
+            KernelWrapper::Coordinated(k) => match k.active_backend {
+                ActiveBackend::Primary => k.primary.num_experts(),
+                ActiveBackend::Fallback => k
+                    .fallback
+                    .as_ref()
+                    .map(|fb| fb.num_experts())
+                    .unwrap_or_else(|| k.primary.num_experts()),
+            },
+        }
+    }
+
+    fn experts_per_token(&self) -> usize {
+        match self {
+            KernelWrapper::Direct(k) => k.inner.experts_per_token(),
+            KernelWrapper::Coordinated(k) => match k.active_backend {
+                ActiveBackend::Primary => k.primary.experts_per_token(),
+                ActiveBackend::Fallback => k
+                    .fallback
+                    .as_ref()
+                    .map(|fb| fb.experts_per_token())
+                    .unwrap_or_else(|| k.primary.experts_per_token()),
+            },
+        }
+    }
+}
+
+impl LiquidKernel for KernelWrapper {
+    fn supports_liquid_blending(&self) -> bool {
+        match self {
+            KernelWrapper::Direct(k) => k.inner.supports_liquid_blending(),
+            KernelWrapper::Coordinated(k) => {
+                k.primary.supports_liquid_blending()
+                    || k.fallback
+                        .as_ref()
+                        .map(|fb| fb.supports_liquid_blending())
+                        .unwrap_or(false)
+            }
+        }
+    }
+
+    fn max_liquid_adapters(&self) -> usize {
+        match self {
+            KernelWrapper::Direct(k) => k.inner.liquid_max_adapters(),
+            KernelWrapper::Coordinated(k) => {
+                let primary_max = k.primary.liquid_max_adapters();
+                let fallback_max = k
+                    .fallback
+                    .as_ref()
+                    .map(|fb| fb.liquid_max_adapters())
+                    .unwrap_or(0);
+                primary_max.max(fallback_max)
+            }
+        }
+    }
+
+    fn blend_and_forward(&mut self, request: LiquidBlendRequest<'_>) -> Result<LiquidBlendStats> {
+        match self {
+            KernelWrapper::Direct(k) => {
+                if let Some(liquid) = k.inner.as_liquid_kernel_mut() {
+                    liquid.blend_and_forward(request)
+                } else {
+                    blend_and_forward_reference(request)
+                }
+            }
+            KernelWrapper::Coordinated(k) => match k.active_backend {
+                ActiveBackend::Primary => {
+                    let primary_name = k.primary.device_name().to_string();
+                    if let Some(liquid) = k.primary.as_liquid_kernel_mut() {
+                        k.last_backend = primary_name.clone();
+                        k.fallback_triggered = false;
+                        liquid.blend_and_forward(request)
+                    } else if let Some(fallback) = k.fallback.as_mut() {
+                        k.last_backend = fallback.device_name().to_string();
+                        k.fallback_triggered = true;
+                        if let Some(liquid) = fallback.as_liquid_kernel_mut() {
+                            liquid.blend_and_forward(request)
+                        } else {
+                            blend_and_forward_reference(request)
+                        }
+                    } else {
+                        k.last_backend = primary_name;
+                        k.fallback_triggered = false;
+                        blend_and_forward_reference(request)
+                    }
+                }
+                ActiveBackend::Fallback => {
+                    let primary_name = k.primary.device_name().to_string();
+                    if let Some(fallback) = k.fallback.as_mut() {
+                        k.last_backend = fallback.device_name().to_string();
+                        k.fallback_triggered = true;
+                        if let Some(liquid) = fallback.as_liquid_kernel_mut() {
+                            liquid.blend_and_forward(request)
+                        } else if let Some(primary_liquid) = k.primary.as_liquid_kernel_mut() {
+                            k.last_backend = primary_name.clone();
+                            k.fallback_triggered = false;
+                            primary_liquid.blend_and_forward(request)
+                        } else {
+                            blend_and_forward_reference(request)
+                        }
+                    } else {
+                        k.last_backend = primary_name;
+                        k.fallback_triggered = false;
+                        blend_and_forward_reference(request)
+                    }
+                }
+            },
         }
     }
 }

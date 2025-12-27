@@ -8,7 +8,7 @@ pub mod db;
 pub mod service_control;
 pub mod types;
 
-use api::{AdapterInfo, ApiClient};
+use api::{AdapterInfo, ApiClient, HealthStatus, LogQuery};
 use db::{DbClient, DbStatsSummary};
 use service_control::ServiceControl;
 use types::*;
@@ -28,6 +28,13 @@ pub enum Mode {
     Normal,
     ServiceSelect,
     ConfigEdit,
+    Filter(LogFilterMode),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LogFilterMode {
+    TraceId,
+    Tenant,
 }
 
 pub struct App {
@@ -49,6 +56,10 @@ pub struct App {
     pub recent_logs: Vec<LogEntry>,
     pub adapters: Vec<AdapterInfo>,
     pub db_stats: DbStatsSummary,
+    pub log_filter_trace: Option<String>,
+    pub log_filter_tenant: Option<String>,
+    pub log_filter_input: String,
+    pub log_filter_mode: Option<LogFilterMode>,
 
     // Configuration
     pub config: SystemConfig,
@@ -61,6 +72,7 @@ pub struct App {
     pub last_update: Instant,
     pub last_prereq_check: Instant,
     pub setup_state: SetupState,
+    pub health_status: Option<HealthStatus>,
 
     // API Client
     api_client: ApiClient,
@@ -149,6 +161,10 @@ impl App {
                 total_tenants: 0,
                 database_connected: false,
             },
+            log_filter_trace: None,
+            log_filter_tenant: None,
+            log_filter_input: String::new(),
+            log_filter_mode: None,
 
             config: SystemConfig::default(),
             production_mode: false,
@@ -159,6 +175,7 @@ impl App {
             last_update: Instant::now(),
             last_prereq_check: Instant::now(),
             setup_state,
+            health_status: None,
 
             api_client,
             db_client,
@@ -182,10 +199,12 @@ impl App {
 
         if let Ok(health) = self.api_client.get_health().await {
             let status = health.status.to_lowercase();
+            self.health_status = Some(health.clone());
             self.setup_state.infrastructure_online =
                 matches!(status.as_str(), "healthy" | "ready" | "running" | "online");
         } else {
             self.setup_state.infrastructure_online = false;
+            self.health_status = None;
         }
 
         // Try to fetch real data from API
@@ -232,7 +251,11 @@ impl App {
         }
 
         // Fetch logs from API
-        if let Ok(logs) = self.api_client.get_logs().await {
+        let log_query = LogQuery {
+            tenant_id: self.log_filter_tenant.clone(),
+            trace_id: self.log_filter_trace.clone(),
+        };
+        if let Ok(logs) = self.api_client.get_logs(&log_query).await {
             if !logs.is_empty() {
                 self.recent_logs = logs;
             } else if self.recent_logs.is_empty() {
@@ -283,6 +306,49 @@ impl App {
         Ok(())
     }
 
+    pub fn filtered_logs(&self) -> Vec<&LogEntry> {
+        self.recent_logs
+            .iter()
+            .filter(|entry| {
+                if let Some(trace) = &self.log_filter_trace {
+                    if entry.trace_id.as_deref() != Some(trace.as_str()) {
+                        return false;
+                    }
+                }
+
+                if let Some(tenant) = &self.log_filter_tenant {
+                    if entry.tenant_id.as_deref() != Some(tenant.as_str()) {
+                        return false;
+                    }
+                }
+
+                true
+            })
+            .collect()
+    }
+
+    fn apply_log_filter(&mut self, mode: LogFilterMode) {
+        let value = self.log_filter_input.trim();
+        match mode {
+            LogFilterMode::TraceId => {
+                self.log_filter_trace = if value.is_empty() {
+                    None
+                } else {
+                    Some(value.to_string())
+                };
+            }
+            LogFilterMode::Tenant => {
+                self.log_filter_tenant = if value.is_empty() {
+                    None
+                } else {
+                    Some(value.to_string())
+                };
+            }
+        }
+        self.log_filter_input.clear();
+        self.log_filter_mode = None;
+    }
+
     // Navigation handlers
     pub fn on_up(&mut self) {
         match self.current_mode {
@@ -296,6 +362,7 @@ impl App {
                     self.selected_config_field -= 1;
                 }
             }
+            Mode::Filter(_) => {}
             Mode::Normal => {
                 if self.selected_menu_item > 0 {
                     self.selected_menu_item -= 1;
@@ -317,6 +384,7 @@ impl App {
                     self.selected_config_field += 1;
                 }
             }
+            Mode::Filter(_) => {}
             Mode::Normal => {
                 if self.selected_menu_item < 6 {
                     self.selected_menu_item += 1;
@@ -372,6 +440,10 @@ impl App {
                 self.save_config_value();
                 self.current_mode = Mode::Normal;
             }
+            Mode::Filter(mode) => {
+                self.apply_log_filter(mode);
+                self.current_mode = Mode::Normal;
+            }
         }
         Ok(())
     }
@@ -387,15 +459,23 @@ impl App {
     }
 
     pub fn on_backspace(&mut self) {
-        if self.current_mode == Mode::ConfigEdit {
-            self.config_edit_value.pop();
-        }
+        match self.current_mode {
+            Mode::ConfigEdit => {
+                self.config_edit_value.pop();
+            }
+            Mode::Filter(_) => {
+                self.log_filter_input.pop();
+            }
+            _ => {}
+        };
     }
 
     pub fn on_escape(&mut self) {
         match self.current_mode {
-            Mode::ServiceSelect | Mode::ConfigEdit => {
+            Mode::ServiceSelect | Mode::ConfigEdit | Mode::Filter(_) => {
                 self.current_mode = Mode::Normal;
+                self.log_filter_input.clear();
+                self.log_filter_mode = None;
             }
             Mode::Normal => {
                 if self.show_help {
@@ -414,6 +494,16 @@ impl App {
                 self.current_mode = Mode::Normal;
             } else {
                 self.config_edit_value.push(c);
+            }
+            return Ok(());
+        }
+
+        if let Mode::Filter(mode) = self.current_mode {
+            if c == '\n' {
+                self.apply_log_filter(mode);
+                self.current_mode = Mode::Normal;
+            } else {
+                self.log_filter_input.push(c);
             }
             return Ok(());
         }
@@ -446,6 +536,24 @@ impl App {
             'd' => self.current_screen = Screen::Dashboard,
             'b' => self.boot_all_services().await?,
             'p' => self.toggle_production_mode(),
+            't' => {
+                self.current_screen = Screen::Logs;
+                self.current_mode = Mode::Filter(LogFilterMode::TraceId);
+                self.log_filter_mode = Some(LogFilterMode::TraceId);
+                self.log_filter_input.clear();
+            }
+            'n' => {
+                self.current_screen = Screen::Logs;
+                self.current_mode = Mode::Filter(LogFilterMode::Tenant);
+                self.log_filter_mode = Some(LogFilterMode::Tenant);
+                self.log_filter_input.clear();
+            }
+            'x' => {
+                self.log_filter_trace = None;
+                self.log_filter_tenant = None;
+                self.log_filter_input.clear();
+                self.log_filter_mode = None;
+            }
             _ => {}
         }
         Ok(())
@@ -671,6 +779,9 @@ impl App {
                 level,
                 component,
                 message,
+                trace_id: Some(format!("trace-{:04}", i)),
+                tenant_id: Some(if i % 2 == 0 { "dev" } else { "prod" }.to_string()),
+                latency_ms: Some(40 + (i as u64 * 3)),
             });
         }
     }

@@ -20,7 +20,7 @@
 #![allow(clippy::unnecessary_map_or)]
 
 use adapteros_core::{AosError, B3Hash, Result};
-use adapteros_db::{sqlx, Db};
+use adapteros_db::{sqlx, Db, ProtectedDb};
 use adapteros_deterministic_exec::spawn_deterministic;
 use adapteros_manifest::Policies;
 use adapteros_profiler::{AdapterMetrics, AdapterProfiler};
@@ -174,7 +174,7 @@ pub struct LifecycleManager {
     /// Category-specific policies
     category_policies: CategoryPolicyManager,
     /// Database connection for persistence
-    db: Option<Db>,
+    db: Option<ProtectedDb>,
     /// Rolling activation tracker fed by router decisions
     activation_tracker: Arc<RwLock<ActivationTracker>>,
     /// Currently active stack (if any)
@@ -246,7 +246,7 @@ impl LifecycleManager {
     }
 
     /// Set database for persistence
-    pub fn set_db(&mut self, db: Db) {
+    pub fn set_db(&mut self, db: ProtectedDb) {
         self.db = Some(db);
     }
 
@@ -258,7 +258,7 @@ impl LifecycleManager {
         adapters_base_path: PathBuf,
         telemetry: Option<TelemetryWriter>,
         initial_k: usize,
-        db: Db,
+        db: ProtectedDb,
     ) -> Self {
         let mut states = HashMap::new();
         for (idx, name) in adapter_names.iter().enumerate() {
@@ -1137,6 +1137,7 @@ impl LifecycleManager {
 
         // Step 2: Persist to database FIRST (before changing in-memory state)
         if let Some(ref db) = self.db {
+            let db = db.write(db.lifecycle_token());
             db.update_adapter_state_tx(&adapter_id_str, &new_state.to_string(), "manual_promotion")
                 .await
                 .map_err(|e| {
@@ -1250,6 +1251,7 @@ impl LifecycleManager {
 
         // Step 2: Persist to database FIRST (before changing in-memory state)
         if let Some(ref db) = self.db {
+            let db = db.write(db.lifecycle_token());
             db.update_adapter_state_tx(&adapter_id_str, &new_state.to_string(), "manual_demotion")
                 .await
                 .map_err(|e| {
@@ -1755,6 +1757,7 @@ impl LifecycleManager {
 
         // Step 2: Persist to database FIRST (before changing in-memory state)
         if let Some(ref db) = self.db {
+            let db = db.write(db.lifecycle_token());
             db.update_adapter_state_tx(&adapter_id_str, &new_state.to_string(), reason)
                 .await
                 .map_err(|e| {
@@ -2025,7 +2028,7 @@ impl LifecycleManager {
     pub async fn evict_adapter(&self, adapter_id: u16) -> Result<()> {
         // FIX 1: Hold lock during ENTIRE operation to prevent race between pin check and eviction
         // Extract required data and perform state updates AND loader unload while holding lock
-        let (adapter_id_str, old_state, category, memory_freed) = {
+        let (adapter_id_str, old_state, category, memory_freed, tenant_id) = {
             let mut states = self.states.write();
 
             if let Some(record) = states.get_mut(&adapter_id) {
@@ -2041,6 +2044,7 @@ impl LifecycleManager {
                 let memory_freed = record.memory_bytes;
                 let adapter_id_str = record.adapter_id.clone();
                 let category = record.category.clone();
+                let tenant_id = record.scope.clone();
 
                 // FIX 1: Unload from loader BEFORE changing state, while still holding states lock
                 // This prevents race where adapter could be pinned after check but before unload
@@ -2064,7 +2068,7 @@ impl LifecycleManager {
                 record.state = AdapterState::Unloaded;
                 record.memory_bytes = 0;
 
-                (adapter_id_str, old_state, category, memory_freed)
+                (adapter_id_str, old_state, category, memory_freed, tenant_id)
             } else {
                 return Ok(());
             }
@@ -2077,7 +2081,7 @@ impl LifecycleManager {
 
             // Persist eviction immediately (fallback when deterministic executor isn't running)
             if let Err(e) = db_clone
-                .update_adapter_state(&adapter_id_clone, "unloaded", "eviction")
+                .update_adapter_state(&tenant_id, &adapter_id_clone, "unloaded", "eviction")
                 .await
             {
                 warn!(
@@ -2086,7 +2090,10 @@ impl LifecycleManager {
                 );
             }
 
-            if let Err(e) = db_clone.update_adapter_memory(&adapter_id_clone, 0).await {
+            if let Err(e) = db_clone
+                .update_adapter_memory(&tenant_id, &adapter_id_clone, 0)
+                .await
+            {
                 warn!(
                     "Failed to update adapter memory during eviction in database: {}",
                     e

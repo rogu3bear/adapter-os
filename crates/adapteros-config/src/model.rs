@@ -59,6 +59,10 @@ pub fn load_dotenv() {
     });
 }
 
+fn default_routing_bias() -> f32 {
+    1.0
+}
+
 /// Canonical backend preference used in config (alias of BackendKind).
 pub type BackendPreference = BackendKind;
 
@@ -100,6 +104,9 @@ pub struct ModelConfig {
 
     /// Preferred backend for execution
     pub backend: BackendPreference,
+    /// Routing bias applied to adapter selection for this base model
+    #[serde(default = "default_routing_bias")]
+    pub routing_bias: f32,
 }
 
 impl Default for ModelConfig {
@@ -128,6 +135,7 @@ impl ModelConfig {
             max_seq_len: 32768,
             rope_theta: 1_000_000.0,
             backend: BackendPreference::Auto,
+            routing_bias: default_routing_bias(),
         }
     }
 
@@ -283,6 +291,20 @@ impl ModelConfig {
             }
         };
 
+        // Derive a routing bias hint based on model scale and MoE configuration
+        let mut routing_bias = default_routing_bias();
+        let is_moe = json
+            .get("num_experts")
+            .or_else(|| json.get("num_local_experts"))
+            .and_then(|v| v.as_u64())
+            .map(|n| n > 0)
+            .unwrap_or_else(|| architecture.to_ascii_lowercase().contains("moe"));
+        if is_moe {
+            routing_bias = 0.8;
+        } else if hidden_size <= 4096 {
+            routing_bias = 1.2;
+        }
+
         // Log consolidated warning if any fields used defaults
         if !defaulted_fields.is_empty() {
             tracing::warn!(
@@ -304,6 +326,7 @@ impl ModelConfig {
             max_seq_len,
             rope_theta,
             backend: BackendPreference::Auto,
+            routing_bias,
         })
     }
 
@@ -404,6 +427,12 @@ impl ModelConfig {
         // Validate rope_theta is positive
         if self.rope_theta <= 0.0 {
             return Err(AosError::Config("rope_theta must be positive".to_string()));
+        }
+
+        if self.routing_bias <= 0.0 {
+            return Err(AosError::Config(
+                "routing_bias must be positive".to_string(),
+            ));
         }
 
         Ok(())

@@ -148,6 +148,7 @@ seeds:
         db_path: db_path.to_string_lossy().to_string(),
         bundles_path: bundles_path.to_string_lossy().to_string(),
         manifests_path: manifests_path.to_string_lossy().to_string(),
+        ..Default::default()
     };
 
     // Create orchestrator
@@ -236,6 +237,7 @@ async fn test_orchestrator_gate_failure() -> Result<()> {
         db_path: db_path.to_string_lossy().to_string(),
         bundles_path: temp_path.join("bundles").to_string_lossy().to_string(),
         manifests_path: temp_path.join("manifests").to_string_lossy().to_string(),
+        ..Default::default()
     };
 
     let orchestrator = Orchestrator::new(config);

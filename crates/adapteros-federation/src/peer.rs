@@ -17,7 +17,7 @@
 //! - Partition tolerance with eventual consistency
 //! - Automatic recovery upon reconnection
 
-use adapteros_core::{AosError, Result};
+use adapteros_core::{time, AosError, Result};
 use adapteros_crypto::PublicKey;
 use adapteros_db::Db;
 use serde::{Deserialize, Serialize};
@@ -139,6 +139,32 @@ pub struct DiscoveryAnnouncement {
     pub known_peers: Vec<String>,
     pub announcement_time: u64,
     pub federation_epoch: u64,
+}
+
+/// Discovery-level error packet used for protocol responses
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum DiscoveryErrorCode {
+    /// Peer clock drift exceeded tolerance; time sync required before retrying
+    TimeSyncRequired,
+}
+
+/// Serialized error packet for discovery protocol
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DiscoveryErrorPacket {
+    pub code: DiscoveryErrorCode,
+    pub message: String,
+}
+
+impl DiscoveryErrorPacket {
+    pub fn time_sync_required(delta_ms: i64) -> Self {
+        Self {
+            code: DiscoveryErrorCode::TimeSyncRequired,
+            message: format!(
+                "TimeSyncRequired: peer clock drift {}ms exceeds 5000ms tolerance",
+                delta_ms
+            ),
+        }
+    }
 }
 
 /// Peer registry for managing federated hosts
@@ -362,6 +388,8 @@ impl PeerRegistry {
         &self,
         announcement: &DiscoveryAnnouncement,
     ) -> Result<Vec<String>> {
+        self.validate_discovery_timestamp(announcement)?;
+
         info!(
             sender_id = %announcement.sender_id,
             peer_count = announcement.known_peers.len(),
@@ -386,6 +414,26 @@ impl PeerRegistry {
         }
 
         Ok(discovered_peers)
+    }
+
+    /// Validate peer-provided timestamp to defend against clock drift
+    fn validate_discovery_timestamp(&self, announcement: &DiscoveryAnnouncement) -> Result<()> {
+        // Discovery announcements use seconds; compare against current time in ms to retain precision
+        let peer_ts_ms = (announcement.announcement_time as i64) * 1000;
+        let now_ms = time::unix_timestamp_millis() as i64;
+        let delta_ms = (now_ms - peer_ts_ms).abs();
+
+        if delta_ms > 5000 {
+            let packet = DiscoveryErrorPacket::time_sync_required(delta_ms);
+            warn!(
+                sender_id = %announcement.sender_id,
+                delta_ms = delta_ms,
+                "Rejecting discovery handshake due to clock drift"
+            );
+            return Err(AosError::Validation(packet.message));
+        }
+
+        Ok(())
     }
 
     /// Get list of all known peer IDs
@@ -1486,6 +1534,32 @@ mod tests {
             .await?;
         assert_eq!(discovered.len(), 1);
         assert_eq!(discovered[0], "host3");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_discovery_rejected_on_clock_drift() -> Result<()> {
+        let db = setup_test_db().await?;
+        let registry = PeerRegistry::new(Arc::new(db));
+
+        let announcement = DiscoveryAnnouncement {
+            sender_id: "clock-skewed".to_string(),
+            known_peers: vec!["peer1".to_string()],
+            announcement_time: adapteros_core::time::unix_timestamp_secs() + 10,
+            federation_epoch: 1,
+        };
+
+        let err = registry
+            .process_discovery_announcement(&announcement)
+            .await
+            .expect_err("clock-drifted announcement should be rejected");
+
+        assert!(
+            err.to_string().contains("TimeSyncRequired"),
+            "expected TimeSyncRequired error, got {}",
+            err
+        );
 
         Ok(())
     }

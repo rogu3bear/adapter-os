@@ -40,6 +40,7 @@ use axum::{
     Json,
 };
 use std::borrow::Cow;
+use std::fmt;
 use tracing::{error, warn};
 
 /// Redact sensitive information from error details
@@ -66,6 +67,22 @@ pub struct ApiError {
     details: Option<String>,
     request_id: Option<String>,
     tenant_id: Option<String>,
+}
+
+impl fmt::Display for ApiError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "[{}] {}: {}",
+            self.code,
+            self.status,
+            self.message
+        )?;
+        if let Some(details) = &self.details {
+            write!(f, " ({})", details)?;
+        }
+        Ok(())
+    }
 }
 
 /// Standard API result type - handlers should use this
@@ -475,6 +492,11 @@ impl From<AosError> for ApiError {
             AosError::Validation(_) => {
                 ApiError::new(StatusCode::BAD_REQUEST, "VALIDATION_ERROR", err.to_string())
             }
+            AosError::ReasoningLoop(_) => ApiError::new(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "REASONING_LOOP_DETECTED",
+                err.to_string(),
+            ),
             AosError::InvalidSealedData { .. } => ApiError::new(
                 StatusCode::BAD_REQUEST,
                 "INVALID_SEALED_DATA",

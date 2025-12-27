@@ -7,6 +7,7 @@ use crate::parsers::{utils, LanguageParser};
 use crate::types::{Language, ParseResult, SymbolKind, SymbolNode, Visibility};
 use adapteros_core::{AosError, Result};
 use std::path::Path;
+use streaming_iterator::StreamingIterator;
 use tree_sitter::{Language as TSLanguage, Parser, Query, QueryCursor};
 
 /// TypeScript-specific parser implementation
@@ -42,15 +43,16 @@ impl TypeScriptParser {
     /// Create a new TypeScript parser
     pub fn new() -> Result<Self> {
         let mut parser = Parser::new();
-        let typescript_lang = tree_sitter_typescript::language_typescript();
+        let typescript_lang =
+            tree_sitter::Language::new(tree_sitter_typescript::LANGUAGE_TYPESCRIPT);
 
         parser
-            .set_language(typescript_lang)
+            .set_language(&typescript_lang)
             .map_err(|e| AosError::Parse(format!("Failed to set TypeScript language: {}", e)))?;
 
         // Define queries for different symbol types
         let function_query = Query::new(
-            typescript_lang,
+            &typescript_lang,
             r#"
             (function_declaration
                 name: (identifier) @name
@@ -62,7 +64,7 @@ impl TypeScriptParser {
         .map_err(|e| AosError::Parse(format!("Failed to create function query: {}", e)))?;
 
         let arrow_function_query = Query::new(
-            typescript_lang,
+            &typescript_lang,
             r#"
             (arrow_function
                 parameters: (formal_parameters) @params
@@ -73,7 +75,7 @@ impl TypeScriptParser {
         .map_err(|e| AosError::Parse(format!("Failed to create arrow function query: {}", e)))?;
 
         let class_query = Query::new(
-            typescript_lang,
+            &typescript_lang,
             r#"
             (class_declaration
                 name: (type_identifier) @name
@@ -85,7 +87,7 @@ impl TypeScriptParser {
         .map_err(|e| AosError::Parse(format!("Failed to create class query: {}", e)))?;
 
         let interface_query = Query::new(
-            typescript_lang,
+            &typescript_lang,
             r#"
             (interface_declaration
                 name: (type_identifier) @name
@@ -96,7 +98,7 @@ impl TypeScriptParser {
         .map_err(|e| AosError::Parse(format!("Failed to create interface query: {}", e)))?;
 
         let type_alias_query = Query::new(
-            typescript_lang,
+            &typescript_lang,
             r#"
             (type_alias_declaration
                 name: (type_identifier) @name
@@ -108,7 +110,7 @@ impl TypeScriptParser {
         .map_err(|e| AosError::Parse(format!("Failed to create type alias query: {}", e)))?;
 
         let enum_query = Query::new(
-            typescript_lang,
+            &typescript_lang,
             r#"
             (enum_declaration
                 name: (identifier) @name
@@ -118,7 +120,7 @@ impl TypeScriptParser {
         .map_err(|e| AosError::Parse(format!("Failed to create enum query: {}", e)))?;
 
         let import_query = Query::new(
-            typescript_lang,
+            &typescript_lang,
             r#"
             (import_statement
                 source: (string) @source
@@ -132,7 +134,7 @@ impl TypeScriptParser {
         .map_err(|e| AosError::Parse(format!("Failed to create import query: {}", e)))?;
 
         let export_query = Query::new(
-            typescript_lang,
+            &typescript_lang,
             r#"
             (export_statement
                 (export_clause)? @export_clause
@@ -142,7 +144,7 @@ impl TypeScriptParser {
         .map_err(|e| AosError::Parse(format!("Failed to create export query: {}", e)))?;
 
         let variable_query = Query::new(
-            typescript_lang,
+            &typescript_lang,
             r#"
             (variable_declaration
                 (variable_declarator
@@ -156,7 +158,7 @@ impl TypeScriptParser {
         .map_err(|e| AosError::Parse(format!("Failed to create variable query: {}", e)))?;
 
         let method_query = Query::new(
-            typescript_lang,
+            &typescript_lang,
             r#"
             (class_declaration
                 name: (type_identifier) @class_name
@@ -237,9 +239,9 @@ impl TypeScriptParser {
         symbols: &mut Vec<SymbolNode>,
     ) -> Result<()> {
         let mut cursor = QueryCursor::new();
-        let matches = cursor.matches(&self.function_query, tree.root_node(), source.as_bytes());
+        let mut matches = cursor.matches(&self.function_query, tree.root_node(), source.as_bytes());
 
-        for mat in matches {
+        while let Some(mat) = matches.next() {
             let mut name = None;
             let mut params = None;
             let mut _return_type = None;
@@ -286,13 +288,13 @@ impl TypeScriptParser {
         symbols: &mut Vec<SymbolNode>,
     ) -> Result<()> {
         let mut cursor = QueryCursor::new();
-        let matches = cursor.matches(
+        let mut matches = cursor.matches(
             &self.arrow_function_query,
             tree.root_node(),
             source.as_bytes(),
         );
 
-        for mat in matches {
+        while let Some(mat) = matches.next() {
             let mut params = None;
             let mut _return_type = None;
 
@@ -337,9 +339,9 @@ impl TypeScriptParser {
         symbols: &mut Vec<SymbolNode>,
     ) -> Result<()> {
         let mut cursor = QueryCursor::new();
-        let matches = cursor.matches(&self.class_query, tree.root_node(), source.as_bytes());
+        let mut matches = cursor.matches(&self.class_query, tree.root_node(), source.as_bytes());
 
-        for mat in matches {
+        while let Some(mat) = matches.next() {
             let mut name = None;
             let mut extends = None;
             let mut implements = None;
@@ -394,9 +396,10 @@ impl TypeScriptParser {
         symbols: &mut Vec<SymbolNode>,
     ) -> Result<()> {
         let mut cursor = QueryCursor::new();
-        let matches = cursor.matches(&self.interface_query, tree.root_node(), source.as_bytes());
+        let mut matches =
+            cursor.matches(&self.interface_query, tree.root_node(), source.as_bytes());
 
-        for mat in matches {
+        while let Some(mat) = matches.next() {
             let mut name = None;
             let mut extends = None;
 
@@ -441,9 +444,10 @@ impl TypeScriptParser {
         symbols: &mut Vec<SymbolNode>,
     ) -> Result<()> {
         let mut cursor = QueryCursor::new();
-        let matches = cursor.matches(&self.type_alias_query, tree.root_node(), source.as_bytes());
+        let mut matches =
+            cursor.matches(&self.type_alias_query, tree.root_node(), source.as_bytes());
 
-        for mat in matches {
+        while let Some(mat) = matches.next() {
             let mut name = None;
             let mut type_params = None;
             let mut type_annotation = None;
@@ -498,9 +502,9 @@ impl TypeScriptParser {
         symbols: &mut Vec<SymbolNode>,
     ) -> Result<()> {
         let mut cursor = QueryCursor::new();
-        let matches = cursor.matches(&self.enum_query, tree.root_node(), source.as_bytes());
+        let mut matches = cursor.matches(&self.enum_query, tree.root_node(), source.as_bytes());
 
-        for mat in matches {
+        while let Some(mat) = matches.next() {
             let mut name = None;
 
             for capture in mat.captures {
@@ -538,9 +542,9 @@ impl TypeScriptParser {
         symbols: &mut Vec<SymbolNode>,
     ) -> Result<()> {
         let mut cursor = QueryCursor::new();
-        let matches = cursor.matches(&self.method_query, tree.root_node(), source.as_bytes());
+        let mut matches = cursor.matches(&self.method_query, tree.root_node(), source.as_bytes());
 
-        for mat in matches {
+        while let Some(mat) = matches.next() {
             let mut class_name = None;
             let mut method_name = None;
             let mut params = None;
@@ -589,9 +593,9 @@ impl TypeScriptParser {
         symbols: &mut Vec<SymbolNode>,
     ) -> Result<()> {
         let mut cursor = QueryCursor::new();
-        let matches = cursor.matches(&self.import_query, tree.root_node(), source.as_bytes());
+        let mut matches = cursor.matches(&self.import_query, tree.root_node(), source.as_bytes());
 
-        for mat in matches {
+        while let Some(mat) = matches.next() {
             let mut source_module = None;
             let mut namespace = None;
             let mut named_imports = None;
@@ -641,9 +645,9 @@ impl TypeScriptParser {
         symbols: &mut Vec<SymbolNode>,
     ) -> Result<()> {
         let mut cursor = QueryCursor::new();
-        let matches = cursor.matches(&self.export_query, tree.root_node(), source.as_bytes());
+        let mut matches = cursor.matches(&self.export_query, tree.root_node(), source.as_bytes());
 
-        for mat in matches {
+        while let Some(mat) = matches.next() {
             let mut export_clause = None;
 
             for capture in mat.captures {
@@ -680,9 +684,9 @@ impl TypeScriptParser {
         symbols: &mut Vec<SymbolNode>,
     ) -> Result<()> {
         let mut cursor = QueryCursor::new();
-        let matches = cursor.matches(&self.variable_query, tree.root_node(), source.as_bytes());
+        let mut matches = cursor.matches(&self.variable_query, tree.root_node(), source.as_bytes());
 
-        for mat in matches {
+        while let Some(mat) = matches.next() {
             let mut name = None;
             let mut type_annotation = None;
             let mut _value = None;

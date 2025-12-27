@@ -14,6 +14,7 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
+use tokio_util::sync::CancellationToken;
 use tracing::warn;
 
 // ============================================================================
@@ -59,9 +60,11 @@ pub async fn infer_with_routing_context(
     request: crate::types::WorkerInferRequest,
     authorization: Option<&str>,
     timeout: Duration,
+    cancellation_token: Option<CancellationToken>,
 ) -> Result<crate::types::WorkerInferResponse, UdsClientError> {
     let client = UdsClient::new(timeout);
-    run_with_routing_context(client.infer(uds_path, request, authorization)).await
+    run_with_routing_context(client.infer(uds_path, request, authorization, cancellation_token))
+        .await
 }
 
 /// Error types for UDS client operations
@@ -79,6 +82,8 @@ pub enum UdsClientError {
     WorkerNotAvailable(String),
     #[error("Routing bypass detected: {0}")]
     RoutingBypass(String),
+    #[error("Request cancelled: {0}")]
+    Cancelled(String),
     /// Worker is at capacity but healthy - caller should retry with a different worker
     #[error("Worker overloaded (retry after {retry_after_ms}ms)")]
     WorkerOverloaded {
@@ -138,6 +143,7 @@ impl UdsClient {
         uds_path: &Path,
         request: crate::types::WorkerInferRequest,
         authorization: Option<&str>,
+        cancellation_token: Option<CancellationToken>,
     ) -> Result<crate::types::WorkerInferResponse, UdsClientError> {
         // GUARD: Fail hard if not in routed context
         if !is_routed_context() {
@@ -151,9 +157,23 @@ impl UdsClient {
             ));
         }
 
+        let cancel = cancellation_token.as_ref();
+
         // Connect to UDS
-        let mut stream = tokio::time::timeout(self.timeout, UnixStream::connect(uds_path))
-            .await
+        let connect = tokio::time::timeout(self.timeout, UnixStream::connect(uds_path));
+        let stream_result = if let Some(token) = cancel {
+            tokio::select! {
+                _ = token.cancelled() => {
+                    return Err(UdsClientError::Cancelled(
+                        "Cancelled before connecting to worker".to_string()
+                    ));
+                }
+                res = connect => res,
+            }
+        } else {
+            connect.await
+        };
+        let mut stream = stream_result
             .map_err(|_| UdsClientError::Timeout("Connection timed out".to_string()))?
             .map_err(|e| UdsClientError::ConnectionFailed(e.to_string()))?;
 
@@ -182,17 +202,51 @@ impl UdsClient {
         );
 
         // Send request
-        tokio::time::timeout(self.timeout, stream.write_all(http_request.as_bytes()))
-            .await
-            .map_err(|_| UdsClientError::Timeout("Write timed out".to_string()))?
-            .map_err(|e| UdsClientError::RequestFailed(e.to_string()))?;
+        let write_future =
+            tokio::time::timeout(self.timeout, stream.write_all(http_request.as_bytes()));
+        if let Some(token) = cancel {
+            tokio::select! {
+                _ = token.cancelled() => {
+                    return Err(UdsClientError::Cancelled(
+                        "Cancelled while sending request to worker".to_string()
+                    ));
+                }
+                result = write_future => {
+                    result
+                        .map_err(|_| UdsClientError::Timeout("Write timed out".to_string()))?
+                        .map_err(|e| UdsClientError::RequestFailed(e.to_string()))?
+                }
+            }
+        } else {
+            write_future
+                .await
+                .map_err(|_| UdsClientError::Timeout("Write timed out".to_string()))?
+                .map_err(|e| UdsClientError::RequestFailed(e.to_string()))?;
+        }
 
         // Read response
         let mut response_buffer = Vec::new();
-        tokio::time::timeout(self.timeout, stream.read_to_end(&mut response_buffer))
-            .await
-            .map_err(|_| UdsClientError::Timeout("Read timed out".to_string()))?
-            .map_err(|e| UdsClientError::RequestFailed(e.to_string()))?;
+        let read_future =
+            tokio::time::timeout(self.timeout, stream.read_to_end(&mut response_buffer));
+        if let Some(token) = cancel {
+            tokio::select! {
+                _ = token.cancelled() => {
+                    return Err(UdsClientError::Cancelled(
+                        "Cancelled while waiting for worker response".to_string()
+                    ));
+                }
+                result = read_future => {
+                    let _ = result
+                        .map_err(|_| UdsClientError::Timeout("Read timed out".to_string()))?
+                        .map_err(|e| UdsClientError::RequestFailed(e.to_string()))?;
+                }
+            }
+        } else {
+            let _ = read_future
+                .await
+                .map_err(|_| UdsClientError::Timeout("Read timed out".to_string()))?
+                .map_err(|e| UdsClientError::RequestFailed(e.to_string()))?;
+        }
 
         // Parse HTTP response
         let response_str = String::from_utf8_lossy(&response_buffer);
@@ -308,9 +362,12 @@ impl UdsClient {
         uds_path: &Path,
         request: crate::types::WorkerInferRequest,
         authorization: Option<&str>,
+        cancellation_token: Option<CancellationToken>,
     ) -> Result<(crate::types::WorkerInferResponse, u64), UdsClientError> {
         let start = Instant::now();
-        let response = self.infer(uds_path, request, authorization).await?;
+        let response = self
+            .infer(uds_path, request, authorization, cancellation_token)
+            .await?;
         let latency_ms = start.elapsed().as_millis() as u64;
         Ok((response, latency_ms))
     }
@@ -1054,6 +1111,8 @@ mod tests {
             prompt: "Hello worker".to_string(),
             max_tokens: 128,
             require_evidence: true,
+            admin_override: false,
+            reasoning_mode: false,
             stop_policy: None,
             stack_id: Some("stack-42".to_string()),
             stack_version: Some(7),

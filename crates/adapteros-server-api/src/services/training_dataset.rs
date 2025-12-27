@@ -31,6 +31,8 @@ use std::sync::Arc;
 use tokio::fs;
 #[cfg(feature = "embeddings")]
 use tokio::io::AsyncWriteExt;
+#[cfg(feature = "embeddings")]
+use tokio::time::{sleep, Duration};
 use tracing::{info, warn};
 #[cfg(feature = "embeddings")]
 use uuid::Uuid;
@@ -39,6 +41,10 @@ use uuid::Uuid;
 const MAX_CHUNKS: usize = 50_000;
 /// Maximum file size for generated JSONL (100MB)
 const MAX_JSONL_SIZE: i64 = 100 * 1024 * 1024;
+#[cfg(feature = "embeddings")]
+const EMBEDDING_MAX_RETRIES: usize = 3;
+#[cfg(feature = "embeddings")]
+const EMBEDDING_BACKOFF_MS: u64 = 200;
 
 /// Parameters for creating a dataset from explicit document IDs
 #[derive(Debug, Clone)]
@@ -372,20 +378,34 @@ impl DefaultTrainingDatasetService {
 
         let model_hash = embedding_model.model_hash();
         let dimension = embedding_model.dimension();
+        let mut failed_embeddings = 0usize;
 
         for chunk in &ingested_doc.chunks {
             let chunk_db_id = Uuid::now_v7().to_string();
-            let embedding = embedding_model
-                .encode_text(&chunk.text)
-                .map_err(|e| db_error(format!("Failed to generate embedding: {}", e)))?;
+            let embedding = embed_chunk_with_backoff(embedding_model, &chunk.text).await;
             let chunk_hash = B3Hash::hash(chunk.text.as_bytes()).to_hex();
             let text_preview = if chunk.text.len() > 200 {
                 format!("{}...", &chunk.text[..200])
             } else {
                 chunk.text.clone()
             };
-            let embedding_json = serde_json::to_string(&embedding)
-                .map_err(|e| db_error(format!("Failed to serialize embedding: {}", e)))?;
+            let (embedding_json, rag_embedding) = match embedding {
+                Ok(vector) => {
+                    let serialized = serde_json::to_string(&vector)
+                        .map_err(|e| db_error(format!("Failed to serialize embedding: {}", e)))?;
+                    (Some(serialized), Some(vector))
+                }
+                Err(e) => {
+                    failed_embeddings += 1;
+                    warn!(
+                        document_id = %document_id,
+                        chunk_index = chunk.chunk_index,
+                        error = %e,
+                        "Embedding failed after retries; marking chunk as failed_embedding"
+                    );
+                    (Some("{\"status\":\"failed_embedding\"}".to_string()), None)
+                }
+            };
 
             sqlx::query(
                 r#"
@@ -404,28 +424,38 @@ impl DefaultTrainingDatasetService {
             .bind(chunk.end_offset as i64)
             .bind(&chunk_hash)
             .bind(&text_preview)
-            .bind(&embedding_json)
+            .bind(embedding_json.as_deref())
             .execute(&*self.state.db.pool())
             .await
             .map_err(|e| db_error(format!("Failed to create document chunk: {}", e)))?;
 
-            let rag_doc_id = format!("{}__chunk_{}", document_id, chunk.chunk_index);
-            self.state
-                .db
-                .upsert_rag_document(adapteros_db::rag::RagDocumentWrite {
-                    tenant_id: claims.tenant_id.clone(),
-                    doc_id: rag_doc_id,
-                    text: chunk.text.clone(),
-                    embedding,
-                    rev: "v1".to_string(),
-                    effectivity: "all".to_string(),
-                    source_type: mime_type.to_string(),
-                    superseded_by: None,
-                    embedding_model_hash: model_hash,
-                    embedding_dimension: dimension,
-                })
-                .await
-                .map_err(|e| db_error(format!("Failed to index chunk in RAG: {}", e)))?;
+            if let Some(rag_embedding) = rag_embedding {
+                let rag_doc_id = format!("{}__chunk_{}", document_id, chunk.chunk_index);
+                self.state
+                    .db
+                    .upsert_rag_document(adapteros_db::rag::RagDocumentWrite {
+                        tenant_id: claims.tenant_id.clone(),
+                        doc_id: rag_doc_id,
+                        text: chunk.text.clone(),
+                        embedding: rag_embedding,
+                        rev: "v1".to_string(),
+                        effectivity: "all".to_string(),
+                        source_type: mime_type.to_string(),
+                        superseded_by: None,
+                        embedding_model_hash: model_hash,
+                        embedding_dimension: dimension,
+                    })
+                    .await
+                    .map_err(|e| db_error(format!("Failed to index chunk in RAG: {}", e)))?;
+            }
+        }
+
+        if failed_embeddings > 0 {
+            warn!(
+                document_id = %document_id,
+                failed_chunks = failed_embeddings,
+                "Some chunk embeddings failed; stored failed_embedding markers and continued"
+            );
         }
 
         self.state
@@ -771,5 +801,32 @@ impl TrainingDatasetService for DefaultTrainingDatasetService {
             },
         )
         .await
+    }
+}
+
+#[cfg(feature = "embeddings")]
+async fn embed_chunk_with_backoff(
+    embedding_model: &Arc<dyn adapteros_ingest_docs::EmbeddingModel>,
+    text: &str,
+) -> adapteros_core::Result<Vec<f32>> {
+    let mut attempt = 0usize;
+    let mut delay = Duration::from_millis(EMBEDDING_BACKOFF_MS);
+
+    loop {
+        attempt += 1;
+        match embedding_model.encode_text(text) {
+            Ok(v) => return Ok(v),
+            Err(e) if attempt >= EMBEDDING_MAX_RETRIES => return Err(e),
+            Err(e) => {
+                warn!(
+                    attempt = attempt,
+                    max_attempts = EMBEDDING_MAX_RETRIES,
+                    error = %e,
+                    "Embedding generation failed, retrying with backoff"
+                );
+                sleep(delay).await;
+                delay = delay.saturating_mul(2);
+            }
+        }
     }
 }

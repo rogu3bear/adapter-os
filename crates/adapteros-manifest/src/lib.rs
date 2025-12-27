@@ -90,6 +90,9 @@ pub struct Base {
     pub hidden_dim: u32,
     pub n_layers: u32,
     pub n_heads: u32,
+    /// Routing bias to tilt adapter selection for this base model
+    #[serde(default = "default_routing_bias")]
+    pub routing_bias: f32,
 
     /// Config file hash
     pub config_hash: B3Hash,
@@ -105,6 +108,10 @@ pub struct Base {
 
     /// RoPE scaling override (optional)
     pub rope_scaling_override: Option<RoPEScaling>,
+}
+
+fn default_routing_bias() -> f32 {
+    1.0
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -172,6 +179,9 @@ pub struct Adapter {
     pub commit_sha: Option<String>,
     #[serde(default)]
     pub intent: Option<String>,
+    /// Whether this adapter is recommended for MoE base models
+    #[serde(default = "default_recommended_for_moe")]
+    pub recommended_for_moe: bool,
 
     // State management hints
     #[serde(default = "default_auto_promote")]
@@ -248,6 +258,10 @@ fn default_scope() -> AdapterScope {
 }
 
 fn default_auto_promote() -> bool {
+    true
+}
+
+fn default_recommended_for_moe() -> bool {
     true
 }
 
@@ -722,6 +736,7 @@ mod tests {
                 hidden_dim: 4096,
                 n_layers: 32,
                 n_heads: 32,
+                routing_bias: 1.0,
                 config_hash: B3Hash::hash(b"config"),
                 tokenizer_hash: B3Hash::hash(b"tokenizer"),
                 tokenizer_cfg_hash: B3Hash::hash(b"tokenizer_cfg"),

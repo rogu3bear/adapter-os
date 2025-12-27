@@ -11,10 +11,12 @@
 use adapteros_core::{AosError, HealthCheckResult, HealthStatus, Result};
 use async_trait::async_trait;
 use chrono;
+use fs2::available_space;
 use serde::{Deserialize, Serialize};
 use sqlx::Column;
 use sqlx::Row;
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use tracing::{debug, error, info};
 
 /// Database health status - wraps canonical HealthCheckResult with chrono timestamp
@@ -244,6 +246,9 @@ pub struct UnifiedDatabaseAccess {
 
     /// Configuration
     config: DatabaseConfig,
+
+    /// Directory for disk space checks
+    disk_root: PathBuf,
 }
 
 /// Database configuration
@@ -283,6 +288,8 @@ impl UnifiedDatabaseAccess {
             .await
             .map_err(|e| AosError::Database(format!("Failed to create connection pool: {}", e)))?;
 
+        let disk_root = Self::resolve_disk_root(&config.connection_string);
+
         let statistics = std::sync::Arc::new(tokio::sync::Mutex::new(DatabaseStatistics {
             total_queries: 0,
             total_commands: 0,
@@ -304,12 +311,54 @@ impl UnifiedDatabaseAccess {
             connection_pool,
             statistics,
             config,
+            disk_root,
         })
     }
 
     /// Get a reference to the connection pool
     pub fn pool(&self) -> &sqlx::Pool<sqlx::Sqlite> {
         &self.connection_pool
+    }
+
+    fn disk_root(&self) -> PathBuf {
+        self.disk_root.clone()
+    }
+
+    fn resolve_disk_root(connection_string: &str) -> PathBuf {
+        if connection_string.contains(":memory:") {
+            std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+        } else {
+            let fs_path = connection_string
+                .trim_start_matches("sqlite://")
+                .trim_start_matches("file:")
+                .split('?')
+                .next()
+                .unwrap_or_default();
+            Path::new(fs_path)
+                .parent()
+                .filter(|p| !p.as_os_str().is_empty())
+                .map(|p| p.to_path_buf())
+                .unwrap_or_else(|| PathBuf::from("."))
+        }
+    }
+
+    fn ensure_disk_space(&self, context: &str) -> Result<()> {
+        let root = self.disk_root();
+        match available_space(&root) {
+            Ok(free) if free < crate::MIN_FREE_SPACE_BYTES => Err(AosError::Io(format!(
+                "Insufficient disk space (<{} bytes) for {} ({} bytes available) at {}",
+                crate::MIN_FREE_SPACE_BYTES,
+                context,
+                free,
+                root.display()
+            ))),
+            Ok(_) => Ok(()),
+            Err(e) => Err(AosError::Io(format!(
+                "Failed to check disk space at {}: {}",
+                root.display(),
+                e
+            ))),
+        }
     }
 
     /// Update statistics
@@ -532,6 +581,7 @@ impl DatabaseAccess for UnifiedDatabaseAccess {
 
         debug!("Beginning database transaction");
 
+        self.ensure_disk_space("transaction")?;
         let result = self.connection_pool.begin().await;
 
         let duration = start_time.elapsed();
@@ -549,6 +599,7 @@ impl DatabaseAccess for UnifiedDatabaseAccess {
                 Ok(Box::new(UnifiedTransaction {
                     transaction,
                     connection_pool: self.connection_pool.clone(),
+                    disk_root: self.disk_root(),
                 }) as Box<dyn Transaction + Send + Sync>)
             }
             Err(e) => {
@@ -627,6 +678,27 @@ impl DatabaseAccess for UnifiedDatabaseAccess {
 pub struct UnifiedTransaction {
     transaction: sqlx::Transaction<'static, sqlx::Sqlite>,
     connection_pool: sqlx::SqlitePool,
+    disk_root: PathBuf,
+}
+
+impl UnifiedTransaction {
+    fn ensure_disk_space(&self, context: &str) -> Result<()> {
+        match available_space(&self.disk_root) {
+            Ok(free) if free < crate::MIN_FREE_SPACE_BYTES => Err(AosError::Io(format!(
+                "Insufficient disk space (<{} bytes) for {} ({} bytes available) at {}",
+                crate::MIN_FREE_SPACE_BYTES,
+                context,
+                free,
+                self.disk_root.display()
+            ))),
+            Ok(_) => Ok(()),
+            Err(e) => Err(AosError::Io(format!(
+                "Failed to check disk space at {}: {}",
+                self.disk_root.display(),
+                e
+            ))),
+        }
+    }
 }
 
 #[async_trait]
@@ -706,6 +778,7 @@ impl Transaction for UnifiedTransaction {
     }
 
     async fn commit(&mut self) -> Result<()> {
+        self.ensure_disk_space("transaction commit")?;
         let transaction =
             std::mem::replace(&mut self.transaction, self.connection_pool.begin().await?);
         match transaction.commit().await {
@@ -724,6 +797,7 @@ impl Transaction for UnifiedTransaction {
     }
 
     async fn rollback(&mut self) -> Result<()> {
+        self.ensure_disk_space("transaction rollback")?;
         let transaction =
             std::mem::replace(&mut self.transaction, self.connection_pool.begin().await?);
         match transaction.rollback().await {

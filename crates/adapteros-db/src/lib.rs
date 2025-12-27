@@ -9,9 +9,12 @@
 
 use adapteros_config::resolve_database_url;
 use adapteros_core::{AosError, Result};
+use fs2::available_space;
 use sqlx::{sqlite::SqliteConnectOptions, SqlitePool};
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
+use std::time::Duration;
 use tracing::{debug, info, warn};
 
 // Query constants for SELECT column lists
@@ -47,6 +50,7 @@ pub mod tenant_execution_policies;
 pub mod tenant_policies;
 pub mod tenant_policy_bindings_kv;
 pub mod tenant_settings;
+pub mod topology;
 pub mod traits;
 
 // Re-export commonly used types
@@ -72,6 +76,7 @@ pub use kv_isolation_scan::{
 };
 pub use storage_issues::{NewStorageIssue, StorageIssue};
 pub use storage_reconciliation::{StorageIssueParams, StorageReconciliationIssue};
+pub use topology::{AdapterTopology, AdjacencyEdge, ClusterDefinition, TopologyGraph};
 
 // Re-export KV metrics types
 pub use kv_metrics::{
@@ -79,6 +84,8 @@ pub use kv_metrics::{
     KvMetrics, KvMetricsSnapshot, KvOperationTimer, KvOperationType, KV_ALERT_METRIC_DEGRADATIONS,
     KV_ALERT_METRIC_DRIFT, KV_ALERT_METRIC_ERRORS, KV_ALERT_METRIC_FALLBACKS,
 };
+
+const MIN_FREE_SPACE_BYTES: u64 = 100 * 1024 * 1024;
 
 // Re-export tenant policy types
 pub use tenant_policies::{
@@ -92,6 +99,9 @@ pub use tenant_settings::{TenantSettings, UpdateTenantSettingsParams};
 // Re-export tenant policy binding types
 pub mod tenant_policy_bindings;
 pub use tenant_policy_bindings::{TenantPolicyBinding, ALL_POLICIES, CORE_POLICIES};
+
+mod protected_db;
+pub use protected_db::{LifecycleToken, ProtectedDb, WriteCapableDb};
 
 // Re-export query performance monitoring types
 pub use query_performance::{
@@ -556,6 +566,8 @@ pub struct Db {
     tenant_rate_limits: std::sync::Arc<std::sync::RwLock<std::collections::HashMap<String, u32>>>,
     /// Query plan cache for prepared statements
     plan_cache: std::sync::Arc<std::sync::RwLock<std::collections::HashMap<String, String>>>,
+    /// Directory containing the SQLite database file (if applicable)
+    db_dir: Option<PathBuf>,
 }
 
 impl Db {
@@ -573,18 +585,19 @@ impl Db {
         kv: Option<std::sync::Arc<KvDb>>,
         storage_mode: StorageMode,
     ) -> Self {
-        Self::new_with_pool(Some(pool), kv, storage_mode)
+        Self::new_with_pool(Some(pool), kv, storage_mode, None)
     }
 
     /// Create a Db without an attached SQL pool (KV-only or external managed SQL)
     pub fn new_kv_only(kv: Option<std::sync::Arc<KvDb>>, storage_mode: StorageMode) -> Self {
-        Self::new_with_pool(None, kv, storage_mode)
+        Self::new_with_pool(None, kv, storage_mode, None)
     }
 
     fn new_with_pool(
         pool: Option<SqlitePool>,
         kv: Option<std::sync::Arc<KvDb>>,
         storage_mode: StorageMode,
+        db_dir: Option<PathBuf>,
     ) -> Self {
         Self {
             pool,
@@ -600,6 +613,7 @@ impl Db {
             plan_cache: std::sync::Arc::new(std::sync::RwLock::new(
                 std::collections::HashMap::new(),
             )),
+            db_dir,
         }
     }
 
@@ -613,8 +627,6 @@ impl Db {
     /// - Statement cache size of 100
     /// - **CRITICAL:** Foreign key enforcement enabled
     pub async fn connect(path: &str) -> Result<Self> {
-        use std::time::Duration;
-
         // Special-case in-memory connections to avoid producing the invalid
         // `sqlite://:memory:` URI, which SQLite cannot open.
         let database_url = if matches!(path, ":memory:" | "sqlite://:memory:") {
@@ -625,10 +637,13 @@ impl Db {
             format!("sqlite://{}", path)
         };
 
+        let is_memory = database_url.contains(":memory:");
+        let mut db_dir: Option<PathBuf> = None;
+
         // Ensure parent directories exist for on-disk databases; SQLite will fail
         // with code 14 ("unable to open database file") if the path's parent
         // directory is missing.
-        if !database_url.contains(":memory:") {
+        if !is_memory {
             let fs_path = database_url
                 .trim_start_matches("sqlite://")
                 .trim_start_matches("file:")
@@ -637,22 +652,24 @@ impl Db {
                 .unwrap_or_default();
 
             if !fs_path.is_empty() {
-                if let Some(parent) = std::path::Path::new(fs_path)
+                let parent = Path::new(fs_path)
                     .parent()
                     .filter(|p| !p.as_os_str().is_empty())
-                {
-                    std::fs::create_dir_all(parent).map_err(|e| {
+                    .map(|p| p.to_path_buf())
+                    .or_else(|| Some(PathBuf::from(".")));
+
+                if let Some(dir) = parent {
+                    std::fs::create_dir_all(&dir).map_err(|e| {
                         AosError::Database(format!(
                             "Failed to create database directory {}: {}",
-                            parent.display(),
+                            dir.display(),
                             e
                         ))
                     })?;
+                    db_dir = Some(dir);
                 }
             }
         }
-
-        let is_memory = database_url.contains(":memory:");
 
         let options = SqliteConnectOptions::from_str(&database_url)?
             .create_if_missing(true)
@@ -683,7 +700,12 @@ impl Db {
                 .map_err(|e| AosError::Database(format!("Failed to connect to database: {}", e)))?
         };
 
-        Ok(Self::new_with_pool(Some(pool), None, StorageMode::SqlOnly))
+        Ok(Self::new_with_pool(
+            Some(pool),
+            None,
+            StorageMode::SqlOnly,
+            db_dir,
+        ))
     }
 
     /// Connect to SQLite database using DATABASE_URL environment variable
@@ -935,12 +957,21 @@ impl Db {
             .await
             .map_err(|e| AosError::Database(format!("Failed to create migrator: {}", e)))?;
 
-        // Run migrations
+        // Run migrations with a timeout to avoid hanging on locked databases.
+        self.ensure_disk_space("database migrations")?;
         info!("Applying database migrations...");
-        migrator
-            .run(self.pool())
-            .await
-            .map_err(|e| AosError::Database(format!("Migration failed: {}", e)))?;
+        tokio::time::timeout(
+            Duration::from_secs(30),
+            migrator.run(self.pool()),
+        )
+        .await
+        .map_err(|_| {
+            AosError::Database(
+                "Migration timed out while waiting for database lock. Run `aosctl db unlock` and retry."
+                    .to_string(),
+            )
+        })?
+        .map_err(|e| AosError::Database(format!("Migration failed: {}", e)))?;
 
         // Apply compatibility fixes for schema drift between signed migrations and code expectations.
         self.ensure_adapter_lora_strength_column().await?;
@@ -1147,9 +1178,7 @@ impl Db {
         let mut recovery_actions = Vec::new();
 
         // CRITICAL: Begin transaction for atomic recovery
-        let mut tx = self.pool().begin().await.map_err(|e| {
-            AosError::Database(format!("Failed to begin recovery transaction: {}", e))
-        })?;
+        let mut tx = self.begin_write_tx().await?;
 
         // 1. Find adapters stuck in "loading" state (orphaned from crash)
         let stale_adapters: Vec<(String, String, String)> = sqlx::query_as(
@@ -1264,9 +1293,7 @@ impl Db {
         let cutoff_timestamp = Utc::now().timestamp() - threshold_seconds;
 
         // CRITICAL: Begin transaction for atomic recovery
-        let mut tx = self.pool().begin().await.map_err(|e| {
-            AosError::Database(format!("Failed to begin recovery transaction: {}", e))
-        })?;
+        let mut tx = self.begin_write_tx().await?;
 
         // Find adapters with stale heartbeats
         let stale_adapters: Vec<(String, String, Option<i64>)> = sqlx::query_as(
@@ -1694,6 +1721,43 @@ impl Db {
     /// Get the underlying pool if attached (KV-only may return None)
     pub fn pool_opt(&self) -> Option<&SqlitePool> {
         self.pool.as_ref()
+    }
+
+    /// Root directory used for disk space checks (database directory if known).
+    fn disk_root(&self) -> PathBuf {
+        self.db_dir
+            .clone()
+            .or_else(|| std::env::current_dir().ok())
+            .unwrap_or_else(|| PathBuf::from("."))
+    }
+
+    /// Ensure there is sufficient free space before performing write-heavy operations.
+    fn ensure_disk_space(&self, context: &str) -> Result<()> {
+        let root = self.disk_root();
+        match available_space(&root) {
+            Ok(free) if free < MIN_FREE_SPACE_BYTES => Err(AosError::Io(format!(
+                "Insufficient disk space (<{} bytes) for {} ({} bytes available) at {}",
+                MIN_FREE_SPACE_BYTES,
+                context,
+                free,
+                root.display()
+            ))),
+            Ok(_) => Ok(()),
+            Err(e) => Err(AosError::Io(format!(
+                "Failed to check disk space at {}: {}",
+                root.display(),
+                e
+            ))),
+        }
+    }
+
+    /// Begin a SQLite transaction with a pre-flight disk space check.
+    pub async fn begin_write_tx(&self) -> Result<sqlx::Transaction<'_, sqlx::Sqlite>> {
+        self.ensure_disk_space("write transaction")?;
+        self.pool()
+            .begin()
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to begin transaction: {}", e)))
     }
 
     /// Enable performance monitoring for tenant-scoped queries

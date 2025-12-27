@@ -7,10 +7,11 @@ use crate::parsers::{utils, LanguageParser};
 use crate::types::{Language, ParseResult, SymbolKind, SymbolNode, Visibility};
 use adapteros_core::{AosError, Result};
 use std::path::Path;
+use streaming_iterator::StreamingIterator;
 use tree_sitter::{Language as TSLanguage, Parser, Query, QueryCursor};
 
 fn rust_language() -> TSLanguage {
-    tree_sitter_rust::language()
+    tree_sitter::Language::new(tree_sitter_rust::LANGUAGE)
 }
 
 /// Rust-specific parser implementation
@@ -49,12 +50,12 @@ impl RustParser {
         let rust_lang = rust_language();
 
         parser
-            .set_language(rust_lang)
+            .set_language(&rust_lang)
             .map_err(|e| AosError::Parse(format!("Failed to set Rust language: {}", e)))?;
 
         // Define queries for different symbol types
         let function_query = Query::new(
-            rust_lang,
+            &rust_lang,
             r#"
             (function_item
                 name: (identifier) @name
@@ -67,7 +68,7 @@ impl RustParser {
         .map_err(|e| AosError::Parse(format!("Failed to create function query: {}", e)))?;
 
         let struct_query = Query::new(
-            rust_lang,
+            &rust_lang,
             r#"
             (struct_item
                 name: (type_identifier) @name
@@ -78,7 +79,7 @@ impl RustParser {
         .map_err(|e| AosError::Parse(format!("Failed to create struct query: {}", e)))?;
 
         let trait_query = Query::new(
-            rust_lang,
+            &rust_lang,
             r#"
             (trait_item
                 name: (type_identifier) @name
@@ -89,7 +90,7 @@ impl RustParser {
         .map_err(|e| AosError::Parse(format!("Failed to create trait query: {}", e)))?;
 
         let impl_query = Query::new(
-            rust_lang,
+            &rust_lang,
             r#"
             (impl_item
                 trait: (type_identifier)? @trait_name
@@ -100,7 +101,7 @@ impl RustParser {
         .map_err(|e| AosError::Parse(format!("Failed to create impl query: {}", e)))?;
 
         let enum_query = Query::new(
-            rust_lang,
+            &rust_lang,
             r#"
             (enum_item
                 name: (type_identifier) @name
@@ -111,7 +112,7 @@ impl RustParser {
         .map_err(|e| AosError::Parse(format!("Failed to create enum query: {}", e)))?;
 
         let const_query = Query::new(
-            rust_lang,
+            &rust_lang,
             r#"
             (const_item
                 name: (identifier) @name
@@ -123,7 +124,7 @@ impl RustParser {
         .map_err(|e| AosError::Parse(format!("Failed to create const query: {}", e)))?;
 
         let static_query = Query::new(
-            rust_lang,
+            &rust_lang,
             r#"
             (static_item
                 name: (identifier) @name
@@ -135,7 +136,7 @@ impl RustParser {
         .map_err(|e| AosError::Parse(format!("Failed to create static query: {}", e)))?;
 
         let type_query = Query::new(
-            rust_lang,
+            &rust_lang,
             r#"
             (type_item
                 name: (type_identifier) @name
@@ -147,7 +148,7 @@ impl RustParser {
         .map_err(|e| AosError::Parse(format!("Failed to create type query: {}", e)))?;
 
         let macro_query = Query::new(
-            rust_lang,
+            &rust_lang,
             r#"
             (macro_definition
                 name: (identifier) @name
@@ -158,7 +159,7 @@ impl RustParser {
         .map_err(|e| AosError::Parse(format!("Failed to create macro query: {}", e)))?;
 
         let module_query = Query::new(
-            rust_lang,
+            &rust_lang,
             r#"
             (mod_item
                 name: (identifier) @name
@@ -233,9 +234,9 @@ impl RustParser {
         symbols: &mut Vec<SymbolNode>,
     ) -> Result<()> {
         let mut cursor = QueryCursor::new();
-        let matches = cursor.matches(&self.function_query, tree.root_node(), source.as_bytes());
+        let mut matches = cursor.matches(&self.function_query, tree.root_node(), source.as_bytes());
 
-        for mat in matches {
+        while let Some(mat) = matches.next() {
             let mut name = None;
             let mut visibility = Visibility::Private;
             let mut params = None;
@@ -283,9 +284,9 @@ impl RustParser {
         symbols: &mut Vec<SymbolNode>,
     ) -> Result<()> {
         let mut cursor = QueryCursor::new();
-        let matches = cursor.matches(&self.struct_query, tree.root_node(), source.as_bytes());
+        let mut matches = cursor.matches(&self.struct_query, tree.root_node(), source.as_bytes());
 
-        for mat in matches {
+        while let Some(mat) = matches.next() {
             let mut name = None;
             let mut visibility = Visibility::Private;
 
@@ -325,9 +326,9 @@ impl RustParser {
         symbols: &mut Vec<SymbolNode>,
     ) -> Result<()> {
         let mut cursor = QueryCursor::new();
-        let matches = cursor.matches(&self.trait_query, tree.root_node(), source.as_bytes());
+        let mut matches = cursor.matches(&self.trait_query, tree.root_node(), source.as_bytes());
 
-        for mat in matches {
+        while let Some(mat) = matches.next() {
             let mut name = None;
             let mut visibility = Visibility::Private;
 
@@ -367,9 +368,9 @@ impl RustParser {
         symbols: &mut Vec<SymbolNode>,
     ) -> Result<()> {
         let mut cursor = QueryCursor::new();
-        let matches = cursor.matches(&self.impl_query, tree.root_node(), source.as_bytes());
+        let mut matches = cursor.matches(&self.impl_query, tree.root_node(), source.as_bytes());
 
-        for mat in matches {
+        while let Some(mat) = matches.next() {
             let mut trait_name = None;
             let mut type_name = None;
 
@@ -414,9 +415,9 @@ impl RustParser {
         symbols: &mut Vec<SymbolNode>,
     ) -> Result<()> {
         let mut cursor = QueryCursor::new();
-        let matches = cursor.matches(&self.enum_query, tree.root_node(), source.as_bytes());
+        let mut matches = cursor.matches(&self.enum_query, tree.root_node(), source.as_bytes());
 
-        for mat in matches {
+        while let Some(mat) = matches.next() {
             let mut name = None;
             let mut visibility = Visibility::Private;
 
@@ -456,9 +457,9 @@ impl RustParser {
         symbols: &mut Vec<SymbolNode>,
     ) -> Result<()> {
         let mut cursor = QueryCursor::new();
-        let matches = cursor.matches(&self.const_query, tree.root_node(), source.as_bytes());
+        let mut matches = cursor.matches(&self.const_query, tree.root_node(), source.as_bytes());
 
-        for mat in matches {
+        while let Some(mat) = matches.next() {
             let mut name = None;
             let mut visibility = Visibility::Private;
             let mut type_annotation = None;
@@ -504,9 +505,9 @@ impl RustParser {
         symbols: &mut Vec<SymbolNode>,
     ) -> Result<()> {
         let mut cursor = QueryCursor::new();
-        let matches = cursor.matches(&self.static_query, tree.root_node(), source.as_bytes());
+        let mut matches = cursor.matches(&self.static_query, tree.root_node(), source.as_bytes());
 
-        for mat in matches {
+        while let Some(mat) = matches.next() {
             let mut name = None;
             let mut visibility = Visibility::Private;
             let mut type_annotation = None;
@@ -552,9 +553,9 @@ impl RustParser {
         symbols: &mut Vec<SymbolNode>,
     ) -> Result<()> {
         let mut cursor = QueryCursor::new();
-        let matches = cursor.matches(&self.type_query, tree.root_node(), source.as_bytes());
+        let mut matches = cursor.matches(&self.type_query, tree.root_node(), source.as_bytes());
 
-        for mat in matches {
+        while let Some(mat) = matches.next() {
             let mut name = None;
             let mut visibility = Visibility::Private;
             let mut type_annotation = None;
@@ -600,9 +601,9 @@ impl RustParser {
         symbols: &mut Vec<SymbolNode>,
     ) -> Result<()> {
         let mut cursor = QueryCursor::new();
-        let matches = cursor.matches(&self.macro_query, tree.root_node(), source.as_bytes());
+        let mut matches = cursor.matches(&self.macro_query, tree.root_node(), source.as_bytes());
 
-        for mat in matches {
+        while let Some(mat) = matches.next() {
             let mut name = None;
             let mut visibility = Visibility::Private;
 
@@ -642,9 +643,9 @@ impl RustParser {
         symbols: &mut Vec<SymbolNode>,
     ) -> Result<()> {
         let mut cursor = QueryCursor::new();
-        let matches = cursor.matches(&self.module_query, tree.root_node(), source.as_bytes());
+        let mut matches = cursor.matches(&self.module_query, tree.root_node(), source.as_bytes());
 
-        for mat in matches {
+        while let Some(mat) = matches.next() {
             let mut name = None;
             let mut visibility = Visibility::Private;
 

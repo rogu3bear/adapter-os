@@ -526,11 +526,7 @@ impl Db {
     pub async fn delete_repository(&self, id: &str) -> Result<()> {
         if self.storage_mode().write_to_sql() {
             // Begin transaction for atomic multi-step deletion
-            let mut tx = self
-                .pool()
-                .begin()
-                .await
-                .map_err(db_err("begin transaction"))?;
+            let mut tx = self.begin_write_tx().await?;
 
             // Delete related CodeGraph metadata first (if exists)
             sqlx::query("DELETE FROM code_graph_metadata WHERE repo_id = ?")

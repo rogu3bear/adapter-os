@@ -206,7 +206,7 @@ base:
 
     // Read stderr to verify error message
     let stderr = child.stderr.take();
-    let stderr_output = if let Some(stderr) = stderr {
+    let stderr_output = if let Some(mut stderr) = stderr {
         let mut buf = String::new();
         std::io::Read::read_to_string(&mut stderr, &mut buf).ok();
         buf

@@ -32,7 +32,7 @@ use adapteros_core::{AosError, B3Hash, Result};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -43,7 +43,7 @@ use crate::moe_types::{ExpertId, ExpertRouting, LayerIdx, SequenceExpertRouting}
 // =============================================================================
 
 /// Expert activation frequency for pre-warming decisions
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ExpertHeatMap {
     /// Per-layer activation counts: layer_idx -> (expert_id -> activation_count)
     pub per_layer: Vec<HashMap<u8, u32>>,
@@ -84,6 +84,14 @@ impl ExpertHeatMap {
             self.record_activation(layer_idx, expert_id);
         }
         self.sample_count += 1;
+    }
+
+    /// Ensure internal buffers match the number of layers observed
+    pub fn ensure_layers(&mut self, num_layers: usize) {
+        if self.per_layer.len() < num_layers {
+            self.per_layer.resize_with(num_layers, HashMap::new);
+            self.hot_experts.resize_with(num_layers, Vec::new);
+        }
     }
 
     /// Compute hot experts and stability after collecting samples
@@ -159,10 +167,7 @@ impl ExpertHeatMap {
     /// Merge another heat map into this one
     pub fn merge(&mut self, other: &ExpertHeatMap) {
         // Extend layers if needed
-        while self.per_layer.len() < other.per_layer.len() {
-            self.per_layer.push(HashMap::new());
-            self.hot_experts.push(Vec::new());
-        }
+        self.ensure_layers(other.per_layer.len());
 
         // Merge counts
         for (layer_idx, other_counts) in other.per_layer.iter().enumerate() {
@@ -209,7 +214,7 @@ pub enum FreeTokenSource {
 }
 
 /// A pre-computed "free" token that can be delivered without model computation
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FreeToken {
     /// Token text
     pub text: String,
@@ -249,7 +254,7 @@ impl FreeToken {
 }
 
 /// Pre-computed continuation tokens for an adapter
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PrecomputedTokens {
     /// Ordered sequence of free tokens
     pub tokens: Vec<FreeToken>,
@@ -334,7 +339,7 @@ pub struct MoEPrefixEntry {
     /// Dimensions: [num_tokens][active_experts_per_token] = (layer_idx, expert_id)
     pub expert_routing: SequenceExpertRouting,
     /// Aggregated expert heat map
-    pub heat_map: ExpertHeatMap,
+    pub heat_map: RwLock<ExpertHeatMap>,
     /// Pre-computed free tokens (optional)
     pub free_tokens: Option<PrecomputedTokens>,
     /// Creation timestamp
@@ -364,7 +369,7 @@ impl MoEPrefixEntry {
             prefix_cached_token_count: prefix_token_count,
             kv_bytes,
             expert_routing: Vec::new(),
-            heat_map: ExpertHeatMap::new(num_layers),
+            heat_map: RwLock::new(ExpertHeatMap::new(num_layers)),
             free_tokens: None,
             created_at: Instant::now(),
             last_access_ns: AtomicU64::new(0),
@@ -388,8 +393,11 @@ impl MoEPrefixEntry {
     /// Add expert routing data
     pub fn with_expert_routing(mut self, expert_routing: SequenceExpertRouting) -> Self {
         // Update heat map from routing
-        for token_routing in &expert_routing {
-            self.heat_map.record_token_routing(token_routing);
+        {
+            let heat_map = self.heat_map.get_mut();
+            for token_routing in &expert_routing {
+                heat_map.record_token_routing(token_routing);
+            }
         }
         self.expert_routing = expert_routing;
         self
@@ -403,7 +411,7 @@ impl MoEPrefixEntry {
 
     /// Finalize the entry (compute hot experts, etc.)
     pub fn finalize(mut self, top_k_experts: usize) -> Self {
-        self.heat_map.finalize(top_k_experts);
+        self.heat_map.get_mut().finalize(top_k_experts);
         self
     }
 
@@ -436,7 +444,7 @@ impl MoEPrefixEntry {
     /// Get total memory usage
     pub fn total_bytes(&self) -> u64 {
         self.kv_bytes
-            + self.heat_map.memory_bytes() as u64
+            + self.heat_map.read().memory_bytes() as u64
             + self
                 .free_tokens
                 .as_ref()
@@ -454,7 +462,7 @@ impl MoEPrefixEntry {
 
     /// Check if this entry has stable routing patterns
     pub fn has_stable_routing(&self, threshold: f32) -> bool {
-        self.heat_map.is_stable(threshold)
+        self.heat_map.read().is_stable(threshold)
     }
 }
 
@@ -619,6 +627,24 @@ pub struct MoEPrefixCacheStats {
     pub prewarm_count: u64,
 }
 
+// =============================================================================
+// MoE Cache Persistence
+// =============================================================================
+
+#[derive(Serialize, Deserialize)]
+pub struct MoECacheSnapshot {
+    pub entries: Vec<(B3Hash, MoEPrefixEntrySnapshot)>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct MoEPrefixEntrySnapshot {
+    pub tenant_id: String,
+    pub adapter_id: Option<String>,
+    pub prefix_len: u32,
+    pub heat_map: ExpertHeatMap,
+    pub free_tokens: Option<PrecomputedTokens>,
+}
+
 /// MoE-aware prefix cache
 pub struct MoEPrefixCache {
     /// Cache entries keyed by prefix hash
@@ -631,6 +657,8 @@ pub struct MoEPrefixCache {
     adapter_metrics: PerAdapterMetrics,
     /// Global statistics
     stats: RwLock<MoEPrefixCacheStats>,
+    /// Dirty flag for persistence
+    dirty: AtomicBool,
 }
 
 impl MoEPrefixCache {
@@ -650,6 +678,7 @@ impl MoEPrefixCache {
                 max_bytes,
                 ..Default::default()
             }),
+            dirty: AtomicBool::new(false),
         }
     }
 
@@ -668,9 +697,122 @@ impl MoEPrefixCache {
         }
     }
 
+    /// Get hot experts for a token sequence by hashing it
+    pub fn get_experts_for_tokens(&self, tokens: &[u32]) -> Option<Vec<(usize, u8)>> {
+        let key = self.hash_tokens(tokens);
+        let entry = self.get(&key)?;
+
+        let heat_map = entry.heat_map.read();
+        if !heat_map.is_stable(0.5) {
+            return None;
+        }
+
+        // Return flattened experts for pre-warming (layer, expert_id)
+        let mut experts = Vec::new();
+        for (layer, hot) in heat_map.hot_experts.iter().enumerate() {
+            for &expert_id in hot {
+                experts.push((layer, expert_id));
+            }
+        }
+
+        if experts.is_empty() {
+            None
+        } else {
+            Some(experts)
+        }
+    }
+
+    /// Update cache with observed routing data for a token sequence.
+    ///
+    /// When `kv_tensors` is provided, the cache stores the full KV payload so the
+    /// prompt can be skipped on a subsequent request. When absent, the cache will
+    /// reuse any existing KV data for the prefix (if present) and still record
+    /// routing statistics for expert pre-warming.
+    /// Update cache with observed routing data for a token sequence (merging with existing)
+    pub fn upsert_routing(
+        &self,
+        tokens: &[u32],
+        routing: SequenceExpertRouting,
+        tenant_id: &str,
+        num_layers: usize,
+    ) {
+        let key = self.hash_tokens(tokens);
+
+        let mut entries = self.entries.write();
+
+        if let Some(entry) = entries.get(&key) {
+            // Merge logic
+            let mut new_heat_map = entry.heat_map.clone();
+            for token_routing in &routing {
+                new_heat_map.record_token_routing(token_routing);
+            }
+            new_heat_map.finalize(2);
+
+            let new_entry = MoEPrefixEntry {
+                keys: entry.keys.clone(),
+                values: entry.values.clone(),
+                tenant_id: tenant_id.to_string(),
+                adapter_id: entry.adapter_id.clone(),
+                prefix_cached_token_count: entry.prefix_cached_token_count,
+                kv_bytes: entry.kv_bytes,
+                expert_routing: routing,
+                heat_map: new_heat_map,
+                free_tokens: entry.free_tokens.clone(),
+                created_at: entry.created_at,
+                last_access_ns: AtomicU64::new(entry.last_access_ns.load(Ordering::Relaxed)),
+                active_refcount: AtomicU32::new(0),
+            };
+
+            entries.insert(key, Arc::new(new_entry));
+        } else {
+            // Create fresh
+            let mut heat_map = ExpertHeatMap::new(num_layers);
+            for token_routing in &routing {
+                heat_map.record_token_routing(token_routing);
+            }
+            heat_map.finalize(2);
+
+            let entry = MoEPrefixEntry {
+                keys: Vec::new(),
+                values: Vec::new(),
+                tenant_id: tenant_id.to_string(),
+                adapter_id: None,
+                prefix_cached_token_count: tokens.len() as u32,
+                kv_bytes: 0,
+                expert_routing: routing,
+                heat_map,
+                free_tokens: None,
+                created_at: Instant::now(),
+                last_access_ns: AtomicU64::new(0),
+                active_refcount: AtomicU32::new(0),
+            };
+
+            let entry_bytes = entry.total_bytes();
+            entries.insert(key, Arc::new(entry));
+            self.used_bytes.fetch_add(entry_bytes, Ordering::SeqCst);
+            self.stats.write().entry_count += 1;
+        }
+
+        // Mark as dirty since we added new data
+        self.dirty.store(true, Ordering::Relaxed);
+    }
+
+    /// Hash a sequence of tokens into a B3Hash
+    fn hash_tokens(&self, tokens: &[u32]) -> B3Hash {
+        let mut buf = Vec::with_capacity(tokens.len() * 4);
+        for &t in tokens {
+            buf.extend_from_slice(&t.to_le_bytes());
+        }
+        B3Hash::hash(&buf)
+    }
+
     /// Insert an entry into the cache
     pub fn insert(&self, key: B3Hash, entry: MoEPrefixEntry) -> Result<Arc<MoEPrefixEntry>> {
         let entry_bytes = entry.total_bytes();
+        let existing_bytes = {
+            let entries = self.entries.read();
+            entries.get(&key).map(|e| e.total_bytes()).unwrap_or(0)
+        };
 
         if entry_bytes > self.max_bytes {
             return Err(AosError::Validation(format!(
@@ -679,21 +821,31 @@ impl MoEPrefixCache {
             )));
         }
 
-        self.evict_until_fits(entry_bytes)?;
-
-        let entry = Arc::new(entry);
-        {
-            let mut entries = self.entries.write();
-            entries.insert(key, Arc::clone(&entry));
+        let additional_needed = entry_bytes.saturating_sub(existing_bytes);
+        if additional_needed > 0 {
+            self.evict_until_fits(additional_needed)?;
         }
 
+        let entry = Arc::new(entry);
+        let replaced = {
+            let mut entries = self.entries.write();
+            entries.insert(key, Arc::clone(&entry))
+        };
+
+        if let Some(old_entry) = &replaced {
+            self.used_bytes
+                .fetch_sub(old_entry.total_bytes(), Ordering::SeqCst);
+        }
         self.used_bytes.fetch_add(entry_bytes, Ordering::SeqCst);
         {
             let mut stats = self.stats.write();
-            stats.entry_count += 1;
+            if replaced.is_none() {
+                stats.entry_count += 1;
+            }
             stats.used_bytes = self.used_bytes.load(Ordering::SeqCst);
         }
 
+        self.dirty.store(true, Ordering::Relaxed);
         Ok(entry)
     }
 
@@ -760,7 +912,12 @@ impl MoEPrefixCache {
         key: &B3Hash,
         temperature: f32,
         adapter_id: Option<&str>,
+        max_tokens: usize,
     ) -> Option<Vec<FreeToken>> {
+        if max_tokens == 0 {
+            return None;
+        }
+
         // Check if free tokens are disabled for this adapter
         if let Some(id) = adapter_id {
             if self.adapter_metrics.should_disable(id, 0.9, 100) {
@@ -771,21 +928,45 @@ impl MoEPrefixCache {
 
         let entry = self.get(key)?;
         let precomputed = entry.get_free_tokens(temperature)?;
+        let deliverable = precomputed.tokens.len().min(max_tokens);
+
+        if deliverable == 0 {
+            return None;
+        }
 
         // Record delivery
         if let Some(id) = adapter_id {
             let metrics = self.adapter_metrics.get_or_create(id);
-            for _ in &precomputed.tokens {
+            for _ in 0..deliverable {
                 metrics.record_delivered();
             }
         }
 
         {
             let mut stats = self.stats.write();
-            stats.free_tokens_delivered += precomputed.tokens.len() as u64;
+            stats.free_tokens_delivered += deliverable as u64;
         }
 
-        Some(precomputed.tokens.clone())
+        Some(
+            precomputed
+                .tokens
+                .iter()
+                .take(deliverable)
+                .cloned()
+                .collect(),
+        )
+    }
+
+    /// Convenience helper: get free tokens for a sequence of token IDs
+    pub fn get_free_tokens_for_tokens(
+        &self,
+        tokens: &[u32],
+        temperature: f32,
+        adapter_id: Option<&str>,
+        max_tokens: usize,
+    ) -> Option<Vec<FreeToken>> {
+        let key = self.hash_tokens(tokens);
+        self.get_free_tokens(&key, temperature, adapter_id, max_tokens)
     }
 
     /// Record validation result for a free token
@@ -803,13 +984,13 @@ impl MoEPrefixCache {
     pub fn get_hot_experts(&self, key: &B3Hash) -> Option<Vec<(usize, Vec<u8>)>> {
         let entry = self.get(key)?;
 
-        if !entry.has_stable_routing(0.5) {
+        let heat_map = entry.heat_map.read();
+        if !heat_map.is_stable(0.5) {
             return None;
         }
 
         Some(
-            entry
-                .heat_map
+            heat_map
                 .hot_experts
                 .iter()
                 .enumerate()
@@ -853,6 +1034,90 @@ impl MoEPrefixCache {
     /// Check if empty
     pub fn is_empty(&self) -> bool {
         self.entries.read().is_empty()
+    }
+
+    /// Save cache snapshot to disk (metadata only)
+    pub fn save_snapshot(&self, path: &std::path::Path) -> Result<()> {
+        // Only save if dirty
+        if !self.dirty.swap(false, Ordering::SeqCst) {
+            return Ok(());
+        }
+
+        // Collect snapshot data while holding read lock
+        let snapshot = {
+            let entries = self.entries.read();
+            let snapshot_entries: Vec<_> = entries
+                .iter()
+                .map(|(k, v)| {
+                    (
+                        *k,
+                        MoEPrefixEntrySnapshot {
+                            tenant_id: v.tenant_id.clone(),
+                            adapter_id: v.adapter_id.clone(),
+                            prefix_len: v.prefix_cached_token_count,
+                            heat_map: v.heat_map.read().clone(),
+                            free_tokens: v.free_tokens.clone(),
+                        },
+                    )
+                })
+                .collect();
+            MoECacheSnapshot {
+                entries: snapshot_entries,
+            }
+        }; // Lock is dropped here
+
+        // Perform I/O without holding the lock
+        let file = std::fs::File::create(path).map_err(|e| AosError::IO(e.to_string()))?;
+        serde_json::to_writer(file, &snapshot).map_err(|e| AosError::IO(e.to_string()))?;
+        Ok(())
+    }
+
+    /// Load cache snapshot from disk
+    pub fn load_snapshot(&self, path: &std::path::Path) -> Result<()> {
+        if !path.exists() {
+            return Ok(());
+        }
+        let file = std::fs::File::open(path).map_err(|e| AosError::IO(e.to_string()))?;
+        let snapshot: MoECacheSnapshot =
+            serde_json::from_reader(file).map_err(|e| AosError::IO(e.to_string()))?;
+
+        let mut entries = self.entries.write();
+        let mut stats = self.stats.write();
+
+        for (key, entry_snap) in snapshot.entries {
+            let entry = MoEPrefixEntry {
+                keys: Vec::new(),
+                values: Vec::new(),
+                tenant_id: entry_snap.tenant_id,
+                adapter_id: entry_snap.adapter_id,
+                prefix_cached_token_count: entry_snap.prefix_len,
+                kv_bytes: 0,
+                expert_routing: Vec::new(),
+                heat_map: RwLock::new(entry_snap.heat_map),
+                free_tokens: entry_snap.free_tokens,
+                created_at: Instant::now(),
+                last_access_ns: AtomicU64::new(0),
+                active_refcount: AtomicU32::new(0),
+            };
+
+            // Estimate size
+            let entry_bytes = entry.total_bytes();
+            // Evict if needed (though on load we might be aggressive)
+            // Just insert directly for now, assuming snapshot fits in memory
+            entries.insert(key, Arc::new(entry));
+
+            stats.entry_count += 1;
+            stats.used_bytes += entry_bytes;
+            self.used_bytes.fetch_add(entry_bytes, Ordering::SeqCst);
+        }
+
+        tracing::info!(
+            entries = stats.entry_count,
+            bytes = stats.used_bytes,
+            "Loaded MoE prefix cache snapshot"
+        );
+
+        Ok(())
     }
 }
 
@@ -911,6 +1176,36 @@ mod tests {
     }
 
     #[test]
+    fn test_free_tokens_respects_limit_and_records_stats() {
+        let cache = MoEPrefixCache::new(1024 * 1024);
+        let tokens = vec![1u32, 2u32, 3u32];
+        let free_tokens = PrecomputedTokens::new(
+            vec![FreeToken::new("a", 11, 0.9), FreeToken::new("b", 12, 0.8)],
+            FreeTokenSource::ManifestDeclared,
+        );
+
+        let entry = MoEPrefixEntry::new(
+            vec![],
+            vec![],
+            "tenant1".to_string(),
+            tokens.len() as u32,
+            1,
+        )
+        .with_free_tokens(free_tokens);
+
+        let key = cache.hash_tokens(&tokens);
+        cache.insert(key, entry).unwrap();
+
+        let retrieved = cache
+            .get_free_tokens_for_tokens(&tokens, 0.1, None, 1)
+            .unwrap();
+
+        assert_eq!(retrieved.len(), 1);
+        assert_eq!(retrieved[0].token_id, 11);
+        assert_eq!(cache.stats().free_tokens_delivered, 1);
+    }
+
+    #[test]
     fn test_metrics_accuracy() {
         let metrics = FreeTokenMetrics::new();
 
@@ -962,8 +1257,92 @@ mod tests {
         ])
         .finalize(2);
 
-        assert_eq!(entry.heat_map.sample_count, 3);
+        let heat_map = entry.heat_map.read();
+        assert_eq!(heat_map.sample_count, 3);
         // Expert 5 should be hot in layer 0 (appears twice)
-        assert!(entry.heat_map.get_hot_experts(0).contains(&5));
+        assert!(heat_map.get_hot_experts(0).contains(&5));
+    }
+
+    #[test]
+    fn test_put_routing_merges_heat_map() {
+        let cache = MoEPrefixCache::new(1024 * 1024);
+        let tokens = vec![1, 2, 3];
+
+        cache.put_routing(&tokens, vec![vec![(0, 1)]], "tenant1", 2, None);
+        cache.put_routing(&tokens, vec![vec![(0, 2)]], "tenant1", 2, None);
+
+        let key = cache.hash_tokens(&tokens);
+        let entry = cache.get(&key).expect("entry should exist");
+        let heat_map = entry.heat_map.read();
+
+        // Routing observations should accumulate instead of replacing the previous heat map
+        assert_eq!(heat_map.sample_count, 2);
+        assert_eq!(heat_map.get_hot_experts(0), &[1, 2]);
+        assert_eq!(cache.stats().entry_count, 1);
+    }
+
+    #[test]
+    fn test_put_routing_stores_kv_payload() {
+        let cache = MoEPrefixCache::new(1024 * 1024);
+        let tokens = vec![4u32, 5, 6];
+        let keys = vec![vec![0.1, 0.2]];
+        let values = vec![vec![0.3, 0.4]];
+        let routing = vec![vec![(0, 1)], vec![(1, 2)]];
+
+        cache.put_routing(
+            &tokens,
+            routing.clone(),
+            "tenant1",
+            2,
+            Some((keys.clone(), values.clone())),
+        );
+
+        let key = cache.hash_tokens(&tokens);
+        let entry = cache.get(&key).expect("entry should be stored");
+        assert_eq!(entry.keys, keys);
+        assert_eq!(entry.values, values);
+        assert_eq!(entry.expert_routing, routing);
+        assert!(entry.kv_bytes > 0);
+
+        // Subsequent routing-only updates should retain the KV payload
+        cache.put_routing(&tokens, vec![vec![(0, 3)]], "tenant1", 2, None);
+        let updated = cache.get(&key).expect("entry should remain");
+        assert_eq!(updated.keys, keys);
+        assert_eq!(updated.values, values);
+        assert_eq!(updated.kv_bytes, entry.kv_bytes);
+        assert_eq!(updated.heat_map.read().sample_count, 2);
+    }
+
+    #[test]
+    fn test_insert_replacement_updates_usage() {
+        let cache = MoEPrefixCache::new(1024 * 1024);
+        let key = cache.hash_tokens(&[7u32, 7]);
+
+        let entry1 = MoEPrefixEntry::new(
+            vec![vec![1.0; 8]],
+            vec![vec![2.0; 8]],
+            "tenant1".to_string(),
+            2,
+            1,
+        )
+        .finalize(1);
+        let entry1_bytes = entry1.total_bytes();
+        cache.insert(key, entry1).unwrap();
+        assert_eq!(cache.stats().used_bytes, entry1_bytes);
+
+        let entry2 = MoEPrefixEntry::new(
+            vec![vec![3.0; 8]],
+            vec![vec![4.0; 8]],
+            "tenant1".to_string(),
+            2,
+            1,
+        )
+        .finalize(1);
+        let entry2_bytes = entry2.total_bytes();
+        cache.insert(key, entry2).unwrap();
+
+        let stats = cache.stats();
+        assert_eq!(stats.entry_count, 1);
+        assert_eq!(stats.used_bytes, entry2_bytes);
     }
 }

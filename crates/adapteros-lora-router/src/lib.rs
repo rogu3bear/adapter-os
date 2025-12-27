@@ -17,6 +17,7 @@ pub mod policy_mask;
 pub mod scoring;
 
 use adapteros_core::{determinism::DeterminismContext, AosError, B3Hash, Result};
+use adapteros_numerics::check_numerics;
 use policy_mask::{PolicyMask, PolicyOverrideFlags};
 use rand::Rng;
 use rand_chacha::ChaCha20Rng;
@@ -59,12 +60,19 @@ fn determinism_debug_enabled() -> bool {
 }
 
 /// Ensure temperature is usable for deterministic softmax.
-/// Falls back to 1.0 when tau is non-positive or non-finite.
+/// Falls back to 1.0 when tau is non-positive or non-finite to avoid
+/// degenerate routing.
 fn sanitize_tau(tau: f32) -> f32 {
-    if !tau.is_finite() || tau <= 0.0 {
+    if !tau.is_finite() {
         tracing::warn!(
             tau = tau,
             "Router temperature must be positive and finite; falling back to 1.0"
+        );
+        1.0
+    } else if tau <= 0.0 {
+        tracing::warn!(
+            tau = tau,
+            "Router temperature must be positive; falling back to 1.0"
         );
         1.0
     } else {
@@ -103,6 +111,8 @@ pub struct DecisionHash {
     pub input_hash: String,
     /// BLAKE3 hash of output indices and gates
     pub output_hash: String,
+    /// Optional hash of reasoning buffer used for dynamic routing
+    pub reasoning_hash: Option<String>,
     /// Combined hash of input + output for compact verification
     pub combined_hash: String,
     /// Tau (temperature) used in this decision
@@ -116,6 +126,7 @@ pub struct DecisionHash {
 // Telemetry imports
 use adapteros_telemetry::events::{RouterCandidate as TelemetryCandidate, RouterDecisionEvent};
 use adapteros_telemetry::writer::RouterDecisionWriter;
+use adapteros_types::routing::RouterModelType;
 
 pub use calibration::{
     CalibrationDataset, CalibrationSample, Calibrator, OptimizationMethod, ValidationMetrics,
@@ -310,6 +321,29 @@ pub struct Router {
     abstain_confidence_threshold: Option<f32>,
     /// Optional telemetry writer for abstain events
     abstain_telemetry_writer: Option<std::sync::Arc<adapteros_telemetry::TelemetryWriter>>,
+    /// Last abstain events emitted during routing
+    abstain_events: Vec<adapteros_telemetry::events::AbstainEvent>,
+    /// Optional context attached to abstain events for active-learning loop
+    abstain_context: Option<AbstainContext>,
+
+    // Base-model awareness
+    /// Routing bias supplied by the base model configuration (defaults to 1.0)
+    routing_bias: f32,
+    /// Whether the current base model is a Mixture-of-Experts model
+    is_moe_model: bool,
+}
+
+/// Request-level context captured when abstaining so we can route the prompt
+/// into an active-learning queue without affecting router determinism.
+#[derive(Debug, Clone, Default)]
+pub struct AbstainContext {
+    pub request_id: Option<String>,
+    pub stack_id: Option<String>,
+    pub stack_version: Option<i64>,
+    pub prompt_digest_b3: Option<String>,
+    pub prompt_chars: Option<usize>,
+    pub prompt: Option<String>,
+    pub tenant_id: Option<String>,
 }
 
 impl Router {
@@ -337,6 +371,10 @@ impl Router {
             abstain_entropy_threshold: None,
             abstain_confidence_threshold: None,
             abstain_telemetry_writer: None,
+            abstain_events: Vec::new(),
+            abstain_context: None,
+            routing_bias: 1.0,
+            is_moe_model: false,
         }
     }
 
@@ -389,6 +427,10 @@ impl Router {
             abstain_entropy_threshold: policy_config.abstain_entropy_threshold,
             abstain_confidence_threshold: policy_config.abstain_confidence_threshold,
             abstain_telemetry_writer: None,
+            abstain_events: Vec::new(),
+            abstain_context: None,
+            routing_bias: 1.0,
+            is_moe_model: false,
         }
     }
 
@@ -420,6 +462,40 @@ impl Router {
         self.abstain_confidence_threshold = confidence_threshold;
     }
 
+    /// Attach per-request abstain context for telemetry/active learning.
+    pub fn set_abstain_context(&mut self, context: AbstainContext) {
+        self.abstain_context = Some(context);
+    }
+
+    /// Clear the stored abstain context.
+    pub fn clear_abstain_context(&mut self) {
+        self.abstain_context = None;
+    }
+
+    /// Take abstain events emitted during the last routing call.
+    pub fn take_abstain_events(&mut self) -> Vec<adapteros_telemetry::events::AbstainEvent> {
+        std::mem::take(&mut self.abstain_events)
+    }
+
+    /// Access the current abstain context (if any).
+    pub fn abstain_context(&self) -> Option<&AbstainContext> {
+        self.abstain_context.as_ref()
+    }
+
+    /// Set the routing bias derived from the base model configuration.
+    pub fn set_routing_bias(&mut self, bias: f32) {
+        if bias.is_finite() && bias > 0.0 {
+            self.routing_bias = bias;
+        } else {
+            tracing::warn!(bias = bias, "Invalid routing bias; keeping previous value");
+        }
+    }
+
+    /// Mark whether the active base model is a Mixture-of-Experts model.
+    pub fn set_model_is_moe(&mut self, is_moe: bool) {
+        self.is_moe_model = is_moe;
+    }
+
     /// Set determinism configuration
     pub fn set_determinism_config(&mut self, config: RouterDeterminismConfig) {
         self.determinism_config = config;
@@ -444,6 +520,23 @@ impl Router {
     /// Get the full log token count (for testing)
     pub fn full_log_tokens(&self) -> usize {
         self.full_log_tokens
+    }
+
+    /// Ensure router inputs do not contain NaN or Inf to protect determinism.
+    fn validate_router_inputs(&self, features: &[f32], priors: &[f32]) -> Result<()> {
+        if let Err(err) = check_numerics(features) {
+            return Err(AosError::DeterminismViolation(format!(
+                "Non-finite router feature detected: {err}"
+            )));
+        }
+
+        if let Err(err) = check_numerics(priors) {
+            return Err(AosError::DeterminismViolation(format!(
+                "Non-finite router prior detected: {err}"
+            )));
+        }
+
+        Ok(())
     }
 
     /// Emit a router decision telemetry event (non-blocking)
@@ -472,6 +565,8 @@ impl Router {
                 stack_hash: self.active_stack_hash.map(|h| h.to_short_hex()),
                 stack_id: self.active_stack_name.clone(),
                 stack_version: None, // Will be populated by stack metadata
+                model_type: RouterModelType::Dense,
+                active_experts: None,
             };
 
             // Emit event (non-blocking, logs on error)
@@ -498,7 +593,7 @@ impl Router {
     ///
     /// Note: Empty decisions (no adapters selected) are skipped - they represent
     /// policy-based abstention rather than uncertainty-based abstention.
-    fn check_abstain_conditions(&self, entropy: f32, gates: &[f32]) {
+    fn check_abstain_conditions(&mut self, entropy: f32, gates: &[f32]) {
         use adapteros_telemetry::events::AbstainEvent;
 
         // Skip abstain checks for empty decisions (already abstained via policy/no adapters)
@@ -506,12 +601,26 @@ impl Router {
             return;
         }
 
-        if let Some(ref writer) = self.abstain_telemetry_writer {
-            // Check high entropy threshold
-            if let Some(entropy_threshold) = self.abstain_entropy_threshold {
-                if entropy > entropy_threshold {
-                    let event = AbstainEvent::high_entropy(entropy, entropy_threshold);
-                    if let Err(e) = writer.log_abstain(event) {
+        // Reset previous events for this routing step
+        self.abstain_events.clear();
+        let mut events = Vec::new();
+        let context = self.abstain_context.clone();
+
+        let writer = self.abstain_telemetry_writer.clone();
+
+        // Check high entropy threshold
+        if let Some(entropy_threshold) = self.abstain_entropy_threshold {
+            if entropy > entropy_threshold {
+                let event = AbstainEvent::high_entropy(entropy, entropy_threshold).with_context(
+                    context.as_ref().and_then(|c| c.request_id.clone()),
+                    context.as_ref().and_then(|c| c.stack_id.clone()),
+                    context.as_ref().and_then(|c| c.stack_version),
+                    context.as_ref().and_then(|c| c.prompt_digest_b3.clone()),
+                    context.as_ref().and_then(|c| c.prompt_chars),
+                    context.as_ref().and_then(|c| c.tenant_id.clone()),
+                );
+                if let Some(ref writer) = writer {
+                    if let Err(e) = writer.log_abstain(event.clone()) {
                         tracing::debug!(
                             error = %e,
                             entropy = entropy,
@@ -526,14 +635,25 @@ impl Router {
                         );
                     }
                 }
+                events.push(event);
             }
+        }
 
-            // Check low confidence threshold (max gate below threshold)
-            if let Some(confidence_threshold) = self.abstain_confidence_threshold {
-                let max_gate = gates.iter().fold(0.0f32, |a, &b| a.max(b));
-                if max_gate < confidence_threshold {
-                    let event = AbstainEvent::low_confidence(max_gate, confidence_threshold);
-                    if let Err(e) = writer.log_abstain(event) {
+        // Check low confidence threshold (max gate below threshold)
+        if let Some(confidence_threshold) = self.abstain_confidence_threshold {
+            let max_gate = gates.iter().fold(0.0f32, |a, &b| a.max(b));
+            if max_gate < confidence_threshold {
+                let event = AbstainEvent::low_confidence(max_gate, confidence_threshold)
+                    .with_context(
+                        context.as_ref().and_then(|c| c.request_id.clone()),
+                        context.as_ref().and_then(|c| c.stack_id.clone()),
+                        context.as_ref().and_then(|c| c.stack_version),
+                        context.as_ref().and_then(|c| c.prompt_digest_b3.clone()),
+                        context.as_ref().and_then(|c| c.prompt_chars),
+                        context.as_ref().and_then(|c| c.tenant_id.clone()),
+                    );
+                if let Some(ref writer) = writer {
+                    if let Err(e) = writer.log_abstain(event.clone()) {
                         tracing::debug!(
                             error = %e,
                             max_gate = max_gate,
@@ -548,7 +668,13 @@ impl Router {
                         );
                     }
                 }
+                events.push(event);
             }
+        }
+
+        // Persist events for active-learning loop consumers
+        if !events.is_empty() {
+            self.abstain_events = events;
         }
     }
 
@@ -845,6 +971,45 @@ impl Router {
         score
     }
 
+    /// Apply deterministic prior boost based on adapter reasoning specialties.
+    ///
+    /// This is used by `route_on_reasoning` to bias routing decisions based on
+    /// the model's generated rationale rather than the original prompt.
+    fn apply_reasoning_specialty_boost(
+        &self,
+        priors: &mut [f32],
+        rationale: &str,
+        adapter_info: &[AdapterInfo],
+    ) {
+        if rationale.is_empty() || priors.len() != adapter_info.len() {
+            return;
+        }
+
+        let rationale_lower = rationale.to_ascii_lowercase();
+        for (prior, info) in priors.iter_mut().zip(adapter_info.iter()) {
+            if info.reasoning_specialties.is_empty() {
+                continue;
+            }
+            let mut hits = 0;
+            for specialty in &info.reasoning_specialties {
+                if specialty.is_empty() {
+                    continue;
+                }
+                let needle = specialty.to_ascii_lowercase();
+                if rationale_lower.contains(&needle) {
+                    hits += 1;
+                }
+            }
+
+            if hits > 0 {
+                let coverage = hits as f32 / (info.reasoning_specialties.len() as f32).max(1.0);
+                // Reuse prompt_verb_weight to keep boosts aligned with existing weighting scale.
+                let boost = coverage * self.feature_weights.prompt_verb_weight * self.routing_bias;
+                *prior += boost;
+            }
+        }
+    }
+
     /// Score and select top-K adapters
     ///
     /// # DEPRECATED - Use route_with_adapter_info() instead
@@ -861,7 +1026,10 @@ impl Router {
     /// let features = vec![0.0f32; 22];
     /// let priors = vec![0.5f32, 0.3f32, 0.2f32];
     /// #[allow(deprecated)]
-    /// let _decision = router.route(&features, &priors);
+    /// let _decision = router
+    ///     .route(&features, &priors)
+    ///     .into_selected()
+    ///     .expect("routing decision");
     ///
     /// // New (recommended):
     /// let adapter_info: Vec<AdapterInfo> = (0..priors.len())
@@ -873,6 +1041,7 @@ impl Router {
     ///         scope_path: None,
     ///         lora_tier: None,
     ///         base_model: None,
+    ///         ..Default::default()
     ///     })
     ///     .collect();
     /// let adapter_ids: Vec<String> = adapter_info.iter().map(|a| a.id.clone()).collect();
@@ -890,15 +1059,29 @@ impl Router {
     /// - DIR diversity controls
     ///
     /// See [ROUTER_MIGRATION.md](../../docs/ROUTER_MIGRATION.md) for complete migration steps.
+    /// Returns `RoutingDecision::Abstain` when no adapter qualifies or configuration is empty.
     #[deprecated(
         since = "0.1.1",
         note = "Use route_with_adapter_info() for per-adapter scoring"
     )]
-    pub fn route(&mut self, features: &[f32], priors: &[f32]) -> Decision {
+    pub fn route(&mut self, features: &[f32], priors: &[f32]) -> RoutingDecision {
         tracing::warn!(
             "Router::route() is deprecated, use route_with_adapter_info() instead. \
              See docs/ROUTER_MIGRATION.md for migration guide"
         );
+
+        if let Err(err) = self.validate_router_inputs(features, priors) {
+            tracing::warn!(
+                error = %err,
+                "Router::route rejected input due to non-finite values"
+            );
+            return RoutingDecision::Abstain(RouterAbstainReason::InvalidNumerics(err.to_string()));
+        }
+
+        if priors.is_empty() {
+            return RoutingDecision::Abstain(RouterAbstainReason::EmptyRouterConfig);
+        }
+
         // Compute weighted feature score once
         let feature_score = self.compute_weighted_score(features);
 
@@ -911,6 +1094,19 @@ impl Router {
                 (i, score)
             })
             .collect();
+
+        // If every score falls below the abstain threshold, return explicit abstention.
+        const SCORE_ABSTAIN_THRESHOLD: f32 = 0.1;
+        let max_score = scores
+            .iter()
+            .map(|(_, score)| *score)
+            .fold(f32::NEG_INFINITY, f32::max);
+        if max_score <= SCORE_ABSTAIN_THRESHOLD {
+            return RoutingDecision::Abstain(RouterAbstainReason::ScoresBelowThreshold {
+                threshold: SCORE_ABSTAIN_THRESHOLD,
+                max_score,
+            });
+        }
 
         // Sort by score descending, then by index for determinism (tie-breaker keeps per-token decisions stable)
         scores.sort_by(|a, b| {
@@ -995,7 +1191,7 @@ impl Router {
         // Emit telemetry event (non-blocking)
         self.emit_decision_event(&decision, None);
 
-        decision
+        RoutingDecision::Selected(decision)
     }
 
     /// Compute Shannon entropy of gate distribution
@@ -1024,6 +1220,27 @@ impl Router {
         if logits.is_empty() {
             return Vec::new();
         }
+        if tau == 0.0 {
+            // Hard routing: pick top score, tie-break by adapter index ASC.
+            let mut best: Option<(usize, f32)> = None;
+            for (adapter_idx, score) in logits.iter() {
+                match best {
+                    None => best = Some((*adapter_idx, *score)),
+                    Some((best_idx, best_score)) => {
+                        if *score > best_score || (*score == best_score && *adapter_idx < best_idx)
+                        {
+                            best = Some((*adapter_idx, *score));
+                        }
+                    }
+                }
+            }
+            let winner = best.expect("non-empty logits");
+            return logits
+                .iter()
+                .map(|(idx, _)| if *idx == winner.0 { 1.0 } else { 0.0 })
+                .collect();
+        }
+
         let tau = sanitize_tau(tau);
 
         debug_assert!(
@@ -1083,6 +1300,7 @@ impl Router {
         priors: &[f32],
         indices: &[u16],
         gates_q15: &[i16],
+        reasoning_hash: Option<&B3Hash>,
     ) -> DecisionHash {
         // Hash inputs (features + priors)
         let mut input_bytes = Vec::new();
@@ -1091,6 +1309,9 @@ impl Router {
         }
         for &p in priors {
             input_bytes.extend_from_slice(&p.to_le_bytes());
+        }
+        if let Some(reasoning) = reasoning_hash {
+            input_bytes.extend_from_slice(reasoning.as_bytes());
         }
         let input_hash = B3Hash::hash(&input_bytes);
 
@@ -1102,17 +1323,24 @@ impl Router {
         for &gate in gates_q15 {
             output_bytes.extend_from_slice(&gate.to_le_bytes());
         }
+        if let Some(reasoning) = reasoning_hash {
+            output_bytes.extend_from_slice(reasoning.as_bytes());
+        }
         let output_hash = B3Hash::hash(&output_bytes);
 
         // Combine both hashes for compact verification
         let mut combined_bytes = Vec::new();
         combined_bytes.extend_from_slice(input_hash.as_bytes());
         combined_bytes.extend_from_slice(output_hash.as_bytes());
+        if let Some(reasoning) = reasoning_hash {
+            combined_bytes.extend_from_slice(reasoning.as_bytes());
+        }
         let combined_hash = B3Hash::hash(&combined_bytes);
 
         DecisionHash {
             input_hash: input_hash.to_short_hex(),
             output_hash: output_hash.to_short_hex(),
+            reasoning_hash: reasoning_hash.map(|h| h.to_short_hex()),
             combined_hash: combined_hash.to_short_hex(),
             tau: self.tau,
             eps: self.eps,
@@ -1210,6 +1438,8 @@ impl Router {
         scope_hint: Option<&str>,
         determinism: Option<&DeterminismContext>,
     ) -> Result<Decision> {
+        self.validate_router_inputs(features, priors)?;
+
         let mut filtered_priors: Option<Vec<f32>> = None;
         if let Some(hint) = scope_hint {
             let mut priors_copy = priors.to_vec();
@@ -1218,7 +1448,8 @@ impl Router {
                 if info.scope_path.as_deref() == Some(hint) {
                     matched = true;
                 } else {
-                    *prior = f32::NEG_INFINITY;
+                    // Keep numerics finite while effectively zeroing non-matching adapters
+                    *prior = -1.0e9;
                 }
             }
             if matched {
@@ -1267,7 +1498,8 @@ impl Router {
             }
 
             // Compute adapter-specific feature score (DIFFERENT for each adapter)
-            let adapter_feature_score = self.compute_adapter_feature_score(features, &adapter_info[i]);
+            let adapter_feature_score =
+                self.compute_adapter_feature_score(features, &adapter_info[i]);
             if !adapter_feature_score.is_finite() {
                 return Err(AosError::DeterminismViolation(format!(
                     "Non-finite feature score for adapter {}",
@@ -1284,8 +1516,14 @@ impl Router {
                 )));
             }
 
-            // Combine: prior + features - penalty
-            let score = prior + adapter_feature_score - orthogonal_penalty;
+            // Combine: prior + features - penalty, then apply model-aware bias
+            let mut score = scoring::compute_score(
+                prior + adapter_feature_score - orthogonal_penalty,
+                self.routing_bias,
+            );
+            if self.is_moe_model && !adapter_info[i].recommended_for_moe {
+                score *= 0.8;
+            }
             if !score.is_finite() {
                 return Err(AosError::DeterminismViolation(format!(
                     "Non-finite combined score for adapter {}",
@@ -1398,10 +1636,14 @@ impl Router {
         // Softmax with temperature using deterministic f64 + Kahan path
         let mut gates: Vec<f32> = Self::deterministic_softmax(&top_k, self.tau);
 
-        // Apply entropy floor
-        let min_gate = self.eps / self.k as f32;
-        for g in &mut gates {
-            *g = g.max(min_gate);
+        let zero_temperature = self.tau == 0.0;
+
+        if !zero_temperature {
+            // Apply entropy floor
+            let min_gate = self.eps / self.k as f32;
+            for g in &mut gates {
+                *g = g.max(min_gate);
+            }
         }
 
         // Renormalize
@@ -1449,7 +1691,13 @@ impl Router {
         // Compute decision hash if enabled
         let decision_hash = if self.determinism_config.enable_decision_hashing {
             let feature_vec: Vec<f32> = features.to_vec();
-            Some(self.compute_decision_hash(&feature_vec, priors_for_routing, &indices, &gates_q15))
+            Some(self.compute_decision_hash(
+                &feature_vec,
+                priors_for_routing,
+                &indices,
+                &gates_q15,
+                None,
+            ))
         } else {
             None
         };
@@ -1466,6 +1714,46 @@ impl Router {
 
         // Emit telemetry event (non-blocking)
         self.emit_decision_event(&decision, None);
+
+        Ok(decision)
+    }
+
+    /// Route based on the model's generated reasoning instead of the input prompt.
+    ///
+    /// This uses the same weighting logic as `route_with_adapter_info` but derives
+    /// features from the generated rationale and applies reasoning_specialties
+    /// metadata to bias the priors deterministically.
+    pub fn route_on_reasoning(
+        &mut self,
+        rationale: &str,
+        priors: &[f32],
+        adapter_info: &[AdapterInfo],
+        policy_mask: &PolicyMask,
+        determinism: Option<&DeterminismContext>,
+    ) -> Result<Decision> {
+        let features = CodeFeatures::from_context(rationale).to_vector();
+        let mut boosted_priors = priors.to_vec();
+        self.apply_reasoning_specialty_boost(&mut boosted_priors, rationale, adapter_info);
+
+        let mut decision = self.route_with_adapter_info_and_scope_with_ctx(
+            &features,
+            &boosted_priors,
+            adapter_info,
+            policy_mask,
+            None,
+            determinism,
+        )?;
+
+        if self.determinism_config.enable_decision_hashing {
+            let reasoning_hash = B3Hash::hash(rationale.as_bytes());
+            decision.decision_hash = Some(self.compute_decision_hash(
+                &features,
+                &boosted_priors,
+                &decision.indices,
+                &decision.gates_q15,
+                Some(&reasoning_hash),
+            ));
+        }
 
         Ok(decision)
     }
@@ -1499,6 +1787,22 @@ impl Router {
             "Router::route_with_k0_detection() is deprecated, use route_with_adapter_info() instead. \
              See docs/ROUTER_MIGRATION.md for migration guide"
         );
+        if let Err(err) = self.validate_router_inputs(features, priors) {
+            tracing::warn!(
+                error = %err,
+                "Router::route_with_k0_detection rejected input due to non-finite values"
+            );
+            let _ = self.log_k0_event("invalid_numerics", features);
+            return Decision {
+                indices: SmallVec::new(),
+                gates_q15: SmallVec::new(),
+                entropy: 0.0,
+                candidates: Vec::new(),
+                decision_hash: None,
+                policy_mask_digest: None,
+                policy_overrides_applied: None,
+            };
+        }
         if priors.is_empty() {
             // Log k0 event
             let _ = self.log_k0_event("no_adapters_available", features);
@@ -1553,22 +1857,16 @@ impl Router {
         // Take top K
         let top_k: Vec<(usize, f32)> = scores.into_iter().take(self.k).collect();
 
-        // Softmax with temperature
-        let max_score = top_k
-            .iter()
-            .map(|(_, s)| s)
-            .fold(f32::NEG_INFINITY, |a, &b| a.max(b));
-        let exp_scores: Vec<f32> = top_k
-            .iter()
-            .map(|(_, s)| ((s - max_score) / self.tau).exp())
-            .collect();
-        let sum_exp: f32 = exp_scores.iter().sum();
+        // Softmax with temperature (deterministic path)
+        let mut gates: Vec<f32> = Self::deterministic_softmax(&top_k, self.tau);
+        let zero_temperature = self.tau == 0.0;
 
-        // Normalize and apply entropy floor
-        let mut gates: Vec<f32> = exp_scores.iter().map(|e| e / sum_exp).collect();
-        let min_gate = self.eps / self.k as f32;
-        for g in &mut gates {
-            *g = g.max(min_gate);
+        if !zero_temperature {
+            // Normalize and apply entropy floor
+            let min_gate = self.eps / self.k as f32;
+            for g in &mut gates {
+                *g = g.max(min_gate);
+            }
         }
 
         // Renormalize
@@ -1708,6 +2006,21 @@ impl Router {
         self.route_with_adapter_info(&feature_vec, &priors, adapter_info, &mask)
     }
 
+    /// Deterministic dry-run routing for a preview/prompt text.
+    ///
+    /// This extracts code features from the provided text and runs the
+    /// canonical router selection without mutating adapter state. It shares
+    /// the same determinism guarantees (score DESC, index ASC) as the
+    /// production routing path.
+    pub fn dry_run(
+        &mut self,
+        preview_text: &str,
+        adapter_info: &[AdapterInfo],
+    ) -> Result<Decision> {
+        let code_features = CodeFeatures::from_context(preview_text);
+        self.route_with_code_features(&code_features, adapter_info)
+    }
+
     /// Get scoring explanation for debugging/audit
     pub fn explain_score(&self, features: &[f32]) -> ScoringExplanation {
         // Accept both 21 (without entropy) and 22 (with entropy) dimensions
@@ -1782,7 +2095,7 @@ impl ScoringExplanation {
 }
 
 /// Adapter information for routing
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct AdapterInfo {
     pub id: String,
     pub framework: Option<String>,
@@ -1791,12 +2104,31 @@ pub struct AdapterInfo {
     pub scope_path: Option<String>,
     pub lora_tier: Option<String>,
     pub base_model: Option<String>,
+    pub recommended_for_moe: bool,
+    /// Optional reasoning specialties (e.g., math, logic) for dynamic routing
+    pub reasoning_specialties: Vec<String>,
 }
 
 impl AdapterInfo {
     /// Check if adapter supports a language
     pub fn supports_language(&self, lang_idx: usize) -> bool {
         self.languages.contains(&lang_idx)
+    }
+}
+
+impl Default for AdapterInfo {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            framework: None,
+            languages: Vec::new(),
+            tier: "default".to_string(),
+            scope_path: None,
+            lora_tier: None,
+            base_model: None,
+            recommended_for_moe: true,
+            reasoning_specialties: Vec::new(),
+        }
     }
 }
 
@@ -1857,9 +2189,54 @@ impl From<&Decision> for adapteros_lora_kernel_api::RouterRing {
     }
 }
 
+/// Router decision that can represent either a concrete selection or an abstain outcome.
+#[derive(Debug, Clone)]
+pub enum RoutingDecision {
+    /// The router selected one or more adapters.
+    Selected(Decision),
+    /// The router abstained from making a selection.
+    Abstain(RouterAbstainReason),
+}
+
+/// Reasons the router can abstain from routing.
+#[derive(Debug, Clone)]
+pub enum RouterAbstainReason {
+    /// No adapters are configured or available.
+    EmptyRouterConfig,
+    /// All computed scores fall below the abstention threshold.
+    ScoresBelowThreshold { threshold: f32, max_score: f32 },
+    /// Input validation failed (NaN/Inf detected).
+    InvalidNumerics(String),
+}
+
+impl RoutingDecision {
+    /// Access the selected decision if routing succeeded.
+    pub fn as_selected(&self) -> Option<&Decision> {
+        match self {
+            RoutingDecision::Selected(decision) => Some(decision),
+            RoutingDecision::Abstain(_) => None,
+        }
+    }
+
+    /// Consume the routing decision and return the selected decision if present.
+    pub fn into_selected(self) -> Option<Decision> {
+        match self {
+            RoutingDecision::Selected(decision) => Some(decision),
+            RoutingDecision::Abstain(_) => None,
+        }
+    }
+}
+
+impl From<Decision> for RoutingDecision {
+    fn from(decision: Decision) -> Self {
+        RoutingDecision::Selected(decision)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::policy_mask::PolicyMask;
     use adapteros_core::determinism::DeterminismSource;
     use adapteros_core::seed::{derive_seed_full, hash_adapter_dir};
     use std::path::Path;
@@ -1917,6 +2294,105 @@ mod tests {
         // Gates should sum to approximately 1.0
         let sum: f32 = decision.gates_f32().iter().sum();
         assert!((sum - 1.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_route_on_reasoning_prefers_specialty_match() {
+        let mut router = Router::new_with_weights(RouterWeights::default(), 1, 1.0, 0.02);
+        let priors = vec![0.4f32, 0.4f32];
+        let adapter_info = vec![
+            AdapterInfo {
+                id: "creative-writer".to_string(),
+                framework: None,
+                languages: vec![0],
+                tier: "default".to_string(),
+                reasoning_specialties: vec!["creative".to_string()],
+                ..Default::default()
+            },
+            AdapterInfo {
+                id: "python-coder".to_string(),
+                framework: None,
+                languages: vec![0],
+                tier: "default".to_string(),
+                reasoning_specialties: vec!["python".to_string(), "logic".to_string()],
+                ..Default::default()
+            },
+        ];
+        let adapter_ids: Vec<String> = adapter_info.iter().map(|a| a.id.clone()).collect();
+        let policy_mask = PolicyMask::allow_all(&adapter_ids, None);
+
+        let decision = router
+            .route_on_reasoning(
+                "Let's write the python utility now.",
+                &priors,
+                &adapter_info,
+                &policy_mask,
+                None,
+            )
+            .expect("reasoning route");
+
+        assert_eq!(
+            decision.indices.first().copied(),
+            Some(1),
+            "python-coder should be selected when rationale mentions python"
+        );
+        assert!(decision
+            .decision_hash
+            .as_ref()
+            .and_then(|h| h.reasoning_hash.as_ref())
+            .is_some());
+    }
+
+    #[test]
+    fn test_reasoning_swap_flow() {
+        let mut router = Router::new_with_weights(RouterWeights::default(), 1, 1.0, 0.02);
+        let priors = vec![0.6f32, 0.6f32];
+        let adapter_info = vec![
+            AdapterInfo {
+                id: "creative-writer".to_string(),
+                framework: None,
+                languages: vec![0],
+                tier: "default".to_string(),
+                reasoning_specialties: vec!["creative".to_string()],
+                ..Default::default()
+            },
+            AdapterInfo {
+                id: "python-coder".to_string(),
+                framework: None,
+                languages: vec![0],
+                tier: "default".to_string(),
+                reasoning_specialties: vec!["python".to_string()],
+                ..Default::default()
+            },
+        ];
+        let adapter_ids: Vec<String> = adapter_info.iter().map(|a| a.id.clone()).collect();
+        let policy_mask = PolicyMask::allow_all(&adapter_ids, None);
+
+        let prompt_features = CodeFeatures::from_context("Tell me a creative story").to_vector();
+        let initial = router
+            .route_with_adapter_info(&prompt_features, &priors, &adapter_info, &policy_mask)
+            .expect("initial decision");
+        assert_eq!(
+            initial.indices.first().copied(),
+            Some(0),
+            "creative adapter should win initial routing"
+        );
+
+        let swap = router
+            .route_on_reasoning(
+                "<thinking>I should now write python code.</thinking>",
+                &priors,
+                &adapter_info,
+                &policy_mask,
+                None,
+            )
+            .expect("reasoning swap");
+
+        assert_eq!(
+            swap.indices.first().copied(),
+            Some(1),
+            "python adapter should be selected after reasoning swap"
+        );
     }
 
     #[test]
@@ -2230,6 +2706,57 @@ mod tests {
             "Higher entropy floor should result in higher minimum gate: {} vs {}",
             actual_min_high,
             actual_min_low
+        );
+    }
+
+    #[test]
+    fn test_tau_is_sanitized() {
+        let router = Router::new_with_weights(RouterWeights::default(), 2, 0.0, 0.02);
+        assert!(
+            router.tau() > 0.0,
+            "Tau must be sanitized to a positive value"
+        );
+        let mut router_policy = Router::new_with_policy_config(
+            RouterWeights::default(),
+            2,
+            f32::NAN,
+            &adapteros_policy::packs::router::RouterConfig::default(),
+        );
+        // Route to ensure sanitized tau is used
+        let features = vec![0.0f32; 4];
+        let priors = vec![0.5f32, 0.5f32];
+        let adapter_info: Vec<AdapterInfo> = (0..priors.len())
+            .map(|i| AdapterInfo {
+                id: format!("adapter_{}", i),
+                ..Default::default()
+            })
+            .collect();
+        let mask = mask_all(&adapter_info);
+        let decision = router_policy
+            .route_with_adapter_info(&features, &priors, &adapter_info, &mask)
+            .expect("routing should sanitize tau");
+        assert_eq!(decision.indices.len(), 2);
+    }
+
+    #[test]
+    fn route_with_adapter_info_rejects_non_finite_priors() {
+        let mut router = Router::new_with_weights(RouterWeights::default(), 2, 1.0, 0.02);
+        let features = vec![0.0f32; 3];
+        let priors = vec![0.5f32, f32::NAN];
+        let adapter_info: Vec<AdapterInfo> = (0..priors.len())
+            .map(|i| AdapterInfo {
+                id: format!("adapter_{}", i),
+                ..Default::default()
+            })
+            .collect();
+        let mask = mask_all(&adapter_info);
+        let err = router
+            .route_with_adapter_info(&features, &priors, &adapter_info, &mask)
+            .expect_err("non-finite priors should be rejected");
+        assert!(
+            format!("{}", err).contains("Non-finite router prior"),
+            "Error should mention non-finite router priors, got {}",
+            err
         );
     }
 
@@ -2923,10 +3450,10 @@ mod tests {
         // Verify we're NOT using incorrect 32768 denominator
         let gate_max = 1.0f32;
 
-        let q15_correct = (gate_max * 32767.0).round() as i16;
-        let q15_incorrect = (gate_max * 32768.0).round() as i16;
+        let q15_correct = (gate_max * 32767.0).round() as i32;
+        let q15_incorrect = (gate_max * 32768.0).round() as i32;
 
-        assert_eq!(q15_correct, 32767);
+        assert_eq!(q15_correct, ROUTER_GATE_Q15_MAX as i32);
         assert_ne!(q15_correct, q15_incorrect, "32767 and 32768 must differ");
 
         let recovered_correct = q15_correct as f32 / 32767.0;
@@ -2965,18 +3492,34 @@ mod tests {
 
         let adapter_info: Vec<AdapterInfo> = (0..3)
             .map(|i| AdapterInfo {
-                adapter_id: format!("adapter-{}", i),
-                adapter_hash: Some(format!("hash{}", i)),
-                framework_tags: vec![],
-                language_tags: vec![],
-                scope: None,
+                id: format!("adapter-{}", i),
+                framework: None,
+                languages: vec![],
+                tier: "default".to_string(),
+                scope_path: None,
+                lora_tier: None,
+                base_model: None,
+                ..Default::default()
             })
             .collect();
 
-        let adapter_ids: Vec<String> = adapter_info.iter().map(|a| a.adapter_id.clone()).collect();
+        let adapter_ids: Vec<String> = adapter_info.iter().map(|a| a.id.clone()).collect();
         let mask = PolicyMask::allow_all(&adapter_ids, None);
+        let determinism_ctx = DeterminismContext::new(
+            [42u8; 32],
+            None,
+            adapteros_core::SeedMode::BestEffort,
+            adapteros_types::adapters::metadata::RoutingDeterminismMode::Adaptive,
+            DeterminismSource::DerivedFromRequest,
+        );
         let decision = router
-            .route_with_adapter_info(&features, &priors, &adapter_info, &mask)
+            .route_with_adapter_info_with_ctx(
+                &features,
+                &priors,
+                &adapter_info,
+                &mask,
+                Some(&determinism_ctx),
+            )
             .expect("routing decision");
 
         let sum_q15: i32 = decision.gates_q15.iter().map(|&g| g as i32).sum();
@@ -2999,17 +3542,33 @@ mod tests {
         let priors = vec![1.0];
 
         let adapter_info = vec![AdapterInfo {
-            adapter_id: "adapter-1".to_string(),
-            adapter_hash: Some("hash1".to_string()),
-            framework_tags: vec![],
-            language_tags: vec![],
-            scope: None,
+            id: "adapter-1".to_string(),
+            framework: None,
+            languages: vec![],
+            tier: "default".to_string(),
+            scope_path: None,
+            lora_tier: None,
+            base_model: None,
+            ..Default::default()
         }];
 
-        let adapter_ids: Vec<String> = adapter_info.iter().map(|a| a.adapter_id.clone()).collect();
+        let adapter_ids: Vec<String> = adapter_info.iter().map(|a| a.id.clone()).collect();
         let mask = PolicyMask::allow_all(&adapter_ids, None);
+        let determinism_ctx = DeterminismContext::new(
+            [42u8; 32],
+            None,
+            adapteros_core::SeedMode::BestEffort,
+            adapteros_types::adapters::metadata::RoutingDeterminismMode::Adaptive,
+            DeterminismSource::DerivedFromRequest,
+        );
         let decision = router
-            .route_with_adapter_info(&features, &priors, &adapter_info, &mask)
+            .route_with_adapter_info_with_ctx(
+                &features,
+                &priors,
+                &adapter_info,
+                &mask,
+                Some(&determinism_ctx),
+            )
             .expect("routing decision");
 
         assert_eq!(decision.indices.len(), 1);
@@ -3028,22 +3587,38 @@ mod tests {
 
         let adapter_info: Vec<AdapterInfo> = (0..3)
             .map(|i| AdapterInfo {
-                adapter_id: format!("adapter-{}", i),
-                adapter_hash: Some(format!("hash{}", i)),
-                framework_tags: vec![],
-                language_tags: vec![],
-                scope: None,
+                id: format!("adapter-{}", i),
+                framework: None,
+                languages: vec![],
+                tier: "default".to_string(),
+                scope_path: None,
+                lora_tier: None,
+                base_model: None,
+                ..Default::default()
             })
             .collect();
 
-        let adapter_ids: Vec<String> = adapter_info.iter().map(|a| a.adapter_id.clone()).collect();
+        let adapter_ids: Vec<String> = adapter_info.iter().map(|a| a.id.clone()).collect();
         let mask = PolicyMask::allow_all(&adapter_ids, None);
+        let determinism_ctx = DeterminismContext::new(
+            [42u8; 32],
+            None,
+            adapteros_core::SeedMode::BestEffort,
+            adapteros_types::adapters::metadata::RoutingDeterminismMode::Adaptive,
+            DeterminismSource::DerivedFromRequest,
+        );
 
         // Make 3 identical routing decisions
         let mut decisions = Vec::new();
         for _ in 0..3 {
             let decision = router
-                .route_with_adapter_info(&features, &priors, &adapter_info, &mask)
+                .route_with_adapter_info_with_ctx(
+                    &features,
+                    &priors,
+                    &adapter_info,
+                    &mask,
+                    Some(&determinism_ctx),
+                )
                 .expect("routing decision");
             decisions.push(decision);
         }

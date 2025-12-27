@@ -12,7 +12,7 @@
 
 use adapteros_core::determinism::{DeterminismContext, DeterminismSource};
 use adapteros_lora_router::{
-    AdapterInfo, Decision, PolicyMask, Router, RouterWeights, ROUTER_GATE_Q15_DENOM,
+    policy_mask::PolicyMask, AdapterInfo, Decision, Router, RouterWeights, ROUTER_GATE_Q15_DENOM,
     ROUTER_GATE_Q15_MAX,
 };
 use adapteros_types::adapters::metadata::RoutingDeterminismMode;
@@ -87,6 +87,7 @@ fn test_router_produces_zero_gates_for_masked_adapters() {
             scope_path: None,
             lora_tier: None,
             base_model: None,
+            ..Default::default()
         },
         AdapterInfo {
             id: "adapter-2".to_string(),
@@ -96,6 +97,7 @@ fn test_router_produces_zero_gates_for_masked_adapters() {
             scope_path: None,
             lora_tier: None,
             base_model: None,
+            ..Default::default()
         },
     ];
 
@@ -165,6 +167,7 @@ fn test_router_produces_max_gate_for_single_adapter() {
         scope_path: None,
         lora_tier: None,
         base_model: None,
+        ..Default::default()
     }];
 
     let adapter_ids: Vec<String> = adapter_info.iter().map(|a| a.id.clone()).collect();
@@ -341,6 +344,7 @@ fn test_router_normalized_gates_sum_to_approximately_32767() {
             scope_path: None,
             lora_tier: None,
             base_model: None,
+            ..Default::default()
         })
         .collect();
 
@@ -541,6 +545,7 @@ fn test_router_produces_identical_q15_for_identical_inputs() {
             scope_path: None,
             lora_tier: None,
             base_model: None,
+            ..Default::default()
         })
         .collect();
 
@@ -721,6 +726,7 @@ fn test_full_routing_pipeline_q15_properties() {
             scope_path: None,
             lora_tier: None,
             base_model: None,
+            ..Default::default()
         })
         .collect();
 

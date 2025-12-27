@@ -1,7 +1,7 @@
 use adapteros_core::{BackendKind, DeterminismMode, SeedMode};
 use adapteros_crypto::Keypair;
 use adapteros_db::git::FileChangeEvent;
-use adapteros_db::{sqlx, Db, KvIsolationScanReport};
+use adapteros_db::{sqlx, Db, KvIsolationScanReport, ProtectedDb, WriteCapableDb};
 use adapteros_deterministic_exec::global_ledger::GlobalTickLedger;
 use adapteros_lora_kernel_api::FusedKernels;
 use adapteros_lora_lifecycle::LifecycleManager;
@@ -626,7 +626,7 @@ pub struct DatasetProgressEvent {
 /// [source: docs/ARCHITECTURE.md#architecture-components]
 #[derive(Clone)]
 pub struct AppState {
-    pub db: Db,
+    pub db: ProtectedDb,
     pub jwt_secret: Arc<Vec<u8>>,
     pub config: Arc<RwLock<ApiConfig>>,
     pub metrics_exporter: Arc<adapteros_metrics_exporter::MetricsExporter>,
@@ -721,6 +721,7 @@ impl AppState {
         metrics_registry: Arc<MetricsRegistry>,
         uma_monitor: Arc<UmaPressureMonitor>,
     ) -> Self {
+        let db = ProtectedDb::new(db);
         let db_pool = db.pool().clone(); // Get the pool from the Db struct
         let keys_dir = "var/keys".to_string();
         let crypto_state = CryptoState::new_with_path(&keys_dir);
@@ -880,6 +881,11 @@ impl AppState {
             kv_isolation_lock: Arc::new(tokio::sync::Mutex::new(())),
             background_tasks: Arc::new(BackgroundTaskTracker::default()),
         }
+    }
+
+    /// Get a lifecycle-scoped database view for adapter state mutations.
+    pub fn lifecycle_db(&self) -> WriteCapableDb<'_> {
+        self.db.write(self.db.lifecycle_token())
     }
 
     /// Set boot state manager for lifecycle tracking

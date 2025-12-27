@@ -155,6 +155,8 @@ fn test_inference_request_internal_with_pinned_adapters() {
         request_id: "test-123".to_string(),
         cpid: "tenant-1".to_string(),
         prompt: "test prompt".to_string(),
+        reasoning_mode: false,
+        admin_override: false,
         stream: false,
         batch_item_id: None,
         rag_enabled: false,

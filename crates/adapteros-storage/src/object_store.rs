@@ -1,4 +1,4 @@
-use crate::StorageError;
+use crate::{ensure_free_space, StorageError};
 use adapteros_core::B3Hash;
 use async_trait::async_trait;
 use std::io;
@@ -113,6 +113,8 @@ impl ObjectStore for FsObjectStore {
         bytes: &[u8],
     ) -> Result<StoredObject, StorageError> {
         let path = self.resolve_path(key);
+        let parent = path.parent().unwrap_or(Path::new("."));
+        ensure_free_space(parent, "object store write")?;
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).await.map_err(|e| {
                 StorageError::IoError(io::Error::new(
@@ -194,6 +196,7 @@ fn absolutize(path: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
     use tempfile::tempdir;
 
     #[tokio::test]
@@ -220,5 +223,17 @@ mod tests {
         store.delete_bytes(&key).await.unwrap();
         let reopened = store.open_bytes(&key).await.unwrap();
         assert!(reopened.is_none());
+    }
+
+    #[test]
+    fn ensure_free_space_errors_on_missing_path() {
+        let missing = PathBuf::from("/this/path/should/not/exist/aos-disk-check");
+        let err = crate::ensure_free_space(&missing, "test")
+            .expect_err("disk check should fail for missing path");
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("Failed to check disk space") || msg.contains("Insufficient disk space"),
+            "unexpected error message: {msg}"
+        );
     }
 }

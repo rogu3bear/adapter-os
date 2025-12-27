@@ -598,6 +598,8 @@ start_ui() {
     # Set the port for Vite
     export VITE_PORT="$UI_PORT"
     export PORT="$UI_PORT"
+    # Tell the UI dev server to skip spawning its own backend (we managed it)
+    export AOS_UI_SKIP_BACKEND=1
 
     nohup pnpm dev --port "$UI_PORT" > "$UI_LOG" 2>&1 &
     local pid=$!
@@ -756,8 +758,6 @@ check_database() {
 generate_uuid() {
     if command -v uuidgen > /dev/null 2>&1; then
         uuidgen | tr '[:upper:]' '[:lower:]'
-    elif command -v python3 > /dev/null 2>&1; then
-        python3 -c "import uuid; print(str(uuid.uuid4()))"
     else
         # Fallback: use date + random
         echo "$(date +%s)-$(od -An -N4 -tu4 /dev/urandom | tr -d ' ')"

@@ -100,6 +100,10 @@ impl<K: FusedKernels + crate::StrictnessControl + Send + Sync + 'static> Worker<
     {
         use adapteros_lora_lifecycle::{MockAdapterBackend, WorkflowExecutor};
 
+        // Guardrail: Acquire resource permit
+        let limiter = self.resource_limiter.clone();
+        let _permit = limiter.acquire_request().await?;
+
         info!(
             "Executing workflow with {} adapters using real kernels",
             adapter_ids.len()

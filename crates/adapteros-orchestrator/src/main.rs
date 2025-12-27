@@ -73,6 +73,7 @@ async fn main() -> Result<()> {
                 skip_dependency_checks: false,
                 allow_degraded_mode: false,
                 require_telemetry_bundles: true,
+                gate_timeout_secs: OrchestratorConfig::default().gate_timeout_secs,
             };
 
             let orchestrator = Orchestrator::new(config);

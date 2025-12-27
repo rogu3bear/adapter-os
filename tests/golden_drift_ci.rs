@@ -333,6 +333,8 @@ fn create_test_decision(
         stack_hash: None,
         stack_id: None,
         stack_version: None,
+        model_type: adapteros_types::routing::RouterModelType::Dense,
+        active_experts: None,
     }
 }
 

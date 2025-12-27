@@ -893,11 +893,7 @@ impl Db {
     /// Inserts or updates a worker record with manifest hash and version information,
     /// then transitions lifecycle to `registered`.
     pub async fn register_worker(&self, params: WorkerRegistrationParams) -> Result<()> {
-        let mut tx = self
-            .pool()
-            .begin()
-            .await
-            .map_err(|e| AosError::Database(format!("Failed to begin transaction: {}", e)))?;
+        let mut tx = self.begin_write_tx().await?;
 
         let exists: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM workers WHERE id = ?")
             .bind(&params.worker_id)
@@ -997,11 +993,7 @@ impl Db {
         reason: &str,
         actor: Option<&str>,
     ) -> Result<()> {
-        let mut tx = self
-            .pool()
-            .begin()
-            .await
-            .map_err(|e| AosError::Database(format!("Failed to begin transaction: {}", e)))?;
+        let mut tx = self.begin_write_tx().await?;
 
         // Get current status and tenant_id
         let row: Option<(String, String)> =

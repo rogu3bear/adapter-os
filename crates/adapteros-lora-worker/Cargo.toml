@@ -32,11 +32,11 @@ coreml-backend = ["dep:adapteros-lora-kernel-coreml"]
 multi-backend = ["dep:adapteros-lora-mlx-ffi", "mlx"]
 remote-llm = ["dep:reqwest"]
 
-# mlx-bridge: Enables MLX subprocess bridge backend
+# mlx-bridge: Enables MLX subprocess bridge backend (Python subprocess)
 #   - Uses Python mlx-lm via subprocess for MoE models
-#   - Automatically selected for models with num_experts > 0
-#   - Falls back to MLX FFI for non-MoE models if Python unavailable
-mlx-bridge = []
+#   - Opt-in only to avoid mandatory Python dependencies
+#   - When disabled, MoE MLX models are rejected instead of falling back
+mlx-bridge = ["multi-backend"]
 
 # Alias for clarity
 mlx-backend = ["multi-backend"]
@@ -112,6 +112,7 @@ smallvec = "1.13"
 sysinfo = { version = "0.30", optional = true }  # Telemetry + residency harness
 reqwest = { version = "0.12", features = ["json"], optional = true }
 ureq = "3.0"  # PRD-09: Blocking HTTP client for panic hook
+libc = "0.2"
 
 clap = { workspace = true }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

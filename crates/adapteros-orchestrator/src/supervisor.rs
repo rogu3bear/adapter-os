@@ -12,13 +12,16 @@ use adapteros_db::Db;
 use adapteros_policy::{PolicyHashWatcher, QuarantineManager, QuarantineOperation};
 use adapteros_registry::Registry;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::Mutex as TokioMutex;
 use tokio::time::interval;
 use tracing::{debug, error, info, warn};
+
+const CRASH_LOOP_THRESHOLD: usize = 5;
+const CRASH_LOOP_WINDOW: Duration = Duration::from_secs(60);
 
 /// Supervisor configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -121,6 +124,8 @@ pub struct WorkerRestartState {
     pub last_restart: std::time::SystemTime,
     /// Timestamp of last crash
     pub last_crash: Option<std::time::SystemTime>,
+    /// Recent crash timestamps (sliding window for circuit breaker)
+    pub recent_crashes: VecDeque<std::time::SystemTime>,
     /// Restart policy
     pub policy: RestartPolicy,
 }
@@ -131,6 +136,7 @@ impl Default for WorkerRestartState {
             attempts: 0,
             last_restart: std::time::SystemTime::UNIX_EPOCH,
             last_crash: None,
+            recent_crashes: VecDeque::new(),
             policy: RestartPolicy::default(),
         }
     }
@@ -376,6 +382,32 @@ impl SupervisorDaemon {
         Ok(())
     }
 
+    /// Quarantine a worker after repeated crashes and alert control plane
+    async fn quarantine_worker(&self, tenant_id: &str, reason: &str) {
+        let summary = format!(
+            "Worker {} quarantined after repeated crashes: {}",
+            tenant_id, reason
+        );
+
+        {
+            let mut workers = self.workers.lock().await;
+            if let Some(worker) = workers.get_mut(tenant_id) {
+                worker.status = WorkerStatus::Quarantined;
+            }
+        }
+
+        {
+            let mut quarantine = self.quarantine_manager.lock().await;
+            quarantine.set_quarantined(true, summary.clone());
+        }
+
+        self.alert_control_plane(tenant_id, &summary).await;
+    }
+
+    async fn alert_control_plane(&self, tenant_id: &str, summary: &str) {
+        warn!(tenant = tenant_id, "Control plane alert: {}", summary);
+    }
+
     /// Enforce quarantine on all workers
     async fn enforce_quarantine(&self) -> Result<()> {
         let violations = if let Some(ref watcher) = self.policy_watcher {
@@ -437,25 +469,49 @@ impl SupervisorDaemon {
     /// Records crash and restart events in database for audit
     pub async fn handle_worker_crash(&self, tenant_id: &str, crash_reason: &str) -> Result<()> {
         info!("Worker {} crashed: {}", tenant_id, crash_reason);
+        let now = std::time::SystemTime::now();
 
         // Record crash in database
         self.record_crash(tenant_id, crash_reason).await?;
 
         // Get restart state info - extract needed values then drop lock
-        let (exceeded_max, backoff, attempts, max_attempts) = {
+        let (exceeded_max, backoff, attempts, max_attempts, crash_loop_detected) = {
             let mut restart_states = self.restart_states.lock().unwrap();
             let restart_state = restart_states.entry(tenant_id.to_string()).or_default();
 
             restart_state.attempts += 1;
-            restart_state.last_crash = Some(std::time::SystemTime::now());
+            restart_state.last_crash = Some(now);
+            // Track crash timestamps within sliding window for circuit breaker
+            restart_state
+                .recent_crashes
+                .retain(|ts| now.duration_since(*ts).unwrap_or_default() <= CRASH_LOOP_WINDOW);
+            restart_state.recent_crashes.push_back(now);
+            let crash_loop_detected = restart_state.recent_crashes.len() >= CRASH_LOOP_THRESHOLD;
 
             let exceeded = restart_state.attempts > restart_state.policy.max_attempts;
             let backoff = restart_state.policy.backoff_delay(restart_state.attempts);
             let attempts = restart_state.attempts;
             let max = restart_state.policy.max_attempts;
 
-            (exceeded, backoff, attempts, max)
+            (exceeded, backoff, attempts, max, crash_loop_detected)
         };
+
+        // Circuit breaker: quarantine worker on rapid crash loop
+        if crash_loop_detected {
+            warn!(
+                tenant = tenant_id,
+                crashes = CRASH_LOOP_THRESHOLD,
+                window_secs = CRASH_LOOP_WINDOW.as_secs(),
+                "Worker crash loop detected; quarantining worker"
+            );
+            self.quarantine_worker(tenant_id, crash_reason).await;
+            return Err(AosError::Worker(format!(
+                "Worker {} quarantined after {} crashes in {}s",
+                tenant_id,
+                CRASH_LOOP_THRESHOLD,
+                CRASH_LOOP_WINDOW.as_secs()
+            )));
+        }
 
         // Check if we've exceeded max attempts
         if exceeded_max {
@@ -495,11 +551,28 @@ impl SupervisorDaemon {
             }
         }
 
-        // Wait for backoff delay
-        tokio::time::sleep(backoff).await;
+        let skip_respawn = std::env::var("AOS_SUPERVISOR_SKIP_RESPAWN").is_ok();
 
-        // Perform restart (in production, this would actually restart the worker process)
-        self.restart_worker(tenant_id).await?;
+        // Wait for backoff delay unless we're skipping respawn entirely (test hook)
+        if !skip_respawn {
+            tokio::time::sleep(backoff).await;
+        }
+
+        // Optional test hook to skip spawning real processes
+        if skip_respawn {
+            info!(
+                tenant = tenant_id,
+                "Skipping worker respawn due to AOS_SUPERVISOR_SKIP_RESPAWN"
+            );
+            let mut workers = self.workers.lock().await;
+            if let Some(worker) = workers.get_mut(tenant_id) {
+                worker.status = WorkerStatus::Healthy;
+                worker.last_health_check = now;
+            }
+        } else {
+            // Perform restart (in production, this would actually restart the worker process)
+            self.restart_worker(tenant_id).await?;
+        }
 
         // Record restart in database
         self.record_restart(tenant_id, attempts).await?;
@@ -508,7 +581,7 @@ impl SupervisorDaemon {
         {
             let mut restart_states = self.restart_states.lock().unwrap();
             if let Some(restart_state) = restart_states.get_mut(tenant_id) {
-                restart_state.last_restart = std::time::SystemTime::now();
+                restart_state.last_restart = now;
             }
         }
 
@@ -596,6 +669,7 @@ impl SupervisorDaemon {
                 tenant_id, state.attempts
             );
             state.attempts = 0;
+            state.recent_crashes.clear();
         }
     }
 
@@ -771,5 +845,36 @@ mod tests {
         // Restart attempts should be 1
         let restart_state = supervisor.get_restart_state("test-tenant").unwrap();
         assert_eq!(restart_state.attempts, 1);
+    }
+
+    #[tokio::test]
+    async fn test_worker_crash_loop_quarantines_worker() {
+        // Skip respawn and sleeps for faster test execution
+        std::env::set_var("AOS_SUPERVISOR_SKIP_RESPAWN", "1");
+
+        let temp_dir = new_test_tempdir();
+        let db_path = temp_dir.path().join("test.db");
+
+        let config = SupervisorConfig {
+            db_path,
+            ..Default::default()
+        };
+
+        let supervisor = SupervisorDaemon::new(config).await.unwrap();
+        supervisor
+            .register_worker("test-tenant".to_string(), Some(12345))
+            .await;
+
+        // Trigger crash loop
+        for _ in 0..CRASH_LOOP_THRESHOLD {
+            let _ = supervisor
+                .handle_worker_crash("test-tenant", "simulated crash loop")
+                .await;
+        }
+
+        let status = supervisor.get_worker_status("test-tenant").await;
+        assert_eq!(status, Some(WorkerStatus::Quarantined));
+
+        std::env::remove_var("AOS_SUPERVISOR_SKIP_RESPAWN");
     }
 }

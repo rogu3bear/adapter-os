@@ -9,9 +9,10 @@ use adapteros_server::boot::api_config::{build_api_config, spawn_sighup_handler}
 use adapteros_server::boot::background_tasks::spawn_all_background_tasks;
 use adapteros_server::boot::migrations::run_migrations;
 use adapteros_server::boot::{
-    bind_and_serve, build_app_state, finalize_boot, initialize_config, initialize_database,
-    initialize_executor, initialize_federation, initialize_metrics, initialize_security,
-    log_effective_config, run_preflight_checks, write_boot_report, BindMode, ServerBindConfig,
+    bind_and_serve, bind_error_exit_code, build_app_state, finalize_boot, initialize_config,
+    initialize_database, initialize_executor, initialize_federation, initialize_metrics,
+    initialize_security, log_effective_config, run_preflight_checks, write_boot_report, BindMode,
+    ServerBindConfig,
 };
 use adapteros_server::cli::Cli;
 use adapteros_server_api::boot_state::failure_codes;
@@ -336,20 +337,26 @@ async fn main() -> Result<()> {
     };
 
     let server_config = ServerBindConfig {
-        boot_state,
+        boot_state: boot_state.clone(),
         shutdown_coordinator,
         drain_timeout: boot_artifacts.bind_config.drain_timeout,
         in_flight_requests: boot_artifacts.in_flight_requests,
     };
 
     boot_state.start_phase("bind");
-    bind_and_serve(mode, boot_artifacts.app, server_config)
-        .await
-        .map_err(|e| {
+    match bind_and_serve(mode, boot_artifacts.app, server_config).await {
+        Ok(()) => boot_state.finish_phase_ok("bind"),
+        Err(e) => {
             boot_state.finish_phase_err("bind", failure_codes::BIND_FAILED, Some(e.to_string()));
-            e
-        })?;
-    boot_state.finish_phase_ok("bind");
+            let exit_code = bind_error_exit_code(&e);
+            if exit_code == adapteros_boot::EXIT_CONFIG_ERROR {
+                error!(error = %e, "Bind failed with configuration error");
+                eprintln!("{}", e);
+                std::process::exit(exit_code);
+            }
+            return Err(e.into());
+        }
+    }
 
     // Final MLX cleanup after all other components
     #[cfg(feature = "multi-backend")]

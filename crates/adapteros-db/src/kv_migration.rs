@@ -856,7 +856,8 @@ impl Db {
             parent_id: adapter.parent_id.clone(),
             fork_type: adapter.fork_type.clone(),
             fork_reason: adapter.fork_reason.clone(),
-            base_model_id: None,           // Not available during KV migration
+            base_model_id: None, // Not available during KV migration
+            recommended_for_moe: adapter.recommended_for_moe,
             manifest_schema_version: None, // Not available during KV migration
             content_hash_b3: None,         // Not available during KV migration
             metadata_json: adapter.metadata_json.clone(),

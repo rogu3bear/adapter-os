@@ -60,7 +60,7 @@ impl Db {
             None
         };
 
-        let mut tx = self.pool().begin().await.map_err(|e| {
+        let mut tx = self.begin_write_tx().await.map_err(|e| {
             AosError::Database(format!("Failed to begin routing chain transaction: {e}"))
         })?;
 

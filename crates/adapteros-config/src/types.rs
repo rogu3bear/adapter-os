@@ -1,6 +1,7 @@
 //! Configuration types and structures
 
 use crate::path_resolver::DEV_MODEL_PATH;
+use adapteros_core::defaults::DEFAULT_DB_PATH;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -160,7 +161,7 @@ impl Default for ConfigSchema {
             FieldDefinition {
                 field_type: "string".to_string(),
                 required: true,
-                default_value: None,
+                default_value: Some(DEFAULT_DB_PATH.to_string()),
                 description: Some("Database connection URL".to_string()),
                 validation_rules: Some(vec!["url".to_string()]),
             },

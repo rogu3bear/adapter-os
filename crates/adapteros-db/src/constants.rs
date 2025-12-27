@@ -25,7 +25,7 @@ pub const ADAPTER_COLUMNS: &str =
      adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason, \
      version, lifecycle_state, \
      archived_at, archived_by, archive_reason, purged_at, \
-     base_model_id, manifest_schema_version, content_hash_b3, metadata_json, provenance_json, \
+     base_model_id, recommended_for_moe, manifest_schema_version, content_hash_b3, metadata_json, provenance_json, \
      created_at, updated_at, active";
 
 /// Training dataset table columns for SELECT queries

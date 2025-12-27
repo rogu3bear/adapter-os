@@ -33,6 +33,9 @@ pub struct AdapterInfo {
     pub lifecycle_state: String,
     /// Activation percentage (0-100)
     pub activation_pct: f32,
+    /// Optional reasoning specialties for dynamic routing
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reasoning_specialties: Vec<String>,
     /// Whether the adapter is pinned
     pub is_pinned: bool,
     /// Optional expiration timestamp

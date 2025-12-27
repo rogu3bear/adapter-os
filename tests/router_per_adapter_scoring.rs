@@ -181,7 +181,10 @@ fn test_old_route_method_is_broken() {
     let priors = vec![3.0, 2.0, 1.0, 0.5];
 
     // Route with old method (global feature score)
-    let decision = router.route(&feature_vec, &priors);
+    let decision = router
+        .route(&feature_vec, &priors)
+        .into_selected()
+        .expect("deprecated route should still return a decision");
 
     // With the old method, priors completely dominate
     // Top 3 should be indices 0, 1, 2 (highest priors)

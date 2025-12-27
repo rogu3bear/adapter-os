@@ -7,6 +7,7 @@ use crate::parsers::{utils, LanguageParser};
 use crate::types::{Language, ParseResult, SymbolKind, SymbolNode, Visibility};
 use adapteros_core::{AosError, Result};
 use std::path::Path;
+use streaming_iterator::StreamingIterator;
 use tree_sitter::{Language as TSLanguage, Parser, Query, QueryCursor};
 
 /// Go-specific parser implementation
@@ -40,15 +41,15 @@ impl GoParser {
     /// Create a new Go parser
     pub fn new() -> Result<Self> {
         let mut parser = Parser::new();
-        let go_lang = tree_sitter_go::language();
+        let go_lang = tree_sitter::Language::new(tree_sitter_go::LANGUAGE);
 
         parser
-            .set_language(go_lang)
+            .set_language(&go_lang)
             .map_err(|e| AosError::Parse(format!("Failed to set Go language: {}", e)))?;
 
         // Define queries for different symbol types
         let function_query = Query::new(
-            go_lang,
+            &go_lang,
             r#"
             (function_declaration
                 name: (identifier) @name
@@ -60,7 +61,7 @@ impl GoParser {
         .map_err(|e| AosError::Parse(format!("Failed to create function query: {}", e)))?;
 
         let method_query = Query::new(
-            go_lang,
+            &go_lang,
             r#"
             (method_declaration
                 name: (field_identifier) @name
@@ -72,7 +73,7 @@ impl GoParser {
         .map_err(|e| AosError::Parse(format!("Failed to create method query: {}", e)))?;
 
         let struct_query = Query::new(
-            go_lang,
+            &go_lang,
             r#"
             (type_declaration
                 (type_spec
@@ -85,7 +86,7 @@ impl GoParser {
         .map_err(|e| AosError::Parse(format!("Failed to create struct query: {}", e)))?;
 
         let interface_query = Query::new(
-            go_lang,
+            &go_lang,
             r#"
             (type_declaration
                 (type_spec
@@ -98,7 +99,7 @@ impl GoParser {
         .map_err(|e| AosError::Parse(format!("Failed to create interface query: {}", e)))?;
 
         let type_query = Query::new(
-            go_lang,
+            &go_lang,
             r#"
             (type_declaration
                 (type_spec
@@ -111,7 +112,7 @@ impl GoParser {
         .map_err(|e| AosError::Parse(format!("Failed to create type query: {}", e)))?;
 
         let variable_query = Query::new(
-            go_lang,
+            &go_lang,
             r#"
             (var_declaration
                 (var_spec
@@ -125,7 +126,7 @@ impl GoParser {
         .map_err(|e| AosError::Parse(format!("Failed to create variable query: {}", e)))?;
 
         let const_query = Query::new(
-            go_lang,
+            &go_lang,
             r#"
             (const_declaration
                 (const_spec
@@ -139,7 +140,7 @@ impl GoParser {
         .map_err(|e| AosError::Parse(format!("Failed to create const query: {}", e)))?;
 
         let package_query = Query::new(
-            go_lang,
+            &go_lang,
             r#"
             (package_clause
                 name: (package_identifier) @name
@@ -149,7 +150,7 @@ impl GoParser {
         .map_err(|e| AosError::Parse(format!("Failed to create package query: {}", e)))?;
 
         let import_query = Query::new(
-            go_lang,
+            &go_lang,
             r#"
             (import_declaration
                 (import_spec
@@ -224,9 +225,9 @@ impl GoParser {
         symbols: &mut Vec<SymbolNode>,
     ) -> Result<()> {
         let mut cursor = QueryCursor::new();
-        let matches = cursor.matches(&self.function_query, tree.root_node(), source.as_bytes());
+        let mut matches = cursor.matches(&self.function_query, tree.root_node(), source.as_bytes());
 
-        for mat in matches {
+        while let Some(mat) = matches.next() {
             let mut name = None;
             let mut params = None;
             let mut result = None;
@@ -281,9 +282,9 @@ impl GoParser {
         symbols: &mut Vec<SymbolNode>,
     ) -> Result<()> {
         let mut cursor = QueryCursor::new();
-        let matches = cursor.matches(&self.method_query, tree.root_node(), source.as_bytes());
+        let mut matches = cursor.matches(&self.method_query, tree.root_node(), source.as_bytes());
 
-        for mat in matches {
+        while let Some(mat) = matches.next() {
             let mut name = None;
             let mut params = None;
             let mut result = None;
@@ -338,9 +339,9 @@ impl GoParser {
         symbols: &mut Vec<SymbolNode>,
     ) -> Result<()> {
         let mut cursor = QueryCursor::new();
-        let matches = cursor.matches(&self.struct_query, tree.root_node(), source.as_bytes());
+        let mut matches = cursor.matches(&self.struct_query, tree.root_node(), source.as_bytes());
 
-        for mat in matches {
+        while let Some(mat) = matches.next() {
             let mut name = None;
             let mut struct_type = None;
 
@@ -385,9 +386,10 @@ impl GoParser {
         symbols: &mut Vec<SymbolNode>,
     ) -> Result<()> {
         let mut cursor = QueryCursor::new();
-        let matches = cursor.matches(&self.interface_query, tree.root_node(), source.as_bytes());
+        let mut matches =
+            cursor.matches(&self.interface_query, tree.root_node(), source.as_bytes());
 
-        for mat in matches {
+        while let Some(mat) = matches.next() {
             let mut name = None;
             let mut interface_type = None;
 
@@ -432,9 +434,9 @@ impl GoParser {
         symbols: &mut Vec<SymbolNode>,
     ) -> Result<()> {
         let mut cursor = QueryCursor::new();
-        let matches = cursor.matches(&self.type_query, tree.root_node(), source.as_bytes());
+        let mut matches = cursor.matches(&self.type_query, tree.root_node(), source.as_bytes());
 
-        for mat in matches {
+        while let Some(mat) = matches.next() {
             let mut name = None;
             let mut type_annotation = None;
 
@@ -479,9 +481,9 @@ impl GoParser {
         symbols: &mut Vec<SymbolNode>,
     ) -> Result<()> {
         let mut cursor = QueryCursor::new();
-        let matches = cursor.matches(&self.variable_query, tree.root_node(), source.as_bytes());
+        let mut matches = cursor.matches(&self.variable_query, tree.root_node(), source.as_bytes());
 
-        for mat in matches {
+        while let Some(mat) = matches.next() {
             let mut name = None;
             let mut type_annotation = None;
             let mut _value = None;
@@ -531,9 +533,9 @@ impl GoParser {
         symbols: &mut Vec<SymbolNode>,
     ) -> Result<()> {
         let mut cursor = QueryCursor::new();
-        let matches = cursor.matches(&self.const_query, tree.root_node(), source.as_bytes());
+        let mut matches = cursor.matches(&self.const_query, tree.root_node(), source.as_bytes());
 
-        for mat in matches {
+        while let Some(mat) = matches.next() {
             let mut name = None;
             let mut type_annotation = None;
             let mut _value = None;
@@ -583,9 +585,9 @@ impl GoParser {
         symbols: &mut Vec<SymbolNode>,
     ) -> Result<()> {
         let mut cursor = QueryCursor::new();
-        let matches = cursor.matches(&self.package_query, tree.root_node(), source.as_bytes());
+        let mut matches = cursor.matches(&self.package_query, tree.root_node(), source.as_bytes());
 
-        for mat in matches {
+        while let Some(mat) = matches.next() {
             let mut name = None;
 
             for capture in mat.captures {
@@ -622,9 +624,9 @@ impl GoParser {
         symbols: &mut Vec<SymbolNode>,
     ) -> Result<()> {
         let mut cursor = QueryCursor::new();
-        let matches = cursor.matches(&self.import_query, tree.root_node(), source.as_bytes());
+        let mut matches = cursor.matches(&self.import_query, tree.root_node(), source.as_bytes());
 
-        for mat in matches {
+        while let Some(mat) = matches.next() {
             let mut name = None;
             let mut path = None;
 

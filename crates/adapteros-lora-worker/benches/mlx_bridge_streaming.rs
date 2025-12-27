@@ -42,6 +42,7 @@
 //! | Non-streaming | TBD | TBD | TBD |
 //!
 //! These are REAL measurements, not simulated.
+#![cfg(feature = "mlx-bridge")]
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use serde::{Deserialize, Serialize};

@@ -2,7 +2,9 @@
 
 use crate::{LoRAAdapter, MLXFFIModel, MLXMemoryPool, MLXMemoryPoolConfig};
 use adapteros_core::{derive_seed, B3Hash, Result};
-use adapteros_lora_kernel_api::{FusedKernels, IoBuffers, RouterRing};
+use adapteros_lora_kernel_api::{
+    FusedKernels, IoBuffers, LiquidBlendRequest, LiquidBlendStats, LiquidKernel, RouterRing,
+};
 use arc_swap::ArcSwap;
 use parking_lot::RwLock;
 use std::collections::{HashMap, HashSet};
@@ -624,6 +626,14 @@ impl MLXFFIBackend {
 }
 
 impl FusedKernels for MLXFFIBackend {
+    fn as_liquid_kernel(&self) -> Option<&dyn LiquidKernel> {
+        Some(self)
+    }
+
+    fn as_liquid_kernel_mut(&mut self) -> Option<&mut dyn LiquidKernel> {
+        Some(self)
+    }
+
     fn load(&mut self, _plan_bytes: &[u8]) -> Result<()> {
         // Plan loading not needed for MLX FFI - model already loaded
         tracing::info!(
@@ -1223,6 +1233,12 @@ impl MLXFFIBackend {
         }
 
         Ok(result)
+    }
+}
+
+impl LiquidKernel for MLXFFIBackend {
+    fn blend_and_forward(&mut self, request: LiquidBlendRequest<'_>) -> Result<LiquidBlendStats> {
+        crate::liquid::blend_and_forward_mlx(request)
     }
 }
 

@@ -19,14 +19,19 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use std::path::{Path as StdPath, PathBuf};
+use std::sync::Arc;
+use std::time::Duration;
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
+use tokio::time::sleep;
 use tracing::{debug, info, warn};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
 /// Maximum document size (100MB)
 const MAX_DOCUMENT_SIZE: usize = 100 * 1024 * 1024;
+const EMBEDDING_MAX_RETRIES: usize = 3;
+const EMBEDDING_BACKOFF_MS: u64 = 200;
 
 /// Document response
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -733,19 +738,15 @@ async fn process_document_inner(
         .map_err(|e| db_error(format!("Failed to start transaction: {}", e)))?;
 
     let mut chunk_count = 0;
+    let mut failed_embeddings = 0;
 
     // Process each chunk within transaction
     for chunk in &ingested_doc.chunks {
         // Generate chunk UUID for document_chunks table
         let chunk_db_id = Uuid::now_v7().to_string();
 
-        // Generate embedding
-        let embedding = embedding_model.encode_text(&chunk.text).map_err(|e| {
-            db_error(format!(
-                "Failed to generate embedding for chunk {}: {}",
-                chunk.chunk_index, e
-            ))
-        })?;
+        // Generate embedding with retry/backoff so one bad chunk does not abort the batch
+        let embedding = embed_with_backoff(embedding_model, &chunk.text).await;
 
         // Compute chunk hash
         let chunk_hash = B3Hash::hash(chunk.text.as_bytes()).to_hex();
@@ -757,9 +758,24 @@ async fn process_document_inner(
             chunk.text.clone()
         };
 
-        // Store embedding as JSON
-        let embedding_json = serde_json::to_string(&embedding)
-            .map_err(|e| db_error(format!("Failed to serialize embedding: {}", e)))?;
+        // Store embedding as JSON (or failure marker)
+        let (embedding_json, rag_embedding) = match embedding {
+            Ok(vector) => {
+                let serialized = serde_json::to_string(&vector)
+                    .map_err(|e| db_error(format!("Failed to serialize embedding: {}", e)))?;
+                (Some(serialized), Some(vector))
+            }
+            Err(e) => {
+                failed_embeddings += 1;
+                warn!(
+                    document_id = %document_id,
+                    chunk_index = chunk.chunk_index,
+                    error = %e,
+                    "Embedding failed after retries; marking chunk as failed_embedding"
+                );
+                (Some("{\"status\":\"failed_embedding\"}".to_string()), None)
+            }
+        };
 
         // Insert into document_chunks table within transaction
         sqlx::query(
@@ -779,7 +795,7 @@ async fn process_document_inner(
         .bind(chunk.end_offset.map(|o| o as i64))
         .bind(&chunk_hash)
         .bind(&text_preview)
-        .bind(&embedding_json)
+        .bind(embedding_json.as_deref())
         .execute(&mut *tx)
         .await
         .map_err(|e| {
@@ -789,31 +805,39 @@ async fn process_document_inner(
             ))
         })?;
 
-        // Generate RAG doc_id using UUID-based document_id
-        // Format: {document_id}__chunk_{index}
-        let rag_doc_id = format!("{}__chunk_{}", document_id, chunk.chunk_index);
+        // Only insert into RAG if embedding succeeded
+        if let Some(embedding_vec) = rag_embedding {
+            // Generate RAG doc_id using UUID-based document_id
+            // Format: {document_id}__chunk_{index}
+            let rag_doc_id = format!("{}__chunk_{}", document_id, chunk.chunk_index);
 
-        // Insert into RAG index within same transaction
-        sqlx::query(
-            r#"
-            INSERT OR REPLACE INTO rag_documents (
-                doc_id, tenant_id, text, embedding_json, rev, effectivity, source_type
-            ) VALUES (?, ?, ?, ?, ?, 'current', 'document')
-            "#,
-        )
-        .bind(&rag_doc_id)
-        .bind(&claims.tenant_id)
-        .bind(&chunk.text)
-        .bind(&embedding_json)
-        .bind(Uuid::now_v7().to_string())
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| {
-            db_error(format!(
-                "Failed to insert RAG chunk {}: {}",
-                chunk.chunk_index, e
-            ))
-        })?;
+            // Insert into RAG index within same transaction
+            sqlx::query(
+                r#"
+                INSERT OR REPLACE INTO rag_documents (
+                    doc_id, tenant_id, text, embedding_json, rev, effectivity, source_type
+                ) VALUES (?, ?, ?, ?, ?, 'current', 'document')
+                "#,
+            )
+            .bind(&rag_doc_id)
+            .bind(&claims.tenant_id)
+            .bind(&chunk.text)
+            .bind(&serde_json::to_string(&embedding_vec).map_err(|e| {
+                db_error(format!(
+                    "Failed to serialize embedding for rag_documents: {}",
+                    e
+                ))
+            })?)
+            .bind(Uuid::now_v7().to_string())
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| {
+                db_error(format!(
+                    "Failed to insert RAG chunk {}: {}",
+                    chunk.chunk_index, e
+                ))
+            })?;
+        }
 
         chunk_count += 1;
 
@@ -822,6 +846,14 @@ async fn process_document_inner(
             chunk_index = chunk.chunk_index,
             chunk_db_id = %chunk_db_id,
             "Indexed chunk"
+        );
+    }
+
+    if failed_embeddings > 0 {
+        warn!(
+            document_id = %document_id,
+            failed_chunks = failed_embeddings,
+            "Some chunk embeddings failed; stored failed_embedding markers and continued"
         );
     }
 
@@ -871,6 +903,33 @@ async fn process_document_inner(
         chunk_count: chunk_count as i32,
         indexed_at: chrono::Utc::now().to_rfc3339(),
     }))
+}
+
+#[cfg(feature = "embeddings")]
+async fn embed_with_backoff(
+    embedding_model: &Arc<dyn adapteros_ingest_docs::EmbeddingModel>,
+    text: &str,
+) -> adapteros_core::Result<Vec<f32>> {
+    let mut attempt = 0usize;
+    let mut delay = Duration::from_millis(EMBEDDING_BACKOFF_MS);
+
+    loop {
+        attempt += 1;
+        match embedding_model.encode_text(text) {
+            Ok(v) => return Ok(v),
+            Err(e) if attempt >= EMBEDDING_MAX_RETRIES => return Err(e),
+            Err(e) => {
+                warn!(
+                    attempt = attempt,
+                    max_attempts = EMBEDDING_MAX_RETRIES,
+                    error = %e,
+                    "Embedding generation failed, retrying with backoff"
+                );
+                sleep(delay).await;
+                delay = delay.saturating_mul(2);
+            }
+        }
+    }
 }
 
 /// Stub for process_document when embeddings feature is disabled

@@ -92,6 +92,7 @@ fn test_decision_hash_serialization_compat() {
     let hash = DecisionHash {
         input_hash: "abc123def456".to_string(),
         output_hash: "789xyz000111".to_string(),
+        reasoning_hash: Some("reasoning_hash_value".to_string()),
         combined_hash: "combined_hash_value".to_string(),
         tau: 1.0,
         eps: 0.02,
@@ -102,7 +103,7 @@ fn test_decision_hash_serialization_compat() {
 
     // GOLDEN BASELINE - Version: 1.0.0
     // Note: Field order follows struct definition order (serde default)
-    const GOLDEN_JSON: &str = r#"{"input_hash":"abc123def456","output_hash":"789xyz000111","combined_hash":"combined_hash_value","tau":1.0,"eps":0.02,"k":3}"#;
+    const GOLDEN_JSON: &str = r#"{"input_hash":"abc123def456","output_hash":"789xyz000111","reasoning_hash":"reasoning_hash_value","combined_hash":"combined_hash_value","tau":1.0,"eps":0.02,"k":3}"#;
 
     assert_eq!(
         json, GOLDEN_JSON,
@@ -118,6 +119,7 @@ fn test_decision_hash_serialization_compat() {
         serde_json::from_str(&json).expect("deserialization should succeed");
     assert_eq!(deserialized.input_hash, hash.input_hash);
     assert_eq!(deserialized.output_hash, hash.output_hash);
+    assert_eq!(deserialized.reasoning_hash, hash.reasoning_hash);
     assert_eq!(deserialized.combined_hash, hash.combined_hash);
     assert_eq!(deserialized.tau, hash.tau);
     assert_eq!(deserialized.eps, hash.eps);
@@ -133,6 +135,7 @@ fn test_decision_hash_field_completeness() {
     let hash = DecisionHash {
         input_hash: "a".to_string(),
         output_hash: "b".to_string(),
+        reasoning_hash: None,
         combined_hash: "c".to_string(),
         tau: 1.0,
         eps: 0.0,
@@ -149,6 +152,7 @@ fn test_decision_hash_field_completeness() {
         "input_hash",
         "k",
         "output_hash",
+        "reasoning_hash",
         "tau",
     ];
 
@@ -288,6 +292,7 @@ fn test_serialization_stability_decision_hash() {
     let hash = DecisionHash {
         input_hash: "stable_input".to_string(),
         output_hash: "stable_output".to_string(),
+        reasoning_hash: None,
         combined_hash: "stable_combined".to_string(),
         tau: 0.8,
         eps: 0.01,

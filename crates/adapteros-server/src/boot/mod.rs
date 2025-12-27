@@ -72,6 +72,8 @@ pub use runtime::{initialize_runtime, RuntimeContext};
 pub use security::{
     initialize_security, log_effective_config, run_preflight_checks, SecurityContext,
 };
-pub use server::{bind_and_serve, BindError, BindMode, ServerBindConfig};
+pub use server::{
+    bind_and_serve, bind_error_exit_code, precheck_tcp_port, BindError, BindMode, ServerBindConfig,
+};
 pub use tasks::{BackgroundTaskSpawner, SpawnError, SpawnResult};
 pub use timings::BootTimings;

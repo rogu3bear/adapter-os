@@ -448,6 +448,10 @@ impl FusedKernels for MockTextGenerationKernel {
                 total_ms: 50.0,
                 tokens_per_second: 100.0,
             }),
+            moe_info: None,
+            expert_routing: None,
+            free_tokens_delivered: 0,
+            routing_hash: None,
         })
     }
 }

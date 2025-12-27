@@ -11,6 +11,7 @@ adapteros-types = { path = "../adapteros-types" }
 adapteros-lora-kernel-api = { path = "../adapteros-lora-kernel-api" }
 adapteros-telemetry = { path = "../adapteros-telemetry" }
 adapteros-policy = { path = "../adapteros-policy" }
+adapteros-numerics = { path = "../adapteros-numerics" }
 anyhow = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

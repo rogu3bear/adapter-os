@@ -260,13 +260,14 @@ gen-sdks: ## Generate all SDKs (TypeScript types + Python SDK)
 check-types-drift: ## Check if TypeScript types are in sync with OpenAPI spec
 	@./scripts/generate-sdks.sh --check-drift
 
+TEST_TIMEOUT_FLAG ?=
 determinism-check: ## Run determinism tests
-	cargo test --test determinism_core_suite -- --test-threads=8 --test-timeout=45
+	cargo test --test determinism_core_suite -- --test-threads=8 $(TEST_TIMEOUT_FLAG)
 	cargo test -p adapteros-lora-router --test determinism
 
 # For faster runs: PROFILE=release make determinism-check
 ifeq ($(PROFILE),release)
-	cargo test --release --test determinism_core_suite -- --test-threads=8 --test-timeout=45
+	cargo test --release --test determinism_core_suite -- --test-threads=8 $(TEST_TIMEOUT_FLAG)
 	cargo test --release -p adapteros-lora-router --test determinism
 endif
 

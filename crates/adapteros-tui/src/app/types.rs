@@ -81,6 +81,15 @@ impl LogLevel {
             LogLevel::Debug => "DEBUG",
         }
     }
+
+    pub fn from_str(level: &str) -> Self {
+        match level.to_lowercase().as_str() {
+            "warn" | "warning" => LogLevel::Warn,
+            "error" | "err" => LogLevel::Error,
+            "debug" => LogLevel::Debug,
+            _ => LogLevel::Info,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -89,6 +98,12 @@ pub struct LogEntry {
     pub level: LogLevel,
     pub component: String,
     pub message: String,
+    #[serde(default)]
+    pub trace_id: Option<String>,
+    #[serde(default)]
+    pub tenant_id: Option<String>,
+    #[serde(default)]
+    pub latency_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, Default)]

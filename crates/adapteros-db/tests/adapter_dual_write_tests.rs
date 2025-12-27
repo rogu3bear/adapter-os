@@ -4,7 +4,7 @@
 //! backends when in DualWrite mode, and that data remains consistent between stores.
 
 use adapteros_db::adapters::{Adapter, AdapterRegistrationBuilder};
-use adapteros_db::{Db, StorageMode};
+use adapteros_db::{Db, ProtectedDb, StorageMode, WriteCapableDb};
 use adapteros_storage::repos::adapter::AdapterRepository;
 use tempfile::TempDir;
 
@@ -15,7 +15,7 @@ fn new_test_tempdir() -> TempDir {
 }
 
 /// Helper to set up test database with KV backend in DualWrite mode
-async fn create_dual_write_db() -> (Db, TempDir, TempDir) {
+async fn create_dual_write_db() -> (ProtectedDb, TempDir, TempDir) {
     // Note: tracing is initialized by test harness if needed
 
     // Create temp directories for SQL and KV
@@ -41,7 +41,13 @@ async fn create_dual_write_db() -> (Db, TempDir, TempDir) {
         .await
         .unwrap();
 
+    let db = ProtectedDb::new(db);
+
     (db, sql_temp, kv_temp)
+}
+
+fn write_db(db: &ProtectedDb) -> WriteCapableDb<'_> {
+    db.write(db.lifecycle_token())
 }
 
 /// Helper to get adapter from KV directly (bypassing Db)
@@ -138,7 +144,13 @@ async fn test_update_adapter_state_writes_to_both() {
     db.register_adapter(params).await.unwrap();
 
     // Update state
-    db.update_adapter_state("state-update-test", "loaded", "test reason")
+    write_db(&db)
+        .update_adapter_state(
+            "default-tenant",
+            "state-update-test",
+            "loaded",
+            "test reason",
+        )
         .await
         .unwrap();
 
@@ -174,7 +186,8 @@ async fn test_update_adapter_state_tx_writes_to_both() {
     db.register_adapter(params).await.unwrap();
 
     // Update state with transaction
-    db.update_adapter_state_tx("state-tx-test", "hot", "warming up")
+    write_db(&db)
+        .update_adapter_state_tx("state-tx-test", "hot", "warming up")
         .await
         .unwrap();
 
@@ -248,7 +261,8 @@ async fn test_update_adapter_state_and_memory_writes_to_both() {
 
     // Update both state and memory
     let memory_bytes = 1024 * 1024 * 256; // 256 MB
-    db.update_adapter_state_and_memory("combined-update-test", "warm", memory_bytes, "loading")
+    write_db(&db)
+        .update_adapter_state_and_memory("combined-update-test", "warm", memory_bytes, "loading")
         .await
         .unwrap();
 
@@ -417,7 +431,13 @@ async fn test_consistency_after_multiple_updates() {
     db.register_adapter(params).await.unwrap();
 
     // Perform multiple updates
-    db.update_adapter_state("consistency-test", "loading", "initial load")
+    write_db(&db)
+        .update_adapter_state(
+            "default-tenant",
+            "consistency-test",
+            "loading",
+            "initial load",
+        )
         .await
         .unwrap();
 
@@ -425,7 +445,8 @@ async fn test_consistency_after_multiple_updates() {
         .await
         .unwrap();
 
-    db.update_adapter_state("consistency-test", "warm", "loaded")
+    write_db(&db)
+        .update_adapter_state("default-tenant", "consistency-test", "warm", "loaded")
         .await
         .unwrap();
 

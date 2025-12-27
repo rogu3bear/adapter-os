@@ -23,10 +23,32 @@ impl Default for ResourceLimits {
     fn default() -> Self {
         Self {
             max_concurrent_requests: 10,
-            max_tokens_per_second: 40,
+            max_tokens_per_second: 1000, // Increased default from 40 to avoid choking 30B models
             max_memory_per_request: 50 * 1024 * 1024, // 50MB
-            max_cpu_time_per_request: Duration::from_secs(30),
+            max_cpu_time_per_request: Duration::from_secs(300), // Increased from 30s to 5m for long gens
             max_requests_per_minute: 100,
+        }
+    }
+}
+
+impl ResourceLimits {
+    /// Load limits from environment variables
+    pub fn from_env() -> Self {
+        let defaults = Self::default();
+        Self {
+            max_concurrent_requests: std::env::var("AOS_LIMIT_MAX_CONCURRENT")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(defaults.max_concurrent_requests),
+            max_tokens_per_second: std::env::var("AOS_LIMIT_MAX_TOKENS_PER_SEC")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(defaults.max_tokens_per_second),
+            max_requests_per_minute: std::env::var("AOS_LIMIT_MAX_REQUESTS_PER_MIN")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(defaults.max_requests_per_minute),
+            ..defaults
         }
     }
 }
