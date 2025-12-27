@@ -127,7 +127,7 @@ path = "src/bin/residency_harness.rs"
 required-features = ["hardware-residency"]
 
 [dev-dependencies]
-loom = "0.7"
+loom = { version = "0.7", features = ["futures"] }
 criterion = { version = "0.5", features = ["html_reports"] }
 tempfile = { workspace = true }
 proptest = "1.0"

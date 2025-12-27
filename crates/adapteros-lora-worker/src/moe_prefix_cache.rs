@@ -735,6 +735,7 @@ impl MoEPrefixCache {
         routing: SequenceExpertRouting,
         tenant_id: &str,
         num_layers: usize,
+        kv_tensors: Option<(Vec<Vec<f32>>, Vec<Vec<f32>>)>,
     ) {
         let key = self.hash_tokens(tokens);
 
@@ -742,28 +743,44 @@ impl MoEPrefixCache {
 
         if let Some(entry) = entries.get(&key) {
             // Merge logic
-            let mut new_heat_map = entry.heat_map.clone();
+            let mut new_heat_map = entry.heat_map.read().clone();
             for token_routing in &routing {
                 new_heat_map.record_token_routing(token_routing);
             }
             new_heat_map.finalize(2);
 
+            let (keys, values, kv_bytes) = if let Some((keys, values)) = kv_tensors {
+                let kv_bytes = MoEPrefixEntry::compute_kv_bytes(&keys, &values);
+                (keys, values, kv_bytes)
+            } else {
+                (entry.keys.clone(), entry.values.clone(), entry.kv_bytes)
+            };
+
             let new_entry = MoEPrefixEntry {
-                keys: entry.keys.clone(),
-                values: entry.values.clone(),
+                keys,
+                values,
                 tenant_id: tenant_id.to_string(),
                 adapter_id: entry.adapter_id.clone(),
                 prefix_cached_token_count: entry.prefix_cached_token_count,
-                kv_bytes: entry.kv_bytes,
+                kv_bytes,
                 expert_routing: routing,
-                heat_map: new_heat_map,
+                heat_map: RwLock::new(new_heat_map),
                 free_tokens: entry.free_tokens.clone(),
                 created_at: entry.created_at,
                 last_access_ns: AtomicU64::new(entry.last_access_ns.load(Ordering::Relaxed)),
                 active_refcount: AtomicU32::new(0),
             };
 
+            let new_bytes = new_entry.total_bytes();
+            let old_bytes = entry.total_bytes();
             entries.insert(key, Arc::new(new_entry));
+            if new_bytes >= old_bytes {
+                self.used_bytes
+                    .fetch_add(new_bytes - old_bytes, Ordering::SeqCst);
+            } else {
+                self.used_bytes
+                    .fetch_sub(old_bytes - new_bytes, Ordering::SeqCst);
+            }
         } else {
             // Create fresh
             let mut heat_map = ExpertHeatMap::new(num_layers);
@@ -772,15 +789,22 @@ impl MoEPrefixCache {
             }
             heat_map.finalize(2);
 
+            let (keys, values, kv_bytes) = if let Some((keys, values)) = kv_tensors {
+                let kv_bytes = MoEPrefixEntry::compute_kv_bytes(&keys, &values);
+                (keys, values, kv_bytes)
+            } else {
+                (Vec::new(), Vec::new(), 0)
+            };
+
             let entry = MoEPrefixEntry {
-                keys: Vec::new(),
-                values: Vec::new(),
+                keys,
+                values,
                 tenant_id: tenant_id.to_string(),
                 adapter_id: None,
                 prefix_cached_token_count: tokens.len() as u32,
-                kv_bytes: 0,
+                kv_bytes,
                 expert_routing: routing,
-                heat_map,
+                heat_map: RwLock::new(heat_map),
                 free_tokens: None,
                 created_at: Instant::now(),
                 last_access_ns: AtomicU64::new(0),
@@ -1067,8 +1091,8 @@ impl MoEPrefixCache {
         }; // Lock is dropped here
 
         // Perform I/O without holding the lock
-        let file = std::fs::File::create(path).map_err(|e| AosError::IO(e.to_string()))?;
-        serde_json::to_writer(file, &snapshot).map_err(|e| AosError::IO(e.to_string()))?;
+        let file = std::fs::File::create(path).map_err(|e| AosError::io(e.to_string()))?;
+        serde_json::to_writer(file, &snapshot).map_err(|e| AosError::io(e.to_string()))?;
         Ok(())
     }
 
@@ -1077,9 +1101,9 @@ impl MoEPrefixCache {
         if !path.exists() {
             return Ok(());
         }
-        let file = std::fs::File::open(path).map_err(|e| AosError::IO(e.to_string()))?;
+        let file = std::fs::File::open(path).map_err(|e| AosError::io(e.to_string()))?;
         let snapshot: MoECacheSnapshot =
-            serde_json::from_reader(file).map_err(|e| AosError::IO(e.to_string()))?;
+            serde_json::from_reader(file).map_err(|e| AosError::io(e.to_string()))?;
 
         let mut entries = self.entries.write();
         let mut stats = self.stats.write();
@@ -1268,8 +1292,8 @@ mod tests {
         let cache = MoEPrefixCache::new(1024 * 1024);
         let tokens = vec![1, 2, 3];
 
-        cache.put_routing(&tokens, vec![vec![(0, 1)]], "tenant1", 2, None);
-        cache.put_routing(&tokens, vec![vec![(0, 2)]], "tenant1", 2, None);
+        cache.upsert_routing(&tokens, vec![vec![(0, 1)]], "tenant1", 2, None);
+        cache.upsert_routing(&tokens, vec![vec![(0, 2)]], "tenant1", 2, None);
 
         let key = cache.hash_tokens(&tokens);
         let entry = cache.get(&key).expect("entry should exist");
@@ -1289,7 +1313,7 @@ mod tests {
         let values = vec![vec![0.3, 0.4]];
         let routing = vec![vec![(0, 1)], vec![(1, 2)]];
 
-        cache.put_routing(
+        cache.upsert_routing(
             &tokens,
             routing.clone(),
             "tenant1",
@@ -1305,7 +1329,7 @@ mod tests {
         assert!(entry.kv_bytes > 0);
 
         // Subsequent routing-only updates should retain the KV payload
-        cache.put_routing(&tokens, vec![vec![(0, 3)]], "tenant1", 2, None);
+        cache.upsert_routing(&tokens, vec![vec![(0, 3)]], "tenant1", 2, None);
         let updated = cache.get(&key).expect("entry should remain");
         assert_eq!(updated.keys, keys);
         assert_eq!(updated.values, values);

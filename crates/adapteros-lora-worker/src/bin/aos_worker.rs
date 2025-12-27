@@ -2023,12 +2023,13 @@ mod tests {
         use adapteros_db::{CreateCoremlFusionPairParams, Db};
         use adapteros_lora_kernel_coreml::export::CoreMLFusionMetadata;
         use adapteros_manifest::{
-            Adapter, AdapterCategory, AdapterScope, AdapterTier, Base, BundleCfg, CoreMLFusion,
+            Adapter, AdapterCategory, AdapterScope, AdapterTier, AssuranceTier, Base, BundleCfg,
+            CoreMLFusion,
             DeterminismPolicy, EgressPolicy, EvidencePolicy, IsolationPolicy, ManifestV3,
             MemoryPolicy, NumericPolicy, PerformancePolicy, Policies, RagPolicy, RefusalPolicy,
             RouterCfg, Sampling, Seeds, TelemetryCfg,
         };
-        use std::collections::HashMap;
+        use std::collections::{BTreeMap, HashMap};
         use tempfile::tempdir;
 
         fn test_manifest(
@@ -2056,6 +2057,7 @@ mod tests {
                 adapters: vec![Adapter {
                     id: adapter_id.into(),
                     hash: B3Hash::hash(b"adapter"),
+                    assurance_tier: AssuranceTier::Standard,
                     tier: AdapterTier::Persistent,
                     rank: 8,
                     alpha: 16.0,
@@ -2065,6 +2067,17 @@ mod tests {
                     acl: vec![],
                     warmup_prompt: None,
                     dependencies: None,
+                    determinism_seed: None,
+                    determinism_backend: None,
+                    determinism_device: None,
+                    drift_reference_backend: None,
+                    drift_metric: None,
+                    drift_baseline_backend: None,
+                    drift_test_backend: None,
+                    drift_tier: None,
+                    drift_slice_size: None,
+                    drift_slice_offset: None,
+                    drift_loss_metric: None,
                     category: AdapterCategory::Code,
                     scope: AdapterScope::Global,
                     framework_id: None,
@@ -2072,8 +2085,11 @@ mod tests {
                     repo_id: None,
                     commit_sha: None,
                     intent: None,
+                    recommended_for_moe: false,
                     auto_promote: true,
                     eviction_priority: adapteros_manifest::EvictionPriority::Normal,
+                    free_tokens: None,
+                    hot_experts: None,
                 }],
                 router: RouterCfg {
                     k_sparse: 1,
@@ -2125,7 +2141,7 @@ mod tests {
                     },
                     refusal: RefusalPolicy {
                         abstain_threshold: 0.55,
-                        missing_fields_templates: HashMap::new(),
+                        missing_fields_templates: BTreeMap::new(),
                     },
                     numeric: NumericPolicy {
                         canonical_units: [("torque".into(), "in_lbf".into())].into_iter().collect(),
@@ -2174,6 +2190,7 @@ mod tests {
                     manifest_hash: B3Hash::hash(b"manifest"),
                     parent_cpid: None,
                 },
+                coreml: None,
                 fusion,
             }
         }

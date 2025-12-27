@@ -2169,8 +2169,16 @@ mod tests {
         loom::model(|| {
             let table = Arc::new(AdapterTable::new());
             let h = B3Hash::zero();
-            table.preload("test".to_string(), h, 10).unwrap();
-            table.swap(&["test"], &[]).unwrap();
+            loom::future::block_on(async {
+                table
+                    .preload("test".to_string(), h, 10)
+                    .await
+                    .unwrap();
+                table
+                    .swap(&["test".to_string()], &[] as &[String])
+                    .await
+                    .unwrap();
+            });
 
             let initial_gen = table.current_stack();
 
@@ -2178,10 +2186,12 @@ mod tests {
             for _ in 0..50 {
                 let table_clone = table.clone();
                 loom::thread::spawn(move || {
-                    let _stack_gen = table_clone.current_stack();
-                    table_clone.inc_ref("test");
-                    std::thread::sleep(std::time::Duration::from_secs(1)); // Simulate long inference
-                    table_clone.dec_ref("test");
+                    loom::future::block_on(async move {
+                        let _stack_gen = table_clone.current_stack();
+                        table_clone.inc_ref("test").await;
+                        std::thread::sleep(std::time::Duration::from_secs(1)); // Simulate long inference
+                        table_clone.dec_ref("test").await;
+                    });
                 });
             }
 
@@ -2190,10 +2200,18 @@ mod tests {
                 let table_clone = table.clone();
                 let new_id = format!("new{}", i);
                 loom::thread::spawn(move || {
-                    let h_new = B3Hash::hash(format!("new{}", i).as_bytes());
-                    table_clone.preload(new_id.clone(), h_new, 10).unwrap();
-                    std::thread::sleep(std::time::Duration::from_millis(100));
-                    table_clone.swap(&[new_id], &["test".to_string()]).unwrap();
+                    loom::future::block_on(async move {
+                        let h_new = B3Hash::hash(format!("new{}", i).as_bytes());
+                        table_clone
+                            .preload(new_id.clone(), h_new, 10)
+                            .await
+                            .unwrap();
+                        std::thread::sleep(std::time::Duration::from_millis(100));
+                        table_clone
+                            .swap(&[new_id], &["test".to_string()])
+                            .await
+                            .unwrap();
+                    });
                 });
             }
 
