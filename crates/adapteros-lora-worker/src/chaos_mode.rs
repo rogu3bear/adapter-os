@@ -3,6 +3,7 @@
 //! Enabled via `AOS_WORKER_CHAOS_MODE=1` (or `true/yes`). Optional
 //! `AOS_CHAOS_SEED=<u64>` makes the jitter deterministic for tests.
 
+use adapteros_core::{derive_seed, B3Hash};
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 use std::sync::{Mutex, OnceLock};
@@ -50,18 +51,29 @@ fn seeded_rng(seed: u64) -> &'static Mutex<ChaCha8Rng> {
     RNG.get_or_init(|| Mutex::new(ChaCha8Rng::seed_from_u64(seed)))
 }
 
+fn derived_seed() -> u64 {
+    static DERIVED_SEED: OnceLock<u64> = OnceLock::new();
+
+    *DERIVED_SEED.get_or_init(|| {
+        let seed_bytes = derive_seed(
+            &B3Hash::hash(b"adapteros-lora-worker:chaos-mode"),
+            "layer-jitter",
+        );
+        let mut buf = [0u8; 8];
+        buf.copy_from_slice(&seed_bytes[..8]);
+        u64::from_le_bytes(buf)
+    })
+}
+
 fn sample_delay_ms(cfg: &ChaosConfig) -> u64 {
     if !cfg.enabled {
         return 0;
     }
 
-    if let Some(seed) = cfg.seed {
-        let rng = seeded_rng(seed);
-        let mut guard = rng.lock().expect("chaos rng poisoned");
-        guard.gen_range(cfg.min_delay_ms..=cfg.max_delay_ms)
-    } else {
-        rand::thread_rng().gen_range(cfg.min_delay_ms..=cfg.max_delay_ms)
-    }
+    let seed = cfg.seed.unwrap_or_else(derived_seed);
+    let rng = seeded_rng(seed);
+    let mut guard = rng.lock().expect("chaos rng poisoned");
+    guard.gen_range(cfg.min_delay_ms..=cfg.max_delay_ms)
 }
 
 /// Returns true if Chaos Mode is enabled.
