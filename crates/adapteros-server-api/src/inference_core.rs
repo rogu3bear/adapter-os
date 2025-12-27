@@ -940,6 +940,7 @@ impl<'a> InferenceCore<'a> {
             cpid: request.cpid.clone(),
             prompt: augmented_prompt.clone(),
             max_tokens: request.max_tokens,
+            request_id: Some(request.request_id.clone()),
             require_evidence: request.require_evidence,
             admin_override: request.admin_override,
             reasoning_mode: request.reasoning_mode,

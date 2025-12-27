@@ -1062,6 +1062,9 @@ pub struct WorkerInferRequest {
     pub cpid: String,
     pub prompt: String,
     pub max_tokens: usize,
+    /// Optional request ID for worker-side tracing
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
     pub require_evidence: bool,
     /// Admin override for cluster routing restrictions
     #[serde(default)]

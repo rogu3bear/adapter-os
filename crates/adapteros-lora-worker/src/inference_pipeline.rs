@@ -11,14 +11,20 @@
 
 use adapteros_config::ModelConfig;
 use adapteros_core::{
-    derive_seed, AosError, B3Hash, CircuitBreaker, Result, StandardCircuitBreaker,
+    derive_seed, emit_observability_event, policy_override_event, AosError, B3Hash, CircuitBreaker,
+    Result, StandardCircuitBreaker,
 };
 use adapteros_lora_kernel_api::attestation::BackendType;
 use adapteros_lora_kernel_api::{FusedKernels, IoBuffers};
-use adapteros_lora_router::{policy_mask::PolicyMask, AdapterInfo, Router, ROUTER_GATE_Q15_MAX};
-use adapteros_policy::{PolicyEngine, QuarantineManager, QuarantineOperation};
+use adapteros_lora_router::{
+    policy_mask::PolicyMask, AdapterInfo, AbstainContext, Router, ROUTER_GATE_Q15_MAX,
+};
+use adapteros_policy::{
+    PolicyDecisionChain, PolicyDecisionOutcome, PolicyEngine, QuarantineManager,
+    QuarantineOperation,
+};
 use adapteros_telemetry::events::{
-    PerformanceBudgetViolationEvent, RouterCandidate, RouterDecisionEvent,
+    AbstainEvent, PerformanceBudgetViolationEvent, RouterCandidate, RouterDecisionEvent,
 };
 use adapteros_telemetry::TelemetryWriter;
 use smallvec::SmallVec;
@@ -290,8 +296,8 @@ pub struct InferencePipeline {
     /// Fixed backend quantization (no per-token overrides)
     #[allow(dead_code)]
     backend_quantization: BackendQuantization,
-    /// Policy engine (reserved for inline policy enforcement)
-    _policy: PolicyEngine,
+    /// Policy engine (canonical policy packs)
+    policy: PolicyEngine,
     /// Telemetry writer
     telemetry: TelemetryWriter,
     /// Configuration
@@ -358,6 +364,12 @@ impl InferencePipeline {
             report.summary()
         );
 
+        let mut router = router;
+        router.set_abstain_telemetry_writer(Arc::new(telemetry.clone()));
+
+        let mut router = router;
+        router.set_abstain_telemetry_writer(Arc::new(telemetry.clone()));
+
         let tokenizer = QwenTokenizer::from_file(tokenizer_path)?;
 
         // Create deterministic generator with HKDF-derived seed
@@ -384,7 +396,7 @@ impl InferencePipeline {
             kernels,
             backend_type: report.backend_type,
             backend_quantization,
-            _policy: policy,
+            policy,
             telemetry,
             config,
             quarantine_manager,
@@ -452,7 +464,7 @@ impl InferencePipeline {
             kernels,
             backend_type: report.backend_type,
             backend_quantization,
-            _policy: policy,
+            policy,
             telemetry,
             config,
             quarantine_manager,
@@ -460,6 +472,131 @@ impl InferencePipeline {
             max_adapter_count: Self::DEFAULT_MAX_ADAPTER_COUNT,
             budget_tracker: BudgetTracker::new(),
         })
+    }
+
+    fn policy_metadata(
+        &self,
+        request: &InferenceRequest,
+        prompt_hash: &B3Hash,
+        stage: &str,
+    ) -> serde_json::Value {
+        serde_json::json!({
+            "stage": stage,
+            "prompt_chars": request.prompt.len(),
+            "prompt_hash_b3": prompt_hash.to_hex(),
+            "max_tokens": request.max_tokens,
+            "stack_id": request.stack_id,
+            "stack_version": request.stack_version,
+            "require_evidence": request.require_evidence,
+            "routing_policy_present": request.routing_policy.is_some(),
+            "stop_policy_present": request.stop_policy.is_some(),
+            "runtime_mode": std::env::var("AOS_RUNTIME_MODE").unwrap_or_else(|_| "prod".to_string()),
+        })
+    }
+
+    fn evaluate_policies_or_fail(
+        &self,
+        request: &InferenceRequest,
+        prompt_hash: &B3Hash,
+        stage: &str,
+    ) -> Result<PolicyDecisionChain> {
+        let metadata = self.policy_metadata(request, prompt_hash, stage);
+        let chain = self.policy.evaluate_inference_policies(&request.cpid, metadata)?;
+        self.log_policy_decision_chain(request, stage, &chain);
+
+        if !chain.validation.valid {
+            let reason = chain
+                .validation
+                .violations
+                .iter()
+                .map(|v| v.message.clone())
+                .collect::<Vec<_>>()
+                .join("; ");
+            self.emit_policy_violation_event(request, stage, &reason);
+            return Err(AosError::PolicyViolation(reason));
+        }
+
+        Ok(chain)
+    }
+
+    fn log_policy_decision_chain(
+        &self,
+        request: &InferenceRequest,
+        stage: &str,
+        chain: &PolicyDecisionChain,
+    ) {
+        let _ = self.telemetry.log(
+            "policy.decision_chain",
+            serde_json::json!({
+                "cpid": request.cpid,
+                "stage": stage,
+                "digest_b3": chain.digest.to_hex(),
+                "valid": chain.validation.valid,
+                "violations": chain.validation.violations,
+                "warnings": chain.validation.warnings,
+                "decisions": chain.decisions,
+            }),
+        );
+    }
+
+    fn emit_policy_violation_event(
+        &self,
+        request: &InferenceRequest,
+        stage: &str,
+        reason: &str,
+    ) {
+        let event = policy_override_event(
+            Some(stage.to_string()),
+            Some("policy_engine".to_string()),
+            reason.to_string(),
+            request.stack_id.clone(),
+            Some(request.cpid.clone()),
+        );
+        emit_observability_event(&event);
+        let _ = self.telemetry.log(
+            "policy.violation",
+            serde_json::json!({
+                "cpid": request.cpid,
+                "stage": stage,
+                "reason": reason,
+                "stack_id": request.stack_id,
+                "stack_version": request.stack_version,
+            }),
+        );
+    }
+
+    fn apply_abstain_context(&mut self, request: &InferenceRequest, prompt_hash: &B3Hash) {
+        let ctx = AbstainContext {
+            request_id: Some(request.cpid.clone()),
+            stack_id: request.stack_id.clone(),
+            stack_version: request.stack_version,
+            prompt_digest_b3: Some(prompt_hash.to_hex()),
+            prompt_chars: Some(request.prompt.len()),
+            prompt: None,
+            tenant_id: None,
+        };
+        self.router.set_abstain_context(ctx);
+    }
+
+    fn handle_abstain_events(
+        &self,
+        request: &InferenceRequest,
+        stage: &str,
+        step: usize,
+        events: &[AbstainEvent],
+    ) -> AosError {
+        let msg = "Router abstained due to policy thresholds";
+        self.emit_policy_violation_event(request, stage, msg);
+        let _ = self.telemetry.log(
+            "policy.abstain",
+            serde_json::json!({
+                "cpid": request.cpid,
+                "stage": stage,
+                "step": step,
+                "events": events,
+            }),
+        );
+        AosError::PolicyViolation(msg.to_string())
     }
 
     /// Run inference on a prompt with circuit breaker protection
@@ -1684,6 +1821,7 @@ mod tests {
         let request = InferenceRequest {
             prompt: "What is 2+2?".to_string(),
             max_tokens: 100,
+            request_id: None,
             request_type: RequestType::default(),
             reasoning_mode: false,
             cpid: "test-cp-001".to_string(),

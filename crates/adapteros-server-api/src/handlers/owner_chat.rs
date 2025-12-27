@@ -497,6 +497,7 @@ async fn try_adapter_response(state: &AppState, user_message: &str) -> Option<St
         cpid: format!("owner-chat-{}", uuid::Uuid::new_v4()),
         prompt,
         max_tokens: 512,
+        request_id: Some(uuid::Uuid::new_v4().to_string()),
         require_evidence: false,
         admin_override: false,
         reasoning_mode: false,

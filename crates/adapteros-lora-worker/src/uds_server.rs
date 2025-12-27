@@ -516,6 +516,7 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
                     cpid: "patch-proposal".to_string(),
                     prompt: "patch proposal".to_string(),
                     max_tokens: 100,
+                    request_id: None,
                     require_evidence: false,
                     reasoning_mode: false,
                     request_type: RequestType::PatchProposal(patch_req.clone()),
