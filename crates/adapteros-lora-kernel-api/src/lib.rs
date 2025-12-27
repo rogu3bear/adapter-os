@@ -1012,7 +1012,7 @@ pub type ExpertRouting = Vec<(usize, u8)>;
 pub type SequenceExpertRouting = Vec<ExpertRouting>;
 
 /// Usage statistics for text generation
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct TextGenerationUsage {
     pub prompt_tokens: usize,
     pub completion_tokens: usize,
@@ -1020,7 +1020,7 @@ pub struct TextGenerationUsage {
 }
 
 /// Timing statistics for text generation
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct TextGenerationTiming {
     /// Time to first token in milliseconds
     pub ttft_ms: f64,

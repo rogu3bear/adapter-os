@@ -57,6 +57,7 @@ fn coreml_stub_inference_captures_logs() -> Result<()> {
         has_ane: true,
         has_coreml: true,
         has_mlx: false,
+        has_mlx_bridge: false,
         gpu_memory_bytes: None,
     };
     let ctx = SelectionContext::new(profile, capabilities);

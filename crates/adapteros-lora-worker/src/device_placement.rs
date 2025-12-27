@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 #[cfg(feature = "telemetry-sysinfo")]
-use sysinfo::{CpuExt, System, SystemExt};
+use sysinfo::{CpuRefreshKind, RefreshKind, System};
 
 use crate::BackendLane;
 
@@ -65,7 +65,9 @@ impl TelemetryCollector {
 
         #[cfg(feature = "telemetry-sysinfo")]
         {
-            let mut sys = System::new();
+            let mut sys = System::new_with_specifics(
+                RefreshKind::new().with_cpu(CpuRefreshKind::everything()),
+            );
             sys.refresh_cpu();
             return Self {
                 sys,

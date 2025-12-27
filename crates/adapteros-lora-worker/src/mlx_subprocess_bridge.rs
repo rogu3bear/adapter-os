@@ -51,7 +51,7 @@
 //! Callback-based (recommended):
 //! ```ignore
 //! bridge.generate_stream("prompt", 50, 0.7, 0.9, |token| {
-//!     print!("{}", token.token);
+//!     print!("{}", token.text);
 //!     true // continue
 //! })?;
 //! ```
@@ -61,7 +61,7 @@
 //! for event in bridge.generate_stream_iter("prompt", 50, 0.7, 0.9)? {
 //!     match event? {
 //!         StreamingEvent::Token(t) => print!("{}", t.token),
-//!         StreamingEvent::Done(r) => println!("\n{} tokens", r.token_count),
+//!         StreamingEvent::Done(r) => println!("\n{} tokens", r.tokens_generated),
 //!     }
 //! }
 //! ```
@@ -278,8 +278,44 @@ impl Default for MlxBridgeConfig {
     }
 }
 
+/// Usage statistics from the bridge responses
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct UsageStats {
+    pub prompt_tokens: usize,
+    pub completion_tokens: usize,
+    pub total_tokens: usize,
+}
+
+/// Timing statistics from the bridge responses
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct TimingStats {
+    pub ttft_ms: f64,
+    pub total_ms: f64,
+    pub tokens_per_second: f64,
+}
+
+impl From<UsageStats> for TextGenerationUsage {
+    fn from(usage: UsageStats) -> Self {
+        TextGenerationUsage {
+            prompt_tokens: usage.prompt_tokens,
+            completion_tokens: usage.completion_tokens,
+            total_tokens: usage.total_tokens,
+        }
+    }
+}
+
+impl From<TimingStats> for TextGenerationTiming {
+    fn from(timing: TimingStats) -> Self {
+        TextGenerationTiming {
+            ttft_ms: timing.ttft_ms,
+            total_ms: timing.total_ms,
+            tokens_per_second: timing.tokens_per_second,
+        }
+    }
+}
+
 /// Result of a text generation request
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct GenerationResult {
     /// Generated text
     pub text: String,
@@ -288,9 +324,9 @@ pub struct GenerationResult {
     /// Reason for stopping (e.g., "stop", "length")
     pub finish_reason: String,
     /// Usage statistics
-    pub usage: Option<TextGenerationUsage>,
+    pub usage: Option<UsageStats>,
     /// Timing statistics
-    pub timing: Option<TextGenerationTiming>,
+    pub timing: Option<TimingStats>,
     /// Protocol v3: MoE info
     pub moe_info: Option<MoEInfo>,
     /// Protocol v3: expert routing
@@ -353,9 +389,9 @@ enum BridgeResponse {
         tokens: usize,
         finish_reason: String,
         #[serde(default, rename = "usage")]
-        usage_stats: Option<TextGenerationUsage>,
+        usage: Option<UsageStats>,
         #[serde(default, rename = "timing")]
-        timing_stats: Option<TextGenerationTiming>,
+        timing: Option<TimingStats>,
         /// Protocol v3: MoE info
         #[serde(default)]
         moe_info: Option<MoEInfo>,
@@ -376,14 +412,14 @@ enum BridgeResponse {
     },
     StreamEnd {
         #[serde(rename = "tokens")]
-        tokens_generated: usize,
+        tokens: usize,
         finish_reason: String,
         #[serde(default)]
         text: String,
         #[serde(default, rename = "usage")]
-        usage_stats: Option<TextGenerationUsage>,
+        usage: Option<UsageStats>,
         #[serde(default, rename = "timing")]
-        timing_stats: Option<TextGenerationTiming>,
+        timing: Option<TimingStats>,
         /// Protocol v3: MoE info
         #[serde(default)]
         moe_info: Option<MoEInfo>,
@@ -470,16 +506,16 @@ impl Iterator for StreamingIterator {
 
             match response {
                 BridgeResponse::StreamToken {
-                    token,
+                    text,
                     index,
                     token_id,
                     expert_routing,
                 } => {
-                    self.accumulated_text.push_str(&token);
+                    self.accumulated_text.push_str(&text);
                     self.token_count = index + 1;
 
                     return Some(Ok(StreamingEvent::Token(StreamingToken {
-                        token,
+                        text,
                         index,
                         token_id,
                         expert_routing,
@@ -507,15 +543,14 @@ impl Iterator for StreamingIterator {
                     // Use generate_stream() callback interface for full routing attestation
                     return Some(Ok(StreamingEvent::Done(StreamingResult {
                         text: final_text,
-                        token_count: tokens,
+                        tokens_generated: tokens,
                         finish_reason,
-                        usage,
-                        timing,
+                        usage_stats: usage.map(Into::into),
+                        timing_stats: timing.map(Into::into),
                         moe_info,
                         expert_routing,
                         free_tokens_delivered: 0,
                         routing_hash: None,
-                        routing_summary: None,
                     })));
                 }
                 BridgeResponse::Error { error, error_type } => {
@@ -1117,8 +1152,8 @@ impl MLXSubprocessBridge {
                 text,
                 tokens,
                 finish_reason,
-                usage_stats,
-                timing_stats,
+                usage,
+                timing,
                 moe_info,
                 expert_routing,
             } => {
@@ -1127,8 +1162,8 @@ impl MLXSubprocessBridge {
                     text,
                     token_count: tokens,
                     finish_reason,
-                    usage: usage_stats,
-                    timing: timing_stats,
+                    usage,
+                    timing,
                     moe_info,
                     expert_routing,
                 })
@@ -1208,12 +1243,12 @@ impl MLXSubprocessBridge {
 
             match response {
                 BridgeResponse::StreamToken {
-                    token,
+                    text,
                     index,
                     token_id,
                     expert_routing,
                 } => {
-                    accumulated_text.push_str(&token);
+                    accumulated_text.push_str(&text);
                     token_count = index + 1;
 
                     // Collect routing data and update hash chain if present
@@ -1227,7 +1262,7 @@ impl MLXSubprocessBridge {
                     }
 
                     let streaming_token = StreamingToken {
-                        token,
+                        text,
                         index,
                         token_id,
                         expert_routing,
@@ -1266,7 +1301,7 @@ impl MLXSubprocessBridge {
                     });
 
                     // Extract routing hash and summary from chain
-                    let (routing_hash, routing_summary) = match routing_chain {
+                    let routing_hash = match routing_chain {
                         Some(chain) if chain.token_count() > 0 => {
                             let summary = chain.summary();
                             debug!(
@@ -1275,9 +1310,9 @@ impl MLXSubprocessBridge {
                                 stability = summary.routing_stability,
                                 "Routing hash chain finalized"
                             );
-                            (Some(chain.head().clone()), Some(summary))
+                            Some(chain.head().clone())
                         }
-                        _ => (None, None),
+                        _ => None,
                     };
 
                     drop(process_guard);
@@ -1285,15 +1320,14 @@ impl MLXSubprocessBridge {
 
                     return Ok(StreamingResult {
                         text: final_text,
-                        token_count: tokens,
+                        tokens_generated: tokens,
                         finish_reason,
-                        usage,
-                        timing,
+                        usage_stats: usage.map(Into::into),
+                        timing_stats: timing.map(Into::into),
                         moe_info,
                         expert_routing: final_routing,
                         free_tokens_delivered: 0,
                         routing_hash,
-                        routing_summary,
                     });
                 }
                 BridgeResponse::Error { error, error_type } => {
@@ -1316,7 +1350,7 @@ impl MLXSubprocessBridge {
         };
 
         // Extract routing hash and summary from chain (early termination case)
-        let (routing_hash, routing_summary) = match routing_chain {
+        let routing_hash = match routing_chain {
             Some(chain) if chain.token_count() > 0 => {
                 let summary = chain.summary();
                 debug!(
@@ -1324,22 +1358,21 @@ impl MLXSubprocessBridge {
                     token_count = summary.token_count,
                     "Routing hash chain finalized (early termination)"
                 );
-                (Some(chain.head().clone()), Some(summary))
+                Some(chain.head().clone())
             }
-            _ => (None, None),
+            _ => None,
         };
 
         Ok(StreamingResult {
             text: accumulated_text,
-            token_count,
+            tokens_generated: token_count,
             finish_reason: "stopped".to_string(),
-            usage: None,
-            timing: None,
+            usage_stats: None,
+            timing_stats: None,
             moe_info: self.moe_info(),
             expert_routing: final_routing,
             free_tokens_delivered: 0,
             routing_hash,
-            routing_summary,
         })
     }
 
@@ -1353,8 +1386,8 @@ impl MLXSubprocessBridge {
     /// let iter = bridge.generate_stream_iter("def hello():", 50, 0.7, 0.9)?;
     /// for result in iter {
     ///     match result {
-    ///         Ok(StreamingEvent::Token(token)) => print!("{}", token.token),
-    ///         Ok(StreamingEvent::Done(result)) => println!("\nDone: {} tokens", result.token_count),
+    ///         Ok(StreamingEvent::Token(token)) => print!("{}", token.text),
+    ///         Ok(StreamingEvent::Done(result)) => println!("\nDone: {} tokens", result.tokens_generated),
     ///         Err(e) => eprintln!("Error: {}", e),
     ///     }
     /// }
@@ -1547,7 +1580,7 @@ impl FusedKernels for MLXSubprocessBridge {
                     hasher.update(&expert.to_le_bytes());
                 }
             }
-            B3Hash::from(hasher.finalize())
+            B3Hash::from_bytes(*hasher.finalize().as_bytes())
         });
 
         // Convert to TextGenerationResult
@@ -1555,16 +1588,8 @@ impl FusedKernels for MLXSubprocessBridge {
             text: result.text,
             tokens_generated: result.token_count,
             finish_reason: result.finish_reason,
-            usage_stats: result.usage.map(|u| TextGenerationUsage {
-                prompt_tokens: u.prompt_tokens,
-                completion_tokens: u.completion_tokens,
-                total_tokens: u.total_tokens,
-            }),
-            timing_stats: result.timing.map(|t| TextGenerationTiming {
-                ttft_ms: t.ttft_ms,
-                total_ms: t.total_ms,
-                tokens_per_second: t.tokens_per_second,
-            }),
+            usage_stats: result.usage.map(Into::into),
+            timing_stats: result.timing.map(Into::into),
             moe_info: result.moe_info,
             expert_routing: result.expert_routing,
             free_tokens_delivered: 0,
@@ -1746,12 +1771,12 @@ mod tests {
 
         match response {
             BridgeResponse::StreamToken {
-                token,
+                text,
                 index,
                 token_id,
                 expert_routing,
             } => {
-                assert_eq!(token, "hello");
+                assert_eq!(text, "hello");
                 assert_eq!(index, 0);
                 assert_eq!(token_id, Some(1234));
                 assert!(expert_routing.is_none());
@@ -1791,6 +1816,8 @@ mod tests {
                 total_ms: 200.0,
                 tokens_per_second: 50.0,
             }),
+            moe_info: None,
+            expert_routing: None,
         };
 
         assert_eq!(result.text, "Generated text");
@@ -1802,14 +1829,14 @@ mod tests {
     #[test]
     fn test_streaming_token() {
         let token = StreamingToken {
-            token: "world".to_string(),
+            text: "world".to_string(),
             index: 1,
             token_id: Some(5678),
             expert_routing: Some(vec![(0, 5), (1, 10)]),
             is_free: false,
         };
 
-        assert_eq!(token.token, "world");
+        assert_eq!(token.text, "world");
         assert!(token.expert_routing.is_some());
         assert_eq!(token.index, 1);
         assert_eq!(token.token_id, Some(5678));
