@@ -100,6 +100,7 @@ export function TraceTab({ traceId, onOpenFullViewer }: TraceTabProps) {
     traceId ?? undefined,
     selectedTenant ?? undefined
   );
+  const traceModelType = trace?.model_type;
 
   const handleOpenFullViewer = () => {
     if (onOpenFullViewer) {
@@ -183,6 +184,11 @@ export function TraceTab({ traceId, onOpenFullViewer }: TraceTabProps) {
               <Badge variant="secondary" className="text-xs">
                 {trace.tokens.length} tokens
               </Badge>
+              {traceModelType && (
+                <Badge variant={traceModelType === 'moe' ? 'secondary' : 'outline'} className="text-xs">
+                  {traceModelType === 'moe' ? 'MoE (ghost experts)' : 'Dense routing'}
+                </Badge>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -218,6 +224,26 @@ export function TraceTab({ traceId, onOpenFullViewer }: TraceTabProps) {
                       {token.token_index}
                     </span>
                     <div className="flex flex-wrap gap-1">
+                      {((token.model_type || trace.model_type) === 'moe') && (
+                        <>
+                          <Badge variant="secondary" className="text-[10px] uppercase">
+                            Ghost experts
+                          </Badge>
+                          {(() => {
+                            const experts =
+                              token.active_experts || trace.active_experts?.[token.token_index] || [];
+                            return experts.length ? (
+                              experts.map((expert) => (
+                                <Badge key={`expert-${token.token_index}-${expert}`} variant="outline" className="text-[10px]">
+                                  Expert {expert}
+                                </Badge>
+                              ))
+                            ) : (
+                              <span className="text-muted-foreground">none captured</span>
+                            );
+                          })()}
+                        </>
+                      )}
                       {token.selected_adapter_ids.length > 0 ? (
                         token.selected_adapter_ids.map((adapterId, idx) => {
                           const gateValue = token.gates_q15[idx];

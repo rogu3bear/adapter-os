@@ -12,6 +12,7 @@ import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useLiveData } from '@/hooks/realtime/useLiveData';
 import type { AdapterStreamEvent, AdapterStateTransitionEvent } from '@/api/streaming-types';
+import { toast } from 'sonner';
 
 // ============================================================================
 // Types
@@ -191,6 +192,37 @@ export function AdapterLoadingStatus({
   // Count ready vs not ready
   const readyCount = Array.from(adapterStates.values()).filter((a) => isAdapterReady(a.state)).length;
   const totalCount = adapterStates.size;
+
+  const toastMapRef = React.useRef<Map<string, { startedAt: number; toastId?: string | number }>>(
+    new Map()
+  );
+
+  React.useEffect(() => {
+    const tracker = toastMapRef.current;
+    adapterStates.forEach((adapter, id) => {
+      const prev = tracker.get(id);
+      const readyNow = isAdapterReady(adapter.state);
+
+      if (adapter.isLoading && !prev) {
+        const toastId = toast.loading(`Mounting adapter ${adapter.name || id}...`, {
+          id: `adapter-${id}`,
+        });
+        tracker.set(id, { startedAt: Date.now(), toastId });
+      } else if (readyNow && prev) {
+        const duration = Date.now() - prev.startedAt;
+        toast.success(`Adapter Mounted (${duration}ms)`, {
+          id: prev.toastId,
+          description: adapter.name || id,
+        });
+        tracker.delete(id);
+      } else if (adapter.error && prev) {
+        toast.error(`Adapter ${adapter.name || id} failed: ${adapter.error}`, {
+          id: prev.toastId,
+        });
+        tracker.delete(id);
+      }
+    });
+  }, [adapterStates]);
 
   // Compact mode - just show summary
   if (compact) {

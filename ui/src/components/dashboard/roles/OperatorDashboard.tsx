@@ -8,15 +8,17 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { ContentGrid, KpiGrid } from '@/components/ui/grid';
 import { SectionErrorBoundary } from '@/components/ui/section-error-boundary';
 import { errorRecoveryTemplates } from '@/components/ui/error-recovery';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useTraining } from '@/hooks/training';
 import { useAdapters } from '@/hooks/adapters/useAdapters';
 import { OperatorChatLayout } from '@/components/operator';
-import { useSystemMetrics } from '@/hooks/system/useSystem';
+import { useSystemMetrics, useComputedMetrics } from '@/hooks/system/useSystem';
 import { useSettings } from '@/hooks/config/useSettings';
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/api/services';
 import { useInferenceSessions } from '@/hooks/inference/useInferenceSessions';
+import { getRoleLanguage } from '@/config/roleConfigs';
 import { buildTrainingDatasetsLink, buildTrainingJobsLink, buildTrainingOverviewLink, buildAdaptersListLink, buildInferenceLink } from '@/utils/navLinks';
 import {
   Upload,
@@ -25,7 +27,6 @@ import {
   Settings,
   TrendingUp,
   Database,
-  Cpu,
   Activity,
   CheckCircle,
   Clock,
@@ -37,16 +38,20 @@ import {
   ShieldAlert,
   Radar,
   Radio,
-  Network,
+  Brain,
 } from 'lucide-react';
 
 interface OperatorDashboardProps {
   selectedTenant?: string;
 }
 
+const operatorLanguage = getRoleLanguage('operator');
+
 function OperatorSummaryCards() {
   const navigate = useNavigate();
   const { metrics: systemMetrics, isLoading: sysLoading, error: sysError } = useSystemMetrics('fast', true);
+  const computed = useComputedMetrics(systemMetrics);
+
   const {
     data: adaptersData,
     isLoading: adaptersLoading,
@@ -73,15 +78,15 @@ function OperatorSummaryCards() {
   const { recentSessions } = useInferenceSessions({ maxSessions: 5, storageKey: 'inference-sessions' });
 
   const healthSummary = useMemo(() => {
-    if (!systemMetrics) return null;
+    if (!computed) return null;
     return {
-      cpu: systemMetrics.cpu_usage_percent ?? systemMetrics.cpu_usage ?? null,
-      memory: systemMetrics.memory_usage_percent ?? systemMetrics.memory_usage_pct ?? null,
-      gpu: (systemMetrics as Record<string, number | undefined>).gpu_usage_percent ?? null,
-      nodes: (systemMetrics as Record<string, number | undefined>).node_count ?? null,
-      workers: (systemMetrics as Record<string, number | undefined>).worker_count ?? null,
+      cpu: computed.cpuUsage,
+      memory: computed.memoryUsage,
+      gpu: computed.gpuUsage,
+      nodes: computed.nodeCount,
+      workers: computed.workerCount,
     };
-  }, [systemMetrics]);
+  }, [computed]);
 
   const adaptersInPlay = (adaptersData?.adapters || []).slice(0, 5);
   const trainingQueue = trainingJobsData?.jobs ?? [];
@@ -108,22 +113,65 @@ function OperatorSummaryCards() {
         {/* Health at a glance */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-sm font-medium">Health at a glance</CardTitle>
+            <CardTitle className="text-sm font-medium">{operatorLanguage.systemHealthLabel}</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-2 text-sm">
+          <CardContent className="space-y-3 text-sm">
             {sysLoading ? (
               <Skeleton className="h-16 w-full" />
             ) : sysError ? (
-              <div className="text-muted-foreground">Unavailable</div>
+              <div className="text-muted-foreground">Live status unavailable</div>
             ) : healthSummary ? (
-              <div className="grid grid-cols-2 gap-3">
-                <div>CPU: {healthSummary.cpu != null ? `${healthSummary.cpu.toFixed(1)}%` : 'N/A'}</div>
-                <div>Memory: {healthSummary.memory != null ? `${healthSummary.memory.toFixed(1)}%` : 'N/A'}</div>
-                <div>GPU/ANE: {healthSummary.gpu != null ? `${healthSummary.gpu.toFixed(1)}%` : 'N/A'}</div>
-                <div>Workers/Nodes: {healthSummary.workers ?? 'N/A'} / {healthSummary.nodes ?? 'N/A'}</div>
-              </div>
+              <>
+                <div className="flex items-center gap-2 text-green-700">
+                  <CheckCircle className="h-4 w-4" />
+                  <span>Systems are running smoothly.</span>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Technical meters stay tucked away unless you need them.
+                </p>
+                <Accordion type="single" collapsible className="border rounded-md">
+                  <AccordionItem value="technical">
+                    <AccordionTrigger className="px-3 text-sm">
+                      {operatorLanguage.technicalDetailsLabel}
+                    </AccordionTrigger>
+                    <AccordionContent className="px-3 pb-3 space-y-3">
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="flex items-center gap-2">
+                            <Activity className="h-3 w-3 text-muted-foreground" />
+                            CPU
+                          </span>
+                          <span>{healthSummary.cpu != null ? `${healthSummary.cpu.toFixed(1)}%` : 'N/A'}</span>
+                        </div>
+                        <Progress value={healthSummary.cpu ?? 0} className="h-2" />
+                      </div>
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="flex items-center gap-2">
+                            <Activity className="h-3 w-3 text-muted-foreground" />
+                            Memory
+                          </span>
+                          <span>{healthSummary.memory != null ? `${healthSummary.memory.toFixed(1)}%` : 'N/A'}</span>
+                        </div>
+                        <Progress value={healthSummary.memory ?? 0} className="h-2" />
+                      </div>
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="flex items-center gap-2">
+                          <Activity className="h-3 w-3 text-muted-foreground" />
+                          Accelerators
+                        </span>
+                        <span>{healthSummary.gpu != null ? `${healthSummary.gpu.toFixed(1)}%` : 'N/A'}</span>
+                      </div>
+                      <div className="flex items-center justify-between text-xs text-muted-foreground">
+                        <span>Workers</span>
+                        <span>{healthSummary.workers ?? 'N/A'}</span>
+                      </div>
+                    </AccordionContent>
+                  </AccordionItem>
+                </Accordion>
+              </>
             ) : (
-              <div className="text-muted-foreground">No data yet</div>
+              <div className="text-muted-foreground">No status data yet.</div>
             )}
           </CardContent>
         </Card>
@@ -131,7 +179,7 @@ function OperatorSummaryCards() {
         {/* Last routing anomalies */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-sm font-medium">Last routing anomalies</CardTitle>
+            <CardTitle className="text-sm font-medium">Routing watchlist</CardTitle>
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground space-y-2">
             {routingLoading ? (
@@ -148,14 +196,14 @@ function OperatorSummaryCards() {
                         {decision.timestamp ? new Date(decision.timestamp).toLocaleTimeString() : ''}
                       </span>
                     </div>
-                    <div className="text-xs">Adapters: {decision.selected_adapters?.join(', ') || 'unknown'}</div>
+                    <div className="text-xs">AI modules: {decision.selected_adapters?.join(', ') || 'unknown'}</div>
                   </li>
                 ))}
               </ul>
             ) : (
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 text-foreground">
                 <Radar className="h-4 w-4" />
-                No data yet
+                No routing flags right now
               </div>
             )}
           </CardContent>
@@ -164,7 +212,10 @@ function OperatorSummaryCards() {
         {/* Adapters currently in play */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-sm font-medium">Adapters currently in play</CardTitle>
+            <CardTitle className="text-sm font-medium flex items-center gap-2">
+              <Brain className="h-4 w-4" />
+              AI modules in rotation
+            </CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
             {adaptersLoading ? (
@@ -172,7 +223,7 @@ function OperatorSummaryCards() {
             ) : adaptersError ? (
               errorRecoveryTemplates.genericError(adaptersError, refetchAdapters)
             ) : adaptersInPlay.length === 0 ? (
-              <div className="text-sm text-muted-foreground">No active adapters</div>
+              <div className="text-sm text-muted-foreground">No AI modules are active yet.</div>
             ) : (
               <ul className="space-y-1 text-sm">
                 {adaptersInPlay.map(adapter => (
@@ -189,10 +240,10 @@ function OperatorSummaryCards() {
         {/* One-run sanity probe */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-sm font-medium">One-run sanity probe</CardTitle>
+            <CardTitle className="text-sm font-medium">Quick check run</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2 text-sm">
-            <p className="text-muted-foreground">Run a quick inference with your latest parameters.</p>
+            <p className="text-muted-foreground">Run a quick action with your latest safe settings.</p>
             <Button
               size="sm"
               onClick={() => {
@@ -200,7 +251,7 @@ function OperatorSummaryCards() {
                 navigate(buildInferenceLink(), preset ? { state: { presetSession: preset } } : undefined);
               }}
             >
-              Run probe
+              Run quick check
             </Button>
           </CardContent>
         </Card>
@@ -218,7 +269,7 @@ function OperatorSummaryCards() {
                   Guardrails: {policyPosture.requireMfa ? 'MFA required' : 'MFA optional'}
                 </div>
                 <div className="text-xs text-muted-foreground">
-                  Egress: {policyPosture.egressEnabled ? 'Allowed (dev/stage)' : 'Blocked (prod posture)'}
+                  Outbound data: {policyPosture.egressEnabled ? 'Allowed for this workspace' : 'Blocked for safety'}
                 </div>
               </>
             ) : (
@@ -233,7 +284,7 @@ function OperatorSummaryCards() {
         {/* Egress posture */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-sm font-medium">Egress posture</CardTitle>
+            <CardTitle className="text-sm font-medium">Outbound sharing</CardTitle>
           </CardHeader>
           <CardContent className="flex items-center gap-2 text-sm text-muted-foreground">
             <ShieldAlert className="h-4 w-4" />
@@ -241,14 +292,14 @@ function OperatorSummaryCards() {
               ? policyPosture.egressEnabled
                 ? 'Outbound enabled'
                 : 'Outbound blocked'
-              : 'Egress status unavailable'}
+              : 'Sharing status unavailable'}
           </CardContent>
         </Card>
 
         {/* Training queue */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-sm font-medium">Training queue</CardTitle>
+            <CardTitle className="text-sm font-medium">{operatorLanguage.learningTasksLabel}</CardTitle>
           </CardHeader>
           <CardContent>
             {trainingJobsLoading ? (
@@ -256,7 +307,7 @@ function OperatorSummaryCards() {
             ) : trainingJobsError ? (
               errorRecoveryTemplates.genericError(trainingJobsError, refetchTraining)
             ) : trainingQueue.length === 0 ? (
-              <div className="text-sm text-muted-foreground">No jobs in queue</div>
+              <div className="text-sm text-muted-foreground">{operatorLanguage.emptyTasksCopy}</div>
             ) : (
               <ul className="space-y-2 text-sm">
                 {trainingQueue.slice(0, 5).map(job => (
@@ -273,11 +324,17 @@ function OperatorSummaryCards() {
         {/* RAG freshness */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-sm font-medium">RAG freshness</CardTitle>
+            <CardTitle className="text-sm font-medium">Document freshness</CardTitle>
           </CardHeader>
           <CardContent className="flex items-center gap-2 text-sm text-muted-foreground">
             <Radio className="h-4 w-4" />
-            {docsLoading ? 'Loading...' : docsError ? 'Unavailable' : latestDoc ? `Last ingest: ${new Date(latestDoc.updated_at || latestDoc.created_at).toLocaleString()}` : 'No data yet'}
+            {docsLoading
+              ? 'Loading...'
+              : docsError
+                ? 'Unavailable'
+                : latestDoc
+                  ? `Last update: ${new Date(latestDoc.updated_at || latestDoc.created_at).toLocaleString()}`
+                  : 'No document updates yet'}
           </CardContent>
         </Card>
       </ContentGrid>
@@ -386,7 +443,7 @@ function TrainingDashboardContent({ selectedTenant }: { selectedTenant: string }
   // Recent activity (last 5 training jobs)
   const recentActivity = recentJobs.map((job) => ({
     id: job.id,
-    action: `Training job: ${job.adapter_name || job.id}`,
+    action: `Learning task: ${job.adapter_name || job.id}`,
     status: job.status,
     time: job.updated_at || job.created_at,
     progress: job.progress_pct || 0,
@@ -416,15 +473,15 @@ function TrainingDashboardContent({ selectedTenant }: { selectedTenant: string }
             <Button asChild variant="outline" className="w-full h-auto p-3 sm:p-4">
               <Link to={buildTrainingJobsLink()}>
                 <List className="h-4 w-4 mr-2" />
-                <span className="text-sm hidden sm:inline">View Training Jobs</span>
-                <span className="text-sm sm:hidden">Jobs</span>
+                <span className="text-sm hidden sm:inline">View Learning Tasks</span>
+                <span className="text-sm sm:hidden">Tasks</span>
               </Link>
             </Button>
             <Button asChild variant="outline" className="w-full h-auto p-3 sm:p-4">
               <Link to={buildAdaptersListLink()}>
                 <Settings className="h-4 w-4 mr-2" />
-                <span className="text-sm hidden sm:inline">Manage Adapters</span>
-                <span className="text-sm sm:hidden">Adapters</span>
+                <span className="text-sm hidden sm:inline">Manage AI Modules</span>
+                <span className="text-sm sm:hidden">Modules</span>
               </Link>
             </Button>
           </div>
@@ -495,12 +552,12 @@ function TrainingDashboardContent({ selectedTenant }: { selectedTenant: string }
           </Card>
         </SectionErrorBoundary>
 
-        {/* Adapter Lifecycle */}
-        <SectionErrorBoundary sectionName="Adapter Lifecycle">
+        {/* Active AI Modules */}
+        <SectionErrorBoundary sectionName="Active AI Modules">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium">Adapter Lifecycle</CardTitle>
-              <Cpu className="h-4 w-4 text-muted-foreground" />
+              <CardTitle className="text-sm font-medium">Active AI Modules</CardTitle>
+              <Brain className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
               {adaptersLoading ? (
@@ -510,11 +567,11 @@ function TrainingDashboardContent({ selectedTenant }: { selectedTenant: string }
               ) : (
                 <div className="space-y-2">
                   <div className="text-xl sm:text-2xl font-bold">{totalAdapters}</div>
-                  <p className="text-xs text-muted-foreground">Total adapters</p>
+                  <p className="text-xs text-muted-foreground">AI modules available</p>
                   <div className="flex flex-wrap gap-2 text-xs">
                     <Badge variant="outline">
                       <Activity className="h-3 w-3 mr-1" />
-                      {loadedAdapters} loaded
+                      {loadedAdapters} active now
                     </Badge>
                   </div>
                 </div>
@@ -548,11 +605,11 @@ function TrainingDashboardContent({ selectedTenant }: { selectedTenant: string }
 
       {/* Content Grid */}
       <ContentGrid>
-        {/* Active Training Jobs */}
-        <SectionErrorBoundary sectionName="Active Training Jobs">
+        {/* Active Learning Tasks */}
+        <SectionErrorBoundary sectionName={operatorLanguage.learningTasksLabel}>
           <Card>
             <CardHeader>
-              <CardTitle>Active Training Jobs</CardTitle>
+              <CardTitle>{operatorLanguage.learningTasksLabel}</CardTitle>
             </CardHeader>
             <CardContent>
               {trainingJobsLoading ? (
@@ -565,8 +622,8 @@ function TrainingDashboardContent({ selectedTenant }: { selectedTenant: string }
               ) : recentJobs.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">
                   <List className="h-12 w-12 mx-auto mb-3 opacity-50" />
-                  <p className="text-sm">No training jobs yet</p>
-                  <p className="text-xs mt-1">Start your first training job</p>
+                  <p className="text-sm">{operatorLanguage.emptyTasksCopy}</p>
+                  <p className="text-xs mt-1">Start your first learning task</p>
                   <Button asChild className="mt-4" size="sm">
                     <Link to={buildTrainingOverviewLink()} state={{ openTrainingWizard: true }}>
                       Start Training
@@ -607,7 +664,7 @@ function TrainingDashboardContent({ selectedTenant }: { selectedTenant: string }
                     </div>
                   ))}
                   <Button asChild variant="outline" className="w-full" size="sm">
-                    <Link to={buildTrainingJobsLink()}>View All Jobs</Link>
+                    <Link to={buildTrainingJobsLink()}>View all tasks</Link>
                   </Button>
                 </div>
               )}
@@ -632,7 +689,7 @@ function TrainingDashboardContent({ selectedTenant }: { selectedTenant: string }
               ) : recentActivity.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">
                   <Activity className="h-12 w-12 mx-auto mb-3 opacity-50" />
-                  <p className="text-sm">No recent activity</p>
+                  <p className="text-sm">{operatorLanguage.emptyActivityCopy}</p>
                 </div>
               ) : (
                 <div className="space-y-3">

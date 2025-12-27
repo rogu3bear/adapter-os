@@ -19,7 +19,12 @@ export function BasePageHeader({
   const Icon = primaryAction?.icon;
 
   return (
-    <div className={cn("flex items-center justify-between", className)}>
+    <div
+      className={cn(
+        "flex items-center justify-between sticky top-0 z-30 backdrop-blur-md bg-background/80 supports-[backdrop-filter]:bg-background/70 border-b border-border/60 py-3",
+        className
+      )}
+    >
       <div>
         <h1 className="text-3xl font-bold tracking-tight">{title}</h1>
         {description && (

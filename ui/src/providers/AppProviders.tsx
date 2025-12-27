@@ -8,6 +8,7 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { ToastProvider } from '@/components/toast/ToastProvider';
 import { createQueryErrorHandler } from '@/lib/queryErrorHandler';
 import { QUERY_STANDARD, queryClientOptions } from '@/api/queryOptions';
+import { DemoProvider } from '@/hooks/demo/DemoProvider';
 
 // Create a QueryClient instance with default options and centralized error handling
 function buildQueryClient() {
@@ -45,19 +46,20 @@ export function AppProviders({ children }: { children: ReactNode }) {
   return (
     <QueryClientProvider client={queryClient}>
       <CoreProviders>
-        <FeatureProviders>
-          <TooltipProvider delayDuration={0}>
-            <PersistentNotificationProvider>
-              <ToastProvider>
-                <DevProviders>
-                  {children}
-                </DevProviders>
-              </ToastProvider>
-            </PersistentNotificationProvider>
-          </TooltipProvider>
-        </FeatureProviders>
+        <DemoProvider>
+          <FeatureProviders>
+            <TooltipProvider delayDuration={0}>
+              <PersistentNotificationProvider>
+                <ToastProvider>
+                  <DevProviders>
+                    {children}
+                  </DevProviders>
+                </ToastProvider>
+              </PersistentNotificationProvider>
+            </TooltipProvider>
+          </FeatureProviders>
+        </DemoProvider>
       </CoreProviders>
     </QueryClientProvider>
   );
 }
-

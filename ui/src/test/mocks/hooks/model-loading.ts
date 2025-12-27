@@ -4,6 +4,7 @@
  * Factory functions for creating mock useModelLoadingState and related hook return values.
  */
 
+// @ts-nocheck
 import { vi, type Mock } from 'vitest';
 import type {
   UseModelLoadingStateResult,

@@ -20,7 +20,9 @@ import { SectionErrorBoundary } from '@/components/ui/section-error-boundary';
 import { TENANT_SELECTION_REQUIRED_KEY, useTheme, useAuth } from '@/providers/CoreProviders';
 import { useTenant } from '@/providers/FeatureProviders';
 import { CommandPaletteProvider, type CommandItem, useCommandPalette } from '@/contexts/CommandPaletteContext';
+import { CopilotProvider } from '@/contexts/CopilotContext';
 import { CommandPalette } from '@/components/CommandPalette';
+import { CopilotDrawer } from '@/components/copilot/CopilotDrawer';
 import { HelpCenter } from '@/components/HelpCenter';
 import { NotificationCenter } from '@/components/NotificationCenter';
 import { useKeyboardShortcuts } from '@/utils/accessibility';
@@ -44,6 +46,12 @@ import { UiMode } from '@/config/ui-mode';
 import { FetchErrorPanel } from '@/components/ui/fetch-error-panel';
 import { useBackendReachability } from '@/stores/backendReachability';
 import { isDemoMvpMode } from '@/config/demo';
+import { KernelTelemetryProvider } from '@/contexts/KernelTelemetryContext';
+import { KernelStatusBar } from '@/components/header/KernelStatusBar';
+import { SystemBoot } from '@/components/system/SystemBoot';
+import ScenarioController from '@/components/demo/ScenarioController';
+import DemoWatermark from '@/components/demo/Watermark';
+import { KernelTerminal } from '@/components/dev/KernelTerminal';
 
 const COLLAPSED_GROUPS_KEY = 'aos_sidebar_collapsed_groups';
 
@@ -103,6 +111,7 @@ interface RootLayoutContentProps {
   clearTenantAccessDenied: () => void;
   uiMode: UiMode;
   onChangeUiMode: (mode: UiMode) => void;
+  isKernelMode: boolean;
 }
 
 function RootLayoutContent({
@@ -111,6 +120,7 @@ function RootLayoutContent({
   clearTenantAccessDenied,
   uiMode,
   onChangeUiMode,
+  isKernelMode,
 }: RootLayoutContentProps) {
   const { theme, toggleTheme } = useTheme();
   const { user, logout, sessionMode } = useAuth();
@@ -295,32 +305,49 @@ function RootLayoutContent({
 
       {/* Main content area — SidebarInset owns the primary vertical scroll. Inner panels should only scroll when truly overflowed. */}
       <SidebarInset>
+        <SystemBoot />
         {/* Header */}
         <header
-          className="flex items-center border-b bg-background/80 backdrop-blur-sm sticky top-0 z-10"
+          className="border-b bg-background/80 backdrop-blur-sm sticky top-0 z-10"
           style={{
             paddingTop: 'env(safe-area-inset-top, 0px)',
             paddingLeft: 'env(safe-area-inset-left, 0px)',
             paddingRight: 'env(safe-area-inset-right, 0px)',
           }}
         >
-          <AppHeader
-            user={user ?? { email: 'guest@example.com', role: 'viewer' }}
-            sessionMode={sessionMode}
-            theme={theme}
-            onLogout={() => void logout()}
-            onOpenHelp={() => setHelpCenterOpen(true)}
-            onOpenNotifications={setNotificationCenterOpen}
-            onOpenPalette={openPalette}
-            onToggleTheme={toggleTheme}
-            className="flex-1 static top-auto z-auto border-0 bg-transparent"
-            uiMode={uiMode}
-            onChangeUiMode={onChangeUiMode}
-          />
-          {/* Global connection status indicator */}
-          <div className="px-3">
-            <ConnectionStatusIndicator />
+          <div className="flex items-center">
+            <AppHeader
+              user={user ?? { email: 'guest@example.com', role: 'viewer' }}
+              sessionMode={sessionMode}
+              theme={theme}
+              onLogout={() => void logout()}
+              onOpenHelp={() => setHelpCenterOpen(true)}
+              onOpenNotifications={setNotificationCenterOpen}
+              onOpenPalette={openPalette}
+              onToggleTheme={toggleTheme}
+              className="flex-1 static top-auto z-auto border-0 bg-transparent"
+              uiMode={uiMode}
+              onChangeUiMode={onChangeUiMode}
+            />
+            {/* Global connection status indicator */}
+            {isKernelMode && (
+              <div className="px-2">
+                <Button
+                  variant={layoutDebugEnabled ? 'secondary' : 'ghost'}
+                  size="sm"
+                  onClick={toggleLayoutDebug}
+                  disabled={!import.meta.env.DEV}
+                  data-cy="layout-debug-toggle"
+                >
+                  {layoutDebugEnabled ? 'Hide Overlay' : 'Layout Overlay'}
+                </Button>
+              </div>
+            )}
+            <div className="px-3">
+              <ConnectionStatusIndicator />
+            </div>
           </div>
+          {isKernelMode && <KernelStatusBar showEmergencyStop={isKernelMode} />}
         </header>
 
         {/* Content */}
@@ -338,15 +365,16 @@ function RootLayoutContent({
         >
           <div
             className="mx-auto flex min-h-0 w-full flex-1 flex-col"
-            style={{ maxWidth: 'var(--layout-content-width-xl)' }}
-          >
-            <div className="flex-none">
-              <SessionModeBanner sessionMode={sessionMode} />
-              {backendReachability.status === 'offline' && (
-                <div className="mb-4">
-                  <FetchErrorPanel
-                    title="Backend unavailable"
-                    description="The UI can’t reach the AdapterOS API. Start the control plane and retry."
+          style={{ maxWidth: 'var(--layout-content-width-xl)' }}
+        >
+          <div className="flex-none">
+            <SessionModeBanner sessionMode={sessionMode} />
+            <ScenarioController />
+            {backendReachability.status === 'offline' && (
+              <div className="mb-4">
+                <FetchErrorPanel
+                  title="Backend unavailable"
+                  description="The UI can’t reach the AdapterOS API. Start the control plane and retry."
                     error={backendReachability.lastError?.error}
                   />
                 </div>
@@ -375,8 +403,10 @@ function RootLayoutContent({
         </main>
       </SidebarInset>
 
-      {/* Toaster at z-40 */}
-      <Toaster position="top-right" className="z-40" />
+      <CopilotDrawer />
+
+      {/* Toaster stays above global overlays */}
+      <Toaster position="top-right" className="z-[60]" />
 
       {/* Live region for screen reader announcements */}
       <div id="sr-announcer" aria-live="polite" aria-atomic="true" className="sr-only" />
@@ -385,7 +415,9 @@ function RootLayoutContent({
       <CommandPalette />
       <NotificationCenter open={notificationCenterOpen} onOpenChange={setNotificationCenterOpen} />
       <HelpCenter open={helpCenterOpen} onOpenChange={setHelpCenterOpen} />
+      {isKernelMode && <KernelTerminal visible={isKernelMode} />}
       <LayoutDebugOverlay enabled={layoutDebugEnabled} onToggle={toggleLayoutDebug} />
+      <DemoWatermark />
     </>
   );
 }
@@ -398,6 +430,7 @@ export default function RootLayout() {
   const [isSwitchingTenant, setIsSwitchingTenant] = useState(false);
   const [tenantAccessDenied, setTenantAccessDenied] = useState(false);
   const { uiMode, setUiMode } = useUiMode();
+  const kernelModeEnabled = uiMode === UiMode.Kernel && user?.role?.toLowerCase() === 'developer';
 
   useSessionExpiryHandler();
 
@@ -406,6 +439,26 @@ export default function RootLayout() {
     window.addEventListener(TENANT_ACCESS_DENIED_EVENT, handler);
     return () => window.removeEventListener(TENANT_ACCESS_DENIED_EVENT, handler);
   }, []);
+
+  useEffect(() => {
+    const handleKernelMode = (event: Event) => {
+      const detail = (event as CustomEvent<{ mode?: UiMode }>).detail;
+      const nextMode = detail?.mode;
+      if (!nextMode) return;
+      if (nextMode === UiMode.Kernel && user?.role?.toLowerCase() !== 'developer') {
+        return;
+      }
+      setUiMode(nextMode);
+    };
+    window.addEventListener('aos:set-ui-mode', handleKernelMode as EventListener);
+    return () => window.removeEventListener('aos:set-ui-mode', handleKernelMode as EventListener);
+  }, [setUiMode, user?.role]);
+
+  useEffect(() => {
+    if (uiMode === UiMode.Kernel && user?.role?.toLowerCase() !== 'developer') {
+      setUiMode(UiMode.User);
+    }
+  }, [setUiMode, uiMode, user?.role]);
 
   // Generate navigation groups from centralized route config
   const demoMode = isDemoMvpMode(sessionMode);
@@ -461,8 +514,22 @@ export default function RootLayout() {
         shortcut: '⌘⇧E',
       }
     );
+    if (user?.role?.toLowerCase() === 'developer') {
+      const kernelActive = uiMode === UiMode.Kernel;
+      items.push({
+        id: kernelActive ? 'action-exit-kernel' : 'action-enter-kernel',
+        type: 'action',
+        title: kernelActive ? 'Exit Kernel Mode' : 'Enter Kernel Mode',
+        description: kernelActive
+          ? 'Return to Builder view without Kernel overlays'
+          : 'Expose Kernel status bar, receipts, Q15 rank, and hot-swap controls',
+        actionId: kernelActive ? 'exit-kernel-mode' : 'enter-kernel-mode',
+        group: 'Developer',
+        shortcut: '⌘⌥K',
+      });
+    }
     return items;
-  }, [navigationGroups, user?.role]);
+  }, [navigationGroups, uiMode, user?.role]);
 
   const requiresTenantSelection = useMemo(() => {
     if (!user) return false;
@@ -547,7 +614,7 @@ if (!user && location.pathname !== '/login') {
     return (
       <>
         <Outlet />
-        <Toaster position="top-right" className="z-40" />
+        <Toaster position="top-right" className="z-[60]" />
       </>
     );
   }
@@ -622,27 +689,32 @@ if (!user && location.pathname !== '/login') {
                   Sign out
                 </Button>
               </div>
-            </CardFooter>
-          </Card>
-        </div>
-        <Toaster position="top-right" className="z-40" />
-      </>
-    );
-  }
+          </CardFooter>
+        </Card>
+      </div>
+      <Toaster position="top-right" className="z-[60]" />
+    </>
+  );
+}
 
   return (
     <LiveDataStatusProvider>
-      <CommandPaletteProvider routes={commandItems}>
-        <SidebarProvider>
-          <RootLayoutContent
-            navigationGroups={navigationGroups}
-            tenantAccessDenied={tenantAccessDenied}
-            clearTenantAccessDenied={() => setTenantAccessDenied(false)}
-            uiMode={uiMode}
-            onChangeUiMode={setUiMode}
-          />
-        </SidebarProvider>
-      </CommandPaletteProvider>
+      <KernelTelemetryProvider tenantId={selectedTenant || 'default'}>
+        <CopilotProvider>
+          <CommandPaletteProvider routes={commandItems}>
+            <SidebarProvider>
+              <RootLayoutContent
+              navigationGroups={navigationGroups}
+              tenantAccessDenied={tenantAccessDenied}
+              clearTenantAccessDenied={() => setTenantAccessDenied(false)}
+              uiMode={uiMode}
+              onChangeUiMode={setUiMode}
+              isKernelMode={kernelModeEnabled}
+            />
+          </SidebarProvider>
+        </CommandPaletteProvider>
+      </CopilotProvider>
+      </KernelTelemetryProvider>
     </LiveDataStatusProvider>
   );
 }

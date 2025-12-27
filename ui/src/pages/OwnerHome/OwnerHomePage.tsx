@@ -49,6 +49,7 @@ import { CliConsole } from './components/CliConsole';
 import { useSystemState } from '@/hooks/system/useSystemState';
 import { useLiveData } from '@/hooks/realtime/useLiveData';
 import { buildReplayLink, buildDashboardLink, buildTestingLink, buildSecurityPoliciesLink, buildAdaptersRegisterLink } from '@/utils/navLinks';
+import { useDemoBaseModelStatus } from '@/hooks/demo/useDemoBaseModelStatus';
 
 const MODEL_STATUS_VALUES = ['ready', 'loading', 'error', 'no-model', 'unloading', 'checking', 'available'] as const;
 type ModelStatusValue = (typeof MODEL_STATUS_VALUES)[number];
@@ -141,7 +142,7 @@ export default function OwnerHomePage() {
 
   // Fetch base model status
   const {
-    data: baseModelStatus,
+    data: baseModelStatusRaw,
     isLoading: baseModelLoading,
     refetch: refetchBaseModel,
   } = useQuery({
@@ -152,6 +153,7 @@ export default function OwnerHomePage() {
     refetchOnWindowFocus: true,
     retry: 1,
   });
+  const baseModelStatus = useDemoBaseModelStatus(baseModelStatusRaw as BaseModelStatus | undefined);
 
   // Fetch ground truth system state (memory pressure, top adapters)
   const {

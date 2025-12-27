@@ -78,7 +78,12 @@ export function PageHeader({
   const PrimaryIcon = primaryAction?.icon;
 
   return (
-    <div className={cn("w-full", className)}>
+    <div
+      className={cn(
+        "w-full sticky top-0 z-30 backdrop-blur-md bg-background/80 supports-[backdrop-filter]:bg-background/70 border-b border-border/60 pb-4 pt-3",
+        className
+      )}
+    >
       {/* Breadcrumbs */}
       {breadcrumbs && breadcrumbs.length > 0 && (
         <nav className="flex items-center text-sm text-muted-foreground mb-4">

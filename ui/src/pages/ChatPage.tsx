@@ -40,6 +40,10 @@ import { ChatInitialLoadState } from '@/components/chat/ChatInitialLoadState';
 import { EvidencePanel } from '@/components/evidence/EvidencePanel';
 import { TraceSummaryPanel } from '@/components/trace/TraceSummaryPanel';
 import { useTrace } from '@/hooks/observability/useTrace';
+import { useKernelTelemetry } from '@/contexts/KernelTelemetryContext';
+import { useAuth } from '@/providers/CoreProviders';
+import { useUiMode } from '@/hooks/ui/useUiMode';
+import { UiMode } from '@/config/ui-mode';
 
 export default function ChatPage() {
   const { selectedTenant } = useTenant();
@@ -53,6 +57,29 @@ export default function ChatPage() {
   // Mode toggles
   const [streamMode, setStreamMode] = useState<'tokens' | 'chunks'>('tokens');
   const [developerMode, setDeveloperMode] = useState(false);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName?.toLowerCase();
+      if (
+        tag === 'input' ||
+        tag === 'textarea' ||
+        tag === 'select' ||
+        target?.isContentEditable
+      ) {
+        return;
+      }
+
+      if ((e.metaKey || e.ctrlKey) && e.key === '.') {
+        e.preventDefault();
+        setDeveloperMode((prev) => !prev);
+      }
+    };
+
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
 
   if (!canExecuteInference) {
     return (
@@ -120,10 +147,16 @@ function WorkbenchContent({
     pinMessage,
     pinnedMessageId,
     setStrengthOverrides,
+    setRightRailCollapsed,
   } = useWorkbench();
 
   // Session scope management
   const sessionScope = useSessionScope();
+  const { latencyMs } = useKernelTelemetry();
+  const { user } = useAuth();
+  const { uiMode } = useUiMode();
+  const isKernelMode = uiMode === UiMode.Kernel && user?.role?.toLowerCase() === 'developer';
+  const effectiveDeveloperMode = developerMode || isKernelMode;
 
   // Initial load state (wraps stacks, default stack, and sessions queries)
   const tenantId = selectedTenant || 'default';
@@ -160,6 +193,12 @@ function WorkbenchContent({
       return next;
     });
   }, [pinMessage, selectMessage, selectedTenant, setSearchParams, setStrengthOverrides]);
+
+  useEffect(() => {
+    if (effectiveDeveloperMode) {
+      setRightRailCollapsed(false);
+    }
+  }, [effectiveDeveloperMode, setRightRailCollapsed]);
 
   const selectedSession = useMemo(() => {
     if (!sessionId) return undefined;
@@ -355,6 +394,12 @@ function WorkbenchContent({
     applyStackSelection(null);
   }, [applyStackSelection]);
 
+  useEffect(() => {
+    const handleDetach = () => handleClearStack();
+    window.addEventListener('aos:detach-all', handleDetach);
+    return () => window.removeEventListener('aos:detach-all', handleDetach);
+  }, [handleClearStack]);
+
   // Message completion handler (for right rail auto-update)
   const handleMessageComplete = useCallback(
     (messageId: string, traceId?: string) => {
@@ -433,18 +478,21 @@ function WorkbenchContent({
                   Stream: {streamMode}
                 </label>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-3 px-3 py-2 rounded-md border bg-muted/40">
                 <Switch
                   id="developer-mode"
-                  checked={developerMode}
+                  checked={effectiveDeveloperMode}
+                  disabled={isKernelMode}
                   onCheckedChange={setDeveloperMode}
                 />
-                <label
-                  htmlFor="developer-mode"
-                  className="text-sm text-muted-foreground"
-                >
-                  Developer
-                </label>
+                <div className="flex flex-col leading-tight">
+                  <span className="text-sm font-semibold text-foreground">
+                    {isKernelMode ? 'Kernel Mode' : developerMode ? 'OS Mode' : 'User Mode'}
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    {isKernelMode ? 'Tokens, Q15 ranks, receipts' : 'Metrics, debugger, traces'}
+                  </span>
+                </div>
               </div>
             </div>
 
@@ -453,6 +501,7 @@ function WorkbenchContent({
               stackName={activeStack?.name}
               stackId={effectiveStackId}
               canExport={!!selectedTraceId}
+              latencyMs={latencyMs}
             />
           </div>
         }
@@ -490,6 +539,7 @@ function WorkbenchContent({
                 sessionId={sessionId}
                 streamMode={streamMode}
                 developerMode={developerMode}
+                kernelMode={isKernelMode}
                 onMessageComplete={handleMessageComplete}
                 onMessageSelect={handleMessageSelect}
                 selectedMessageId={selectedMessageId}

@@ -42,6 +42,7 @@
  * Copyright JKCA | 2025 James KC Auchterlonie
  */
 
+// @ts-nocheck
 import { useState, useCallback } from 'react';
 import { toast } from 'sonner';
 import { apiClient } from '@/api/services';

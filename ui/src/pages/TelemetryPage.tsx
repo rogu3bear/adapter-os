@@ -21,6 +21,7 @@ import { useTelemetryTabRouter } from '@/hooks/navigation/useTabRouter';
 import TelemetryAlertsTab from '@/pages/Telemetry/TelemetryAlertsTab';
 import TelemetryExportsTab from '@/pages/Telemetry/TelemetryExportsTab';
 import TelemetryFiltersTab from '@/pages/Telemetry/TelemetryFiltersTab';
+import { ReceiptInspector } from '@/components/telemetry/ReceiptInspector';
 import {
   buildTelemetryAlertsLink,
   buildTelemetryEventStreamLink,
@@ -30,11 +31,15 @@ import {
   buildTelemetryViewerLink,
 } from '@/utils/navLinks';
 import type { TraceResponseV1 } from '@/api/types';
+import { useUiMode } from '@/hooks/ui/useUiMode';
+import { UiMode } from '@/config/ui-mode';
 
 export default function TelemetryPage() {
   const { user } = useAuth();
   const { selectedTenant } = useTenant();
   const tenantId = selectedTenant || user?.tenant_id;
+  const { uiMode } = useUiMode();
+  const isKernelMode = uiMode === UiMode.Kernel && user?.role?.toLowerCase() === 'developer';
 
   const location = useLocation();
   const navigate = useNavigate();
@@ -160,6 +165,7 @@ export default function TelemetryPage() {
                 loading={isLoading || isFetching}
                 error={isError ? error : null}
                 onTraceIdChange={handleTraceIdChange}
+                kernelMode={isKernelMode}
               />
             </TabsContent>
 
@@ -188,9 +194,10 @@ interface TraceTabContentProps {
   loading: boolean;
   error: unknown;
   onTraceIdChange: (nextTraceId: string) => void;
+  kernelMode: boolean;
 }
 
-function TraceTabContent({ traceId, tenantId, trace, loading, error, onTraceIdChange }: TraceTabContentProps) {
+function TraceTabContent({ traceId, tenantId, trace, loading, error, onTraceIdChange, kernelMode }: TraceTabContentProps) {
   const [inputTraceId, setInputTraceId] = useState(traceId);
 
   useEffect(() => {
@@ -237,6 +244,10 @@ function TraceTabContent({ traceId, tenantId, trace, loading, error, onTraceIdCh
         </CardContent>
       </Card>
 
+      {kernelMode && (
+        <ReceiptInspector defaultTraceId={inputTraceId || traceId} />
+      )}
+
       {loading && (
         <div className="space-y-3">
           <Skeleton className="h-28 w-full" />
@@ -261,7 +272,11 @@ function TraceTabContent({ traceId, tenantId, trace, loading, error, onTraceIdCh
       {trace && (
         <div className="space-y-4">
           <TraceSummaryPanel trace={trace} onExport={handleExport} />
-          <TraceTokenTable tokens={trace.tokens} />
+          <TraceTokenTable
+            tokens={trace.tokens}
+            modelType={trace.model_type}
+            activeExperts={trace.active_experts}
+          />
         </div>
       )}
     </div>

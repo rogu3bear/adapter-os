@@ -811,8 +811,8 @@ describe('OperatorDashboard', () => {
     await user.click(trainingTab);
 
     await waitFor(() => {
-      expect(screen.getByText('Adapter Lifecycle')).toBeTruthy();
-      expect(screen.getByText('Total adapters')).toBeTruthy();
+      expect(screen.getByText('Active AI Modules')).toBeTruthy();
+      expect(screen.getByText('AI modules available')).toBeTruthy();
     });
   });
 
@@ -830,8 +830,8 @@ describe('OperatorDashboard', () => {
     await waitFor(() => {
       expect(screen.getByText('Upload Dataset')).toBeTruthy();
       expect(screen.getByText('Start Training')).toBeTruthy();
-      expect(screen.getByText('View Training Jobs')).toBeTruthy();
-      expect(screen.getByText('Manage Adapters')).toBeTruthy();
+      expect(screen.getByText('View Learning Tasks')).toBeTruthy();
+      expect(screen.getByText('Manage AI Modules')).toBeTruthy();
     });
   });
 
@@ -847,7 +847,7 @@ describe('OperatorDashboard', () => {
     await user.click(trainingTab);
 
     await waitFor(() => {
-      expect(screen.getByText('Active Training Jobs')).toBeTruthy();
+      expect(screen.getByText('Learning Tasks')).toBeTruthy();
     });
   });
 
@@ -880,10 +880,13 @@ describe('ViewerDashboard', () => {
       </TestWrapper>
     );
 
-    expect(screen.getByText('Dashboard')).toBeTruthy();
+    await waitFor(() => {
+      expect(screen.getByText(/Welcome, Viewer User/i)).toBeTruthy();
+    });
+    expect(screen.getByTestId('viewer-start-chat')).toBeInTheDocument();
   });
 
-  it('displays system overview widgets', async () => {
+  it('shows recent documents with a friendly empty state', async () => {
     render(
       <TestWrapper>
         <ViewerDashboard />
@@ -891,14 +894,13 @@ describe('ViewerDashboard', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText('System Overview')).toBeTruthy();
-      expect(screen.getByText('System Status')).toBeTruthy();
-      const availableAdapters = screen.getAllByText('Available Adapters');
-      expect(availableAdapters.length).toBeGreaterThan(0);
+      expect(screen.getByText('Recent Documents')).toBeTruthy();
     });
+    expect(screen.getByText(/No recent documents yet/i)).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Add a document/i })).toBeTruthy();
   });
 
-  it('displays getting started guide', async () => {
+  it('shows recent conversations without kernel jargon', async () => {
     render(
       <TestWrapper>
         <ViewerDashboard />
@@ -906,42 +908,12 @@ describe('ViewerDashboard', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText('Getting Started')).toBeTruthy();
-      const browseAdapters = screen.getAllByText(/Browse Adapters/);
-      expect(browseAdapters.length).toBeGreaterThan(0);
+      expect(screen.getByText('Recent Conversations')).toBeTruthy();
     });
-  });
-
-  it('shows viewer-specific quick actions (read-only)', async () => {
-    render(
-      <TestWrapper>
-        <ViewerDashboard />
-      </TestWrapper>
-    );
-
-    await waitFor(() => {
-      const quickActions = screen.getAllByRole('button');
-      const labels = quickActions.map((btn) => btn.textContent);
-
-      // Check for read-only actions
-      expect(labels.some((label) => label?.includes('Start Chat'))).toBe(true);
-      expect(labels.some((label) => label?.includes('Browse Adapters'))).toBe(true);
-      expect(labels.some((label) => label?.includes('View Documentation'))).toBe(true);
-      expect(labels.some((label) => label?.includes('Telemetry Viewer'))).toBe(true);
-    });
-  });
-
-  it('displays help and resources section', async () => {
-    render(
-      <TestWrapper>
-        <ViewerDashboard />
-      </TestWrapper>
-    );
-
-    await waitFor(() => {
-      expect(screen.getByText('Help & Resources')).toBeTruthy();
-      expect(screen.getByText('Documentation')).toBeTruthy();
-    });
+    expect(screen.getByText(/No conversations yet/i)).toBeTruthy();
+    expect(screen.queryByText(/VRAM/i)).toBeNull();
+    expect(screen.queryByText(/Panic Button/i)).toBeNull();
+    expect(screen.queryByText(/Kernel/i)).toBeNull();
   });
 
   it('does NOT show admin/operator actions', async () => {
@@ -954,7 +926,7 @@ describe('ViewerDashboard', () => {
     await waitFor(() => {
       expect(screen.queryByText('Create Tenant')).toBeNull();
       expect(screen.queryByText('Upload Dataset')).toBeNull();
-      expect(screen.queryByText('Start Training')).toBeNull();
+      expect(screen.queryByText(/Start Training/i)).toBeNull();
     });
   });
 });
@@ -1009,7 +981,7 @@ describe('Dashboard Router', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText('Getting Started')).toBeTruthy();
+      expect(screen.getByText('Recent Documents')).toBeTruthy();
     });
   });
 
@@ -1023,7 +995,7 @@ describe('Dashboard Router', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText('Getting Started')).toBeTruthy();
+      expect(screen.getByText('Recent Documents')).toBeTruthy();
     });
   });
 });
@@ -1069,7 +1041,7 @@ describe('Permission-Based Widget Filtering', () => {
     await waitFor(() => {
       expect(screen.getByText('Training Progress')).toBeTruthy();
       expect(screen.getByText('Dataset Summary')).toBeTruthy();
-      expect(screen.getByText('Adapter Lifecycle')).toBeTruthy();
+      expect(screen.getByText('Active AI Modules')).toBeTruthy();
     });
 
     // Should NOT see admin-only widgets
@@ -1138,8 +1110,8 @@ describe('Quick Actions Role Filtering', () => {
     await waitFor(() => {
       expect(screen.getByText('Upload Dataset')).toBeTruthy();
       expect(screen.getByText('Start Training')).toBeTruthy();
-      expect(screen.getByText('View Training Jobs')).toBeTruthy();
-      expect(screen.getByText('Manage Adapters')).toBeTruthy();
+      expect(screen.getByText('View Learning Tasks')).toBeTruthy();
+      expect(screen.getByText('Manage AI Modules')).toBeTruthy();
     });
 
     // Should NOT see admin actions
@@ -1157,18 +1129,13 @@ describe('Quick Actions Role Filtering', () => {
     );
 
     await waitFor(() => {
-      const buttons = screen.getAllByRole('button');
-      const labels = buttons.map((btn) => btn.textContent);
-
-      // Check for read-only actions
-      expect(labels.some((label) => label?.includes('Start Chat'))).toBe(true);
-      expect(labels.some((label) => label?.includes('Browse Adapters'))).toBe(true);
-      expect(labels.some((label) => label?.includes('View Documentation'))).toBe(true);
+      expect(screen.getByRole('button', { name: /Talk to the AI/i })).toBeTruthy();
+      expect(screen.getByRole('button', { name: /Reference a document/i })).toBeTruthy();
 
       // Should NOT see write actions
-      expect(labels.some((label) => label?.includes('Upload'))).toBe(false);
-      expect(labels.some((label) => label?.includes('Create Tenant'))).toBe(false);
-      expect(labels.some((label) => label?.includes('Manage Users'))).toBe(false);
+      expect(screen.queryByText(/Upload Dataset/i)).toBeNull();
+      expect(screen.queryByText(/Create Tenant/i)).toBeNull();
+      expect(screen.queryByText(/Manage Users/i)).toBeNull();
     });
   });
 });

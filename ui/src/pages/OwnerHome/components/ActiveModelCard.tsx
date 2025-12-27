@@ -25,6 +25,7 @@ import { apiClient } from '@/api/services';
 import { cn } from '@/lib/utils';
 import { formatBytes } from '@/lib/formatters';
 import { buildBaseModelsLink } from '@/utils/navLinks';
+import { useDemoMode } from '@/hooks/demo/DemoProvider';
 
 interface BaseModel {
   id: string;
@@ -50,22 +51,38 @@ export function ActiveModelCard({
 }: ActiveModelCardProps) {
   const navigate = useNavigate();
   const [operationLoading, setOperationLoading] = useState(false);
+  const { enabled: demoMode, activeModel, modelSwitching } = useDemoMode();
 
   // Find the currently loaded model
   const loadedModel = useMemo(() => {
+    if (demoMode && activeModel) {
+      return {
+        id: activeModel.id,
+        name: activeModel.name,
+        size_bytes: activeModel.sizeBytes,
+        format: activeModel.format,
+        status: modelSwitching ? 'loading' : 'ready',
+        path: activeModel.backend,
+      } as BaseModel;
+    }
     return models.find((m) => m.status === 'ready');
-  }, [models]);
+  }, [activeModel, demoMode, modelSwitching, models]);
 
   // Calculate memory usage estimate
   const memoryEstimate = useMemo(() => {
-    if (!loadedModel?.size_bytes) return null;
-    const memoryMB = (loadedModel.size_bytes * 1.2) / (1024 * 1024);
+    const sizeBytes = loadedModel?.size_bytes ?? (demoMode ? activeModel?.sizeBytes : null);
+    if (!sizeBytes) return null;
+    const memoryMB = (sizeBytes * 1.2) / (1024 * 1024);
     return memoryMB >= 1024
       ? `~${(memoryMB / 1024).toFixed(1)} GB`
       : `~${memoryMB.toFixed(0)} MB`;
-  }, [loadedModel]);
+  }, [activeModel?.sizeBytes, demoMode, loadedModel]);
 
   const handleUnloadModel = async () => {
+    if (demoMode) {
+      toast.info('Demo mode: unload is simulated while the 30B MoE stays mounted.');
+      return;
+    }
     if (!loadedModel) return;
 
     setOperationLoading(true);
@@ -113,8 +130,13 @@ export function ActiveModelCard({
                     {loadedModel.name}
                   </h3>
                   <Badge variant="default" className="text-xs bg-green-600">
-                    Loaded
+                    {modelSwitching ? 'Switching' : 'Loaded'}
                   </Badge>
+                  {demoMode && (
+                    <Badge variant="outline" className="text-xs">
+                      Demo
+                    </Badge>
+                  )}
                 </div>
                 <div className="flex flex-wrap items-center gap-2 text-sm text-slate-600">
                   <span>{formatBytes(loadedModel.size_bytes ?? 0)}</span>
@@ -143,7 +165,7 @@ export function ActiveModelCard({
                 variant="outline"
                 size="sm"
                 onClick={handleUnloadModel}
-                disabled={operationLoading}
+                disabled={operationLoading || demoMode}
                 className="text-red-600 hover:text-red-700 hover:bg-red-50"
               >
                 {operationLoading ? (

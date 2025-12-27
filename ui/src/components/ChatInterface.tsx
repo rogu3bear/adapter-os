@@ -14,21 +14,26 @@ import { logger, toError } from '@/utils/logger';
 import { toast } from 'sonner';
 import { SectionErrorBoundary } from '@/components/ui/section-error-boundary';
 import { SectionAsyncBoundary } from '@/components/shared/Feedback/AsyncBoundary';
-import { Send, Loader2, Layers, History, X, ChevronLeft, Plus, Activity, Database, Archive, Trash2, FileText } from 'lucide-react';
+import { Send, Loader2, Layers, History, X, ChevronLeft, Plus, Activity, Database, Archive, Trash2, FileText, Bug, Copy, RefreshCw, PlayCircle, Link2 } from 'lucide-react';
 import { useAdapterStacks, useGetDefaultStack } from '@/hooks/admin/useAdmin';
 import { useCollections } from '@/hooks/api/useCollectionsApi';
-import type { ExtendedRouterDecision, Adapter } from '@/api/types';
+import type { ExtendedRouterDecision } from '@/api/types';
+import type { ReceiptVerificationResult } from '@/api/api-types';
 import { RouterActivitySidebar } from './chat/RouterActivitySidebar';
 import { AdapterLoadingStatus } from './chat/AdapterLoadingStatus';
 import { PreChatAdapterPrompt } from './chat/PreChatAdapterPrompt';
 import { ChatSearchBar } from './chat/ChatSearchBar';
 import { ChatSessionActions } from './chat/ChatSessionActions';
+import { AdapterMountIndicators, type AdapterMountItem, type AdapterMountTransition } from './chat/AdapterMountIndicators';
+import { NeuralDebuggerPanel } from './chat/NeuralDebuggerPanel';
 import { ChatTagsManager } from './chat/ChatTagsManager';
 import { ChatCategoriesManager } from './chat/ChatCategoriesManager';
 import { ChatShareDialog } from './chat/ChatShareDialog';
 import { ChatArchivePanel } from './chat/ChatArchivePanel';
 import { InlineModelLoadingBlock } from './chat/InlineModelLoadingBlock';
 import { useChatExport } from '@/components/export';
+import { AdapterAttachmentChip } from './chat/AdapterAttachmentChip';
+import { cn } from '@/lib/utils';
 import {
   useChatStreaming,
   useChatAdapterState,
@@ -36,6 +41,7 @@ import {
   useSessionManager,
   useChatModals,
 } from '@/hooks/chat';
+import { useAutoAttach } from '@/hooks/chat/useAutoAttach';
 import { useChatAutoLoadModels } from '@/hooks/config/useFeatureFlags';
 import {
   useModelLoadingState,
@@ -47,12 +53,20 @@ import { ChatLoadingOverlay } from './chat/ChatLoadingOverlay';
 import { ChatErrorDisplay } from './chat/ChatErrorDisplay';
 import { MissingPinnedAdaptersBanner } from './chat/MissingPinnedAdaptersBanner';
 import { EvidenceDrawerProvider, useEvidenceDrawerOptional } from '@/contexts/EvidenceDrawerContext';
+import { ChatProvider, useChatContextOptional, type SuggestedAdapter } from '@/contexts/ChatContext';
 import { EvidenceDrawer } from './chat/EvidenceDrawer';
 import { apiClient } from '@/api/services';
 import { useChatSessionsApi } from '@/hooks/chat/useChatSessionsApi';
+import { useSystemMetrics, useWorkers } from '@/hooks/system/useSystemMetrics';
+import { AdapterSuggestion } from './chat/AdapterSuggestion';
+import { classifyMagnet, colorWithAlpha, playMagnetSnapFeedback } from '@/utils/adapterMagnet';
+import { useDemoMode } from '@/hooks/demo/DemoProvider';
+import { useDemoScriptRunner } from '@/hooks/demo/useDemoScriptRunner';
 
 // LocalStorage key for chat auto-load preference
 const CHAT_AUTO_LOAD_KEY = 'aos-chat-auto-load-model';
+const AUTO_ATTACH_KEY = 'aos-chat-auto-attach';
+const MAGNET_CONFIDENCE_THRESHOLD = 0.85;
 
 function ChatInterfaceInner({
   selectedTenant,
@@ -66,6 +80,7 @@ function ChatInterfaceInner({
   onViewDocument,
   streamMode = 'tokens',
   developerMode = false,
+  kernelMode = false,
   onMessageComplete,
   onMessageSelect,
   selectedMessageId,
@@ -103,6 +118,7 @@ function ChatInterfaceInner({
     loadSession,
     createSession: createSessionFromManager,
   } = sessionManager;
+  const chatContext = useChatContextOptional();
 
   // Modal management hook
   const {
@@ -119,6 +135,7 @@ function ChatInterfaceInner({
     categoryDialogSessionId,
     setCategoryDialogSessionId,
   } = useChatModals();
+  const [isDebuggerOpen, setIsDebuggerOpen] = useState(false);
 
   // Local editing state (for session rename)
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
@@ -126,6 +143,31 @@ function ChatInterfaceInner({
 
   // Remaining local state
   const [input, setInput] = useState('');
+  const [autoAttachEnabled, setAutoAttachEnabled] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(AUTO_ATTACH_KEY) !== 'false';
+    } catch {
+      return true;
+    }
+  });
+  const {
+    suggestedAdapters,
+    attachedAdapters,
+    lastAttachedAdapterId,
+    autoAttachPaused,
+    attachWithResolution,
+    removeAttachedAdapter,
+    predictionLoading,
+    predictionError,
+    bestSuggestion,
+    muteAdapter,
+    conflictState,
+  } = useAutoAttach({
+    text: input,
+    autoAttachEnabled,
+    stackId: selectedStackId,
+    tenantId,
+  });
   const setSelectedStackId = useCallback(
     (stackId: string | null) => {
       if (!isStackControlled) {
@@ -144,6 +186,7 @@ function ChatInterfaceInner({
   const attemptedSessionLoadRef = useRef<string | null>(null);
   const previousTenantIdRef = useRef<string | null>(null);
   const previousSessionIdPropRef = useRef<string | undefined>(sessionId);
+  const previousChatSessionRef = useRef<string | null>(null);
 
   // If the parent-controlled sessionId changes, clear current state immediately so we don't show stale messages.
   useEffect(() => {
@@ -163,6 +206,35 @@ function ChatInterfaceInner({
     clearSession();
   }, [clearSession, currentSessionId, sessionId]);
 
+  useEffect(() => {
+    if (!chatContext) return;
+    const key = currentSessionId ?? null;
+    chatContext.setActiveSessionId(key);
+    if (previousChatSessionRef.current !== key) {
+      chatContext.reset();
+      previousChatSessionRef.current = key;
+    }
+  }, [chatContext, currentSessionId]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(AUTO_ATTACH_KEY, String(autoAttachEnabled));
+    } catch {
+      // ignore
+    }
+  }, [autoAttachEnabled]);
+
+  useEffect(() => {
+    if (!lastAttachedAdapterId) return;
+    if (lastAutoSnapRef.current === lastAttachedAdapterId) return;
+
+    const attached = attachedAdapters.find((adapter) => adapter.id === lastAttachedAdapterId);
+    if (!attached || attached.attachedBy !== 'auto') return;
+
+    lastAutoSnapRef.current = lastAttachedAdapterId;
+    playMagnetSnapFeedback();
+  }, [attachedAdapters, lastAttachedAdapterId]);
+
   // Notify parent when the active session changes (e.g., user loads/creates session within ChatInterface).
   const hasNotifiedSessionChangeRef = useRef(false);
   useEffect(() => {
@@ -180,6 +252,13 @@ function ChatInterfaceInner({
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const stackSelectorRef = useRef<HTMLButtonElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const lastAutoSnapRef = useRef<string | null>(null);
+  const { enabled: demoMode } = useDemoMode();
+  const { run: runDemoScript, isTyping: isTypingDemoScript } = useDemoScriptRunner({
+    enabled: demoMode,
+    setInput,
+    focus: () => inputRef.current?.focus(),
+  });
 
   // Auto-load preference (user's choice to auto-load model on chat page)
   const [chatAutoLoadPreference, setChatAutoLoadPreference] = useState<boolean>(() => {
@@ -303,6 +382,7 @@ function ChatInterfaceInner({
   // Streaming message state (for in-progress messages)
   const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null);
   const [isBaseOnlyMode, setIsBaseOnlyMode] = useState(false);
+  const [latestTraceId, setLatestTraceId] = useState<string | null>(null);
 
   // Compute effective collection ID (reacts to documentContext or datasetContext changes)
   const effectiveCollectionId = useMemo(
@@ -316,6 +396,42 @@ function ChatInterfaceInner({
       setSelectedCollectionId(documentContext.collectionId);
     }
   }, [documentContext?.collectionId, selectedCollectionId]);
+
+  const [verificationReports, setVerificationReports] = useState<Record<string, ReceiptVerificationResult>>({});
+  const [verificationDialogTrace, setVerificationDialogTrace] = useState<string | null>(null);
+  const [verificationDialogError, setVerificationDialogError] = useState<string | null>(null);
+  const [verificationDialogLoading, setVerificationDialogLoading] = useState(false);
+
+  const fetchVerificationReport = useCallback(async (traceId: string, silent = false): Promise<ReceiptVerificationResult | null> => {
+    if (!traceId) return null;
+    if (verificationReports[traceId]) return verificationReports[traceId];
+
+    if (!silent) {
+      setVerificationDialogLoading(true);
+      setVerificationDialogError(null);
+    }
+
+    try {
+      const report = await apiClient.verifyTraceReceipt(traceId);
+      setVerificationReports((prev) => ({ ...prev, [traceId]: report }));
+      return report;
+    } catch (err) {
+      const error = toError(err);
+      if (!silent) {
+        setVerificationDialogError(error.message);
+        toast.error(`Verification failed: ${error.message}`);
+      }
+      logger.error('Verification fetch failed', {
+        component: 'ChatInterface',
+        traceId,
+      }, error);
+      return null;
+    } finally {
+      if (!silent) {
+        setVerificationDialogLoading(false);
+      }
+    }
+  }, [verificationReports]);
 
   // Chat streaming hook
   const {
@@ -353,6 +469,7 @@ function ChatInterfaceInner({
 	    onStreamComplete: async (response) => {
 	      const completedMessageId = streamingMessageId || response.id;
 	      const traceId = response.traceId || response.requestId || currentRequestId || undefined;
+        setLatestTraceId(traceId ?? null);
 
 	      // Fetch router decision and evidence
 	      let routerDecision = null;
@@ -408,6 +525,10 @@ function ChatInterfaceInner({
           isVerified: completedMessage.isVerified ?? undefined,
           verifiedAt: completedMessage.verifiedAt,
         });
+      }
+
+      if (traceId) {
+        fetchVerificationReport(traceId, true);
       }
     },
     onError: (error) => {
@@ -530,12 +651,131 @@ function ChatInterfaceInner({
       && !newModelLoadingState.overallReady
     : isCheckingAdapters;
 
+  const { metrics: systemMetrics } = useSystemMetrics('fast', autoLoadEnabled && isLoadingModels);
+  const { workers: workerList } = useWorkers(selectedTenant, undefined, 'slow', autoLoadEnabled && isLoadingModels);
+  const [backendSummary, setBackendSummary] = useState<{ name: string; mode?: string | null } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!autoLoadEnabled || !isLoadingModels) {
+      setBackendSummary(null);
+      return;
+    }
+
+    (async () => {
+      try {
+        const backends = await apiClient.listBackends();
+        if (cancelled) return;
+        const defaultBackend = backends.default_backend || backends.backends?.find((b) => b.status === 'healthy')?.backend || backends.backends?.[0]?.backend || null;
+        const matching = backends.backends?.find((b) => b.backend === defaultBackend);
+        setBackendSummary(defaultBackend ? { name: defaultBackend, mode: matching?.mode ?? null } : null);
+      } catch (err) {
+        logger.debug('Failed to fetch backend list during boot', {
+          component: 'ChatInterface',
+          errorMessage: toError(err).message,
+        });
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [autoLoadEnabled, isLoadingModels]);
+
+  const kernelInfo = useMemo(() => {
+    const activeWorker = workerList.find((w) => w.status === 'running') || workerList[0];
+    const used = systemMetrics?.gpu_memory_used_mb ?? null;
+    const total = systemMetrics?.gpu_memory_total_mb ?? null;
+
+    return {
+      workerName: activeWorker?.worker_id || activeWorker?.id || null,
+      workerStatus: activeWorker?.status ?? null,
+      backend: backendSummary?.name ?? null,
+      backendMode: backendSummary?.mode ?? null,
+      baseModelName: newModelLoadingState.baseModelName,
+      vramUsedMb: used,
+      vramTotalMb: total,
+      bootProgress: newModelLoadingState.progress,
+    };
+  }, [backendSummary, newModelLoadingState.baseModelName, newModelLoadingState.progress, systemMetrics?.gpu_memory_total_mb, systemMetrics?.gpu_memory_used_mb, workerList]);
+
+  const [adapterTransitions, setAdapterTransitions] = useState<AdapterMountTransition[]>([]);
+  const adapterStateSnapshotRef = useRef<Map<string, string>>(new Map());
+
+  const adapterMountItems: AdapterMountItem[] = useMemo(
+    () =>
+      Array.from(adapterStateMap.values())
+        .map((adapter: any) => ({
+          adapterId: (adapter as any).adapterId ?? (adapter as any).id ?? '',
+          name: (adapter as any).name ?? (adapter as any).adapterId ?? (adapter as any).id ?? 'Adapter',
+          state: (adapter as any).state,
+          isLoading: (adapter as any).isLoading,
+        }))
+        .filter((adapter) => adapter.adapterId),
+    [adapterStateMap]
+  );
+
+  useEffect(() => {
+    if (adapterMountItems.length === 0) {
+      adapterStateSnapshotRef.current = new Map();
+      return;
+    }
+
+    const updates: AdapterMountTransition[] = [];
+    adapterMountItems.forEach((adapter) => {
+      const previousState = adapterStateSnapshotRef.current.get(adapter.adapterId);
+      if (previousState && previousState !== adapter.state) {
+        updates.push({
+          adapterId: adapter.adapterId,
+          name: adapter.name,
+          from: previousState,
+          to: adapter.state,
+          timestamp: Date.now(),
+        });
+      } else if (!previousState) {
+        updates.push({
+          adapterId: adapter.adapterId,
+          name: adapter.name,
+          from: undefined,
+          to: adapter.state,
+          timestamp: Date.now(),
+        });
+      }
+    });
+
+    if (updates.length) {
+      setAdapterTransitions((prev) => [...updates, ...prev].slice(0, 8));
+    }
+
+    const snapshot = new Map<string, string>();
+    adapterMountItems.forEach((adapter) => snapshot.set(adapter.adapterId, String(adapter.state)));
+    adapterStateSnapshotRef.current = snapshot;
+  }, [adapterMountItems]);
+
   // Auto-focus input when model becomes ready
   useEffect(() => {
     if (baseModelReady && inputRef.current) {
       inputRef.current.focus();
     }
   }, [baseModelReady]);
+
+  const developerModeEnabled = developerMode || kernelMode;
+
+  useEffect(() => {
+    if (developerModeEnabled) {
+      setIsDebuggerOpen(true);
+      if (isRouterActivityOpen) {
+        setIsRouterActivityOpen(false);
+      }
+    } else {
+      setIsDebuggerOpen(false);
+    }
+  }, [developerModeEnabled, isRouterActivityOpen, setIsRouterActivityOpen]);
+
+  useEffect(() => {
+    if (!verificationDialogTrace) return;
+    fetchVerificationReport(verificationDialogTrace);
+  }, [fetchVerificationReport, verificationDialogTrace]);
 
   // Inline model loading handlers (for InlineModelLoadingBlock)
   const handleInlineLoadModel = useCallback(async () => {
@@ -558,6 +798,17 @@ function ChatInterfaceInner({
     }
   }, [newModelLoader]);
 
+  const handleSelectMessageWithVerification = useCallback(
+    (messageId: string, traceId?: string) => {
+      onMessageSelect?.(messageId, traceId);
+      if (traceId) {
+        setLatestTraceId(traceId);
+        setVerificationDialogTrace(traceId);
+      }
+    },
+    [onMessageSelect]
+  );
+
   // Router decisions hook
   const {
     isLoadingDecision,
@@ -568,6 +819,15 @@ function ChatInterfaceInner({
   } = useChatRouterDecisions({
     stackId: selectedStackId,
   });
+
+  useEffect(() => {
+    if (!lastDecision) return;
+    const label = lastDecision.adapterName || lastDecision.adapterId;
+    toast.info(`Switched to ${label} based on reasoning...`, {
+      id: `thought-swap-${lastDecision.messageId}`,
+      duration: 4000,
+    });
+  }, [lastDecision]);
 
   // Reset session state when the tenant changes to avoid cross-tenant state bleed.
   useEffect(() => {
@@ -584,6 +844,10 @@ function ChatInterfaceInner({
     setInput('');
     setSearchQuery('');
     setStrengthOverrides({});
+    setLatestTraceId(null);
+    setVerificationReports({});
+    setVerificationDialogTrace(null);
+    setVerificationDialogError(null);
     clearDecisions();
     setIsHistoryOpen(false);
     setIsRouterActivityOpen(false);
@@ -806,8 +1070,11 @@ function ChatInterfaceInner({
           ? selectedStack.adapters.map(a => a.id ?? a.adapter_id)
           : [];
 
+    const attachedIds = effectiveBaseOnlyMode ? [] : attachedAdapters.map((adapter) => adapter.id);
+    const mergedAdapterIds = effectiveBaseOnlyMode ? [] : Array.from(new Set([...adapterIds, ...attachedIds]));
+
     // Only block if user explicitly selected a stack but it has no adapters
-    if (!adapterIds || adapterIds.length === 0) {
+    if (!mergedAdapterIds || mergedAdapterIds.length === 0) {
       if (selectedStackId && !effectiveBaseOnlyMode) {
         toast.error('Selected stack has no adapters. Select a different stack or use base model only.');
         return;
@@ -824,7 +1091,7 @@ function ChatInterfaceInner({
     setInput('');
 
     // Send message using the streaming hook
-    await sendMessage(messageContent, adapterIds);
+    await sendMessage(messageContent, mergedAdapterIds);
   }, [
     allReady,
     autoLoadEnabled,
@@ -834,17 +1101,111 @@ function ChatInterfaceInner({
     input,
     isBaseOnlyMode,
     isStreaming,
+    attachedAdapters,
     selectedStack,
     selectedStackId,
     sendMessage,
   ]);
 
+  const attachFromUI = useCallback((adapter: SuggestedAdapter) => {
+    const forceReplace = conflictState?.candidateId === adapter.id;
+    const result = attachWithResolution(adapter, 'manual', { forceReplace });
+
+    if (!result.attached && result.resolution?.conflicts.length && !forceReplace) {
+      const conflictsLabel = result.resolution.conflicts.map((c) => c.id).join(', ');
+      toast.warning(`Conflicts with ${conflictsLabel}. Attach again to replace.`);
+    }
+
+    if (result.attached && forceReplace && result.resolution?.conflicts.length) {
+      const replaced = result.resolution.conflicts.map((c) => c.id).join(', ');
+      toast.success(`Replaced ${replaced} with ${adapter.id}`);
+    }
+
+    return result.attached;
+  }, [attachWithResolution, conflictState?.candidateId]);
+
+  const handleAcceptSuggestion = useCallback(() => {
+    const target = suggestedAdapters[0] ?? bestSuggestion;
+    if (!target) return;
+    attachFromUI(target);
+  }, [attachFromUI, bestSuggestion, suggestedAdapters]);
+
+  const handleDismissSuggestion = useCallback((adapterId?: string) => {
+    const targetId = adapterId ?? suggestedAdapters[0]?.id ?? bestSuggestion?.id;
+    if (!targetId) return;
+    muteAdapter(targetId);
+  }, [bestSuggestion?.id, muteAdapter, suggestedAdapters]);
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Tab' && (suggestedAdapters.length > 0 || bestSuggestion)) {
+      e.preventDefault();
+      handleAcceptSuggestion();
+      return;
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSend();
     }
   };
+
+  const handleAutoAttachToggle = useCallback((enabled: boolean) => {
+    setAutoAttachEnabled(enabled);
+  }, []);
+
+  const handleRemoveAttachment = useCallback(
+    (adapterId: string, mute = false) => {
+      removeAttachedAdapter(adapterId);
+      if (mute) {
+        muteAdapter(adapterId);
+      }
+    },
+    [muteAdapter, removeAttachedAdapter]
+  );
+
+  const activeSuggestion = useMemo(
+    () => bestSuggestion ?? suggestedAdapters[0] ?? null,
+    [bestSuggestion, suggestedAdapters]
+  );
+  const snapMatched = useMemo(
+    () => Boolean(lastAttachedAdapterId && activeSuggestion && lastAttachedAdapterId === activeSuggestion.id),
+    [activeSuggestion, lastAttachedAdapterId]
+  );
+  const snapVisual = useMemo(
+    () => snapMatched && (activeSuggestion?.confidence ?? 0) >= MAGNET_CONFIDENCE_THRESHOLD,
+    [activeSuggestion?.confidence, snapMatched]
+  );
+
+  const magnetDetails = useMemo(() => {
+    if (!activeSuggestion) {
+      return { color: null as string | null, auraLabel: null as string | null, confidence: 0 };
+    }
+    const classification = classifyMagnet(activeSuggestion);
+    return {
+      color: classification.color,
+      auraLabel: classification.label,
+      confidence: Math.min(1, Math.max(0, activeSuggestion.confidence ?? 0)),
+    };
+  }, [activeSuggestion]);
+
+  const activeConflict = useMemo(
+    () => (conflictState && activeSuggestion && conflictState.candidateId === activeSuggestion.id ? conflictState : null),
+    [activeSuggestion, conflictState]
+  );
+
+  const showMagnetField = useMemo(
+    () => Boolean(magnetDetails.color && magnetDetails.confidence > 0.55 && !snapMatched),
+    [magnetDetails.color, magnetDetails.confidence, snapMatched]
+  );
+
+  const magnetGlowStyle = useMemo(() => {
+    if (!magnetDetails.color || !showMagnetField) return undefined;
+    return {
+      boxShadow: `0 0 0 1px ${colorWithAlpha(magnetDetails.color, 0.35)}, 0 0 24px ${colorWithAlpha(
+        magnetDetails.color,
+        0.22
+      )}`,
+    };
+  }, [magnetDetails.color, showMagnetField]);
 
   // selectedStack is memoized earlier in the component
   const adapterCount = selectedStack?.adapter_ids?.length ?? selectedStack?.adapters?.length ?? 0;
@@ -860,6 +1221,18 @@ function ChatInterfaceInner({
         ? (isBaseOnlyMode || !hasAdapters ? 'Model ready (no adapters)' : 'Model ready')
         : 'Base model not ready'
     : 'Not provided';
+  const rightPanelsOpen = isRouterActivityOpen || isDebuggerOpen;
+  const activeTraceId = currentRequestId || latestTraceId;
+  const activeVerification = activeTraceId ? verificationReports[activeTraceId] : undefined;
+  const activeRunHeadHash =
+    activeVerification?.run_head_hash?.computed_hex ||
+    activeVerification?.run_head_hash?.expected_hex ||
+    null;
+
+  useEffect(() => {
+    if (!activeTraceId || isStreaming) return;
+    fetchVerificationReport(activeTraceId, true);
+  }, [activeTraceId, fetchVerificationReport, isStreaming]);
 
   // Get recent sessions (last 10, sorted by updatedAt), filtered by search query
   const recentSessions = useMemo(() => {
@@ -1022,21 +1395,21 @@ function ChatInterfaceInner({
     if (currentSessionId) {
       try {
         await updateSessionCollection(currentSessionId, newCollectionId);
-        toast.success(newCollectionId ? 'Collection selected' : 'Collection cleared');
+        toast.success(newCollectionId ? 'Knowledge base selected' : 'Context cleared');
       } catch (error) {
         logger.error('Failed to update session collection', {
           component: 'ChatInterface',
           sessionId: currentSessionId,
           collectionId: newCollectionId,
         }, toError(error));
-        toast.error('Failed to update collection');
+        toast.error('Failed to update knowledge base');
       }
     }
   }, [currentSessionId, guardChatHistory, updateSessionCollection]);
 
   // Get selected collection name for display
   const selectedCollectionName = useMemo(() => {
-    if (!selectedCollectionId) return 'No collection';
+    if (!selectedCollectionId) return 'No knowledge base';
     const collection = collections.find(c => c.collection_id === selectedCollectionId);
     return collection?.name || 'Unknown';
   }, [selectedCollectionId, collections]);
@@ -1144,6 +1517,7 @@ function ChatInterfaceInner({
           }}
           onLoadAll={() => newModelLoader.loadModels(selectedStackId)}
           onCancel={() => newModelLoader.cancelLoading()}
+          kernelInfo={kernelInfo}
         />
       )}
 
@@ -1344,9 +1718,23 @@ function ChatInterfaceInner({
           onClear={clearDecisions}
         />
       </SectionErrorBoundary>
+      <SectionErrorBoundary sectionName="Neural Debugger">
+        <NeuralDebuggerPanel
+          open={isDebuggerOpen}
+          onClose={() => setIsDebuggerOpen(false)}
+          tokens={chunks}
+          adapterId={lastDecision?.adapterId ?? (hasAdapters ? 'Adapter warming' : 'Base model')}
+          routerConfidence={lastDecision?.confidence ?? null}
+          runHeadHash={activeRunHeadHash}
+          traceId={activeTraceId ?? undefined}
+          verificationReport={activeVerification ?? null}
+          onOpenVerification={activeTraceId ? () => setVerificationDialogTrace(activeTraceId) : undefined}
+          onRefreshVerification={activeTraceId ? () => fetchVerificationReport(activeTraceId) : undefined}
+        />
+      </SectionErrorBoundary>
 
       {/* Currently Loaded Panel */}
-      <div className={`px-4 mt-2 ${isHistoryOpen ? 'ml-80' : ''} ${isRouterActivityOpen ? 'mr-96' : ''}`}>
+      <div className={`px-4 mt-2 ${isHistoryOpen ? 'ml-80' : ''} ${rightPanelsOpen ? 'mr-96' : ''}`}>
         <Card>
           <CardHeader className="flex flex-row items-start justify-between space-y-0">
             <div className="space-y-1">
@@ -1383,7 +1771,7 @@ function ChatInterfaceInner({
                 <p className="font-medium">{adapterCount || '—'}</p>
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">Collection</p>
+                <p className="text-xs text-muted-foreground">Knowledge Base</p>
                 <p className="font-medium truncate">{selectedCollectionName}</p>
               </div>
               <div>
@@ -1429,13 +1817,29 @@ function ChatInterfaceInner({
                   </div>
                 )}
               </div>
+              {attachedAdapters.length > 0 && (
+                <div className="sm:col-span-4">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs text-muted-foreground">Magnet attachments:</span>
+                    {attachedAdapters.map((adapter) => (
+                      <AdapterAttachmentChip
+                        key={`${adapter.id}-active`}
+                        adapterId={adapter.id}
+                        confidence={adapter.confidence}
+                        onRemove={() => handleRemoveAttachment(adapter.id, true)}
+                        flash={lastAttachedAdapterId === adapter.id}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
             </CardContent>
           )}
         </Card>
       </div>
 
       {/* Header with stack selector */}
-      <div className={`border-b px-4 py-3 transition-all ${isHistoryOpen ? 'ml-80' : ''} ${isRouterActivityOpen ? 'mr-96' : ''}`}>
+      <div className={`border-b px-4 py-3 transition-all ${isHistoryOpen ? 'ml-80' : ''} ${rightPanelsOpen ? 'mr-96' : ''}`}>
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-3">
           <Button
@@ -1542,20 +1946,20 @@ function ChatInterfaceInner({
           )}
           <Database className="h-5 w-5 text-muted-foreground" aria-hidden="true" />
           <div className="flex items-center gap-2">
-            <span className="text-sm text-muted-foreground">Collection:</span>
+            <span className="text-sm text-muted-foreground">Knowledge Base:</span>
             <Select
               value={selectedCollectionId || 'none'}
               onValueChange={handleCollectionChange}
-              aria-label="Select collection"
+              aria-label="Select knowledge base"
             >
               <SelectTrigger
                 className="w-[calc(var(--base-unit)*50)]"
-                aria-label="Select collection"
+                aria-label="Select knowledge base"
               >
-                <SelectValue placeholder="No collection" />
+                <SelectValue placeholder="No knowledge base" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="none">No collection</SelectItem>
+                <SelectItem value="none">No knowledge base</SelectItem>
                 {collections.map(collection => (
                   <SelectItem key={collection.collection_id} value={collection.collection_id}>
                     {collection.name}
@@ -1572,11 +1976,30 @@ function ChatInterfaceInner({
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => setIsRouterActivityOpen(!isRouterActivityOpen)}
+            onClick={() => {
+              if (isDebuggerOpen) {
+                setIsDebuggerOpen(false);
+              }
+              setIsRouterActivityOpen(!isRouterActivityOpen);
+            }}
             aria-label={isRouterActivityOpen ? "Close router activity" : "Open router activity"}
             title="View router decision history"
           >
             <Activity className="h-4 w-4" />
+          </Button>
+          <Button
+            variant={isDebuggerOpen ? 'secondary' : 'ghost'}
+            size="sm"
+            onClick={() => {
+              if (isRouterActivityOpen) {
+                setIsRouterActivityOpen(false);
+              }
+              setIsDebuggerOpen((open) => !open);
+            }}
+            aria-label={isDebuggerOpen ? "Close neural debugger" : "Open neural debugger"}
+            title="Live neural debugger"
+          >
+            <Bug className="h-4 w-4" />
           </Button>
           {currentSessionId && messages.length > 0 && (
             <ExportButton />
@@ -1590,11 +2013,22 @@ function ChatInterfaceInner({
             <ChatTagsManager sessionId={currentSessionId} />
           </div>
         )}
+
+        {adapterMountItems.length > 0 && (
+          <div className={`px-4 pb-2 transition-all ${isHistoryOpen ? 'ml-80' : ''} ${rightPanelsOpen ? 'mr-96' : ''}`}>
+            <AdapterMountIndicators
+              adapters={adapterMountItems}
+              transitions={adapterTransitions}
+              activeAdapterId={lastDecision?.adapterId}
+              isStreaming={isStreaming}
+            />
+          </div>
+        )}
       </div>
 
       {/* Missing Pinned Adapters Banner */}
       {unavailablePinnedAdapters.length > 0 && !bannerDismissed && (
-        <div className={`px-4 pt-3 transition-all ${isHistoryOpen ? 'ml-80' : ''} ${isRouterActivityOpen ? 'mr-96' : ''}`}>
+        <div className={`px-4 pt-3 transition-all ${isHistoryOpen ? 'ml-80' : ''} ${rightPanelsOpen ? 'mr-96' : ''}`}>
           <MissingPinnedAdaptersBanner
             unavailablePinnedAdapters={unavailablePinnedAdapters}
             pinnedRoutingFallback={pinnedRoutingFallback}
@@ -1605,7 +2039,7 @@ function ChatInterfaceInner({
 
       {/* Messages area */}
       <ScrollArea
-        className={`flex-1 transition-all ${isHistoryOpen ? 'ml-80' : ''} ${isRouterActivityOpen ? 'mr-96' : ''}`}
+        className={`flex-1 transition-all ${isHistoryOpen ? 'ml-80' : ''} ${rightPanelsOpen ? 'mr-96' : ''}`}
         ref={scrollAreaRef}
         aria-label="Chat messages"
         role="log"
@@ -1659,12 +2093,24 @@ function ChatInterfaceInner({
                         message={
                           // Update streaming message with current streamed text
                           message.id === streamingMessageId
-                            ? { ...message, content: streamingContent }
+                            ? {
+                                ...message,
+                                content: streamingContent,
+                                tokenStream: chunks.map((chunk) => ({
+                                  token: chunk.token,
+                                  logprob: chunk.logprob,
+                                  routerScore: chunk.routerScore,
+                                  index: chunk.index,
+                                  timestamp: chunk.timestamp,
+                                })),
+                              }
                             : message
                         }
                         onViewDocument={handleViewDocumentClick}
-                        onSelect={onMessageSelect}
+                        onSelect={handleSelectMessageWithVerification}
                         isSelected={selectedMessageId === message.id}
+                        developerMode={developerModeEnabled}
+                        kernelMode={kernelMode}
                       />
                     </div>
                   );
@@ -1683,7 +2129,7 @@ function ChatInterfaceInner({
       </ScrollArea>
 
       {/* Input area */}
-      <div className={`border-t px-4 py-3 transition-all ${isHistoryOpen ? 'ml-80' : ''} ${isRouterActivityOpen ? 'mr-96' : ''}`}>
+      <div className={`border-t px-4 py-3 transition-all ${isHistoryOpen ? 'ml-80' : ''} ${rightPanelsOpen ? 'mr-96' : ''}`}>
         {/* Inline model loading block - shown when model is not ready */}
         {autoLoadEnabled && !baseModelReady && (
           <InlineModelLoadingBlock
@@ -1699,9 +2145,21 @@ function ChatInterfaceInner({
             onAutoLoadChange={handleChatAutoLoadPreferenceChange}
           />
         )}
+        <AdapterSuggestion
+          suggestion={activeSuggestion}
+          loading={predictionLoading}
+          autoAttachEnabled={autoAttachEnabled && !autoAttachPaused}
+          onToggleAutoAttach={handleAutoAttachToggle}
+          onAccept={handleAcceptSuggestion}
+          onDismiss={() => handleDismissSuggestion()}
+          showSnap={snapVisual}
+          error={predictionError}
+          conflictInfo={activeConflict}
+          magnetColor={magnetDetails.color ?? undefined}
+        />
         <form
           onSubmit={(e) => { e.preventDefault(); handleSend(); }}
-          className="flex gap-2"
+          className="flex gap-2 items-start"
           aria-label="Chat message input"
         >
           <div className="flex flex-col gap-1">
@@ -1720,17 +2178,95 @@ function ChatInterfaceInner({
               </SelectContent>
             </Select>
           </div>
-          <Textarea
-            ref={inputRef}
-            value={input}
-            onChange={e => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Type your message... (Enter to send, Shift+Enter for new line)"
-            className="min-h-[calc(var(--base-unit)*15)] resize-none"
-            disabled={isStreaming || !baseModelReady}
-            aria-label="Message input"
-            data-testid="chat-input"
-          />
+          <div className="flex-1 flex flex-col gap-2">
+            <div className="relative">
+              {showMagnetField && (
+                <div
+                  className="pointer-events-none absolute inset-0 rounded-lg magnet-field"
+                  style={{
+                    ...magnetGlowStyle,
+                    transform: `scale(${1 + Math.min(0.05, magnetDetails.confidence / 8)})`,
+                  }}
+                  aria-hidden
+                />
+              )}
+              {demoMode && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  className="absolute right-2 top-2 z-10"
+                  onClick={runDemoScript}
+                  disabled={isStreaming || isTypingDemoScript}
+                >
+                  <PlayCircle className="h-4 w-4 mr-1" />
+                  Run Script
+                </Button>
+              )}
+              <Textarea
+                ref={inputRef}
+                value={input}
+                onChange={e => setInput(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder="Type your message... (Enter to send, Shift+Enter for new line)"
+                className={cn(
+                  'min-h-[calc(var(--base-unit)*15)] resize-none flex-1 pr-28 transition-shadow relative z-[1]',
+                  showMagnetField ? 'magnet-textarea' : ''
+                )}
+                disabled={isStreaming || !baseModelReady}
+                aria-label="Message input"
+                data-testid="chat-input"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center justify-between text-xs text-muted-foreground">
+                <span>Attached adapters</span>
+                <div className="flex items-center gap-2">
+                  <span className={autoAttachEnabled ? 'text-primary font-medium' : ''}>
+                    Auto-Attach {autoAttachEnabled ? 'on' : 'off'}
+                  </span>
+                  {autoAttachPaused && (
+                    <span className="text-amber-600 font-medium">Temporarily paused</span>
+                  )}
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                {attachedAdapters.length === 0 ? (
+                  <span className="text-xs text-muted-foreground">No attachments yet</span>
+                ) : (
+                  attachedAdapters.map((adapter) => (
+                    <AdapterAttachmentChip
+                      key={adapter.id}
+                      adapterId={adapter.id}
+                      confidence={adapter.confidence}
+                      onRemove={() => handleRemoveAttachment(adapter.id, true)}
+                      flash={lastAttachedAdapterId === adapter.id}
+                    />
+                  ))
+                )}
+              </div>
+              {snapVisual && activeSuggestion && (
+                <div className="flex items-center gap-2 text-xs text-primary pt-1">
+                  <Link2 className="h-3.5 w-3.5" aria-hidden />
+                  <span>Snapped {activeSuggestion.id} to this prompt</span>
+                </div>
+              )}
+              {suggestedAdapters.length > 0 && (
+                <div className="flex flex-wrap items-center gap-2 pt-1">
+                  <span className="text-xs text-muted-foreground">Suggested:</span>
+                  {suggestedAdapters.map((adapter) => (
+                    <AdapterAttachmentChip
+                      key={adapter.id}
+                      adapterId={adapter.id}
+                      confidence={adapter.confidence}
+                      variant="suggested"
+                      onClick={() => attachFromUI(adapter)}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
           {isStreaming && (
             <Button
               variant="outline"
@@ -1762,7 +2298,7 @@ function ChatInterfaceInner({
         )}
       </div>
 
-      {developerMode && (
+      {developerModeEnabled && (
         <div className="mt-4 rounded-md border border-border bg-muted/40 p-3 text-xs font-mono text-foreground">
           <div className="font-semibold mb-2">Raw JSON traces</div>
           <pre className="whitespace-pre-wrap break-all text-muted-foreground">
@@ -1819,6 +2355,74 @@ function ChatInterfaceInner({
         </Dialog>
       )}
 
+      <Dialog
+        open={!!verificationDialogTrace}
+        onOpenChange={(open) => {
+          if (!open) {
+            setVerificationDialogTrace(null);
+            setVerificationDialogError(null);
+          }
+        }}
+      >
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Verification Report</DialogTitle>
+            <p className="text-sm text-muted-foreground">
+              Trace: {verificationDialogTrace ?? 'n/a'}
+            </p>
+          </DialogHeader>
+          <div className="bg-muted/60 rounded-md p-3 text-xs font-mono max-h-[60vh] overflow-auto border">
+            {verificationDialogLoading ? (
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span>Verifying...</span>
+              </div>
+            ) : verificationDialogTrace && verificationReports[verificationDialogTrace] ? (
+              <pre className="whitespace-pre-wrap break-all">
+                {JSON.stringify(verificationReports[verificationDialogTrace], null, 2)}
+              </pre>
+            ) : (
+              <div className="text-muted-foreground">No verification data yet.</div>
+            )}
+          </div>
+          {verificationDialogError && (
+            <p className="text-xs text-destructive">{verificationDialogError}</p>
+          )}
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={!verificationDialogTrace}
+              onClick={() => verificationDialogTrace && fetchVerificationReport(verificationDialogTrace)}
+            >
+              <RefreshCw className="h-4 w-4 mr-1" />
+              Refresh report
+            </Button>
+            {verificationDialogTrace && verificationReports[verificationDialogTrace]?.run_head_hash && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={async () => {
+                  const value =
+                    verificationReports[verificationDialogTrace]?.run_head_hash?.computed_hex ||
+                    verificationReports[verificationDialogTrace]?.run_head_hash?.expected_hex;
+                  if (!value) return;
+                  try {
+                    await navigator.clipboard.writeText(value);
+                    toast.success('run_head_hash copied');
+                  } catch {
+                    toast.error('Unable to copy run_head_hash');
+                  }
+                }}
+              >
+                <Copy className="h-4 w-4 mr-1" />
+                Copy run_head_hash
+              </Button>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Archive Panel Dialog */}
       {isArchivePanelOpen && (
         <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center">
@@ -1847,46 +2451,53 @@ function ChatInterfaceInner({
   );
 }
 
-// Wrap with React.memo to prevent unnecessary re-renders
-export const ChatInterface = React.memo(
-  ChatInterfaceInner,
-  (prevProps, nextProps) => {
-    // Return true if props are equal (skip re-render), false if different (re-render)
+function areChatPropsEqual(prevProps: ChatInterfaceProps, nextProps: ChatInterfaceProps) {
+  // Check primitive props
+  if (prevProps.selectedTenant !== nextProps.selectedTenant) return false;
+  if (prevProps.initialStackId !== nextProps.initialStackId) return false;
+  if (prevProps.selectedStackId !== nextProps.selectedStackId) return false;
+  if (prevProps.sessionId !== nextProps.sessionId) return false;
+  if (prevProps.streamMode !== nextProps.streamMode) return false;
+  if (prevProps.developerMode !== nextProps.developerMode) return false;
+  if (prevProps.kernelMode !== nextProps.kernelMode) return false;
+  if (prevProps.selectedMessageId !== nextProps.selectedMessageId) return false;
 
-    // Check primitive props
-    if (prevProps.selectedTenant !== nextProps.selectedTenant) return false;
-    if (prevProps.initialStackId !== nextProps.initialStackId) return false;
-    if (prevProps.selectedStackId !== nextProps.selectedStackId) return false;
-    if (prevProps.sessionId !== nextProps.sessionId) return false;
-    if (prevProps.streamMode !== nextProps.streamMode) return false;
-    if (prevProps.developerMode !== nextProps.developerMode) return false;
-    if (prevProps.selectedMessageId !== nextProps.selectedMessageId) return false;
-
-    // Check documentContext (deep comparison)
-    if (prevProps.documentContext !== nextProps.documentContext) {
-      if (!prevProps.documentContext || !nextProps.documentContext) return false;
-      if (prevProps.documentContext.documentId !== nextProps.documentContext.documentId) return false;
-      if (prevProps.documentContext.documentName !== nextProps.documentContext.documentName) return false;
-      if (prevProps.documentContext.collectionId !== nextProps.documentContext.collectionId) return false;
-    }
-
-    // Check datasetContext (deep comparison)
-    if (prevProps.datasetContext !== nextProps.datasetContext) {
-      if (!prevProps.datasetContext || !nextProps.datasetContext) return false;
-      if (prevProps.datasetContext.datasetId !== nextProps.datasetContext.datasetId) return false;
-      if (prevProps.datasetContext.datasetName !== nextProps.datasetContext.datasetName) return false;
-      if (prevProps.datasetContext.collectionId !== nextProps.datasetContext.collectionId) return false;
-      if (prevProps.datasetContext.datasetVersionId !== nextProps.datasetContext.datasetVersionId) return false;
-    }
-
-    // Check callbacks - compare by reference
-    if (prevProps.onStackChange !== nextProps.onStackChange) return false;
-    if (prevProps.onSessionChange !== nextProps.onSessionChange) return false;
-    if (prevProps.onViewDocument !== nextProps.onViewDocument) return false;
-    if (prevProps.onMessageComplete !== nextProps.onMessageComplete) return false;
-    if (prevProps.onMessageSelect !== nextProps.onMessageSelect) return false;
-
-    // All props are equal - skip re-render
-    return true;
+  // Check documentContext (deep comparison)
+  if (prevProps.documentContext !== nextProps.documentContext) {
+    if (!prevProps.documentContext || !nextProps.documentContext) return false;
+    if (prevProps.documentContext.documentId !== nextProps.documentContext.documentId) return false;
+    if (prevProps.documentContext.documentName !== nextProps.documentContext.documentName) return false;
+    if (prevProps.documentContext.collectionId !== nextProps.documentContext.collectionId) return false;
   }
-);
+
+  // Check datasetContext (deep comparison)
+  if (prevProps.datasetContext !== nextProps.datasetContext) {
+    if (!prevProps.datasetContext || !nextProps.datasetContext) return false;
+    if (prevProps.datasetContext.datasetId !== nextProps.datasetContext.datasetId) return false;
+    if (prevProps.datasetContext.datasetName !== nextProps.datasetContext.datasetName) return false;
+    if (prevProps.datasetContext.collectionId !== nextProps.datasetContext.collectionId) return false;
+    if (prevProps.datasetContext.datasetVersionId !== nextProps.datasetContext.datasetVersionId) return false;
+  }
+
+  // Check callbacks - compare by reference
+  if (prevProps.onStackChange !== nextProps.onStackChange) return false;
+  if (prevProps.onSessionChange !== nextProps.onSessionChange) return false;
+  if (prevProps.onViewDocument !== nextProps.onViewDocument) return false;
+  if (prevProps.onMessageComplete !== nextProps.onMessageComplete) return false;
+  if (prevProps.onMessageSelect !== nextProps.onMessageSelect) return false;
+
+  // All props are equal - skip re-render
+  return true;
+}
+
+function ChatInterfaceWithProviders(props: ChatInterfaceProps) {
+  const providerKey = `${props.selectedTenant || 'tenant-default'}-${props.sessionId || 'no-session'}`;
+  return (
+    <ChatProvider key={providerKey}>
+      <ChatInterfaceInner {...props} />
+    </ChatProvider>
+  );
+}
+
+// Wrap with React.memo to prevent unnecessary re-renders
+export const ChatInterface = React.memo(ChatInterfaceWithProviders, areChatPropsEqual);

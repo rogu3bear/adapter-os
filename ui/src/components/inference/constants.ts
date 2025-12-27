@@ -7,6 +7,7 @@ export const BACKEND_LABELS: Record<BackendName, string> = {
   auto: 'Auto (router)',
   coreml: 'CoreML',
   mlx: 'MLX',
+  mlxbridge: 'MLX Bridge',
   metal: 'Metal',
   cpu: 'CPU',
 };
@@ -15,7 +16,7 @@ export const BACKEND_LABELS: Record<BackendName, string> = {
  * Backend fallback priority order.
  * When a requested backend is unavailable, fall back through this list.
  */
-export const BACKEND_PRIORITY: BackendName[] = ['coreml', 'mlx', 'metal', 'auto'];
+export const BACKEND_PRIORITY: BackendName[] = ['coreml', 'mlx', 'mlxbridge', 'metal', 'auto', 'cpu'];
 
 /**
  * localStorage key for persisted backend preferences per model

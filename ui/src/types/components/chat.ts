@@ -8,6 +8,7 @@
 import type { ExtendedRouterDecision } from '@/api/types';
 import type { ReplayResponse } from '@/api/replay-types';
 import type { ChatSessionWithStatus } from '@/api/chat-types';
+import type { AdapterLoadingItem } from '@/hooks/model-loading/types';
 
 /**
  * Evidence item for RAG-based responses
@@ -47,6 +48,14 @@ export interface ThroughputStats {
   tokensPerSecond: number;
 }
 
+export interface TokenStreamEntry {
+  token: string;
+  index?: number;
+  logprob?: number | null;
+  routerScore?: number | null;
+  timestamp?: number;
+}
+
 /**
  * Chat message structure
  */
@@ -81,6 +90,8 @@ export interface ChatMessage {
   pinnedRoutingFallback?: 'stack_only' | 'partial';
   /** Token throughput statistics */
   throughputStats?: ThroughputStats;
+  /** Per-token streaming metadata for kernel/debug view */
+  tokenStream?: TokenStreamEntry[];
 }
 
 /**
@@ -125,6 +136,8 @@ export interface ChatInterfaceProps {
   onMessageSelect?: (messageId: string, traceId?: string) => void;
   /** Currently selected message ID (for highlighting) */
   selectedMessageId?: string | null;
+  /** Kernel mode flag for developer overlays */
+  kernelMode?: boolean;
 }
 
 /**
@@ -142,6 +155,10 @@ export interface ChatMessageProps {
   onSelect?: (messageId: string, traceId?: string) => void;
   /** Whether this message is currently selected */
   isSelected?: boolean;
+  /** Render developer affordances (token visualization, scores) */
+  developerMode?: boolean;
+  /** Render kernel streaming overlays */
+  kernelMode?: boolean;
 }
 
 /**
@@ -313,12 +330,31 @@ export interface ChatErrorDisplayProps {
  * Loading overlay for chat interface
  */
 export interface ChatLoadingOverlayProps {
-  /** Loading message to display */
-  message?: string;
-  /** Loading progress (0-100) */
-  progress?: number;
-  /** Whether to show progress bar */
-  showProgress?: boolean;
+  /** Loading state with adapter details */
+  loadingState: {
+    adapters: AdapterLoadingItem[];
+    overallProgress: number;
+    estimatedTimeRemaining?: number;
+  };
+
+  /** Called when user clicks "Load and Chat" button */
+  onLoadAll: () => void;
+
+  /** Called when user cancels loading */
+  onCancel: () => void;
+
+  /** Optional kernel snapshot to surface worker/backend readiness */
+  kernelInfo?: {
+    workerName?: string | null;
+    workerStatus?: string | null;
+    backend?: string | null;
+    backendMode?: string | null;
+    baseModelName?: string | null;
+    vramUsedMb?: number | null;
+    vramTotalMb?: number | null;
+    bootProgress?: number | null;
+  };
+
   /** Optional CSS class name */
   className?: string;
 }

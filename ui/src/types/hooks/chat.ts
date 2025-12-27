@@ -53,7 +53,14 @@ export interface UseChatStreamingReturn {
   currentRequestId: string | null;
 
   /** Ordered chunks received during the current stream */
-  chunks: Array<{ content: string; timestamp: number; index: number }>;
+  chunks: Array<{
+    token: string;
+    content: string;
+    timestamp: number;
+    index: number;
+    logprob?: number | null;
+    routerScore?: number | null;
+  }>;
 
   // Actions
   /** Send a message and begin streaming the response */

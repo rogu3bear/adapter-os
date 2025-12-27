@@ -14,7 +14,7 @@ export interface AdvancedOptionsValues {
   temperature: number;
   top_k: number;
   top_p: number;
-  backend?: 'auto' | 'mlx' | 'coreml' | 'metal';
+  backend?: 'auto' | 'mlx' | 'coreml' | 'mlxbridge' | 'metal' | 'cpu';
   seed?: number;
   require_evidence: boolean;
 }
@@ -75,8 +75,10 @@ export function AdvancedOptions({
               <SelectContent>
                 <SelectItem value="auto">Auto (router decides)</SelectItem>
                 <SelectItem value="mlx">MLX (real backend if available)</SelectItem>
+                <SelectItem value="mlxbridge">MLX Bridge</SelectItem>
                 <SelectItem value="coreml">CoreML (ANE priority)</SelectItem>
                 <SelectItem value="metal">Metal (GPU fallback)</SelectItem>
+                <SelectItem value="cpu">CPU (fallback)</SelectItem>
               </SelectContent>
             </Select>
             <p className="text-xs text-muted-foreground">

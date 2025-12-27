@@ -19,6 +19,8 @@ interface WorkbenchTopBarProps {
   onExport?: () => void;
   /** Whether export is available */
   canExport?: boolean;
+  /** Current inference latency for pulse indicator */
+  latencyMs?: number | null;
   /** Additional className */
   className?: string;
 }
@@ -28,6 +30,7 @@ export function WorkbenchTopBar({
   stackId,
   onExport,
   canExport = false,
+  latencyMs,
   className,
 }: WorkbenchTopBarProps) {
   return (
@@ -41,7 +44,7 @@ export function WorkbenchTopBar({
       {/* Left: Status chips */}
       <div className="flex items-center gap-2 min-w-0">
         <ActiveDatasetChip />
-        <ActiveStackChip stackName={stackName} stackId={stackId} />
+        <ActiveStackChip stackName={stackName} stackId={stackId} latencyMs={latencyMs} />
       </div>
 
       {/* Right: Export button */}

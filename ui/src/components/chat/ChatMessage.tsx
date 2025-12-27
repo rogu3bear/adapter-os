@@ -1,4 +1,4 @@
-import React, { memo, useState, useCallback } from 'react';
+import React, { memo, useState, useCallback, useMemo } from 'react';
 import { Download, FileText, FileJson, Package } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -78,13 +78,32 @@ function areMessagesEqual(prevProps: ChatMessageProps, nextProps: ChatMessagePro
      (!!prev.throughputStats && !!next.throughputStats &&
       prev.throughputStats.tokensGenerated === next.throughputStats.tokensGenerated &&
       prev.throughputStats.latencyMs === next.throughputStats.latencyMs)) &&
+    // Deep compare token stream
+    (prev.tokenStream === next.tokenStream ||
+     (!!prev.tokenStream && !!next.tokenStream &&
+      prev.tokenStream.length === next.tokenStream.length &&
+      prev.tokenStream.every((t, i) =>
+        t.token === next.tokenStream?.[i]?.token &&
+        t.logprob === next.tokenStream?.[i]?.logprob &&
+        t.routerScore === next.tokenStream?.[i]?.routerScore
+      ))) &&
+    prevProps.developerMode === nextProps.developerMode &&
+    prevProps.kernelMode === nextProps.kernelMode &&
     prevProps.className === nextProps.className &&
     prevProps.isSelected === nextProps.isSelected &&
     prevProps.onSelect === nextProps.onSelect
   );
 }
 
-export const ChatMessageComponent = memo(function ChatMessageComponent({ message, className, onViewDocument, onSelect, isSelected }: ChatMessageProps) {
+export const ChatMessageComponent = memo(function ChatMessageComponent({
+  message,
+  className,
+  onViewDocument,
+  onSelect,
+  isSelected,
+  developerMode = false,
+  kernelMode = false,
+}: ChatMessageProps) {
   const isUser = message.role === 'user';
   const [replayDialogOpen, setReplayDialogOpen] = useState(false);
   const [replayResponse, setReplayResponse] = useState<ReplayResponse | null>(null);
@@ -113,6 +132,73 @@ export const ChatMessageComponent = memo(function ChatMessageComponent({ message
       drawerContext.openDrawer(message.id, 'rulebook');
     }
   }, [drawerContext, message]);
+
+  const routerScore = useMemo(() => {
+    const decision = message.routerDecision;
+    if (!decision) return null;
+    const scores: number[] = [];
+    if (decision.scores) {
+      scores.push(...Object.values(decision.scores));
+    }
+    if (decision.candidates && decision.candidates.length > 0) {
+      decision.candidates.forEach((candidate) => {
+        if (typeof candidate.raw_score === 'number') {
+          scores.push(candidate.raw_score);
+        } else if (typeof candidate.gate_float === 'number') {
+          scores.push(candidate.gate_float);
+        } else if (typeof candidate.gate_q15 === 'number') {
+          scores.push(candidate.gate_q15 / 32767);
+        }
+      });
+    }
+    if (!scores.length) return null;
+    return Math.max(...scores);
+  }, [message.routerDecision]);
+
+  const baseTokenStream = useMemo(() => {
+    if (isUser) return [];
+    if (kernelMode && message.tokenStream && message.tokenStream.length > 0) {
+      return message.tokenStream
+        .map((entry, idx) => ({
+          token: entry.token ?? (entry as unknown as { content?: string }).content ?? '',
+          logprob: entry.logprob ?? null,
+          routerScore: entry.routerScore ?? routerScore ?? null,
+          index: entry.index ?? idx,
+          timestamp: entry.timestamp,
+        }))
+        .filter((entry) => Boolean(entry.token));
+    }
+    if ((developerMode || kernelMode) && message.content) {
+      return message.content
+        .split(/(\s+)/)
+        .filter((token) => token.trim().length > 0)
+        .map((token, idx) => ({
+          token,
+          logprob: null,
+          routerScore,
+          index: idx,
+        }));
+    }
+    return [];
+  }, [developerMode, kernelMode, message.content, message.tokenStream, routerScore, isUser]);
+
+  const showKernelTokens = kernelMode && baseTokenStream.length > 0 && !isUser;
+  const showDeveloperTokens = !showKernelTokens && (developerMode || kernelMode) && !isUser;
+
+  const formatLogprob = (value?: number | null) => {
+    if (value === null || value === undefined || Number.isNaN(value)) {
+      return '—';
+    }
+    return value.toFixed(3);
+  };
+
+  const formatRouterScore = (value?: number | null) => {
+    if (value === null || value === undefined || Number.isNaN(value)) {
+      return 'n/a';
+    }
+    if (value > 10) return value.toFixed(0);
+    return value.toFixed(3);
+  };
 
   // Convert message to export format
   const toExportFormat = useCallback((): ExtendedMessageExport => ({
@@ -243,16 +329,72 @@ export const ChatMessageComponent = memo(function ChatMessageComponent({ message
         role={isUser ? 'user-message' : 'assistant-message'}
         aria-live={message.isStreaming ? 'polite' : 'off'}
       >
-        <div className="whitespace-pre-wrap break-words">
-          {message.content}
-          {message.isStreaming && (
-            <span
-              className="inline-block w-2 h-4 ml-1 bg-current animate-pulse"
-              aria-label="Streaming in progress"
-              aria-live="polite"
-            />
-          )}
-        </div>
+        {showKernelTokens ? (
+          <div className="flex flex-wrap gap-1">
+            {baseTokenStream.length === 0 ? (
+              <span className="text-muted-foreground">Streaming...</span>
+            ) : (
+              baseTokenStream.map((tokenMeta, idx) => (
+                <Tooltip key={`${message.id}-kernel-${tokenMeta.index ?? idx}`}>
+                  <TooltipTrigger asChild>
+                    <span className="rounded-md border border-primary/60 bg-background/80 px-2 py-1 text-[12px] leading-tight font-mono shadow-sm">
+                      {tokenMeta.token}
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">
+                    <div className="text-xs font-mono">logprob: {formatLogprob(tokenMeta.logprob)}</div>
+                    <div className="text-xs font-mono">router_score: {formatRouterScore(tokenMeta.routerScore ?? routerScore)}</div>
+                    <div className="text-[10px] uppercase text-muted-foreground">Q15 lane</div>
+                  </TooltipContent>
+                </Tooltip>
+              ))
+            )}
+            {message.isStreaming && (
+              <span
+                className="inline-block w-2 h-4 ml-1 bg-current animate-pulse"
+                aria-label="Streaming in progress"
+                aria-live="polite"
+              />
+            )}
+          </div>
+        ) : showDeveloperTokens ? (
+          <div className="flex flex-wrap gap-1">
+            {baseTokenStream.length === 0 ? (
+              <span className="text-muted-foreground">Streaming...</span>
+            ) : (
+              baseTokenStream.map((tokenMeta, idx) => (
+                <Tooltip key={`${message.id}-token-${tokenMeta.index ?? idx}`}>
+                  <TooltipTrigger asChild>
+                    <span className="rounded-md border border-border/60 bg-background/70 px-1 py-0.5 text-[13px] leading-tight hover:border-primary/60">
+                      {tokenMeta.token}
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">
+                    <div className="text-xs font-mono">router_score: {formatRouterScore(tokenMeta.routerScore ?? routerScore)}</div>
+                  </TooltipContent>
+                </Tooltip>
+              ))
+            )}
+            {message.isStreaming && (
+              <span
+                className="inline-block w-2 h-4 ml-1 bg-current animate-pulse"
+                aria-label="Streaming in progress"
+                aria-live="polite"
+              />
+            )}
+          </div>
+        ) : (
+          <div className="whitespace-pre-wrap break-words">
+            {message.content}
+            {message.isStreaming && (
+              <span
+                className="inline-block w-2 h-4 ml-1 bg-current animate-pulse"
+                aria-label="Streaming in progress"
+                aria-live="polite"
+              />
+            )}
+          </div>
+        )}
       </div>
 
       {/* Evidence display for assistant messages with sources */}

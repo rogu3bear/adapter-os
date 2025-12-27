@@ -292,7 +292,7 @@ describe('Route Configuration Tests', () => {
 
   describe('UI Mode Filtering', () => {
     it('should have valid UI modes when defined', () => {
-      const validModes = [UiMode.User, UiMode.Builder, UiMode.Audit];
+      const validModes = [UiMode.User, UiMode.Builder, UiMode.Kernel, UiMode.Audit];
 
       routes.forEach(route => {
         if (route.modes && route.modes.length > 0) {

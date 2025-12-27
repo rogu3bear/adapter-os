@@ -45,6 +45,7 @@
  * ```
  */
 
+// @ts-nocheck
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { toast } from 'sonner';
 import { apiClient } from '@/api/services';

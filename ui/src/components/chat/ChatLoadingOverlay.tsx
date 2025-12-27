@@ -6,9 +6,11 @@
  */
 
 import * as React from 'react';
-import { Loader2, CheckCircle, XCircle, AlertTriangle, Flame, Thermometer, Snowflake, Pin, CircleOff } from 'lucide-react';
+import { Loader2, CheckCircle, XCircle, AlertTriangle, Server, Cpu, MemoryStick, Activity, CircleOff } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Progress } from '@/components/ui/progress';
 import type { AdapterLoadingItem } from './AdapterLoadingProgress';
 
 // ============================================================================
@@ -28,6 +30,18 @@ export interface ChatLoadingOverlayProps {
 
   /** Called when user cancels loading */
   onCancel: () => void;
+
+  /** Optional kernel + backend snapshot to surface during boot */
+  kernelInfo?: {
+    workerName?: string | null;
+    workerStatus?: string | null;
+    backend?: string | null;
+    backendMode?: string | null;
+    baseModelName?: string | null;
+    vramUsedMb?: number | null;
+    vramTotalMb?: number | null;
+    bootProgress?: number | null;
+  };
 
   /** Additional class names */
   className?: string;
@@ -79,6 +93,7 @@ export function ChatLoadingOverlay({
   loadingState,
   onLoadAll,
   onCancel,
+  kernelInfo,
   className,
 }: ChatLoadingOverlayProps) {
   const { adapters, overallProgress, estimatedTimeRemaining } = loadingState;
@@ -102,6 +117,19 @@ export function ChatLoadingOverlay({
   const circumference = 2 * Math.PI * radius;
   const strokeDashoffset = circumference - (overallProgress / 100) * circumference;
 
+  const vramPercent = kernelInfo?.vramUsedMb !== undefined && kernelInfo?.vramUsedMb !== null
+    && kernelInfo?.vramTotalMb
+    ? Math.min(100, (kernelInfo.vramUsedMb / kernelInfo.vramTotalMb) * 100)
+    : null;
+
+  const formatVram = (mb?: number | null) => {
+    if (mb === undefined || mb === null) return '–';
+    if (mb >= 1024) {
+      return `${(mb / 1024).toFixed(1)} GB`;
+    }
+    return `${mb.toFixed(0)} MB`;
+  };
+
   return (
     <div
       className={cn(
@@ -116,6 +144,83 @@ export function ChatLoadingOverlay({
       aria-describedby="loading-overlay-description"
     >
       <div className="bg-background/95 backdrop-blur-md rounded-lg border shadow-lg p-8 max-w-2xl w-full mx-4 max-h-[90vh] overflow-auto">
+        {kernelInfo && (
+          <div className="mb-6 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                <Activity className="h-4 w-4 text-green-600" />
+                Kernel Boot
+              </div>
+              {kernelInfo.bootProgress !== undefined && kernelInfo.bootProgress !== null && (
+                <Badge variant="secondary" className="text-[11px]">
+                  {(kernelInfo.bootProgress).toFixed(0)}% synced
+                </Badge>
+              )}
+            </div>
+            <div className="grid gap-3 md:grid-cols-3">
+              <div className="rounded-md border bg-muted/40 p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                    <Server className="h-4 w-4 text-foreground" />
+                    adapteros-lora-worker
+                  </div>
+                  {kernelInfo.workerStatus && (
+                    <Badge variant="outline" className="text-[11px]">
+                      {kernelInfo.workerStatus}
+                    </Badge>
+                  )}
+                </div>
+                <div className="mt-2 text-sm font-mono">
+                  {kernelInfo.workerName || 'Detecting worker'}
+                </div>
+              </div>
+
+              <div className="rounded-md border bg-muted/40 p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                    <Cpu className="h-4 w-4 text-foreground" />
+                    Backend
+                  </div>
+                  {kernelInfo.backendMode && (
+                    <Badge variant="outline" className="text-[11px]">
+                      {kernelInfo.backendMode}
+                    </Badge>
+                  )}
+                </div>
+                <div className="mt-2 text-sm font-mono">
+                  {kernelInfo.backend || 'Auto-select'}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  Base model: {kernelInfo.baseModelName || 'Loading…'}
+                </div>
+              </div>
+
+              <div className="rounded-md border bg-muted/40 p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                    <MemoryStick className="h-4 w-4 text-foreground" />
+                    VRAM
+                  </div>
+                  {vramPercent !== null && (
+                    <Badge variant="outline" className="text-[11px]">
+                      {vramPercent.toFixed(0)}%
+                    </Badge>
+                  )}
+                </div>
+                <div className="mt-2 flex items-center gap-2">
+                  <div className="text-sm font-mono">
+                    {formatVram(kernelInfo.vramUsedMb)}
+                    <span className="text-muted-foreground"> / {formatVram(kernelInfo.vramTotalMb)}</span>
+                  </div>
+                </div>
+                {vramPercent !== null && (
+                  <Progress value={vramPercent} className="mt-2 h-2" />
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Header with circular progress */}
         <div className="flex flex-col items-center mb-6">
           {/* Circular progress ring */}

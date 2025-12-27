@@ -2,6 +2,7 @@ import { useCallback, useMemo } from 'react';
 import { usePolling, type PollingSpeed } from '@/hooks/realtime/usePolling';
 import { useAsyncOperation } from '@/hooks/async/useAsyncOperation';
 import { apiClient } from '@/api/services';
+import { useDemoMetrics } from '@/hooks/demo/useDemoMetrics';
 import type {
   SystemMetrics,
   MetricsSnapshotResponse,
@@ -46,11 +47,13 @@ export function useSystemMetrics(
     }
   );
 
+  const { metrics: demoMetrics, lastUpdated: demoLastUpdated } = useDemoMetrics(data, lastUpdated);
+
   return {
-    metrics: data,
+    metrics: demoMetrics,
     isLoading,
     error,
-    lastUpdated,
+    lastUpdated: demoLastUpdated,
     refetch,
   };
 }
@@ -391,6 +394,8 @@ export function useComputedMetrics(metrics: SystemMetrics | null) {
       memoryUsage,
       diskUsage,
       gpuUsage,
+      nodeCount: metrics.node_count ?? 0,
+      workerCount: metrics.worker_count ?? 0,
       memoryUsedGb: metrics.memory_used_gb ?? 0,
       memoryTotalGb: metrics.memory_total_gb ?? 0,
       gpuMemoryUsedMb: metrics.gpu_memory_used_mb ?? 0,

@@ -6,6 +6,7 @@ import { logger, toError } from '@/utils/logger';
 import { LucideIcon } from 'lucide-react';
 import { useTenant } from '@/providers/FeatureProviders';
 import { useAuth } from '@/providers/CoreProviders';
+import { UiMode } from '@/config/ui-mode';
 
 interface ApiError {
   status?: number;
@@ -102,6 +103,8 @@ export function CommandPaletteProvider({ children, routes: providedRoutes }: Com
       'open-notifications': () => dispatch('aos:open-notifications'),
       'open-help': () => dispatch('aos:open-help'),
       'open-adapter-export': () => dispatch('aos:open-adapter-export', { scope: 'selected' }),
+      'enter-kernel-mode': () => dispatch('aos:set-ui-mode', { mode: UiMode.Kernel }),
+      'exit-kernel-mode': () => dispatch('aos:set-ui-mode', { mode: UiMode.Builder }),
     };
   }, []);
 

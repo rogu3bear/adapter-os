@@ -16,6 +16,8 @@ import type { TraceResponseV1 } from '@/api/types';
 
 interface TraceTokenTableProps {
   tokens: TraceResponseV1['tokens'];
+  modelType?: TraceResponseV1['model_type'];
+  activeExperts?: TraceResponseV1['active_experts'];
 }
 
 function copy(text: string) {
@@ -24,7 +26,7 @@ function copy(text: string) {
   }
 }
 
-export function TraceTokenTable({ tokens }: TraceTokenTableProps) {
+export function TraceTokenTable({ tokens, modelType, activeExperts }: TraceTokenTableProps) {
   const [adapterFilter, setAdapterFilter] = useState<string>('all');
 
   const adapterOptions = useMemo(() => {
@@ -80,20 +82,40 @@ export function TraceTokenTable({ tokens }: TraceTokenTableProps) {
                   <TableHead>Fusion</TableHead>
                 </TableRow>
               </TableHeader>
-              <TableBody>
-                {filteredTokens.map((token) => (
-                  <TableRow key={token.token_index}>
-                    <TableCell className="font-mono">{token.token_index}</TableCell>
-                    <TableCell className="font-mono text-xs text-muted-foreground">
-                      {token.token_id ?? '—'}
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex flex-wrap gap-2">
-                        {token.selected_adapter_ids.map((adapterId, idx) => (
-                          <Badge key={`${adapterId}-${idx}`} variant="outline" className="text-xs">
-                            {adapterId} · {token.gates_q15[idx] ?? '—'}
-                          </Badge>
-                        ))}
+                <TableBody>
+                  {filteredTokens.map((token) => (
+                    <TableRow key={token.token_index}>
+                      <TableCell className="font-mono">{token.token_index}</TableCell>
+                      <TableCell className="font-mono text-xs text-muted-foreground">
+                        {token.token_id ?? '—'}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex flex-wrap gap-2">
+                          {(token.model_type || modelType) === 'moe' && (
+                            <>
+                              <Badge variant="secondary" className="text-[10px] uppercase">
+                                Ghost experts
+                              </Badge>
+                              {(() => {
+                                const experts =
+                                  token.active_experts || activeExperts?.[token.token_index] || [];
+                                return experts.length ? (
+                                  experts.map((expert) => (
+                                    <Badge key={`${token.token_index}-ghost-${expert}`} variant="outline" className="text-[10px]">
+                                      Expert {expert}
+                                    </Badge>
+                                  ))
+                                ) : (
+                                  <span className="text-xs text-muted-foreground">none recorded</span>
+                                );
+                              })()}
+                            </>
+                          )}
+                          {token.selected_adapter_ids.map((adapterId, idx) => (
+                            <Badge key={`${adapterId}-${idx}`} variant="outline" className="text-xs">
+                              {adapterId} · {token.gates_q15[idx] ?? '—'}
+                            </Badge>
+                          ))}
                       </div>
                     </TableCell>
                     <TableCell className="font-mono text-xs">

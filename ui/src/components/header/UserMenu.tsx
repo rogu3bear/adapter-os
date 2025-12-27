@@ -9,12 +9,15 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { LogOut } from 'lucide-react';
+import { Cpu, LogOut } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { UiMode } from '@/config/ui-mode';
 
 interface UserMenuProps {
   email: string;
   role: string;
+  uiMode?: UiMode;
+  onChangeUiMode?: (mode: UiMode) => void;
   onLogout: () => void;
   className?: string;
 }
@@ -24,8 +27,10 @@ function getInitials(email: string): string {
   return name.slice(0, 2).toUpperCase();
 }
 
-export function UserMenu({ email, role, onLogout, className }: UserMenuProps) {
+export function UserMenu({ email, role, uiMode, onChangeUiMode, onLogout, className }: UserMenuProps) {
   const initials = getInitials(email);
+  const isDeveloper = role?.toLowerCase() === 'developer';
+  const kernelActive = uiMode === UiMode.Kernel;
 
   return (
     <DropdownMenu>
@@ -52,6 +57,24 @@ export function UserMenu({ email, role, onLogout, className }: UserMenuProps) {
             </Badge>
           </div>
         </DropdownMenuLabel>
+        {isDeveloper && onChangeUiMode && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onClick={() => onChangeUiMode(kernelActive ? UiMode.Builder : UiMode.Kernel)}
+              className="flex items-center justify-between text-foreground"
+              data-cy="kernel-mode-toggle"
+            >
+              <div className="flex items-center gap-2">
+                <Cpu className="h-4 w-4" />
+                <span>{kernelActive ? 'Exit Kernel Mode' : 'Enter Kernel Mode'}</span>
+              </div>
+              <Badge variant={kernelActive ? 'default' : 'outline'} className="text-[10px] uppercase">
+                Kernel
+              </Badge>
+            </DropdownMenuItem>
+          </>
+        )}
         <DropdownMenuSeparator />
         <DropdownMenuItem onClick={onLogout} className="text-destructive" data-cy="logout-action">
           <LogOut className="mr-2 h-4 w-4" />
