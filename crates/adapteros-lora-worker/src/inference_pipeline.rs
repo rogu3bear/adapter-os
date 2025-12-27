@@ -17,12 +17,9 @@ use adapteros_core::{
 use adapteros_lora_kernel_api::attestation::BackendType;
 use adapteros_lora_kernel_api::{FusedKernels, IoBuffers};
 use adapteros_lora_router::{
-    policy_mask::PolicyMask, AdapterInfo, AbstainContext, Router, ROUTER_GATE_Q15_MAX,
+    policy_mask::PolicyMask, AbstainContext, AdapterInfo, Router, ROUTER_GATE_Q15_MAX,
 };
-use adapteros_policy::{
-    PolicyDecisionChain, PolicyDecisionOutcome, PolicyEngine, QuarantineManager,
-    QuarantineOperation,
-};
+use adapteros_policy::{PolicyDecisionChain, PolicyEngine, QuarantineManager, QuarantineOperation};
 use adapteros_telemetry::events::{
     AbstainEvent, PerformanceBudgetViolationEvent, RouterCandidate, RouterDecisionEvent,
 };
@@ -501,7 +498,9 @@ impl InferencePipeline {
         stage: &str,
     ) -> Result<PolicyDecisionChain> {
         let metadata = self.policy_metadata(request, prompt_hash, stage);
-        let chain = self.policy.evaluate_inference_policies(&request.cpid, metadata)?;
+        let chain = self
+            .policy
+            .evaluate_inference_policies(&request.cpid, metadata)?;
         self.log_policy_decision_chain(request, stage, &chain);
 
         if !chain.validation.valid {
@@ -539,12 +538,7 @@ impl InferencePipeline {
         );
     }
 
-    fn emit_policy_violation_event(
-        &self,
-        request: &InferenceRequest,
-        stage: &str,
-        reason: &str,
-    ) {
+    fn emit_policy_violation_event(&self, request: &InferenceRequest, stage: &str, reason: &str) {
         let event = policy_override_event(
             Some(stage.to_string()),
             Some("policy_engine".to_string()),
@@ -702,6 +696,10 @@ impl InferencePipeline {
             }
         }
 
+        let prompt_hash = B3Hash::hash(request.prompt.as_bytes());
+        self.apply_abstain_context(&request, &prompt_hash);
+        let _ = self.evaluate_policies_or_fail(&request, &prompt_hash, "pre_inference_stream")?;
+
         // 1. Apply chat template and tokenize
         let formatted_prompt = self.tokenizer.apply_chat_template(&request.prompt);
         let input_tokens = self.tokenizer.encode(&formatted_prompt)?;
@@ -734,32 +732,6 @@ impl InferencePipeline {
         let stop_policy_digest = *stop_controller.policy_digest();
         let mut stop_reason_code = None;
         let mut stop_reason_token_index = None;
-        let admin_override = request.admin_override;
-        let max_reasoning_depth = request
-            .routing_policy
-            .as_ref()
-            .and_then(|policy| policy.max_reasoning_depth)
-            .unwrap_or(usize::MAX);
-        let cluster_fallback = request
-            .routing_policy
-            .as_ref()
-            .map(|p| p.cluster_fallback.as_str())
-            .unwrap_or("stay_on_current");
-        let mut transition_count: usize = 0;
-        let mut previous_decision: Option<adapteros_lora_router::Decision> = None;
-        let admin_override = request.admin_override;
-        let max_reasoning_depth = request
-            .routing_policy
-            .as_ref()
-            .and_then(|policy| policy.max_reasoning_depth)
-            .unwrap_or(usize::MAX);
-        let cluster_fallback = request
-            .routing_policy
-            .as_ref()
-            .map(|p| p.cluster_fallback.as_str())
-            .unwrap_or("stay_on_current");
-        let mut transition_count: usize = 0;
-        let mut previous_decision: Option<adapteros_lora_router::Decision> = None;
         let admin_override = request.admin_override;
         let max_reasoning_depth = request
             .routing_policy
@@ -902,6 +874,16 @@ impl InferencePipeline {
                     }
                 }
             };
+
+            let abstain_events = self.router.take_abstain_events();
+            if !abstain_events.is_empty() {
+                return Err(self.handle_abstain_events(
+                    &request,
+                    "pre_kernel_stream",
+                    step,
+                    &abstain_events,
+                ));
+            }
 
             if let Some(prev) = &previous_decision {
                 if prev.indices.as_slice() != decision.indices.as_slice() {
@@ -1133,6 +1115,8 @@ impl InferencePipeline {
             latency.as_millis()
         );
 
+        self.router.clear_abstain_context();
+
         Ok(InferenceResponse {
             text: generated_text,
             token_count: generated_tokens.len(),
@@ -1186,6 +1170,10 @@ impl InferencePipeline {
                 ));
             }
         }
+
+        let prompt_hash = B3Hash::hash(request.prompt.as_bytes());
+        self.apply_abstain_context(&request, &prompt_hash);
+        let _ = self.evaluate_policies_or_fail(&request, &prompt_hash, "pre_inference")?;
 
         // 1. Apply chat template and tokenize
         let formatted_prompt = self.tokenizer.apply_chat_template(&request.prompt);
@@ -1334,6 +1322,16 @@ impl InferencePipeline {
                 }
             };
 
+            let abstain_events = self.router.take_abstain_events();
+            if !abstain_events.is_empty() {
+                return Err(self.handle_abstain_events(
+                    &request,
+                    "pre_kernel",
+                    step,
+                    &abstain_events,
+                ));
+            }
+
             if let Some(prev) = &previous_decision {
                 if prev.indices.as_slice() != decision.indices.as_slice() {
                     transition_count = transition_count.saturating_add(1);
@@ -1384,7 +1382,7 @@ impl InferencePipeline {
             let _ = self.telemetry.log_router_decision(router_event);
 
             // 6. Check policy: entropy floor (Router Ruleset #7)
-            // NOTE: Policy engine is reserved for future inline policy enforcement
+            // Inline enforcement happens before kernel execution via policy engine + abstain checks.
             let entropy = self.calculate_gate_entropy(&decision.gates_q15);
             let _ = entropy; // Reserved for policy check
                              // if let Err(e) = self._policy.check_router_entropy(entropy) {
@@ -1545,6 +1543,8 @@ impl InferencePipeline {
             generated_tokens.len(),
             latency.as_millis()
         );
+
+        self.router.clear_abstain_context();
 
         Ok(InferenceResponse {
             text: generated_text,

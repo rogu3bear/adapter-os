@@ -20,8 +20,11 @@ pub mod unified_enforcement;
 pub mod validation;
 
 use crate::packs::determinism::FORBIDDEN_COMPILER_FLAGS;
-use adapteros_core::{AosError, Result};
+use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_manifest::*;
+use chrono::Utc;
+use serde::{Deserialize, Serialize};
+use tracing::warn;
 
 pub mod abstention;
 pub mod access_control;
@@ -54,6 +57,9 @@ pub use registry::{
     Severity, Violation, POLICY_INDEX,
 };
 
+use crate::policy_packs::{
+    PolicyContext as PackPolicyContext, PolicyWarning, Priority, RequestType as PackRequestType,
+};
 pub use abstention::should_abstain;
 pub use access_control::{AccessControlManager, AccessDecision, AccessPolicy, RoleDefinition};
 pub use backend_policy::enforce_backend_policy;
@@ -104,12 +110,16 @@ pub use unified_enforcement::{
 /// Policy engine for enforcing all 25 policy packs
 pub struct PolicyEngine {
     policies: Policies,
+    pack_manager: PolicyPackManager,
 }
 
 impl PolicyEngine {
     /// Create a new policy engine from manifest
     pub fn new(policies: Policies) -> Self {
-        Self { policies }
+        Self {
+            policies,
+            pack_manager: PolicyPackManager::new(),
+        }
     }
 
     /// Check if evidence is sufficient
@@ -370,4 +380,127 @@ impl PolicyEngine {
     pub fn performance_policy(&self) -> &PerformancePolicy {
         &self.policies.performance
     }
+
+    /// Evaluate canonical policy packs for an inference request and return a decision chain digest.
+    pub fn evaluate_inference_policies(
+        &self,
+        request_id: &str,
+        metadata: serde_json::Value,
+    ) -> Result<PolicyDecisionChain> {
+        let request = crate::policy_packs::PolicyRequest {
+            request_id: request_id.to_string(),
+            request_type: PackRequestType::Inference,
+            tenant_id: None,
+            user_id: None,
+            context: PackPolicyContext {
+                component: "worker".to_string(),
+                operation: "inference".to_string(),
+                data: Some(metadata.clone()),
+                priority: Priority::High,
+            },
+            metadata: Some(metadata),
+        };
+
+        let validation = self.pack_manager.validate_request(&request)?;
+        let decisions = self.build_decision_chain(&validation);
+        let digest_bytes = serde_json::to_vec(&decisions).map_err(|e| {
+            AosError::Internal(format!("Failed to serialize policy decisions: {}", e))
+        })?;
+        let digest = B3Hash::hash(&digest_bytes);
+
+        Ok(PolicyDecisionChain {
+            validation,
+            decisions,
+            digest,
+        })
+    }
+
+    fn build_decision_chain(
+        &self,
+        validation: &crate::policy_packs::PolicyValidationResult,
+    ) -> Vec<PolicyDecisionRecord> {
+        let mut decisions = Vec::new();
+        let mut packs: Vec<PolicyPackId> = self
+            .pack_manager
+            .get_all_configs()
+            .keys()
+            .cloned()
+            .collect();
+        packs.sort_by(|a, b| a.to_id_string().cmp(&b.to_id_string()));
+
+        for pack_id in packs {
+            let pack_name = pack_id.name();
+            let violation = validation
+                .violations
+                .iter()
+                .find(|v| v.policy_pack.eq_ignore_ascii_case(pack_name));
+            let warning = validation
+                .warnings
+                .iter()
+                .find(|w| w.policy_pack.eq_ignore_ascii_case(pack_name));
+
+            let outcome = if let Some(v) = violation {
+                PolicyDecisionOutcome::Deny {
+                    message: v.message.clone(),
+                }
+            } else if let Some(w) = warning {
+                PolicyDecisionOutcome::Warn {
+                    message: w.message.clone(),
+                }
+            } else {
+                PolicyDecisionOutcome::Allow
+            };
+
+            decisions.push(PolicyDecisionRecord {
+                id: pack_id.to_id_string().to_string(),
+                name: pack_name.to_string(),
+                outcome,
+            });
+        }
+
+        // Include canonical IDs that are not yet wired through the legacy pack manager.
+        for policy_id in PolicyId::all() {
+            let id_string = policy_id.name().to_string();
+            if decisions
+                .iter()
+                .any(|d| d.name.eq_ignore_ascii_case(&id_string))
+            {
+                continue;
+            }
+            decisions.push(PolicyDecisionRecord {
+                id: id_string.to_lowercase(),
+                name: id_string,
+                outcome: PolicyDecisionOutcome::NotImplemented,
+            });
+        }
+
+        decisions.sort_by(|a, b| a.name.cmp(&b.name));
+        decisions
+    }
+}
+
+/// Outcome for a policy decision entry in the decision chain.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PolicyDecisionOutcome {
+    Allow,
+    Warn { message: String },
+    Deny { message: String },
+    NotImplemented,
+}
+
+/// Canonical policy decision entry recorded for telemetry/audit.
+#[derive(Debug, Clone, Serialize)]
+pub struct PolicyDecisionRecord {
+    pub id: String,
+    pub name: String,
+    pub outcome: PolicyDecisionOutcome,
+}
+
+/// Result of evaluating canonical policy packs for a request.
+#[derive(Debug, Clone, Serialize)]
+pub struct PolicyDecisionChain {
+    pub validation: crate::policy_packs::PolicyValidationResult,
+    pub decisions: Vec<PolicyDecisionRecord>,
+    pub digest: B3Hash,
 }
