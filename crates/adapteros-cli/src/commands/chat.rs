@@ -307,6 +307,7 @@ async fn send_streaming_inference(
         temperature,
         stream: true,
         adapter_stack: stack,
+        reasoning_mode: None,
     };
 
     let client = reqwest::Client::new();
@@ -717,6 +718,7 @@ mod tests {
             temperature: Some(0.7),
             stream: true,
             adapter_stack: Some("stack-1".to_string()),
+            reasoning_mode: None,
         };
 
         let json = serde_json::to_string(&req).unwrap();

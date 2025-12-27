@@ -34,10 +34,12 @@ fn benchmark_load(c: &mut Criterion) {
     let runtime = tokio::runtime::Runtime::new().unwrap();
 
     c.bench_function("load", |b| {
-        b.to_async(&runtime).iter(|| async {
-            let loader = AosLoader::new().expect("Failed to create AosLoader");
-            let result = loader.load_from_path(black_box(&adapter_path)).await;
-            black_box(result)
+        b.iter(|| {
+            runtime.block_on(async {
+                let loader = AosLoader::new().expect("Failed to create AosLoader");
+                let result = loader.load_from_path(black_box(&adapter_path)).await;
+                black_box(result)
+            })
         });
     });
 }

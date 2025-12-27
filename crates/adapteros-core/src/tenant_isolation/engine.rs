@@ -232,7 +232,7 @@ mod tests {
         }
 
         let engine = TenantIsolationEngine::builder(TenantIsolationConfig::default())
-            .with_rule(DenyTenantRule::default())
+            .with_rule(DenyTenantRule)
             .build();
 
         let admin_tenants: Vec<String> = vec![];

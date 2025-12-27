@@ -726,10 +726,12 @@ impl DependencySecurityPolicy {
 
         // Create OSV client with configured rate limiting
         let config = self.config.read().await;
-        let mut osv_config = OsvClientConfig::default();
-        osv_config.rate_limit = config.api_rate_limit;
-        osv_config.request_timeout_secs = 30;
-        osv_config.verbose_logging = false;
+        let osv_config = OsvClientConfig {
+            rate_limit: config.api_rate_limit,
+            request_timeout_secs: 30,
+            verbose_logging: false,
+            ..Default::default()
+        };
         drop(config); // Release lock early
 
         let osv_client = OsvClient::with_config(osv_config);

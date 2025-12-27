@@ -594,7 +594,7 @@ mod tests {
         let result = parser
             .parse_file(&test_file)
             .expect("Parsing test file should succeed");
-        assert!(result.symbols.len() >= 1);
+        assert!(!result.symbols.is_empty());
 
         let class_symbol = result
             .symbols

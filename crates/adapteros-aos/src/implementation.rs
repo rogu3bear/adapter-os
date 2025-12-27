@@ -47,7 +47,7 @@ pub fn open_aos<'a>(bytes: &'a [u8]) -> Result<AosFileView<'a>> {
         ));
     }
 
-    if &bytes[0..4] != &AOS_MAGIC {
+    if bytes[0..4] != AOS_MAGIC {
         return Err(AosError::Validation(
             "Corrupted / needs retrain: invalid AOS2 magic".to_string(),
         ));
@@ -93,7 +93,7 @@ pub fn open_aos<'a>(bytes: &'a [u8]) -> Result<AosFileView<'a>> {
         ));
     }
 
-    if index_size % INDEX_ENTRY_SIZE != 0 {
+    if !index_size.is_multiple_of(INDEX_ENTRY_SIZE) {
         return Err(AosError::Validation(
             "Corrupted / needs retrain: index size not 80-byte aligned".to_string(),
         ));
@@ -189,7 +189,7 @@ impl AosLoader {
             .ok_or(AosError::Mtl("No Metal device available".to_string()))?;
         Ok(Self {
             device,
-            global_seed: global_seed.clone(),
+            global_seed: *global_seed,
         })
     }
 

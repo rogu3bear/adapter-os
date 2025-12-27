@@ -332,9 +332,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_retry_manager() -> Result<()> {
-        let mut config = ErrorRecoveryConfig::default();
-        config.retry_delay = Duration::from_millis(5);
-        config.max_retry_delay = Duration::from_millis(20);
+        let config = ErrorRecoveryConfig {
+            retry_delay: Duration::from_millis(5),
+            max_retry_delay: Duration::from_millis(20),
+            ..ErrorRecoveryConfig::default()
+        };
         let manager = RetryManager::new(&config)?;
 
         let temp_dir = new_test_tempdir()?;

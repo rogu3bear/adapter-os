@@ -47,6 +47,7 @@ impl AvailableBackends {
     }
 }
 
+#[allow(dead_code)]
 pub(crate) struct PlacementState {
     engine: PlacementEngine,
     telemetry: TelemetryCollector,

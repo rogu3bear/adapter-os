@@ -246,10 +246,7 @@ mod tests {
             !API_SCHEMA_VERSION.is_empty(),
             "API_SCHEMA_VERSION must not be empty"
         );
-        assert!(
-            DATABASE_SCHEMA_VERSION > 0,
-            "DATABASE_SCHEMA_VERSION must be > 0"
-        );
+        const _: () = assert!(DATABASE_SCHEMA_VERSION > 0);
         assert!(
             !RNG_MODULE_VERSION.is_empty(),
             "RNG_MODULE_VERSION must not be empty"

@@ -102,7 +102,8 @@ impl AdapterLoadOutcome {
 }
 
 #[derive(Debug)]
-struct GalaxyMap {
+#[allow(dead_code)]
+pub(crate) struct GalaxyMap {
     path: PathBuf,
     mmap: Arc<Mmap>,
     header_size: usize,
@@ -112,7 +113,8 @@ struct GalaxyMap {
 }
 
 #[derive(Debug)]
-struct StandaloneMapping {
+#[allow(dead_code)]
+pub(crate) struct StandaloneMapping {
     path: PathBuf,
     mmap: Arc<Mmap>,
     view: RwLock<Option<AdapterView>>,

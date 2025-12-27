@@ -3,6 +3,14 @@
 //! This crate provides C FFI bindings for MLX's C++ API, avoiding PyO3 dependency issues.
 //! It implements the same interface as the PyO3-based MLX crate but uses direct C++ calls.
 
+#![allow(unexpected_cfgs)]
+#![allow(deprecated)]
+#![allow(unused_mut)]
+#![allow(clippy::needless_return)]
+#![allow(clippy::type_complexity)]
+#![allow(clippy::not_unsafe_ptr_arg_deref)]
+#![allow(clippy::too_many_arguments)]
+
 use adapteros_core::{AosError, B3Hash, Result};
 use std::path::{Path, PathBuf};
 

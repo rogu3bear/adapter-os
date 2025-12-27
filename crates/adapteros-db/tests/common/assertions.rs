@@ -419,6 +419,7 @@ mod tests {
             archived_by: None,
             archive_reason: None,
             base_model_id: None,
+            recommended_for_moe: None,
             manifest_schema_version: None,
             content_hash_b3: None,
             metadata_json: None,

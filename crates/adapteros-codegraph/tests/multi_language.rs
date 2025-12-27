@@ -461,7 +461,7 @@ async fn test_deterministic_hashing_across_languages() {
     assert_eq!(result1.len(), result2.len());
 
     // Content hashes should be identical
-    for (_i, (_r1, _r2)) in result1.iter().zip(result2.iter()).enumerate() {
+    for (_r1, _r2) in result1.iter().zip(result2.iter()) {
         // Content hash comparison removed since ParseResult no longer has this field
     }
 }
@@ -487,11 +487,11 @@ async fn test_codegraph_from_multi_language_directory() {
 
     // Should have symbols from all 5 languages
     assert_eq!(language_counts.len(), 5);
-    assert!(language_counts.get(&Language::Rust).is_some());
-    assert!(language_counts.get(&Language::Python).is_some());
-    assert!(language_counts.get(&Language::TypeScript).is_some());
-    assert!(language_counts.get(&Language::JavaScript).is_some());
-    assert!(language_counts.get(&Language::Go).is_some());
+    assert!(language_counts.contains_key(&Language::Rust));
+    assert!(language_counts.contains_key(&Language::Python));
+    assert!(language_counts.contains_key(&Language::TypeScript));
+    assert!(language_counts.contains_key(&Language::JavaScript));
+    assert!(language_counts.contains_key(&Language::Go));
 }
 
 #[tokio::test]

@@ -985,9 +985,9 @@ pub struct CoreMLBackend {
     /// Placement resolution against the loaded CoreML graph.
     placement_resolution: Option<PlacementResolution>,
     /// MoE configuration (if loaded model is an MoE model)
-    moe_config: Option<moe::MoeConfig>,
+    moe_config: Option<MoEConfig>,
     /// MoE adapter cache keyed by adapter slot
-    moe_adapter_cache: HashMap<u16, moe::MoeAdapterWeights>,
+    moe_adapter_cache: HashMap<u16, MoEAdapterWeights>,
 }
 
 unsafe impl Send for CoreMLBackend {}
@@ -1950,7 +1950,7 @@ impl CoreMLBackend {
     }
 
     /// Set MoE configuration for the loaded model
-    pub fn set_moe_config(&mut self, config: moe::MoeConfig) {
+    pub fn set_moe_config(&mut self, config: MoEConfig) {
         tracing::info!(
             num_experts = config.num_experts,
             num_experts_per_token = config.num_experts_per_token,
@@ -1962,7 +1962,7 @@ impl CoreMLBackend {
     }
 
     /// Get the current MoE configuration
-    pub fn moe_config(&self) -> Option<&moe::MoeConfig> {
+    pub fn moe_config(&self) -> Option<&MoEConfig> {
         self.moe_config.as_ref()
     }
 
@@ -1975,11 +1975,7 @@ impl CoreMLBackend {
     /// Load an MoE adapter into the cache
     ///
     /// This loads the adapter weights and precomputes deltas for faster inference.
-    pub fn load_moe_adapter(
-        &mut self,
-        adapter_id: u16,
-        weights: moe::MoeAdapterWeights,
-    ) -> Result<()> {
+    pub fn load_moe_adapter(&mut self, adapter_id: u16, weights: MoEAdapterWeights) -> Result<()> {
         if self.moe_config.is_none() {
             return Err(AosError::Kernel(
                 "Cannot load MoE adapter: no MoE configuration set".to_string(),
@@ -2038,7 +2034,7 @@ impl CoreMLBackend {
         expert_inputs: &[f32],
         routing_scores: &[f32],
         adapter_id: u16,
-        target: moe::MoeLoraTarget,
+        target: MoELoRATarget,
         gate_q15: i16,
     ) -> Result<()> {
         // Get the adapter weights
@@ -2072,20 +2068,19 @@ impl CoreMLBackend {
         // Check if we should use routing weights
         let use_routing = matches!(
             adapter.strategy,
-            moe::MoeLoraStrategy::RoutingWeightedShared {
+            MoELoRAStrategy::RoutingWeightedShared {
                 use_routing_weights: true
             }
         );
 
         let out_features = weights.out_features;
         let in_features = weights.in_features;
-        let num_experts = routing_scores.len();
 
         // Apply LoRA contribution to each expert's output
-        for e in 0..num_experts {
+        for (e, score) in routing_scores.iter().enumerate() {
             // Compute per-expert weight
             let expert_weight = if use_routing {
-                gate_scale * routing_scores[e] * lora_scale
+                gate_scale * *score * lora_scale
             } else {
                 gate_scale * lora_scale
             };
@@ -2466,7 +2461,7 @@ impl CoreMLBackend {
     ///
     /// This creates a fingerprint that can be used to verify cross-layer
     /// determinism and adapter integrity for MoE models.
-    pub fn generate_moe_fingerprint(&self, adapter_id: u16) -> Option<moe::MoeGpuFingerprint> {
+    pub fn generate_moe_fingerprint(&self, adapter_id: u16) -> Option<MoEGpuFingerprint> {
         use adapteros_core::B3Hash;
 
         let adapter = self.moe_adapter_cache.get(&adapter_id)?;
@@ -2501,13 +2496,13 @@ impl CoreMLBackend {
 
             // Create per-target fingerprint
             let target_id = match target {
-                moe::MoeLoraTarget::QProj => 0,
-                moe::MoeLoraTarget::KProj => 1,
-                moe::MoeLoraTarget::VProj => 2,
-                moe::MoeLoraTarget::OProj => 3,
-                moe::MoeLoraTarget::GateProj => 4,
-                moe::MoeLoraTarget::UpProj => 5,
-                moe::MoeLoraTarget::DownProj => 6,
+                MoELoRATarget::QProj => 0,
+                MoELoRATarget::KProj => 1,
+                MoELoRATarget::VProj => 2,
+                MoELoRATarget::OProj => 3,
+                MoELoRATarget::GateProj => 4,
+                MoELoRATarget::UpProj => 5,
+                MoELoRATarget::DownProj => 6,
             };
 
             // Hash just this target's data for per-expert fingerprint
@@ -2518,7 +2513,7 @@ impl CoreMLBackend {
         // Compute combined hash
         let combined_hash = B3Hash::hash_multi(&all_slices);
 
-        Some(moe::MoeGpuFingerprint {
+        Some(MoEGpuFingerprint {
             adapter_id,
             total_buffer_bytes,
             combined_hash,
@@ -2528,7 +2523,7 @@ impl CoreMLBackend {
     }
 
     /// Get all MoE GPU fingerprints for loaded adapters
-    pub fn get_moe_fingerprints(&self) -> HashMap<u16, moe::MoeGpuFingerprint> {
+    pub fn get_moe_fingerprints(&self) -> HashMap<u16, MoEGpuFingerprint> {
         self.moe_adapter_cache
             .keys()
             .filter_map(|&id| self.generate_moe_fingerprint(id).map(|fp| (id, fp)))
@@ -2539,7 +2534,7 @@ impl CoreMLBackend {
     pub fn verify_moe_fingerprint(
         &self,
         adapter_id: u16,
-        expected: &moe::MoeGpuFingerprint,
+        expected: &MoEGpuFingerprint,
     ) -> Result<bool> {
         let actual = self
             .generate_moe_fingerprint(adapter_id)
