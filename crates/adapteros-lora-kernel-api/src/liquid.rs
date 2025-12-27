@@ -231,19 +231,19 @@ pub fn blend_and_forward_reference(request: LiquidBlendRequest<'_>) -> Result<Li
 
         // Compute A @ x (rank vector)
         let mut rank_buf = vec![0.0f32; rank];
-        for r in 0..rank {
+        for (r, acc_slot) in rank_buf.iter_mut().enumerate() {
             let mut acc = 0.0f32;
             for c in 0..adapter.down.cols {
                 acc += adapter.down.get(r, c)? * request.input[c];
             }
-            rank_buf[r] = acc;
+            *acc_slot = acc;
         }
 
         // Compute B @ (A @ x) and accumulate
         for out_idx in 0..adapter.up.rows {
             let mut acc = 0.0f32;
-            for r in 0..adapter.up.cols {
-                acc += adapter.up.get(out_idx, r)? * rank_buf[r];
+            for (r, value) in rank_buf.iter().enumerate().take(adapter.up.cols) {
+                acc += adapter.up.get(out_idx, r)? * value;
             }
             request.output[out_idx] += coeff * acc * scaling;
         }

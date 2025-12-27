@@ -17,6 +17,7 @@ use adapteros_lora_kernel_api::{FusedKernels, IoBuffers, RouterRing};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
+#[allow(unused_imports)]
 use tracing::{info, warn};
 
 /// Request for exporting a CoreML fused package.

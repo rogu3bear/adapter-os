@@ -170,7 +170,7 @@ fn test_aos_corrupt_hash_mismatch() -> Result<()> {
     let header = AosWriter::parse_header_bytes(&data)?;
 
     // Find segment payload and corrupt it
-    let segment_offset = (HEADER_SIZE + INDEX_ENTRY_SIZE) as usize;
+    let segment_offset = HEADER_SIZE + INDEX_ENTRY_SIZE;
     if segment_offset < data.len() {
         data[segment_offset] ^= 0xFF; // Flip byte in segment payload
         fs::write(temp_file.path(), &data)?;

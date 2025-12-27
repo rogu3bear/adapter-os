@@ -34,7 +34,7 @@ fn no_unscoped_adapter_queries_in_handlers() {
     for entry in WalkDir::new(handlers_dir)
         .into_iter()
         .filter_map(|e| e.ok())
-        .filter(|e| e.path().extension().map_or(false, |ext| ext == "rs"))
+        .filter(|e| e.path().extension().is_some_and(|ext| ext == "rs"))
     {
         let path = entry.path();
         let content = match fs::read_to_string(path) {
@@ -71,7 +71,7 @@ fn no_unscoped_adapter_queries_in_handlers() {
             msg.push_str("  -> Use get_adapter_for_tenant() instead of get_adapter()\n");
         }
 
-        msg.push_str("\n");
+        msg.push('\n');
         msg.push_str("=".repeat(60).as_str());
         msg.push_str(
             "\n\nTo fix: Replace .get_adapter(id) with .get_adapter_for_tenant(tenant_id, id)\n",
@@ -102,7 +102,7 @@ fn no_unscoped_adapter_queries_in_services() {
     for entry in WalkDir::new(services_dir)
         .into_iter()
         .filter_map(|e| e.ok())
-        .filter(|e| e.path().extension().map_or(false, |ext| ext == "rs"))
+        .filter(|e| e.path().extension().is_some_and(|ext| ext == "rs"))
     {
         let path = entry.path();
         let filename = path.file_name().unwrap_or_default().to_str().unwrap_or("");

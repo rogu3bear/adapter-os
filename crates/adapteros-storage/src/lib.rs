@@ -65,21 +65,21 @@ pub(crate) fn ensure_free_space(
     };
 
     match available_space(&root) {
-        Ok(free) if free < MIN_FREE_SPACE_BYTES => Err(StorageError::IoError(io::Error::new(
-            io::ErrorKind::Other,
-            format!(
+        Ok(free) if free < MIN_FREE_SPACE_BYTES => {
+            Err(StorageError::IoError(io::Error::other(format!(
                 "Insufficient disk space (<{} bytes) for {} ({} bytes available) at {}",
                 MIN_FREE_SPACE_BYTES,
                 context,
                 free,
                 root.display()
-            ),
-        ))),
+            ))))
+        }
         Ok(_) => Ok(()),
-        Err(e) => Err(StorageError::IoError(io::Error::new(
-            io::ErrorKind::Other,
-            format!("Failed to check disk space at {}: {}", root.display(), e),
-        ))),
+        Err(e) => Err(StorageError::IoError(io::Error::other(format!(
+            "Failed to check disk space at {}: {}",
+            root.display(),
+            e
+        )))),
     }
 }
 

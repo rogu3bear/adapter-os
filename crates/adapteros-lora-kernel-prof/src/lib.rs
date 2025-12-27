@@ -60,6 +60,7 @@ pub struct ProfileCounters {
 /// GPU timestamp data for timing measurements
 #[cfg(target_os = "macos")]
 #[derive(Debug)]
+#[allow(dead_code)]
 struct GpuTimestamps {
     /// Start timestamp (GPU clock)
     start: u64,

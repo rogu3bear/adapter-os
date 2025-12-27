@@ -312,7 +312,7 @@ mod tests {
             .symbols
             .iter()
             .any(|s| s.name == "handler" && s.kind == DirectorySymbolKind::Function));
-        assert!(analysis.fingerprint.to_hex().len() > 0);
+        assert!(!analysis.fingerprint.to_hex().is_empty());
     }
 
     #[test]
@@ -334,7 +334,7 @@ mod tests {
         .unwrap();
 
         let analysis = analyze_directory(root, Path::new("app")).unwrap();
-        assert!(analysis.pattern_counts.get("async_usage").is_some());
+        assert!(analysis.pattern_counts.contains_key("async_usage"));
         assert!(analysis.architectural_styles.contains("mvc-controller"));
     }
 }

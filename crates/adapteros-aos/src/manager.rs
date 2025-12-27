@@ -283,20 +283,11 @@ impl AosManager {
     }
 }
 
+#[derive(Default)]
 pub struct AosManagerBuilder {
     cache_config: Option<CacheConfig>,
     enable_hot_swap: bool,
     global_seed: Option<B3Hash>,
-}
-
-impl Default for AosManagerBuilder {
-    fn default() -> Self {
-        Self {
-            cache_config: None,
-            enable_hot_swap: false,
-            global_seed: None,
-        }
-    }
 }
 
 impl AosManagerBuilder {
@@ -343,7 +334,7 @@ impl AosManagerBuilder {
             .map(|config| Arc::new(AdapterCache::new(config)));
 
         let hot_swap = if self.enable_hot_swap {
-            let seed = self.global_seed.clone();
+            let seed = self.global_seed;
             let manager = if let Some(seed) = seed {
                 HotSwapManager::with_seed(&seed)?
             } else {

@@ -1258,7 +1258,6 @@ pub fn create_backend_with_model_hashes(
     }
 }
 
-
 /// Internal helper to create MLX backend with optional manifest hash
 #[cfg(feature = "multi-backend")]
 fn create_mlx_backend(

@@ -268,7 +268,7 @@ pub type MoeGpuFingerprint = MoEGpuFingerprint;
 
 /// Deprecated: Use [`PerExpertLoRA`] variant instead
 #[deprecated(since = "0.2.0", note = "Use `MoELoRAStrategy::PerExpertLoRA` instead")]
-pub const PerExpertLora: MoELoRAStrategy = MoELoRAStrategy::PerExpertLoRA;
+pub const PER_EXPERT_LORA: MoELoRAStrategy = MoELoRAStrategy::PerExpertLoRA;
 
 // =============================================================================
 // Compile-only tests for name resolution

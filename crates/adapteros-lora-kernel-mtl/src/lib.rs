@@ -15,6 +15,7 @@
 #![allow(clippy::manual_clamp)]
 #![allow(clippy::unnecessary_cast)]
 #![allow(clippy::identity_op)]
+#![allow(unexpected_cfgs)]
 
 use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_lora_kernel_api::{

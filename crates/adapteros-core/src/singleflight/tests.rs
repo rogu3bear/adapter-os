@@ -89,7 +89,6 @@ async fn test_singleflight_prefix_kv_build_concurrent_miss_runs_builder_once() {
     for _ in 0..8 {
         let sf = sf.clone();
         let count = build_count.clone();
-        let key = key;
         handles.push(tokio::spawn(async move {
             sf.get_or_load(key, || async move {
                 count.fetch_add(1, Ordering::SeqCst);

@@ -639,7 +639,7 @@ mod tests {
 
     #[test]
     fn test_validation_rejects_empty_tenant() {
-        let mut env = EvidenceEnvelope::new_telemetry("".to_string(), sample_bundle_ref(), None);
+        let env = EvidenceEnvelope::new_telemetry("".to_string(), sample_bundle_ref(), None);
 
         assert!(env.validate().is_err());
     }

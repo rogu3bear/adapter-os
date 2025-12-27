@@ -549,7 +549,7 @@ fn convert_tensor_to_f32(data: &[u8], dtype: safetensors::Dtype) -> Result<Vec<f
     match dtype {
         safetensors::Dtype::F32 => {
             // Safe conversion for f32
-            if data.len() % 4 != 0 {
+            if !data.len().is_multiple_of(4) {
                 return Err(AosError::Kernel("Invalid F32 data length".to_string()));
             }
             let num_floats = data.len() / 4;
@@ -567,7 +567,7 @@ fn convert_tensor_to_f32(data: &[u8], dtype: safetensors::Dtype) -> Result<Vec<f
         }
         safetensors::Dtype::F16 => {
             // Safe conversion for f16
-            if data.len() % 2 != 0 {
+            if !data.len().is_multiple_of(2) {
                 return Err(AosError::Kernel("Invalid F16 data length".to_string()));
             }
             let num_halfs = data.len() / 2;
@@ -581,7 +581,7 @@ fn convert_tensor_to_f32(data: &[u8], dtype: safetensors::Dtype) -> Result<Vec<f
         }
         safetensors::Dtype::BF16 => {
             // Safe conversion for bf16
-            if data.len() % 2 != 0 {
+            if !data.len().is_multiple_of(2) {
                 return Err(AosError::Kernel("Invalid BF16 data length".to_string()));
             }
             let num_bf16s = data.len() / 2;

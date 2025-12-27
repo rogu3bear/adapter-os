@@ -359,7 +359,7 @@ impl Db {
         }
 
         let clusters_version = clusters
-            .get(0)
+            .first()
             .map(|c| c.version.clone())
             .unwrap_or_else(|| "1.0".to_string());
 
