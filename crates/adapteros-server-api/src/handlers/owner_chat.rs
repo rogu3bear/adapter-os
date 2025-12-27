@@ -498,6 +498,8 @@ async fn try_adapter_response(state: &AppState, user_message: &str) -> Option<St
         prompt,
         max_tokens: 512,
         require_evidence: false,
+        admin_override: false,
+        reasoning_mode: false,
         stack_id: None,
         stack_version: None,
         domain_hint: None,
@@ -526,7 +528,8 @@ async fn try_adapter_response(state: &AppState, user_message: &str) -> Option<St
     // Send inference request via UDS
     let adapter_desc = adapter_id.as_deref().unwrap_or("base_model");
 
-    match infer_with_routing_context(&uds_path, request, None, Duration::from_secs(60)).await {
+    match infer_with_routing_context(&uds_path, request, None, Duration::from_secs(60), None).await
+    {
         Ok(response) => {
             if response.status == "success" {
                 if let Some(text) = response.text {

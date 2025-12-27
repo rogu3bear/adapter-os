@@ -25,6 +25,25 @@ fn production_mode_enabled() -> bool {
         .unwrap_or(false)
 }
 
+fn validate_nonzero_file(path: &Path) -> Result<()> {
+    let metadata = fs::metadata(path).map_err(|e| {
+        AosError::Io(format!(
+            "Failed to stat adapter file {}: {}",
+            path.display(),
+            e
+        ))
+    })?;
+
+    if metadata.len() == 0 {
+        return Err(AosError::Validation(format!(
+            "Adapter file is empty: {}",
+            path.display()
+        )));
+    }
+
+    Ok(())
+}
+
 /// Loaded adapter weights with zeroize-on-drop
 struct LoadedWeights {
     /// Raw weight data
@@ -412,6 +431,7 @@ impl AdapterLoader {
                     path = %safetensors_path.display(),
                     "Loading from .safetensors file (async)"
                 );
+                validate_nonzero_file(&safetensors_path)?;
                 // Load from .safetensors file
                 let file = File::open(&safetensors_path).map_err(|e| {
                     AosError::Lifecycle(format!("Failed to open adapter file: {}", e))
@@ -531,6 +551,8 @@ impl AdapterLoader {
         &self,
         adapter_path: &PathBuf,
     ) -> Result<(LoadedWeights, AdapterMetadata)> {
+        validate_nonzero_file(adapter_path)?;
+
         // Open and memory-map the file for efficient reading
         let file = File::open(adapter_path)
             .map_err(|e| AosError::Lifecycle(format!("Failed to open adapter file: {}", e)))?;
@@ -569,6 +591,8 @@ impl AdapterLoader {
         aos_path: &PathBuf,
         backend: &str,
     ) -> Result<(LoadedWeights, AdapterMetadata)> {
+        validate_nonzero_file(aos_path)?;
+
         // First verify the signature if .aos format supports it
         self.verify_aos_signature(aos_path)?;
 
@@ -684,6 +708,8 @@ impl AdapterLoader {
         expected_base_model_id: Option<&str>,
         expected_base_model_hash: Option<&B3Hash>,
     ) -> Result<(LoadedWeights, AdapterMetadata)> {
+        validate_nonzero_file(aos_path)?;
+
         // Open and memory-map the .aos file
         let file = File::open(aos_path)
             .map_err(|e| AosError::Lifecycle(format!("Failed to open .aos file: {}", e)))?;

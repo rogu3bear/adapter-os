@@ -119,6 +119,7 @@ impl CacheWarmupManager {
                 prompt: query.clone(),
                 max_tokens: 50,
                 require_evidence: false,
+                reasoning_mode: false,
                 request_type: RequestType::Normal,
                 stack_id: None,
                 stack_version: None,
@@ -130,8 +131,10 @@ impl CacheWarmupManager {
                 router_seed: None,
                 seed_mode: None,
                 request_seed: None,
+                determinism: None,
                 fusion_interval: None,
                 backend_profile: None,
+                coreml_mode: None,
                 pinned_adapter_ids: None,
                 determinism_mode: "strict".to_string(),
                 routing_determinism_mode: None,
@@ -141,6 +144,7 @@ impl CacheWarmupManager {
                 placement: None,
                 routing_policy: None,
                 stop_policy: None,
+                admin_override: false,
             };
 
             match worker.infer(request).await {
@@ -192,6 +196,7 @@ impl CacheWarmupManager {
                 prompt: format!("Test query for adapter {}", adapter_id),
                 max_tokens: 20,
                 require_evidence: false,
+                reasoning_mode: false,
                 request_type: RequestType::Normal,
                 stack_id: None,
                 stack_version: None,
@@ -203,8 +208,10 @@ impl CacheWarmupManager {
                 router_seed: None,
                 seed_mode: None,
                 request_seed: None,
+                determinism: None,
                 fusion_interval: None,
                 backend_profile: None,
+                coreml_mode: None,
                 pinned_adapter_ids: None,
                 determinism_mode: "strict".to_string(),
                 routing_determinism_mode: None,
@@ -214,6 +221,7 @@ impl CacheWarmupManager {
                 placement: None,
                 routing_policy: None,
                 stop_policy: None,
+                admin_override: false,
             };
 
             match worker.infer(request).await {
@@ -402,9 +410,11 @@ where
             prompt: config.test_prompt.clone(),
             max_tokens: config.max_tokens,
             require_evidence: false,
+            reasoning_mode: false,
             request_type: RequestType::Normal,
             stack_id: None,
             stack_version: None,
+            domain_hint: None,
             temperature: None,
             top_k: None,
             top_p: None,
@@ -412,15 +422,20 @@ where
             router_seed: None,
             seed_mode: None,
             request_seed: None,
+            determinism: None,
+            fusion_interval: None,
             backend_profile: None,
+            coreml_mode: None,
             pinned_adapter_ids: None,
             determinism_mode: "strict".to_string(),
             routing_determinism_mode: None,
             adapter_strength_overrides: None,
             effective_adapter_ids: None,
             strict_mode: true,
+            placement: None,
             routing_policy: None,
             stop_policy: None,
+            admin_override: false,
         };
 
         // Run inference with timeout

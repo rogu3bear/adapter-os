@@ -356,7 +356,7 @@ impl SqlTraceSink {
             return Ok(());
         }
 
-        let mut tx = self.db.pool().begin().await.map_err(|e| {
+        let mut tx = self.db.begin_write_tx().await.map_err(|e| {
             AosError::Database(format!(
                 "Failed to begin inference trace token transaction: {e}"
             ))

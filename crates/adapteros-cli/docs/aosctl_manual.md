@@ -306,6 +306,12 @@ aosctl verify adapters --json > verify_adapters.json
 
 Maintenance commands manage long‑term storage and housekeeping.
 
+- `aosctl db unlock`
+  - Clears dirty `_sqlx_migrations` rows and truncates SQLite WAL/SHM files after failed or interrupted migrations.
+  - Key flags:
+    - `--db-path` (default `./var/aos-cp.sqlite3` or `DATABASE_URL` if set)
+  - Safe to run after disk guard fallback (`AOS_VAR_DIR` redirect) or when migrations time out; successful migrations remain intact.
+
 - `aosctl maintenance gc-bundles`
   - Garbage‑collects telemetry bundles according to Ruleset #10.
   - Preserves bundles needed for audit and **Replay**.

@@ -29,7 +29,8 @@ use std::fmt::Display;
 /// # }
 /// ```
 #[inline]
-pub fn db_err(context: &str) -> impl Fn(sqlx::Error) -> AosError + '_ {
+pub fn db_err(context: impl Into<String>) -> impl Fn(sqlx::Error) -> AosError {
+    let context = context.into();
     move |e| AosError::Database(format!("Failed to {}: {}", context, e))
 }
 

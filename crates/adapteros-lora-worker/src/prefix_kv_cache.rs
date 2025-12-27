@@ -16,7 +16,7 @@
 
 use adapteros_core::singleflight::{SingleFlightMetrics, SingleFlightSync};
 use adapteros_core::{AosError, B3Hash, Result};
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
@@ -160,8 +160,8 @@ pub struct PrefixKvCache {
     /// SingleFlight for deduplicating concurrent builds
     /// Uses String error type since AosError is not Clone
     singleflight: SingleFlightSync<B3Hash, Arc<PrefixKvEntry>, String>,
-    /// Statistics
-    stats: RwLock<PrefixKvCacheStats>,
+    /// Statistics (parking_lot mutex avoids poisoning on panic paths)
+    stats: Mutex<PrefixKvCacheStats>,
 }
 
 impl PrefixKvCache {
@@ -177,7 +177,7 @@ impl PrefixKvCache {
             max_bytes,
             used_bytes: AtomicU64::new(0),
             singleflight: SingleFlightSync::new(PREFIX_KV_BUILD_OPERATION),
-            stats: RwLock::new(PrefixKvCacheStats {
+            stats: Mutex::new(PrefixKvCacheStats {
                 max_bytes,
                 ..Default::default()
             }),
@@ -196,7 +196,7 @@ impl PrefixKvCache {
             max_bytes,
             used_bytes: AtomicU64::new(0),
             singleflight: SingleFlightSync::with_metrics(PREFIX_KV_BUILD_OPERATION, metrics),
-            stats: RwLock::new(PrefixKvCacheStats {
+            stats: Mutex::new(PrefixKvCacheStats {
                 max_bytes,
                 ..Default::default()
             }),
@@ -211,7 +211,7 @@ impl PrefixKvCache {
         let entries = self.entries.read();
         if let Some(entry) = entries.get(key) {
             entry.record_access();
-            let mut stats = self.stats.write();
+            let mut stats = self.stats.lock();
             stats.hits += 1;
             tracing::trace!(
                 key = %key.to_hex()[..16],
@@ -220,7 +220,7 @@ impl PrefixKvCache {
             );
             Some(Arc::clone(entry))
         } else {
-            let mut stats = self.stats.write();
+            let mut stats = self.stats.lock();
             stats.misses += 1;
             None
         }
@@ -255,7 +255,7 @@ impl PrefixKvCache {
         // Update stats
         self.used_bytes.fetch_add(entry_bytes, Ordering::SeqCst);
         {
-            let mut stats = self.stats.write();
+            let mut stats = self.stats.lock();
             stats.entry_count += 1;
             stats.used_bytes = self.used_bytes.load(Ordering::SeqCst);
         }
@@ -324,7 +324,7 @@ impl PrefixKvCache {
                     "Prefix KV found in cache during SingleFlight leader re-check"
                 );
                 entry.record_access();
-                let mut stats = self.stats.write();
+                let mut stats = self.stats.lock();
                 stats.hits += 1;
                 return Ok(Arc::clone(entry));
             }
@@ -386,7 +386,7 @@ impl PrefixKvCache {
 
         {
             let mut entries = self.entries.write();
-            let mut stats = self.stats.write();
+            let mut stats = self.stats.lock();
 
             for key in &evicted_keys {
                 if let Some(entry) = entries.remove(key) {
@@ -414,7 +414,7 @@ impl PrefixKvCache {
         if let Some(entry) = entries.remove(key) {
             self.used_bytes.fetch_sub(entry.kv_bytes, Ordering::SeqCst);
 
-            let mut stats = self.stats.write();
+            let mut stats = self.stats.lock();
             stats.entry_count = stats.entry_count.saturating_sub(1);
             stats.used_bytes = self.used_bytes.load(Ordering::SeqCst);
 
@@ -430,7 +430,7 @@ impl PrefixKvCache {
         entries.clear();
         self.used_bytes.store(0, Ordering::SeqCst);
 
-        let mut stats = self.stats.write();
+        let mut stats = self.stats.lock();
         stats.entry_count = 0;
         stats.used_bytes = 0;
     }
@@ -440,7 +440,8 @@ impl PrefixKvCache {
     /// Note: `in_flight_builds` is pulled from SingleFlightSync at query time
     /// for accuracy.
     pub fn stats(&self) -> PrefixKvCacheStats {
-        let mut stats = self.stats.read().clone();
+        let stats = self.stats.lock();
+        let mut stats = stats.clone();
         // Pull live in-flight count from SingleFlightSync
         stats.in_flight_builds = self.singleflight.stats().pending_loads as u64;
         stats

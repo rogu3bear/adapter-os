@@ -77,6 +77,8 @@ fn create_test_routing_decisions() -> Vec<RouterDecisionEvent> {
             stack_hash: Some("test-stack-hash".to_string()),
             stack_id: None,
             stack_version: None,
+            model_type: adapteros_types::routing::RouterModelType::Dense,
+            active_experts: None,
         },
         RouterDecisionEvent {
             step: 1,
@@ -99,6 +101,8 @@ fn create_test_routing_decisions() -> Vec<RouterDecisionEvent> {
             stack_hash: Some("test-stack-hash".to_string()),
             stack_id: None,
             stack_version: None,
+            model_type: adapteros_types::routing::RouterModelType::Dense,
+            active_experts: None,
         },
     ]
 }

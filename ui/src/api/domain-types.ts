@@ -253,7 +253,7 @@ export type ImportModelRequest = CamelCaseKeys<components['schemas']['ImportMode
 export type ImportModelResponse = CamelCaseKeys<components['schemas']['ImportModelResponse']>;
 
 // Backend types
-export type BackendKind = CamelCaseKeys<components['schemas']['BackendKind']>;
+export type BackendKind = 'auto' | 'coreml' | 'mlx' | 'mlxbridge' | 'metal' | 'cpu';
 export type CoreMLMode = CamelCaseKeys<components['schemas']['CoreMLMode']>;
 
 // ============================================================================

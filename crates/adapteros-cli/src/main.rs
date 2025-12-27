@@ -33,7 +33,7 @@ use adapteros_config::{BackendPreference, ModelConfig};
 use anyhow::Result;
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 mod auth_store;
 mod cli;
@@ -214,8 +214,11 @@ Examples:
     // Development Commands
     // ============================================================
     /// Development environment commands (start/stop services)
-    #[command(subcommand)]
-    Dev(dev::DevCommand),
+    #[command(subcommand_required = false)]
+    Dev {
+        #[command(subcommand)]
+        cmd: Option<dev::DevCommand>,
+    },
 
     /// Scenario readiness utilities
     #[command(subcommand)]
@@ -528,12 +531,31 @@ Examples:
   # Verify artifact bundle signature and hashes
   aosctl verify artifacts/adapters.zip
 
-  # Verify telemetry bundle chain
-  aosctl verify-telemetry --bundle-dir ./var/telemetry
+  # Verify telemetry bundle chain from a trace ID
+  aosctl verify trace_12345
+
+  # Force bundle verification
+  aosctl verify ./artifacts/adapters.zip --bundle
 ")]
     Verify {
-        /// Bundle path
-        bundle: PathBuf,
+        /// Bundle path or trace ID
+        target: String,
+
+        /// Treat target as a trace ID and fetch the receipt proof chain
+        #[arg(long, conflicts_with = "bundle")]
+        trace: bool,
+
+        /// Treat target as a bundle path even if it looks like an ID
+        #[arg(long)]
+        bundle: bool,
+
+        /// Control plane base URL for trace verification
+        #[arg(
+            long,
+            env = "AOS_SERVER_URL",
+            default_value = "http://127.0.0.1:8080/api"
+        )]
+        base_url: String,
     },
 
     /// Verify an offline run receipt bundle
@@ -551,7 +573,15 @@ Examples:
     VerifyReceipt {
         /// Receipt bundle directory (or JSON file)
         #[arg(long)]
-        bundle: PathBuf,
+        bundle: Option<PathBuf>,
+
+        /// Fetch receipt from API instead of local bundle
+        #[arg(long, value_name = "TRACE_ID")]
+        online: Option<String>,
+
+        /// Control plane base URL
+        #[arg(long, env = "AOS_SERVER_URL", default_value = "http://localhost:8080")]
+        server_url: String,
     },
 
     /// Verify adapter deliverables (A–F)
@@ -1467,8 +1497,12 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
         }
 
         // Development Commands
-        Commands::Dev(cmd) => {
-            dev::handle_dev_command(cmd.clone(), &output).await?;
+        Commands::Dev { cmd } => {
+            if let Some(inner) = cmd {
+                dev::handle_dev_command(inner.clone(), &output).await?;
+            } else {
+                dev::dev_all(&output).await?;
+            }
         }
 
         // Scenario readiness utilities
@@ -1659,11 +1693,31 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
         Commands::Import { bundle, no_verify } => {
             import::run(&bundle, !no_verify, &output).await?;
         }
-        Commands::Verify { bundle } => {
-            verify::run(&bundle, &output).await?;
+        Commands::Verify {
+            target,
+            trace,
+            bundle,
+            base_url,
+        } => {
+            let as_trace = *trace || (!bundle && !Path::new(target).exists());
+            if as_trace {
+                verify::verify_trace_receipt(target.clone(), base_url, &output).await?;
+            } else {
+                verify::run(Path::new(target), &output).await?;
+            }
         }
-        Commands::VerifyReceipt { bundle } => {
-            commands::verify_receipt::run(&bundle, &output)?;
+        Commands::VerifyReceipt {
+            bundle,
+            online,
+            server_url,
+        } => {
+            commands::verify_receipt::run(
+                bundle.as_deref(),
+                online.as_deref(),
+                server_url,
+                &output,
+            )
+            .await?;
         }
         Commands::VerifyDeterminismLoop => {
             let exit_code = verify_determinism_loop::run(&output).await?;
@@ -2186,7 +2240,7 @@ fn get_command_name(command: &Commands) -> String {
         Commands::Repo(_) => "repo",
         Commands::Stack(_) => "stack",
         Commands::Chat(_) => "chat",
-        Commands::Dev(_) => "dev",
+        Commands::Dev { .. } => "dev",
         Commands::Scenario(_) => "scenario",
         Commands::Coreml(_) => "coreml",
         #[cfg(feature = "coreml-export")]

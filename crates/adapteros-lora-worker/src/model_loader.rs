@@ -9,6 +9,7 @@
 //! - Model caching: Implements LRU cache with eviction per Memory Management Pattern【2†adapteros-memory/src/model_cache.rs:1-50】
 //! - Deterministic eviction: Uses BLAKE3 hash tiebreaking【3†adapteros-memory/src/unified_interface.rs:390-395】
 
+use crate::chaos_mode;
 use adapteros_config::ModelConfig as UnifiedModelConfig;
 use adapteros_core::{AosError, Result};
 use adapteros_memory::{ModelCache, ModelCacheConfig};
@@ -267,6 +268,8 @@ impl ModelLoader {
         tensors: &SafeTensors,
         layer_idx: usize,
     ) -> Result<TransformerLayer> {
+        chaos_mode::maybe_delay_layer(layer_idx);
+
         let prefix = format!("model.layers.{}", layer_idx);
 
         // Load self-attention weights

@@ -7,6 +7,7 @@ use crate::parsers::{utils, LanguageParser};
 use crate::types::{Language, ParseResult, SymbolKind, SymbolNode, Visibility};
 use adapteros_core::{AosError, Result};
 use std::path::Path;
+use streaming_iterator::StreamingIterator;
 use tree_sitter::{Language as TSLanguage, Parser, Query, QueryCursor};
 
 /// JavaScript-specific parser implementation
@@ -40,15 +41,15 @@ impl JavaScriptParser {
     /// Create a new JavaScript parser
     pub fn new() -> Result<Self> {
         let mut parser = Parser::new();
-        let javascript_lang = tree_sitter_javascript::language();
+        let javascript_lang = tree_sitter::Language::new(tree_sitter_javascript::LANGUAGE);
 
         parser
-            .set_language(javascript_lang)
+            .set_language(&javascript_lang)
             .map_err(|e| AosError::Parse(format!("Failed to set JavaScript language: {}", e)))?;
 
         // Define queries for different symbol types
         let function_query = Query::new(
-            javascript_lang,
+            &javascript_lang,
             r#"
             (function_declaration
                 name: (identifier) @name
@@ -59,7 +60,7 @@ impl JavaScriptParser {
         .map_err(|e| AosError::Parse(format!("Failed to create function query: {}", e)))?;
 
         let arrow_function_query = Query::new(
-            javascript_lang,
+            &javascript_lang,
             r#"
             (arrow_function
                 parameters: (formal_parameters) @params
@@ -69,7 +70,7 @@ impl JavaScriptParser {
         .map_err(|e| AosError::Parse(format!("Failed to create arrow function query: {}", e)))?;
 
         let function_expression_query = Query::new(
-            javascript_lang,
+            &javascript_lang,
             r#"
             (function_expression
                 name: (identifier)? @name
@@ -82,7 +83,7 @@ impl JavaScriptParser {
         })?;
 
         let class_query = Query::new(
-            javascript_lang,
+            &javascript_lang,
             r#"
             (class_declaration
                 name: (identifier) @name
@@ -93,7 +94,7 @@ impl JavaScriptParser {
         .map_err(|e| AosError::Parse(format!("Failed to create class query: {}", e)))?;
 
         let method_query = Query::new(
-            javascript_lang,
+            &javascript_lang,
             r#"
             (class_declaration
                 name: (identifier) @class_name
@@ -109,7 +110,7 @@ impl JavaScriptParser {
         .map_err(|e| AosError::Parse(format!("Failed to create method query: {}", e)))?;
 
         let import_query = Query::new(
-            javascript_lang,
+            &javascript_lang,
             r#"
             (import_statement
                 source: (string) @source
@@ -123,7 +124,7 @@ impl JavaScriptParser {
         .map_err(|e| AosError::Parse(format!("Failed to create import query: {}", e)))?;
 
         let export_query = Query::new(
-            javascript_lang,
+            &javascript_lang,
             r#"
             (export_statement
                 (export_clause)? @export_clause
@@ -133,7 +134,7 @@ impl JavaScriptParser {
         .map_err(|e| AosError::Parse(format!("Failed to create export query: {}", e)))?;
 
         let variable_query = Query::new(
-            javascript_lang,
+            &javascript_lang,
             r#"
             (variable_declaration
                 (variable_declarator
@@ -146,7 +147,7 @@ impl JavaScriptParser {
         .map_err(|e| AosError::Parse(format!("Failed to create variable query: {}", e)))?;
 
         let object_method_query = Query::new(
-            javascript_lang,
+            &javascript_lang,
             r#"
             (object_expression
                 (pair
@@ -223,9 +224,9 @@ impl JavaScriptParser {
         symbols: &mut Vec<SymbolNode>,
     ) -> Result<()> {
         let mut cursor = QueryCursor::new();
-        let matches = cursor.matches(&self.function_query, tree.root_node(), source.as_bytes());
+        let mut matches = cursor.matches(&self.function_query, tree.root_node(), source.as_bytes());
 
-        for mat in matches {
+        while let Some(mat) = matches.next() {
             let mut name = None;
             let mut params = None;
 
@@ -270,13 +271,13 @@ impl JavaScriptParser {
         symbols: &mut Vec<SymbolNode>,
     ) -> Result<()> {
         let mut cursor = QueryCursor::new();
-        let matches = cursor.matches(
+        let mut matches = cursor.matches(
             &self.arrow_function_query,
             tree.root_node(),
             source.as_bytes(),
         );
 
-        for mat in matches {
+        while let Some(mat) = matches.next() {
             let mut params = None;
 
             for capture in mat.captures {
@@ -318,13 +319,13 @@ impl JavaScriptParser {
         symbols: &mut Vec<SymbolNode>,
     ) -> Result<()> {
         let mut cursor = QueryCursor::new();
-        let matches = cursor.matches(
+        let mut matches = cursor.matches(
             &self.function_expression_query,
             tree.root_node(),
             source.as_bytes(),
         );
 
-        for mat in matches {
+        while let Some(mat) = matches.next() {
             let mut name = None;
             let mut params = None;
 
@@ -376,9 +377,9 @@ impl JavaScriptParser {
         symbols: &mut Vec<SymbolNode>,
     ) -> Result<()> {
         let mut cursor = QueryCursor::new();
-        let matches = cursor.matches(&self.class_query, tree.root_node(), source.as_bytes());
+        let mut matches = cursor.matches(&self.class_query, tree.root_node(), source.as_bytes());
 
-        for mat in matches {
+        while let Some(mat) = matches.next() {
             let mut name = None;
             let mut superclass = None;
 
@@ -423,9 +424,9 @@ impl JavaScriptParser {
         symbols: &mut Vec<SymbolNode>,
     ) -> Result<()> {
         let mut cursor = QueryCursor::new();
-        let matches = cursor.matches(&self.method_query, tree.root_node(), source.as_bytes());
+        let mut matches = cursor.matches(&self.method_query, tree.root_node(), source.as_bytes());
 
-        for mat in matches {
+        while let Some(mat) = matches.next() {
             let mut class_name = None;
             let mut method_name = None;
             let mut params = None;
@@ -472,13 +473,13 @@ impl JavaScriptParser {
         symbols: &mut Vec<SymbolNode>,
     ) -> Result<()> {
         let mut cursor = QueryCursor::new();
-        let matches = cursor.matches(
+        let mut matches = cursor.matches(
             &self.object_method_query,
             tree.root_node(),
             source.as_bytes(),
         );
 
-        for mat in matches {
+        while let Some(mat) = matches.next() {
             let mut method_name = None;
             let mut params = None;
 
@@ -523,9 +524,9 @@ impl JavaScriptParser {
         symbols: &mut Vec<SymbolNode>,
     ) -> Result<()> {
         let mut cursor = QueryCursor::new();
-        let matches = cursor.matches(&self.import_query, tree.root_node(), source.as_bytes());
+        let mut matches = cursor.matches(&self.import_query, tree.root_node(), source.as_bytes());
 
-        for mat in matches {
+        while let Some(mat) = matches.next() {
             let mut source_module = None;
             let mut namespace = None;
             let mut named_imports = None;
@@ -575,9 +576,9 @@ impl JavaScriptParser {
         symbols: &mut Vec<SymbolNode>,
     ) -> Result<()> {
         let mut cursor = QueryCursor::new();
-        let matches = cursor.matches(&self.export_query, tree.root_node(), source.as_bytes());
+        let mut matches = cursor.matches(&self.export_query, tree.root_node(), source.as_bytes());
 
-        for mat in matches {
+        while let Some(mat) = matches.next() {
             let mut export_clause = None;
 
             for capture in mat.captures {
@@ -614,9 +615,9 @@ impl JavaScriptParser {
         symbols: &mut Vec<SymbolNode>,
     ) -> Result<()> {
         let mut cursor = QueryCursor::new();
-        let matches = cursor.matches(&self.variable_query, tree.root_node(), source.as_bytes());
+        let mut matches = cursor.matches(&self.variable_query, tree.root_node(), source.as_bytes());
 
-        for mat in matches {
+        while let Some(mat) = matches.next() {
             let mut name = None;
             let mut value = None;
 

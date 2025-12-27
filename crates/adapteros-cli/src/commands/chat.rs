@@ -16,6 +16,8 @@ pub struct InferenceRequest {
     pub temperature: Option<f32>,
     pub stream: bool,
     pub adapter_stack: Option<String>,
+    #[serde(default)]
+    pub reasoning_mode: Option<bool>,
 }
 
 /// Inference response chunk (streaming)

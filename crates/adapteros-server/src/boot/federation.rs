@@ -159,6 +159,7 @@ pub async fn initialize_federation(
         interval_secs: 300, // 5 minutes
         max_hosts_per_sweep: 10,
         enable_quarantine: true,
+        quorum_min_peers: 2,
     };
 
     // Create and start daemon

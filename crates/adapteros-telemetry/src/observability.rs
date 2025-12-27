@@ -449,6 +449,8 @@ mod tests {
                     deny_list: false,
                     trust_state: false,
                 }),
+                model_type: adapteros_types::routing::RouterModelType::Dense,
+                active_experts: None,
             }],
             router_decision_chain: None,
             is_replay: false,
@@ -534,6 +536,8 @@ pub struct RouterDecisionChainEntry {
 pub struct RouterDecisionHash {
     pub input_hash: String,
     pub output_hash: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning_hash: Option<String>,
     pub combined_hash: String,
     pub tau: f32,
     pub eps: f32,

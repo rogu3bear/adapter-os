@@ -30,6 +30,7 @@ fn create_test_manifest() -> ManifestV3 {
             hidden_dim: 4096,
             n_layers: 32,
             n_heads: 32,
+            routing_bias: 1.0,
             config_hash: B3Hash::hash(b"config"),
             tokenizer_hash: B3Hash::hash(b"tokenizer"),
             tokenizer_cfg_hash: B3Hash::hash(b"tokenizer_cfg"),

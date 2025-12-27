@@ -45,6 +45,8 @@ pub struct AdapterKv {
     pub framework: Option<String>,
     pub framework_id: Option<String>,
     pub framework_version: Option<String>,
+    #[serde(default = "default_recommended_for_moe")]
+    pub recommended_for_moe: bool,
 
     // Lifecycle and state
     pub lifecycle_state: String, // draft | active | deprecated | retired
@@ -95,6 +97,10 @@ pub struct AdapterKv {
     // Timestamps
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+fn default_recommended_for_moe() -> bool {
+    true
 }
 
 impl AdapterKv {
@@ -156,6 +162,7 @@ mod tests {
             framework: None,
             framework_id: None,
             framework_version: None,
+            recommended_for_moe: true,
             lifecycle_state: "active".to_string(),
             current_state: "warm".to_string(),
             load_state: "loaded".to_string(),
@@ -212,6 +219,7 @@ mod tests {
             framework: None,
             framework_id: None,
             framework_version: None,
+            recommended_for_moe: true,
             lifecycle_state: "active".to_string(),
             current_state: "warm".to_string(),
             load_state: "loaded".to_string(),

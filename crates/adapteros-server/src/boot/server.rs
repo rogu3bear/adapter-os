@@ -33,9 +33,10 @@
 //! ```
 
 use crate::shutdown::{ShutdownCoordinator, ShutdownError};
+use adapteros_boot::EXIT_CONFIG_ERROR;
 use adapteros_server_api::boot_state::BootStateManager;
 use axum::Router;
-use std::net::SocketAddr;
+use std::net::{SocketAddr, TcpListener};
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use std::time::Duration;
@@ -145,6 +146,30 @@ impl From<ShutdownError> for BindError {
     }
 }
 
+/// Map a bind error to a process exit code.
+pub fn bind_error_exit_code(err: &BindError) -> i32 {
+    match err {
+        BindError::PortInUse { .. } | BindError::SocketCreationFailed { .. } => EXIT_CONFIG_ERROR,
+        BindError::IoError(e) if e.kind() == std::io::ErrorKind::AddrInUse => EXIT_CONFIG_ERROR,
+        _ => 1,
+    }
+}
+
+/// Pre-check TCP port availability before handing it to Axum.
+pub fn precheck_tcp_port(addr: SocketAddr) -> Result<(), BindError> {
+    match TcpListener::bind(addr) {
+        Ok(listener) => drop(listener),
+        Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
+            return Err(BindError::PortInUse {
+                port: addr.port(),
+                addr,
+            });
+        }
+        Err(e) => return Err(BindError::IoError(e)),
+    }
+    Ok(())
+}
+
 /// Bind and serve the application with graceful shutdown.
 ///
 /// This function:
@@ -163,12 +188,6 @@ impl From<ShutdownError> for BindError {
 ///
 /// Returns `Ok(())` on successful shutdown, or `Err` if binding fails.
 ///
-/// # Exit Codes
-///
-/// This function may call `std::process::exit()` in certain critical failure scenarios:
-/// - Port in use (exit 10)
-/// - Socket creation failed (exit 10)
-/// - Critical shutdown failure (exit 1)
 pub async fn bind_and_serve(
     mode: BindMode,
     app: Router,
@@ -188,18 +207,16 @@ pub async fn bind_and_serve(
             info!(url = %format!("http://{}:{}/api/", display_addr.ip(), display_addr.port()), "API available");
             warn!("Development mode: TCP binding enabled. Set production_mode=true for UDS-only");
 
+            precheck_tcp_port(addr)?;
+
             // Bind first, fail fast if port in use
             let listener = match tokio::net::TcpListener::bind(addr).await {
                 Ok(l) => l,
                 Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
-                    error!(
-                        port = addr.port(),
-                        addr = %addr,
-                        "Port {} already in use. Kill existing process: lsof -ti:{} | xargs kill",
-                        addr.port(),
-                        addr.port()
-                    );
-                    std::process::exit(10);
+                    return Err(BindError::PortInUse {
+                        port: addr.port(),
+                        addr,
+                    });
                 }
                 Err(e) => return Err(e.into()),
             };
@@ -225,14 +242,10 @@ pub async fn bind_and_serve(
             let listener = match tokio::net::UnixListener::bind(&socket_path) {
                 Ok(l) => l,
                 Err(e) => {
-                    error!(
-                        socket = %socket_path,
-                        error = %e,
-                        "Failed to bind UDS socket: {}. Check permissions or remove stale socket: rm {}",
-                        e,
-                        socket_path
-                    );
-                    std::process::exit(10);
+                    return Err(BindError::SocketCreationFailed {
+                        path: socket_path.clone(),
+                        reason: e.to_string(),
+                    });
                 }
             };
 

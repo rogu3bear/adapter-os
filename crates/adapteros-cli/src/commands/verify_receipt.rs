@@ -9,8 +9,11 @@ use adapteros_core::B3Hash;
 use adapteros_crypto::signature::{PublicKey, Signature};
 use anyhow::{anyhow, bail, Context, Result};
 use base64::Engine as _;
+use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
+use crate::http_client::send_with_refresh_from_store;
 use crate::output::OutputWriter;
 
 const DEFAULT_BUNDLE_FILENAMES: &[&str] = &[
@@ -245,10 +248,27 @@ fn resolve_bundle_path(bundle: &Path) -> Result<PathBuf> {
     )
 }
 
+fn parse_bundle_from_str(raw: &str) -> Result<ReceiptBundle> {
+    if let Ok(bundle) = serde_json::from_str::<ReceiptBundle>(raw) {
+        return Ok(bundle);
+    }
+
+    let value: Value = serde_json::from_str(raw)?;
+    if let Some(nested) = value
+        .get("receipt_bundle")
+        .or_else(|| value.get("bundle"))
+        .cloned()
+    {
+        return Ok(serde_json::from_value(nested)?);
+    }
+
+    Err(anyhow!("Unexpected receipt payload format"))
+}
+
 fn load_bundle(path: &Path) -> Result<ReceiptBundle> {
     let data = fs::read_to_string(path)
         .with_context(|| format!("Failed to read bundle file {}", path.display()))?;
-    serde_json::from_str(&data)
+    parse_bundle_from_str(&data)
         .with_context(|| format!("Failed to parse bundle file {}", path.display()))
 }
 
@@ -544,9 +564,65 @@ fn render_report(report: &ReceiptVerificationReport, output: &OutputWriter) -> R
     Ok(())
 }
 
-pub fn run(bundle: &Path, output: &OutputWriter) -> Result<()> {
-    let bundle_path = resolve_bundle_path(bundle)?;
-    let bundle = load_bundle(&bundle_path)?;
+async fn fetch_online_bundle(trace_id: &str, server_url: &str) -> Result<ReceiptBundle> {
+    let client = Client::builder().build()?;
+    let base = server_url.trim_end_matches('/');
+    let url = format!("{}/v1/trace/{}/receipt", base, trace_id);
+
+    // Try with stored auth (for protected deployments); fall back to anonymous request.
+    let response = match send_with_refresh_from_store(&client, |c, auth| {
+        let auth_base = auth.base_url.trim_end_matches('/');
+        let target = if server_url.is_empty() {
+            format!("{}/v1/trace/{}/receipt", auth_base, trace_id)
+        } else {
+            url.clone()
+        };
+        c.get(target).bearer_auth(&auth.token)
+    })
+    .await
+    {
+        Ok(resp) => resp,
+        Err(_) => client.get(&url).send().await?,
+    };
+
+    let status = response.status();
+    let body = response.text().await.unwrap_or_default();
+    if !status.is_success() {
+        bail!(
+            "failed to fetch receipt for trace {}: {} {}",
+            trace_id,
+            status,
+            body
+        );
+    }
+
+    parse_bundle_from_str(&body).context("Failed to decode receipt payload")
+}
+
+pub async fn run(
+    bundle: Option<&Path>,
+    online_trace: Option<&str>,
+    server_url: &str,
+    output: &OutputWriter,
+) -> Result<()> {
+    if bundle.is_none() && online_trace.is_none() {
+        bail!("provide --bundle or --online <trace_id> to verify a receipt");
+    }
+
+    let bundle = if let Some(trace_id) = online_trace {
+        if output.is_verbose() {
+            output.progress(format!(
+                "Fetching receipt for trace {} from {}",
+                trace_id, server_url
+            ));
+        }
+        fetch_online_bundle(trace_id, server_url).await?
+    } else {
+        let bundle_path = resolve_bundle_path(
+            bundle.expect("bundle path should be present when online_trace is None"),
+        )?;
+        load_bundle(&bundle_path)?
+    };
     let report = verify_bundle(&bundle)?;
 
     render_report(&report, output)?;

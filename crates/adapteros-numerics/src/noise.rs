@@ -183,6 +183,9 @@ pub enum NumericsError {
 
     #[error("Invalid layer ID: {layer_id}")]
     InvalidLayerId { layer_id: String },
+
+    #[error("Non-finite numeric value at index {index}: {value}")]
+    NonFiniteValue { index: usize, value: f32 },
 }
 
 /// Measure numerical error between reference and quantized tensor outputs
@@ -300,6 +303,17 @@ pub fn aggregate_stats(stats: &[EpsilonStats]) -> GlobalStabilityReport {
     report
 }
 
+/// Validate that all numeric values are finite (no NaN or Inf)
+pub fn check_numerics(values: &[f32]) -> Result<(), NumericsError> {
+    for (index, value) in values.iter().copied().enumerate() {
+        if !value.is_finite() {
+            return Err(NumericsError::NonFiniteValue { index, value });
+        }
+    }
+
+    Ok(())
+}
+
 /// Compute the reference range for error rate calculation
 ///
 /// This function calculates the range (max - min) of the reference tensor
@@ -328,6 +342,24 @@ pub fn compute_reference_range(tensor: &Tensor) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn check_numerics_rejects_nan_values() {
+        let values = [0.0_f32, f32::NAN, 1.0];
+
+        let err = check_numerics(&values).expect_err("NaN should be rejected");
+        match err {
+            NumericsError::NonFiniteValue { index, .. } => assert_eq!(index, 1),
+            other => panic!("Unexpected error: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn check_numerics_accepts_finite_values() {
+        let values = [0.0_f32, 1.0, -5.0];
+
+        check_numerics(&values).expect("Finite values should pass");
+    }
 
     #[test]
     fn test_measure_error_basic() {

@@ -100,6 +100,14 @@ impl StopController {
         self.generated_count
     }
 
+    /// Preload already-generated tokens (e.g., free tokens) into the controller state.
+    pub fn preload_tokens(&mut self, tokens: &[u32]) {
+        for &token in tokens {
+            self.generated_count = self.generated_count.saturating_add(1);
+            self.update_history(token);
+        }
+    }
+
     /// Check if generation should stop.
     ///
     /// This method is **deterministic**: given the same inputs, it will always

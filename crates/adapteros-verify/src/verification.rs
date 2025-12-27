@@ -36,6 +36,8 @@ pub struct VerificationReport {
     pub device_compatible: bool,
     /// Routing decisions match
     pub routing_decisions_match: bool,
+    /// Stability of routing decisions based on routing_decisions.json
+    pub routing_decision_stability: Option<bool>,
     /// Routing decision divergences
     pub routing_divergences: Vec<RoutingDivergence>,
     /// Total routing decisions compared
@@ -64,6 +66,7 @@ impl VerificationReport {
             adapters_compatible: false,
             device_compatible: false,
             routing_decisions_match: false,
+            routing_decision_stability: None,
             routing_divergences: Vec::new(),
             routing_decision_count: 0,
             messages: Vec::new(),
@@ -203,6 +206,14 @@ impl VerificationReport {
         if self.routing_decision_count > 0 {
             lines.push(String::new());
             lines.push(format!(
+                "  Routing Decision Stability: {} (routing_decisions.json)",
+                match self.routing_decision_stability {
+                    Some(true) => "✓ stable",
+                    Some(false) => "✗ diverged",
+                    None => "⚠ not evaluated",
+                }
+            ));
+            lines.push(format!(
                 "  Routing: {} ({} decisions)",
                 if self.routing_decisions_match {
                     "✓ match"
@@ -237,6 +248,9 @@ impl VerificationReport {
             }
         } else {
             lines.push(String::new());
+            lines.push(
+                "  Routing Decision Stability: ⚠ routing_decisions.json not present".to_string(),
+            );
             lines.push("  Routing: no decisions to compare (backwards compatible)".to_string());
         }
 
@@ -378,16 +392,17 @@ pub async fn verify_against_golden<P1: AsRef<Path>, P2: AsRef<Path>>(
         );
 
         report.routing_decisions_match = routing_match;
+        report.routing_decision_stability = Some(routing_match);
         report.routing_divergences = routing_divs;
 
         if routing_match {
             report.add_message(format!(
-                "Routing decisions match: {} steps verified",
+                "Routing Decision Stability: {} steps stable via routing_decisions.json",
                 report.routing_decision_count
             ));
         } else {
             report.add_message(format!(
-                "Routing decisions diverged: {} mismatches in {} steps",
+                "Routing Decision Stability diverged: {} mismatches in {} steps (routing_decisions.json)",
                 report.routing_divergences.len(),
                 report.routing_decision_count
             ));
@@ -395,6 +410,7 @@ pub async fn verify_against_golden<P1: AsRef<Path>, P2: AsRef<Path>>(
     } else {
         // No routing decisions in golden run (backwards compatibility)
         report.routing_decisions_match = true;
+        report.routing_decision_stability = None;
         report.add_message(
             "No routing decisions in golden run (backwards compatibility)".to_string(),
         );

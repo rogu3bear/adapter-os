@@ -153,6 +153,8 @@ pub struct Model {
     #[sqlx(default)]
     pub config: Option<String>,
     #[sqlx(default)]
+    pub routing_bias: Option<f64>,
+    #[sqlx(default)]
     pub status: Option<String>,
     #[sqlx(default)]
     pub tenant_id: Option<String>,
@@ -306,7 +308,7 @@ impl Db {
         let model = sqlx::query_as::<_, Model>(
             "SELECT id, name, hash_b3, license_hash_b3, config_hash_b3, tokenizer_hash_b3,
              tokenizer_cfg_hash_b3, metadata_json, created_at, model_type, model_path, config,
-             status, tenant_id, updated_at, adapter_path, backend, quantization, last_error,
+             routing_bias, status, tenant_id, updated_at, adapter_path, backend, quantization, last_error,
              size_bytes, format, capabilities, import_status, import_error, imported_at, imported_by
              FROM models WHERE id = ?",
         )
@@ -324,7 +326,7 @@ impl Db {
         let model = sqlx::query_as::<_, Model>(
             "SELECT id, name, hash_b3, license_hash_b3, config_hash_b3, tokenizer_hash_b3,
              tokenizer_cfg_hash_b3, metadata_json, created_at, model_type, model_path, config,
-             status, tenant_id, updated_at, adapter_path, backend, quantization, last_error,
+             routing_bias, status, tenant_id, updated_at, adapter_path, backend, quantization, last_error,
              size_bytes, format, capabilities, import_status, import_error, imported_at, imported_by
              FROM models WHERE name = ? AND import_status = 'available'",
         )
@@ -360,7 +362,7 @@ impl Db {
         let models = sqlx::query_as::<_, Model>(
             "SELECT id, name, hash_b3, license_hash_b3, config_hash_b3, tokenizer_hash_b3,
              tokenizer_cfg_hash_b3, metadata_json, created_at, model_type, model_path, config,
-             status, tenant_id, updated_at, adapter_path, backend, quantization, last_error,
+             routing_bias, status, tenant_id, updated_at, adapter_path, backend, quantization, last_error,
              size_bytes, format, capabilities, import_status, import_error, imported_at, imported_by
              FROM models
              WHERE tenant_id = ? OR tenant_id IS NULL

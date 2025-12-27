@@ -55,11 +55,11 @@ use adapteros_lora_kernel_api::FusedKernels;
 use adapteros_lora_worker::StrictnessControl;
 
 /// API server state
-pub struct ApiState<K: FusedKernels + StrictnessControl + Send + Sync> {
+pub struct ApiState<K: FusedKernels + StrictnessControl + Send + Sync + 'static> {
     worker: Arc<tokio::sync::Mutex<adapteros_lora_worker::Worker<K>>>,
 }
 
-impl<K: FusedKernels + StrictnessControl + Send + Sync> ApiState<K> {
+impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> ApiState<K> {
     /// Create new API state with worker
     pub fn new(worker: adapteros_lora_worker::Worker<K>) -> Self {
         Self {

@@ -36,6 +36,8 @@ async fn test_router_decision_telemetry_pipeline() {
         stack_hash: Some("test-stack-hash".to_string()),
         stack_id: Some("test-stack-id".to_string()),
         stack_version: Some(1),
+        model_type: adapteros_types::routing::RouterModelType::Dense,
+        active_experts: None,
     };
 
     // Emit the event (should not block)
@@ -74,6 +76,8 @@ async fn test_router_decision_overflow_handling() {
         stack_hash: None,
         stack_id: None,
         stack_version: None,
+        model_type: adapteros_types::routing::RouterModelType::Dense,
+        active_experts: None,
     };
 
     // Fill the channel

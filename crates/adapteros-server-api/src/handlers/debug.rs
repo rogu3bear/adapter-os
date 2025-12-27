@@ -282,7 +282,7 @@ pub async fn debug_infer_with_mode(
 
     // Execute via InferenceCore
     let core = InferenceCore::new(&state);
-    let result = core.route_and_infer(internal, None).await.map_err(|e| {
+    let result = core.route_and_infer(internal, None, None).await.map_err(|e| {
         // Log failure to audit trail
         if let Err(e) = crate::audit_helper::log_failure(
             &state.db,

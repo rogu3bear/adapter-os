@@ -45,6 +45,8 @@ pub struct FederationDaemonConfig {
     pub max_hosts_per_sweep: usize,
     /// Whether to trigger quarantine on failures
     pub enable_quarantine: bool,
+    /// Minimum connected peers required to allow write operations
+    pub quorum_min_peers: usize,
 }
 
 impl Default for FederationDaemonConfig {
@@ -53,6 +55,7 @@ impl Default for FederationDaemonConfig {
             interval_secs: 300, // 5 minutes
             max_hosts_per_sweep: 10,
             enable_quarantine: true,
+            quorum_min_peers: 2,
         }
     }
 }
@@ -71,6 +74,8 @@ pub struct FederationDaemon {
     config: FederationDaemonConfig,
     /// Database handle
     db: Arc<Db>,
+    /// Read-only flag when quorum is lost
+    read_only: Arc<parking_lot::RwLock<bool>>,
 }
 
 impl FederationDaemon {
@@ -89,6 +94,7 @@ impl FederationDaemon {
             telemetry,
             config,
             db,
+            read_only: Arc::new(parking_lot::RwLock::new(false)),
         }
     }
 
@@ -144,9 +150,70 @@ impl FederationDaemon {
         info!("Federation daemon stopped verification sweeps");
     }
 
+    /// Determine if writes are currently blocked due to quorum loss
+    pub fn is_read_only(&self) -> bool {
+        *self.read_only.read()
+    }
+
+    /// Count connected peers based on active federation peers
+    async fn connected_peers(&self) -> Result<usize> {
+        let pool = self.db.pool();
+        let count: i64 = sqlx::query_scalar(
+            r#"
+            SELECT COUNT(*) FROM federation_peers
+            WHERE active = 1
+            "#,
+        )
+        .fetch_one(pool)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to count active peers: {}", e)))?;
+
+        Ok(count as usize)
+    }
+
+    /// Ensure quorum before performing write operations; toggles read-only mode on loss
+    async fn check_quorum(&self) -> Result<bool> {
+        let connected = self.connected_peers().await?;
+        let has_quorum = connected >= self.config.quorum_min_peers;
+
+        {
+            let mut read_only = self.read_only.write();
+            if !has_quorum && !*read_only {
+                *read_only = true;
+                warn!(
+                    connected_peers = connected,
+                    quorum = self.config.quorum_min_peers,
+                    "Insufficient quorum - entering read-only mode"
+                );
+            } else if has_quorum && *read_only {
+                *read_only = false;
+                info!(
+                    connected_peers = connected,
+                    quorum = self.config.quorum_min_peers,
+                    "Quorum restored - exiting read-only mode"
+                );
+            }
+        }
+
+        Ok(has_quorum)
+    }
+
     /// Verify all federation hosts
     async fn verify_all_hosts(&self) -> Result<FederationVerificationReport> {
         let start = std::time::Instant::now();
+
+        if !self.check_quorum().await? {
+            // Avoid writes when quorum is lost; return a read-only report
+            return Ok(FederationVerificationReport {
+                ok: false,
+                hosts_verified: 0,
+                errors: vec![format!(
+                    "Insufficient quorum: connected peers < {}",
+                    self.config.quorum_min_peers
+                )],
+                verified_at: Utc::now().to_rfc3339(),
+            });
+        }
 
         // Get all host chains from database
         let hosts = self.get_all_host_ids().await?;
@@ -221,6 +288,11 @@ impl FederationDaemon {
 
     /// Handle verification report
     async fn handle_verification_report(&self, report: FederationVerificationReport) {
+        if self.is_read_only() {
+            warn!("Skipping verification handling while in read-only mode (quorum not met)");
+            return;
+        }
+
         // Log telemetry event (100% sampling per Telemetry Ruleset #9)
         if let Err(e) = self.log_verification_report(&report) {
             error!(error = %e, "Failed to log verification report");
@@ -400,6 +472,18 @@ mod tests {
     }
 
     async fn setup_test_daemon() -> (FederationDaemon, TempDir) {
+        setup_test_daemon_with_config(FederationDaemonConfig {
+            interval_secs: 1,
+            max_hosts_per_sweep: 10,
+            enable_quarantine: true,
+            quorum_min_peers: 1,
+        })
+        .await
+    }
+
+    async fn setup_test_daemon_with_config(
+        config: FederationDaemonConfig,
+    ) -> (FederationDaemon, TempDir) {
         let temp_dir = new_test_tempdir();
         let db_path = temp_dir.path().join("test.db");
         let db_url = format!("sqlite://{}", db_path.display());
@@ -420,12 +504,6 @@ mod tests {
             Arc::new(telemetry.clone()),
             Some("test-cp".to_string()),
         );
-
-        let config = FederationDaemonConfig {
-            interval_secs: 1,
-            max_hosts_per_sweep: 10,
-            enable_quarantine: true,
-        };
 
         let daemon = FederationDaemon::new(
             Arc::new(federation),
@@ -486,5 +564,29 @@ mod tests {
         };
         daemon.handle_verification_report(success_report).await;
         assert!(!daemon.is_quarantined());
+    }
+
+    #[tokio::test]
+    async fn test_read_only_when_quorum_missing() {
+        let (daemon, _temp) = setup_test_daemon_with_config(FederationDaemonConfig {
+            interval_secs: 1,
+            max_hosts_per_sweep: 10,
+            enable_quarantine: true,
+            quorum_min_peers: 2,
+        })
+        .await;
+
+        let report = daemon.verify_all_hosts().await.unwrap();
+
+        assert!(daemon.is_read_only());
+        assert!(!report.ok);
+        assert!(
+            report
+                .errors
+                .iter()
+                .any(|e| e.contains("Insufficient quorum")),
+            "expected insufficient quorum error, got {:?}",
+            report.errors
+        );
     }
 }

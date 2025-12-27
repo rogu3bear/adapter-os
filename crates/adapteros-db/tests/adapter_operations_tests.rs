@@ -8,10 +8,10 @@
 
 use adapteros_core::{AosError, Result};
 use adapteros_db::adapters::AdapterRegistrationBuilder;
-use adapteros_db::Db;
+use adapteros_db::{Db, ProtectedDb, WriteCapableDb};
 
 /// Helper to create a tenant for testing
-async fn create_tenant(db: &Db, tenant_id: &str) -> Result<()> {
+async fn create_tenant(db: &ProtectedDb, tenant_id: &str) -> Result<()> {
     sqlx::query("INSERT INTO tenants (id, name, itar_flag) VALUES (?, ?, 0)")
         .bind(tenant_id)
         .bind(tenant_id)
@@ -23,7 +23,7 @@ async fn create_tenant(db: &Db, tenant_id: &str) -> Result<()> {
 
 /// Helper to register a basic adapter
 async fn register_adapter(
-    db: &Db,
+    db: &ProtectedDb,
     tenant_id: &str,
     adapter_id: &str,
     hash_b3: &str,
@@ -43,13 +43,17 @@ async fn register_adapter(
     db.register_adapter(params).await
 }
 
+fn write_db(db: &ProtectedDb) -> WriteCapableDb<'_> {
+    db.write(db.lifecycle_token())
+}
+
 // ============================================================================
 // Create Operations
 // ============================================================================
 
 #[tokio::test]
 async fn register_adapter_creates_new_entry() -> Result<()> {
-    let db = Db::new_in_memory().await?;
+    let db = ProtectedDb::new(Db::new_in_memory().await?);
     create_tenant(&db, "tenant-a").await?;
 
     register_adapter(&db, "tenant-a", "test-adapter", "b3:hash-001").await?;
@@ -73,7 +77,7 @@ async fn register_adapter_creates_new_entry() -> Result<()> {
 
 #[tokio::test]
 async fn register_adapter_with_optional_fields() -> Result<()> {
-    let db = Db::new_in_memory().await?;
+    let db = ProtectedDb::new(Db::new_in_memory().await?);
     create_tenant(&db, "tenant-b").await?;
 
     let params = AdapterRegistrationBuilder::new()
@@ -107,7 +111,7 @@ async fn register_adapter_with_optional_fields() -> Result<()> {
 
 #[tokio::test]
 async fn register_adapter_rejects_duplicate_hash() -> Result<()> {
-    let db = Db::new_in_memory().await?;
+    let db = ProtectedDb::new(Db::new_in_memory().await?);
     create_tenant(&db, "tenant-c").await?;
 
     register_adapter(&db, "tenant-c", "adapter-1", "b3:unique-hash").await?;
@@ -127,7 +131,7 @@ async fn register_adapter_rejects_duplicate_hash() -> Result<()> {
 
 #[tokio::test]
 async fn get_adapter_for_tenant_enforces_isolation() -> Result<()> {
-    let db = Db::new_in_memory().await?;
+    let db = ProtectedDb::new(Db::new_in_memory().await?);
     create_tenant(&db, "tenant-a").await?;
     create_tenant(&db, "tenant-b").await?;
 
@@ -151,7 +155,7 @@ async fn get_adapter_for_tenant_enforces_isolation() -> Result<()> {
 
 #[tokio::test]
 async fn list_adapters_for_tenant_returns_only_tenant_adapters() -> Result<()> {
-    let db = Db::new_in_memory().await?;
+    let db = ProtectedDb::new(Db::new_in_memory().await?);
     create_tenant(&db, "tenant-a").await?;
     create_tenant(&db, "tenant-b").await?;
 
@@ -168,7 +172,7 @@ async fn list_adapters_for_tenant_returns_only_tenant_adapters() -> Result<()> {
 
 #[tokio::test]
 async fn get_adapter_by_hash_finds_correct_adapter() -> Result<()> {
-    let db = Db::new_in_memory().await?;
+    let db = ProtectedDb::new(Db::new_in_memory().await?);
     create_tenant(&db, "tenant-a").await?;
 
     let id = register_adapter(&db, "tenant-a", "hash-lookup", "b3:unique-lookup-hash").await?;
@@ -190,7 +194,7 @@ async fn get_adapter_by_hash_finds_correct_adapter() -> Result<()> {
 
 #[tokio::test]
 async fn update_adapter_state_changes_current_state() -> Result<()> {
-    let db = Db::new_in_memory().await?;
+    let db = ProtectedDb::new(Db::new_in_memory().await?);
     create_tenant(&db, "tenant-a").await?;
 
     register_adapter(&db, "tenant-a", "state-test", "b3:hash-state").await?;
@@ -201,7 +205,8 @@ async fn update_adapter_state_changes_current_state() -> Result<()> {
         .expect("adapter exists");
     assert_eq!(adapter.current_state, "unloaded");
 
-    db.update_adapter_state("state-test", "warm", "test")
+    write_db(&db)
+        .update_adapter_state("tenant-a", "state-test", "warm", "test")
         .await?;
 
     let adapter = db
@@ -215,7 +220,7 @@ async fn update_adapter_state_changes_current_state() -> Result<()> {
 
 #[tokio::test]
 async fn update_adapter_tier_for_tenant() -> Result<()> {
-    let db = Db::new_in_memory().await?;
+    let db = ProtectedDb::new(Db::new_in_memory().await?);
     create_tenant(&db, "tenant-a").await?;
 
     register_adapter(&db, "tenant-a", "tier-test", "b3:hash-tier").await?;
@@ -240,7 +245,7 @@ async fn update_adapter_tier_for_tenant() -> Result<()> {
 
 #[tokio::test]
 async fn update_adapter_memory_for_tenant() -> Result<()> {
-    let db = Db::new_in_memory().await?;
+    let db = ProtectedDb::new(Db::new_in_memory().await?);
     create_tenant(&db, "tenant-a").await?;
 
     register_adapter(&db, "tenant-a", "memory-test", "b3:hash-memory").await?;
@@ -265,7 +270,7 @@ async fn update_adapter_memory_for_tenant() -> Result<()> {
 
 #[tokio::test]
 async fn update_adapter_strength() -> Result<()> {
-    let db = Db::new_in_memory().await?;
+    let db = ProtectedDb::new(Db::new_in_memory().await?);
     create_tenant(&db, "tenant-a").await?;
 
     register_adapter(&db, "tenant-a", "strength-test", "b3:hash-strength").await?;
@@ -283,12 +288,13 @@ async fn update_adapter_strength() -> Result<()> {
 
 #[tokio::test]
 async fn update_adapter_state_and_memory_atomically() -> Result<()> {
-    let db = Db::new_in_memory().await?;
+    let db = ProtectedDb::new(Db::new_in_memory().await?);
     create_tenant(&db, "tenant-a").await?;
 
     register_adapter(&db, "tenant-a", "atomic-test", "b3:hash-atomic").await?;
 
-    db.update_adapter_state_and_memory("atomic-test", "warm", 2097152, "test")
+    write_db(&db)
+        .update_adapter_state_and_memory("atomic-test", "warm", 2097152, "test")
         .await?;
 
     let adapter = db
@@ -303,12 +309,12 @@ async fn update_adapter_state_and_memory_atomically() -> Result<()> {
 
 #[tokio::test]
 async fn update_adapter_state_cas_succeeds_with_correct_expected_state() -> Result<()> {
-    let db = Db::new_in_memory().await?;
+    let db = ProtectedDb::new(Db::new_in_memory().await?);
     create_tenant(&db, "tenant-a").await?;
 
     register_adapter(&db, "tenant-a", "cas-test", "b3:hash-cas").await?;
 
-    let success = db
+    let success = write_db(&db)
         .update_adapter_state_cas("cas-test", "unloaded", "warm", "test")
         .await?;
     assert!(success);
@@ -324,17 +330,18 @@ async fn update_adapter_state_cas_succeeds_with_correct_expected_state() -> Resu
 
 #[tokio::test]
 async fn update_adapter_state_cas_fails_with_wrong_expected_state() -> Result<()> {
-    let db = Db::new_in_memory().await?;
+    let db = ProtectedDb::new(Db::new_in_memory().await?);
     create_tenant(&db, "tenant-a").await?;
 
     register_adapter(&db, "tenant-a", "cas-fail", "b3:hash-cas-fail").await?;
 
     // First transition to warm
-    db.update_adapter_state_cas("cas-fail", "unloaded", "warm", "test")
+    write_db(&db)
+        .update_adapter_state_cas("cas-fail", "unloaded", "warm", "test")
         .await?;
 
     // Try to transition from unloaded (wrong state) to hot - should fail
-    let failed = db
+    let failed = write_db(&db)
         .update_adapter_state_cas("cas-fail", "unloaded", "hot", "test")
         .await?;
     assert!(!failed, "CAS should fail with incorrect expected state");
@@ -355,7 +362,7 @@ async fn update_adapter_state_cas_fails_with_wrong_expected_state() -> Result<()
 
 #[tokio::test]
 async fn delete_adapter_for_tenant_enforces_isolation() -> Result<()> {
-    let db = Db::new_in_memory().await?;
+    let db = ProtectedDb::new(Db::new_in_memory().await?);
     create_tenant(&db, "tenant-a").await?;
     create_tenant(&db, "tenant-b").await?;
 
@@ -388,7 +395,7 @@ async fn delete_adapter_for_tenant_enforces_isolation() -> Result<()> {
 
 #[tokio::test]
 async fn list_adapters_by_category() -> Result<()> {
-    let db = Db::new_in_memory().await?;
+    let db = ProtectedDb::new(Db::new_in_memory().await?);
     create_tenant(&db, "tenant-a").await?;
 
     let params1 = AdapterRegistrationBuilder::new()
@@ -425,7 +432,7 @@ async fn list_adapters_by_category() -> Result<()> {
 
 #[tokio::test]
 async fn list_adapters_by_scope() -> Result<()> {
-    let db = Db::new_in_memory().await?;
+    let db = ProtectedDb::new(Db::new_in_memory().await?);
     create_tenant(&db, "tenant-a").await?;
 
     let params1 = AdapterRegistrationBuilder::new()
@@ -464,13 +471,15 @@ async fn list_adapters_by_scope() -> Result<()> {
 
 #[tokio::test]
 async fn list_adapters_by_state() -> Result<()> {
-    let db = Db::new_in_memory().await?;
+    let db = ProtectedDb::new(Db::new_in_memory().await?);
     create_tenant(&db, "tenant-a").await?;
 
     register_adapter(&db, "tenant-a", "idle-1", "b3:hash-idle-1").await?;
     register_adapter(&db, "tenant-a", "loading-1", "b3:hash-loading-1").await?;
 
-    db.update_adapter_state("loading-1", "warm", "test").await?;
+    write_db(&db)
+        .update_adapter_state("tenant-a", "loading-1", "warm", "test")
+        .await?;
 
     let unloaded_adapters = db.list_adapters_by_state("tenant-a", "unloaded").await?;
     assert!(unloaded_adapters
@@ -485,7 +494,7 @@ async fn list_adapters_by_state() -> Result<()> {
 
 #[tokio::test]
 async fn get_adapter_state_summary_returns_counts() -> Result<()> {
-    let db = Db::new_in_memory().await?;
+    let db = ProtectedDb::new(Db::new_in_memory().await?);
     create_tenant(&db, "tenant-a").await?;
 
     register_adapter(&db, "tenant-a", "idle-1", "b3:hash-idle-1").await?;
@@ -510,7 +519,7 @@ async fn get_adapter_state_summary_returns_counts() -> Result<()> {
 
 #[tokio::test]
 async fn register_adapter_requires_tenant_exists() -> Result<()> {
-    let db = Db::new_in_memory().await?;
+    let db = ProtectedDb::new(Db::new_in_memory().await?);
 
     let err = register_adapter(&db, "nonexistent-tenant", "test", "b3:hash-001")
         .await
@@ -523,7 +532,7 @@ async fn register_adapter_requires_tenant_exists() -> Result<()> {
 
 #[tokio::test]
 async fn get_adapter_returns_none_for_nonexistent() -> Result<()> {
-    let db = Db::new_in_memory().await?;
+    let db = ProtectedDb::new(Db::new_in_memory().await?);
     create_tenant(&db, "tenant-a").await?;
 
     let adapter = db.get_adapter_for_tenant("tenant-a", "nonexistent").await?;
@@ -534,7 +543,7 @@ async fn get_adapter_returns_none_for_nonexistent() -> Result<()> {
 
 #[tokio::test]
 async fn adapter_expires_at_sets_expiration() -> Result<()> {
-    let db = Db::new_in_memory().await?;
+    let db = ProtectedDb::new(Db::new_in_memory().await?);
     create_tenant(&db, "tenant-a").await?;
 
     let expiration = "2025-12-31T23:59:59Z";
@@ -568,7 +577,7 @@ async fn adapter_expires_at_sets_expiration() -> Result<()> {
 
 #[tokio::test]
 async fn adapter_parent_child_relationship() -> Result<()> {
-    let db = Db::new_in_memory().await?;
+    let db = ProtectedDb::new(Db::new_in_memory().await?);
     create_tenant(&db, "tenant-a").await?;
 
     let parent_id = register_adapter(&db, "tenant-a", "parent", "b3:hash-parent").await?;

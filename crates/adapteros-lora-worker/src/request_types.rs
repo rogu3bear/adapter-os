@@ -25,6 +25,9 @@ pub struct InferenceRequest {
     pub max_tokens: usize,
     #[serde(default)]
     pub require_evidence: bool,
+    /// Enable reasoning-aware routing (pauses at reasoning spans to hot-swap adapters)
+    #[serde(default)]
+    pub reasoning_mode: bool,
     /// Optional: Request patch proposal mode
     #[serde(default)]
     pub request_type: RequestType,
@@ -107,6 +110,10 @@ pub struct InferenceRequest {
     /// Optional stop policy for deterministic stop control (PRD: Hard Deterministic Stop Controller)
     #[serde(default)]
     pub stop_policy: Option<adapteros_api_types::inference::StopPolicySpec>,
+
+    /// Admin override flag to bypass cluster routing restrictions (debug only)
+    #[serde(default)]
+    pub admin_override: bool,
 }
 
 fn default_determinism_mode() -> String {

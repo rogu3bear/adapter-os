@@ -32,11 +32,13 @@ source scripts/lib/freeze-guard.sh
 : "${SKIP_WORKER:=0}"
 : "${AOS_QUICK_BOOT:=0}"
 : "${AOS_LOG_PROFILE:=json}"
+: "${AOS_DEBUG_LOG:=$SCRIPT_DIR/.cursor/debug.log}"
 
 VERBOSE=0
 TRACE=0
 SCRIPT_LOG="$AOS_LOG_DIR/start.log"
 READYZ_TIMELINE_PATH="$AOS_LOG_DIR/readyz-timeline.jsonl"
+DEBUG_LOG_PATH="$AOS_DEBUG_LOG"
 
 # Animation characters
 SPINNER_CHARS="⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
@@ -283,6 +285,40 @@ ensure_var_dirs() {
     mkdir -p "$AOS_LOG_DIR"
 }
 
+now_ms() {
+    # macOS `date` lacks %N, so multiply seconds to avoid Python
+    echo $(( $(date +%s) * 1000 ))
+}
+
+append_debug_log() {
+    local location="$1"
+    local message="$2"
+    local hypothesis="$3"
+    local data_json="${4:-{}}"
+
+    ensure_var_dirs
+    mkdir -p "$(dirname "$DEBUG_LOG_PATH")"
+    local ts_ms
+    ts_ms=$(now_ms)
+
+    if command -v jq >/dev/null 2>&1; then
+        jq -nc \
+            --arg session "debug-session" \
+            --arg runId "${AOS_DEBUG_RUN_ID:-pre-fix}" \
+            --arg hyp "${hypothesis:-}" \
+            --arg loc "$location" \
+            --arg msg "$message" \
+            --argjson data "$data_json" \
+            --arg ts "$ts_ms" \
+            '{sessionId:$session, runId:$runId, hypothesisId:$hyp, location:$loc, message:$msg, data:$data, timestamp: ($ts|tonumber)}' \
+            >>"$DEBUG_LOG_PATH" 2>/dev/null && return
+    fi
+
+    printf '{"sessionId":"%s","runId":"%s","hypothesisId":"%s","location":"%s","message":"%s","data":%s,"timestamp":%s}\n' \
+        "debug-session" "${AOS_DEBUG_RUN_ID:-pre-fix}" "${hypothesis:-}" "$location" "$message" "${data_json:-{}}" "$ts_ms" \
+        >>"$DEBUG_LOG_PATH"
+}
+
 log_line() {
     local level="$1"; shift
     local msg="$*"
@@ -298,32 +334,29 @@ log_readyz_timeline() {
     local status="$1"
     local body="$2"
     ensure_var_dirs
-    READYZ_STATUS="$status" READYZ_BODY="$body" READYZ_LOG_PATH="$READYZ_TIMELINE_PATH" python - <<'PY'
-import json
-import os
-import time
+    mkdir -p "$(dirname "$READYZ_TIMELINE_PATH")"
+    local ts_ms
+    ts_ms=$(now_ms)
 
-status = os.environ.get("READYZ_STATUS", "")
-body = os.environ.get("READYZ_BODY", "")
-path = os.environ.get("READYZ_LOG_PATH", "")
+    if command -v jq >/dev/null 2>&1; then
+        local parsed_body
+        if printf '%s' "$body" | jq -e . >/dev/null 2>&1; then
+            parsed_body=$(printf '%s' "$body" | jq -c .)
+        else
+            parsed_body=$(printf '%s' "$body" | jq -R -c .)
+        fi
+        jq -nc \
+            --arg ts "$ts_ms" \
+            --arg status "$status" \
+            --argjson body "$parsed_body" \
+            '{ts_ms: ($ts|tonumber), status: $status, body: $body}' \
+            >>"$READYZ_TIMELINE_PATH" 2>/dev/null && return
+    fi
 
-try:
-    parsed = json.loads(body)
-except Exception:
-    parsed = body
-
-entry = {
-    "ts_ms": int(time.time() * 1000),
-    "status": status,
-    "body": parsed,
-}
-
-if path:
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "a", encoding="utf-8") as handle:
-        json.dump(entry, handle)
-        handle.write("\n")
-PY
+    # Fallback: log as a flat string if jq is unavailable
+    local safe_body="${body//\"/\\\"}"
+    printf '{"ts_ms":%s,"status":"%s","body":"%s"}\n' "$ts_ms" "$status" "$safe_body" \
+        >>"$READYZ_TIMELINE_PATH"
 }
 
 dump_env_summary() {
@@ -556,26 +589,11 @@ start_backend_animated() {
                     log_line INFO "backend:ready pid=$pid port=$AOS_SERVER_PORT"
                     if [ -n "$tail_pid" ]; then kill "$tail_pid" 2>/dev/null; fi
                     #region agent log
-                    BACKEND_PID="$pid" python - <<'PY'
-import json, os, time
-log_path = "/Users/mln-dev/Dev/adapter-os/.cursor/debug.log"
-os.makedirs(os.path.dirname(log_path), exist_ok=True)
-payload = {
-    "sessionId": "debug-session",
-    "runId": os.environ.get("AOS_DEBUG_RUN_ID", "pre-fix"),
-    "hypothesisId": "H1",
-    "location": "start_backend_animated:health",
-    "message": "backend ready",
-    "data": {
-        "pid": os.environ.get("BACKEND_PID"),
-        "manifest": os.environ.get("AOS_MANIFEST_PATH"),
-        "backend_port": os.environ.get("AOS_SERVER_PORT", "8080")
-    },
-    "timestamp": int(time.time() * 1000)
-}
-with open(log_path, "a") as f:
-    f.write(json.dumps(payload) + "\n")
-PY
+                    append_debug_log \
+                        "start_backend_animated:health" \
+                        "backend ready" \
+                        "H1" \
+                        "$(printf '{"pid":"%s","manifest":"%s","backend_port":"%s"}' "$pid" "${AOS_MANIFEST_PATH:-}" "${AOS_SERVER_PORT:-8080}")"
                     #endregion agent log
                     return 0
                 fi
@@ -594,26 +612,11 @@ PY
             log_line ERROR "backend:health_timeout pid=${pid:-none} timeout=${health_timeout}s"
             [ "${AOS_BOOT_VERBOSE:-0}" = "1" ] && tail -20 "$AOS_VAR_DIR/logs/backend.log" 2>/dev/null
             #region agent log
-            BACKEND_PID="$pid" python - <<'PY'
-import json, os, time
-log_path = "/Users/mln-dev/Dev/adapter-os/.cursor/debug.log"
-os.makedirs(os.path.dirname(log_path), exist_ok=True)
-payload = {
-    "sessionId": "debug-session",
-    "runId": os.environ.get("AOS_DEBUG_RUN_ID", "pre-fix"),
-    "hypothesisId": "H1",
-    "location": "start_backend_animated:health_timeout",
-    "message": "backend healthz timeout - treated as failure",
-    "data": {
-        "pid": os.environ.get("BACKEND_PID"),
-        "manifest": os.environ.get("AOS_MANIFEST_PATH"),
-        "backend_port": os.environ.get("AOS_SERVER_PORT", "8080")
-    },
-    "timestamp": int(time.time() * 1000)
-}
-with open(log_path, "a") as f:
-    f.write(json.dumps(payload) + "\n")
-PY
+            append_debug_log \
+                "start_backend_animated:health_timeout" \
+                "backend healthz timeout - treated as failure" \
+                "H1" \
+                "$(printf '{"pid":"%s","manifest":"%s","backend_port":"%s"}' "$pid" "${AOS_MANIFEST_PATH:-}" "${AOS_SERVER_PORT:-8080}")"
             #endregion agent log
             if [ -n "$tail_pid" ]; then kill "$tail_pid" 2>/dev/null; fi
             return 1
@@ -621,25 +624,11 @@ PY
             update_step "error" "Backend API - failed to start"
             log_line ERROR "backend:start failed (service-manager start-backend)"
             #region agent log
-            python - <<'PY'
-import json, os, time
-log_path = "/Users/mln-dev/Dev/adapter-os/.cursor/debug.log"
-os.makedirs(os.path.dirname(log_path), exist_ok=True)
-payload = {
-    "sessionId": "debug-session",
-    "runId": os.environ.get("AOS_DEBUG_RUN_ID", "pre-fix"),
-    "hypothesisId": "H1",
-    "location": "start_backend_animated:error",
-    "message": "backend start failed",
-    "data": {
-        "manifest": os.environ.get("AOS_MANIFEST_PATH"),
-        "backend_port": os.environ.get("AOS_SERVER_PORT", "8080")
-    },
-    "timestamp": int(time.time() * 1000)
-}
-with open(log_path, "a") as f:
-    f.write(json.dumps(payload) + "\n")
-PY
+            append_debug_log \
+                "start_backend_animated:error" \
+                "backend start failed" \
+                "H1" \
+                "$(printf '{"manifest":"%s","backend_port":"%s"}' "${AOS_MANIFEST_PATH:-}" "${AOS_SERVER_PORT:-8080}")"
             #endregion agent log
             return 1
         fi
@@ -673,25 +662,11 @@ start_ui_animated() {
                     log_line INFO "ui:ready pid=$pid port=$AOS_UI_PORT"
                     if [ -n "$tail_pid" ]; then kill "$tail_pid" 2>/dev/null; fi
                     #region agent log
-                    UI_PID="$pid" python - <<'PY'
-import json, os, time
-log_path = "/Users/mln-dev/Dev/adapter-os/.cursor/debug.log"
-os.makedirs(os.path.dirname(log_path), exist_ok=True)
-payload = {
-    "sessionId": "debug-session",
-    "runId": os.environ.get("AOS_DEBUG_RUN_ID", "pre-fix"),
-    "hypothesisId": "H2",
-    "location": "start_ui_animated:ready",
-    "message": "ui ready",
-    "data": {
-        "pid": os.environ.get("UI_PID"),
-        "ui_port": os.environ.get("AOS_UI_PORT", "3200")
-    },
-    "timestamp": int(time.time() * 1000)
-}
-with open(log_path, "a") as f:
-    f.write(json.dumps(payload) + "\n")
-PY
+                    append_debug_log \
+                        "start_ui_animated:ready" \
+                        "ui ready" \
+                        "H2" \
+                        "$(printf '{"pid":"%s","ui_port":"%s"}' "$pid" "${AOS_UI_PORT:-3200}")"
                     #endregion agent log
                     return 0
                 fi
@@ -705,48 +680,21 @@ PY
             log_line WARN "ui:started_without_ready pid=${pid:-none} port=$AOS_UI_PORT"
             if [ -n "$tail_pid" ]; then kill "$tail_pid" 2>/dev/null; fi
             #region agent log
-            UI_PID="$pid" python - <<'PY'
-import json, os, time
-log_path = "/Users/mln-dev/Dev/adapter-os/.cursor/debug.log"
-os.makedirs(os.path.dirname(log_path), exist_ok=True)
-payload = {
-    "sessionId": "debug-session",
-    "runId": os.environ.get("AOS_DEBUG_RUN_ID", "pre-fix"),
-    "hypothesisId": "H2",
-    "location": "start_ui_animated:started",
-    "message": "ui started without readiness",
-    "data": {
-        "pid": os.environ.get("UI_PID"),
-        "ui_port": os.environ.get("AOS_UI_PORT", "3200")
-    },
-    "timestamp": int(time.time() * 1000)
-}
-with open(log_path, "a") as f:
-    f.write(json.dumps(payload) + "\n")
-PY
+            append_debug_log \
+                "start_ui_animated:started" \
+                "ui started without readiness" \
+                "H2" \
+                "$(printf '{"pid":"%s","ui_port":"%s"}' "$pid" "${AOS_UI_PORT:-3200}")"
             #endregion agent log
             return 0
         else
             update_step "error" "UI Server - failed to start"
             #region agent log
-            python - <<'PY'
-import json, os, time
-log_path = "/Users/mln-dev/Dev/adapter-os/.cursor/debug.log"
-os.makedirs(os.path.dirname(log_path), exist_ok=True)
-payload = {
-    "sessionId": "debug-session",
-    "runId": os.environ.get("AOS_DEBUG_RUN_ID", "pre-fix"),
-    "hypothesisId": "H2",
-    "location": "start_ui_animated:error",
-    "message": "ui start failed",
-    "data": {
-        "ui_port": os.environ.get("AOS_UI_PORT", "3200")
-    },
-    "timestamp": int(time.time() * 1000)
-}
-with open(log_path, "a") as f:
-    f.write(json.dumps(payload) + "\n")
-PY
+            append_debug_log \
+                "start_ui_animated:error" \
+                "ui start failed" \
+                "H2" \
+                "$(printf '{"ui_port":"%s"}' "${AOS_UI_PORT:-3200}")"
             #endregion agent log
             return 1
         fi
@@ -803,28 +751,11 @@ start_all() {
     ensure_var_dirs
 
     #region agent log
-    python - <<'PY'
-import json, os, time
-log_path = "/Users/mln-dev/Dev/adapter-os/.cursor/debug.log"
-os.makedirs(os.path.dirname(log_path), exist_ok=True)
-payload = {
-    "sessionId": "debug-session",
-    "runId": os.environ.get("AOS_DEBUG_RUN_ID", "pre-fix"),
-    "hypothesisId": "H4",
-    "location": "start_all:env",
-    "message": "start_all entry",
-    "data": {
-        "AOS_SERVER_PORT": os.environ.get("AOS_SERVER_PORT", "8080"),
-        "AOS_UI_PORT": os.environ.get("AOS_UI_PORT", "3200"),
-        "AOS_MANIFEST_PATH": os.environ.get("AOS_MANIFEST_PATH"),
-        "AOS_MODEL_BACKEND": os.environ.get("AOS_MODEL_BACKEND"),
-        "SKIP_WORKER": os.environ.get("SKIP_WORKER", "0")
-    },
-    "timestamp": int(time.time() * 1000)
-}
-with open(log_path, "a") as f:
-    f.write(json.dumps(payload) + "\n")
-PY
+    append_debug_log \
+        "start_all:env" \
+        "start_all entry" \
+        "H4" \
+        "$(printf '{"AOS_SERVER_PORT":"%s","AOS_UI_PORT":"%s","AOS_MANIFEST_PATH":"%s","AOS_MODEL_BACKEND":"%s","SKIP_WORKER":"%s"}' "${AOS_SERVER_PORT:-8080}" "${AOS_UI_PORT:-3200}" "${AOS_MANIFEST_PATH:-}" "${AOS_MODEL_BACKEND:-}" "${SKIP_WORKER:-0}")"
     #endregion agent log
 
     # Preflight with animation
@@ -920,28 +851,15 @@ PY
     fi
 
     #region agent log
-WORKER_OK_STATE="$worker_ok" python - <<'PY'
-import json, os, time
-var_dir = os.environ.get("AOS_VAR_DIR", "var")
-socket_path = os.path.join(os.getcwd(), var_dir, "run", "worker.sock")
-log_path = "/Users/mln-dev/Dev/adapter-os/.cursor/debug.log"
-os.makedirs(os.path.dirname(log_path), exist_ok=True)
-payload = {
-    "sessionId": "debug-session",
-    "runId": os.environ.get("AOS_DEBUG_RUN_ID", "pre-fix"),
-    "hypothesisId": "H3",
-    "location": "start_all:worker",
-    "message": "worker start result",
-    "data": {
-        "skip_worker": os.environ.get("SKIP_WORKER", "0"),
-        "worker_socket_exists": os.path.exists(socket_path),
-        "worker_ok": bool(int(os.environ.get("WORKER_OK_STATE", "0")))
-    },
-    "timestamp": int(time.time() * 1000)
-}
-with open(log_path, "a") as f:
-    f.write(json.dumps(payload) + "\n")
-PY
+    append_debug_log \
+        "start_all:worker" \
+        "worker start result" \
+        "H3" \
+        "$(printf '{"skip_worker":"%s","worker_socket_exists":%s,"worker_ok":%s}' \
+            "${SKIP_WORKER:-0}" \
+            "$( [ -S \"$AOS_VAR_DIR/run/worker.sock\" ] && echo true || echo false )" \
+            "$( [ "$worker_ok" -eq 1 ] && echo true || echo false )" \
+        )"
     #endregion agent log
 
     # Final readiness check (unless --quick was used)

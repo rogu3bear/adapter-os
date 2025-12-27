@@ -41,7 +41,7 @@ export type InferResponse = components['schemas']['InferResponse'] & {
 
 export type BatchInferRequest = components['schemas']['BatchInferRequest'];
 export type BatchInferResponse = components['schemas']['BatchInferResponse'];
-export type BackendKind = components['schemas']['BackendKind'];
+export type BackendKind = 'auto' | 'coreml' | 'mlx' | 'mlxbridge' | 'metal' | 'cpu';
 export type CoreMLMode = components['schemas']['CoreMLMode'];
 
 // Routing Types - From Generated
@@ -160,6 +160,8 @@ export interface RawRouterDecision {
   candidates?: unknown[]; // Some endpoints use candidates
   k_value?: number;
   router_latency_us?: number;
+  model_type?: 'dense' | 'moe';
+  active_experts?: number[];
 }
 
 // ============================================================================
@@ -290,6 +292,8 @@ export interface SystemMetrics {
   active_sessions?: number;
   tokens_per_second?: number;
   latency_p95_ms?: number;
+  node_count?: number;
+  worker_count?: number;
   // Additional training-related metrics
   current_epoch?: number;
   total_epochs?: number;
@@ -1368,6 +1372,13 @@ export interface TraceResponseV1 {
   policy_digest: string;
   backend_id: string;
   kernel_version_id: string;
+  model_type?: 'dense' | 'moe';
+  moe_info?: {
+    is_moe: boolean;
+    num_experts: number;
+    experts_per_token: number;
+  };
+  active_experts?: number[][];
   tokens: Array<{
     token_index: number;
     token_id?: string;
@@ -1377,6 +1388,8 @@ export interface TraceResponseV1 {
     policy_mask_digest: string;
     fusion_interval_id?: string;
     fused_weight_hash?: string;
+    active_experts?: number[];
+    model_type?: 'dense' | 'moe';
   }>;
 }
 
@@ -1712,7 +1725,8 @@ export interface InferenceSession {
 }
 
 // Inference configuration type
-export interface InferenceConfig extends InferRequest {
+export interface InferenceConfig extends Omit<InferRequest, 'backend'> {
+  backend?: BackendKind | null;
   id: string;
 }
 
@@ -1809,6 +1823,8 @@ export interface ExtendedRouterDecision {
     deny_list: boolean;
     trust_state: boolean;
   };
+  model_type?: 'dense' | 'moe';
+  active_experts?: number[];
 }
 
 // Audit log entry
@@ -1962,6 +1978,8 @@ export interface InferenceTrace {
     gates?: number[];
     stack_hash?: string;
     interval_id?: string;
+    model_type?: 'dense' | 'moe';
+    active_experts?: number[];
   }>;
   evidence_spans?: Array<{
     text: string;
@@ -1976,6 +1994,14 @@ export interface InferenceTrace {
     latency_ms: number;
     tokens: number;
   }>;
+  moe_info?: {
+    is_moe: boolean;
+    num_experts: number;
+    experts_per_token: number;
+  };
+  expert_routing?: number[][][];
+  active_experts?: number[][];
+  model_type?: 'dense' | 'moe';
 }
 
 // Prompt Orchestration types

@@ -20,7 +20,9 @@ use crate::middleware::request_id::RequestId;
 use crate::middleware::ApiKeyToken;
 use crate::permissions::Permission;
 use crate::state::AppState;
-use crate::types::{ErrorResponse, InferRequest, InferResponse, InferenceRequestInternal};
+use crate::types::{
+    ErrorResponse, InferRequest, InferResponse, InferenceError, InferenceRequestInternal,
+};
 use adapteros_api_types::FailureCode;
 use adapteros_core::identity::IdentityEnvelope;
 use adapteros_core::telemetry::{
@@ -29,7 +31,31 @@ use adapteros_core::telemetry::{
 use adapteros_core::DeterminismViolationKind;
 use adapteros_policy::hooks::PolicyHook;
 use axum::{extract::State, http::StatusCode, Extension, Json};
+use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
+
+struct DispatchCancelGuard {
+    token: CancellationToken,
+    armed: bool,
+}
+
+impl DispatchCancelGuard {
+    fn new(token: CancellationToken) -> Self {
+        Self { token, armed: true }
+    }
+
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for DispatchCancelGuard {
+    fn drop(&mut self) {
+        if self.armed {
+            self.token.cancel();
+        }
+    }
+}
 
 /// Inference endpoint
 #[utoipa::path(
@@ -61,10 +87,10 @@ pub async fn infer(
     crate::permissions::require_permission(&claims, Permission::InferenceExecute)?;
 
     // Validate request
-    if req.prompt.is_empty() {
+    if req.prompt.trim().is_empty() {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(ErrorResponse::new("prompt cannot be empty").with_code("INTERNAL_ERROR")),
+            Json(ErrorResponse::new("prompt cannot be empty").with_code("BAD_REQUEST")),
         ));
     }
 
@@ -210,10 +236,42 @@ pub async fn infer(
     }
 
     // Execute via InferenceCore - this is the single entry point for all inference
-    let core = InferenceCore::new(&state);
-    let result = match core.route_and_infer(internal, None).await {
+    let cancel_token = CancellationToken::new();
+    let mut cancel_guard = DispatchCancelGuard::new(cancel_token.clone());
+    let state_for_task = state.clone();
+    let inference_task = tokio::spawn(async move {
+        let core = InferenceCore::new(&state_for_task);
+        core.route_and_infer(internal, None, Some(cancel_token))
+            .await
+    });
+
+    let inference_result = match inference_task.await {
+        Ok(res) => res,
+        Err(e) => {
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("inference task join error")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            ));
+        }
+    };
+    cancel_guard.disarm();
+
+    let result = match inference_result {
         Ok(result) => result,
         Err(e) => {
+            if matches!(e, InferenceError::ClientClosed(_)) {
+                warn!(
+                    request_id = %request_id_str,
+                    tenant_id = %claims.tenant_id,
+                    "Inference cancelled due to client disconnect"
+                );
+                return Err(<(StatusCode, Json<ErrorResponse>)>::from(e));
+            }
+
             let failure_code = e.failure_code().map(|c| c.as_str().to_string());
             tracing::error!(
                 target: "inference",
@@ -245,8 +303,7 @@ pub async fn infer(
 
             if matches!(
                 e,
-                crate::types::InferenceError::WorkerError(_)
-                    | crate::types::InferenceError::RoutingBypass(_)
+                InferenceError::WorkerError(_) | InferenceError::RoutingBypass(_)
             ) {
                 let msg = e.to_string();
                 if msg.contains("DeterminismViolation") || msg.contains("strict") {

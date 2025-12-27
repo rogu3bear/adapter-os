@@ -4,6 +4,7 @@
 
 use adapteros_core::{Plugin, PluginConfig, PluginHealth, PluginStatus, Result};
 use adapteros_db::tenants::Tenant;
+use adapteros_db::ProtectedDb;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -14,7 +15,7 @@ use tracing::{error, warn};
 pub struct PluginRegistry {
     plugins: Arc<RwLock<HashMap<String, Arc<dyn Plugin + Send + Sync>>>>,
     tasks: Arc<RwLock<HashMap<String, JoinHandle<Result<()>>>>>,
-    db: adapteros_db::Db,
+    db: ProtectedDb,
 }
 
 impl std::fmt::Debug for PluginRegistry {
@@ -24,7 +25,7 @@ impl std::fmt::Debug for PluginRegistry {
 }
 
 impl PluginRegistry {
-    pub fn new(db: adapteros_db::Db) -> Self {
+    pub fn new(db: ProtectedDb) -> Self {
         Self {
             plugins: Arc::new(RwLock::new(HashMap::new())),
             tasks: Arc::new(RwLock::new(HashMap::new())),

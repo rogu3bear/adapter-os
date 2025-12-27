@@ -295,7 +295,6 @@ pub fn initialize_logging(
             let mut layer = tracing_fmt::layer()
                 .event_format(StructuredJsonFormatter::new(component))
                 .with_writer(non_blocking)
-                .with_target(false)
                 .with_ansi(false);
             layer.set_span_events(FmtSpan::CLOSE);
             layer.boxed()
@@ -319,7 +318,6 @@ pub fn initialize_logging(
     let console_layer = if use_json {
         let mut layer = tracing_fmt::layer()
             .event_format(StructuredJsonFormatter::new(component))
-            .with_target(false)
             .with_ansi(false);
         layer.set_span_events(FmtSpan::CLOSE);
         layer.boxed()

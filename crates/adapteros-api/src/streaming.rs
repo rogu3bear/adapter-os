@@ -291,6 +291,7 @@ async fn generate_streaming_response<
         prompt: request.prompt.clone(),
         max_tokens: request.max_tokens,
         require_evidence: false,
+        reasoning_mode: false,
         request_type: adapteros_lora_worker::RequestType::Normal,
         stack_id: request.stack_id.clone(),
         stack_version: request.stack_version,
@@ -315,6 +316,7 @@ async fn generate_streaming_response<
         placement: None,
         routing_policy: None,
         stop_policy: None,
+        admin_override: false,
     };
 
     debug!(
@@ -428,6 +430,7 @@ pub async fn completion_handler<K: FusedKernels + StrictnessControl + Send + Syn
         prompt: request.prompt.clone(),
         max_tokens: request.max_tokens,
         require_evidence: false,
+        reasoning_mode: false,
         request_type: adapteros_lora_worker::RequestType::Normal,
         stack_id: request.stack_id.clone(),
         stack_version: request.stack_version,
@@ -452,6 +455,7 @@ pub async fn completion_handler<K: FusedKernels + StrictnessControl + Send + Syn
         placement: None,
         routing_policy: None,
         stop_policy: None,
+        admin_override: false,
     };
 
     // Run inference

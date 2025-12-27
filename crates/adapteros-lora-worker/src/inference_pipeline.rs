@@ -15,21 +15,27 @@ use adapteros_core::{
 };
 use adapteros_lora_kernel_api::attestation::BackendType;
 use adapteros_lora_kernel_api::{FusedKernels, IoBuffers};
-use adapteros_lora_router::{policy_mask::PolicyMask, AdapterInfo, Router};
+use adapteros_lora_router::{policy_mask::PolicyMask, AdapterInfo, Router, ROUTER_GATE_Q15_MAX};
 use adapteros_policy::{PolicyEngine, QuarantineManager, QuarantineOperation};
 use adapteros_telemetry::events::{
     PerformanceBudgetViolationEvent, RouterCandidate, RouterDecisionEvent,
 };
 use adapteros_telemetry::TelemetryWriter;
+use smallvec::SmallVec;
 use std::collections::{HashSet, VecDeque};
 use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
+use tokio::task::yield_now;
 use tracing::{debug, info, warn};
 
 use crate::backend_factory::KernelBox;
 use crate::generation::Generator;
+use crate::reasoning_router::{
+    FastEmbedder, ReasoningRouterConfig, ReasoningScorer, StreamInspector, ThoughtTransition,
+};
+use crate::request_types::RequestType;
 use crate::router_bridge::decision_to_router_ring;
 use crate::routing_policy_filter::filter_decision_by_policy;
 use crate::stop_controller::StopController;
@@ -152,26 +158,8 @@ impl std::fmt::Display for BackendQuantization {
     }
 }
 
-/// Inference request
-#[derive(Debug, Clone)]
-pub struct InferenceRequest {
-    /// Input prompt
-    pub prompt: String,
-    /// Maximum tokens to generate
-    pub max_tokens: usize,
-    /// Control plane ID for tracing
-    pub cpid: String,
-    /// Whether to require evidence grounding
-    pub require_evidence: bool,
-    /// Stack ID for telemetry correlation (PRD-03)
-    pub stack_id: Option<String>,
-    /// Stack version for telemetry correlation (PRD-03)
-    pub stack_version: Option<i64>,
-    /// Optional routing policy resolved by control plane
-    pub routing_policy: Option<adapteros_api_types::RoutingPolicy>,
-    /// Stop policy specification (PRD: Hard Deterministic Stop Controller)
-    pub stop_policy: Option<adapteros_api_types::inference::StopPolicySpec>,
-}
+/// Inference request (re-export unified request type used across the worker).
+pub type InferenceRequest = crate::request_types::InferenceRequest;
 
 /// Inference response with trace
 #[derive(Debug, Clone)]
@@ -184,6 +172,10 @@ pub struct InferenceResponse {
     pub latency_ms: u64,
     /// Trace for reproducibility
     pub trace: InferenceTrace,
+    /// Optional per-token adapter coloring for Rainbow Cache tracing
+    pub rainbow_trace: Option<Vec<Option<String>>>,
+    /// Reasoning transitions observed during streaming
+    pub reasoning_transitions: Option<Vec<ThoughtTransition>>,
     /// Stack ID for telemetry correlation (PRD-03)
     pub stack_id: Option<String>,
     /// Stack version for telemetry correlation (PRD-03)
@@ -195,6 +187,15 @@ pub struct InferenceResponse {
     pub stop_reason_token_index: Option<u32>,
     /// BLAKE3 digest of the StopPolicySpec used
     pub stop_policy_digest_b3: Option<adapteros_core::B3Hash>,
+}
+
+/// Streaming token emitted by generate_stream with optional reasoning metadata.
+#[derive(Debug, Clone)]
+pub struct StreamToken {
+    pub token_id: u32,
+    pub token_text: String,
+    pub adapter_color: Option<String>,
+    pub transition: Option<ThoughtTransition>,
 }
 
 /// Trace information for reproducible inference
@@ -492,6 +493,528 @@ impl InferencePipeline {
         self.infer_inner(request, start_time).await
     }
 
+    /// Streaming inference with reasoning-aware adapter hot-swaps.
+    pub async fn generate_stream<F>(
+        &mut self,
+        request: InferenceRequest,
+        on_token: F,
+        reasoning_config: Option<ReasoningRouterConfig>,
+    ) -> Result<InferenceResponse>
+    where
+        F: FnMut(StreamToken) -> Result<()>,
+    {
+        let start_time = Instant::now();
+
+        {
+            let quarantine = self.quarantine_manager.lock().await;
+            quarantine.check_operation(QuarantineOperation::Inference)?;
+        }
+
+        if matches!(
+            self.circuit_breaker.state(),
+            adapteros_core::CircuitState::Open { .. }
+        ) {
+            return Err(AosError::Worker("Circuit breaker is open".to_string()));
+        }
+
+        self.generate_stream_inner(
+            request,
+            start_time,
+            on_token,
+            reasoning_config.unwrap_or_default(),
+        )
+        .await
+    }
+
+    async fn generate_stream_inner<F>(
+        &mut self,
+        request: InferenceRequest,
+        start_time: Instant,
+        mut on_token: F,
+        reasoning_config: ReasoningRouterConfig,
+    ) -> Result<InferenceResponse>
+    where
+        F: FnMut(StreamToken) -> Result<()>,
+    {
+        // 0. Enforce routing policy preconditions deterministically before work
+        if let Some(policy) = &request.routing_policy {
+            if policy.require_stack && request.stack_id.is_none() {
+                return Err(AosError::PolicyViolation(
+                    "Routing policy requires stack_id on request".to_string(),
+                ));
+            }
+
+            if let Some(allowed_stacks) = &policy.allowed_stack_ids {
+                let stack = request.stack_id.as_ref().ok_or_else(|| {
+                    AosError::PolicyViolation(
+                        "Routing policy requires stack_id for stack allowlist".to_string(),
+                    )
+                })?;
+                if !allowed_stacks.contains(stack) {
+                    return Err(AosError::PolicyViolation(format!(
+                        "Routing policy denied stack '{}'",
+                        stack
+                    )));
+                }
+            }
+
+            if policy.require_pins {
+                return Err(AosError::PolicyViolation(
+                    "Routing policy requires pinned adapters; none provided".to_string(),
+                ));
+            }
+        }
+
+        // 1. Apply chat template and tokenize
+        let formatted_prompt = self.tokenizer.apply_chat_template(&request.prompt);
+        let input_tokens = self.tokenizer.encode(&formatted_prompt)?;
+
+        debug!(
+            "Tokenized prompt: {} tokens (streaming)",
+            input_tokens.len()
+        );
+
+        // 2. Validate sequence length
+        if input_tokens.len() > self.config.max_seq_len {
+            return Err(AosError::Worker(format!(
+                "Input too long: {} tokens exceeds max {}",
+                input_tokens.len(),
+                self.config.max_seq_len
+            )));
+        }
+
+        // 3. Initialize generation state
+        let mut generated_tokens = Vec::new();
+        let mut router_decisions = Vec::new();
+        let mut current_tokens = input_tokens.clone();
+        let mut total_router_time_us = 0u64;
+
+        // 3.5 Initialize stop controller
+        let mut stop_controller = StopController::from_policy_or_default(
+            request.stop_policy.clone(),
+            request.max_tokens as u32,
+        );
+        let stop_policy_digest = *stop_controller.policy_digest();
+        let mut stop_reason_code = None;
+        let mut stop_reason_token_index = None;
+        let admin_override = request.admin_override;
+        let max_reasoning_depth = request
+            .routing_policy
+            .as_ref()
+            .and_then(|policy| policy.max_reasoning_depth)
+            .unwrap_or(usize::MAX);
+        let cluster_fallback = request
+            .routing_policy
+            .as_ref()
+            .map(|p| p.cluster_fallback.as_str())
+            .unwrap_or("stay_on_current");
+        let mut transition_count: usize = 0;
+        let mut previous_decision: Option<adapteros_lora_router::Decision> = None;
+        let admin_override = request.admin_override;
+        let max_reasoning_depth = request
+            .routing_policy
+            .as_ref()
+            .and_then(|policy| policy.max_reasoning_depth)
+            .unwrap_or(usize::MAX);
+        let cluster_fallback = request
+            .routing_policy
+            .as_ref()
+            .map(|p| p.cluster_fallback.as_str())
+            .unwrap_or("stay_on_current");
+        let mut transition_count: usize = 0;
+        let mut previous_decision: Option<adapteros_lora_router::Decision> = None;
+        let admin_override = request.admin_override;
+        let max_reasoning_depth = request
+            .routing_policy
+            .as_ref()
+            .and_then(|p| p.max_reasoning_depth)
+            .unwrap_or(usize::MAX);
+        let cluster_fallback = request
+            .routing_policy
+            .as_ref()
+            .map(|p| p.cluster_fallback.as_str())
+            .unwrap_or("stay_on_current");
+        let mut transition_count: usize = 0;
+        let mut previous_decision: Option<adapteros_lora_router::Decision> = None;
+
+        // Build adapter set once for streaming loop
+        let base_adapter_info: Vec<AdapterInfo> = (0..8)
+            .map(|i| AdapterInfo {
+                id: format!("adapter_{}", i),
+                framework: None,
+                languages: vec![0], // Default language
+                tier: "persistent".to_string(),
+                ..Default::default()
+            })
+            .collect();
+        let base_priors = vec![1.0; base_adapter_info.len()];
+        let (adapter_info, base_priors) = self.filter_adapters(&base_adapter_info, &base_priors)?;
+        let adapter_ids: Vec<String> = adapter_info.iter().map(|a| a.id.clone()).collect();
+        let adapter_clusters: Vec<Option<String>> = adapter_info
+            .iter()
+            .map(|a| derive_cluster_from_id(&a.id))
+            .collect();
+
+        let policy_digest_seed = request
+            .routing_policy
+            .as_ref()
+            .and_then(|policy| serde_json::to_vec(policy).ok())
+            .map(|bytes| B3Hash::hash(&bytes));
+        let policy_mask = PolicyMask::build(
+            &adapter_ids,
+            request
+                .routing_policy
+                .as_ref()
+                .and_then(|p| p.allowed_adapter_ids.as_deref()),
+            request
+                .routing_policy
+                .as_ref()
+                .and_then(|p| p.denied_adapter_ids.as_deref()),
+            None,
+            None,
+            policy_digest_seed,
+        );
+
+        // Reasoning router setup
+        let embedder = FastEmbedder::default_quantized();
+        let scorer = ReasoningScorer::from_adapter_ids(&adapter_ids, &embedder);
+        let initial_cluster = adapter_ids
+            .first()
+            .cloned()
+            .unwrap_or_else(|| "default".to_string());
+        let mut inspector =
+            StreamInspector::new(initial_cluster, scorer, embedder, reasoning_config);
+        let mut adapter_bias: Option<String> = None;
+        let mut rainbow_trace: Vec<Option<String>> = Vec::new();
+        let mut reasoning_transitions: Vec<ThoughtTransition> = Vec::new();
+
+        info!(
+            "Starting streaming inference: prompt_len={}, max_tokens={}",
+            request.prompt.len(),
+            request.max_tokens
+        );
+
+        // 4. Autoregressive generation loop
+        for step in 0..request.max_tokens {
+            let input_ids = if step == 0 {
+                &current_tokens[..]
+            } else {
+                let last_token = generated_tokens.last().ok_or_else(|| {
+                    AosError::Worker("Generated tokens cannot be empty".to_string())
+                })?;
+                std::slice::from_ref(last_token)
+            };
+            let input_token_id = input_ids.last().copied();
+
+            // 5. Router decision
+            let features = self.create_feature_vector(&current_tokens);
+            let mut priors = base_priors.clone();
+            if let Some(ref target) = adapter_bias {
+                for (idx, info) in adapter_info.iter().enumerate() {
+                    if info.id == *target {
+                        priors[idx] = (priors[idx] * 1.5).max(1.0);
+                    } else {
+                        priors[idx] *= 0.95;
+                    }
+                }
+            }
+
+            let router_start = Instant::now();
+            let decision = self.router.route_with_adapter_info(
+                &features,
+                &priors,
+                &adapter_info,
+                &policy_mask,
+            )?;
+
+            let mut decision = match enforce_routing_policy_on_decision(
+                decision,
+                &adapter_info,
+                &adapter_clusters,
+                request.routing_policy.as_ref(),
+            ) {
+                Ok(decision) => decision,
+                Err(err) => {
+                    if admin_override {
+                        // Admin override: allow by sticking with previous or first adapter
+                        self.log_blocked_transition(
+                            &request,
+                            step,
+                            "cluster_denied_admin_override",
+                            cluster_fallback,
+                        );
+                        fallback_decision(
+                            previous_decision.as_ref(),
+                            adapter_info.len(),
+                            cluster_fallback,
+                        )
+                    } else if request.routing_policy.is_some() {
+                        self.log_blocked_transition(
+                            &request,
+                            step,
+                            "cluster_denied",
+                            cluster_fallback,
+                        );
+                        fallback_decision(
+                            previous_decision.as_ref(),
+                            adapter_info.len(),
+                            cluster_fallback,
+                        )
+                    } else {
+                        return Err(err);
+                    }
+                }
+            };
+
+            if let Some(prev) = &previous_decision {
+                if prev.indices.as_slice() != decision.indices.as_slice() {
+                    transition_count = transition_count.saturating_add(1);
+                }
+            }
+
+            if !admin_override && transition_count > max_reasoning_depth {
+                self.log_blocked_transition(
+                    &request,
+                    step,
+                    "max_reasoning_depth",
+                    cluster_fallback,
+                );
+                decision = fallback_decision(
+                    previous_decision.as_ref(),
+                    adapter_info.len(),
+                    cluster_fallback,
+                );
+                transition_count = max_reasoning_depth;
+            }
+
+            previous_decision = Some(decision.clone());
+            let router_latency = router_start.elapsed();
+            total_router_time_us += router_latency.as_micros() as u64;
+
+            let router_event = RouterDecisionEvent {
+                step,
+                input_token_id,
+                candidate_adapters: decision
+                    .candidates
+                    .iter()
+                    .map(|c| RouterCandidate {
+                        adapter_idx: c.adapter_idx,
+                        raw_score: c.raw_score,
+                        gate_q15: c.gate_q15,
+                    })
+                    .collect(),
+                entropy: decision.entropy,
+                tau: self.router.tau(),
+                entropy_floor: self.router.eps(),
+                stack_hash: self.router.stack_hash(),
+                stack_id: request.stack_id.clone(),
+                stack_version: request.stack_version,
+                model_type: adapteros_types::routing::RouterModelType::Dense,
+                active_experts: None,
+            };
+            let _ = self.telemetry.log_router_decision(router_event);
+
+            let _entropy = self.calculate_gate_entropy(&decision.gates_q15);
+
+            // 7. Execute kernel inference
+            let mut io_buffers = IoBuffers {
+                input_ids: input_ids.to_vec(),
+                output_logits: vec![0.0; self.config.vocab_size],
+                position: current_tokens.len() - 1,
+            };
+            let mut router_ring = decision_to_router_ring(&decision, self.max_adapter_count)?;
+            router_ring.position = step;
+
+            let kernel_start = Instant::now();
+            self.kernels.run_step(&router_ring, &mut io_buffers)?;
+            let kernel_latency = kernel_start.elapsed();
+
+            self.budget_tracker
+                .record_latency(kernel_latency.as_micros() as u64);
+            if let Some(p95_ms) = self.budget_tracker.p95_latency_ms() {
+                if p95_ms > 24.0 {
+                    let violation = PerformanceBudgetViolationEvent::p95_latency(p95_ms, None);
+                    if let Err(e) = self.telemetry.log_budget_violation(violation) {
+                        warn!(error = %e, p95_ms = p95_ms, "Failed to log P95 latency violation");
+                    }
+                }
+            }
+
+            // 8. Sample next token
+            let next_token = self.generator.next_token(&io_buffers.output_logits)?;
+
+            // 9. Record telemetry (sampled)
+            if step < 128 || (step % 20 == 0) {
+                let _ = self.telemetry.log(
+                    "inference.step",
+                    serde_json::json!({
+                        "cpid": request.cpid,
+                        "step": step,
+                        "token": next_token,
+                        "kernel_latency_us": kernel_latency.as_micros(),
+                        "adapters": decision.indices.to_vec(),
+                    }),
+                );
+            }
+
+            // 10. Record canonical router decision
+            let candidate_adapters: Vec<RouterCandidate> = decision
+                .candidates
+                .iter()
+                .map(|candidate| RouterCandidate {
+                    adapter_idx: candidate.adapter_idx,
+                    raw_score: candidate.raw_score,
+                    gate_q15: candidate.gate_q15,
+                })
+                .collect();
+
+            let event = RouterDecisionEvent {
+                step,
+                input_token_id,
+                candidate_adapters,
+                entropy: decision.entropy,
+                tau: self.router.temperature(),
+                entropy_floor: self.router.entropy_floor(),
+                stack_hash: self.router.stack_hash(),
+                stack_id: request.stack_id.clone(),
+                stack_version: request.stack_version,
+                model_type: adapteros_types::routing::RouterModelType::Dense,
+                active_experts: None,
+            };
+
+            if let Err(err) = self.telemetry.log_router_decision(event.clone()) {
+                warn!("Failed to log router decision: {}", err);
+            }
+
+            router_decisions.push(event);
+
+            // 11. Check stopping criteria
+            if let Some(decision) = stop_controller.check_stop(
+                next_token,
+                self.tokenizer.eos_token_id(),
+                &io_buffers.output_logits,
+            ) {
+                stop_reason_code = Some(decision.reason);
+                stop_reason_token_index = Some(decision.token_index);
+                debug!(
+                    step,
+                    reason = %decision.reason,
+                    token_index = decision.token_index,
+                    "Stop controller triggered"
+                );
+                break;
+            }
+
+            // 12. Append token and continue
+            generated_tokens.push(next_token);
+            current_tokens.push(next_token);
+
+            let token_text = self.tokenizer.decode(std::slice::from_ref(&next_token))?;
+            let transition = inspector.on_token(&token_text, step);
+            if let Some(ref decision) = transition {
+                reasoning_transitions.push(decision.transition.clone());
+                if !decision.shadow_mode {
+                    info!(
+                        from = %decision.transition.from,
+                        to = %decision.transition.to,
+                        confidence = decision.transition.confidence,
+                        "HotSwap interrupt triggered by reasoning router"
+                    );
+                    adapter_bias = Some(decision.transition.to.clone());
+                } else {
+                    debug!(
+                        from = %decision.transition.from,
+                        to = %decision.transition.to,
+                        "Shadow mode enabled: logging transition without swap"
+                    );
+                }
+            }
+            let adapter_color = adapter_bias.clone();
+            rainbow_trace.push(adapter_color.clone());
+            let transition_for_callback = transition.as_ref().map(|d| d.transition.clone());
+            on_token(StreamToken {
+                token_id: next_token,
+                token_text: token_text.clone(),
+                adapter_color,
+                transition: transition_for_callback,
+            })?;
+            if let Some(decision) = transition {
+                if !decision.shadow_mode {
+                    yield_now().await;
+                }
+            }
+
+            // Check max sequence length (fallback for very long sequences)
+            if current_tokens.len() >= self.config.max_seq_len {
+                warn!("Reached maximum sequence length");
+                stop_reason_code = Some(adapteros_api_types::inference::StopReasonCode::BudgetMax);
+                stop_reason_token_index = Some(step as u32);
+                break;
+            }
+        }
+
+        // 13. Decode generated text
+        let generated_text = self.tokenizer.decode(&generated_tokens)?;
+
+        // 14. Build trace for reproducibility
+        let trace = InferenceTrace {
+            cpid: request.cpid.clone(),
+            input_tokens: input_tokens.clone(),
+            generated_tokens: generated_tokens.clone(),
+            router_decisions,
+            evidence: vec![],
+        };
+
+        let latency = start_time.elapsed();
+
+        // Check router overhead budget (8% threshold)
+        let total_inference_us = latency.as_micros() as u64;
+        self.budget_tracker
+            .record_router_timing(total_router_time_us, total_inference_us);
+        if let Some(overhead_pct) = self.budget_tracker.router_overhead_pct() {
+            if overhead_pct > 8.0 {
+                let violation = PerformanceBudgetViolationEvent::router_overhead(overhead_pct);
+                if let Err(e) = self.telemetry.log_budget_violation(violation) {
+                    warn!(error = %e, overhead_pct = overhead_pct, "Failed to log router overhead violation");
+                }
+            }
+        }
+
+        let _ = self.telemetry.log(
+            "inference.complete",
+            serde_json::json!({
+                "cpid": request.cpid,
+                "input_tokens": input_tokens.len(),
+                "generated_tokens": generated_tokens.len(),
+                "latency_ms": latency.as_millis(),
+            }),
+        );
+
+        info!(
+            "Streaming inference complete: generated {} tokens in {}ms",
+            generated_tokens.len(),
+            latency.as_millis()
+        );
+
+        Ok(InferenceResponse {
+            text: generated_text,
+            token_count: generated_tokens.len(),
+            latency_ms: latency.as_millis() as u64,
+            trace,
+            rainbow_trace: Some(rainbow_trace),
+            reasoning_transitions: if reasoning_transitions.is_empty() {
+                None
+            } else {
+                Some(reasoning_transitions)
+            },
+            stack_id: request.stack_id.clone(),
+            stack_version: request.stack_version,
+            stop_reason_code,
+            stop_reason_token_index,
+            stop_policy_digest_b3: Some(stop_policy_digest),
+        })
+    }
+
     /// Internal inference implementation without circuit breaker
     async fn infer_inner(
         &mut self,
@@ -556,6 +1079,19 @@ impl InferencePipeline {
         let stop_policy_digest = *stop_controller.policy_digest();
         let mut stop_reason_code = None;
         let mut stop_reason_token_index = None;
+        let admin_override = request.admin_override;
+        let max_reasoning_depth = request
+            .routing_policy
+            .as_ref()
+            .and_then(|policy| policy.max_reasoning_depth)
+            .unwrap_or(usize::MAX);
+        let cluster_fallback = request
+            .routing_policy
+            .as_ref()
+            .map(|p| p.cluster_fallback.as_str())
+            .unwrap_or("stay_on_current");
+        let mut transition_count: usize = 0;
+        let mut previous_decision: Option<adapteros_lora_router::Decision> = None;
 
         // 4. Autoregressive generation loop
         for step in 0..request.max_tokens {
@@ -588,6 +1124,10 @@ impl InferencePipeline {
                 .collect();
 
             let (adapter_info, priors) = self.filter_adapters(&adapter_info, &priors)?;
+            let adapter_clusters: Vec<Option<String>> = adapter_info
+                .iter()
+                .map(|a| derive_cluster_from_id(&a.id))
+                .collect();
 
             let adapter_ids: Vec<String> = adapter_info.iter().map(|a| a.id.clone()).collect();
             let policy_digest_seed = request
@@ -619,11 +1159,66 @@ impl InferencePipeline {
             )?;
 
             // Enforce resolved routing policy deterministically before kernels run
-            let decision = enforce_routing_policy_on_decision(
+            let mut decision = match enforce_routing_policy_on_decision(
                 decision,
                 &adapter_info,
+                &adapter_clusters,
                 request.routing_policy.as_ref(),
-            )?;
+            ) {
+                Ok(decision) => decision,
+                Err(err) => {
+                    if admin_override {
+                        self.log_blocked_transition(
+                            &request,
+                            step,
+                            "cluster_denied_admin_override",
+                            cluster_fallback,
+                        );
+                        fallback_decision(
+                            previous_decision.as_ref(),
+                            adapter_info.len(),
+                            cluster_fallback,
+                        )
+                    } else if request.routing_policy.is_some() {
+                        self.log_blocked_transition(
+                            &request,
+                            step,
+                            "cluster_denied",
+                            cluster_fallback,
+                        );
+                        fallback_decision(
+                            previous_decision.as_ref(),
+                            adapter_info.len(),
+                            cluster_fallback,
+                        )
+                    } else {
+                        return Err(err);
+                    }
+                }
+            };
+
+            if let Some(prev) = &previous_decision {
+                if prev.indices.as_slice() != decision.indices.as_slice() {
+                    transition_count = transition_count.saturating_add(1);
+                }
+            }
+
+            if !admin_override && transition_count > max_reasoning_depth {
+                self.log_blocked_transition(
+                    &request,
+                    step,
+                    "max_reasoning_depth",
+                    cluster_fallback,
+                );
+                decision = fallback_decision(
+                    previous_decision.as_ref(),
+                    adapter_info.len(),
+                    cluster_fallback,
+                );
+                transition_count = max_reasoning_depth;
+            }
+
+            previous_decision = Some(decision.clone());
             let router_latency = router_start.elapsed();
             total_router_time_us += router_latency.as_micros() as u64;
 
@@ -646,6 +1241,8 @@ impl InferencePipeline {
                 stack_hash: self.router.stack_hash(),
                 stack_id: request.stack_id.clone(),
                 stack_version: request.stack_version,
+                model_type: adapteros_types::routing::RouterModelType::Dense,
+                active_experts: None,
             };
             let _ = self.telemetry.log_router_decision(router_event);
 
@@ -726,6 +1323,8 @@ impl InferencePipeline {
                 stack_hash: self.router.stack_hash(),
                 stack_id: request.stack_id.clone(),
                 stack_version: request.stack_version,
+                model_type: adapteros_types::routing::RouterModelType::Dense,
+                active_experts: None,
             };
 
             if let Err(err) = self.telemetry.log_router_decision(event.clone()) {
@@ -815,6 +1414,8 @@ impl InferencePipeline {
             token_count: generated_tokens.len(),
             latency_ms: latency.as_millis() as u64,
             trace,
+            rainbow_trace: None,
+            reasoning_transitions: None,
             stack_id: request.stack_id.clone(),
             stack_version: request.stack_version,
             stop_reason_code,
@@ -894,6 +1495,32 @@ impl InferencePipeline {
         }
     }
 
+    fn log_blocked_transition(
+        &self,
+        request: &InferenceRequest,
+        step: usize,
+        reason: &str,
+        fallback: &str,
+    ) {
+        let _ = self.telemetry.log(
+            "policy.blocked_transition",
+            serde_json::json!({
+                "cpid": request.cpid,
+                "step": step,
+                "reason": reason,
+                "fallback": fallback,
+                "admin_override": request.admin_override,
+                "routing_policy": request.routing_policy.as_ref().map(|p| {
+                    serde_json::json!({
+                        "allowed_clusters": p.allowed_clusters,
+                        "denied_clusters": p.denied_clusters,
+                        "max_reasoning_depth": p.max_reasoning_depth,
+                    })
+                }),
+            }),
+        );
+    }
+
     /// Batch inference for multiple prompts
     pub async fn infer_batch(
         &mut self,
@@ -913,6 +1540,13 @@ impl InferencePipeline {
     pub fn config(&self) -> &InferencePipelineConfig {
         &self.config
     }
+}
+
+fn derive_cluster_from_id(id: &str) -> Option<String> {
+    id.split(|c| c == '-' || c == '_' || c == '.')
+        .next()
+        .map(|s| s.to_string())
+        .filter(|s| !s.is_empty())
 }
 
 fn apply_allowlist(
@@ -953,10 +1587,52 @@ fn apply_allowlist(
 fn enforce_routing_policy_on_decision(
     decision: adapteros_lora_router::Decision,
     adapter_info: &[AdapterInfo],
+    adapter_clusters: &[Option<String>],
     policy: Option<&adapteros_api_types::RoutingPolicy>,
 ) -> Result<adapteros_lora_router::Decision> {
     let adapter_ids: Vec<String> = adapter_info.iter().map(|a| a.id.clone()).collect();
-    filter_decision_by_policy(decision, &adapter_ids, policy)
+    filter_decision_by_policy(decision, &adapter_ids, adapter_clusters, policy)
+}
+
+fn fallback_decision(
+    previous: Option<&adapteros_lora_router::Decision>,
+    adapter_count: usize,
+    mode: &str,
+) -> adapteros_lora_router::Decision {
+    if adapter_count == 0 {
+        return adapteros_lora_router::Decision {
+            indices: SmallVec::new(),
+            gates_q15: SmallVec::new(),
+            entropy: 0.0,
+            candidates: Vec::new(),
+            decision_hash: None,
+            policy_mask_digest: None,
+            policy_overrides_applied: None,
+        };
+    }
+
+    match mode {
+        "fallback_to_base" => adapteros_lora_router::Decision {
+            indices: SmallVec::from_slice(&[0u16]),
+            gates_q15: SmallVec::from_slice(&[ROUTER_GATE_Q15_MAX]),
+            entropy: 0.0,
+            candidates: Vec::new(),
+            decision_hash: None,
+            policy_mask_digest: None,
+            policy_overrides_applied: None,
+        },
+        _ => previous
+            .cloned()
+            .unwrap_or_else(|| adapteros_lora_router::Decision {
+                indices: SmallVec::from_slice(&[0u16]),
+                gates_q15: SmallVec::from_slice(&[ROUTER_GATE_Q15_MAX]),
+                entropy: 0.0,
+                candidates: Vec::new(),
+                decision_hash: None,
+                policy_mask_digest: None,
+                policy_overrides_applied: None,
+            }),
+    }
 }
 
 #[cfg(test)]
@@ -1008,12 +1684,34 @@ mod tests {
         let request = InferenceRequest {
             prompt: "What is 2+2?".to_string(),
             max_tokens: 100,
+            request_type: RequestType::default(),
+            reasoning_mode: false,
             cpid: "test-cp-001".to_string(),
             require_evidence: false,
             stack_id: None,
             stack_version: None,
+            domain_hint: None,
+            temperature: None,
+            top_k: None,
+            top_p: None,
+            seed: None,
+            router_seed: None,
+            seed_mode: None,
+            request_seed: None,
+            determinism: None,
+            fusion_interval: None,
+            backend_profile: None,
+            coreml_mode: None,
+            pinned_adapter_ids: None,
+            determinism_mode: "strict".to_string(),
+            routing_determinism_mode: None,
+            strict_mode: false,
+            adapter_strength_overrides: None,
+            effective_adapter_ids: None,
+            placement: None,
             routing_policy: None,
             stop_policy: None,
+            admin_override: false,
         };
         assert_eq!(request.max_tokens, 100);
     }

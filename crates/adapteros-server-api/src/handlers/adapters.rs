@@ -1484,7 +1484,7 @@ pub async fn swap_adapters(
                 tracing::warn!(adapter_id = %req.old_adapter_id, error = %e, "Failed to evict old adapter via lifecycle manager");
                 // Fallback: update DB state directly
                 state
-                    .db
+                    .lifecycle_db()
                     .update_adapter_state_tx_for_tenant(
                         &claims.tenant_id,
                         &req.old_adapter_id,
@@ -1512,7 +1512,7 @@ pub async fn swap_adapters(
         } else {
             // Adapter not found in lifecycle manager, update DB directly
             state
-                .db
+                .lifecycle_db()
                 .update_adapter_state_tx_for_tenant(
                     &claims.tenant_id,
                     &req.old_adapter_id,
@@ -1561,7 +1561,7 @@ pub async fn swap_adapters(
                 tracing::warn!(adapter_id = %req.new_adapter_id, error = %e, "Failed to update new adapter state via lifecycle manager");
                 // Fallback: update DB state directly
                 state
-                    .db
+                    .lifecycle_db()
                     .update_adapter_state_tx_for_tenant(
                         &claims.tenant_id,
                         &req.new_adapter_id,
@@ -1598,7 +1598,7 @@ pub async fn swap_adapters(
     } else {
         // Fallback: direct DB updates if no lifecycle manager
         state
-            .db
+            .lifecycle_db()
             .update_adapter_state_tx_for_tenant(
                 &claims.tenant_id,
                 &req.old_adapter_id,
@@ -1624,7 +1624,7 @@ pub async fn swap_adapters(
             })?;
 
         state
-            .db
+            .lifecycle_db()
             .update_adapter_state_tx_for_tenant(
                 &claims.tenant_id,
                 &req.new_adapter_id,
@@ -1767,7 +1767,7 @@ pub async fn get_adapter_stats(
     // Get stats from database
     let (total_activations, selected_count, avg_gate_value) = state
         .db
-        .get_adapter_stats(&adapter_id)
+        .get_adapter_stats(&claims.tenant_id, &adapter_id)
         .await
         .unwrap_or((0, 0, 0.0));
 

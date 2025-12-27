@@ -69,8 +69,8 @@
 use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_lora_kernel_api::{
     attestation::{BackendType, DeterminismReport, FloatingPointMode, RngSeedingMethod},
-    FusedKernels, IoBuffers, RouterRing, TextGenerationKernel, TextGenerationResult,
-    TextGenerationTiming, TextGenerationUsage,
+    FusedKernels, IoBuffers, MoEInfo, RouterRing, SequenceExpertRouting, TextGenerationKernel,
+    TextGenerationResult, TextGenerationTiming, TextGenerationUsage, TextToken,
 };
 use serde::{Deserialize, Serialize};
 use std::io::{BufRead, BufReader, Write};
@@ -81,7 +81,7 @@ use std::time::{Duration, Instant};
 use tracing::{debug, error, info, warn};
 
 use crate::moe_prefix_cache::ExpertHeatMap;
-use crate::moe_types::{ExpertId, ExpertRouting, LayerIdx, SequenceExpertRouting};
+use crate::moe_types::{ExpertId, ExpertRouting, LayerIdx};
 
 // =============================================================================
 // Routing Hash Chain - Deterministic expert routing attestation
@@ -288,9 +288,13 @@ pub struct GenerationResult {
     /// Reason for stopping (e.g., "stop", "length")
     pub finish_reason: String,
     /// Usage statistics
-    pub usage: Option<UsageStats>,
+    pub usage: Option<TextGenerationUsage>,
     /// Timing statistics
-    pub timing: Option<TimingStats>,
+    pub timing: Option<TextGenerationTiming>,
+    /// Protocol v3: MoE info
+    pub moe_info: Option<MoEInfo>,
+    /// Protocol v3: expert routing
+    pub expert_routing: Option<SequenceExpertRouting>,
 }
 
 /// Request types sent to bridge server
@@ -319,38 +323,11 @@ enum BridgeRequest {
     Shutdown,
 }
 
-/// Usage statistics from generation
-#[derive(Debug, Clone, Deserialize, Default)]
-pub struct UsageStats {
-    #[serde(default)]
-    pub prompt_tokens: usize,
-    #[serde(default)]
-    pub completion_tokens: usize,
-    #[serde(default)]
-    pub total_tokens: usize,
-}
+/// A streamed token from generation (internal alias)
+pub type StreamingToken = TextToken;
 
-/// Timing statistics from generation
-#[derive(Debug, Clone, Deserialize, Default)]
-pub struct TimingStats {
-    #[serde(default)]
-    pub ttft_ms: f64,
-    #[serde(default)]
-    pub total_ms: f64,
-    #[serde(default)]
-    pub tokens_per_second: f64,
-}
-
-/// MoE model information from bridge
-#[derive(Debug, Clone, Deserialize, Default)]
-pub struct MoEInfo {
-    #[serde(default)]
-    pub is_moe: bool,
-    #[serde(default)]
-    pub num_experts: usize,
-    #[serde(default)]
-    pub experts_per_token: usize,
-}
+/// Result of a completed streaming generation (internal alias)
+pub type StreamingResult = TextGenerationResult;
 
 /// Response types received from bridge server
 #[derive(Debug, Clone, Deserialize)]
@@ -375,13 +352,20 @@ enum BridgeResponse {
         text: String,
         tokens: usize,
         finish_reason: String,
+        #[serde(default, rename = "usage")]
+        usage_stats: Option<TextGenerationUsage>,
+        #[serde(default, rename = "timing")]
+        timing_stats: Option<TextGenerationTiming>,
+        /// Protocol v3: MoE info
         #[serde(default)]
-        usage: Option<UsageStats>,
+        moe_info: Option<MoEInfo>,
+        /// Protocol v3: Expert routing data for the generated sequence
         #[serde(default)]
-        timing: Option<TimingStats>,
+        expert_routing: Option<SequenceExpertRouting>,
     },
     StreamToken {
-        token: String,
+        #[serde(rename = "token")]
+        text: String,
         index: usize,
         #[serde(default)]
         token_id: Option<usize>,
@@ -391,14 +375,15 @@ enum BridgeResponse {
         expert_routing: Option<ExpertRouting>,
     },
     StreamEnd {
-        tokens: usize,
+        #[serde(rename = "tokens")]
+        tokens_generated: usize,
         finish_reason: String,
         #[serde(default)]
         text: String,
-        #[serde(default)]
-        usage: Option<UsageStats>,
-        #[serde(default)]
-        timing: Option<TimingStats>,
+        #[serde(default, rename = "usage")]
+        usage_stats: Option<TextGenerationUsage>,
+        #[serde(default, rename = "timing")]
+        timing_stats: Option<TextGenerationTiming>,
         /// Protocol v3: MoE info
         #[serde(default)]
         moe_info: Option<MoEInfo>,
@@ -419,47 +404,6 @@ enum BridgeResponse {
         error: String,
         error_type: String,
     },
-}
-
-/// A streamed token from generation
-#[derive(Debug, Clone)]
-pub struct StreamingToken {
-    /// The token text
-    pub token: String,
-    /// Token index in the sequence
-    pub index: usize,
-    /// Optional token ID from the vocabulary
-    pub token_id: Option<usize>,
-    /// Expert routing for this token (MoE models, protocol v3)
-    pub expert_routing: Option<ExpertRouting>,
-    /// Whether this is a "free token" (pre-computed, not model-generated)
-    pub is_free: bool,
-}
-
-/// Result of a completed streaming generation
-#[derive(Debug, Clone)]
-pub struct StreamingResult {
-    /// Full generated text
-    pub text: String,
-    /// Number of tokens generated
-    pub token_count: usize,
-    /// Finish reason (e.g., "stop", "length")
-    pub finish_reason: String,
-    /// Usage statistics
-    pub usage: Option<UsageStats>,
-    /// Timing statistics
-    pub timing: Option<TimingStats>,
-    /// MoE model info (protocol v3)
-    pub moe_info: Option<MoEInfo>,
-    /// Expert routing data per token (protocol v3)
-    pub expert_routing: Option<SequenceExpertRouting>,
-    /// Number of free tokens delivered at start
-    pub free_tokens_delivered: usize,
-    /// Routing hash chain head (BLAKE3, protocol v3)
-    /// This provides a deterministic attestation of the expert routing sequence
-    pub routing_hash: Option<B3Hash>,
-    /// Routing chain summary for debugging/metrics
-    pub routing_summary: Option<RoutingChainSummary>,
 }
 
 /// Events emitted by StreamingIterator
@@ -1173,16 +1117,20 @@ impl MLXSubprocessBridge {
                 text,
                 tokens,
                 finish_reason,
-                usage,
-                timing,
+                usage_stats,
+                timing_stats,
+                moe_info,
+                expert_routing,
             } => {
                 debug!(tokens = tokens, finish_reason = %finish_reason, "Generation completed");
                 Ok(GenerationResult {
                     text,
                     token_count: tokens,
                     finish_reason,
-                    usage,
-                    timing,
+                    usage: usage_stats,
+                    timing: timing_stats,
+                    moe_info,
+                    expert_routing,
                 })
             }
             BridgeResponse::Error { error, error_type } => Err(AosError::Kernel(format!(
@@ -1589,6 +1537,19 @@ impl FusedKernels for MLXSubprocessBridge {
         // Use the existing generate_text method
         let result = self.generate_text(prompt, max_tokens, temperature, top_p, &[])?;
 
+        // Compute routing hash if routing data is available
+        let routing_hash = result.expert_routing.as_ref().map(|routing| {
+            let mut hasher = blake3::Hasher::new();
+            hasher.update(b"aos.routing.v1");
+            for token_routing in routing {
+                for (layer, expert) in token_routing {
+                    hasher.update(&layer.to_le_bytes());
+                    hasher.update(&expert.to_le_bytes());
+                }
+            }
+            B3Hash::from(hasher.finalize())
+        });
+
         // Convert to TextGenerationResult
         Ok(TextGenerationResult {
             text: result.text,
@@ -1604,7 +1565,27 @@ impl FusedKernels for MLXSubprocessBridge {
                 total_ms: t.total_ms,
                 tokens_per_second: t.tokens_per_second,
             }),
+            moe_info: result.moe_info,
+            expert_routing: result.expert_routing,
+            free_tokens_delivered: 0,
+            routing_hash,
         })
+    }
+
+    fn prewarm_experts(&self, experts: Vec<(usize, u8)>) -> Result<usize> {
+        self.prewarm_experts(experts)
+    }
+
+    fn is_moe(&self) -> bool {
+        *self.is_moe.lock().unwrap()
+    }
+
+    fn num_experts(&self) -> usize {
+        *self.num_experts.lock().unwrap()
+    }
+
+    fn experts_per_token(&self) -> usize {
+        *self.experts_per_token.lock().unwrap()
     }
 }
 

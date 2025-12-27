@@ -1,6 +1,8 @@
 //! Adapter hot-swap command
 
+use crate::output::OutputWriter;
 use adapteros_core::B3Hash;
+use adapteros_lora_worker::adapter_hotswap::MemoryState;
 use adapteros_lora_worker::{AdapterCommand, AdapterCommandResult};
 use anyhow::{Context, Result};
 use std::path::Path;
@@ -14,23 +16,26 @@ pub async fn run(
     timeout_ms: u64,
     commit: bool,
     socket: &Path,
+    output: &OutputWriter,
 ) -> Result<()> {
-    println!("🔄 Adapter Hot-Swap");
-    println!("   Tenant: {}", tenant);
-    println!("   Add: {:?}", add);
-    println!("   Remove: {:?}", remove);
-    println!("   Timeout: {}ms", timeout_ms);
-    println!();
+    output.result("🔄 Adapter Hot-Swap");
+    output.kv("Tenant", tenant);
+    output.kv("Add", &format!("{:?}", add));
+    output.kv("Remove", &format!("{:?}", remove));
+    output.kv("Timeout", &format!("{}ms", timeout_ms));
+    output.blank();
+
+    let mut swap_result: Option<AdapterCommandResult> = None;
 
     // Create HTTP client for UDS connection
-    let client = create_uds_client(socket)?;
+    let client = create_uds_client(socket, timeout_ms)?;
 
     // Phase 1: Preload adapters
-    println!("Phase 1: Preload");
+    output.progress("Phase 1: Preload");
     let mut preload_results = Vec::new();
 
     for adapter_id in add {
-        print!("  Preloading {}... ", adapter_id);
+        output.progress(format!("  Preloading {}...", adapter_id));
 
         // Mock hash for now - in production this would come from registry
         let hash = B3Hash::hash(adapter_id.as_bytes());
@@ -43,24 +48,26 @@ pub async fn run(
         let result = execute_command(&client, command, timeout_ms).await?;
 
         if result.success {
-            println!(
-                "✓ (+{} MB, {} ms)",
-                result.vram_delta_mb.unwrap_or(0),
-                result.duration_ms
-            );
+            if !output.mode().is_json() {
+                println!(
+                    "✓ (+{} MB, {} ms)",
+                    result.vram_delta_mb.unwrap_or(0),
+                    result.duration_ms
+                );
+            }
             preload_results.push((adapter_id.clone(), result));
         } else {
-            println!("✗ {}", result.message);
+            output.error(format!("Preload failed: {}", result.message));
             return Err(anyhow::anyhow!("Preload failed: {}", result.message));
         }
     }
 
-    println!();
+    output.blank();
 
     // Phase 2: Atomic swap
     if commit {
-        println!("Phase 2: Swap (atomic)");
-        print!("  Swapping adapters... ");
+        output.progress("Phase 2: Swap (atomic)");
+        output.progress("  Swapping adapters...");
 
         let command = AdapterCommand::Swap {
             add_ids: add.to_vec(),
@@ -70,68 +77,102 @@ pub async fn run(
         let result = execute_command(&client, command, timeout_ms).await?;
 
         if result.success {
-            let delta_sign = if result.vram_delta_mb.unwrap_or(0) >= 0 {
-                "+"
-            } else {
-                ""
-            };
-            println!(
-                "✓ ({}{} MB, {} ms)",
-                delta_sign,
-                result.vram_delta_mb.unwrap_or(0),
-                result.duration_ms
-            );
-
-            if let Some(hash) = result.stack_hash {
-                println!("  Stack hash: {}", hash.to_hex());
-            }
+            render_memory_state(output, result.memory_state.as_ref());
+            emit_swap_success(&result, output);
+            swap_result = Some(result.clone());
         } else {
-            println!("✗ {}", result.message);
+            output.error(format!("Swap failed: {}", result.message));
 
             // Attempt rollback on swap failure
-            println!("\n⚠ Swap failed, attempting rollback...");
+            output.warning("Swap failed, attempting rollback...");
             let rollback_cmd = AdapterCommand::Rollback;
             let rollback_result = execute_command(&client, rollback_cmd, timeout_ms).await?;
 
             if rollback_result.success {
-                println!("✓ Rollback successful");
+                output.success("Rollback successful");
             } else {
-                println!("✗ Rollback failed: {}", rollback_result.message);
+                output.error(format!("Rollback failed: {}", rollback_result.message));
             }
 
             return Err(anyhow::anyhow!("Swap failed: {}", result.message));
         }
     } else {
-        println!("Phase 2: Dry-run (--commit not specified)");
-        println!("  Would swap: +{:?} / -{:?}", add, remove);
+        output.progress("Phase 2: Dry-run (--commit not specified)");
+        output.progress(format!("  Would swap: +{:?} / -{:?}", add, remove));
     }
 
-    println!();
+    output.blank();
 
     // Phase 3: Verification
-    println!("Phase 3: Verification");
-    print!("  Verifying stack... ");
+    output.progress("Phase 3: Verification");
+    output.progress("  Verifying stack...");
 
     let verify_cmd = AdapterCommand::VerifyStack;
     let verify_result = execute_command(&client, verify_cmd, timeout_ms).await?;
 
     if verify_result.success {
-        println!("✓ ({} ms)", verify_result.duration_ms);
-        if let Some(hash) = verify_result.stack_hash {
-            println!("  Verified hash: {}", hash.to_hex());
-        }
+        render_memory_state(output, verify_result.memory_state.as_ref());
+        emit_swap_success(&verify_result, output);
     } else {
-        println!("✗ {}", verify_result.message);
+        output.error(format!("Verification failed: {}", verify_result.message));
         return Err(anyhow::anyhow!(
             "Verification failed: {}",
             verify_result.message
         ));
     }
 
-    println!();
-    println!("✓ Hot-swap complete");
+    output.blank();
+    if output.mode().is_json() {
+        let report = serde_json::json!({
+            "tenant": tenant,
+            "add": add,
+            "remove": remove,
+            "commit": commit,
+            "preload": preload_results,
+            "swap": swap_result,
+            "verify": verify_result,
+        });
+        output.print_json(&report)?;
+    } else {
+        output.success("Hot-swap complete");
+    }
 
     Ok(())
+}
+
+fn emit_swap_success(result: &AdapterCommandResult, output: &OutputWriter) {
+    if output.mode().is_json() {
+        return;
+    }
+
+    let delta = result.vram_delta_mb.unwrap_or(0);
+    let sign = if delta >= 0 { "+" } else { "" };
+    output.result(format!(
+        "✓ ({}{} MB, {} ms)",
+        sign, delta, result.duration_ms
+    ));
+
+    if let Some(hash) = result.stack_hash {
+        output.kv("Stack hash", &hash.to_hex());
+    }
+}
+
+fn render_memory_state(output: &OutputWriter, state: Option<&MemoryState>) {
+    if output.mode().is_json() {
+        return;
+    }
+
+    if let Some(snapshot) = state {
+        output.kv("VRAM after swap", &format!("{} MB", snapshot.total_vram_mb));
+        for adapter in snapshot.active_adapters.iter().take(8) {
+            output.result(format!(
+                "  - {} [{} MB]{}",
+                adapter.id,
+                adapter.vram_mb,
+                if adapter.active { "" } else { " (inactive)" }
+            ));
+        }
+    }
 }
 
 /// Execute adapter command via UDS HTTP API
@@ -165,7 +206,7 @@ async fn execute_command(
 }
 
 /// Create HTTP client configured for Unix Domain Socket
-fn create_uds_client(socket_path: &Path) -> Result<reqwest::Client> {
+fn create_uds_client(socket_path: &Path, timeout_ms: u64) -> Result<reqwest::Client> {
     // HTTP client configuration will be enhanced when UDS transport is optimized
 
     // Check if socket exists
@@ -174,7 +215,7 @@ fn create_uds_client(socket_path: &Path) -> Result<reqwest::Client> {
         println!("   Using mock HTTP client for demonstration");
 
         let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(30))
+            .timeout(Duration::from_millis(timeout_ms))
             .build()
             .context("Failed to create HTTP client")?;
 
@@ -184,7 +225,7 @@ fn create_uds_client(socket_path: &Path) -> Result<reqwest::Client> {
     // For now, use standard HTTP client with UDS path logging
     // In production, this would use hyperlocal for actual UDS support
     let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(30))
+        .timeout(Duration::from_millis(timeout_ms))
         .build()
         .context("Failed to create HTTP client")?;
 

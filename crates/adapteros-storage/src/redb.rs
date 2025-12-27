@@ -3,6 +3,7 @@
 //! Provides a high-performance embedded key-value store using redb.
 //! Redb is a simple, portable, high-performance, ACID, embedded key-value database.
 
+use crate::ensure_free_space;
 use crate::error::StorageError;
 use crate::kv::backend::KvBackend;
 
@@ -10,7 +11,7 @@ use crate::kv::backend::KvBackend;
 pub use crate::error::StorageError as RedbError;
 use async_trait::async_trait;
 use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 /// Table definitions
@@ -26,6 +27,7 @@ const SETS_TABLE: TableDefinition<&str, &str> = TableDefinition::new("sets");
 /// - Multi-threaded access
 pub struct RedbBackend {
     db: Arc<Database>,
+    db_path: PathBuf,
 }
 
 impl RedbBackend {
@@ -34,6 +36,10 @@ impl RedbBackend {
     /// This will create the database file if it doesn't exist and
     /// initialize the required tables.
     pub fn open(path: &Path) -> Result<Self, StorageError> {
+        let db_path = path.to_path_buf();
+        let parent = path.parent().unwrap_or(Path::new("."));
+        ensure_free_space(parent, "redb write transaction")?;
+
         let db = Database::create(path)
             .map_err(|e| StorageError::BackendError(format!("Failed to create database: {}", e)))?;
 
@@ -53,7 +59,10 @@ impl RedbBackend {
             StorageError::BackendError(format!("Failed to commit table creation: {}", e))
         })?;
 
-        Ok(Self { db: Arc::new(db) })
+        Ok(Self {
+            db: Arc::new(db),
+            db_path,
+        })
     }
 
     /// Open an in-memory database for testing
@@ -83,7 +92,15 @@ impl RedbBackend {
             StorageError::BackendError(format!("Failed to commit table creation: {}", e))
         })?;
 
-        Ok(Self { db: Arc::new(db) })
+        let db_path = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        Ok(Self {
+            db: Arc::new(db),
+            db_path,
+        })
+    }
+
+    fn ensure_disk_space(&self, context: &str) -> Result<(), StorageError> {
+        ensure_free_space(&self.db_path, context)
     }
 
     /// Get set member key
@@ -227,6 +244,7 @@ impl KvBackend for RedbBackend {
     }
 
     async fn set(&self, key: &str, value: Vec<u8>) -> Result<(), StorageError> {
+        self.ensure_disk_space("redb set")?;
         let db = self.db.clone();
         let key_owned = key.to_string();
 
@@ -258,6 +276,7 @@ impl KvBackend for RedbBackend {
     }
 
     async fn delete(&self, key: &str) -> Result<bool, StorageError> {
+        self.ensure_disk_space("redb delete")?;
         let db = self.db.clone();
         let key_owned = key.to_string();
 
@@ -341,6 +360,7 @@ impl KvBackend for RedbBackend {
             return Ok(());
         }
 
+        self.ensure_disk_space("redb batch_set")?;
         let db = self.db.clone();
 
         tokio::task::spawn_blocking(move || {
@@ -375,6 +395,7 @@ impl KvBackend for RedbBackend {
             return Ok(0);
         }
 
+        self.ensure_disk_space("redb batch_delete")?;
         let db = self.db.clone();
         let keys_owned: Vec<String> = keys.to_vec();
 
@@ -414,6 +435,7 @@ impl KvBackend for RedbBackend {
     }
 
     async fn set_add(&self, key: &str, member: &str) -> Result<(), StorageError> {
+        self.ensure_disk_space("redb set_add")?;
         let db = self.db.clone();
         let composite_key = Self::set_member_key(key, member);
 
@@ -443,6 +465,7 @@ impl KvBackend for RedbBackend {
     }
 
     async fn set_remove(&self, key: &str, member: &str) -> Result<(), StorageError> {
+        self.ensure_disk_space("redb set_remove")?;
         let db = self.db.clone();
         let composite_key = Self::set_member_key(key, member);
 

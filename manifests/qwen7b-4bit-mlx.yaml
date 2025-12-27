@@ -8,6 +8,7 @@
     "hidden_dim": 3584,
     "n_layers": 28,
     "n_heads": 28,
+    "routing_bias": 1.2,
     "config_hash": "6d3fc2d709ca3ee85a59cdd28b72e9c75576dc5c6a94b8ba75e8c044fc654d15",
     "tokenizer_hash": "c7ec05642c4277aa1d9de231c93e0d0303cdb97751e06b53e8543499b225df5b",
     "tokenizer_cfg_hash": "cda39ba010797e1871bc35bcf0190d85de4fe223c9a6100e7b10c171dd4613b1",

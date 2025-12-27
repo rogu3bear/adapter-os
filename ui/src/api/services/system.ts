@@ -38,6 +38,18 @@ export class SystemService {
     return this.ready();
   }
 
+  async getSystemReady(): Promise<apiTypes.SystemReadyResponse> {
+    return this.client.request<apiTypes.SystemReadyResponse>('/system/ready');
+  }
+
+  async restartSystem(): Promise<void> {
+    return this.client.request<void>('/system/restart', { method: 'POST' });
+  }
+
+  async stopSystem(): Promise<void> {
+    return this.client.request<void>('/system/stop', { method: 'POST' });
+  }
+
   // Metadata
   async meta(): Promise<types.MetaResponse> {
     return this.client.request<types.MetaResponse>('/v1/meta');

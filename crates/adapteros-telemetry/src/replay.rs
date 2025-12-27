@@ -232,6 +232,8 @@ mod tests {
             stack_hash: Some("test-hash".to_string()),
             stack_id: None,
             stack_version: None,
+            model_type: adapteros_types::routing::RouterModelType::Dense,
+            active_experts: None,
         };
 
         let router_event_2 = RouterDecisionEvent {
@@ -248,6 +250,8 @@ mod tests {
             stack_hash: Some("test-hash".to_string()),
             stack_id: None,
             stack_version: None,
+            model_type: adapteros_types::routing::RouterModelType::Dense,
+            active_experts: None,
         };
 
         let events = vec![

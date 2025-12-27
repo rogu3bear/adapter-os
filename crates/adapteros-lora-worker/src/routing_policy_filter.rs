@@ -19,10 +19,17 @@ use smallvec::SmallVec;
 pub fn filter_decision_by_policy(
     decision: Decision,
     adapter_ids: &[String],
+    adapter_clusters: &[Option<String>],
     policy: Option<&RoutingPolicy>,
 ) -> Result<Decision> {
     let policy_mask_digest = decision.policy_mask_digest;
     let policy_overrides_applied = decision.policy_overrides_applied.clone();
+
+    if adapter_ids.len() != adapter_clusters.len() {
+        return Err(AosError::PolicyViolation(
+            "RoutingPolicy adapter ids/clusters length mismatch".to_string(),
+        ));
+    }
 
     let Some(policy) = policy else {
         return Ok(decision);
@@ -36,10 +43,19 @@ pub fn filter_decision_by_policy(
         .denied_adapter_ids
         .as_ref()
         .map(|ids| ids.iter().cloned().collect::<HashSet<String>>());
+    let allowed_clusters = policy
+        .allowed_clusters
+        .as_ref()
+        .map(|ids| ids.iter().cloned().collect::<HashSet<String>>());
+    let denied_clusters = policy
+        .denied_clusters
+        .as_ref()
+        .map(|ids| ids.iter().cloned().collect::<HashSet<String>>());
 
     let mut filtered_indices = SmallVec::<[u16; 8]>::new();
     let mut filtered_gates = SmallVec::<[i16; 8]>::new();
     let mut filtered_candidates = Vec::new();
+    let mut cluster_filtered = 0usize;
 
     for (i, (adapter_idx, gate_q15)) in decision
         .indices
@@ -66,6 +82,24 @@ pub fn filter_decision_by_policy(
             }
         }
 
+        let cluster = adapter_clusters
+            .get(*adapter_idx as usize)
+            .and_then(|c| c.as_ref());
+
+        if let Some(allowed) = &allowed_clusters {
+            if cluster.map(|c| !allowed.contains(c)).unwrap_or(true) {
+                cluster_filtered += 1;
+                continue;
+            }
+        }
+
+        if let Some(denied) = &denied_clusters {
+            if cluster.map(|c| denied.contains(c)).unwrap_or(false) {
+                cluster_filtered += 1;
+                continue;
+            }
+        }
+
         filtered_indices.push(*adapter_idx);
         filtered_gates.push(*gate_q15);
         if let Some(candidate) = decision.candidates.get(i) {
@@ -87,9 +121,12 @@ pub fn filter_decision_by_policy(
     }
 
     if filtered_indices.is_empty() {
-        return Err(AosError::PolicyViolation(
-            "Routing policy denied all adapters for this token".to_string(),
-        ));
+        let reason = if cluster_filtered > 0 {
+            "Routing policy denied all adapters for this token (clusters)".to_string()
+        } else {
+            "Routing policy denied all adapters for this token".to_string()
+        };
+        return Err(AosError::PolicyViolation(reason));
     }
 
     Ok(Decision {
@@ -135,8 +172,10 @@ mod tests {
             ..Default::default()
         };
 
-        let filtered = filter_decision_by_policy(decision(&[0, 1, 2]), &adapter_ids, Some(&policy))
-            .expect("policy should allow one adapter");
+        let clusters = vec![None, None, None];
+        let filtered =
+            filter_decision_by_policy(decision(&[0, 1, 2]), &adapter_ids, &clusters, Some(&policy))
+                .expect("policy should allow one adapter");
 
         // Order comes from router decision; cap truncates without reordering.
         assert_eq!(filtered.indices.as_slice(), &[0u16]);
@@ -152,7 +191,30 @@ mod tests {
             ..Default::default()
         };
 
-        let result = filter_decision_by_policy(decision(&[0]), &adapter_ids, Some(&policy));
+        let clusters = vec![None];
+        let result =
+            filter_decision_by_policy(decision(&[0]), &adapter_ids, &clusters, Some(&policy));
         assert!(matches!(result, Err(AosError::PolicyViolation(_))));
+    }
+
+    #[test]
+    fn policy_denies_cluster() {
+        let adapter_ids = vec!["python_a".to_string(), "math_a".to_string()];
+        let clusters = vec![Some("python".to_string()), Some("math".to_string())];
+        let policy = RoutingPolicy {
+            denied_clusters: Some(vec!["python".to_string()]),
+            ..Default::default()
+        };
+
+        // Only python adapter selected initially; cluster policy should reject all.
+        let result =
+            filter_decision_by_policy(decision(&[0]), &adapter_ids, &clusters, Some(&policy));
+        assert!(matches!(result, Err(AosError::PolicyViolation(msg)) if msg.contains("clusters")));
+
+        // Mixed decision should drop python and keep math
+        let filtered =
+            filter_decision_by_policy(decision(&[0, 1]), &adapter_ids, &clusters, Some(&policy))
+                .expect("policy should allow math");
+        assert_eq!(filtered.indices.as_slice(), &[1u16]);
     }
 }

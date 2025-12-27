@@ -14,6 +14,8 @@ pub struct AdapterCacheKey {
     pub kernel_version_id: String,
     pub tenant_id: Option<String>,
     pub adapter_dir_hash: Option<B3Hash>,
+    /// Optional galaxy identifier when adapters are loaded from a shared mmap bundle.
+    pub galaxy_id: Option<String>,
 }
 
 impl AdapterCacheKey {
@@ -34,7 +36,15 @@ impl AdapterCacheKey {
             kernel_version_id: kernel_version_id.into(),
             tenant_id,
             adapter_dir_hash,
+            galaxy_id: None,
         }
+    }
+
+    /// Attach a galaxy identifier to the cache key so adapters that share a
+    /// mapped bundle keep that bundle resident while any ref is held.
+    pub fn with_galaxy(mut self, galaxy_id: Option<String>) -> Self {
+        self.galaxy_id = galaxy_id;
+        self
     }
 }
 

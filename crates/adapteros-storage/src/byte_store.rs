@@ -5,6 +5,7 @@
 //! filesystem implementation preserves the current on-disk layout while making
 //! it easy to swap for object storage later.
 
+use crate::ensure_free_space;
 use adapteros_core::Result;
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -126,6 +127,14 @@ impl ByteStorage for FsByteStorage {
 
     async fn store_bytes(&self, key: &StorageKey, data: &[u8]) -> Result<StorageLocation> {
         let path = self.path_for(key)?;
+        let parent = path.parent().unwrap_or(Path::new("."));
+        ensure_free_space(parent, "byte store write").map_err(|e| {
+            adapteros_core::AosError::Io(format!(
+                "Failed to ensure free space for {}: {}",
+                path.display(),
+                e
+            ))
+        })?;
         Self::ensure_parent(&path).await?;
         fs::write(&path, data).await.map_err(|e| {
             adapteros_core::AosError::Io(format!("Failed to write {}: {}", path.display(), e))

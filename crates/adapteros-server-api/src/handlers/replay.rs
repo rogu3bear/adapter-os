@@ -540,6 +540,8 @@ pub async fn execute_replay_session(
         request_id: uuid::Uuid::new_v4().to_string(),
         cpid: session.cpid.clone(),
         prompt: final_prompt,
+        reasoning_mode: false,
+        admin_override: false,
         stream: false,
         batch_item_id: None,
         rag_enabled: false, // Already handled RAG above
@@ -598,11 +600,11 @@ pub async fn execute_replay_session(
                 original_policy_id: None,                // Session doesn't store policy
                 original_policy_version: None,           // Session doesn't store policy version
             };
-            core.route_and_infer_replay(inference_request, replay_context)
+            core.route_and_infer_replay(inference_request, replay_context, None)
                 .await
         } else {
             // Fallback to standard inference (manifest enforcement not possible)
-            core.route_and_infer(inference_request, None).await
+            core.route_and_infer(inference_request, None, None).await
         };
 
     let result = result.map_err(|e| {

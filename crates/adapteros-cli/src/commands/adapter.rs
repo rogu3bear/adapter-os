@@ -16,7 +16,8 @@ use hex;
 use serde_json::{json, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, Instant};
+use tokio::time::sleep;
 use tracing::{error, info};
 
 // Re-export canonical AdapterState from adapteros-types
@@ -762,32 +763,20 @@ pub enum AdapterCommand {
 
     /// Hot-swap adapters in running worker
     #[command(
-        after_help = "Examples:\n  aosctl adapter swap --tenant dev --add specialist --remove temp_fix\n  aosctl adapter swap --tenant dev --add specialist --remove temp_fix --commit\n  aosctl adapter swap --tenant dev --add adapter1,adapter2 --commit"
+        after_help = "Examples:\n  aosctl adapter swap adapter-1\n  aosctl adapter swap adapter-1 --server-url http://localhost:8080\n  aosctl adapter swap adapter-1 --timeout 60"
     )]
     Swap {
-        /// Tenant ID
-        #[arg(short, long)]
-        tenant: String,
+        /// Adapter ID to activate on the worker
+        #[arg()]
+        adapter_id: String,
 
-        /// Adapter IDs to add (comma-separated)
-        #[arg(long, value_delimiter = ',')]
-        add: Vec<String>,
+        /// Control plane base URL
+        #[arg(long, env = "AOS_SERVER_URL", default_value = "http://127.0.0.1:8080")]
+        server_url: String,
 
-        /// Adapter IDs to remove (comma-separated)
-        #[arg(long, value_delimiter = ',')]
-        remove: Vec<String>,
-
-        /// Timeout in milliseconds
-        #[arg(long, default_value = "5000")]
+        /// Timeout in seconds to wait for readiness
+        #[arg(long, default_value = "30")]
         timeout: u64,
-
-        /// Commit the swap (otherwise dry-run)
-        #[arg(long)]
-        commit: bool,
-
-        /// UDS socket path
-        #[arg(long, default_value = "/var/run/aos/aos.sock")]
-        socket: std::path::PathBuf,
     },
 
     /// Show adapter information and provenance
@@ -903,7 +892,7 @@ fn extract_tenant_from_adapter_command(cmd: &AdapterCommand) -> Option<String> {
         AdapterCommand::PromoteVersion { .. } => None,
         AdapterCommand::RollbackVersion { .. } => None,
         AdapterCommand::Register { .. } => None, // No tenant parameter
-        AdapterCommand::Swap { tenant, .. } => Some(tenant.clone()),
+        AdapterCommand::Swap { .. } => None,
         AdapterCommand::Info { .. } => None, // No tenant parameter
         AdapterCommand::Inspect { .. } => None, // No tenant parameter
         AdapterCommand::ListPinned { tenant } => Some(tenant.clone()),
@@ -1017,15 +1006,10 @@ pub async fn handle_adapter_command(cmd: AdapterCommand, output: &OutputWriter) 
             base_url,
         } => register_adapter(&path, adapter_id, name, rank, tier, &base_url, output).await,
         AdapterCommand::Swap {
-            tenant,
-            add,
-            remove,
+            adapter_id,
+            server_url,
             timeout,
-            commit,
-            socket,
-        } => crate::commands::adapter_swap::run(&tenant, &add, &remove, timeout, commit, &socket)
-            .await
-            .map_err(|e| adapteros_core::AosError::Internal(e.to_string())),
+        } => load_adapter_and_wait(&adapter_id, &server_url, timeout, output).await,
         AdapterCommand::Info { adapter_id } => crate::commands::adapter_info::run(&adapter_id)
             .await
             .map_err(|e| adapteros_core::AosError::Internal(e.to_string())),
@@ -1050,6 +1034,107 @@ pub async fn handle_adapter_command(cmd: AdapterCommand, output: &OutputWriter) 
     }
 }
 
+fn adapter_runtime_ready(adapter: &adapteros_api_types::adapters::AdapterResponse) -> bool {
+    adapter
+        .runtime_state
+        .as_deref()
+        .map(|state| matches!(state, "hot" | "warm" | "resident" | "ready" | "loaded"))
+        .unwrap_or(false)
+}
+
+async fn load_adapter_and_wait(
+    adapter_id: &str,
+    server_url: &str,
+    timeout_secs: u64,
+    output: &OutputWriter,
+) -> Result<()> {
+    let base = server_url.trim_end_matches('/');
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(timeout_secs))
+        .build()
+        .map_err(|e| AosError::Internal(e.to_string()))?;
+
+    let start = Instant::now();
+    let load_resp = send_with_refresh_from_store(&client, |c, auth| {
+        c.post(format!("{}/v1/adapters/{}/load", base, adapter_id))
+            .bearer_auth(&auth.token)
+    })
+    .await
+    .map_err(|e| AosError::Internal(e.to_string()))?;
+
+    let status = load_resp.status();
+    let body = load_resp.text().await.unwrap_or_default();
+    if !status.is_success() {
+        return Err(AosError::Internal(format!(
+            "load_adapter failed: {} {}",
+            status, body
+        )));
+    }
+
+    let mut adapter: adapteros_api_types::adapters::AdapterResponse =
+        serde_json::from_str(&body).map_err(AosError::Serialization)?;
+
+    if adapter_runtime_ready(&adapter) {
+        let elapsed_ms = start.elapsed().as_millis();
+        if output.mode().is_json() {
+            let payload = serde_json::json!({
+                "adapter_id": adapter_id,
+                "time_to_ready_ms": elapsed_ms,
+                "runtime_state": adapter.runtime_state,
+            });
+            println!("{}", serde_json::to_string_pretty(&payload)?);
+        } else {
+            output.success(format!("Adapter {} ready in {} ms", adapter_id, elapsed_ms));
+        }
+        return Ok(());
+    }
+
+    let deadline = Duration::from_secs(timeout_secs);
+    while start.elapsed() < deadline {
+        sleep(Duration::from_millis(500)).await;
+        let status_resp = send_with_refresh_from_store(&client, |c, auth| {
+            c.get(format!("{}/v1/adapters/{}", base, adapter_id))
+                .bearer_auth(&auth.token)
+        })
+        .await
+        .map_err(|e| AosError::Internal(e.to_string()))?;
+
+        let status = status_resp.status();
+        let text = status_resp.text().await.unwrap_or_default();
+        if !status.is_success() {
+            return Err(AosError::Internal(format!(
+                "adapter status failed: {} {}",
+                status, text
+            )));
+        }
+
+        adapter = serde_json::from_str(&text).map_err(AosError::Serialization)?;
+        if adapter_runtime_ready(&adapter) {
+            break;
+        }
+    }
+
+    if adapter_runtime_ready(&adapter) {
+        let elapsed_ms = start.elapsed().as_millis();
+        if output.mode().is_json() {
+            let payload = serde_json::json!({
+                "adapter_id": adapter_id,
+                "time_to_ready_ms": elapsed_ms,
+                "runtime_state": adapter.runtime_state,
+            });
+            println!("{}", serde_json::to_string_pretty(&payload)?);
+        } else {
+            output.success(format!("Adapter {} ready in {} ms", adapter_id, elapsed_ms));
+        }
+        Ok(())
+    } else {
+        Err(AosError::Internal(format!(
+            "adapter {} did not become ready within {}s",
+            adapter_id, timeout_secs
+        )))
+    }
+}
+
 /// List all adapters with their current states
 async fn list_adapters(
     json: bool,
@@ -1060,9 +1145,10 @@ async fn list_adapters(
     info!("Listing adapter lifecycle status");
 
     let socket_path = get_worker_socket_path(tenant.as_deref());
+    let json_mode = json || output.mode().is_json();
 
     if !socket_path.exists() || !socket_path.parent().unwrap().exists() {
-        if json {
+        if json_mode {
             let mock_data = serde_json::json!([
                 {
                     "id": "python-general",
@@ -1089,10 +1175,7 @@ async fn list_adapters(
                     "last_activation": "5m ago"
                 }
             ]);
-            info!(
-                "Adapter lifecycle status: {}",
-                serde_json::to_string_pretty(&mock_data)?
-            );
+            println!("{}", serde_json::to_string_pretty(&mock_data)?);
         } else {
             output.result("📊 Adapter Lifecycle Status");
             output.blank();
@@ -1183,67 +1266,68 @@ async fn list_adapters(
                 adapters.retain(|a| a.pinned);
             }
 
-            if json {
-                output.result(&serde_json::to_string_pretty(&adapters)?);
-            } else {
-                let mut table = Table::new();
-                table
-                    .load_preset(UTF8_FULL)
-                    .apply_modifier(UTF8_ROUND_CORNERS)
-                    .set_header(vec![
-                        "ID",
-                        "Hash",
-                        "Tier",
-                        "Rank",
-                        "State",
-                        "Activation %",
-                        "Quality Δ",
-                        "Memory",
-                        "Pinned",
-                        "Last Active",
-                    ]);
-
-                for adapter in adapters {
-                    let state = if adapter.active { "active" } else { "staged" };
-                    let pinned = if adapter.pinned { "yes" } else { "no" };
-                    let last_active = adapter
-                        .last_activation
-                        .map(|ts| {
-                            format!(
-                                "{}s ago",
-                                (std::time::SystemTime::now()
-                                    .duration_since(std::time::UNIX_EPOCH)
-                                    .unwrap()
-                                    .as_secs()
-                                    - ts)
-                            )
-                        })
-                        .unwrap_or_else(|| "never".to_string());
-
-                    table.add_row(vec![
-                        &adapter.id,
-                        &adapter.hash[..8], // Short hash
-                        &adapter.tier,
-                        &adapter.rank.to_string(),
-                        state,
-                        &format!("{:.1}%", adapter.activation_pct),
-                        &format!("{:.2}", adapter.quality_delta),
-                        &format!("{} MB", adapter.vram_mb),
-                        pinned,
-                        &last_active,
-                    ]);
-                }
-
-                output.result(format!("{table}"));
+            if json_mode {
+                println!("{}", serde_json::to_string_pretty(&adapters)?);
+                return Ok(());
             }
+
+            let mut table = Table::new();
+            table
+                .load_preset(UTF8_FULL)
+                .apply_modifier(UTF8_ROUND_CORNERS)
+                .set_header(vec![
+                    "ID",
+                    "Hash",
+                    "Tier",
+                    "Rank",
+                    "State",
+                    "Activation %",
+                    "Quality Δ",
+                    "Memory",
+                    "Pinned",
+                    "Last Active",
+                ]);
+
+            for adapter in adapters {
+                let state = if adapter.active { "active" } else { "staged" };
+                let pinned = if adapter.pinned { "yes" } else { "no" };
+                let last_active = adapter
+                    .last_activation
+                    .map(|ts| {
+                        format!(
+                            "{}s ago",
+                            (std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap()
+                                .as_secs()
+                                - ts)
+                        )
+                    })
+                    .unwrap_or_else(|| "never".to_string());
+
+                table.add_row(vec![
+                    &adapter.id,
+                    &adapter.hash[..8], // Short hash
+                    &adapter.tier,
+                    &adapter.rank.to_string(),
+                    state,
+                    &format!("{:.1}%", adapter.activation_pct),
+                    &format!("{:.2}", adapter.quality_delta),
+                    &format!("{} MB", adapter.vram_mb),
+                    pinned,
+                    &last_active,
+                ]);
+            }
+
+            output.result(format!("{table}"));
         }
         Err(e) => {
-            if json {
+            if json_mode {
                 let error_response = serde_json::json!({
                     "error": format!("{}", e),
                     "adapters": []
                 });
-                output.result(&serde_json::to_string_pretty(&error_response)?);
+                println!("{}", serde_json::to_string_pretty(&error_response)?);
             } else {
                 output.error(format!("Failed to connect to worker: {}", e));
                 output.result("Showing mock data instead.");

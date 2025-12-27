@@ -5,6 +5,12 @@ use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
 pub mod attestation;
+pub mod liquid;
+
+pub use liquid::{
+    blend_and_forward_reference, LiquidAdapterRef, LiquidBlendRequest, LiquidBlendStats,
+    LiquidKernel, LiquidPrecision, LiquidSlice, LiquidTensor, LIQUID_MAX_ADAPTERS,
+};
 
 /// Backend health status for monitoring and failover
 #[derive(Debug, Clone)]
@@ -271,6 +277,30 @@ impl IoBuffers {
 /// [source: crates/adapteros-lora-worker/src/backend_factory.rs L30-45]
 /// [source: docs/ARCHITECTURE.md#architecture-components]
 pub trait FusedKernels: Send + Sync {
+    /// Expose LiquidKernel support when available (default: None)
+    fn as_liquid_kernel(&self) -> Option<&dyn liquid::LiquidKernel> {
+        None
+    }
+
+    /// Mutable access to LiquidKernel implementation when available (default: None)
+    fn as_liquid_kernel_mut(&mut self) -> Option<&mut dyn liquid::LiquidKernel> {
+        None
+    }
+
+    /// Whether this backend supports liquid blending of LoRA adapters
+    fn supports_liquid_blending(&self) -> bool {
+        self.as_liquid_kernel()
+            .map(|k| k.supports_liquid_blending())
+            .unwrap_or(false)
+    }
+
+    /// Maximum adapters supported by liquid blending (0 when unsupported)
+    fn liquid_max_adapters(&self) -> usize {
+        self.as_liquid_kernel()
+            .map(|k| k.max_liquid_adapters())
+            .unwrap_or(0)
+    }
+
     /// Load model plan and adapter weights
     ///
     /// This method initializes the backend with a compiled model plan and
@@ -575,17 +605,14 @@ pub trait FusedKernels: Send + Sync {
     }
 
     /// Generate text with streaming (blocking call with callback)
-    fn generate_text_stream<F>(
+    fn generate_text_stream(
         &self,
         _prompt: &str,
         _max_tokens: usize,
         _temperature: f32,
         _top_p: f32,
-        _on_token: F,
-    ) -> Result<TextGenerationResult>
-    where
-        F: FnMut(TextToken) -> bool,
-    {
+        _on_token: &mut dyn FnMut(TextToken) -> bool,
+    ) -> Result<TextGenerationResult> {
         Err(adapteros_core::AosError::Kernel(
             "Streaming text generation not supported by this backend".to_string(),
         ))
@@ -594,6 +621,21 @@ pub trait FusedKernels: Send + Sync {
     /// Pre-warm experts for MoE models
     fn prewarm_experts(&self, _experts: Vec<(usize, u8)>) -> Result<usize> {
         Ok(0) // Default: no-op
+    }
+
+    /// Check if this backend is currently running a Mixture of Experts (MoE) model
+    fn is_moe(&self) -> bool {
+        false // Default: not MoE
+    }
+
+    /// Get the number of experts in the model (for MoE models)
+    fn num_experts(&self) -> usize {
+        0
+    }
+
+    /// Get the number of experts activated per token (for MoE models)
+    fn experts_per_token(&self) -> usize {
+        0
     }
 }
 
@@ -622,6 +664,14 @@ impl MockKernels {
 }
 
 impl FusedKernels for MockKernels {
+    fn as_liquid_kernel(&self) -> Option<&dyn liquid::LiquidKernel> {
+        Some(self)
+    }
+
+    fn as_liquid_kernel_mut(&mut self) -> Option<&mut dyn liquid::LiquidKernel> {
+        Some(self)
+    }
+
     fn load(&mut self, _plan_bytes: &[u8]) -> Result<()> {
         // Mock implementation - no-op
         Ok(())
@@ -658,6 +708,15 @@ impl FusedKernels for MockKernels {
 impl Default for MockKernels {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl liquid::LiquidKernel for MockKernels {
+    fn blend_and_forward(
+        &mut self,
+        request: liquid::LiquidBlendRequest<'_>,
+    ) -> Result<liquid::LiquidBlendStats> {
+        liquid::blend_and_forward_reference(request)
     }
 }
 
@@ -720,6 +779,22 @@ impl Default for FailingKernel {
 macro_rules! impl_fused_kernels_for_box {
     ($($bounds:tt)*) => {
         impl FusedKernels for Box<dyn FusedKernels $($bounds)*> {
+            fn as_liquid_kernel(&self) -> Option<&dyn crate::liquid::LiquidKernel> {
+                (**self).as_liquid_kernel()
+            }
+
+            fn as_liquid_kernel_mut(&mut self) -> Option<&mut dyn crate::liquid::LiquidKernel> {
+                (**self).as_liquid_kernel_mut()
+            }
+
+            fn supports_liquid_blending(&self) -> bool {
+                (**self).supports_liquid_blending()
+            }
+
+            fn liquid_max_adapters(&self) -> usize {
+                (**self).liquid_max_adapters()
+            }
+
             fn load(&mut self, plan_bytes: &[u8]) -> Result<()> {
                 (**self).load(plan_bytes)
             }
@@ -816,22 +891,31 @@ macro_rules! impl_fused_kernels_for_box {
                 (**self).generate_text_complete(prompt, max_tokens, temperature, top_p)
             }
 
-            fn generate_text_stream<F>(
+            fn generate_text_stream(
                 &self,
                 prompt: &str,
                 max_tokens: usize,
                 temperature: f32,
                 top_p: f32,
-                on_token: F,
-            ) -> Result<TextGenerationResult>
-            where
-                F: FnMut(TextToken) -> bool,
-            {
+                on_token: &mut dyn FnMut(TextToken) -> bool,
+            ) -> Result<TextGenerationResult> {
                 (**self).generate_text_stream(prompt, max_tokens, temperature, top_p, on_token)
             }
 
             fn prewarm_experts(&self, experts: Vec<(usize, u8)>) -> Result<usize> {
                 (**self).prewarm_experts(experts)
+            }
+
+            fn is_moe(&self) -> bool {
+                (**self).is_moe()
+            }
+
+            fn num_experts(&self) -> usize {
+                (**self).num_experts()
+            }
+
+            fn experts_per_token(&self) -> usize {
+                (**self).experts_per_token()
             }
         }
     };
@@ -903,6 +987,8 @@ pub struct TextGenerationResult {
     pub moe_info: Option<MoEInfo>,
     /// Protocol v3: Expert routing data for the generated sequence
     pub expert_routing: Option<SequenceExpertRouting>,
+    /// Number of precomputed "free tokens" delivered without backend computation
+    pub free_tokens_delivered: usize,
     /// Protocol v3: Deterministic routing hash (BLAKE3)
     pub routing_hash: Option<adapteros_core::B3Hash>,
 }

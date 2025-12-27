@@ -791,9 +791,12 @@ fn setup_panic_hook() {
             .unwrap_or_else(|| "unknown".to_string());
 
         // Capture backtrace (first 2000 chars to avoid oversized messages)
-        let backtrace = std::backtrace::Backtrace::capture();
-        let backtrace_str = format!("{}", backtrace);
-        let backtrace_snippet = truncate_backtrace(&backtrace_str, 2000);
+        let backtrace_snippet = {
+            let backtrace = std::backtrace::Backtrace::force_capture();
+            let mut buf = String::new();
+            let _ = std::fmt::Write::write_fmt(&mut buf, format_args!("{backtrace}"));
+            truncate_backtrace(&buf, 1024)
+        };
 
         // Attempt to notify CP of fatal error
         if let Some(identity) = WORKER_IDENTITY.get() {
@@ -808,10 +811,16 @@ fn setup_panic_hook() {
                 .timeout_global(Some(std::time::Duration::from_secs(3)))
                 .build()
                 .new_agent();
-            let result = agent
-                .post(&url)
-                .header("Content-Type", "application/json")
-                .send(fatal_payload.to_string().as_bytes());
+            let result = match serde_json::to_vec(&fatal_payload) {
+                Ok(body) => agent
+                    .post(&url)
+                    .header("Content-Type", "application/json")
+                    .send(body.as_slice()),
+                Err(e) => {
+                    eprintln!("[PANIC HOOK] Failed to serialize fatal payload: {e}");
+                    return;
+                }
+            };
 
             match result {
                 Ok(_) => {
@@ -2037,6 +2046,7 @@ mod tests {
                     hidden_dim: 4096,
                     n_layers: 32,
                     n_heads: 32,
+                    routing_bias: 1.0,
                     config_hash: B3Hash::hash(b"config"),
                     tokenizer_hash: B3Hash::hash(b"tokenizer"),
                     tokenizer_cfg_hash: B3Hash::hash(b"tokenizer_cfg"),

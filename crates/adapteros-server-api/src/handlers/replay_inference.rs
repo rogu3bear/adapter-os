@@ -690,6 +690,8 @@ pub async fn execute_replay(
         request_id: replay_id.clone(),
         cpid: claims.tenant_id.clone(),
         prompt: prompt.clone(),
+        reasoning_mode: false,
+        admin_override: false,
         stream: false,
         batch_item_id: None,
         rag_enabled: rag_doc_ids.is_some() && !req.skip_rag,
@@ -804,7 +806,7 @@ pub async fn execute_replay(
     // Execute inference through InferenceCore (PRD-02: unified inference path)
     let core = InferenceCore::new(&state);
     let inference_result = core
-        .route_and_infer_replay(inference_request, replay_context)
+        .route_and_infer_replay(inference_request, replay_context, None)
         .await;
 
     let latency_ms = match &inference_result {

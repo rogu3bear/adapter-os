@@ -42,10 +42,46 @@ pub use repos::{
 pub use types::{KeyBuilder, VersionedRecord, CURRENT_SCHEMA_VERSION};
 
 use adapteros_core::Result;
+use fs2::available_space;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::io;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 use tracing::info;
+
+pub(crate) const MIN_FREE_SPACE_BYTES: u64 = 100 * 1024 * 1024;
+
+pub(crate) fn ensure_free_space(
+    path: &Path,
+    context: &str,
+) -> std::result::Result<(), StorageError> {
+    let root = if path.is_dir() {
+        path.to_path_buf()
+    } else {
+        path.parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| PathBuf::from("."))
+    };
+
+    match available_space(&root) {
+        Ok(free) if free < MIN_FREE_SPACE_BYTES => Err(StorageError::IoError(io::Error::new(
+            io::ErrorKind::Other,
+            format!(
+                "Insufficient disk space (<{} bytes) for {} ({} bytes available) at {}",
+                MIN_FREE_SPACE_BYTES,
+                context,
+                free,
+                root.display()
+            ),
+        ))),
+        Ok(_) => Ok(()),
+        Err(e) => Err(StorageError::IoError(io::Error::new(
+            io::ErrorKind::Other,
+            format!("Failed to check disk space at {}: {}", root.display(), e),
+        ))),
+    }
+}
 
 /// Storage configuration for a tenant
 #[derive(Debug, Clone, Serialize, Deserialize)]

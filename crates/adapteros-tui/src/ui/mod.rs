@@ -61,46 +61,72 @@ fn draw_logs(f: &mut Frame, app: &App, area: Rect) {
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::White));
 
-    let mut lines = vec![
-        Line::from(vec![
-            Span::styled("Level: ", Style::default().add_modifier(Modifier::BOLD)),
-            Span::styled("[ERR] ", Style::default().fg(Color::Red)),
-            Span::styled("[WRN] ", Style::default().fg(Color::Yellow)),
-            Span::styled("[INF] ", Style::default().fg(Color::Green)),
-            Span::styled("[DBG] ", Style::default().fg(Color::Blue)),
-            Span::raw(" Component: [All]  Search: []"),
-        ]),
-        Line::from(""),
-    ];
+    let mut lines = vec![Line::from(vec![
+        Span::styled("Filters: ", Style::default().add_modifier(Modifier::BOLD)),
+        Span::raw(format!(
+            "trace={} tenant={}   [t] trace [n] tenant [x] clear",
+            app.log_filter_trace.as_deref().unwrap_or("any"),
+            app.log_filter_tenant.as_deref().unwrap_or("any")
+        )),
+    ])];
 
-    // Add log entries
-    for entry in &app.recent_logs {
-        let level_style = match entry.level {
-            crate::app::types::LogLevel::Error => Style::default().fg(Color::Red),
-            crate::app::types::LogLevel::Warn => Style::default().fg(Color::Yellow),
-            crate::app::types::LogLevel::Info => Style::default().fg(Color::Green),
-            crate::app::types::LogLevel::Debug => Style::default().fg(Color::Blue),
+    if let Some(mode) = app.log_filter_mode {
+        let label = match mode {
+            crate::app::LogFilterMode::TraceId => "Trace",
+            crate::app::LogFilterMode::Tenant => "Tenant",
         };
-
         lines.push(Line::from(vec![
-            Span::raw(format!("{} ", entry.timestamp.format("%H:%M:%S"))),
             Span::styled(
-                format!("[{:<5}] ", entry.level.as_str()),
-                level_style.add_modifier(Modifier::BOLD),
+                format!("Typing {} filter: ", label),
+                Style::default().add_modifier(Modifier::BOLD),
             ),
             Span::styled(
-                format!("{:<10} ", entry.component),
+                app.log_filter_input.as_str(),
                 Style::default().fg(Color::Cyan),
             ),
-            Span::raw(&entry.message),
         ]));
     }
 
-    if lines.len() == 2 {
+    let filtered = app.filtered_logs();
+    if filtered.is_empty() {
         lines.push(Line::from(Span::styled(
             "No logs yet. Services will generate logs once started.",
             Style::default().fg(Color::Gray),
         )));
+    } else {
+        for entry in filtered {
+            let level_style = match entry.level {
+                crate::app::types::LogLevel::Error => Style::default().fg(Color::Red),
+                crate::app::types::LogLevel::Warn => Style::default().fg(Color::Yellow),
+                crate::app::types::LogLevel::Info => Style::default().fg(Color::Green),
+                crate::app::types::LogLevel::Debug => Style::default().fg(Color::Blue),
+            };
+
+            let latency = entry
+                .latency_ms
+                .map(|l| format!("{}ms", l))
+                .unwrap_or_else(|| "-".to_string());
+
+            lines.push(Line::from(vec![
+                Span::raw(format!("{} ", entry.timestamp.format("%H:%M:%S"))),
+                Span::styled(
+                    format!("[{:<5}] ", entry.level.as_str()),
+                    level_style.add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    format!("{:<10} ", entry.component),
+                    Style::default().fg(Color::Cyan),
+                ),
+                Span::styled(
+                    entry.trace_id.as_deref().unwrap_or("-"),
+                    Style::default().fg(Color::Magenta),
+                ),
+                Span::raw(" "),
+                Span::styled(latency, Style::default().fg(Color::White)),
+                Span::raw(" "),
+                Span::raw(&entry.message),
+            ]));
+        }
     }
 
     let paragraph = Paragraph::new(lines)
@@ -279,11 +305,13 @@ fn draw_config(f: &mut Frame, app: &App, area: Rect) {
     let block = Block::default()
         .title(" Configuration Editor ")
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(if app.current_mode == crate::app::Mode::ConfigEdit {
-            Color::Yellow
-        } else {
-            Color::Blue
-        }));
+        .border_style(
+            Style::default().fg(if app.current_mode == crate::app::Mode::ConfigEdit {
+                Color::Yellow
+            } else {
+                Color::Blue
+            }),
+        );
 
     let mut config_text = vec![
         Line::from(vec![Span::styled(
@@ -294,13 +322,28 @@ fn draw_config(f: &mut Frame, app: &App, area: Rect) {
     ];
 
     let fields = [
-        ("Server Port:        ", format!("{}", app.config.server_port)),
-        ("Max Connections:    ", format!("{}", app.config.max_connections)),
+        (
+            "Server Port:        ",
+            format!("{}", app.config.server_port),
+        ),
+        (
+            "Max Connections:    ",
+            format!("{}", app.config.max_connections),
+        ),
         ("Model Path:         ", app.config.model_path.clone()),
-        ("K-Sparse Value:     ", format!("{}", app.config.k_sparse_value)),
+        (
+            "K-Sparse Value:     ",
+            format!("{}", app.config.k_sparse_value),
+        ),
         ("Batch Size:         ", format!("{}", app.config.batch_size)),
-        ("Cache Size:         ", format!("{} MB", app.config.cache_size_mb)),
-        ("JWT Mode:           ", app.config.jwt_mode.as_str().to_string()),
+        (
+            "Cache Size:         ",
+            format!("{} MB", app.config.cache_size_mb),
+        ),
+        (
+            "JWT Mode:           ",
+            app.config.jwt_mode.as_str().to_string(),
+        ),
         (
             "Require PF Deny:    ",
             if app.config.require_pf_deny {
@@ -327,7 +370,9 @@ fn draw_config(f: &mut Frame, app: &App, area: Rect) {
             ));
             spans.push(Span::styled(
                 format!(" [{}]", app.config_edit_value),
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
             ));
         } else {
             spans.push(Span::styled(

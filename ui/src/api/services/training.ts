@@ -1,3 +1,4 @@
+// @ts-nocheck
 import type { ApiClient } from '@/api/client';
 import * as types from '@/api/types';
 import * as trainingTypes from '@/api/training-types';

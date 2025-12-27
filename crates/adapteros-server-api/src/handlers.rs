@@ -106,6 +106,7 @@ pub mod telemetry;
 pub mod tenant_policies;
 pub mod tenants;
 pub mod testkit;
+pub mod topology;
 pub mod training;
 pub mod training_datasets;
 pub mod tutorials;
@@ -560,7 +561,7 @@ pub async fn upsert_directory_adapter(
                     tracing::warn!(adapter_id = %adapter_id, error = %e, "Failed to load adapter via lifecycle manager");
                     // Fallback: update DB state to indicate load failure
                     let _ = state
-                        .db
+                        .lifecycle_db()
                         .update_adapter_state_tx_for_tenant(
                             &tenant_id,
                             &adapter_id,
@@ -579,7 +580,7 @@ pub async fn upsert_directory_adapter(
                             tracing::warn!(adapter_id = %adapter_id, error = %e, "Failed to update adapter state via lifecycle manager");
                             // Fallback: update DB state directly
                             let _ = state
-                                .db
+                                .lifecycle_db()
                                 .update_adapter_state_tx_for_tenant(
                                     &tenant_id,
                                     &adapter_id,
@@ -595,7 +596,7 @@ pub async fn upsert_directory_adapter(
                         tracing::warn!(adapter_id = %adapter_id, "Adapter not found in lifecycle manager");
                         // Fallback: update DB state directly
                         let _ = state
-                            .db
+                            .lifecycle_db()
                             .update_adapter_state_tx_for_tenant(
                                 &tenant_id,
                                 &adapter_id,
@@ -609,7 +610,7 @@ pub async fn upsert_directory_adapter(
                 // Fallback: direct DB update if no lifecycle manager
                 tracing::info!(adapter_id = %adapter_id, "simulating adapter load (no lifecycle manager)");
                 let _ = state
-                    .db
+                    .lifecycle_db()
                     .update_adapter_state_tx_for_tenant(
                         &tenant_id,
                         &adapter_id,
@@ -4548,7 +4549,10 @@ pub async fn get_adapter_metrics(
     for adapter in adapters {
         let (total, selected, avg_gate) = state
             .db
-            .get_adapter_stats(&claims.tenant_id, adapter.adapter_id.as_ref().unwrap_or(&adapter.id))
+            .get_adapter_stats(
+                &claims.tenant_id,
+                adapter.adapter_id.as_ref().unwrap_or(&adapter.id),
+            )
             .await
             .unwrap_or((0, 0, 0.0));
 
@@ -4950,6 +4954,7 @@ pub async fn debug_routing(
                 languages,
                 tier: adapter.tier.clone(),
                 base_model: adapter.base_model_id.clone(),
+                recommended_for_moe: adapter.recommended_for_moe.unwrap_or(true),
                 ..Default::default()
             }
         })
@@ -6978,8 +6983,7 @@ pub async fn get_dashboard_config(
 ) -> Result<Json<adapteros_system_metrics::DashboardConfig>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
 
-    let dashboard_service =
-        adapteros_system_metrics::DashboardService::new(std::sync::Arc::new(state.db.clone()));
+    let dashboard_service = adapteros_system_metrics::DashboardService::new(state.db.as_db_arc());
 
     let config = dashboard_service
         .get_dashboard_config(&dashboard_id)
@@ -7019,8 +7023,7 @@ pub async fn get_dashboard_data(
 ) -> Result<Json<adapteros_system_metrics::DashboardData>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
 
-    let dashboard_service =
-        adapteros_system_metrics::DashboardService::new(std::sync::Arc::new(state.db.clone()));
+    let dashboard_service = adapteros_system_metrics::DashboardService::new(state.db.as_db_arc());
     let time_range = params.get("time_range").map(|s| s.as_str());
 
     let data = dashboard_service
@@ -7062,8 +7065,7 @@ pub async fn export_dashboard_data(
 ) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
 
-    let dashboard_service =
-        adapteros_system_metrics::DashboardService::new(std::sync::Arc::new(state.db.clone()));
+    let dashboard_service = adapteros_system_metrics::DashboardService::new(state.db.as_db_arc());
     let time_range = params.get("time_range").map(|s| s.as_str());
 
     let export_data = dashboard_service

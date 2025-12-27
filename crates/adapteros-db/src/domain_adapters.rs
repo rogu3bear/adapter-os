@@ -469,11 +469,7 @@ impl Db {
     /// Delete domain adapter (and associated data)
     pub async fn delete_domain_adapter(&self, id: &str) -> Result<()> {
         // Begin transaction for atomic multi-step deletion
-        let mut tx = self
-            .pool()
-            .begin()
-            .await
-            .map_err(|e| AosError::Database(format!("Failed to begin transaction: {}", e)))?;
+        let mut tx = self.begin_write_tx().await?;
 
         // Delete executions first (foreign key constraint)
         sqlx::query("DELETE FROM domain_adapter_executions WHERE adapter_id = ?")

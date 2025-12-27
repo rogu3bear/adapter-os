@@ -160,6 +160,8 @@ mod tests {
             stack_hash: Some("abc123".to_string()),
             stack_id: None,
             stack_version: None,
+            model_type: adapteros_types::routing::RouterModelType::Dense,
+            active_experts: None,
         };
 
         let decision = event_to_decision(&event, "default", Some("req-123")).unwrap();
@@ -199,6 +201,8 @@ mod tests {
             stack_hash: None,
             stack_id: None,
             stack_version: None,
+            model_type: adapteros_types::routing::RouterModelType::Dense,
+            active_experts: None,
         }];
 
         let persisted = persist_router_decisions(&db, &events, &tenant_id, Some("req-001"))

@@ -126,6 +126,26 @@ pub struct RoutingPolicy {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_adapters_per_token: Option<usize>,
 
+    /// Restrict routing to specific clusters (semantic grouping of adapters).
+    /// When present, only these clusters may be used.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allowed_clusters: Option<Vec<String>>,
+
+    /// Explicitly deny routing to specific clusters.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub denied_clusters: Option<Vec<String>>,
+
+    /// Maximum number of cluster transitions (hops) allowed per request.
+    /// When exceeded, router applies cluster_fallback behavior.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_reasoning_depth: Option<usize>,
+
+    /// Behavior when a cluster transition is blocked.
+    /// - stay_on_current: remain on current adapters
+    /// - fallback_to_base: route to base-only
+    #[serde(default = "default_cluster_fallback")]
+    pub cluster_fallback: String,
+
     /// How to handle pins outside the effective routing set.
     /// "warn": Log warning but allow inference (default)
     /// "error": Reject inference request
@@ -147,6 +167,10 @@ fn default_pin_enforcement() -> String {
     "warn".to_string()
 }
 
+fn default_cluster_fallback() -> String {
+    "stay_on_current".to_string()
+}
+
 impl Default for RoutingPolicy {
     fn default() -> Self {
         Self {
@@ -154,6 +178,10 @@ impl Default for RoutingPolicy {
             allowed_adapter_ids: None,
             denied_adapter_ids: None,
             max_adapters_per_token: None,
+            allowed_clusters: None,
+            denied_clusters: None,
+            max_reasoning_depth: Some(10),
+            cluster_fallback: default_cluster_fallback(),
             pin_enforcement: default_pin_enforcement(),
             require_stack: false,
             require_pins: false,

@@ -10,6 +10,7 @@
 //! - Boot state manager creation
 //! - Boot timeout configuration
 
+use adapteros_boot::{ensure_runtime_dir, EXIT_CONFIG_ERROR};
 use adapteros_config::{path_resolver::PathSource, resolve_base_model_location};
 use adapteros_core::time;
 use adapteros_server_api::boot_state::BootStateManager;
@@ -66,6 +67,25 @@ pub struct ConfigContext {
 pub async fn initialize_config(cli: &Cli) -> Result<ConfigContext> {
     let boot_state = BootStateManager::new();
     boot_state.start_phase("config_load");
+
+    // Ensure runtime directory is writable before any other boot steps
+    let preferred_var_dir =
+        std::env::var("AOS_VAR_DIR").unwrap_or_else(|_| "/var/lib/aos".to_string());
+    let runtime_dir = match ensure_runtime_dir(&preferred_var_dir, None) {
+        Ok(dir) => dir,
+        Err(e) => {
+            eprintln!("FATAL: {}", e);
+            std::process::exit(EXIT_CONFIG_ERROR);
+        }
+    };
+    std::env::set_var("AOS_VAR_DIR", &runtime_dir.path);
+    if runtime_dir.used_fallback {
+        eprintln!(
+            "WARNING: {} is not writable; using ephemeral runtime dir at {}",
+            preferred_var_dir,
+            runtime_dir.path.display()
+        );
+    }
 
     // Load configuration early - needed for logging setup
     // Use eprintln for errors here since logging isn't initialized yet

@@ -72,6 +72,8 @@ pub struct AdapterManifest {
     pub lora_strength: Option<f32>,
     #[serde(default = "default_scope")]
     pub scope: String,
+    #[serde(default = "default_recommended_for_moe")]
+    pub recommended_for_moe: bool,
     #[serde(default)]
     pub quantization: Option<String>,
     #[serde(default)]
@@ -162,6 +164,10 @@ fn default_tier() -> String {
 
 fn default_scope() -> String {
     "project".to_string()
+}
+
+fn default_recommended_for_moe() -> bool {
+    true
 }
 
 fn parse_lora_tier(metadata: &HashMap<String, String>) -> Option<LoraTier> {
@@ -908,6 +914,10 @@ impl AdapterPackager {
         let synthetic_mode = metadata
             .get("synthetic_mode")
             .map(|v| v == "true" || v == "1");
+        let recommended_for_moe = metadata
+            .get("recommended_for_moe")
+            .map(|v| v == "true" || v == "1")
+            .unwrap_or(true);
 
         // Create manifest
         let manifest = AdapterManifest {
@@ -927,6 +937,7 @@ impl AdapterPackager {
             lora_tier,
             lora_strength,
             scope: scope_value,
+            recommended_for_moe,
             quantization: Some("q15".to_string()),
             gate_q15_denominator: Some(ROUTER_GATE_Q15_DENOM as u32),
             coreml,
@@ -1087,6 +1098,10 @@ impl AdapterPackager {
         let synthetic_mode = metadata
             .get("synthetic_mode")
             .map(|v| v == "true" || v == "1");
+        let recommended_for_moe = metadata
+            .get("recommended_for_moe")
+            .map(|v| v == "true" || v == "1")
+            .unwrap_or(true);
 
         // Create manifest
         let manifest = AdapterManifest {
@@ -1106,6 +1121,7 @@ impl AdapterPackager {
             lora_tier,
             lora_strength,
             scope: scope_value.clone(),
+            recommended_for_moe,
             quantization: Some("q15".to_string()),
             gate_q15_denominator: Some(ROUTER_GATE_Q15_DENOM as u32),
             coreml,
@@ -1564,6 +1580,7 @@ mod tests {
             lora_tier: None,
             lora_strength: None,
             scope: default_scope(),
+            recommended_for_moe: true,
             quantization: Some("q15".to_string()),
             gate_q15_denominator: Some(ROUTER_GATE_Q15_DENOM as u32),
             coreml: None,

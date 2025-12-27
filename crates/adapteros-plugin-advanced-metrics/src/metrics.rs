@@ -166,11 +166,11 @@ impl MetricsCollector {
         // Record latency for each adapter used
         for adapter_id in &event.adapter_ids {
             self.inference_latency
-                .with_label_values(&[adapter_id, tenant_id])
+                .with_label_values(&[adapter_id.as_str(), tenant_id])
                 .observe(event.latency_ms);
 
             self.adapter_activations
-                .with_label_values(&[adapter_id, tenant_id])
+                .with_label_values(&[adapter_id.as_str(), tenant_id])
                 .inc();
 
             // Update internal tracking
@@ -224,7 +224,7 @@ impl MetricsCollector {
                 let tenant_id = event.tenant_id.as_deref().unwrap_or("unknown");
 
                 self.training_duration
-                    .with_label_values(&[adapter_id, tenant_id, &event.status])
+                    .with_label_values(&[adapter_id, tenant_id, event.status.as_str()])
                     .observe(duration_secs);
             } else {
                 warn!(

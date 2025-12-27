@@ -193,7 +193,7 @@ pub async fn batch_infer(
                 // Execute inference via InferenceCore with timeout
                 match timeout(
                     remaining,
-                    inference_core.route_and_infer(internal_request, None),
+                    inference_core.route_and_infer(internal_request, None, None),
                 )
                 .await
                 {
@@ -246,6 +246,15 @@ fn map_inference_error(id: String, err: crate::types::InferenceError) -> BatchIn
             error: Some(
                 ErrorResponse::new("inference timeout")
                     .with_code("REQUEST_TIMEOUT")
+                    .with_string_details(msg),
+            ),
+        },
+        InferenceError::ClientClosed(msg) => BatchInferItemResponse {
+            id,
+            response: None,
+            error: Some(
+                ErrorResponse::new("client disconnected")
+                    .with_code("CLIENT_CLOSED_REQUEST")
                     .with_string_details(msg),
             ),
         },
@@ -764,7 +773,8 @@ async fn process_batch_job(
 
                 // Execute inference via InferenceCore with timeout
                 let start = Instant::now();
-                let result = timeout(remaining, core.route_and_infer(internal_request, None)).await;
+                let result =
+                    timeout(remaining, core.route_and_infer(internal_request, None, None)).await;
                 let latency_ms = start.elapsed().as_millis() as i32;
 
                 match result {
@@ -793,6 +803,7 @@ async fn process_batch_job(
                                 "SERVICE_UNAVAILABLE"
                             }
                             crate::types::InferenceError::Timeout(_) => "REQUEST_TIMEOUT",
+                            crate::types::InferenceError::ClientClosed(_) => "CLIENT_CLOSED_REQUEST",
                             crate::types::InferenceError::PermissionDenied(_) => "FORBIDDEN",
                             crate::types::InferenceError::BackpressureError(_) => {
                                 "SERVICE_UNAVAILABLE"

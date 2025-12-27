@@ -50,6 +50,7 @@ fn test_deterministic_top_k_ordering() {
             scope_path: None,
             lora_tier: None,
             base_model: None,
+            ..Default::default()
         })
         .collect();
     let mask = allow_all_mask(&adapter_info);
@@ -101,6 +102,7 @@ fn test_adaptive_routing_requires_determinism_context() {
             scope_path: None,
             lora_tier: None,
             base_model: None,
+            ..Default::default()
         })
         .collect();
     let mask = allow_all_mask(&adapter_info);
@@ -139,6 +141,7 @@ fn test_q15_quantization_properties() {
             scope_path: None,
             lora_tier: None,
             base_model: None,
+            ..Default::default()
         })
         .collect();
     let mask = allow_all_mask(&adapter_info);
@@ -221,6 +224,7 @@ fn test_gate_normalization_and_entropy_floor() {
             scope_path: None,
             lora_tier: None,
             base_model: None,
+            ..Default::default()
         })
         .collect();
     let mask = allow_all_mask(&adapter_info);
@@ -274,6 +278,7 @@ fn test_multiple_calls_deterministic() {
             scope_path: None,
             lora_tier: None,
             base_model: None,
+            ..Default::default()
         })
         .collect();
     let mask = allow_all_mask(&adapter_info);
@@ -315,6 +320,7 @@ fn test_repeated_routing_returns_identical_indices_and_gates() {
             scope_path: None,
             lora_tier: None,
             base_model: None,
+            ..Default::default()
         })
         .collect();
 
@@ -360,6 +366,7 @@ fn test_q15_range_properties() {
             scope_path: None,
             lora_tier: None,
             base_model: None,
+            ..Default::default()
         })
         .collect();
     let mask = allow_all_mask(&adapter_info);
@@ -393,6 +400,7 @@ fn test_router_ring_invariants() {
             scope_path: None,
             lora_tier: None,
             base_model: None,
+            ..Default::default()
         })
         .collect();
     let mask = allow_all_mask(&adapter_info);
@@ -423,6 +431,7 @@ fn test_router_ring_invariants() {
             scope_path: None,
             lora_tier: None,
             base_model: None,
+            ..Default::default()
         })
         .collect();
     let mask_k0 = allow_all_mask(&adapter_info);
@@ -449,6 +458,7 @@ fn test_varying_k_stability() {
             scope_path: None,
             lora_tier: None,
             base_model: None,
+            ..Default::default()
         })
         .collect();
 
@@ -534,6 +544,7 @@ fn test_score_sorting_descending_with_index_tiebreak() {
             scope_path: None,
             lora_tier: None,
             base_model: None,
+            ..Default::default()
         })
         .collect();
     let mask = allow_all_mask(&adapter_info);
@@ -571,6 +582,7 @@ fn test_gate_computation_consistency() {
             scope_path: None,
             lora_tier: None,
             base_model: None,
+            ..Default::default()
         })
         .collect();
     let mask = allow_all_mask(&adapter_info);
@@ -606,6 +618,7 @@ fn test_k_sparse_boundary_conditions() {
             scope_path: None,
             lora_tier: None,
             base_model: None,
+            ..Default::default()
         })
         .collect();
     let mask = allow_all_mask(&adapter_info);
@@ -668,6 +681,7 @@ fn test_softmax_determinism() {
             scope_path: None,
             lora_tier: None,
             base_model: None,
+            ..Default::default()
         })
         .collect();
     let mask = allow_all_mask(&adapter_info);
@@ -722,6 +736,7 @@ fn test_entropy_floor_enforcement() {
             scope_path: None,
             lora_tier: None,
             base_model: None,
+            ..Default::default()
         })
         .collect();
     let mask = allow_all_mask(&adapter_info);
@@ -765,6 +780,7 @@ fn test_cross_instance_determinism() {
             scope_path: None,
             lora_tier: None,
             base_model: None,
+            ..Default::default()
         })
         .collect();
     let mask = allow_all_mask(&adapter_info);
@@ -817,6 +833,7 @@ fn test_gate_normalization_invariant() {
                 scope_path: None,
                 lora_tier: None,
                 base_model: None,
+                ..Default::default()
             })
             .collect();
         let mask = allow_all_mask(&adapter_info);
@@ -858,6 +875,7 @@ fn test_q15_no_negative_gates() {
             scope_path: None,
             lora_tier: None,
             base_model: None,
+            ..Default::default()
         })
         .collect();
     let mask = allow_all_mask(&adapter_info);
@@ -904,6 +922,7 @@ fn stress_test_near_equal_scores_determinism() {
             scope_path: None,
             lora_tier: None,
             base_model: None,
+            ..Default::default()
         })
         .collect();
     let mask = allow_all_mask(&adapter_info);
@@ -1087,6 +1106,7 @@ fn stress_test_adaptive_routing_near_equal_scores() {
             scope_path: None,
             lora_tier: None,
             base_model: None,
+            ..Default::default()
         })
         .collect();
     let mask = allow_all_mask(&adapter_info);
@@ -1177,6 +1197,7 @@ fn test_relative_epsilon_edge_cases() {
                 scope_path: None,
                 lora_tier: None,
                 base_model: None,
+                ..Default::default()
             })
             .collect()
     };
@@ -1305,6 +1326,7 @@ proptest! {
                 scope_path: None,
                 lora_tier: None,
                 base_model: None,
+                ..Default::default()
             })
             .collect();
         let decision1 = router1

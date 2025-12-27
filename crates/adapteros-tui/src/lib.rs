@@ -98,6 +98,7 @@ async fn run_app<B: ratatui::backend::Backend>(
                         KeyCode::Tab => app.on_tab(),
                         KeyCode::BackTab => app.on_backtab(),
                         KeyCode::Esc => app.on_escape(),
+                        KeyCode::Backspace => app.on_backspace(),
                         KeyCode::Char(c) => app.on_char(c).await?,
                         _ => {}
                     }

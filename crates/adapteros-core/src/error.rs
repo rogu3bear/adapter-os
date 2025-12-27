@@ -115,6 +115,9 @@ pub enum AosError {
     #[error("Worker error: {0}")]
     Worker(String),
 
+    #[error("Reasoning loop detected: {0}")]
+    ReasoningLoop(String),
+
     #[error("Telemetry error: {0}")]
     Telemetry(String),
 
@@ -474,6 +477,11 @@ impl AosError {
     /// Worker error
     pub fn worker(msg: impl Into<String>) -> Self {
         AosError::Worker(msg.into())
+    }
+
+    /// Reasoning loop detected
+    pub fn reasoning_loop(msg: impl Into<String>) -> Self {
+        AosError::ReasoningLoop(msg.into())
     }
 
     /// Policy violation

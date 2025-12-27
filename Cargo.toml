@@ -228,6 +228,7 @@ reqwest = { version = "0.12", features = ["json"] }
 # CLI
 clap = { version = "4.4", features = ["derive", "env"] }
 comfy-table = "7.1"
+fs2 = "0.4"
 
 # ML & Search
 hnsw_rs = "0.3"
@@ -272,10 +273,8 @@ libsqlite3-sys = "=0.30.1"
 # Auth & Security
 argon2 = "0.5"
 jsonwebtoken = { version = "10.2", default-features = false, features = [
+    "rust_crypto",
     "use_pem",
-    "ed25519-dalek",
-    "hmac",
-    "sha2",
 ] }
 
 # API
@@ -386,9 +385,17 @@ adapteros-verify = { path = "crates/adapteros-verify" }
 adapteros-api-types = { path = "crates/adapteros-api-types" }
 adapteros-scenarios = { path = "crates/adapteros-scenarios" }
 adapteros-types = { path = "crates/adapteros-types" }
+adapteros-boot = { path = "crates/adapteros-boot" }
+adapteros-federation = { path = "crates/adapteros-federation" }
+adapteros-secd = { path = "crates/adapteros-secd" }
 reqwest = { workspace = true }
 futures-util = { workspace = true }
-# adapteros-server = { path = "crates/adapteros-server" }  # Temporarily excluded
+base64 = { workspace = true }
+ed25519-dalek = { workspace = true }
+rand = { workspace = true }
+rand_chacha = { workspace = true }
+tempfile = { workspace = true }
+adapteros-server = { path = "crates/adapteros-server" }
 adapteros-server-api = { path = "crates/adapteros-server-api" }
 adapteros-db = { path = "crates/adapteros-db" }
 adapteros-config = { path = "crates/adapteros-config" }
@@ -418,9 +425,6 @@ tracing = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-rand = "0.8"
-rand_chacha = "0.3"
-tempfile = "3.0"
 tracing-subscriber = { workspace = true }
 anyhow = "1.0"
 axum = "0.8"

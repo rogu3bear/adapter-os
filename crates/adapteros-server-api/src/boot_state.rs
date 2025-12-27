@@ -520,17 +520,9 @@ impl BootStateManager {
             .values()
             .filter(|p| matches!(p.status, PhaseOutcome::Failed))
             .max_by(|a, b| {
-                let a_time = a
-                    .finished_at_ms
-                    .or(a.started_at_ms)
-                    .unwrap_or_default();
-                let b_time = b
-                    .finished_at_ms
-                    .or(b.started_at_ms)
-                    .unwrap_or_default();
-                a_time
-                    .cmp(&b_time)
-                    .then_with(|| a.name.cmp(&b.name))
+                let a_time = a.finished_at_ms.or(a.started_at_ms).unwrap_or_default();
+                let b_time = b.finished_at_ms.or(b.started_at_ms).unwrap_or_default();
+                a_time.cmp(&b_time).then_with(|| a.name.cmp(&b.name))
             })
             .and_then(|p| p.error_code.clone())
     }

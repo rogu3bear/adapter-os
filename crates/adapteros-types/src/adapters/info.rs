@@ -49,6 +49,10 @@ pub struct AdapterInfo {
     #[serde(default)]
     pub languages: Vec<String>,
 
+    /// Reasoning specialties to aid dynamic routing (e.g., math, logic, creative)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reasoning_specialties: Vec<String>,
+
     /// BLAKE3 hash of adapter weights (as string)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hash_b3: Option<String>,
@@ -75,6 +79,7 @@ impl Default for AdapterInfo {
             loaded: false,
             framework: None,
             languages: Vec::new(),
+            reasoning_specialties: Vec::new(),
             hash_b3: None,
             ttl_hours: None,
             created_at: None,
@@ -112,6 +117,12 @@ impl AdapterInfo {
     /// Set version
     pub fn with_version(mut self, version: impl Into<String>) -> Self {
         self.version = Some(version.into());
+        self
+    }
+
+    /// Set reasoning specialties
+    pub fn with_reasoning_specialties(mut self, specialties: Vec<String>) -> Self {
+        self.reasoning_specialties = specialties;
         self
     }
 

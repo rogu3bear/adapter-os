@@ -3,7 +3,7 @@
  * Do not make direct changes to the file.
  */
 
-export interface paths {
+export type paths = {
     "/admin/lifecycle/request-maintenance": {
         parameters: {
             query?: never;
@@ -73,6 +73,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    [path: `/healthz/${string}`]: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get health status for a specific component */
+        get: operations["check_component_health"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/healthz/all": {
         parameters: {
             query?: never;
@@ -82,23 +99,6 @@ export interface paths {
         };
         /** Get health status for all components */
         get: operations["check_all_health"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/healthz/{component}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get health status for a specific component */
-        get: operations["check_component_health"];
         put?: never;
         post?: never;
         delete?: never;
@@ -179,7 +179,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/adapter-repositories/{repo_id}/versions": {
+    [path: `/v1/adapter-repositories/${string}/versions`]: {
         parameters: {
             query?: never;
             header?: never;
@@ -214,24 +214,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/adapter-stacks/deactivate": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Deactivate the current adapter stack */
-        post: operations["deactivate_stack"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/adapter-stacks/{id}": {
+    [path: `/v1/adapter-stacks/${string}`]: {
         parameters: {
             query?: never;
             header?: never;
@@ -249,7 +232,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/adapter-stacks/{id}/activate": {
+    [path: `/v1/adapter-stacks/${string}/activate`]: {
         parameters: {
             query?: never;
             header?: never;
@@ -266,7 +249,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/adapter-stacks/{id}/history": {
+    [path: `/v1/adapter-stacks/${string}/history`]: {
         parameters: {
             query?: never;
             header?: never;
@@ -283,6 +266,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/adapter-stacks/deactivate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Deactivate the current adapter stack */
+        post: operations["deactivate_stack"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/adapters": {
         parameters: {
             query?: never;
@@ -292,6 +292,122 @@ export interface paths {
         };
         /** List all adapters */
         get: operations["list_adapters"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    [path: `/v1/adapters/${string}`]: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get adapter by ID */
+        get: operations["get_adapter"];
+        put?: never;
+        post?: never;
+        /** Delete adapter */
+        delete: operations["delete_adapter"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    [path: `/v1/adapters/${string}/activations`]: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_adapter_activations"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    [path: `/v1/adapters/${string}/evidence`]: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get evidence entries for a specific adapter */
+        get: operations["get_adapter_evidence"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    [path: `/v1/adapters/${string}/load`]: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["load_adapter"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    [path: `/v1/adapters/${string}/state/promote`]: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["promote_adapter_state"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    [path: `/v1/adapters/${string}/unload`]: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["unload_adapter"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    [path: `/v1/adapters/${string}/usage`]: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /v1/adapters/:adapter_id/usage - Get adapter usage statistics */
+        get: operations["get_adapter_usage"];
         put?: never;
         post?: never;
         delete?: never;
@@ -324,135 +440,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Verify GPU buffer integrity for loaded adapters
-         * @description Performs cryptographic verification that adapter lifecycle metadata matches
-         *     actual GPU buffer state through fingerprinting and cross-layer hashing.
-         */
         get: operations["verify_gpu_integrity"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/adapters/{adapter_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get adapter by ID */
-        get: operations["get_adapter"];
-        put?: never;
-        post?: never;
-        /** Delete adapter */
-        delete: operations["delete_adapter"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/adapters/{adapter_id}/activations": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get adapter activations */
-        get: operations["get_adapter_activations"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/adapters/{adapter_id}/evidence": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get evidence entries for a specific adapter */
-        get: operations["get_adapter_evidence"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/adapters/{adapter_id}/load": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Load an adapter into memory */
-        post: operations["load_adapter"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/adapters/{adapter_id}/state/promote": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Promote adapter tier (persistent -> warm -> ephemeral)
-         * @description Promotes an adapter to the next tier level. Returns 400 if already at maximum tier.
-         */
-        post: operations["promote_adapter_state"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/adapters/{adapter_id}/unload": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Unload an adapter from memory */
-        post: operations["unload_adapter"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/adapters/{adapter_id}/usage": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** GET /v1/adapters/:adapter_id/usage - Get adapter usage statistics */
-        get: operations["get_adapter_usage"];
         put?: never;
         post?: never;
         delete?: never;
@@ -717,7 +705,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/auth/sessions/{jti}": {
+    [path: `/v1/auth/sessions/${string}`]: {
         parameters: {
             query?: never;
             header?: never;
@@ -751,7 +739,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/batches/{batch_id}": {
+    [path: `/v1/batches/${string}`]: {
         parameters: {
             query?: never;
             header?: never;
@@ -768,7 +756,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/batches/{batch_id}/items": {
+    [path: `/v1/batches/${string}/items`]: {
         parameters: {
             query?: never;
             header?: never;
@@ -785,7 +773,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/chat/messages/{message_id}/evidence": {
+    [path: `/v1/chat/messages/${string}/evidence`]: {
         parameters: {
             query?: never;
             header?: never;
@@ -829,7 +817,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/chat/sessions/{session_id}": {
+    [path: `/v1/chat/sessions/${string}`]: {
         parameters: {
             query?: never;
             header?: never;
@@ -853,7 +841,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/chat/sessions/{session_id}/collection": {
+    [path: `/v1/chat/sessions/${string}/collection`]: {
         parameters: {
             query?: never;
             header?: never;
@@ -873,7 +861,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/chat/sessions/{session_id}/messages": {
+    [path: `/v1/chat/sessions/${string}/messages`]: {
         parameters: {
             query?: never;
             header?: never;
@@ -897,7 +885,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/chat/sessions/{session_id}/provenance": {
+    [path: `/v1/chat/sessions/${string}/provenance`]: {
         parameters: {
             query?: never;
             header?: never;
@@ -919,7 +907,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/chat/sessions/{session_id}/summary": {
+    [path: `/v1/chat/sessions/${string}/summary`]: {
         parameters: {
             query?: never;
             header?: never;
@@ -1059,7 +1047,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/code/repositories/{repo_id}": {
+    [path: `/v1/code/repositories/${string}`]: {
         parameters: {
             query?: never;
             header?: never;
@@ -1093,7 +1081,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/code/scan/{job_id}": {
+    [path: `/v1/code/scan/${string}`]: {
         parameters: {
             query?: never;
             header?: never;
@@ -1128,7 +1116,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/collections/{id}": {
+    [path: `/v1/collections/${string}`]: {
         parameters: {
             query?: never;
             header?: never;
@@ -1146,7 +1134,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/collections/{id}/documents": {
+    [path: `/v1/collections/${string}/documents`]: {
         parameters: {
             query?: never;
             header?: never;
@@ -1163,7 +1151,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/collections/{id}/documents/{doc_id}": {
+    [path: `/v1/collections/${string}/documents/${string}`]: {
         parameters: {
             query?: never;
             header?: never;
@@ -1197,7 +1185,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/commits/{sha}": {
+    [path: `/v1/commits/${string}`]: {
         parameters: {
             query?: never;
             header?: never;
@@ -1214,7 +1202,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/commits/{sha}/diff": {
+    [path: `/v1/commits/${string}/diff`]: {
         parameters: {
             query?: never;
             header?: never;
@@ -1249,7 +1237,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/contacts/{id}": {
+    [path: `/v1/contacts/${string}`]: {
         parameters: {
             query?: never;
             header?: never;
@@ -1267,7 +1255,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/contacts/{id}/interactions": {
+    [path: `/v1/contacts/${string}/interactions`]: {
         parameters: {
             query?: never;
             header?: never;
@@ -1348,7 +1336,76 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/datasets/chunked-upload/initiate": {
+    [path: `/v1/datasets/${string}`]: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get a specific dataset */
+        get: operations["get_dataset"];
+        put?: never;
+        post?: never;
+        /** Delete a dataset */
+        delete: operations["delete_dataset"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    [path: `/v1/datasets/${string}/evidence`]: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get evidence entries for a specific dataset */
+        get: operations["get_dataset_evidence"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    [path: `/v1/datasets/${string}/files`]: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get files in a dataset */
+        get: operations["get_dataset_files"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    [path: `/v1/datasets/${string}/preview`]: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get a preview of dataset contents */
+        get: operations["preview_dataset"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    [path: `/v1/datasets/${string}/safety`]: {
         parameters: {
             query?: never;
             header?: never;
@@ -1357,15 +1414,116 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Initiate a chunked upload for files > 10MB */
-        post: operations["initiate_chunked_upload"];
+        post: operations["update_dataset_safety"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/v1/datasets/chunked-upload/{session_id}": {
+    [path: `/v1/datasets/${string}/statistics`]: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get dataset statistics */
+        get: operations["get_dataset_statistics"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    [path: `/v1/datasets/${string}/trust_override`]: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["override_dataset_trust"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    [path: `/v1/datasets/${string}/validate`]: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Validate a dataset */
+        post: operations["validate_dataset"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    [path: `/v1/datasets/${string}/versions`]: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List all versions for a dataset (ordered latest-first) with effective trust_state. */
+        get: operations["list_dataset_versions"];
+        put?: never;
+        /** Create a dataset version explicitly (e.g., to pin a manifest before training). */
+        post: operations["create_dataset_version"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    [path: `/v1/datasets/${string}/versions/${string}/safety`]: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Update safety signals for a specific dataset version */
+        post: operations["update_dataset_version_safety"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    [path: `/v1/datasets/${string}/versions/${string}/trust-override`]: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Apply trust override to a specific dataset version */
+        post: operations["apply_dataset_version_trust_override"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    [path: `/v1/datasets/chunked-upload/${string}`]: {
         parameters: {
             query?: never;
             header?: never;
@@ -1386,7 +1544,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/datasets/chunked-upload/{session_id}/chunk": {
+    [path: `/v1/datasets/chunked-upload/${string}/chunk`]: {
         parameters: {
             query?: never;
             header?: never;
@@ -1416,7 +1574,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/datasets/chunked-upload/{session_id}/complete": {
+    [path: `/v1/datasets/chunked-upload/${string}/complete`]: {
         parameters: {
             query?: never;
             header?: never;
@@ -1444,7 +1602,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/datasets/chunked-upload/{session_id}/status": {
+    [path: `/v1/datasets/chunked-upload/${string}/status`]: {
         parameters: {
             query?: never;
             header?: never;
@@ -1459,6 +1617,23 @@ export interface paths {
         get: operations["get_upload_session_status"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/datasets/chunked-upload/initiate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Initiate a chunked upload for files > 10MB */
+        post: operations["initiate_chunked_upload"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1526,193 +1701,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/datasets/{dataset_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get a specific dataset */
-        get: operations["get_dataset"];
-        put?: never;
-        post?: never;
-        /** Delete a dataset */
-        delete: operations["delete_dataset"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/datasets/{dataset_id}/evidence": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get evidence entries for a specific dataset */
-        get: operations["get_dataset_evidence"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/datasets/{dataset_id}/files": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get files in a dataset */
-        get: operations["get_dataset_files"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/datasets/{dataset_id}/preview": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get a preview of dataset contents */
-        get: operations["preview_dataset"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/datasets/{dataset_id}/safety": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["update_dataset_safety"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/datasets/{dataset_id}/statistics": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get dataset statistics */
-        get: operations["get_dataset_statistics"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/datasets/{dataset_id}/trust_override": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["override_dataset_trust"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/datasets/{dataset_id}/validate": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Validate a dataset */
-        post: operations["validate_dataset"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/datasets/{dataset_id}/versions": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List all versions for a dataset (ordered latest-first) with effective trust_state. */
-        get: operations["list_dataset_versions"];
-        put?: never;
-        /** Create a dataset version explicitly (e.g., to pin a manifest before training). */
-        post: operations["create_dataset_version"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/datasets/{dataset_id}/versions/{version_id}/safety": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Update safety signals for a specific dataset version */
-        post: operations["update_dataset_version_safety"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/datasets/{dataset_id}/versions/{version_id}/trust-override": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Apply trust override to a specific dataset version */
-        post: operations["apply_dataset_version_trust_override"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/v1/diagnostics/determinism-status": {
         parameters: {
             query?: never;
@@ -1764,6 +1752,95 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    [path: `/v1/documents/${string}`]: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get a specific document */
+        get: operations["get_document"];
+        put?: never;
+        post?: never;
+        /** Delete a document */
+        delete: operations["delete_document"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    [path: `/v1/documents/${string}/chunks`]: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List chunks for a document */
+        get: operations["list_document_chunks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    [path: `/v1/documents/${string}/download`]: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Download original document file */
+        get: operations["download_document"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    [path: `/v1/documents/${string}/process`]: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Stub for process_document when embeddings feature is disabled */
+        post: operations["process_document"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    [path: `/v1/documents/${string}/retry`]: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Retry a failed document processing.
+         *     Only works on documents in "failed" state that haven't exceeded max retries.
+         */
+        post: operations["retry_document"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/documents/failed": {
         parameters: {
             query?: never;
@@ -1803,95 +1880,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/documents/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get a specific document */
-        get: operations["get_document"];
-        put?: never;
-        post?: never;
-        /** Delete a document */
-        delete: operations["delete_document"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/documents/{id}/chunks": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List chunks for a document */
-        get: operations["list_document_chunks"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/documents/{id}/download": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Download original document file */
-        get: operations["download_document"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/documents/{id}/process": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Stub for process_document when embeddings feature is disabled */
-        post: operations["process_document"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/documents/{id}/retry": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Retry a failed document processing.
-         *     Only works on documents in "failed" state that haven't exceeded max retries.
-         */
-        post: operations["retry_document"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/v1/domain-adapters": {
         parameters: {
             query?: never;
@@ -1910,7 +1898,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/domain-adapters/{adapter_id}": {
+    [path: `/v1/domain-adapters/${string}`]: {
         parameters: {
             query?: never;
             header?: never;
@@ -1928,7 +1916,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/domain-adapters/{adapter_id}/execute": {
+    [path: `/v1/domain-adapters/${string}/execute`]: {
         parameters: {
             query?: never;
             header?: never;
@@ -1945,7 +1933,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/domain-adapters/{adapter_id}/load": {
+    [path: `/v1/domain-adapters/${string}/load`]: {
         parameters: {
             query?: never;
             header?: never;
@@ -1962,7 +1950,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/domain-adapters/{adapter_id}/manifest": {
+    [path: `/v1/domain-adapters/${string}/manifest`]: {
         parameters: {
             query?: never;
             header?: never;
@@ -1979,7 +1967,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/domain-adapters/{adapter_id}/test": {
+    [path: `/v1/domain-adapters/${string}/test`]: {
         parameters: {
             query?: never;
             header?: never;
@@ -1996,7 +1984,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/domain-adapters/{adapter_id}/unload": {
+    [path: `/v1/domain-adapters/${string}/unload`]: {
         parameters: {
             query?: never;
             header?: never;
@@ -2031,7 +2019,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/evidence/{id}": {
+    [path: `/v1/evidence/${string}`]: {
         parameters: {
             query?: never;
             header?: never;
@@ -2150,6 +2138,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    [path: `/v1/git/sessions/${string}/end`]: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** End a Git session */
+        post: operations["end_git_session"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/git/sessions/start": {
         parameters: {
             query?: never;
@@ -2167,23 +2172,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/git/sessions/{session_id}/end": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** End a Git session */
-        post: operations["end_git_session"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/v1/git/status": {
         parameters: {
             query?: never;
@@ -2195,6 +2183,91 @@ export interface paths {
         get: operations["git_status"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    [path: `/v1/golden/${string}/approve`]: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** POST /v1/golden/:runId/approve - Approve or reject promotion */
+        post: operations["approve_or_reject_promotion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    [path: `/v1/golden/${string}/gates`]: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /v1/golden/:runId/gates - Get gate status */
+        get: operations["get_gate_status"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    [path: `/v1/golden/${string}/promote`]: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** POST /v1/golden/:runId/promote - Request promotion */
+        post: operations["request_promotion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    [path: `/v1/golden/${string}/promotion`]: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /v1/golden/:runId/promotion - Get promotion status */
+        get: operations["get_promotion_status"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    [path: `/v1/golden/${string}/rollback`]: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** POST /v1/golden/:runId/rollback - Rollback promotion */
+        post: operations["rollback_promotion"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2235,7 +2308,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/golden/runs/{name}": {
+    [path: `/v1/golden/runs/${string}`]: {
         parameters: {
             query?: never;
             header?: never;
@@ -2246,91 +2319,6 @@ export interface paths {
         get: operations["get_golden_run"];
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/golden/{run_id}/approve": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** POST /v1/golden/:runId/approve - Approve or reject promotion */
-        post: operations["approve_or_reject_promotion"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/golden/{run_id}/gates": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** GET /v1/golden/:runId/gates - Get gate status */
-        get: operations["get_gate_status"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/golden/{run_id}/promote": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** POST /v1/golden/:runId/promote - Request promotion */
-        post: operations["request_promotion"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/golden/{run_id}/promotion": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** GET /v1/golden/:runId/promotion - Get promotion status */
-        get: operations["get_promotion_status"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/golden/{stage}/rollback": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** POST /v1/golden/:runId/rollback - Rollback promotion */
-        post: operations["rollback_promotion"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2456,7 +2444,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/journeys/{journey_type}/{id}": {
+    [path: `/v1/journeys/${string}/${string}`]: {
         parameters: {
             query?: never;
             header?: never;
@@ -2644,6 +2632,190 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    [path: `/v1/models/${string}/load`]: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Load a base model into memory
+         * @description # Endpoint
+         *     POST /v1/models/{model_id}/load
+         *
+         *     # Authentication
+         *     Required
+         *
+         *     # Permissions
+         *     Requires one of: Admin, Operator
+         *
+         *     # Response
+         *     Returns current model load status including memory usage and load timestamp.
+         *     If model is already loaded, returns success with current status.
+         *
+         *     # Errors
+         *     - `FORBIDDEN` (403): User lacks required role
+         *     - `NOT_FOUND` (404): Model does not exist in database
+         *     - `WORKER_UNAVAILABLE` (503): No worker available to load the model
+         *     - `WORKER_ERROR` (500): Worker failed to load model
+         *     - `INTERNAL_ERROR` (500): Database error, memory pressure, load failure
+         *
+         *     # Example
+         *     ```
+         *     POST /v1/models/qwen-7b/load
+         *     ```
+         */
+        post: operations["load_model"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    [path: `/v1/models/${string}/status`]: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get model status
+         * @description # Endpoint
+         *     GET /v1/models/{model_id}/status
+         *
+         *     # Authentication
+         *     Required
+         *
+         *     # Permissions
+         *     All authenticated users
+         *
+         *     # Response
+         *     Returns the current load status of a model, including:
+         *     - `model_id`: Model identifier
+         *     - `model_name`: Human-readable model name
+         *     - `model_path`: Filesystem path to model files
+         *     - `status`: Load status (loaded, unloaded, loading, error)
+         *     - `loaded_at`: Timestamp when model was loaded (if loaded)
+         *     - `memory_usage_mb`: Memory consumption in MB (if loaded)
+         *     - `is_loaded`: Boolean flag indicating if model is currently in memory
+         *
+         *     # Errors
+         *     - `NOT_FOUND` (404): Model does not exist in database
+         *     - `INTERNAL_ERROR` (500): Database query failure
+         *
+         *     # Example
+         *     ```
+         *     GET /v1/models/qwen-7b/status
+         *     ```
+         */
+        get: operations["get_model_status"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    [path: `/v1/models/${string}/unload`]: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Unload a base model from memory
+         * @description # Endpoint
+         *     POST /v1/models/{model_id}/unload
+         *
+         *     # Authentication
+         *     Required
+         *
+         *     # Permissions
+         *     Requires one of: Admin, Operator
+         *
+         *     # Response
+         *     Returns updated model status confirming the model is unloaded. Frees GPU/memory resources.
+         *
+         *     # Errors
+         *     - `FORBIDDEN` (403): User lacks required role
+         *     - `NOT_FOUND` (404): Model does not exist in database
+         *     - `BAD_REQUEST` (400): Model not currently loaded
+         *     - `INTERNAL_ERROR` (500): Database error, unload failure
+         *
+         *     # Example
+         *     ```
+         *     POST /v1/models/qwen-7b/unload
+         *     ```
+         */
+        post: operations["unload_model"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    [path: `/v1/models/${string}/validate`]: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Validate a model
+         * @description # Endpoint
+         *     GET /v1/models/{model_id}/validate
+         *
+         *     # Authentication
+         *     Required
+         *
+         *     # Permissions
+         *     All authenticated users
+         *
+         *     # Response
+         *     Validates model integrity by checking stored BLAKE3 hashes. Returns:
+         *     - `model_id`: Model identifier
+         *     - `status`: Validation status (ready, invalid)
+         *     - `valid`: Boolean indicating if all hashes are valid
+         *     - `can_load`: Boolean indicating if model can be loaded
+         *     - `reason`: Description of validation failure (if any)
+         *     - `issues`: List of validation issues with type and message
+         *     - `errors`: Legacy field for backwards compatibility
+         *
+         *     Validates:
+         *     - Model weights file hash (BLAKE3)
+         *     - Config file hash (BLAKE3)
+         *     - Tokenizer files hashes (BLAKE3)
+         *     - Metadata JSON format
+         *
+         *     This is a logical validation (hash comparison) and does not require actual file access.
+         *
+         *     # Errors
+         *     - `NOT_FOUND` (404): Model does not exist in database
+         *     - `INTERNAL_ERROR` (500): Database query failure
+         *
+         *     # Example
+         *     ```
+         *     GET /v1/models/qwen-7b/validate
+         *     ```
+         */
+        get: operations["validate_model"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/models/import": {
         parameters: {
             query?: never;
@@ -2775,191 +2947,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/models/{model_id}/load": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Load a base model into memory
-         * @description # Endpoint
-         *     POST /v1/models/{model_id}/load
-         *
-         *     # Authentication
-         *     Required
-         *
-         *     # Permissions
-         *     Requires one of: Admin, Operator
-         *
-         *     # Response
-         *     Returns current model load status including memory usage and load timestamp.
-         *     If model is already loaded, returns success with current status.
-         *
-         *     # Errors
-         *     - `FORBIDDEN` (403): User lacks required role
-         *     - `NOT_FOUND` (404): Model does not exist in database
-         *     - `WORKER_UNAVAILABLE` (503): No worker available to load the model
-         *     - `WORKER_ERROR` (500): Worker failed to load model
-         *     - `INTERNAL_ERROR` (500): Database error, memory pressure, load failure
-         *
-         *     # Example
-         *     ```
-         *     POST /v1/models/qwen-7b/load
-         *     ```
-         */
-        post: operations["load_model"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/models/{model_id}/status": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get model status
-         * @description # Endpoint
-         *     GET /v1/models/{model_id}/status
-         *
-         *     # Authentication
-         *     Required
-         *
-         *     # Permissions
-         *     All authenticated users
-         *
-         *     # Response
-         *     Returns the current load status of a model, including:
-         *     - `model_id`: Model identifier
-         *     - `model_name`: Human-readable model name
-         *     - `model_path`: Filesystem path to model files
-         *     - `status`: Load status (loaded, unloaded, loading, error)
-         *     - `loaded_at`: Timestamp when model was loaded (if loaded)
-         *     - `memory_usage_mb`: Memory consumption in MB (if loaded)
-         *     - `is_loaded`: Boolean flag indicating if model is currently in memory
-         *
-         *     # Errors
-         *     - `NOT_FOUND` (404): Model does not exist in database
-         *     - `INTERNAL_ERROR` (500): Database query failure
-         *
-         *     # Example
-         *     ```
-         *     GET /v1/models/qwen-7b/status
-         *     ```
-         */
-        get: operations["get_model_status"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/models/{model_id}/unload": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Unload a base model from memory
-         * @description # Endpoint
-         *     POST /v1/models/{model_id}/unload
-         *
-         *     # Authentication
-         *     Required
-         *
-         *     # Permissions
-         *     Requires one of: Admin, Operator
-         *
-         *     # Response
-         *     Returns updated model status confirming the model is unloaded. Frees GPU/memory resources.
-         *
-         *     # Errors
-         *     - `FORBIDDEN` (403): User lacks required role
-         *     - `NOT_FOUND` (404): Model does not exist in database
-         *     - `BAD_REQUEST` (400): Model not currently loaded
-         *     - `INTERNAL_ERROR` (500): Database error, unload failure
-         *
-         *     # Example
-         *     ```
-         *     POST /v1/models/qwen-7b/unload
-         *     ```
-         */
-        post: operations["unload_model"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/models/{model_id}/validate": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Validate a model
-         * @description # Endpoint
-         *     GET /v1/models/{model_id}/validate
-         *
-         *     # Authentication
-         *     Required
-         *
-         *     # Permissions
-         *     All authenticated users
-         *
-         *     # Response
-         *     Validates model integrity by checking stored BLAKE3 hashes. Returns:
-         *     - `model_id`: Model identifier
-         *     - `status`: Validation status (ready, invalid)
-         *     - `valid`: Boolean indicating if all hashes are valid
-         *     - `can_load`: Boolean indicating if model can be loaded
-         *     - `reason`: Description of validation failure (if any)
-         *     - `issues`: List of validation issues with type and message
-         *     - `errors`: Legacy field for backwards compatibility
-         *
-         *     Validates:
-         *     - Model weights file hash (BLAKE3)
-         *     - Config file hash (BLAKE3)
-         *     - Tokenizer files hashes (BLAKE3)
-         *     - Metadata JSON format
-         *
-         *     This is a logical validation (hash comparison) and does not require actual file access.
-         *
-         *     # Errors
-         *     - `NOT_FOUND` (404): Model does not exist in database
-         *     - `INTERNAL_ERROR` (500): Database query failure
-         *
-         *     # Example
-         *     ```
-         *     GET /v1/models/qwen-7b/validate
-         *     ```
-         */
-        get: operations["validate_model"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/nodes/{node_id}/detail": {
+    [path: `/v1/nodes/${string}/detail`]: {
         parameters: {
             query?: never;
             header?: never;
@@ -2987,6 +2975,23 @@ export interface paths {
         get: operations["list_notifications"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    [path: `/v1/notifications/${string}/read`]: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mark notification as read */
+        post: operations["mark_notification_read"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3027,23 +3032,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/notifications/{notification_id}/read": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Mark notification as read */
-        post: operations["mark_notification_read"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/v1/patch/propose": {
         parameters: {
             query?: never;
@@ -3078,7 +3066,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/plugins/{name}": {
+    [path: `/v1/plugins/${string}`]: {
         parameters: {
             query?: never;
             header?: never;
@@ -3095,7 +3083,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/plugins/{name}/disable": {
+    [path: `/v1/plugins/${string}/disable`]: {
         parameters: {
             query?: never;
             header?: never;
@@ -3112,7 +3100,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/plugins/{name}/enable": {
+    [path: `/v1/plugins/${string}/enable`]: {
         parameters: {
             query?: never;
             header?: never;
@@ -3218,7 +3206,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/repos/{repo_id}": {
+    [path: `/v1/repos/${string}`]: {
         parameters: {
             query?: never;
             header?: never;
@@ -3234,23 +3222,6 @@ export interface paths {
         head?: never;
         /** Update repository metadata */
         patch: operations["update_repo"];
-        trace?: never;
-    };
-    "/v1/repositories": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List repositories (legacy endpoint - use /v1/code/repositories instead) */
-        get: operations["list_repositories_legacy"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
         trace?: never;
     };
     "/v1/routing/chain": {
@@ -3279,10 +3250,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /**
-         * Debug routing logic
-         *     Debug routing logic
-         */
+        /** Debug routing logic */
         post: operations["debug_routing"];
         delete?: never;
         options?: never;
@@ -3307,7 +3275,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/routing/decisions/{id}": {
+    [path: `/v1/routing/decisions/${string}`]: {
         parameters: {
             query?: never;
             header?: never;
@@ -3341,7 +3309,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/routing/sessions/{request_id}": {
+    [path: `/v1/routing/sessions/${string}`]: {
         parameters: {
             query?: never;
             header?: never;
@@ -3400,6 +3368,86 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    [path: `/v1/services/${string}/logs`]: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get service logs
+         * @description GET /v1/services/:service_id/logs?lines=100
+         */
+        get: operations["get_service_logs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    [path: `/v1/services/${string}/restart`]: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Restart a service
+         * @description POST /v1/services/:service_id/restart
+         */
+        post: operations["restart_service"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    [path: `/v1/services/${string}/start`]: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start a service
+         * @description POST /v1/services/:service_id/start
+         */
+        post: operations["start_service"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    [path: `/v1/services/${string}/stop`]: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Stop a service
+         * @description POST /v1/services/:service_id/stop
+         */
+        post: operations["stop_service"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/services/essential/start": {
         parameters: {
             query?: never;
@@ -3434,86 +3482,6 @@ export interface paths {
          * @description POST /v1/services/essential/stop
          */
         post: operations["stop_essential_services"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/services/{service_id}/logs": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get service logs
-         * @description GET /v1/services/:service_id/logs?lines=100
-         */
-        get: operations["get_service_logs"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/services/{service_id}/restart": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Restart a service
-         * @description POST /v1/services/:service_id/restart
-         */
-        post: operations["restart_service"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/services/{service_id}/start": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Start a service
-         * @description POST /v1/services/:service_id/start
-         */
-        post: operations["start_service"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/services/{service_id}/stop": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Stop a service
-         * @description POST /v1/services/:service_id/stop
-         */
-        post: operations["stop_service"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3632,7 +3600,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/stream/activity/{workspace_id}": {
+    [path: `/v1/stream/activity/${string}`]: {
         parameters: {
             query?: never;
             header?: never;
@@ -3666,7 +3634,13 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Contacts stream */
+        /**
+         * Contacts stream SSE endpoint
+         * @description Streams real-time contact discovery and update events as contacts are
+         *     discovered during inference operations.
+         *
+         *     Citation: CONTACTS_AND_STREAMS_IMPLEMENTATION_PLAN.md §2.6
+         */
         get: operations["contacts_stream"];
         put?: never;
         post?: never;
@@ -3683,7 +3657,19 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Discovery stream */
+        /**
+         * Discovery stream SSE endpoint
+         * @description Streams real-time repository scanning and code discovery events including
+         *     scan progress, symbol indexing, framework detection, and completion events.
+         *
+         *     Events are sent as Server-Sent Events (SSE) with the following format:
+         *     ```
+         *     event: discovery
+         *     data: {"type":"symbol_indexed","timestamp":...,"payload":{...}}
+         *     ```
+         *
+         *     Citation: CONTACTS_AND_STREAMS_IMPLEMENTATION_PLAN.md §4.4
+         */
         get: operations["discovery_stream"];
         put?: never;
         post?: never;
@@ -3735,6 +3721,23 @@ export interface paths {
             cookie?: never;
         };
         get: operations["get_uma_memory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/system/memory/gpu": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /v1/system/memory/gpu - Get GPU memory report */
+        get: operations["get_memory_report"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3849,23 +3852,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/tenants/hydrate": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["hydrate_tenant_from_bundle"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/tenants/{tenant_id}/default-stack": {
+    [path: `/v1/tenants/${string}/default-stack`]: {
         parameters: {
             query?: never;
             header?: never;
@@ -3884,7 +3871,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/tenants/{tenant_id}/execution-policy": {
+    [path: `/v1/tenants/${string}/execution-policy`]: {
         parameters: {
             query?: never;
             header?: never;
@@ -3921,33 +3908,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/tenants/{tenant_id}/execution-policy/history": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get execution policy history for a tenant
-         * @description Returns all policy versions (active and inactive) ordered by version
-         *     descending (most recent first).
-         *
-         *     # Errors
-         *     - 401: Unauthorized - missing or invalid authentication
-         *     - 403: Forbidden - tenant isolation violation
-         *     - 500: Internal server error
-         */
-        get: operations["get_execution_policy_history"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/tenants/{tenant_id}/execution-policy/{policy_id}": {
+    [path: `/v1/tenants/${string}/execution-policy/${string}`]: {
         parameters: {
             query?: never;
             header?: never;
@@ -3974,7 +3935,33 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/tenants/{tenant_id}/policy-bindings": {
+    [path: `/v1/tenants/${string}/execution-policy/history`]: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get execution policy history for a tenant
+         * @description Returns all policy versions (active and inactive) ordered by version
+         *     descending (most recent first).
+         *
+         *     # Errors
+         *     - 401: Unauthorized - missing or invalid authentication
+         *     - 403: Forbidden - tenant isolation violation
+         *     - 500: Internal server error
+         */
+        get: operations["get_execution_policy_history"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    [path: `/v1/tenants/${string}/policy-bindings`]: {
         parameters: {
             query?: never;
             header?: never;
@@ -3995,7 +3982,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/tenants/{tenant_id}/policy-bindings/{policy_pack_id}/toggle": {
+    [path: `/v1/tenants/${string}/policy-bindings/${string}/toggle`]: {
         parameters: {
             query?: never;
             header?: never;
@@ -4017,7 +4004,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/tenants/{tenant_id}/revoke-all-tokens": {
+    [path: `/v1/tenants/${string}/revoke-all-tokens`]: {
         parameters: {
             query?: never;
             header?: never;
@@ -4040,14 +4027,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/traces/search": {
+    "/v1/tenants/hydrate": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get: operations["search_traces"];
+        get?: never;
+        put?: never;
+        post: operations["hydrate_tenant_from_bundle"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/topology": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Return the full semantic topology graph for UI rendering. */
+        get: operations["get_topology"];
         put?: never;
         post?: never;
         delete?: never;
@@ -4056,7 +4060,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/traces/{trace_id}": {
+    [path: `/v1/traces/${string}`]: {
         parameters: {
             query?: never;
             header?: never;
@@ -4064,6 +4068,22 @@ export interface paths {
             cookie?: never;
         };
         get: operations["get_trace"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/traces/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["search_traces"];
         put?: never;
         post?: never;
         delete?: never;
@@ -4089,7 +4109,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/training/jobs/{job_id}": {
+    [path: `/v1/training/jobs/${string}`]: {
         parameters: {
             query?: never;
             header?: never;
@@ -4106,7 +4126,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/training/jobs/{job_id}/cancel": {
+    [path: `/v1/training/jobs/${string}/cancel`]: {
         parameters: {
             query?: never;
             header?: never;
@@ -4123,7 +4143,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/training/jobs/{job_id}/chat_bootstrap": {
+    [path: `/v1/training/jobs/${string}/chat_bootstrap`]: {
         parameters: {
             query?: never;
             header?: never;
@@ -4144,7 +4164,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/training/jobs/{job_id}/logs": {
+    [path: `/v1/training/jobs/${string}/logs`]: {
         parameters: {
             query?: never;
             header?: never;
@@ -4161,7 +4181,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/training/jobs/{job_id}/metrics": {
+    [path: `/v1/training/jobs/${string}/metrics`]: {
         parameters: {
             query?: never;
             header?: never;
@@ -4178,7 +4198,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/training/jobs/{job_id}/retry": {
+    [path: `/v1/training/jobs/${string}/retry`]: {
         parameters: {
             query?: never;
             header?: never;
@@ -4199,7 +4219,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/training/repos/{repo_id}/versions/{version_id}/promote": {
+    [path: `/v1/training/repos/${string}/versions/${string}/promote`]: {
         parameters: {
             query?: never;
             header?: never;
@@ -4267,7 +4287,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/training/templates/{template_id}": {
+    [path: `/v1/training/templates/${string}`]: {
         parameters: {
             query?: never;
             header?: never;
@@ -4301,7 +4321,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/tutorials/{tutorial_id}/complete": {
+    [path: `/v1/tutorials/${string}/complete`]: {
         parameters: {
             query?: never;
             header?: never;
@@ -4318,7 +4338,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/tutorials/{tutorial_id}/dismiss": {
+    [path: `/v1/tutorials/${string}/dismiss`]: {
         parameters: {
             query?: never;
             header?: never;
@@ -4335,7 +4355,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/tutorials/{tutorial_id}/incomplete": {
+    [path: `/v1/tutorials/${string}/incomplete`]: {
         parameters: {
             query?: never;
             header?: never;
@@ -4352,7 +4372,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/tutorials/{tutorial_id}/undismiss": {
+    [path: `/v1/tutorials/${string}/undismiss`]: {
         parameters: {
             query?: never;
             header?: never;
@@ -4369,7 +4389,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/workers/{worker_id}/detail": {
+    [path: `/v1/workers/${string}/detail`]: {
         parameters: {
             query?: never;
             header?: never;
@@ -4404,24 +4424,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/workspaces/me": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List workspaces for current user */
-        get: operations["list_user_workspaces"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/workspaces/{workspace_id}": {
+    [path: `/v1/workspaces/${string}`]: {
         parameters: {
             query?: never;
             header?: never;
@@ -4440,7 +4443,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/workspaces/{workspace_id}/members": {
+    [path: `/v1/workspaces/${string}/members`]: {
         parameters: {
             query?: never;
             header?: never;
@@ -4458,7 +4461,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/workspaces/{workspace_id}/members/{member_id}": {
+    [path: `/v1/workspaces/${string}/members/${string}`]: {
         parameters: {
             query?: never;
             header?: never;
@@ -4476,7 +4479,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/workspaces/{workspace_id}/resources": {
+    [path: `/v1/workspaces/${string}/resources`]: {
         parameters: {
             query?: never;
             header?: never;
@@ -4494,7 +4497,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/workspaces/{workspace_id}/resources/{resource_id}": {
+    [path: `/v1/workspaces/${string}/resources/${string}`]: {
         parameters: {
             query?: never;
             header?: never;
@@ -4511,9 +4514,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-}
+    "/v1/workspaces/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List workspaces for current user */
+        get: operations["list_user_workspaces"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+};
 export type webhooks = Record<string, never>;
-export interface components {
+export type components = {
     schemas: {
         /** @description Activity event response */
         ActivityEventResponse: {
@@ -4561,7 +4581,7 @@ export interface components {
          *     Mirrors the internal AdapterState enum from adapteros-lora-lifecycle
          * @enum {string}
          */
-        AdapterLifecycleState: "unloaded" | "cold" | "warm" | "hot" | "resident";
+        AdapterLifecycleState: AdapterLifecycleState;
         /** @description Adapter memory information */
         AdapterMemoryInfo: {
             /** Format: int64 */
@@ -4590,6 +4610,16 @@ export interface components {
             state: components["schemas"]["AdapterLifecycleState"];
             /** @description Tenant that owns this adapter */
             tenant_id: string;
+        };
+        /** @description Per-adapter memory usage */
+        AdapterMemoryUsage: {
+            /** @description Adapter ID */
+            adapter_id: string;
+            /**
+             * Format: int64
+             * @description Memory used in bytes
+             */
+            memory_bytes: number;
         };
         /** @description Adapter memory usage response */
         AdapterMemoryUsageResponse: {
@@ -4891,6 +4921,15 @@ export interface components {
              */
             vram_delta_mb?: number | null;
         };
+        /** @description Adapter-level topology metadata. */
+        AdapterTopology: {
+            adapter_id: string;
+            cluster_ids: string[];
+            name: string;
+            transition_probabilities: {
+                [key: string]: number;
+            };
+        };
         /** @description Adapter usage statistics response */
         AdapterUsageResponse: {
             adapter_id: string;
@@ -4943,6 +4982,12 @@ export interface components {
             role: string;
             tenant_id: string;
             user_id?: string | null;
+        };
+        /** @description Edge in the adjacency matrix from one cluster to the next. */
+        AdjacencyEdge: {
+            /** Format: double */
+            probability: number;
+            to_cluster_id: string;
         };
         /** @description ANE-specific memory state (Apple Silicon only) */
         AneMemoryState: {
@@ -5131,7 +5176,20 @@ export interface components {
          *     available backend" without changing defaults for existing callers.
          * @enum {string}
          */
-        BackendKind: "auto" | "coreml" | "mlx" | "metal" | "cpu";
+        BackendKind: BackendKind;
+        BackgroundTaskEntry: {
+            critical: boolean;
+            name: string;
+        };
+        BackgroundTaskFailure: {
+            critical: boolean;
+            error: string;
+            name: string;
+        };
+        BackgroundTaskSnapshot: {
+            failed?: components["schemas"]["BackgroundTaskFailure"][];
+            spawned?: components["schemas"]["BackgroundTaskEntry"][];
+        };
         /** @description Base model information */
         BaseModelInfo: {
             created_at: string;
@@ -5230,6 +5288,11 @@ export interface components {
              */
             total_items: number;
         };
+        BootPhaseDuration: {
+            /** Format: int64 */
+            elapsed_ms: number;
+            state: string;
+        };
         BootstrapRequest: {
             display_name: string;
             email: string;
@@ -5266,7 +5329,7 @@ export interface components {
          * @description Classification for adapter branches controlling promotion safeguards.
          * @enum {string}
          */
-        BranchClassification: "protected" | "high" | "sandbox";
+        BranchClassification: BranchClassification;
         /** @description Branch summary with version count */
         BranchSummary: {
             branch: string;
@@ -5617,6 +5680,13 @@ export interface components {
             /** @description Standard output from the command */
             stdout: string;
         };
+        /** @description Cluster definition within the semantic topology. */
+        ClusterDefinition: {
+            default_adapter_id?: string | null;
+            description: string;
+            id: string;
+            version: string;
+        };
         /** @description Collection detail response (includes documents) */
         CollectionDetailResponse: {
             collection_id: string;
@@ -5723,7 +5793,7 @@ export interface components {
          * @description Component health status
          * @enum {string}
          */
-        ComponentStatus: "healthy" | "degraded" | "unhealthy";
+        ComponentStatus: ComponentStatus;
         Contact: {
             avatar_url?: string | null;
             category: string;
@@ -5783,6 +5853,10 @@ export interface components {
             tenant_id: string;
             updated_at: string;
         };
+        /** @description Contacts list response */
+        ContactsResponse: {
+            contacts: components["schemas"]["ContactResponse"][];
+        };
         /** @description Parameters for contact upsert operation */
         ContactUpsertParams: {
             category: string;
@@ -5793,15 +5867,11 @@ export interface components {
             role?: string | null;
             tenant_id: string;
         };
-        /** @description Contacts list response */
-        ContactsResponse: {
-            contacts: components["schemas"]["ContactResponse"][];
-        };
         /**
          * @description CoreML execution mode for inference/training backend selection.
          * @enum {string}
          */
-        CoreMLMode: "coreml_strict" | "coreml_preferred" | "backend_auto";
+        CoreMLMode: CoreMLMode;
         /** @description Request body for creating an activity event */
         CreateActivityEventRequest: {
             /** @description Type of event (e.g., "adapter_loaded", "training_started", "inference_completed") */
@@ -6017,7 +6087,7 @@ export interface components {
          * @description Lineage quality for training data provenance.
          * @enum {string}
          */
-        DataLineageMode: "versioned" | "dataset_only" | "synthetic" | "legacy_unpinned";
+        DataLineageMode: DataLineageMode;
         /** @description Dataset file response */
         DatasetFileResponse: {
             created_at: string;
@@ -6072,7 +6142,7 @@ export interface components {
          * @description Dataset source type
          * @enum {string}
          */
-        DatasetSourceType: "code_repo" | "uploaded_files" | "generated";
+        DatasetSourceType: DatasetSourceType;
         /** @description Dataset statistics response */
         DatasetStatisticsResponse: {
             /** Format: double */
@@ -6100,12 +6170,18 @@ export interface components {
          * @description Dataset validation status
          * @enum {string}
          */
-        DatasetValidationStatus: "pending" | "validating" | "valid" | "invalid" | "skipped";
+        DatasetValidationStatus: DatasetValidationStatus;
         /** @description Dataset version selector with optional sampling weight (API surface). */
         DatasetVersionSelection: {
             dataset_version_id: string;
             /** Format: float */
             weight?: number;
+        };
+        /** @description Dataset versions list response */
+        DatasetVersionsResponse: {
+            dataset_id: string;
+            schema_version?: string;
+            versions: components["schemas"]["DatasetVersionSummary"][];
         };
         /** @description Summary of a dataset version (used for dataset detail views and selectors) */
         DatasetVersionSummary: {
@@ -6123,12 +6199,6 @@ export interface components {
         DatasetVersionTrustSnapshot: {
             dataset_version_id: string;
             trust_at_training_time?: string | null;
-        };
-        /** @description Dataset versions list response */
-        DatasetVersionsResponse: {
-            dataset_id: string;
-            schema_version?: string;
-            versions: components["schemas"]["DatasetVersionSummary"][];
         };
         /** @description Default stack response */
         DefaultStackResponse: {
@@ -6399,7 +6469,7 @@ export interface components {
          * @description Structured failure codes for smoke-test visibility and UI surfacing.
          * @enum {string}
          */
-        FailureCode: "MIGRATION_INVALID" | "MODEL_LOAD_FAILED" | "OUT_OF_MEMORY" | "TRACE_WRITE_FAILED" | "RECEIPT_MISMATCH" | "POLICY_DIVERGENCE" | "BACKEND_FALLBACK" | "TENANT_ACCESS_DENIED" | "KV_QUOTA_EXCEEDED" | "WORKER_OVERLOADED" | "BOOT_DB_UNREACHABLE" | "BOOT_MIGRATION_FAILED" | "BOOT_SEED_FAILED" | "BOOT_NO_WORKERS" | "BOOT_NO_MODELS" | "BOOT_DEPENDENCY_TIMEOUT" | "BOOT_CONFIG_INVALID";
+        FailureCode: FailureCode;
         /** @description Feature vector */
         FeatureVector: {
             frameworks: string[];
@@ -6642,6 +6712,47 @@ export interface components {
             progress?: number | null;
             status: string;
         };
+        /** @description Inference evidence record */
+        InferenceEvidence: {
+            chunk_hash: string;
+            chunk_id: string;
+            context_hash: string;
+            created_at: string;
+            document_hash: string;
+            document_id: string;
+            id: string;
+            inference_id: string;
+            message_id?: string | null;
+            /** Format: int32 */
+            page_number?: number | null;
+            /** @description Collection ID used for scoped RAG retrieval */
+            rag_collection_id?: string | null;
+            /** @description JSON array of document IDs in retrieval order (aggregate RAG trace) */
+            rag_doc_ids?: string | null;
+            /** @description JSON array of relevance scores parallel to rag_doc_ids */
+            rag_scores?: string | null;
+            /** Format: int32 */
+            rank: number;
+            /** Format: double */
+            relevance_score: number;
+            session_id?: string | null;
+        };
+        /** @description Inference trace for observability */
+        InferenceTrace: {
+            /** @description Flattened expert IDs per token for quick visualization */
+            active_experts?: number[][] | null;
+            adapters_used: string[];
+            /** @description Per-token expert routing data (layer_idx, expert_id) for MoE models */
+            expert_routing?: number[][][] | null;
+            /** @description Fusion intervals and fused tensor hashes for determinism evidence */
+            fusion_intervals?: components["schemas"]["FusionIntervalTrace"][] | null;
+            /** Format: int64 */
+            latency_ms: number;
+            model_type?: null | components["schemas"]["RouterModelType"];
+            moe_info?: null | components["schemas"]["MoEInfo"];
+            router_decision_chain?: components["schemas"]["RouterDecisionChainEntry"][] | null;
+            router_decisions: components["schemas"]["RouterDecision"][];
+        };
         /** @description Inference request */
         InferRequest: {
             /**
@@ -6675,6 +6786,8 @@ export interface components {
             prompt: string;
             /** @description Enable RAG context retrieval for this inference request */
             rag_enabled?: boolean | null;
+            /** @description Enable reasoning-aware routing and hot-swaps */
+            reasoning_mode?: boolean | null;
             require_evidence?: boolean | null;
             /** @description Per-request override for router determinism (e.g., "deterministic", "adaptive") */
             routing_determinism_mode?: string;
@@ -6760,41 +6873,6 @@ export interface components {
              *     available in the candidate adapter set. Returned for UI warning display.
              */
             unavailable_pinned_adapters?: string[] | null;
-        };
-        /** @description Inference evidence record */
-        InferenceEvidence: {
-            chunk_hash: string;
-            chunk_id: string;
-            context_hash: string;
-            created_at: string;
-            document_hash: string;
-            document_id: string;
-            id: string;
-            inference_id: string;
-            message_id?: string | null;
-            /** Format: int32 */
-            page_number?: number | null;
-            /** @description Collection ID used for scoped RAG retrieval */
-            rag_collection_id?: string | null;
-            /** @description JSON array of document IDs in retrieval order (aggregate RAG trace) */
-            rag_doc_ids?: string | null;
-            /** @description JSON array of relevance scores parallel to rag_doc_ids */
-            rag_scores?: string | null;
-            /** Format: int32 */
-            rank: number;
-            /** Format: double */
-            relevance_score: number;
-            session_id?: string | null;
-        };
-        /** @description Inference trace for observability */
-        InferenceTrace: {
-            adapters_used: string[];
-            /** @description Fusion intervals and fused tensor hashes for determinism evidence */
-            fusion_intervals?: components["schemas"]["FusionIntervalTrace"][] | null;
-            /** Format: int64 */
-            latency_ms: number;
-            router_decision_chain?: components["schemas"]["RouterDecisionChainEntry"][] | null;
-            router_decisions: components["schemas"]["RouterDecision"][];
         };
         /** @description Request to ingest a router decision event (internal endpoint) */
         IngestRouterDecisionRequest: {
@@ -6908,22 +6986,22 @@ export interface components {
             expected_tenant: string;
             found_tenant: string;
             /** @enum {string} */
-            kind: "cross_tenant_mismatch";
+            kind: KvIsolationIssueKind;
         } | {
             /** @enum {string} */
-            kind: "missing_in_sql";
+            kind: KvIsolationIssueKind;
         } | {
             /** @enum {string} */
-            kind: "missing_in_kv";
+            kind: KvIsolationIssueKind;
         } | {
             field: string;
             /** @enum {string} */
-            kind: "field_mismatch";
+            kind: KvIsolationIssueKind;
             kv_value: string;
             sql_value: string;
         } | {
             /** @enum {string} */
-            kind: "prefix_value_mismatch";
+            kind: KvIsolationIssueKind;
             prefix_tenant: string;
             value_tenant: string;
         };
@@ -6967,6 +7045,7 @@ export interface components {
             version: string;
         };
         LifecycleStatusResponse: {
+            background_tasks?: components["schemas"]["BackgroundTaskSnapshot"];
             drain: components["schemas"]["DrainSection"];
             environment: string;
             flags?: string[];
@@ -7010,20 +7089,20 @@ export interface components {
         /** @description Load average information */
         LoadAverageInfo: {
             /** Format: double */
-            load_15min: number;
-            /** Format: double */
             load_1min: number;
             /** Format: double */
             load_5min: number;
+            /** Format: double */
+            load_15min: number;
         };
         /** @description Load average response */
         LoadAverageResponse: {
             /** Format: double */
-            load_15min: number;
-            /** Format: double */
             load_1min: number;
             /** Format: double */
             load_5min: number;
+            /** Format: double */
+            load_15min: number;
             schema_version?: string;
         };
         /** @description Load domain adapter request */
@@ -7062,7 +7141,7 @@ export interface components {
             lines?: number;
         };
         /** @enum {string} */
-        MaintenanceScope: "controlplane" | "worker" | "all";
+        MaintenanceScope: MaintenanceScope;
         MaintenanceSection: {
             active: boolean;
             actor?: string | null;
@@ -7072,12 +7151,12 @@ export interface components {
          * @description Memory location
          * @enum {string}
          */
-        MemoryLocation: "system" | "g_p_u" | "a_n_e" | "disk";
+        MemoryLocation: MemoryLocation;
         /**
          * @description Memory pressure level
          * @enum {string}
          */
-        MemoryPressureLevel: "low" | "medium" | "high" | "critical";
+        MemoryPressureLevel: MemoryPressureLevel;
         /** @description Memory region information */
         MemoryRegion: {
             /** Format: int64 */
@@ -7088,6 +7167,31 @@ export interface components {
             usage_percent: number;
             /** Format: int64 */
             used_mb: number;
+        };
+        /** @description GPU memory report response */
+        MemoryReportResponse: {
+            /**
+             * Format: int64
+             * @description Available GPU memory in bytes
+             */
+            available_gpu_memory_bytes: number;
+            /**
+             * Format: float
+             * @description GPU memory headroom percentage
+             */
+            gpu_headroom_pct: number;
+            /** @description Per-adapter memory usage */
+            per_adapter_usage: components["schemas"]["AdapterMemoryUsage"][];
+            /**
+             * Format: int64
+             * @description Total GPU memory in bytes
+             */
+            total_gpu_memory_bytes: number;
+            /**
+             * Format: int64
+             * @description Used GPU memory in bytes
+             */
+            used_gpu_memory_bytes: number;
         };
         /** @description Memory state summary */
         MemoryState: {
@@ -7167,11 +7271,11 @@ export interface components {
             /** Format: double */
             gpu_utilization?: number | null;
             /** Format: double */
-            load_15min: number;
-            /** Format: double */
             load_1min: number;
             /** Format: double */
             load_5min: number;
+            /** Format: double */
+            load_15min: number;
             /** Format: double */
             memory_usage: number;
             /** Format: double */
@@ -7247,7 +7351,7 @@ export interface components {
          *     - error -> no-model (reset/cleanup)
          * @enum {string}
          */
-        ModelLoadStatus: "no-model" | "loading" | "ready" | "unloading" | "error" | "checking";
+        ModelLoadStatus: ModelLoadStatus;
         /** @description Model runtime health summary */
         ModelRuntimeHealth: {
             healthy: boolean;
@@ -7307,6 +7411,15 @@ export interface components {
             training_job_count: number;
             updated_at?: string | null;
         };
+        /** @description MoE (Mixture of Experts) model information */
+        MoEInfo: {
+            /** @description Number of experts activated per token */
+            experts_per_token: number;
+            /** @description Whether the underlying model is MoE */
+            is_moe: boolean;
+            /** @description Total number of experts available */
+            num_experts: number;
+        };
         /** @description Node detail response with complete node information */
         NodeDetailResponse: {
             adapters_loaded: string[];
@@ -7326,7 +7439,7 @@ export interface components {
          * @description Node health indicator
          * @enum {string}
          */
-        NodeHealth: "ok" | "warning" | "critical";
+        NodeHealth: NodeHealth;
         /** @description Node resource usage */
         NodeResourceUsage: {
             /** Format: float */
@@ -7499,6 +7612,20 @@ export interface components {
             /** Format: double */
             memory_threshold_pct: number;
         };
+        /** @enum {string} */
+        PhaseOutcome: PhaseOutcome;
+        PhaseStatus: {
+            /** Format: int64 */
+            duration_ms?: number | null;
+            error_code?: string | null;
+            /** Format: int64 */
+            finished_at_ms?: number | null;
+            hint?: string | null;
+            name: string;
+            /** Format: int64 */
+            started_at_ms?: number | null;
+            status: components["schemas"]["PhaseOutcome"];
+        };
         PilotStatusResponse: {
             api_ready: boolean;
             db_error?: string | null;
@@ -7618,6 +7745,22 @@ export interface components {
             /** @description Tier to assign: persistent, warm, ephemeral (default: warm) */
             tier?: string | null;
         };
+        /** @description Node prediction returned alongside the topology graph when context is provided. */
+        PredictedPathNode: {
+            /** @description Adapter identifier when this node represents an adapter. */
+            adapter_id?: string | null;
+            /** @description Cluster the adapter belongs to (best-effort, optional). */
+            cluster_id?: string | null;
+            /**
+             * Format: float
+             * @description Confidence or gate value produced by the router (0..1).
+             */
+            confidence?: number | null;
+            /** @description Node identifier (adapter or cluster) */
+            id: string;
+            /** @description Node kind hint (adapter | cluster). */
+            kind?: string | null;
+        };
         PromoteRequest: {
             notes?: string | null;
             target_stage: string;
@@ -7677,7 +7820,7 @@ export interface components {
          * @description Types of provenance events
          * @enum {string}
          */
-        ProvenanceEventType: "dataset_created" | "training_job_started" | "training_job_completed" | "adapter_registered" | "stack_created" | "chat_started";
+        ProvenanceEventType: ProvenanceEventType;
         /** @description Quality metrics response */
         QualityMetricsResponse: {
             /** Format: float */
@@ -7690,6 +7833,12 @@ export interface components {
             hlr: number;
             schema_version?: string;
             timestamp: string;
+        };
+        /** @description Quarantined adapter info */
+        QuarantinedAdapter: {
+            created_at: string;
+            id: string;
+            reason: string;
         };
         /** @description Quarantine details */
         QuarantineDetails: {
@@ -7709,22 +7858,25 @@ export interface components {
             quarantined_adapters: string[];
             reason?: string | null;
         };
-        /** @description Quarantined adapter info */
-        QuarantinedAdapter: {
-            created_at: string;
-            id: string;
-            reason: string;
-        };
         /** @description RAG system status indicating whether embedding model is available */
         RagStatus: {
             dimension: number;
             model_hash: string;
             /** @enum {string} */
-            status: "enabled";
+            status: RagStatusStatus;
         } | {
             reason: string;
             /** @enum {string} */
-            status: "disabled";
+            status: RagStatusStatus;
+        };
+        ReadyMetrics: {
+            boot_phases_ms?: components["schemas"]["BootPhaseDuration"][];
+            /** Format: int64 */
+            db_latency_ms?: number | null;
+            /** Format: int64 */
+            models_latency_ms?: number | null;
+            /** Format: int64 */
+            worker_latency_ms?: number | null;
         };
         ReadyzCheck: {
             hint?: string | null;
@@ -7738,7 +7890,11 @@ export interface components {
             worker: components["schemas"]["ReadyzCheck"];
         };
         ReadyzResponse: {
+            boot_trace_id: string;
             checks: components["schemas"]["ReadyzChecks"];
+            last_error_code?: string | null;
+            metrics?: null | components["schemas"]["ReadyMetrics"];
+            phases?: components["schemas"]["PhaseStatus"][];
             ready: boolean;
         };
         /** @description Sampling parameters applied for inference execution (receipt). */
@@ -7811,7 +7967,7 @@ export interface components {
          * @description Replay guarantee level for an inference
          * @enum {string}
          */
-        ReplayGuarantee: "exact" | "approximate" | "none";
+        ReplayGuarantee: ReplayGuarantee;
         /** @description Repository detail response with full metadata */
         RepoDetailResponse: {
             archived: boolean;
@@ -7823,36 +7979,6 @@ export interface components {
             id: string;
             name: string;
             tenant_id: string;
-        };
-        /** @description Repository summary response */
-        RepoSummaryResponse: {
-            archived: boolean;
-            base_model_id?: string | null;
-            created_at: string;
-            created_by?: string | null;
-            default_branch: string;
-            description?: string | null;
-            id: string;
-            name: string;
-            tenant_id: string;
-        };
-        /**
-         * @description Repository assurance tier used for backend defaults and promotion policy.
-         * @enum {string}
-         */
-        RepoTier: "high_assurance" | "normal" | "experimental";
-        /** @description Timeline event response */
-        RepoTimelineEventResponse: {
-            description: string;
-            event_type: string;
-            id: string;
-            timestamp: string;
-        };
-        /** @description Training job link response */
-        RepoTrainingJobLinkResponse: {
-            created_at: string;
-            job_id: string;
-            status: string;
         };
         /** @description Repository detail response */
         RepositoryDetailResponse: {
@@ -7897,6 +8023,36 @@ export interface components {
             /** Format: int64 */
             symbol_count?: number | null;
             updated_at: string;
+        };
+        /** @description Repository summary response */
+        RepoSummaryResponse: {
+            archived: boolean;
+            base_model_id?: string | null;
+            created_at: string;
+            created_by?: string | null;
+            default_branch: string;
+            description?: string | null;
+            id: string;
+            name: string;
+            tenant_id: string;
+        };
+        /**
+         * @description Repository assurance tier used for backend defaults and promotion policy.
+         * @enum {string}
+         */
+        RepoTier: RepoTier;
+        /** @description Timeline event response */
+        RepoTimelineEventResponse: {
+            description: string;
+            event_type: string;
+            id: string;
+            timestamp: string;
+        };
+        /** @description Training job link response */
+        RepoTrainingJobLinkResponse: {
+            created_at: string;
+            job_id: string;
+            status: string;
         };
         RequestMaintenanceBody: {
             reason: string;
@@ -7991,6 +8147,8 @@ export interface components {
         };
         /** @description Router decision at a specific position (canonical schema) */
         RouterDecision: {
+            /** @description Active experts used for this token when running an MoE model */
+            active_experts?: number[] | null;
             allowed_mask?: boolean[] | null;
             candidate_adapters: components["schemas"]["RouterCandidate"][];
             /** Format: float */
@@ -8000,6 +8158,8 @@ export interface components {
             /** Format: int32 */
             input_token_id?: number | null;
             interval_id?: string | null;
+            /** @description Model type for this decision (dense vs MoE) */
+            model_type?: components["schemas"]["RouterModelType"];
             policy_mask_digest?: string;
             policy_overrides_applied?: null | components["schemas"]["PolicyOverrideFlags"];
             stack_hash?: string | null;
@@ -8031,9 +8191,15 @@ export interface components {
             input_hash: string;
             k: number;
             output_hash: string;
+            reasoning_hash?: string | null;
             /** Format: float */
             tau: number;
         };
+        /**
+         * @description Routing model type for trace display
+         * @enum {string}
+         */
+        RouterModelType: RouterModelType;
         /** @description Routing debug request */
         RoutingDebugRequest: {
             context?: string | null;
@@ -8166,21 +8332,39 @@ export interface components {
              */
             allowed_adapter_ids?: string[] | null;
             /**
+             * @description Restrict routing to specific clusters (semantic grouping of adapters).
+             *     When present, only these clusters may be used.
+             */
+            allowed_clusters?: string[] | null;
+            /**
              * @description Restrict routing to specific stack IDs.
              *     When present, only these stacks may be used.
              *     When None/null, all stacks are allowed.
              */
             allowed_stack_ids?: string[] | null;
             /**
+             * @description Behavior when a cluster transition is blocked.
+             *     - stay_on_current: remain on current adapters
+             *     - fallback_to_base: route to base-only
+             */
+            cluster_fallback?: string;
+            /**
              * @description Explicitly deny routing to specific adapter IDs.
              *     Takes precedence over allowlist when both are provided.
              */
             denied_adapter_ids?: string[] | null;
+            /** @description Explicitly deny routing to specific clusters. */
+            denied_clusters?: string[] | null;
             /**
              * @description Maximum number of adapters allowed per token after routing policy is applied.
              *     When None/null, defaults to the router's K value.
              */
             max_adapters_per_token?: number | null;
+            /**
+             * @description Maximum number of cluster transitions (hops) allowed per request.
+             *     When exceeded, router applies cluster_fallback behavior.
+             */
+            max_reasoning_depth?: number | null;
             /**
              * @description How to handle pins outside the effective routing set.
              *     "warn": Log warning but allow inference (default)
@@ -8387,7 +8571,7 @@ export interface components {
          * @description Service health status enumeration
          * @enum {string}
          */
-        ServiceHealthStatus: "healthy" | "degraded" | "unhealthy" | "unknown";
+        ServiceHealthStatus: ServiceHealthStatus;
         /** @description Service health within a node */
         ServiceState: {
             /** @description RFC3339 timestamp of last health check */
@@ -8409,7 +8593,7 @@ export interface components {
          * @description Session action
          * @enum {string}
          */
-        SessionAction: "merge" | "abandon";
+        SessionAction: SessionAction;
         SessionInfo: {
             created_at: string;
             ip_address?: string | null;
@@ -8423,6 +8607,9 @@ export interface components {
             stack_id?: string | null;
             steps: components["schemas"]["SessionStep"][];
             total_steps: number;
+        };
+        SessionsResponse: {
+            sessions: components["schemas"]["SessionInfo"][];
         };
         /** @description Step in a chat session */
         SessionStep: {
@@ -8449,9 +8636,6 @@ export interface components {
             stack_id?: string | null;
             tenant_id: string;
         };
-        SessionsResponse: {
-            sessions: components["schemas"]["SessionInfo"][];
-        };
         /** @description Set default stack request */
         SetDefaultStackRequest: {
             stack_id: string;
@@ -8468,7 +8652,7 @@ export interface components {
             resource_type: string;
         };
         /** @enum {string} */
-        ShutdownMode: "drain" | "immediate";
+        ShutdownMode: ShutdownMode;
         /** @description Stack-level provenance information */
         StackProvenance: {
             adapter_ids: string[];
@@ -8643,7 +8827,7 @@ export interface components {
          *     and cost attribution.
          * @enum {string}
          */
-        StopReasonCode: "LENGTH" | "BUDGET_MAX" | "COMPLETION_CONFIDENT" | "REPETITION_GUARD";
+        StopReasonCode: StopReasonCode;
         /** @description Storage mode response */
         StorageModeResponse: {
             /** @description Human-readable description of the mode */
@@ -8664,17 +8848,13 @@ export interface components {
             /** @description KV record counts by namespace */
             kv_counts: components["schemas"]["KvCounts"];
             /** @description KV metrics snapshot */
-            kv_metrics: Record<string, never>;
+            kv_metrics: Record<string, unknown>;
             /** @description Current storage mode */
             mode: string;
             /** @description Whether cutover guardrails are satisfied */
             safe_to_cutover: boolean;
             /** @description SQL record counts by table */
             sql_counts: components["schemas"]["TableCounts"];
-        };
-        /** @description Stream query parameters (for training and contacts streams) */
-        StreamQuery: {
-            tenant: string;
         };
         /** @description Individual choice in a streaming response */
         StreamingChoice: {
@@ -8739,6 +8919,8 @@ export interface components {
             model?: string | null;
             /** @description The input prompt for inference */
             prompt: string;
+            /** @description Enable reasoning-aware routing and mid-flight swaps */
+            reasoning_mode?: boolean;
             /** @description Require evidence in response */
             require_evidence?: boolean;
             /** @description Per-request override for router determinism (deterministic/adaptive) */
@@ -8768,6 +8950,10 @@ export interface components {
              */
             top_p?: number | null;
         };
+        /** @description Stream query parameters (for training and contacts streams) */
+        StreamQuery: {
+            tenant: string;
+        };
         /** @description Aggregate health response for all components */
         SystemHealthResponse: {
             components: components["schemas"]["ComponentHealth"][];
@@ -8777,19 +8963,44 @@ export interface components {
         };
         /** @description System metrics response */
         SystemMetricsResponse: {
+            /**
+             * Format: int32
+             * @description Number of active inference sessions
+             */
+            active_sessions?: number | null;
             /** Format: int32 */
             active_workers: number;
             /** Format: float */
             avg_latency_ms: number;
             /** Format: float */
             cpu_usage: number;
+            /**
+             * Format: float
+             * @description CPU usage as percentage (0-100), mirrors cpu_usage for frontend compatibility
+             */
+            cpu_usage_percent?: number | null;
             /** Format: float */
             disk_usage: number;
+            /**
+             * Format: float
+             * @description Error rate as fraction (0.0-1.0)
+             */
+            error_rate?: number | null;
             /** Format: float */
             gpu_utilization: number;
+            /**
+             * Format: float
+             * @description 95th percentile latency in milliseconds
+             */
+            latency_p95_ms?: number | null;
             load_average: components["schemas"]["LoadAverageResponse"];
             /** Format: float */
             memory_usage: number;
+            /**
+             * Format: float
+             * @description Memory usage as percentage (0-100), mirrors memory_usage for frontend compatibility
+             */
+            memory_usage_percent?: number | null;
             /** Format: float */
             network_bandwidth: number;
             process_count: number;
@@ -8798,6 +9009,11 @@ export interface components {
             schema_version?: string;
             /** Format: int64 */
             timestamp: number;
+            /**
+             * Format: float
+             * @description Tokens generated per second across all workers
+             */
+            tokens_per_second?: number | null;
             /** Format: int64 */
             uptime_seconds: number;
         };
@@ -9056,6 +9272,16 @@ export interface components {
             /** @description Timestamp when revocation was executed (RFC3339) */
             revoked_at: string;
         };
+        /** @description Complete topology graph returned by the API. */
+        TopologyGraph: {
+            adapters: components["schemas"]["AdapterTopology"][];
+            adjacency: {
+                [key: string]: components["schemas"]["AdjacencyEdge"][];
+            };
+            clusters: components["schemas"]["ClusterDefinition"][];
+            clusters_version: string;
+            predicted_path?: components["schemas"]["PredictedPathNode"][] | null;
+        };
         /** @description Training configuration request */
         TrainingConfigRequest: {
             /** Format: int32 */
@@ -9266,7 +9492,7 @@ export interface components {
          * @description Training job status
          * @enum {string}
          */
-        TrainingStatus: "pending" | "running" | "completed" | "failed" | "cancelled" | "paused";
+        TrainingStatus: TrainingStatus;
         /** @description Training template response */
         TrainingTemplateResponse: {
             /** Format: int32 */
@@ -9304,7 +9530,7 @@ export interface components {
          * @description Dataset trust state
          * @enum {string}
          */
-        TrustState: "allowed" | "allowed_with_warning" | "blocked" | "needs_approval" | "unknown";
+        TrustState: TrustState;
         TutorialResponse: {
             completed: boolean;
             completed_at?: string | null;
@@ -9490,7 +9716,7 @@ export interface components {
          * @description User role enum (must match DB)
          * @enum {string}
          */
-        UserRole: "admin" | "developer" | "operator" | "sre" | "compliance" | "auditor" | "viewer";
+        UserRole: UserRole;
         /** @description Dataset validation request */
         ValidateDatasetRequest: {
             check_format?: boolean | null;
@@ -9584,12 +9810,12 @@ export interface components {
          * @description Worker type
          * @enum {string}
          */
-        WorkerType: "inference" | "training" | "router" | "system";
+        WorkerType: WorkerType;
         /**
          * @description Workflow type for adapter stacks
          * @enum {string}
          */
-        WorkflowType: "parallel" | "upstream_downstream" | "sequential";
+        WorkflowType: WorkflowType;
         WorkspaceResponse: {
             created_at: string;
             created_by: string;
@@ -9604,7 +9830,7 @@ export interface components {
     requestBodies: never;
     headers: never;
     pathItems: never;
-}
+};
 export type $defs = Record<string, never>;
 export interface operations {
     request_maintenance: {
@@ -9719,26 +9945,6 @@ export interface operations {
             };
         };
     };
-    check_all_health: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description System health status */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SystemHealthResponse"];
-                };
-            };
-        };
-    };
     check_component_health: {
         parameters: {
             query?: never;
@@ -9766,6 +9972,26 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    check_all_health: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description System health status */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemHealthResponse"];
+                };
             };
         };
     };
@@ -9803,18 +10029,18 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description Filter by workspace ID */
-                workspace_id: string | null;
-                /** @description Filter by user ID */
-                user_id: string | null;
-                /** @description Filter by tenant ID (defaults to authenticated user's tenant) */
-                tenant_id: string | null;
                 /** @description Filter by event type */
                 event_type: string | null;
                 /** @description Maximum number of events to return (default: 50) */
                 limit: number | null;
                 /** @description Number of events to skip (default: 0) */
                 offset: number | null;
+                /** @description Filter by tenant ID (defaults to authenticated user's tenant) */
+                tenant_id: string | null;
+                /** @description Filter by user ID */
+                user_id: string | null;
+                /** @description Filter by workspace ID */
+                workspace_id: string | null;
             };
             cookie?: never;
         };
@@ -9944,8 +10170,10 @@ export interface operations {
     list_adapter_repositories: {
         parameters: {
             query?: {
-                base_model_id?: string | null;
                 archived?: boolean | null;
+                base_model_id?: string | null;
+                limit?: number | null;
+                offset?: number | null;
             };
             header?: never;
             path?: never;
@@ -10068,31 +10296,6 @@ export interface operations {
             };
             /** @description Invalid request */
             400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Internal server error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    deactivate_stack: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Stack deactivated */
-            200: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -10251,13 +10454,38 @@ export interface operations {
             };
         };
     };
+    deactivate_stack: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stack deactivated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     list_adapters: {
         parameters: {
             query?: {
-                /** @description Filter by tier */
-                tier?: number;
                 /** @description Filter by framework */
                 framework?: string;
+                /** @description Filter by tier */
+                tier?: string;
             };
             header?: never;
             path?: never;
@@ -10276,71 +10504,6 @@ export interface operations {
             };
             /** @description Unauthorized */
             401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    register_adapter: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["RegisterAdapterRequest"];
-            };
-        };
-        responses: {
-            /** @description Adapter registered */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AdapterResponse"];
-                };
-            };
-            /** @description Invalid request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    verify_gpu_integrity: {
-        parameters: {
-            query?: {
-                /** @description Specific adapter ID to verify (optional) */
-                adapter_id?: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description GPU integrity verification report */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["GpuIntegrityReport"];
-                };
-            };
-            /** @description Verification failed */
-            500: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -10415,7 +10578,7 @@ export interface operations {
     get_adapter_activations: {
         parameters: {
             query?: {
-                /** @description Limit results (default: 100) */
+                /** @description Maximum activations to return */
                 limit?: number;
             };
             header?: never;
@@ -10427,13 +10590,22 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Activation history */
+            /** @description Adapter activations */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["AdapterActivationResponse"][];
+                };
+            };
+            /** @description Adapter not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };
@@ -10480,7 +10652,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Adapter loaded successfully */
+            /** @description Adapter loaded */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -10521,7 +10693,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Adapter tier promoted successfully */
+            /** @description Adapter state promoted */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -10530,7 +10702,7 @@ export interface operations {
                     "application/json": components["schemas"]["AdapterStateResponse"];
                 };
             };
-            /** @description Already at maximum tier */
+            /** @description Invalid state transition */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -10541,15 +10713,6 @@ export interface operations {
             };
             /** @description Adapter not found */
             404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Database error */
-            500: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -10571,7 +10734,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Adapter unloaded successfully */
+            /** @description Adapter unloaded */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -10628,29 +10791,94 @@ export interface operations {
             };
         };
     };
+    register_adapter: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegisterAdapterRequest"];
+            };
+        };
+        responses: {
+            /** @description Adapter registered */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdapterResponse"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    verify_gpu_integrity: {
+        parameters: {
+            query?: {
+                /** @description Optional adapter ID filter */
+                adapter_id?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description GPU integrity report */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GpuIntegrityReport"];
+                };
+            };
+            /** @description Verification failed */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     query_audit_logs: {
         parameters: {
             query?: {
-                /** @description Filter by user ID */
-                user_id?: string;
                 /** @description Filter by action */
                 action?: string;
-                /** @description Filter by resource type */
-                resource_type?: string;
-                /** @description Filter by resource ID */
-                resource_id?: string;
-                /** @description Filter by status (success/failure) */
-                status?: string;
-                /** @description Filter by tenant ID */
-                tenant_id?: string;
                 /** @description Start time (RFC3339) */
                 from_time?: string;
-                /** @description End time (RFC3339) */
-                to_time?: string;
                 /** @description Maximum results (default: 100, max: 1000) */
                 limit?: number;
                 /** @description Offset for pagination */
                 offset?: number;
+                /** @description Filter by resource ID */
+                resource_id?: string;
+                /** @description Filter by resource type */
+                resource_type?: string;
+                /** @description Filter by status (success/failure) */
+                status?: string;
+                /** @description Filter by tenant ID */
+                tenant_id?: string;
+                /** @description End time (RFC3339) */
+                to_time?: string;
+                /** @description Filter by user ID */
+                user_id?: string;
             };
             header?: never;
             path?: never;
@@ -10690,14 +10918,14 @@ export interface operations {
     query_policy_decisions: {
         parameters: {
             query?: {
-                tenant_id?: string | null;
-                policy_pack_id?: string | null;
-                hook?: string | null;
                 decision?: string | null;
                 from?: string | null;
-                to?: string | null;
+                hook?: string | null;
                 limit?: number;
                 offset?: number;
+                policy_pack_id?: string | null;
+                tenant_id?: string | null;
+                to?: string | null;
             };
             header?: never;
             path?: never;
@@ -11264,12 +11492,12 @@ export interface operations {
     get_batch_items: {
         parameters: {
             query?: {
-                /** @description Filter by item status */
-                status?: string | null;
                 /** @description Maximum number of items to return */
                 limit?: number | null;
                 /** @description Number of items to skip */
                 offset?: number | null;
+                /** @description Filter by item status */
+                status?: string | null;
             };
             header?: never;
             path: {
@@ -11344,10 +11572,10 @@ export interface operations {
     list_chat_sessions: {
         parameters: {
             query?: {
-                user_id?: string | null;
+                document_id?: string | null;
                 limit?: number | null;
                 source_type?: string | null;
-                document_id?: string | null;
+                user_id?: string | null;
             };
             header?: never;
             path?: never;
@@ -11893,12 +12121,12 @@ export interface operations {
     list_repositories: {
         parameters: {
             query: {
-                /** @description Tenant ID */
-                tenant_id: string;
-                /** @description Page number */
-                page?: number;
                 /** @description Items per page */
                 limit?: number;
+                /** @description Page number */
+                page?: number;
+                /** @description Tenant ID */
+                tenant_id: string;
             };
             header?: never;
             path?: never;
@@ -12038,10 +12266,10 @@ export interface operations {
     list_collections: {
         parameters: {
             query?: {
-                /** @description Page number (1-indexed) */
-                page?: number;
                 /** @description Items per page */
                 limit?: number;
+                /** @description Page number (1-indexed) */
+                page?: number;
             };
             header?: never;
             path?: never;
@@ -12249,10 +12477,10 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description Collection ID */
-                id: string;
                 /** @description Document ID */
                 doc_id: string;
+                /** @description Collection ID */
+                id: string;
             };
             cookie?: never;
         };
@@ -12291,12 +12519,12 @@ export interface operations {
     list_commits: {
         parameters: {
             query?: {
-                /** @description Filter by repository */
-                repo_id?: string;
                 /** @description Filter by branch */
                 branch?: string;
                 /** @description Limit results */
                 limit?: number;
+                /** @description Filter by repository */
+                repo_id?: string;
             };
             header?: never;
             path?: never;
@@ -12677,9 +12905,9 @@ export interface operations {
     list_datasets: {
         parameters: {
             query?: {
+                format?: string | null;
                 limit?: number | null;
                 offset?: number | null;
-                format?: string | null;
                 validation_status?: string | null;
             };
             header?: never;
@@ -12699,298 +12927,6 @@ export interface operations {
             };
             /** @description Internal server error */
             500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    initiate_chunked_upload: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["InitiateChunkedUploadRequest"];
-            };
-        };
-        responses: {
-            /** @description Upload session initiated */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["InitiateChunkedUploadResponse"];
-                };
-            };
-            /** @description Invalid request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Internal server error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    cancel_chunked_upload: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Upload session ID */
-                session_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Session cancelled successfully */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Session not found or expired */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Internal server error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    upload_chunk: {
-        parameters: {
-            query: {
-                /** @description Index of this chunk (0-based) */
-                chunk_index: number;
-            };
-            header?: never;
-            path: {
-                /** @description Upload session ID */
-                session_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/octet-stream": number[];
-            };
-        };
-        responses: {
-            /** @description Chunk uploaded successfully */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["UploadChunkResponse"];
-                };
-            };
-            /** @description Invalid chunk index or data */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Session not found or expired */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Chunk already uploaded */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Chunk too large */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Internal server error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    complete_chunked_upload: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Upload session ID */
-                session_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CompleteChunkedUploadRequest"];
-            };
-        };
-        responses: {
-            /** @description Dataset created successfully */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CompleteChunkedUploadResponse"];
-                };
-            };
-            /** @description Upload not complete or validation failed */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Session not found or expired */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Internal server error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    get_upload_session_status: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Upload session ID */
-                session_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Session status */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["UploadSessionStatusResponse"];
-                };
-            };
-            /** @description Session not found or expired */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Internal server error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    upload_dataset: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Dataset created successfully */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["UploadDatasetResponse"];
-                };
-            };
-            /** @description Invalid request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description File too large */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Internal server error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    dataset_upload_progress: {
-        parameters: {
-            query?: {
-                /** @description Optional filter by dataset ID */
-                dataset_id?: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Server-Sent Events stream of dataset progress */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Progress streaming not available */
-            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -13562,6 +13498,298 @@ export interface operations {
             };
         };
     };
+    cancel_chunked_upload: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Upload session ID */
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Session cancelled successfully */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Session not found or expired */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    upload_chunk: {
+        parameters: {
+            query: {
+                /** @description Index of this chunk (0-based) */
+                chunk_index: number;
+            };
+            header?: never;
+            path: {
+                /** @description Upload session ID */
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/octet-stream": number[];
+            };
+        };
+        responses: {
+            /** @description Chunk uploaded successfully */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadChunkResponse"];
+                };
+            };
+            /** @description Invalid chunk index or data */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Session not found or expired */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Chunk already uploaded */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Chunk too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    complete_chunked_upload: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Upload session ID */
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CompleteChunkedUploadRequest"];
+            };
+        };
+        responses: {
+            /** @description Dataset created successfully */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompleteChunkedUploadResponse"];
+                };
+            };
+            /** @description Upload not complete or validation failed */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Session not found or expired */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    get_upload_session_status: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Upload session ID */
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Session status */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadSessionStatusResponse"];
+                };
+            };
+            /** @description Session not found or expired */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    initiate_chunked_upload: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InitiateChunkedUploadRequest"];
+            };
+        };
+        responses: {
+            /** @description Upload session initiated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InitiateChunkedUploadResponse"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    upload_dataset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Dataset created successfully */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadDatasetResponse"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description File too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    dataset_upload_progress: {
+        parameters: {
+            query?: {
+                /** @description Optional filter by dataset ID */
+                dataset_id?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Server-Sent Events stream of dataset progress */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Progress streaming not available */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     get_determinism_status: {
         parameters: {
             query?: never;
@@ -13605,10 +13833,10 @@ export interface operations {
     list_documents: {
         parameters: {
             query?: {
-                /** @description Page number (1-indexed) */
-                page?: number;
                 /** @description Items per page */
                 limit?: number;
+                /** @description Page number (1-indexed) */
+                page?: number;
             };
             header?: never;
             path?: never;
@@ -13624,70 +13852,6 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["PaginatedResponse_DocumentResponse"];
                 };
-            };
-            /** @description Internal server error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    list_failed_documents: {
-        parameters: {
-            query?: {
-                /** @description Maximum number of documents to return */
-                limit?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description List of retryable failed documents */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DocumentResponse"][];
-                };
-            };
-        };
-    };
-    upload_document: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Document uploaded successfully */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DocumentResponse"];
-                };
-            };
-            /** @description Invalid request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Document too large */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
             };
             /** @description Internal server error */
             500: {
@@ -13921,6 +14085,70 @@ export interface operations {
             };
             /** @description Document not found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    list_failed_documents: {
+        parameters: {
+            query?: {
+                /** @description Maximum number of documents to return */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description List of retryable failed documents */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentResponse"][];
+                };
+            };
+        };
+    };
+    upload_document: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Document uploaded successfully */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentResponse"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Document too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal server error */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -14227,14 +14455,14 @@ export interface operations {
     list_evidence: {
         parameters: {
             query?: {
-                /** @description Filter by dataset ID */
-                dataset_id?: string | null;
                 /** @description Filter by adapter ID */
                 adapter_id?: string | null;
-                /** @description Filter by evidence type */
-                evidence_type?: string | null;
                 /** @description Filter by confidence level */
                 confidence?: string | null;
+                /** @description Filter by dataset ID */
+                dataset_id?: string | null;
+                /** @description Filter by evidence type */
+                evidence_type?: string | null;
                 /** @description Maximum number of results */
                 limit?: number | null;
             };
@@ -14528,48 +14756,6 @@ export interface operations {
             };
         };
     };
-    start_git_session: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["StartGitSessionRequest"];
-            };
-        };
-        responses: {
-            /** @description Session started */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["StartGitSessionResponse"];
-                };
-            };
-            /** @description Bad request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Internal server error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
     end_git_session: {
         parameters: {
             query?: never;
@@ -14615,6 +14801,48 @@ export interface operations {
             };
         };
     };
+    start_git_session: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StartGitSessionRequest"];
+            };
+        };
+        responses: {
+            /** @description Session started */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StartGitSessionResponse"];
+                };
+            };
+            /** @description Bad request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     git_status: {
         parameters: {
             query?: never;
@@ -14635,116 +14863,6 @@ export interface operations {
             };
             /** @description Internal server error */
             500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    golden_compare: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["GoldenCompareRequest"];
-            };
-        };
-        responses: {
-            /** @description Verification report */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Invalid request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Golden baseline or bundle not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Verification failed */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    list_golden_runs: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description List of golden run names */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": string[];
-                };
-            };
-            /** @description Failed to list golden runs */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    get_golden_run: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Golden run name */
-                name: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Golden run summary */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["GoldenRunSummary"];
-                };
-            };
-            /** @description Golden run not found */
-            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -14953,6 +15071,116 @@ export interface operations {
             };
         };
     };
+    golden_compare: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GoldenCompareRequest"];
+            };
+        };
+        responses: {
+            /** @description Verification report */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Golden baseline or bundle not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Verification failed */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    list_golden_runs: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description List of golden run names */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": string[];
+                };
+            };
+            /** @description Failed to list golden runs */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_golden_run: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Golden run name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Golden run summary */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GoldenRunSummary"];
+                };
+            };
+            /** @description Golden run not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     infer: {
         parameters: {
             query?: never;
@@ -15158,10 +15386,10 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description Type of journey (adapter-lifecycle, promotion-pipeline, monitoring-flow) */
-                journey_type: string;
                 /** @description Journey identifier */
                 id: string;
+                /** @description Type of journey (adapter-lifecycle, promotion-pipeline, monitoring-flow) */
+                journey_type: string;
             };
             cookie?: never;
         };
@@ -15337,16 +15565,16 @@ export interface operations {
     get_metrics_time_series: {
         parameters: {
             query?: {
-                /** @description Start time (Unix timestamp) */
-                start?: number;
-                /** @description End time (Unix timestamp) */
-                end?: number;
-                /** @description Duration in seconds */
-                duration?: number;
-                /** @description Aggregation interval */
-                interval?: number;
                 /** @description Include aggregation stats */
                 aggregate?: boolean;
+                /** @description Duration in seconds */
+                duration?: number;
+                /** @description End time (Unix timestamp) */
+                end?: number;
+                /** @description Aggregation interval */
+                interval?: number;
+                /** @description Start time (Unix timestamp) */
+                start?: number;
             };
             header?: never;
             path?: never;
@@ -15389,76 +15617,6 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
-            };
-        };
-    };
-    import_model: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ImportModelRequest"];
-            };
-        };
-        responses: {
-            /** @description Import started */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ImportModelResponse"];
-                };
-            };
-            /** @description Invalid request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Import failed */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    get_base_model_status: {
-        parameters: {
-            query?: {
-                /** @description Filter by tenant ID */
-                tenant_id?: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Base model status */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["BaseModelStatusResponse"];
-                };
-            };
-            /** @description No base model status found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
             };
         };
     };
@@ -15624,6 +15782,76 @@ export interface operations {
             };
         };
     };
+    import_model: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImportModelRequest"];
+            };
+        };
+        responses: {
+            /** @description Import started */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportModelResponse"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Import failed */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    get_base_model_status: {
+        parameters: {
+            query?: {
+                /** @description Filter by tenant ID */
+                tenant_id?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Base model status */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BaseModelStatusResponse"];
+                };
+            };
+            /** @description No base model status found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     get_node_detail: {
         parameters: {
             query?: never;
@@ -15650,16 +15878,16 @@ export interface operations {
     list_notifications: {
         parameters: {
             query?: {
-                /** @description Filter by workspace ID */
-                workspace_id?: string;
-                /** @description Filter by notification type */
-                type?: string;
-                /** @description Show only unread */
-                unread_only?: boolean;
                 /** @description Result limit */
                 limit?: number;
                 /** @description Result offset */
                 offset?: number;
+                /** @description Filter by notification type */
+                type?: string;
+                /** @description Show only unread */
+                unread_only?: boolean;
+                /** @description Filter by workspace ID */
+                workspace_id?: string;
             };
             header?: never;
             path?: never;
@@ -15678,6 +15906,55 @@ export interface operations {
             };
             /** @description Unauthorized */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    mark_notification_read: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Notification ID */
+                notification_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Notification marked as read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Access denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Notification not found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -15750,55 +16027,6 @@ export interface operations {
             };
             /** @description Unauthorized */
             401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Internal server error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    mark_notification_read: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Notification ID */
-                notification_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Notification marked as read */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Access denied */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Notification not found */
-            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -16017,10 +16245,10 @@ export interface operations {
     list_policy_assignments: {
         parameters: {
             query?: {
-                /** @description Filter by target type (tenant, adapter) */
-                target_type?: string;
                 /** @description Filter by target ID */
                 target_id?: string;
+                /** @description Filter by target type (tenant, adapter) */
+                target_type?: string;
             };
             header?: never;
             path?: never;
@@ -16060,16 +16288,16 @@ export interface operations {
     list_violations: {
         parameters: {
             query?: {
-                /** @description Filter by tenant ID */
-                tenant_id?: string;
+                /** @description Limit number of results (default: 100) */
+                limit?: number;
+                /** @description Filter by resolution status */
+                resolved?: boolean;
                 /** @description Filter by resource type */
                 resource_type?: string;
                 /** @description Filter by severity (critical, high, medium, low) */
                 severity?: string;
-                /** @description Filter by resolution status */
-                resolved?: boolean;
-                /** @description Limit number of results (default: 100) */
-                limit?: number;
+                /** @description Filter by tenant ID */
+                tenant_id?: string;
             };
             header?: never;
             path?: never;
@@ -16262,33 +16490,13 @@ export interface operations {
             };
         };
     };
-    list_repositories_legacy: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description List of repositories */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RepositoryResponse"][];
-                };
-            };
-        };
-    };
     get_routing_decision_chain: {
         parameters: {
             query: {
-                /** @description Tenant ID */
-                tenant: string;
                 /** @description Inference/request ID */
                 inference_id: string;
+                /** @description Tenant ID */
+                tenant: string;
             };
             header?: never;
             path?: never;
@@ -16364,28 +16572,28 @@ export interface operations {
     get_routing_decisions: {
         parameters: {
             query: {
-                /** @description Tenant ID (required) */
-                tenant: string;
+                /** @description Filter by adapter ID */
+                adapter_id?: string;
+                /** @description Show only anomalies (low entropy or high overhead) */
+                anomalies_only?: boolean;
                 /** @description Maximum number of results (default 50) */
                 limit?: number;
+                /** @description Maximum overhead percentage */
+                max_overhead_pct?: number;
+                /** @description Minimum entropy threshold */
+                min_entropy?: number;
                 /** @description Offset for pagination */
                 offset?: number;
                 /** @description Start time (ISO-8601) */
                 since?: string;
-                /** @description End time (ISO-8601) */
-                until?: string;
-                /** @description Filter by stack ID */
-                stack_id?: string;
                 /** @description Filter by chat source_type via session request_id */
                 source_type?: string;
-                /** @description Filter by adapter ID */
-                adapter_id?: string;
-                /** @description Minimum entropy threshold */
-                min_entropy?: number;
-                /** @description Maximum overhead percentage */
-                max_overhead_pct?: number;
-                /** @description Show only anomalies (low entropy or high overhead) */
-                anomalies_only?: boolean;
+                /** @description Filter by stack ID */
+                stack_id?: string;
+                /** @description Tenant ID (required) */
+                tenant: string;
+                /** @description End time (ISO-8601) */
+                until?: string;
             };
             header?: never;
             path?: never;
@@ -16554,64 +16762,6 @@ export interface operations {
             };
         };
     };
-    start_essential_services: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Essential services started successfully */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ServiceControlResponse"];
-                };
-            };
-            /** @description Internal server error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    stop_essential_services: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Essential services stopped successfully */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ServiceControlResponse"];
-                };
-            };
-            /** @description Internal server error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
     get_service_logs: {
         parameters: {
             query?: {
@@ -16766,6 +16916,64 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    start_essential_services: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Essential services started successfully */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceControlResponse"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    stop_essential_services: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Essential services stopped successfully */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceControlResponse"];
                 };
             };
             /** @description Internal server error */
@@ -16977,41 +17185,45 @@ export interface operations {
     };
     contacts_stream: {
         parameters: {
-            query?: never;
+            query: {
+                /** @description Tenant ID for filtering events */
+                tenant: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description SSE stream */
+            /** @description SSE stream of contact events */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content: {
-                    "text/plain": string;
-                };
+                content?: never;
             };
         };
     };
     discovery_stream: {
         parameters: {
-            query?: never;
+            query: {
+                /** @description Optional repository ID filter */
+                repo?: string;
+                /** @description Tenant ID for filtering events */
+                tenant: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description SSE stream */
+            /** @description SSE stream of discovery events */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content: {
-                    "text/plain": string;
-                };
+                content?: never;
             };
         };
     };
@@ -17083,6 +17295,26 @@ export interface operations {
             };
         };
     };
+    get_memory_report: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description GPU memory report with per-adapter usage */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryReportResponse"];
+                };
+            };
+        };
+    };
     get_system_overview: {
         parameters: {
             query?: never;
@@ -17128,10 +17360,10 @@ export interface operations {
             query?: {
                 /** @description Include adapter details in stack responses (default: true) */
                 include_adapters?: boolean | null;
-                /** @description Number of top adapters by memory to include (default: 10) */
-                top_adapters?: number | null;
                 /** @description Filter to specific tenant (Admin can see all, others see own) */
                 tenant_id?: string | null;
+                /** @description Number of top adapters by memory to include (default: 10) */
+                top_adapters?: number | null;
             };
             header?: never;
             path?: never;
@@ -17219,44 +17451,6 @@ export interface operations {
                 content?: never;
             };
             /** @description Failed to ingest decision */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    hydrate_tenant_from_bundle: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["HydrateTenantRequest"];
-            };
-        };
-        responses: {
-            /** @description Tenant hydrated successfully */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TenantHydrationResponse"];
-                };
-            };
-            /** @description Invalid bundle or hash mismatch */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Internal server error */
             500: {
                 headers: {
                     [name: string]: unknown;
@@ -17476,6 +17670,65 @@ export interface operations {
             };
         };
     };
+    deactivate_execution_policy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Policy ID to deactivate */
+                policy_id: string;
+                /** @description Tenant ID */
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Policy deactivated */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Policy not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     get_execution_policy_history: {
         parameters: {
             query?: {
@@ -17511,65 +17764,6 @@ export interface operations {
             };
             /** @description Forbidden */
             403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Internal server error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    deactivate_execution_policy: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Tenant ID */
-                tenant_id: string;
-                /** @description Policy ID to deactivate */
-                policy_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Policy deactivated */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Policy not found */
-            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -17634,10 +17828,10 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description Tenant ID */
-                tenant_id: string;
                 /** @description Policy pack ID */
                 policy_pack_id: string;
+                /** @description Tenant ID */
+                tenant_id: string;
             };
             cookie?: never;
         };
@@ -17726,17 +17920,115 @@ export interface operations {
             };
         };
     };
+    hydrate_tenant_from_bundle: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["HydrateTenantRequest"];
+            };
+        };
+        responses: {
+            /** @description Tenant hydrated successfully */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantHydrationResponse"];
+                };
+            };
+            /** @description Invalid bundle or hash mismatch */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    get_topology: {
+        parameters: {
+            query?: {
+                /** @description Optional text to preview the deterministic router path */
+                preview_text?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Semantic topology graph */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TopologyGraph"];
+                };
+            };
+            /** @description Topology unavailable */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_trace: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Trace ID to retrieve */
+                trace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Trace event details or null if not found */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     search_traces: {
         parameters: {
             query?: {
-                /** @description Filter by span operation name */
-                span_name?: string;
-                /** @description Filter by span status (ok, error, unset) */
-                status?: string;
-                /** @description Start time in nanoseconds */
-                start_time_ns?: number;
                 /** @description End time in nanoseconds */
                 end_time_ns?: number;
+                /** @description Filter by span operation name */
+                span_name?: string;
+                /** @description Start time in nanoseconds */
+                start_time_ns?: number;
+                /** @description Filter by span status (ok, error, unset) */
+                status?: string;
             };
             header?: never;
             path?: never;
@@ -17769,49 +18061,21 @@ export interface operations {
             };
         };
     };
-    get_trace: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Trace ID to retrieve */
-                trace_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Trace event details or null if not found */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Internal server error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
     list_training_jobs: {
         parameters: {
             query?: {
-                /** @description Filter by status (pending, running, completed, failed, cancelled) */
-                status?: string | null;
+                /** @description Filter by adapter name */
+                adapter_name?: string | null;
+                /** @description Filter by dataset ID */
+                dataset_id?: string | null;
                 /** @description Page number (1-indexed) */
                 page?: number | null;
                 /** @description Number of items per page (default: 20, max: 100) */
                 page_size?: number | null;
-                /** @description Filter by adapter name */
-                adapter_name?: string | null;
+                /** @description Filter by status (pending, running, completed, failed, cancelled) */
+                status?: string | null;
                 /** @description Filter by template ID */
                 template_id?: string | null;
-                /** @description Filter by dataset ID */
-                dataset_id?: string | null;
             };
             header?: never;
             path?: never;
@@ -18419,10 +18683,10 @@ export interface operations {
     list_workspaces: {
         parameters: {
             query?: {
-                /** @description Page number (1-indexed) */
-                page?: number;
                 /** @description Items per page */
                 limit?: number;
+                /** @description Page number (1-indexed) */
+                page?: number;
             };
             header?: never;
             path?: never;
@@ -18483,40 +18747,6 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Internal server error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    list_user_workspaces: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description User's workspaces */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["WorkspaceResponse"][];
-                };
             };
             /** @description Unauthorized */
             401: {
@@ -18803,10 +19033,10 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description Workspace ID */
-                workspace_id: string;
                 /** @description Member ID */
                 member_id: string;
+                /** @description Workspace ID */
+                workspace_id: string;
             };
             cookie?: never;
         };
@@ -18865,10 +19095,10 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description Workspace ID */
-                workspace_id: string;
                 /** @description Member ID */
                 member_id: string;
+                /** @description Workspace ID */
+                workspace_id: string;
             };
             cookie?: never;
         };
@@ -19028,10 +19258,10 @@ export interface operations {
             };
             header?: never;
             path: {
-                /** @description Workspace ID */
-                workspace_id: string;
                 /** @description Resource ID */
                 resource_id: string;
+                /** @description Workspace ID */
+                workspace_id: string;
             };
             cookie?: never;
         };
@@ -19074,4 +19304,240 @@ export interface operations {
             };
         };
     };
+    list_user_workspaces: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description User's workspaces */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceResponse"][];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+}
+export enum AdapterLifecycleState {
+    unloaded = "unloaded",
+    cold = "cold",
+    warm = "warm",
+    hot = "hot",
+    resident = "resident"
+}
+export enum BackendKind {
+    auto = "auto",
+    coreml = "coreml",
+    mlx = "mlx",
+    mlxbridge = "mlxbridge",
+    metal = "metal",
+    cpu = "cpu"
+}
+export enum BranchClassification {
+    protected = "protected",
+    high = "high",
+    sandbox = "sandbox"
+}
+export enum ComponentStatus {
+    healthy = "healthy",
+    degraded = "degraded",
+    unhealthy = "unhealthy"
+}
+export enum CoreMLMode {
+    coreml_strict = "coreml_strict",
+    coreml_preferred = "coreml_preferred",
+    backend_auto = "backend_auto"
+}
+export enum DataLineageMode {
+    versioned = "versioned",
+    dataset_only = "dataset_only",
+    synthetic = "synthetic",
+    legacy_unpinned = "legacy_unpinned"
+}
+export enum DatasetSourceType {
+    code_repo = "code_repo",
+    uploaded_files = "uploaded_files",
+    generated = "generated"
+}
+export enum DatasetValidationStatus {
+    pending = "pending",
+    validating = "validating",
+    valid = "valid",
+    invalid = "invalid",
+    skipped = "skipped"
+}
+export enum FailureCode {
+    MIGRATION_INVALID = "MIGRATION_INVALID",
+    MODEL_LOAD_FAILED = "MODEL_LOAD_FAILED",
+    OUT_OF_MEMORY = "OUT_OF_MEMORY",
+    TRACE_WRITE_FAILED = "TRACE_WRITE_FAILED",
+    RECEIPT_MISMATCH = "RECEIPT_MISMATCH",
+    POLICY_DIVERGENCE = "POLICY_DIVERGENCE",
+    BACKEND_FALLBACK = "BACKEND_FALLBACK",
+    TENANT_ACCESS_DENIED = "TENANT_ACCESS_DENIED",
+    KV_QUOTA_EXCEEDED = "KV_QUOTA_EXCEEDED",
+    WORKER_OVERLOADED = "WORKER_OVERLOADED",
+    BOOT_DB_UNREACHABLE = "BOOT_DB_UNREACHABLE",
+    BOOT_MIGRATION_FAILED = "BOOT_MIGRATION_FAILED",
+    BOOT_SEED_FAILED = "BOOT_SEED_FAILED",
+    BOOT_NO_WORKERS = "BOOT_NO_WORKERS",
+    BOOT_NO_MODELS = "BOOT_NO_MODELS",
+    BOOT_DEPENDENCY_TIMEOUT = "BOOT_DEPENDENCY_TIMEOUT",
+    BOOT_BACKGROUND_TASK_FAILED = "BOOT_BACKGROUND_TASK_FAILED",
+    BOOT_CONFIG_INVALID = "BOOT_CONFIG_INVALID"
+}
+export enum KvIsolationIssueKind {
+    cross_tenant_mismatch = "cross_tenant_mismatch"
+}
+export enum KvIsolationIssueKind {
+    missing_in_sql = "missing_in_sql"
+}
+export enum KvIsolationIssueKind {
+    missing_in_kv = "missing_in_kv"
+}
+export enum KvIsolationIssueKind {
+    field_mismatch = "field_mismatch"
+}
+export enum KvIsolationIssueKind {
+    prefix_value_mismatch = "prefix_value_mismatch"
+}
+export enum MaintenanceScope {
+    controlplane = "controlplane",
+    worker = "worker",
+    all = "all"
+}
+export enum MemoryLocation {
+    system = "system",
+    g_p_u = "g_p_u",
+    a_n_e = "a_n_e",
+    disk = "disk"
+}
+export enum MemoryPressureLevel {
+    low = "low",
+    medium = "medium",
+    high = "high",
+    critical = "critical"
+}
+export enum ModelLoadStatus {
+    no_model = "no-model",
+    loading = "loading",
+    ready = "ready",
+    unloading = "unloading",
+    error = "error",
+    checking = "checking"
+}
+export enum NodeHealth {
+    ok = "ok",
+    warning = "warning",
+    critical = "critical"
+}
+export enum PhaseOutcome {
+    Pending = "Pending",
+    InProgress = "InProgress",
+    Success = "Success",
+    Failed = "Failed"
+}
+export enum ProvenanceEventType {
+    dataset_created = "dataset_created",
+    training_job_started = "training_job_started",
+    training_job_completed = "training_job_completed",
+    adapter_registered = "adapter_registered",
+    stack_created = "stack_created",
+    chat_started = "chat_started"
+}
+export enum RagStatusStatus {
+    enabled = "enabled"
+}
+export enum RagStatusStatus {
+    disabled = "disabled"
+}
+export enum ReplayGuarantee {
+    exact = "exact",
+    approximate = "approximate",
+    none = "none"
+}
+export enum RepoTier {
+    high_assurance = "high_assurance",
+    normal = "normal",
+    experimental = "experimental"
+}
+export enum RouterModelType {
+    dense = "dense",
+    moe = "moe"
+}
+export enum ServiceHealthStatus {
+    healthy = "healthy",
+    degraded = "degraded",
+    unhealthy = "unhealthy",
+    unknown = "unknown"
+}
+export enum SessionAction {
+    merge = "merge",
+    abandon = "abandon"
+}
+export enum ShutdownMode {
+    drain = "drain",
+    immediate = "immediate"
+}
+export enum StopReasonCode {
+    LENGTH = "LENGTH",
+    BUDGET_MAX = "BUDGET_MAX",
+    COMPLETION_CONFIDENT = "COMPLETION_CONFIDENT",
+    REPETITION_GUARD = "REPETITION_GUARD"
+}
+export enum TrainingStatus {
+    pending = "pending",
+    running = "running",
+    completed = "completed",
+    failed = "failed",
+    cancelled = "cancelled",
+    paused = "paused"
+}
+export enum TrustState {
+    allowed = "allowed",
+    allowed_with_warning = "allowed_with_warning",
+    blocked = "blocked",
+    needs_approval = "needs_approval",
+    unknown = "unknown"
+}
+export enum UserRole {
+    admin = "admin",
+    developer = "developer",
+    operator = "operator",
+    sre = "sre",
+    compliance = "compliance",
+    auditor = "auditor",
+    viewer = "viewer"
+}
+export enum WorkerType {
+    inference = "inference",
+    training = "training",
+    router = "router",
+    system = "system"
+}
+export enum WorkflowType {
+    parallel = "parallel",
+    upstream_downstream = "upstream_downstream",
+    sequential = "sequential"
 }

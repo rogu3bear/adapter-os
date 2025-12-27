@@ -12,6 +12,7 @@
 //!
 //! GPU fingerprint format: GpuBufferFingerprint from adapteros-lora-kernel-mtl
 
+use crate::galaxy_loader::{AdapterBacking, GalaxyLoader};
 use crate::lifecycle_state::LifecycleState;
 use adapteros_core::{
     adapter_fs_path_with_root,
@@ -113,6 +114,8 @@ pub struct AdapterCommandResult {
     pub vram_delta_mb: Option<i64>,
     pub duration_ms: u64,
     pub stack_hash: Option<B3Hash>,
+    #[serde(default)]
+    pub memory_state: Option<MemoryState>,
 }
 
 /// Adapter state in hot-swap system
@@ -124,6 +127,9 @@ pub struct AdapterState {
     pub loaded_at: Instant,
     pub active: bool,
     pub lifecycle: LifecycleState,
+    /// Optional backing for zero-copy galaxy mmaps. Keeps the mmap alive while
+    /// the adapter is referenced.
+    pub backing: Option<AdapterBacking>,
 }
 
 /// Identity metadata for adapter cache keys so refcount/pinning aligns with
@@ -177,6 +183,19 @@ pub struct StackCheckpoint {
     pub gpu_fingerprints: Vec<GpuFingerprint>,
     /// Adapter IDs in the stack
     pub adapter_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryState {
+    pub total_vram_mb: u64,
+    pub active_adapters: Vec<MemoryStateEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryStateEntry {
+    pub id: String,
+    pub vram_mb: u64,
+    pub active: bool,
 }
 
 /// Double-buffered adapter table for atomic swaps
@@ -310,6 +329,17 @@ impl AdapterTable {
 
     /// Preload adapter into staging area
     pub async fn preload(&self, id: String, hash: B3Hash, vram_mb: u64) -> Result<()> {
+        self.preload_with_backing(id, hash, vram_mb, None).await
+    }
+
+    /// Preload adapter into staging area, optionally tracking mmap backing.
+    pub async fn preload_with_backing(
+        &self,
+        id: String,
+        hash: B3Hash,
+        vram_mb: u64,
+        backing: Option<AdapterBacking>,
+    ) -> Result<()> {
         if vram_mb == 0 {
             return Err(AosError::Worker(
                 format!(
@@ -331,6 +361,7 @@ impl AdapterTable {
                         loaded_at: Instant::now(),
                         active: false,
                         lifecycle: LifecycleState::Loaded,
+                        backing: backing.clone(),
                     },
                 );
             }
@@ -443,13 +474,11 @@ impl AdapterTable {
 
         let new_gen = old_stack + 1;
         let new_active_snapshot = new_active.clone();
-        {
+        let previous_gen = {
             let mut active_guard = self.active.write();
             *active_guard = new_active;
-        }
-
-        // Update generation pointer
-        let old = self.current_stack.swap(new_gen, Ordering::AcqRel);
+            self.current_stack.swap(new_gen, Ordering::AcqRel)
+        };
 
         // Publish new index for request pinning
         let refcounts_guard = self.refcounts.lock().await;
@@ -461,7 +490,7 @@ impl AdapterTable {
                     .get(id)
                     .cloned()
                     .unwrap_or_else(|| Arc::new(AtomicUsize::new(0)));
-                let cache_key = AdapterCacheKey::new(
+                let mut cache_key = AdapterCacheKey::new(
                     id.clone(),
                     state.hash,
                     identity.base_manifest_hash,
@@ -470,6 +499,9 @@ impl AdapterTable {
                     identity.tenant_id.clone(),
                     identity.adapter_dir_hash,
                 );
+                if let Some(backing) = &state.backing {
+                    cache_key = cache_key.with_galaxy(backing.galaxy_id());
+                }
                 (
                     cache_key,
                     AdapterRecord {
@@ -483,10 +515,10 @@ impl AdapterTable {
         self.store.install(new_gen as u64, store_entries);
 
         // Retire previous stack if generation changed
-        if old != new_gen {
+        if previous_gen != new_gen {
             let mut retired = self.retired_stacks.lock().await;
             retired.push(Arc::new(Stack {
-                generation: old as u64,
+                generation: previous_gen as u64,
                 active: old_active_snapshot,
             }));
         }
@@ -506,21 +538,23 @@ impl AdapterTable {
                 "Rollback failed: no previous adapter state saved. Cannot revert to earlier configuration. This typically happens when attempting rollback before any successful swap.".to_string()
             ))?;
 
-        let old = self
-            .current_stack
-            .swap(rollback_stack.generation as usize, Ordering::AcqRel);
-
-        {
+        let (old_generation, old_active_snapshot) = {
             let mut active_guard = self.active.write();
+            let snapshot = active_guard.clone();
             *active_guard = rollback_stack.active.clone();
-        }
+
+            let previous = self
+                .current_stack
+                .swap(rollback_stack.generation as usize, Ordering::AcqRel);
+            (previous, snapshot)
+        };
 
         // Retire the previous current stack if generation changed
-        if old as u64 > rollback_stack.generation {
+        if old_generation as u64 > rollback_stack.generation {
             let mut retired = self.retired_stacks.lock().await;
             retired.push(Arc::new(Stack {
-                generation: old as u64,
-                active: self.active.read().clone(),
+                generation: old_generation as u64,
+                active: old_active_snapshot,
             }));
         }
 
@@ -1101,8 +1135,9 @@ impl AdapterTable {
     /// Returns a snapshot of the current active adapters. Callers should
     /// increment refcounts for adapters they use and decrement when done.
     pub fn get_current_stack_handle(&self) -> Arc<Stack> {
+        let active_guard = self.active.read();
         let generation = self.current_stack.load(Ordering::Acquire) as u64;
-        let active = self.active.read().clone();
+        let active = active_guard.clone();
         Arc::new(Stack { generation, active })
     }
 
@@ -1141,6 +1176,7 @@ pub struct HotSwapManager<K> {
     repo_root: std::path::PathBuf,
     tenant_id: String,
     memory_monitor: Option<Arc<crate::memory::UmaPressureMonitor>>,
+    galaxy_loader: GalaxyLoader,
 }
 
 impl<K> Clone for HotSwapManager<K> {
@@ -1151,6 +1187,7 @@ impl<K> Clone for HotSwapManager<K> {
             repo_root: self.repo_root.clone(),
             tenant_id: self.tenant_id.clone(),
             memory_monitor: self.memory_monitor.clone(),
+            galaxy_loader: self.galaxy_loader.clone(),
         }
     }
 }
@@ -1176,6 +1213,7 @@ impl HotSwapManagerNoKernel {
             repo_root,
             tenant_id: tenant_id.into(),
             memory_monitor: None,
+            galaxy_loader: GalaxyLoader::new(),
         }
     }
 }
@@ -1313,6 +1351,22 @@ where
             repo_root,
             tenant_id,
             memory_monitor,
+            galaxy_loader: GalaxyLoader::new(),
+        }
+    }
+
+    fn memory_state(&self) -> MemoryState {
+        let active = self.table.get_active();
+        MemoryState {
+            total_vram_mb: self.table.total_vram_mb(),
+            active_adapters: active
+                .into_iter()
+                .map(|state| MemoryStateEntry {
+                    id: state.id,
+                    vram_mb: state.vram_mb,
+                    active: state.active,
+                })
+                .collect(),
         }
     }
 
@@ -1324,6 +1378,7 @@ where
             repo_root,
             tenant_id,
             memory_monitor: None,
+            galaxy_loader: GalaxyLoader::new(),
         }
     }
 
@@ -1346,43 +1401,33 @@ where
                 }
 
                 // Load actual adapter weights if kernel backend is available
-                let vram_mb = if let Some(ref kernels) = self.kernels {
-                    // Load .aos file (async I/O to avoid blocking executor)
-                    let adapter_bytes = tokio::fs::read(&adapter_path).await.map_err(|e| {
-                        AosError::Io(format!(
-                            "Adapter preload failed: cannot read file '{}'. Verify the file exists, has correct permissions, and is a valid .aos bundle. Technical details: {}",
-                            adapter_path.display(),
-                            e
+                let (vram_mb, backing) = if let Some(ref kernels) = self.kernels {
+                    let loader = self.galaxy_loader.clone();
+                    let adapter_for_loader = adapter_id.clone();
+                    let path_for_loader = adapter_path.clone();
+                    let load_outcome = tokio::task::spawn_blocking(move || {
+                        loader.load_adapter(&adapter_for_loader, &path_for_loader)
+                    })
+                    .await
+                    .map_err(|e| {
+                        AosError::Worker(format!(
+                            "Adapter preload failed: galaxy loader join error: {e}"
                         ))
-                    })?;
+                    })??;
 
-                    let file_view = adapteros_aos::open_aos(&adapter_bytes)?;
+                    let manifest_bytes = load_outcome
+                        .backing
+                        .slice(&load_outcome.view.manifest_range);
                     let _manifest: serde_json::Value =
-                        serde_json::from_slice(file_view.manifest_bytes)
-                            .map_err(|e| AosError::Parse(format!(
-                            "Adapter preload failed: manifest in '{}' is corrupted or invalid. Re-export the adapter using the training pipeline. Technical details: {}",
-                            adapter_path.display(), e
-                        )))?;
-                    // Prefer a CoreML-specific segment when present; fall back to canonical.
-                    let canonical_segment = file_view
-                        .segments
-                        .iter()
-                        .find(|seg| seg.backend_tag == adapteros_aos::BackendTag::Coreml)
-                        .or_else(|| {
-                            file_view
-                                .segments
-                                .iter()
-                                .find(|seg| seg.backend_tag == adapteros_aos::BackendTag::Canonical)
-                        })
-                        .ok_or_else(|| {
-                            AosError::Validation(format!(
-                                "Adapter preload failed: '{}' is missing required weight segments. The .aos bundle must contain either a CoreML or canonical segment. Re-export the adapter with proper backend support.",
-                                adapter_id
-                            ))
-                        })?;
+                        serde_json::from_slice(manifest_bytes).map_err(|e| AosError::Parse(
+                            format!(
+                                "Adapter preload failed: manifest in '{}' is corrupted or invalid. Re-export the adapter using the training pipeline. Technical details: {}",
+                                adapter_path.display(),
+                                e
+                            )
+                        ))?;
 
-                    // Extract SafeTensors payload
-                    let weights = canonical_segment.payload;
+                    let weights = load_outcome.payload();
 
                     // Workstream 6: VRAM validation before preload
                     // Estimate VRAM requirement from payload size
@@ -1479,15 +1524,15 @@ where
                     };
 
                     drop(kernels_lock);
-                    vram_mb
+                    (vram_mb, Some(load_outcome.backing))
                 } else {
                     // No kernel backend - use mock value for metadata-only mode
                     tracing::warn!(adapter_id = %adapter_id, "No kernel backend available, using mock VRAM value");
-                    24 // Mock value
+                    (24, None) // Mock value
                 };
 
                 self.table
-                    .preload(adapter_id.clone(), hash, vram_mb)
+                    .preload_with_backing(adapter_id.clone(), hash, vram_mb, backing)
                     .await?;
 
                 AdapterCommandResult {
@@ -1496,6 +1541,7 @@ where
                     vram_delta_mb: Some(vram_mb as i64),
                     duration_ms: start.elapsed().as_millis() as u64,
                     stack_hash: None,
+                    memory_state: Some(self.memory_state()),
                 }
             }
 
@@ -1591,6 +1637,7 @@ where
                     vram_delta_mb: Some(vram_delta),
                     duration_ms: start.elapsed().as_millis() as u64,
                     stack_hash: cross_layer_hash.or(Some(stack_hash)),
+                    memory_state: Some(self.memory_state()),
                 }
             }
 
@@ -1604,6 +1651,7 @@ where
                     vram_delta_mb: None,
                     duration_ms: start.elapsed().as_millis() as u64,
                     stack_hash: Some(stack_hash),
+                    memory_state: Some(self.memory_state()),
                 }
             }
 
@@ -1673,6 +1721,7 @@ where
                     vram_delta_mb: None,
                     duration_ms: start.elapsed().as_millis() as u64,
                     stack_hash: cross_layer_hash.or(Some(stack_hash)),
+                    memory_state: Some(self.memory_state()),
                 }
             }
         };

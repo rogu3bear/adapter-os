@@ -18,6 +18,7 @@
 
 pub mod audit;
 pub mod enclave;
+pub mod federation_auth;
 pub mod heartbeat;
 pub mod host_identity;
 pub mod key_lifecycle;
@@ -27,6 +28,7 @@ pub mod server;
 
 pub use audit::AuditLogger;
 pub use enclave::EnclaveManager;
+pub use federation_auth::{validate_federation_token, FederationAuthError, FederationClaims};
 pub use heartbeat::Heartbeat;
 pub use host_identity::{
     AttestationMetadata, AttestationReport, HostIdentity, HostIdentityManager,

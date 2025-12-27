@@ -98,6 +98,9 @@ pub struct StreamingInferRequest {
     /// Require evidence in response
     #[serde(default)]
     pub require_evidence: bool,
+    /// Enable reasoning-aware routing and mid-flight swaps
+    #[serde(default)]
+    pub reasoning_mode: bool,
     /// Collection ID for scoping RAG retrieval to specific document collection
     #[serde(skip_serializing_if = "Option::is_none")]
     pub collection_id: Option<String>,
@@ -114,10 +117,14 @@ pub struct StreamingInferRequest {
 
 impl From<(&StreamingInferRequest, &Claims)> for InferenceRequestInternal {
     fn from((req, claims): (&StreamingInferRequest, &Claims)) -> Self {
+        let is_admin = claims.role.eq_ignore_ascii_case("admin")
+            || claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
         Self {
             request_id: uuid::Uuid::new_v4().to_string(),
             cpid: claims.tenant_id.clone(),
             prompt: req.prompt.clone(),
+            reasoning_mode: req.reasoning_mode,
+            admin_override: is_admin,
             stream: true, // Always streaming for this endpoint
             batch_item_id: None,
             rag_enabled: req.collection_id.is_some(), // Enable RAG if collection_id provided
@@ -873,6 +880,7 @@ struct LoadingStreamState {
     adapter_id: String,
     tenant_id: String,
     user_id: String,
+    cancellation_token: CancellationToken,
     phase: LoadingPhase,
     start_time: std::time::Instant,
     token_count: usize,
@@ -913,6 +921,7 @@ impl LoadingStreamState {
             adapter_id,
             tenant_id,
             user_id,
+            cancellation_token: CancellationToken::new(),
             phase: LoadingPhase::CheckingState,
             start_time: std::time::Instant::now(),
             token_count: 0,
@@ -1275,7 +1284,14 @@ impl LoadingStreamState {
 
         // Execute via InferenceCore - the single entry point for all inference
         let core = InferenceCore::new(&self.state);
-        match core.route_and_infer(internal_request, None).await {
+        match core
+            .route_and_infer(
+                internal_request,
+                None,
+                Some(self.cancellation_token.clone()),
+            )
+            .await
+        {
             Ok(result) => {
                 debug!(
                     text_len = result.text.len(),
@@ -1538,6 +1554,8 @@ impl StreamState {
             request_id: self.request_id.clone(),
             cpid: self.tenant_id.clone(),
             prompt: self.prompt.clone(),
+            reasoning_mode: false,
+            admin_override: false,
             stream: true,
             batch_item_id: None,
             rag_enabled: false, // RAG handled earlier in the pipeline
@@ -1579,7 +1597,11 @@ impl StreamState {
         // Execute via InferenceCore - the single entry point for all inference
         // Use tokio::select! to allow cancellation if client disconnects
         let core = InferenceCore::new(&self.state);
-        let inference_future = core.route_and_infer(internal_request, None);
+        let inference_future = core.route_and_infer(
+            internal_request,
+            None,
+            Some(self.cancellation_token.clone()),
+        );
 
         tokio::select! {
             // Client disconnect - cancel inference

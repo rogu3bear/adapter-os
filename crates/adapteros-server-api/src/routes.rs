@@ -317,6 +317,7 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::adapter_stacks::activate_stack,
         handlers::adapter_stacks::deactivate_stack,
         // PRD-INFRA-01: System, Nodes, Workers, Memory, Metrics handlers
+        handlers::topology::get_topology,
         handlers::system_overview::get_system_overview,
         handlers::system_state::get_system_state,
         handlers::node_detail::get_node_detail,
@@ -729,6 +730,7 @@ pub fn build(state: AppState) -> Router {
             "/v1/models/status",
             get(handlers::infrastructure::get_base_model_status),
         )
+        .route("/v1/topology", get(handlers::topology::get_topology))
         .with_state(state.clone())
         .layer(
             ServiceBuilder::new()

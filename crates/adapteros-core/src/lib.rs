@@ -41,6 +41,7 @@ pub mod errors;
 pub mod evidence_envelope;
 pub mod evidence_verifier;
 pub mod fusion_interval;
+pub mod guard_common;
 pub mod hash;
 pub mod id;
 pub mod identity;
@@ -57,6 +58,7 @@ pub mod prefix_kv_key;
 pub mod redaction;
 pub mod retry_policy;
 pub mod seed;
+pub mod seed_guard;
 pub mod singleflight;
 pub mod stack;
 pub mod status;
@@ -113,6 +115,7 @@ pub use evidence_verifier::{
     EnvelopeVerificationResult, EvidenceVerifier, EVIDENCE_CHAIN_DIVERGED_CODE,
 };
 pub use fusion_interval::FusionInterval;
+pub use guard_common::{GuardConfig, GuardLogLevel};
 pub use hash::B3Hash;
 pub use id::CPID;
 pub use lifecycle::{LifecycleState, LifecycleTransition, SemanticVersion, TransitionReason};
@@ -137,6 +140,7 @@ pub use seed::{
     derive_seed_indexed, derive_seed_typed, hash_adapter_dir, ExecutionProfile, SeedLabel,
     SeedMode,
 };
+pub use seed_guard::SeedScopeGuard;
 pub use stack::compute_stack_hash;
 pub use status::{AdapterOSStatus, HealthCheckResult, HealthStatus, ServiceStatus};
 pub use telemetry::{

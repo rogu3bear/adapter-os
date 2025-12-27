@@ -64,11 +64,7 @@ impl Db {
         })?;
 
         // Use transaction to ensure atomicity of read-modify-write
-        let mut tx = self
-            .pool()
-            .begin()
-            .await
-            .map_err(|e| AosError::Database(e.to_string()))?;
+        let mut tx = self.begin_write_tx().await?;
 
         // Get current state, version, artifact references, and repo metadata
         let row = sqlx::query(
@@ -248,11 +244,7 @@ impl Db {
         initiated_by: &str,
     ) -> Result<String> {
         // CRITICAL: Use IMMEDIATE transaction to acquire write lock immediately
-        let mut tx = self
-            .pool()
-            .begin()
-            .await
-            .map_err(|e| AosError::Database(e.to_string()))?;
+        let mut tx = self.begin_write_tx().await?;
 
         // SQLite: Set IMMEDIATE mode on the transaction
         sqlx::query("BEGIN IMMEDIATE")

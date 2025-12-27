@@ -29,6 +29,7 @@ fn test_router_emits_telemetry_on_decision() {
             scope_path: None,
             lora_tier: None,
             base_model: None,
+            ..Default::default()
         })
         .collect();
     let adapter_ids: Vec<String> = adapter_info.iter().map(|a| a.id.clone()).collect();
@@ -131,6 +132,7 @@ fn test_router_propagates_stack_hash() {
             scope_path: None,
             lora_tier: None,
             base_model: None,
+            ..Default::default()
         })
         .collect();
     let policy_mask = allow_all_mask(&adapter_info);
@@ -171,6 +173,7 @@ fn test_router_without_telemetry_writer_works() {
             scope_path: None,
             lora_tier: None,
             base_model: None,
+            ..Default::default()
         })
         .collect();
     let policy_mask = allow_all_mask(&adapter_info);
@@ -201,6 +204,7 @@ fn test_telemetry_writer_bounded_channel_drops_on_overflow() {
             scope_path: None,
             lora_tier: None,
             base_model: None,
+            ..Default::default()
         })
         .collect();
     let policy_mask = allow_all_mask(&adapter_info);
@@ -296,6 +300,7 @@ fn test_entropy_values_match() {
             scope_path: None,
             lora_tier: None,
             base_model: None,
+            ..Default::default()
         })
         .collect();
     let policy_mask = allow_all_mask(&adapter_info);

@@ -173,11 +173,7 @@ impl Db {
         // Begin transaction for atomic multi-step deletion
         // Note: workspace_members and workspace_resources have ON DELETE CASCADE
         // but we use a transaction for consistency and explicit control
-        let mut tx = self
-            .pool()
-            .begin()
-            .await
-            .map_err(|e| AosError::Database(format!("Failed to begin transaction: {}", e)))?;
+        let mut tx = self.begin_write_tx().await?;
 
         // Delete workspace (cascade will handle members and resources)
         sqlx::query("DELETE FROM workspaces WHERE id = ?")

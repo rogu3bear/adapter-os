@@ -228,6 +228,7 @@ impl From<Adapter> for AdapterKv {
             archive_reason: adapter.archive_reason,
             purged_at: adapter.purged_at,
             base_model_id: adapter.base_model_id,
+            recommended_for_moe: Some(adapter.recommended_for_moe.unwrap_or(true)),
             manifest_schema_version: adapter.manifest_schema_version,
             content_hash_b3: adapter.content_hash_b3,
             provenance_json: adapter.provenance_json,
@@ -298,6 +299,7 @@ impl From<AdapterKv> for Adapter {
             purged_at: kv.purged_at,
             // Base model and artifact hardening
             base_model_id: kv.base_model_id,
+            recommended_for_moe: Some(kv.recommended_for_moe.unwrap_or(true)),
             manifest_schema_version: kv.manifest_schema_version,
             content_hash_b3: kv.content_hash_b3,
             provenance_json: kv.provenance_json,
@@ -383,6 +385,7 @@ impl AdapterKvOps for AdapterKvRepository {
             purged_at: None,
             // Base model and artifact hardening fields
             base_model_id: None,
+            recommended_for_moe: Some(params.recommended_for_moe.unwrap_or(true)),
             manifest_schema_version: None,
             content_hash_b3: None,
             provenance_json: None,

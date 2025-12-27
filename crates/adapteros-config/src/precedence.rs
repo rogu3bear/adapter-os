@@ -400,36 +400,74 @@ impl ConfigBuilder {
 
     /// Build the deterministic configuration
     pub fn build(self) -> Result<DeterministicConfig> {
-        let metadata = ConfigMetadata {
-            frozen_at: chrono::Utc::now().to_rfc3339(),
-            hash: String::new(), // Will be set during freeze
-            sources: self.sources,
-            manifest_path: self.manifest_path,
-            cli_args: self.cli_args,
-        };
-
-        // Apply schema defaults for missing values
         let mut values = self.values;
-        for (key, field_def) in &self.schema.fields {
+        let mut sources = self.sources;
+        let schema = self.schema;
+        let manifest_path = self.manifest_path;
+        let cli_args = self.cli_args;
+
+        // Apply schema defaults for missing values up front
+        for (key, field_def) in &schema.fields {
             if !values.contains_key(key) {
                 if let Some(default_value) = &field_def.default_value {
                     values.insert(key.clone(), default_value.clone());
+                    sources.push(ConfigSource {
+                        level: PrecedenceLevel::Manifest,
+                        source: "default".to_string(),
+                        key: key.clone(),
+                        value: default_value.clone(),
+                    });
                 }
             }
         }
 
-        let config = DeterministicConfig::new(values, metadata, self.schema);
+        // Validate and fall back to defaults on type mismatches where possible
+        loop {
+            let metadata = ConfigMetadata {
+                frozen_at: chrono::Utc::now().to_rfc3339(),
+                hash: String::new(), // Will be set during freeze
+                sources: sources.clone(),
+                manifest_path: manifest_path.clone(),
+                cli_args: cli_args.clone(),
+            };
 
-        // Validate configuration
-        let validation_errors = config.validate()?;
-        if !validation_errors.is_empty() {
-            return Err(AosError::Config(format!(
-                "Configuration validation failed: {:?}",
-                validation_errors
-            )));
+            let config = DeterministicConfig::new(values.clone(), metadata, schema.clone());
+            let validation_errors = config.validate()?;
+            if validation_errors.is_empty() {
+                return Ok(config);
+            }
+
+            let mut fatal_errors = Vec::new();
+            for err in validation_errors {
+                if let Some(field_def) = schema.fields.get(&err.key) {
+                    if let Some(default_value) = &field_def.default_value {
+                        tracing::warn!(
+                            key = %err.key,
+                            expected = %err.expected_type,
+                            actual = %err.actual_value,
+                            "Invalid config value, falling back to default"
+                        );
+                        values.insert(err.key.clone(), default_value.clone());
+                        sources.retain(|s| s.key != err.key);
+                        sources.push(ConfigSource {
+                            level: PrecedenceLevel::Manifest,
+                            source: "default".to_string(),
+                            key: err.key.clone(),
+                            value: default_value.clone(),
+                        });
+                        continue;
+                    }
+                }
+                fatal_errors.push(err);
+            }
+
+            if !fatal_errors.is_empty() {
+                return Err(AosError::Config(format!(
+                    "Configuration validation failed: {:?}",
+                    fatal_errors
+                )));
+            }
         }
-
-        Ok(config)
     }
 }
 

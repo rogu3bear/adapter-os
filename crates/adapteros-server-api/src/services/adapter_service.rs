@@ -248,7 +248,7 @@ impl DefaultAdapterService {
                 // Adapter not found in lifecycle manager, use CAS update directly
                 let updated = self
                     .state
-                    .db
+                    .lifecycle_db()
                     .update_adapter_state_cas_for_tenant(
                         tenant_id,
                         adapter_id,
@@ -273,7 +273,7 @@ impl DefaultAdapterService {
             // No lifecycle manager: use CAS update directly
             let updated = self
                 .state
-                .db
+                .lifecycle_db()
                 .update_adapter_state_cas_for_tenant(
                     tenant_id,
                     adapter_id,

@@ -111,6 +111,7 @@ impl IngestDocsArgs {
 
         // Ingest all documents
         let mut ingested_docs = Vec::new();
+        let mut failed_docs: Vec<(PathBuf, String)> = Vec::new();
         for file_path in &self.files {
             info!("Ingesting file: {}", file_path.display());
 
@@ -119,13 +120,31 @@ impl IngestDocsArgs {
                 continue;
             }
 
-            let document = self.ingest_file(&ingestor, file_path)?;
-            info!(
-                "Ingested {} with {} chunks",
-                document.source_name,
-                document.chunk_count()
-            );
-            ingested_docs.push(document);
+            match self.ingest_file(&ingestor, file_path) {
+                Ok(document) => {
+                    info!(
+                        "Ingested {} with {} chunks",
+                        document.source_name,
+                        document.chunk_count()
+                    );
+                    ingested_docs.push(document);
+                }
+                Err(e) => {
+                    warn!(
+                        path = %file_path.display(),
+                        error = %e,
+                        "Failed to ingest file, continuing with remaining inputs"
+                    );
+                    failed_docs.push((file_path.clone(), e.to_string()));
+                    continue;
+                }
+            }
+        }
+
+        if !failed_docs.is_empty() {
+            for (path, error) in &failed_docs {
+                warn!(path = %path.display(), %error, "Document ingestion failed");
+            }
         }
 
         if ingested_docs.is_empty() {

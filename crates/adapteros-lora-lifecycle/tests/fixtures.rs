@@ -7,7 +7,7 @@
 //! - Isolation mechanisms for parallel test execution
 
 #[allow(unused_imports)]
-use adapteros_db::{AdapterRegistrationBuilder, Db};
+use adapteros_db::{AdapterRegistrationBuilder, Db, ProtectedDb, WriteCapableDb};
 #[allow(unused_imports)]
 use adapteros_lora_lifecycle::AdapterState;
 #[allow(unused_imports)]
@@ -22,7 +22,7 @@ use uuid::Uuid;
 /// Automatically runs migrations and cleans up on drop.
 /// Safe for parallel test execution (each gets unique in-memory DB).
 pub struct TestDbFixture {
-    pub db: Db,
+    pub db: ProtectedDb,
     _temp_dir: Option<TempDir>,
 }
 
@@ -36,19 +36,19 @@ impl TestDbFixture {
         db.migrate().await.expect("Failed to run migrations");
 
         Self {
-            db,
+            db: ProtectedDb::new(db),
             _temp_dir: None,
         }
     }
 
     /// Get a reference to the database
-    pub fn db(&self) -> &Db {
+    pub fn db(&self) -> &ProtectedDb {
         &self.db
     }
 }
 
 /// Ensure a tenant exists for fixture data and return its ID
-async fn ensure_fixture_tenant(db: &Db) -> String {
+async fn ensure_fixture_tenant(db: &ProtectedDb) -> String {
     if let Some(id) = sqlx::query_scalar::<_, String>("SELECT id FROM tenants LIMIT 1")
         .fetch_optional(db.pool())
         .await
@@ -140,7 +140,7 @@ impl TestAdapterBuilder {
     }
 
     /// Register adapter in database
-    pub async fn register(self, db: &Db) -> String {
+    pub async fn register(self, db: &ProtectedDb) -> String {
         // Ensure a tenant exists and use it for registrations to satisfy FKs
         let tenant_id = ensure_fixture_tenant(db).await;
 
@@ -160,14 +160,15 @@ impl TestAdapterBuilder {
         .expect("Failed to register adapter");
 
         // Persist desired state and memory (dual-write to KV when enabled)
-        db.update_adapter_state_and_memory(
-            &self.id,
-            &self.state,
-            self.memory_bytes,
-            "fixture_setup",
-        )
-        .await
-        .expect("Failed to set adapter state and memory");
+        db.write(db.lifecycle_token())
+            .update_adapter_state_and_memory(
+                &self.id,
+                &self.state,
+                self.memory_bytes,
+                "fixture_setup",
+            )
+            .await
+            .expect("Failed to set adapter state and memory");
 
         // Seed activation count for tests (SQL primary; KV updates if storage_mode permits)
         if self.activation_count > 0 {
@@ -192,7 +193,7 @@ pub mod fixtures {
     use super::*;
 
     /// Single unloaded adapter
-    pub async fn single_unloaded(db: &Db) -> String {
+    pub async fn single_unloaded(db: &ProtectedDb) -> String {
         TestAdapterBuilder::new("test-unloaded")
             .with_state("unloaded")
             .register(db)
@@ -200,7 +201,7 @@ pub mod fixtures {
     }
 
     /// Single loaded adapter (cold state)
-    pub async fn single_cold(db: &Db) -> String {
+    pub async fn single_cold(db: &ProtectedDb) -> String {
         let id = TestAdapterBuilder::new("test-cold")
             .with_state("cold")
             .with_memory(1024 * 100) // 100 KB
@@ -211,7 +212,7 @@ pub mod fixtures {
     }
 
     /// Single warm adapter
-    pub async fn single_warm(db: &Db) -> String {
+    pub async fn single_warm(db: &ProtectedDb) -> String {
         let id = TestAdapterBuilder::new("test-warm")
             .with_state("warm")
             .with_memory(1024 * 200) // 200 KB

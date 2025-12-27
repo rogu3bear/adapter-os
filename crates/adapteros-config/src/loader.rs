@@ -68,19 +68,38 @@ impl ConfigLoader {
     fn load_manifest(&self, mut builder: ConfigBuilder, path: &str) -> Result<ConfigBuilder> {
         let manifest_path = Path::new(path);
         if !manifest_path.exists() {
-            return Err(AosError::Config(format!(
-                "Manifest file not found: {}",
-                path
-            )));
+            tracing::warn!(
+                manifest = %path,
+                "Manifest not found, using compiled-in defaults and environment"
+            );
+            return Ok(builder);
         }
 
-        let content = fs::read_to_string(manifest_path).map_err(|e| {
-            AosError::Config(format!("Failed to read manifest file {}: {}", path, e))
-        })?;
+        builder = builder.with_manifest_path(path.to_string());
 
-        let manifest: Value = toml::from_str(&content).map_err(|e| {
-            AosError::Config(format!("Failed to parse manifest file {}: {}", path, e))
-        })?;
+        let content = match fs::read_to_string(manifest_path) {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::warn!(
+                    manifest = %path,
+                    error = %e,
+                    "Manifest unreadable, using compiled-in defaults and environment"
+                );
+                return Ok(builder);
+            }
+        };
+
+        let manifest: Value = match toml::from_str(&content) {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::warn!(
+                    manifest = %path,
+                    error = %e,
+                    "Manifest invalid TOML, using compiled-in defaults and environment"
+                );
+                return Ok(builder);
+            }
+        };
 
         builder = builder.with_manifest_path(path.to_string());
 

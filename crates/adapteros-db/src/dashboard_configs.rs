@@ -70,11 +70,7 @@ impl Db {
         user_id: &str,
         widgets: Vec<(String, bool, i32)>, // (widget_id, enabled, position)
     ) -> Result<usize> {
-        let mut tx = self
-            .pool()
-            .begin()
-            .await
-            .map_err(|e| AosError::Database(format!("Failed to begin transaction: {}", e)))?;
+        let mut tx = self.begin_write_tx().await?;
 
         let mut updated_count = 0;
 

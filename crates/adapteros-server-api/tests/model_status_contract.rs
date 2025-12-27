@@ -119,6 +119,8 @@ fn minimal_request(tenant_id: &str, model_id: &str) -> InferenceRequestInternal 
         request_id: "req-1".to_string(),
         cpid: tenant_id.to_string(),
         prompt: "hello".to_string(),
+        reasoning_mode: false,
+        admin_override: false,
         stream: false,
         batch_item_id: None,
         rag_enabled: false,

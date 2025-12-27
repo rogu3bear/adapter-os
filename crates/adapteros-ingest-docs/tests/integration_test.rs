@@ -5,6 +5,7 @@ use adapteros_ingest_docs::{
     EmbeddingModel, SimpleEmbeddingModel, TrainingGenConfig, TrainingStrategy,
 };
 use std::io::Write;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tempfile::NamedTempFile;
 use tokenizers::models::wordlevel::WordLevel;
@@ -68,6 +69,29 @@ This section provides additional details and specifications.
         "Should have at least one chunk"
     );
     assert!(document.doc_hash.to_hex().len() > 0);
+}
+
+#[test]
+fn test_pdf_toxic_empty_rejected() {
+    let options = default_ingest_options();
+    let ingestor = DocumentIngestor::new(options, None);
+    let path = PathBuf::from("tests/data/toxic_docs/empty.pdf");
+
+    let result = ingestor.ingest_pdf_path(&path);
+    assert!(result.is_err(), "Empty PDF should be rejected");
+}
+
+#[test]
+fn test_pdf_toxic_recursion_rejected() {
+    let options = default_ingest_options();
+    let ingestor = DocumentIngestor::new(options, None);
+    let path = PathBuf::from("tests/data/toxic_docs/recursive.pdf");
+
+    let result = ingestor.ingest_pdf_path(&path);
+    assert!(
+        result.is_err(),
+        "Recursive or oversized PDF should be rejected"
+    );
 }
 
 #[test]

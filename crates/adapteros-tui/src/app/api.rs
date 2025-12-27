@@ -1,4 +1,5 @@
 use anyhow::{anyhow, Result};
+use chrono::{DateTime, Utc};
 use reqwest::Client;
 use serde_json::Value;
 use tracing::{debug, info};
@@ -8,6 +9,12 @@ use super::types::{LogEntry, LogLevel, SystemMetrics};
 pub struct ApiClient {
     client: Client,
     base_url: String,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct LogQuery {
+    pub tenant_id: Option<String>,
+    pub trace_id: Option<String>,
 }
 
 impl ApiClient {
@@ -213,13 +220,25 @@ impl ApiClient {
     }
 
     /// Get recent logs from the server
-    pub async fn get_logs(&self) -> Result<Vec<LogEntry>> {
+    pub async fn get_logs(&self, filters: &LogQuery) -> Result<Vec<LogEntry>> {
         let url = format!("{}/api/logs/query", self.base_url);
+        let mut params: Vec<(String, String)> = vec![("limit".to_string(), "100".to_string())];
 
-        match self.client.get(&url).query(&[("limit", "100")]).send().await {
+        if let Some(trace) = &filters.trace_id {
+            params.push(("trace_id".to_string(), trace.clone()));
+        }
+        if let Some(tenant) = &filters.tenant_id {
+            params.push(("tenant_id".to_string(), tenant.clone()));
+        }
+
+        match self.client.get(&url).query(&params).send().await {
             Ok(response) => {
                 if response.status().is_success() {
-                    let logs: Vec<LogEntry> = response.json().await?;
+                    let raw_logs: Vec<Value> = response.json().await.unwrap_or_default();
+                    let logs: Vec<LogEntry> = raw_logs
+                        .into_iter()
+                        .filter_map(Self::map_log_entry)
+                        .collect();
                     debug!("Received {} logs", logs.len());
                     Ok(logs)
                 } else {
@@ -262,6 +281,79 @@ impl ApiClient {
                 .and_then(|v| v.as_f64())
                 .unwrap_or(15.0) as f32,
         }
+    }
+
+    fn map_log_entry(value: Value) -> Option<LogEntry> {
+        let timestamp = value
+            .get("timestamp")
+            .and_then(|v| v.as_str())
+            .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
+            .map(|dt| dt.with_timezone(&Utc))
+            .unwrap_or_else(Utc::now);
+
+        let level_str = value
+            .get("level")
+            .and_then(|v| v.as_str())
+            .unwrap_or("info");
+
+        let component = value
+            .get("component")
+            .and_then(|v| v.as_str())
+            .or_else(|| value.get("event_type").and_then(|v| v.as_str()))
+            .unwrap_or("telemetry")
+            .to_string();
+
+        let message = value
+            .get("message")
+            .and_then(|v| v.as_str())
+            .or_else(|| value.get("event_type").and_then(|v| v.as_str()))
+            .unwrap_or("log")
+            .to_string();
+
+        let trace_id = value
+            .get("trace_id")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .or_else(|| {
+                value
+                    .get("metadata")
+                    .and_then(|m| m.get("trace_id"))
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+            });
+
+        let tenant_id = value
+            .get("identity")
+            .and_then(|id| id.get("tenant_id"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .or_else(|| {
+                value
+                    .get("metadata")
+                    .and_then(|m| m.get("tenant_id"))
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+            });
+
+        let latency_ms = value
+            .get("metadata")
+            .and_then(|m| {
+                m.get("latency_ms")
+                    .or_else(|| m.get("duration_ms"))
+                    .or_else(|| m.get("latency"))
+            })
+            .and_then(|v| v.as_u64())
+            .or_else(|| value.get("duration_ms").and_then(|v| v.as_u64()));
+
+        Some(LogEntry {
+            timestamp,
+            level: LogLevel::from_str(level_str),
+            component,
+            message,
+            trace_id,
+            tenant_id,
+            latency_ms,
+        })
     }
 }
 

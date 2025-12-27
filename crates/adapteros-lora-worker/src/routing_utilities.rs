@@ -204,6 +204,8 @@ mod fusion_interval_tests {
                 policy_mask_digest: None,
                 policy_overrides_applied: None,
                 interval_id: None,
+                model_type: adapteros_api_types::inference::RouterModelType::Dense,
+                active_experts: None,
             },
             RouterDecision {
                 step: 1,
@@ -221,6 +223,8 @@ mod fusion_interval_tests {
                 policy_mask_digest: None,
                 policy_overrides_applied: None,
                 interval_id: None,
+                model_type: adapteros_api_types::inference::RouterModelType::Dense,
+                active_experts: None,
             },
         ]
     }
@@ -328,6 +332,8 @@ mod router_summary_tests {
             allowed_mask: None,
             policy_mask_digest: None,
             policy_overrides_applied: None,
+            model_type: adapteros_api_types::inference::RouterModelType::Dense,
+            active_experts: None,
         }];
         let active_ids = vec!["adapter-a".to_string(), "adapter-b".to_string()];
         let summary = summarize_router_usage(false, &active_ids, 2, Some(decisions.as_slice()));

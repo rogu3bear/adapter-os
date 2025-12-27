@@ -23,7 +23,9 @@ pub fn extract_panic_message(payload: &dyn std::any::Any) -> String {
 ///
 /// Creates a standard "file:line:column" format string.
 pub fn format_panic_location(file: &str, line: u32, column: u32) -> String {
-    format!("{}:{}:{}", file, line, column)
+    let mut location = String::with_capacity(file.len() + 20);
+    let _ = std::fmt::Write::write_fmt(&mut location, format_args!("{file}:{line}:{column}"));
+    location
 }
 
 /// Truncate backtrace to avoid oversized HTTP messages.
@@ -51,9 +53,15 @@ pub fn build_fatal_payload(
     message: &str,
     backtrace_snippet: &str,
 ) -> Value {
+    let mut reason = String::with_capacity(location.len() + message.len() + 16);
+    reason.push_str("PANIC at ");
+    reason.push_str(location);
+    reason.push_str(": ");
+    reason.push_str(message);
+
     serde_json::json!({
         "worker_id": worker_id,
-        "reason": format!("PANIC at {}: {}", location, message),
+        "reason": reason,
         "backtrace_snippet": backtrace_snippet,
         "timestamp": chrono::Utc::now().to_rfc3339()
     })

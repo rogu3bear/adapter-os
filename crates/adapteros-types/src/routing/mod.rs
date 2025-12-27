@@ -6,6 +6,23 @@
 pub type B3Hash = [u8; 32];
 use serde::{Deserialize, Serialize};
 
+/// Routing model type for decision traces.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum RouterModelType {
+    /// Standard dense adapter stack without MoE experts.
+    Dense,
+    /// Mixture-of-experts routing that activates experts per token.
+    Moe,
+}
+
+impl RouterModelType {
+    /// Default dense value used by serde when the field is absent.
+    pub fn dense() -> Self {
+        RouterModelType::Dense
+    }
+}
+
 /// Candidate adapter entry for router trace
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -67,6 +84,14 @@ pub struct RouterDecision {
     /// Flags indicating which policy overrides were applied.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub policy_overrides_applied: Option<PolicyOverrideFlags>,
+
+    /// Model type for this decision (dense vs MoE)
+    #[serde(default = "RouterModelType::dense")]
+    pub model_type: RouterModelType,
+
+    /// Active experts when running an MoE model (system-managed experts)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_experts: Option<Vec<u16>>,
 }
 
 impl RouterDecision {
@@ -90,6 +115,8 @@ impl RouterDecision {
             interval_id: None,
             policy_mask_digest: None,
             policy_overrides_applied: None,
+            model_type: RouterModelType::Dense,
+            active_experts: None,
         }
     }
 

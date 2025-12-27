@@ -73,6 +73,7 @@ pub mod jti_cache;
 pub mod key_ring;
 pub mod lifecycle_builder;
 pub mod phase;
+pub mod runtime_dir;
 pub mod services;
 pub mod worker_auth;
 
@@ -86,6 +87,7 @@ pub use key_ring::{
 };
 pub use lifecycle_builder::{BootArtifacts, LifecycleBuilder, LifecycleConfig};
 pub use phase::{BootPhase, PhaseTiming, PhaseTransitions};
+pub use runtime_dir::{ensure_runtime_dir, RuntimeDir, EXIT_CONFIG_ERROR};
 pub use services::ServiceRegistry;
 pub use worker_auth::{
     derive_kid_from_verifying_key, generate_worker_token, load_or_generate_worker_keypair,

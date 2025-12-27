@@ -489,11 +489,7 @@ impl Db {
 
         if self.storage_mode().write_to_sql() {
             // Begin transaction for atomic multi-step deletion
-            let mut tx = self
-                .pool()
-                .begin()
-                .await
-                .map_err(db_err("begin transaction"))?;
+            let mut tx = self.begin_write_tx().await?;
 
             // Delete chunks first (cascading)
             sqlx::query("DELETE FROM document_chunks WHERE document_id = ?")
@@ -833,11 +829,7 @@ impl Db {
         // Start a regular deferred transaction
         // Note: SQLite's DEFERRED transactions are sufficient for correctness here.
         // The UPDATE with WHERE clause provides atomic compare-and-swap semantics.
-        let mut tx = self
-            .pool()
-            .begin()
-            .await
-            .map_err(|e| AosError::Database(format!("Failed to begin transaction: {}", e)))?;
+        let mut tx = self.begin_write_tx().await?;
 
         // Check current state with tenant isolation
         let row: Option<(String,)> =

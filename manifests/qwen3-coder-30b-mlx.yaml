@@ -7,6 +7,7 @@ base:
   hidden_dim: 2048
   n_layers: 48
   n_heads: 32
+  routing_bias: 0.8
   config_hash: "72b9f05578106bdfc42e3c2d6b6044fd49715a3f4feb4828baa7845436237666"
   tokenizer_hash: "b0cb923fc505fdf0a53f0287654fa26577d3f333d4134350da0a97664b228739"
   tokenizer_cfg_hash: "998e73f1b5cee2f5f2acc8095287c88ef585dc2827462b857e85fb75ed4abc55"

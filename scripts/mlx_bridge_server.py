@@ -584,33 +584,122 @@ class MLXBridgeServer:
         try:
             import mlx.core as mx
             experts = request.get("experts", [])  # List of [layer_idx, expert_id]
-            log(f"Pre-warming {len(experts)} experts...")
+            log(f"Pre-warming {len(experts)} experts (deep pre-warm)...")
+
+            def eval_weight(weight_obj, expert_idx=None) -> bool:
+                """Force-evaluate a weight array (optionally slicing by expert)."""
+                if weight_obj is None:
+                    return False
+
+                target = getattr(weight_obj, "weight", weight_obj)
+
+                try:
+                    if expert_idx is not None:
+                        # For stacked weights (e.g. Qwen2-MoE), the expert dim is usually 0
+                        if isinstance(target, mx.array):
+                            # Slice the array to force load of just that expert's part
+                            # shape: (num_experts, in_dim, out_dim)
+                            if 0 <= expert_idx < target.shape[0]:
+                                # We must access the data to trigger the load
+                                _ = target[expert_idx].shape
+                                # For MLX lazy loading, accessing shape might not be enough if it's cached.
+                                # We might need to actually evaluate a small part of it.
+                                # mx.eval(target[expert_idx]) # This would load the whole expert slice
+                                # Let's just eval the whole array for now if it's not too big,
+                                # OR trust that accessing the slice creates a graph dependency.
+                                # BUT: MLX arrays are lazy. To force load, we must eval.
+                                mx.eval(target[expert_idx])
+                                return True
+                        elif isinstance(target, (list, tuple)):
+                            if 0 <= expert_idx < len(target):
+                                target = target[expert_idx]
+                            else:
+                                return False
+                        else:
+                            # Unexpected type
+                            return False
+                    
+                    # If no expert_idx or we resolved to a specific tensor
+                    mx.eval(target)
+                    return True
+                except Exception:
+                    return False
+
+            def deep_prewarm_expert(layer, expert_id: int) -> tuple[bool, bool]:
+                """Return (ffn_loaded, router_loaded) for the requested expert."""
+                if not hasattr(layer, "mlp"):
+                    return False, False
+
+                mlp = layer.mlp
+                router_loaded = False
+                if hasattr(mlp, "gate") and hasattr(mlp.gate, "weight"):
+                    router_loaded = eval_weight(mlp.gate.weight)
+
+                ffn_loaded = False
+                
+                # Qwen2-MoE / Mixtral structure detection
+                experts_module = None
+                if hasattr(mlp, "switch_mlp"):
+                    experts_module = mlp.switch_mlp
+                elif hasattr(mlp, "experts"): # Some implementations
+                     experts_module = mlp.experts
+                elif hasattr(mlp, "block_sparse_mlp"): # Mixtral sometimes
+                    experts_module = mlp.block_sparse_mlp
+
+                if experts_module:
+                    # Strategy 1: Check for stacked weights (common in MLX implementation of Qwen2-MoE)
+                    # Keys often: w1, w2, c_proj etc.
+                    # We only need to touch ONE weight to trigger the page-in for the expert if they are grouped,
+                    # but safest to touch the biggest one (like down_proj/w2).
+                    for name in ("down_proj", "w2", "w1", "gate_proj", "up_proj"):
+                        if hasattr(experts_module, name):
+                            if eval_weight(getattr(experts_module, name), expert_id):
+                                ffn_loaded = True
+                                break
+                    
+                    # Strategy 2: Explicit experts list
+                    if not ffn_loaded and hasattr(experts_module, "experts"):
+                        expert_list = experts_module.experts
+                        if isinstance(expert_list, (list, tuple)) and 0 <= expert_id < len(expert_list):
+                            expert_block = expert_list[expert_id]
+                            for name in ("down_proj", "w2", "w1", "gate_proj", "up_proj"):
+                                if hasattr(expert_block, name):
+                                    if eval_weight(getattr(expert_block, name)):
+                                        ffn_loaded = True
+                                        break
+
+                return ffn_loaded, router_loaded
 
             loaded_count = 0
+            router_only = 0
+            
+            # Group by layer for efficiency if needed, but linear scan is fine for < 100 experts
             for layer_idx, expert_id in experts:
                 try:
-                    # Access the specific expert weights to trigger lazy loading
-                    # This structure works for Qwen3-MoE and Mixtral-style models in mlx-lm
                     if hasattr(self.model, 'model') and hasattr(self.model.model, 'layers'):
-                        layer = self.model.model.layers[layer_idx]
-                        if hasattr(layer, 'mlp') and hasattr(layer.mlp, 'switch_mlp'):
-                            # Qwen3-style
-                            experts_module = layer.mlp.switch_mlp
-                            # Experts are typically stacked in a single linear layer or in a list
-                            # For stacked experts, we index the weight matrix
-                            if hasattr(experts_module, 'gate_proj'):
-                                mx.eval(experts_module.gate_proj.weight[expert_id])
-                                mx.eval(experts_module.up_proj.weight[expert_id])
-                                mx.eval(experts_module.down_proj.weight[expert_id])
+                        layers = self.model.model.layers
+                        if layer_idx < len(layers):
+                            ffn_loaded, router_loaded = deep_prewarm_expert(layers[layer_idx], expert_id)
+                            if ffn_loaded:
                                 loaded_count += 1
+                            elif router_loaded:
+                                router_only += 1
+                                # Log rarely to avoid spam
+                                if router_only == 1:
+                                    log(f"Warning: Pre-warm for layer {layer_idx} expert {expert_id} only touched router gate")
+                        else:
+                            pass # Layer out of range
                 except Exception as e:
                     log(f"Failed to pre-warm expert {expert_id} in layer {layer_idx}: {e}")
 
-            send_response({
+            response = {
                 "type": "prewarm_response",
                 "status": "success",
                 "experts_loaded": loaded_count
-            })
+            }
+            if router_only:
+                response["router_only"] = router_only
+            send_response(response)
 
         except Exception as e:
             error_msg = f"Pre-warm failed: {str(e)}\n{traceback.format_exc()}"

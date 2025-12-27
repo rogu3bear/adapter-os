@@ -80,6 +80,8 @@ pub struct AdapterKv {
 
     // Base model and artifact hardening
     pub base_model_id: Option<String>,
+    #[serde(default)]
+    pub recommended_for_moe: Option<bool>,
     pub manifest_schema_version: Option<String>,
     pub content_hash_b3: Option<String>,
     pub provenance_json: Option<String>,

@@ -96,5 +96,5 @@ pub use coreml::{
     CoreMLPlacementSpec, CoreMLProjection, CoreMLTargetRef,
 };
 pub use repository::RepoTier;
-pub use routing::{RouterCandidate, RouterDecision};
+pub use routing::{RouterCandidate, RouterDecision, RouterModelType};
 pub use telemetry::{EventType, LogLevel, TelemetryBundle, TelemetryEvent, TelemetryFilters};

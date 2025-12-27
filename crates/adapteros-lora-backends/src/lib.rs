@@ -27,8 +27,10 @@
 // Re-export the kernel API (always available)
 pub use adapteros_lora_kernel_api as api;
 pub use adapteros_lora_kernel_api::{
-    attestation, AdapterLookup, BackendHealth, BackendMetrics, FusedKernels, GpuBufferFingerprint,
-    IoBuffers, MockKernels, MploraConfig, MploraKernels, RouterRing,
+    attestation, blend_and_forward_reference, AdapterLookup, BackendHealth, BackendMetrics,
+    FusedKernels, GpuBufferFingerprint, IoBuffers, LiquidBlendRequest, LiquidBlendStats,
+    LiquidKernel, LiquidPrecision, LiquidSlice, LiquidTensor, MockKernels, MploraConfig,
+    MploraKernels, RouterRing, LIQUID_MAX_ADAPTERS,
 };
 
 // Backend implementations (feature-gated)

@@ -205,10 +205,8 @@ impl Db {
 
         // SQL path when available (dual-write)
         if self.storage_mode().write_to_sql() {
-            if let Some(tx) = self.pool_opt().map(|p| p.begin()) {
-                let mut tx = tx.await.map_err(|e| {
-                    AosError::Database(format!("Failed to begin transaction: {}", e))
-                })?;
+            if self.pool_opt().is_some() {
+                let mut tx = self.begin_write_tx().await?;
 
                 for policy_id in all_policies {
                     let id = Uuid::new_v4().to_string();
@@ -520,11 +518,7 @@ impl Db {
     /// Both operations happen in a single transaction to ensure consistency.
     /// The .aos files are NOT deleted - that's handled by GC based on age policy.
     pub async fn archive_tenant(&self, id: &str) -> Result<()> {
-        let mut tx = self
-            .pool()
-            .begin()
-            .await
-            .map_err(|e| AosError::Database(format!("Failed to begin transaction: {}", e)))?;
+        let mut tx = self.begin_write_tx().await?;
 
         // Archive all adapters for this tenant
         let adapter_result = sqlx::query(

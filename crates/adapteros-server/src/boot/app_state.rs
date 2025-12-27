@@ -196,28 +196,27 @@ pub async fn build_app_state(
     let backend_name = std::env::var("AOS_MODEL_BACKEND").unwrap_or_else(|_| "mlx".to_string());
     state = state.with_manifest_info(manifest_hash, backend_name);
 
-    state = state.with_plugin_registry(Arc::new(adapteros_server_api::PluginRegistry::new(
-        db.clone(),
-    )));
+    let plugin_registry = Arc::new(adapteros_server_api::PluginRegistry::new(state.db.clone()));
+    state = state.with_plugin_registry(plugin_registry);
 
     // Start self-hosting agent if enabled
     let _self_hosting_handle =
         adapteros_server_api::self_hosting::spawn_self_hosting_agent(state.clone());
 
+    let adapters_root: PathBuf = {
+        let cfg = api_config
+            .read()
+            .map_err(|e| anyhow::anyhow!("Config lock poisoned: {}", e))?;
+        let paths = adapteros_core::paths::AdapterPaths::from_config(Some(
+            cfg.paths.adapters_root.as_str(),
+        ));
+        let root = paths.root().to_path_buf();
+        info!(path = %root.display(), "Resolved adapters root");
+        root
+    };
+
     // Initialize Registry for adapter management
     {
-        let adapters_root: PathBuf = {
-            let cfg = api_config
-                .read()
-                .map_err(|e| anyhow::anyhow!("Config lock poisoned: {}", e))?;
-            let paths = adapteros_core::paths::AdapterPaths::from_config(Some(
-                cfg.paths.adapters_root.as_str(),
-            ));
-            let root = paths.root().to_path_buf();
-            info!(path = %root.display(), "Resolved adapters root");
-            root
-        };
-
         let registry_path = adapters_root.join("registry.db");
 
         // Create adapters directory if it doesn't exist
@@ -248,6 +247,11 @@ pub async fn build_app_state(
             }
         }
     }
+
+    // Ingest topology graph from adapters/catalog.json into the DB for routing.
+    crate::topology_loader::ingest_catalog_topology(&state.db, &adapters_root)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to ingest topology catalog: {}", e))?;
 
     // Spawn storage reconciler in the background to detect missing/orphaned bytes.
     spawn_storage_reconciler(Arc::new(state.clone()));

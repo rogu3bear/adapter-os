@@ -18,8 +18,17 @@ pub struct QwenTokenizer {
 impl QwenTokenizer {
     /// Load tokenizer from model directory
     pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
+        let path_ref = path.as_ref();
+        let display_path = path_ref.to_string_lossy();
+        if path_ref.to_str().is_none() {
+            return Err(AosError::Validation(format!(
+                "Tokenizer path is not valid UTF-8: {}",
+                display_path
+            )));
+        }
+
         // Canonicalize path for security validation
-        let canonical_path = normalize_path(path.as_ref()).map_err(|e| {
+        let canonical_path = normalize_path(path_ref).map_err(|e| {
             AosError::Worker(format!(
                 "Path security validation failed for tokenizer: {}",
                 e

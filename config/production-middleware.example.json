@@ -11,6 +11,7 @@
     ]
   },
   "request_timeout_secs": 60,
+  "gate_timeout_secs": 60,
   "max_body_size_bytes": 10485760,
   "max_upload_size_bytes": 524288000
 }

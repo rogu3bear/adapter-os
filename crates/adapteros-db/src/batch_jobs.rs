@@ -253,9 +253,7 @@ impl Db {
         }
 
         // Begin transaction for atomic bulk insert
-        let mut tx = self.pool().begin().await.map_err(|e| {
-            adapteros_core::AosError::Database(format!("Failed to begin transaction: {}", e))
-        })?;
+        let mut tx = self.begin_write_tx().await?;
 
         let now = Utc::now().to_rfc3339();
 

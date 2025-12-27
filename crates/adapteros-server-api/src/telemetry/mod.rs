@@ -1159,7 +1159,7 @@ impl Default for TelemetryWorkerConfig {
 /// Spawn background telemetry workers for buffer flushing and metrics collection
 pub fn spawn_telemetry_workers(
     buffer: Arc<TelemetryBuffer>,
-    _db: adapteros_db::Db,
+    _db: adapteros_db::ProtectedDb,
     config: TelemetryWorkerConfig,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
@@ -1343,12 +1343,8 @@ mod tests {
     async fn test_metrics_registry_set_gauge_overwrites() {
         let registry = MetricsRegistry::new();
 
-        registry
-            .set_gauge("gauge_metric".to_string(), 1.0)
-            .await;
-        registry
-            .set_gauge("gauge_metric".to_string(), 2.0)
-            .await;
+        registry.set_gauge("gauge_metric".to_string(), 1.0).await;
+        registry.set_gauge("gauge_metric".to_string(), 2.0).await;
 
         let series = registry
             .get_series_async("gauge_metric")

@@ -1,5 +1,6 @@
 //! Verification commands
 
+use crate::http_client;
 use crate::output::OutputWriter;
 use adapteros_artifacts::bundle;
 use adapteros_core::B3Hash;
@@ -159,6 +160,119 @@ pub async fn handle_verify_command(cmd: VerifyCommand, output: &OutputWriter) ->
             federation::verify_federation(&bundle_dir, &database, output).await
         }
     }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct TraceVerifyRequest {
+    trace_id: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct TraceDigestDiff {
+    field: String,
+    expected_hex: String,
+    computed_hex: String,
+    matches: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct TraceVerificationReport {
+    trace_id: String,
+    tenant_id: Option<String>,
+    source: String,
+    pass: bool,
+    verified_at: String,
+    reasons: Vec<String>,
+    mismatched_token: Option<u32>,
+    context_digest: TraceDigestDiff,
+    run_head_hash: TraceDigestDiff,
+    output_digest: TraceDigestDiff,
+    receipt_digest: TraceDigestDiff,
+    signature_checked: bool,
+    signature_valid: Option<bool>,
+}
+
+/// Verify a trace receipt via the replay verification endpoint
+pub async fn verify_trace_receipt(
+    trace_id: String,
+    base_url: &str,
+    output: &OutputWriter,
+) -> Result<()> {
+    let client = reqwest::Client::builder().build()?;
+    let url = format!("{}/v1/replay/verify/trace", base_url.trim_end_matches('/'));
+
+    let response = http_client::send_with_refresh_from_store(&client, |c, auth| {
+        c.post(&url)
+            .bearer_auth(&auth.token)
+            .json(&TraceVerifyRequest {
+                trace_id: trace_id.clone(),
+            })
+    })
+    .await
+    .context("Failed to call trace verification endpoint")?;
+
+    let status = response.status();
+    if !status.is_success() {
+        let body = response.text().await.unwrap_or_default();
+        return Err(anyhow::anyhow!(format!(
+            "Trace verification failed: {} {}",
+            status, body
+        )));
+    }
+
+    let report: TraceVerificationReport = response
+        .json()
+        .await
+        .context("Failed to parse trace verification response")?;
+
+    if output.mode().is_json() {
+        output.print_json(&report)?;
+        return Ok(());
+    }
+
+    output.section("Trace Receipt Verification");
+    output.kv("Trace", &report.trace_id);
+    output.kv("Tenant", report.tenant_id.as_deref().unwrap_or("-"));
+    output.kv(
+        "Status",
+        if report.pass {
+            "PASS"
+        } else {
+            "FAIL (see reasons)"
+        },
+    );
+    output.kv("Verified at", &report.verified_at);
+
+    for diff in [
+        &report.context_digest,
+        &report.run_head_hash,
+        &report.output_digest,
+        &report.receipt_digest,
+    ] {
+        let status = if diff.matches { "match" } else { "MISMATCH" };
+        output.result(format!(
+            "{}: {} (expected {}) [{}]",
+            diff.field, diff.computed_hex, diff.expected_hex, status
+        ));
+    }
+
+    if let Some(token) = report.mismatched_token {
+        output.warning(format!("First mismatched token: {}", token));
+    }
+
+    if !report.reasons.is_empty() {
+        output.warning(format!("Reasons: {}", report.reasons.join(", ")));
+    }
+
+    if report.signature_checked {
+        if let Some(valid) = report.signature_valid {
+            output.kv("Signature", if valid { "valid" } else { "invalid" });
+        } else {
+            output.kv("Signature", "checked");
+        }
+    }
+
+    Ok(())
 }
 
 #[derive(Serialize)]

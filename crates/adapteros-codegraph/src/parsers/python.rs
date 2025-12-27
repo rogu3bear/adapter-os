@@ -7,10 +7,11 @@ use crate::parsers::{utils, LanguageParser};
 use crate::types::{Language, ParseResult, SymbolKind, SymbolNode, Visibility};
 use adapteros_core::{AosError, Result};
 use std::path::Path;
+use streaming_iterator::StreamingIterator;
 use tree_sitter::{Language as TSLanguage, Parser, Query, QueryCursor};
 
 fn python_language() -> TSLanguage {
-    tree_sitter_python::language()
+    tree_sitter::Language::new(tree_sitter_python::LANGUAGE)
 }
 
 /// Python-specific parser implementation
@@ -43,10 +44,10 @@ impl PythonParser {
         let python_lang = python_language();
 
         parser
-            .set_language(python_lang)
+            .set_language(&python_lang)
             .map_err(|e| AosError::Parse(format!("Failed to set Python language: {}", e)))?;
         let function_query = Query::new(
-            python_lang,
+            &python_lang,
             r#"
             (function_definition
                 name: (identifier) @name
@@ -58,7 +59,7 @@ impl PythonParser {
         .map_err(|e| AosError::Parse(format!("Failed to create function query: {}", e)))?;
 
         let async_function_query = Query::new(
-            python_lang,
+            &python_lang,
             r#"
             (async_function_definition
                 name: (identifier) @name
@@ -70,7 +71,7 @@ impl PythonParser {
         .map_err(|e| AosError::Parse(format!("Failed to create async function query: {}", e)))?;
 
         let class_query = Query::new(
-            python_lang,
+            &python_lang,
             r#"
             (class_definition
                 name: (identifier) @name
@@ -81,7 +82,7 @@ impl PythonParser {
         .map_err(|e| AosError::Parse(format!("Failed to create class query: {}", e)))?;
 
         let import_query = Query::new(
-            python_lang,
+            &python_lang,
             r#"
             (import_statement
                 (dotted_name) @module_name
@@ -91,7 +92,7 @@ impl PythonParser {
         .map_err(|e| AosError::Parse(format!("Failed to create import query: {}", e)))?;
 
         let import_from_query = Query::new(
-            python_lang,
+            &python_lang,
             r#"
             (import_from_statement
                 module_name: (dotted_name)? @module_name
@@ -102,7 +103,7 @@ impl PythonParser {
         .map_err(|e| AosError::Parse(format!("Failed to create import from query: {}", e)))?;
 
         let assignment_query = Query::new(
-            python_lang,
+            &python_lang,
             r#"
             (assignment
                 left: (identifier) @name
@@ -113,7 +114,7 @@ impl PythonParser {
         .map_err(|e| AosError::Parse(format!("Failed to create assignment query: {}", e)))?;
 
         let method_query = Query::new(
-            python_lang,
+            &python_lang,
             r#"
             (class_definition
                 name: (identifier) @class_name
@@ -186,9 +187,9 @@ impl PythonParser {
         symbols: &mut Vec<SymbolNode>,
     ) -> Result<()> {
         let mut cursor = QueryCursor::new();
-        let matches = cursor.matches(&self.function_query, tree.root_node(), source.as_bytes());
+        let mut matches = cursor.matches(&self.function_query, tree.root_node(), source.as_bytes());
 
-        for mat in matches {
+        while let Some(mat) = matches.next() {
             let mut name = None;
             let mut params = None;
             let mut _return_type = None;
@@ -235,13 +236,13 @@ impl PythonParser {
         symbols: &mut Vec<SymbolNode>,
     ) -> Result<()> {
         let mut cursor = QueryCursor::new();
-        let matches = cursor.matches(
+        let mut matches = cursor.matches(
             &self.async_function_query,
             tree.root_node(),
             source.as_bytes(),
         );
 
-        for mat in matches {
+        while let Some(mat) = matches.next() {
             let mut name = None;
             let mut params = None;
             let mut _return_type = None;
@@ -289,9 +290,9 @@ impl PythonParser {
         symbols: &mut Vec<SymbolNode>,
     ) -> Result<()> {
         let mut cursor = QueryCursor::new();
-        let matches = cursor.matches(&self.class_query, tree.root_node(), source.as_bytes());
+        let mut matches = cursor.matches(&self.class_query, tree.root_node(), source.as_bytes());
 
-        for mat in matches {
+        while let Some(mat) = matches.next() {
             let mut name = None;
             let mut superclasses = None;
 
@@ -336,9 +337,9 @@ impl PythonParser {
         symbols: &mut Vec<SymbolNode>,
     ) -> Result<()> {
         let mut cursor = QueryCursor::new();
-        let matches = cursor.matches(&self.method_query, tree.root_node(), source.as_bytes());
+        let mut matches = cursor.matches(&self.method_query, tree.root_node(), source.as_bytes());
 
-        for mat in matches {
+        while let Some(mat) = matches.next() {
             let mut class_name = None;
             let mut method_name = None;
             let mut params = None;
@@ -387,9 +388,9 @@ impl PythonParser {
         let mut cursor = QueryCursor::new();
 
         // Extract regular imports
-        let import_matches =
+        let mut import_matches =
             cursor.matches(&self.import_query, tree.root_node(), source.as_bytes());
-        for mat in import_matches {
+        while let Some(mat) = import_matches.next() {
             let mut module_name = None;
 
             for capture in mat.captures {
@@ -415,9 +416,9 @@ impl PythonParser {
         }
 
         // Extract import from statements
-        let import_from_matches =
+        let mut import_from_matches =
             cursor.matches(&self.import_from_query, tree.root_node(), source.as_bytes());
-        for mat in import_from_matches {
+        while let Some(mat) = import_from_matches.next() {
             let mut module_name = None;
             let mut imported_name = None;
 
@@ -461,9 +462,10 @@ impl PythonParser {
         symbols: &mut Vec<SymbolNode>,
     ) -> Result<()> {
         let mut cursor = QueryCursor::new();
-        let matches = cursor.matches(&self.assignment_query, tree.root_node(), source.as_bytes());
+        let mut matches =
+            cursor.matches(&self.assignment_query, tree.root_node(), source.as_bytes());
 
-        for mat in matches {
+        while let Some(mat) = matches.next() {
             let mut name = None;
             let mut value = None;
 

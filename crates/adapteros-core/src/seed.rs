@@ -426,6 +426,12 @@ pub fn clear_seed_registry() {
     tracing::debug!("Cleared seed registry");
 }
 
+/// Check if seed registry is empty (for tests/validation)
+pub fn is_seed_registry_empty() -> bool {
+    let registry = SEED_REGISTRY.lock().unwrap();
+    registry.is_empty()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

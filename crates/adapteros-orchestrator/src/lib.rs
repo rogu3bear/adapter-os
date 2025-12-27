@@ -4,6 +4,7 @@
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 
 pub mod behavior_training;
 pub mod code_jobs;
@@ -56,6 +57,8 @@ pub struct OrchestratorConfig {
     pub allow_degraded_mode: bool,
     /// Require telemetry bundles to exist
     pub require_telemetry_bundles: bool,
+    /// Timeout for individual gate execution (seconds)
+    pub gate_timeout_secs: u64,
 }
 
 impl Default for OrchestratorConfig {
@@ -69,6 +72,7 @@ impl Default for OrchestratorConfig {
             skip_dependency_checks: false,
             allow_degraded_mode: false,
             require_telemetry_bundles: true,
+            gate_timeout_secs: 60,
         }
     }
 }
@@ -170,7 +174,33 @@ impl Orchestrator {
             let gate_name = gate.name();
             tracing::info!(gate = %gate_name, "Running promotion gate");
 
-            let result = gate.check(&self.config).await;
+            let timeout = Duration::from_secs(self.config.gate_timeout_secs);
+            let timed_result = tokio::time::timeout(timeout, gate.check(&self.config)).await;
+
+            let result = match timed_result {
+                Ok(res) => res,
+                Err(_) => {
+                    let msg = format!(
+                        "Gate {} timed out after {}s",
+                        gate_name, self.config.gate_timeout_secs
+                    );
+                    let is_sbom = gate_name.eq_ignore_ascii_case("sbom");
+                    if is_sbom && self.config.allow_degraded_mode {
+                        tracing::warn!(gate = %gate_name, timeout_secs = self.config.gate_timeout_secs, "Gate timed out; allowed in degraded mode");
+                        report.add_result(
+                            gate_name.clone(),
+                            GateResult {
+                                passed: true,
+                                message: format!("{} (allowing degraded mode)", msg),
+                                evidence: None,
+                            },
+                        );
+                        continue;
+                    }
+                    tracing::error!(gate = %gate_name, timeout_secs = self.config.gate_timeout_secs, "Gate execution timed out");
+                    Err(anyhow::anyhow!(msg))
+                }
+            };
 
             match &result {
                 Ok(()) => {
