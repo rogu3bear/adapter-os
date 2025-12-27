@@ -239,7 +239,7 @@ async fn test_keychain_key_generation_and_signing() {
 
     let provider = KeychainProvider::new(config);
 
-    if let Ok(mut provider) = provider {
+    if let Ok(provider) = provider {
         // Try to generate a key
         use adapteros_crypto::key_provider::KeyProvider;
 

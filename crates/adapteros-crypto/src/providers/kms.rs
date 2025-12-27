@@ -24,9 +24,11 @@ const CLOUD_BACKEND_DISABLED_MSG: &str =
 
 // AWS KMS imports (conditional based on feature flag)
 #[cfg(feature = "aws-kms")]
-use aws_sdk_kms::types::SigningAlgorithmSpec;
+use aws_credential_types::Credentials;
 #[cfg(feature = "aws-kms")]
-use aws_sdk_kms::Client as KmsClient;
+use aws_sdk_kms::{types::SigningAlgorithmSpec, Client as KmsClient};
+#[cfg(feature = "aws-kms")]
+use aws_types::region::Region;
 
 // GCP KMS imports (conditional based on feature flag)
 #[cfg(any())]
@@ -216,6 +218,7 @@ pub struct AwsKmsBackend {
 
 #[cfg(feature = "aws-kms")]
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 struct AwsKeyMetadata {
     key_id: String,
     algorithm: KeyAlgorithm,
@@ -232,17 +235,13 @@ impl AwsKmsBackend {
                 access_key_id,
                 secret_access_key,
                 session_token,
-            } => {
-                use aws_config::aws_credential_types::Credentials;
-
-                Credentials::new(
-                    access_key_id.clone(),
-                    secret_access_key.clone(),
-                    session_token.clone(),
-                    None,
-                    "adapteros-crypto",
-                )
-            }
+            } => Credentials::new(
+                access_key_id.clone(),
+                secret_access_key.clone(),
+                session_token.clone(),
+                None,
+                "adapteros-crypto",
+            ),
             _ => {
                 return Err(AosError::Crypto(
                     "AWS KMS requires AwsIam credentials".to_string(),
@@ -251,21 +250,16 @@ impl AwsKmsBackend {
         };
 
         // Create AWS SDK config
-        let region = config
-            .region
-            .as_deref()
-            .unwrap_or("us-east-1")
-            .parse::<aws_config::region::Region>()
-            .map_err(|_| {
-                AosError::Crypto(format!(
-                    "Invalid AWS region: {}",
-                    config.region.as_deref().unwrap_or("unknown")
-                ))
-            })?;
+        let region = Region::new(
+            config
+                .region
+                .clone()
+                .unwrap_or_else(|| "us-east-1".to_string()),
+        );
 
         let mut aws_config = aws_config::defaults(aws_config::BehaviorVersion::latest())
-            .region(region)
-            .credentials_provider(credentials)
+            .region(region.clone())
+            .credentials_provider(credentials.clone())
             .load()
             .await;
 
@@ -303,7 +297,7 @@ impl AwsKmsBackend {
     }
 
     /// Execute operation with retry logic
-    async fn with_retry<F, T>(&self, mut op: F) -> Result<T>
+    async fn with_retry<F, T>(&self, op: F) -> Result<T>
     where
         F: FnMut() -> futures_util::future::BoxFuture<'static, Result<T>>,
     {
@@ -341,26 +335,28 @@ impl KmsBackend for AwsKmsBackend {
                         AosError::Crypto("AWS KMS response missing key metadata".to_string())
                     })?;
 
-                    let aws_key_id = metadata.key_id().ok_or_else(|| {
-                        AosError::Crypto("AWS KMS response missing key ID".to_string())
-                    })?;
+                    let aws_key_id = metadata.key_id().to_string();
 
                     // Create alias for the key
                     let alias = format!("alias/adapteros-{}", key_id);
                     let _ = client
                         .create_alias()
                         .alias_name(&alias)
-                        .target_key_id(aws_key_id)
+                        .target_key_id(aws_key_id.as_str())
                         .send()
                         .await;
 
                     // Get public key for asymmetric keys
                     let pub_key = if alg == KeyAlgorithm::Ed25519 {
-                        match client.get_public_key().key_id(aws_key_id).send().await {
+                        match client
+                            .get_public_key()
+                            .key_id(aws_key_id.as_str())
+                            .send()
+                            .await
+                        {
                             Ok(response) => response
                                 .public_key()
-                                .and_then(|pk| pk.as_ref())
-                                .map(|b| b.to_vec())
+                                .map(|pk| pk.as_ref().to_vec())
                                 .unwrap_or_default(),
                             Err(_) => vec![],
                         }
@@ -417,15 +413,14 @@ impl KmsBackend for AwsKmsBackend {
                     .sign()
                     .key_id(&key_id)
                     .message(aws_smithy_types::Blob::new(message))
-                    .signing_algorithm(SigningAlgorithmSpec::Ed25519)
+                    .signing_algorithm(SigningAlgorithmSpec::Ed25519Sha512)
                     .send()
                     .await
                     .map_err(|e| AosError::Crypto(format!("AWS KMS sign failed: {}", e)))?;
 
                 let signature = response
                     .signature()
-                    .and_then(|sig| sig.as_ref())
-                    .map(|b| b.to_vec())
+                    .map(|sig| sig.as_ref().to_vec())
                     .ok_or_else(|| {
                         AosError::Crypto("AWS KMS response missing signature".to_string())
                     })?;
@@ -457,8 +452,7 @@ impl KmsBackend for AwsKmsBackend {
 
                 let ciphertext = response
                     .ciphertext_blob()
-                    .and_then(|ct| ct.as_ref())
-                    .map(|b| b.to_vec())
+                    .map(|ct| ct.as_ref().to_vec())
                     .ok_or_else(|| {
                         AosError::Crypto("AWS KMS response missing ciphertext".to_string())
                     })?;
@@ -490,8 +484,7 @@ impl KmsBackend for AwsKmsBackend {
 
                 let plaintext = response
                     .plaintext()
-                    .and_then(|pt| pt.as_ref())
-                    .map(|b| b.to_vec())
+                    .map(|pt| pt.as_ref().to_vec())
                     .ok_or_else(|| {
                         AosError::Crypto("AWS KMS response missing plaintext".to_string())
                     })?;
@@ -541,8 +534,7 @@ impl KmsBackend for AwsKmsBackend {
                         match client.get_public_key().key_id(&key_id).send().await {
                             Ok(response) => response
                                 .public_key()
-                                .and_then(|pk| pk.as_ref())
-                                .map(|b| b.to_vec())
+                                .map(|pk| pk.as_ref().to_vec())
                                 .unwrap_or_default(),
                             Err(_) => vec![],
                         }
@@ -603,8 +595,7 @@ impl KmsBackend for AwsKmsBackend {
 
                 response
                     .public_key()
-                    .and_then(|pk| pk.as_ref())
-                    .map(|b| b.to_vec())
+                    .map(|pk| pk.as_ref().to_vec())
                     .ok_or_else(|| {
                         AosError::Crypto("AWS KMS response missing public key".to_string())
                     })
@@ -626,7 +617,7 @@ impl KmsBackend for AwsKmsBackend {
                     Ok(response) => {
                         if let Some(metadata) = response.key_metadata {
                             // Check if key is enabled
-                            Ok(metadata.enabled() == Some(true))
+                            Ok(metadata.enabled())
                         } else {
                             Ok(false)
                         }

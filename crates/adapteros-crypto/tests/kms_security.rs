@@ -433,7 +433,7 @@ fn test_credential_leak_detection_in_config() {
     // Verify credentials are stored (currently visible in debug)
     // TODO: In production, implement Zeroize trait to prevent credential leaks
     let debug_str = format!("{:?}", config);
-    assert!(debug_str.len() > 0);
+    assert!(!debug_str.is_empty());
 
     // Verify sensitive fields can be accessed internally
     match &config.credentials {

@@ -34,6 +34,8 @@ use crate::key_provider::{
 use adapteros_core::{derive_seed, B3Hash};
 use adapteros_core::{AosError, Result};
 use base64::Engine;
+#[cfg(feature = "password-fallback")]
+use rand::RngCore;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 use std::collections::HashMap;
 #[cfg(all(target_os = "linux", feature = "linux-keychain"))]
@@ -313,8 +315,10 @@ impl PasswordFallbackKeyring {
     fn load_keystore(&self) -> Result<serde_json::Value> {
         #[cfg(feature = "password-fallback")]
         {
-            use aes_gcm::{AeadInPlace, Aes256Gcm, KeyInit, Nonce};
-            use chacha20poly1305::ChaCha20Poly1305;
+            use aes_gcm::{aead::AeadInPlace, Aes256Gcm, KeyInit, Nonce};
+            use chacha20poly1305::{
+                aead::AeadInPlace as ChaChaAeadInPlace, ChaCha20Poly1305, Nonce as ChaChaNonce,
+            };
 
             if !self.keystore_path.exists() {
                 return Ok(serde_json::json!({"keys": {}}));
@@ -339,9 +343,9 @@ impl PasswordFallbackKeyring {
                 let mut data = encrypted_data.to_vec();
                 cipher.decrypt_in_place(nonce, &[], &mut data).map(|_| data)
             } else if let Ok(cipher) = ChaCha20Poly1305::new_from_slice(&self.master_key) {
-                let nonce = chacha20poly1305::Nonce::from_slice(nonce_bytes);
+                let nonce = ChaChaNonce::from_slice(nonce_bytes);
                 let mut data = encrypted_data.to_vec();
-                cipher.decrypt_in_place(nonce, &[], &mut data).map(|_| data)
+                ChaChaAeadInPlace::decrypt_in_place(&cipher, nonce, &[], &mut data).map(|_| data)
             } else {
                 return Err(AosError::Crypto("No supported cipher available".to_string()));
             }            .map_err(|e| {
@@ -854,6 +858,10 @@ impl KeyringImpl for PasswordFallbackKeyring {
                 Err(e)
             }
         }
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
     }
 }
 

@@ -7,9 +7,16 @@ license.workspace = true
 
 [features]
 default = []
-password-fallback = []
+password-fallback = ["argon2", "chacha20poly1305"]
 linux-keychain = []
-aws-kms = ["aws-config", "aws-sdk-kms", "aws-smithy-runtime", "aws-smithy-types"]
+aws-kms = [
+    "aws-config",
+    "aws-credential-types",
+    "aws-sdk-kms",
+    "aws-smithy-runtime",
+    "aws-smithy-types",
+    "aws-types",
+]
 
 [dependencies]
 adapteros-core = { path = "../adapteros-core" }
@@ -32,6 +39,8 @@ zeroize = { version = "1.7", features = ["zeroize_derive"] }
 async-trait = "0.1"
 tokio = { workspace = true }
 futures-util = { workspace = true }
+argon2 = { version = "0.5", optional = true }
+chacha20poly1305 = { version = "0.10", optional = true }
 
 # macOS Security Framework (for SEP attestation)
 [target.'cfg(target_os = "macos")'.dependencies]
@@ -42,9 +51,11 @@ core-foundation-sys = "0.8"
 
 # AWS KMS support (optional)
 aws-config = { version = "1.1", optional = true }
+aws-credential-types = { version = "1.1", optional = true }
 aws-sdk-kms = { version = "1.12", optional = true }
 aws-smithy-runtime = { version = "1.1", optional = true }
 aws-smithy-types = { version = "1.1", optional = true }
+aws-types = { version = "1.1", optional = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
