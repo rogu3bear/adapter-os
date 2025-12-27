@@ -1110,6 +1110,7 @@ mod tests {
             cpid: "cp-123".to_string(),
             prompt: "Hello worker".to_string(),
             max_tokens: 128,
+            request_id: Some("req-123".to_string()),
             require_evidence: true,
             admin_override: false,
             reasoning_mode: false,
@@ -1150,6 +1151,7 @@ mod tests {
         assert_eq!(request.cpid, deserialized.cpid);
         assert_eq!(request.prompt, deserialized.prompt);
         assert_eq!(request.max_tokens, deserialized.max_tokens);
+        assert_eq!(request.request_id, deserialized.request_id);
         assert_eq!(request.require_evidence, deserialized.require_evidence);
         assert_eq!(request.stack_id, deserialized.stack_id);
         assert_eq!(request.stack_version, deserialized.stack_version);

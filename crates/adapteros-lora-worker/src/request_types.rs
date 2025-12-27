@@ -23,6 +23,9 @@ pub struct InferenceRequest {
     pub cpid: String,
     pub prompt: String,
     pub max_tokens: usize,
+    /// Optional request identifier for tracing
+    #[serde(default)]
+    pub request_id: Option<String>,
     #[serde(default)]
     pub require_evidence: bool,
     /// Enable reasoning-aware routing (pauses at reasoning spans to hot-swap adapters)
