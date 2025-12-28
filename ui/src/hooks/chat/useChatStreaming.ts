@@ -70,6 +70,21 @@ const unwrapRunEnvelope = (raw: Record<string, unknown>): Record<string, unknown
   return null;
 };
 
+const isRunEnvelopeEvent = (payload: unknown): boolean => {
+  const record = asRecord(payload);
+  if (!record) return false;
+  if ('run_envelope' in record || 'runEnvelope' in record) return true;
+  const eventName =
+    typeof record.event === 'string'
+      ? record.event
+      : typeof record.event_type === 'string'
+        ? record.event_type
+        : typeof record.type === 'string'
+          ? record.type
+          : null;
+  return eventName === 'aos.run_envelope';
+};
+
 const extractRunMetadata = (payload: unknown): RunMetadataPayload | null => {
   const raw = asRecord(payload) ?? parseJsonRecord(payload);
   if (!raw) return null;
@@ -220,16 +235,32 @@ export function useChatStreaming(options: UseChatStreamingOptions): UseChatStrea
   const tokenMetaRef = useRef<StreamTokenChunk[]>([]);
 
   const emitRunMetadata = useCallback(
-    (payload: unknown, requestHint?: string, traceHint?: string) => {
-      if (!onRunMetadata) return;
+    (payload: unknown, requestHint?: string, traceHint?: string): RunMetadataPayload | null => {
       const metadata = extractRunMetadata(payload);
-      if (!metadata) return;
+      if (!metadata) return null;
 
-      onRunMetadata({
+      const resolvedRequestId =
+        metadata.requestId ?? metadata.runId ?? requestHint ?? currentRequestId ?? undefined;
+      const resolvedTraceId =
+        metadata.traceId ?? metadata.runId ?? traceHint ?? metadata.requestId ?? currentRequestId ?? undefined;
+
+      if (resolvedRequestId) {
+        setCurrentRequestId((prev) => (prev === resolvedRequestId ? prev : resolvedRequestId));
+      }
+
+      if (onRunMetadata) {
+        onRunMetadata({
+          ...metadata,
+          requestId: resolvedRequestId,
+          traceId: resolvedTraceId,
+        });
+      }
+
+      return {
         ...metadata,
-        requestId: metadata.requestId ?? metadata.runId ?? requestHint ?? currentRequestId ?? undefined,
-        traceId: metadata.traceId ?? metadata.runId ?? traceHint ?? metadata.requestId ?? currentRequestId ?? undefined,
-      });
+        requestId: resolvedRequestId,
+        traceId: resolvedTraceId,
+      };
     },
     [currentRequestId, onRunMetadata]
   );
@@ -359,7 +390,19 @@ export function useChatStreaming(options: UseChatStreamingOptions): UseChatStrea
               traceId = chunk.id;
               setCurrentRequestId(chunk.id);
             }
-            emitRunMetadata(chunk, typeof (chunk as { id?: string }).id === 'string' ? (chunk as { id: string }).id : undefined, traceId ?? undefined);
+            const runMetadata = emitRunMetadata(
+              chunk,
+              typeof (chunk as { id?: string }).id === 'string' ? (chunk as { id: string }).id : undefined,
+              traceId ?? undefined
+            );
+            if (!traceId && runMetadata?.traceId) {
+              traceId = runMetadata.traceId;
+            } else if (!traceId && runMetadata?.requestId) {
+              traceId = runMetadata.requestId;
+            }
+            if (token.length === 0 && isRunEnvelopeEvent(chunk)) {
+              return;
+            }
             tokenCount++;
             fullText += token;
             setStreamedText(fullText);
@@ -521,6 +564,7 @@ export function useChatStreaming(options: UseChatStreamingOptions): UseChatStrea
     onMessageSent,
     onStreamComplete,
     onError,
+    emitRunMetadata,
   ]);
 
   return {

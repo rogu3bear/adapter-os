@@ -58,6 +58,8 @@ export interface SystemStatusResponse {
   timestamp?: string;
   integrity?: IntegrityStatus;
   readiness?: ReadinessStatus;
+  inferenceReady?: StatusIndicator;
+  inferenceBlockers?: string[] | null;
   kernel?: KernelStatus;
   boot?: BootStatus;
   components?: Array<{

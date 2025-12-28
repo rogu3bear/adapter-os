@@ -509,7 +509,7 @@ fn test_streaming_with_session_id() {
 #[test]
 fn test_streaming_with_collection_rag() {
     let request = json!({
-        "prompt": "What is the pricing model?",
+        "prompt": "What is the licensing model?",
         "collection_id": "marketing-docs",
         "adapters": ["rag-adapter"]
     });

@@ -541,7 +541,7 @@ Total P95 = Queue time + Prompt processing + Generation + Network
 
 **When to use P99:**
 - **Critical applications:** Real-time assistants, safety systems
-- **Premium SLAs:** High-tier service guarantees
+- **High-assurance SLAs:** On-site or air-gapped support guarantees
 - **Latency-sensitive:** Interactive applications where delays hurt UX
 - **Debugging tail latency:** Identify rare performance issues
 

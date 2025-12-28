@@ -23,7 +23,7 @@
 
 ## Overview
 
-AdapterOS is a **single-node, multi-tenant ML inference platform** optimized for Apple Silicon. It enables hot-swappable LoRA adapters with deterministic execution, zero network egress during serving, and enterprise-grade security.
+AdapterOS is a **single-node, locally deployed ML inference platform** optimized for Apple Silicon, licensed for on-prem or air-gapped installations, and built around workspace isolation. It enables hot-swappable LoRA adapters with deterministic execution, zero network egress during serving, and enterprise-grade security.
 
 ### Core Technologies
 

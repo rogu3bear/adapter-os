@@ -593,7 +593,9 @@ mod tests {
             total_size_bytes: 1024000,
             format: "jsonl".to_string(),
             hash_b3: "abc123".to_string(),
+            dataset_hash_b3: "dataset-abc123".to_string(),
             storage_path: "/var/datasets/ds-123".to_string(),
+            status: "ready".to_string(),
             validation_status: "valid".to_string(),
             validation_errors: None,
             metadata_json: Some(r#"{"key": "value"}"#.to_string()),
@@ -606,6 +608,7 @@ mod tests {
             collection_method: Some("manual".to_string()),
             ownership: Some("team-a".to_string()),
             tenant_id: Some("tenant-1".to_string()),
+            workspace_id: Some("workspace-1".to_string()),
         };
 
         let kv_dataset = kv_dataset_from_record(&sql_dataset, "tenant-1");
@@ -618,7 +621,9 @@ mod tests {
         assert_eq!(sql_dataset.total_size_bytes, roundtrip.total_size_bytes);
         assert_eq!(sql_dataset.format, roundtrip.format);
         assert_eq!(sql_dataset.hash_b3, roundtrip.hash_b3);
+        assert_eq!(sql_dataset.dataset_hash_b3, roundtrip.dataset_hash_b3);
         assert_eq!(sql_dataset.storage_path, roundtrip.storage_path);
+        assert_eq!(sql_dataset.status, roundtrip.status);
         assert_eq!(sql_dataset.validation_status, roundtrip.validation_status);
         assert_eq!(sql_dataset.validation_errors, roundtrip.validation_errors);
         assert_eq!(sql_dataset.metadata_json, roundtrip.metadata_json);
@@ -631,6 +636,7 @@ mod tests {
         assert_eq!(sql_dataset.collection_method, roundtrip.collection_method);
         assert_eq!(sql_dataset.ownership, roundtrip.ownership);
         assert_eq!(sql_dataset.tenant_id, roundtrip.tenant_id);
+        assert_eq!(sql_dataset.workspace_id, roundtrip.workspace_id);
     }
 
     #[test]

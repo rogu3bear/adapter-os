@@ -729,20 +729,40 @@ CREATE TABLE training_datasets (
     total_size_bytes INTEGER NOT NULL DEFAULT 0,
     format TEXT NOT NULL,  -- 'patches', 'jsonl', 'txt', 'custom'
     hash_b3 TEXT NOT NULL,
+    dataset_hash_b3 TEXT,
     storage_path TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'uploaded' CHECK (status IN ('uploaded','processing','ready','failed')),
     validation_status TEXT NOT NULL DEFAULT 'pending',
     validation_errors TEXT,
     metadata_json TEXT,
     created_by TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+    dataset_type TEXT,
+    purpose TEXT,
+    source_location TEXT,
+    collection_method TEXT,
+    ownership TEXT,
+    tenant_id TEXT,
+    workspace_id TEXT,
+    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
+    FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
+    FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE SET NULL
 );
 ```
 
 **Indexes:**
 - `idx_training_datasets_created_at` on `created_at DESC`
+- `idx_training_datasets_created_by` on `created_by`
 - `idx_training_datasets_format` on `format`
+- `idx_training_datasets_hash` on `hash_b3`
+- `idx_training_datasets_type` on `dataset_type`
+- `idx_training_datasets_tenant` on `tenant_id`
+- `idx_training_datasets_tenant_id_composite` on `(tenant_id, id)` (unique)
+- `idx_training_datasets_ownership` on `ownership`
+- `idx_training_datasets_workspace_id` on `workspace_id`
+- `idx_training_datasets_status` on `status`
+- `idx_training_datasets_dataset_hash` on `dataset_hash_b3`
 
 ---
 

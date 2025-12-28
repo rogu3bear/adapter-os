@@ -79,6 +79,16 @@ interface WorkspaceActiveState {
   updatedAt?: string | null;
 }
 
+const mergeDefinedFields = (base: Record<string, unknown>, update: Record<string, unknown>) => {
+  const merged = { ...base };
+  for (const [key, value] of Object.entries(update)) {
+    if (value !== undefined) {
+      merged[key] = value;
+    }
+  }
+  return merged;
+};
+
 function ChatInterfaceInner({
   selectedTenant,
   initialStackId,
@@ -445,6 +455,58 @@ function ChatInterfaceInner({
     }
   }, [verificationReports]);
 
+  const [workspaceActiveState, setWorkspaceActiveState] = useState<WorkspaceActiveState | null>(null);
+  const [workspaceStateLoading, setWorkspaceStateLoading] = useState(false);
+  const workspaceActiveSnapshot = workspaceActiveState;
+
+  const fetchWorkspaceActiveState = useCallback(async () => {
+    setWorkspaceStateLoading(true);
+    let resolved = false;
+
+    try {
+      const canonicalPath = `/v1/workspaces/${encodeURIComponent(tenantId)}/active`;
+      const response = await apiClient.request<WorkspaceActiveState>(canonicalPath);
+      setWorkspaceActiveState(response);
+      resolved = true;
+    } catch (err) {
+      logger.warn(
+        'Failed to fetch workspace active state via canonical endpoint',
+        { component: 'ChatInterface', tenantId, hint: 'workspace_active_state' },
+        toError(err)
+      );
+    }
+
+    if (!resolved) {
+      try {
+        const query = tenantId ? `?tenant_id=${encodeURIComponent(tenantId)}` : '';
+        const response = await apiClient.request<WorkspaceActiveState>(`/v1/workspaces/active-state${query}`);
+        setWorkspaceActiveState(response);
+        resolved = true;
+        logger.warn('Workspace active state loaded via legacy endpoint', {
+          component: 'ChatInterface',
+          tenantId,
+          hint: 'workspace_active_state',
+        });
+      } catch (err) {
+        logger.warn(
+          'Failed to fetch workspace active state via legacy endpoint',
+          { component: 'ChatInterface', tenantId, hint: 'workspace_active_state' },
+          toError(err)
+        );
+      }
+    }
+
+    if (!resolved) {
+      setWorkspaceActiveState(null);
+    }
+
+    setWorkspaceStateLoading(false);
+  }, [tenantId]);
+
+  useEffect(() => {
+    void fetchWorkspaceActiveState();
+  }, [fetchWorkspaceActiveState]);
+
   const mergeRunMetadataIntoMessages = useCallback(
     (metadata: RunMetadata) => {
       setMessages((prev) =>
@@ -460,21 +522,28 @@ function ChatInterfaceInner({
           }
 
           const existing = message.runMetadata ?? {};
-          const nextRunMetadata: RunMetadata = {
-            ...existing,
-            ...metadata,
+          const merged = mergeDefinedFields(
+            existing as Record<string, unknown>,
+            metadata as Record<string, unknown>
+          );
+          const resolvedSeedMaterial = metadata.seedMaterial ?? existing.seedMaterial;
+          const nextRunMetadata: RunMetadata & Record<string, unknown> = {
+            ...merged,
             requestId: metadata.requestId ?? existing.requestId ?? message.requestId,
             traceId: metadata.traceId ?? existing.traceId ?? message.traceId,
-            planId: metadata.planId ?? existing.planId ?? workspaceActiveState?.activePlanId ?? undefined,
+            planId: metadata.planId ?? existing.planId ?? workspaceActiveSnapshot?.activePlanId ?? undefined,
             manifestHashB3:
-              metadata.manifestHashB3 ?? existing.manifestHashB3 ?? workspaceActiveState?.manifestHashB3 ?? undefined,
+              metadata.manifestHashB3 ?? existing.manifestHashB3 ?? workspaceActiveSnapshot?.manifestHashB3 ?? undefined,
             policyMaskDigestB3:
-              metadata.policyMaskDigestB3 ?? existing.policyMaskDigestB3 ?? workspaceActiveState?.policyMaskDigestB3 ?? undefined,
+              metadata.policyMaskDigestB3 ??
+              existing.policyMaskDigestB3 ??
+              workspaceActiveSnapshot?.policyMaskDigestB3 ??
+              undefined,
             seededViaHkdf:
               metadata.seededViaHkdf ??
               existing.seededViaHkdf ??
-              (metadata.seedMaterial || existing.seedMaterial ? true : undefined),
-            seedMaterial: metadata.seedMaterial ?? existing.seedMaterial,
+              (resolvedSeedMaterial ? true : undefined),
+            seedMaterial: resolvedSeedMaterial,
           };
 
           return { ...message, runMetadata: nextRunMetadata };
@@ -483,9 +552,9 @@ function ChatInterfaceInner({
     },
     [
       streamingMessageId,
-      workspaceActiveState?.activePlanId,
-      workspaceActiveState?.manifestHashB3,
-      workspaceActiveState?.policyMaskDigestB3,
+      workspaceActiveSnapshot?.activePlanId,
+      workspaceActiveSnapshot?.manifestHashB3,
+      workspaceActiveSnapshot?.policyMaskDigestB3,
     ]
   );
 
@@ -499,7 +568,12 @@ function ChatInterfaceInner({
     [latestTraceId, mergeRunMetadataIntoMessages]
   );
 
-  // Smoke check: stream a prompt, confirm `aos.run_envelope` SSE populates run_id, then export via /v1/runs/{run_id}/evidence.
+  // Manual smoke checklist (Chat MVP):
+  // - Stream a prompt; `aos.run_envelope` fills run_id/workspace_id before tokens.
+  // - Export evidence: canonical `/v1/runs/{run_id}/evidence` first, legacy alias warns.
+  // - Mid-stream failure keeps envelope values visible; export warns on failure.
+  // - Workspace switch mid-chat preserves original workspace_id in the panel.
+  // - Dev bypass keeps router_seed hidden unless dev mode is on.
   const handleExportRunEvidence = useCallback(
     async (message: ChatMessage) => {
       const runMeta = message.runMetadata;
@@ -596,13 +670,13 @@ function ChatInterfaceInner({
           bundle_label: 'unverified local bundle',
           run_id: runId ?? null,
           workspace_id: workspaceId ?? null,
-          manifest_hash_b3: runMeta?.manifestHashB3 ?? workspaceActiveState?.manifestHashB3 ?? null,
+          manifest_hash_b3: runMeta?.manifestHashB3 ?? workspaceActiveSnapshot?.manifestHashB3 ?? null,
           policy_mask_digest_b3:
             runMeta?.policyMaskDigestB3 ??
-            workspaceActiveState?.policyMaskDigestB3 ??
+            workspaceActiveSnapshot?.policyMaskDigestB3 ??
             message.routerDecision?.policy_mask_digest ??
             null,
-          plan_id: runMeta?.planId ?? workspaceActiveState?.activePlanId ?? null,
+          plan_id: runMeta?.planId ?? workspaceActiveSnapshot?.activePlanId ?? null,
           router_seed: routerSeed ?? null,
           tick: typeof tick === 'number' || typeof tick === 'string' ? tick : null,
           worker_id: runMeta?.workerId ?? null,
@@ -646,9 +720,9 @@ function ChatInterfaceInner({
     },
     [
       tenantId,
-      workspaceActiveState?.activePlanId,
-      workspaceActiveState?.manifestHashB3,
-      workspaceActiveState?.policyMaskDigestB3,
+      workspaceActiveSnapshot?.activePlanId,
+      workspaceActiveSnapshot?.manifestHashB3,
+      workspaceActiveSnapshot?.policyMaskDigestB3,
     ]
   );
 
@@ -689,7 +763,9 @@ function ChatInterfaceInner({
           traceId: currentRequestId ?? undefined,
           planId: workspaceActiveState?.activePlanId ?? undefined,
           manifestHashB3: workspaceActiveState?.manifestHashB3 ?? undefined,
-        },
+          policyMaskDigestB3: workspaceActiveState?.policyMaskDigestB3 ?? undefined,
+          workspaceId: tenantId,
+        } as RunMetadata,
       }]);
     },
 	    onStreamComplete: async (response) => {
@@ -704,9 +780,10 @@ function ChatInterfaceInner({
 	        routerDecision = decision;
 	      }
 
-      if (routerDecision?.policy_mask_digest) {
+      const policyMaskDigest = (routerDecision as { policy_mask_digest?: string } | null)?.policy_mask_digest;
+      if (policyMaskDigest) {
         handleRunMetadata({
-          policyMaskDigestB3: routerDecision.policy_mask_digest,
+          policyMaskDigestB3: policyMaskDigest,
           traceId: traceId ?? response.traceId ?? undefined,
           requestId: response.requestId ?? undefined,
         });
@@ -822,57 +899,6 @@ function ChatInterfaceInner({
     tenantId,
     enabled: autoLoadEnabled,
   });
-
-  const [workspaceActiveState, setWorkspaceActiveState] = useState<WorkspaceActiveState | null>(null);
-  const [workspaceStateLoading, setWorkspaceStateLoading] = useState(false);
-
-  const fetchWorkspaceActiveState = useCallback(async () => {
-    setWorkspaceStateLoading(true);
-    let resolved = false;
-
-    try {
-      const canonicalPath = `/v1/workspaces/${encodeURIComponent(tenantId)}/active`;
-      const response = await apiClient.request<WorkspaceActiveState>(canonicalPath);
-      setWorkspaceActiveState(response);
-      resolved = true;
-    } catch (err) {
-      logger.warn(
-        'Failed to fetch workspace active state via canonical endpoint',
-        { component: 'ChatInterface', tenantId, hint: 'workspace_active_state' },
-        toError(err)
-      );
-    }
-
-    if (!resolved) {
-      try {
-        const query = tenantId ? `?tenant_id=${encodeURIComponent(tenantId)}` : '';
-        const response = await apiClient.request<WorkspaceActiveState>(`/v1/workspaces/active-state${query}`);
-        setWorkspaceActiveState(response);
-        resolved = true;
-        logger.warn('Workspace active state loaded via legacy endpoint', {
-          component: 'ChatInterface',
-          tenantId,
-          hint: 'workspace_active_state',
-        });
-      } catch (err) {
-        logger.warn(
-          'Failed to fetch workspace active state via legacy endpoint',
-          { component: 'ChatInterface', tenantId, hint: 'workspace_active_state' },
-          toError(err)
-        );
-      }
-    }
-
-    if (!resolved) {
-      setWorkspaceActiveState(null);
-    }
-
-    setWorkspaceStateLoading(false);
-  }, [tenantId]);
-
-  useEffect(() => {
-    void fetchWorkspaceActiveState();
-  }, [fetchWorkspaceActiveState]);
 
   const newModelLoader = useModelLoader();
 

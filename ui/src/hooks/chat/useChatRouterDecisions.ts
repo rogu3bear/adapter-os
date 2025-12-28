@@ -17,6 +17,7 @@ export interface RouterDecision {
   timestamp: Date;
   modelType?: 'dense' | 'moe';
   activeExperts?: number[];
+  policy_mask_digest?: string;
 }
 
 /**

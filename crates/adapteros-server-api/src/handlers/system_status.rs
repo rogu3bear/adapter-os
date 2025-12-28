@@ -8,11 +8,11 @@ use std::time::{Duration, Instant};
 
 use adapteros_api_types::system_status::{
     AdapterInventory, AneMemorySummary, BootFailure, BootPhaseTiming, BootStatus, ComponentCheck,
-    DegradedReason, DriftLevel, DriftStatus, IntegrityStatus, KernelMemorySummary, KernelStatus,
-    ModelStatusSummary, PlanStatusSummary, ReadinessChecks, ReadinessStatus, StatusIndicator,
-    SystemStatusResponse, UmaMemorySummary,
+    DegradedReason, DriftLevel, DriftStatus, InferenceBlocker, InferenceReadyState, IntegrityStatus,
+    KernelMemorySummary, KernelStatus, ModelStatusSummary, PlanStatusSummary, ReadinessChecks,
+    ReadinessStatus, StatusIndicator, SystemStatusResponse, UmaMemorySummary,
 };
-use adapteros_api_types::API_SCHEMA_VERSION;
+use adapteros_api_types::{ModelLoadStatus, API_SCHEMA_VERSION};
 use axum::{extract::State, Extension, Json};
 use tokio::time::timeout;
 use tracing::warn;
@@ -48,6 +48,7 @@ pub async fn get_system_status(
     let integrity = build_integrity_status(&state);
     let boot = collect_boot_status(&state);
     let readiness = collect_readiness(&state).await;
+    let (inference_ready, inference_blockers) = collect_inference_status(&state, &readiness).await;
     let kernel = collect_kernel_status(
         &state,
         matches!(readiness.checks.db.status, StatusIndicator::Ready),
@@ -59,6 +60,8 @@ pub async fn get_system_status(
         timestamp: chrono::Utc::now().to_rfc3339(),
         integrity,
         readiness,
+        inference_ready,
+        inference_blockers,
         boot,
         kernel,
     }))
@@ -320,6 +323,88 @@ fn aggregate_readiness(statuses: impl IntoIterator<Item = StatusIndicator>) -> S
     overall
 }
 
+async fn collect_inference_status(
+    state: &AppState,
+    readiness: &ReadinessStatus,
+) -> (InferenceReadyState, Vec<InferenceBlocker>) {
+    if readiness.checks.db.status != StatusIndicator::Ready {
+        return (
+            InferenceReadyState::Unknown,
+            vec![InferenceBlocker::DatabaseUnavailable],
+        );
+    }
+
+    let mut blockers = Vec::new();
+
+    let worker_count = match state.db.count_active_workers().await {
+        Ok(count) => count,
+        Err(e) => {
+            warn!(error = %e, "Failed to count workers for inference readiness");
+            return (
+                InferenceReadyState::Unknown,
+                vec![InferenceBlocker::DatabaseUnavailable],
+            );
+        }
+    };
+    if worker_count == 0 {
+        push_blocker(&mut blockers, InferenceBlocker::WorkerMissing);
+    }
+
+    let model_statuses = match state.db.list_base_model_statuses().await {
+        Ok(statuses) => statuses,
+        Err(e) => {
+            warn!(error = %e, "Failed to load base model status for inference readiness");
+            return (
+                InferenceReadyState::Unknown,
+                vec![InferenceBlocker::DatabaseUnavailable],
+            );
+        }
+    };
+
+    let any_ready = model_statuses.iter().any(|status| {
+        ModelLoadStatus::parse_status(&status.status).is_ready()
+    });
+    if !any_ready {
+        push_blocker(&mut blockers, InferenceBlocker::NoModelLoaded);
+    }
+
+    let active_states = match state.db.list_workspace_active_states().await {
+        Ok(states) => states,
+        Err(e) => {
+            warn!(error = %e, "Failed to load workspace active state for inference readiness");
+            return (
+                InferenceReadyState::Unknown,
+                vec![InferenceBlocker::DatabaseUnavailable],
+            );
+        }
+    };
+
+    let has_mismatch = active_states.iter().any(|active| {
+        let Some(model_id) = active.active_base_model_id.as_deref() else {
+            return false;
+        };
+
+        let ready = model_statuses
+            .iter()
+            .find(|status| status.tenant_id == active.tenant_id && status.model_id == model_id)
+            .map(|status| ModelLoadStatus::parse_status(&status.status).is_ready())
+            .unwrap_or(false);
+
+        !ready
+    });
+    if has_mismatch {
+        push_blocker(&mut blockers, InferenceBlocker::ActiveModelMismatch);
+    }
+
+    let ready = if blockers.is_empty() {
+        InferenceReadyState::True
+    } else {
+        InferenceReadyState::False
+    };
+
+    (ready, blockers)
+}
+
 async fn collect_kernel_status(state: &AppState, db_ready: bool) -> Option<KernelStatus> {
     let mut model_summary = None;
     let mut plan_summary = None;
@@ -513,5 +598,11 @@ fn timeout_from_ms(config_value: u64, fallback_ms: u64) -> Duration {
         Duration::from_millis(config_value)
     } else {
         Duration::from_millis(fallback_ms)
+    }
+}
+
+fn push_blocker(blockers: &mut Vec<InferenceBlocker>, blocker: InferenceBlocker) {
+    if !blockers.contains(&blocker) {
+        blockers.push(blocker);
     }
 }

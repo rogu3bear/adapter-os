@@ -447,8 +447,10 @@ mod tests {
                 total_size_bytes INTEGER NOT NULL DEFAULT 0,
                 format TEXT NOT NULL,
                 hash_b3 TEXT NOT NULL,
+                dataset_hash_b3 TEXT,
                 storage_path TEXT NOT NULL,
-                validation_status TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'uploaded' CHECK (status IN ('uploaded','processing','ready','failed')),
+                validation_status TEXT NOT NULL DEFAULT 'pending',
                 validation_errors TEXT,
                 metadata_json TEXT,
                 created_by TEXT,
@@ -459,7 +461,8 @@ mod tests {
                 source_location TEXT,
                 collection_method TEXT,
                 ownership TEXT,
-                tenant_id TEXT
+                tenant_id TEXT,
+                workspace_id TEXT
             )",
         )
         .execute(db.pool())
@@ -533,8 +536,11 @@ mod tests {
         let hash = manager.compute_file_hash(&dataset_path).await.unwrap();
 
         sqlx::query(
-            "INSERT INTO training_datasets (id, name, description, file_count, total_size_bytes, format, hash_b3, storage_path, validation_status, validation_errors, metadata_json, created_by)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO training_datasets (
+                id, name, description, file_count, total_size_bytes, format, hash_b3, dataset_hash_b3,
+                storage_path, status, validation_status, validation_errors, metadata_json, created_by,
+                workspace_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind("ds-valid")
         .bind("Valid Dataset")
@@ -543,8 +549,11 @@ mod tests {
         .bind(0_i64)
         .bind("jsonl")
         .bind(&hash)
+        .bind(&hash)
         .bind(dataset_path.to_string_lossy().to_string())
+        .bind("ready")
         .bind("valid")
+        .bind(None::<String>)
         .bind(None::<String>)
         .bind(None::<String>)
         .bind(None::<String>)
@@ -579,8 +588,11 @@ mod tests {
         let hash = manager.compute_file_hash(&dataset_path).await.unwrap();
 
         sqlx::query(
-            "INSERT INTO training_datasets (id, name, description, file_count, total_size_bytes, format, hash_b3, storage_path, validation_status, validation_errors, metadata_json, created_by)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO training_datasets (
+                id, name, description, file_count, total_size_bytes, format, hash_b3, dataset_hash_b3,
+                storage_path, status, validation_status, validation_errors, metadata_json, created_by,
+                workspace_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind("ds-draft")
         .bind("Draft Dataset")
@@ -589,8 +601,11 @@ mod tests {
         .bind(0_i64)
         .bind("jsonl")
         .bind(&hash)
+        .bind(&hash)
         .bind(dataset_path.to_string_lossy().to_string())
+        .bind("ready")
         .bind("draft")
+        .bind(None::<String>)
         .bind(None::<String>)
         .bind(None::<String>)
         .bind(None::<String>)

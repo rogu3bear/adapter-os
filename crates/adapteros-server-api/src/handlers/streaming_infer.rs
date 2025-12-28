@@ -500,7 +500,7 @@ pub async fn streaming_infer_with_progress(
 /// curl -X POST http://localhost:3000/v1/infer/stream \
 ///   -H "Content-Type: application/json" \
 ///   -H "Authorization: Bearer <token>" \
-///   -d '{"prompt": "What is the pricing model?", "max_tokens": 200, "collection_id": "marketing-docs"}'
+///   -d '{"prompt": "What is the licensing model?", "max_tokens": 200, "collection_id": "marketing-docs"}'
 /// ```
 #[utoipa::path(
     post,

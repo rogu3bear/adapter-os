@@ -74,6 +74,7 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::execution_policy::get_execution_policy_history,
         handlers::list_adapters,
         handlers::list_adapter_repositories,
+        handlers::list_repositories_legacy,
         handlers::list_adapter_versions,
         handlers::get_adapter,
         handlers::register_adapter,
@@ -250,6 +251,8 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::evidence::delete_evidence,
         handlers::evidence::get_dataset_evidence,
         handlers::evidence::get_adapter_evidence,
+        handlers::run_evidence::download_run_evidence,
+        handlers::aliases::run_evidence::download_run_evidence_alias,
         // Journey visualization handlers
         handlers::journeys::get_journey,
         // Golden run handlers
@@ -281,6 +284,7 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::workspaces::share_workspace_resource,
         handlers::workspaces::unshare_workspace_resource,
         handlers::workspaces::get_workspace_active_state,
+        handlers::aliases::workspaces::get_workspace_active_state_alias,
         handlers::workspaces::set_workspace_active_state,
         // Notification handlers
         handlers::notifications::list_notifications,
@@ -636,6 +640,7 @@ use utoipa_swagger_ui::SwaggerUi;
 )]
 pub struct ApiDoc;
 
+#[allow(deprecated)]
 pub fn build(state: AppState) -> Router {
     // Liveness/readiness endpoints must be cheap and never depend on DB/policy middleware.
     // These routes intentionally bypass the global middleware stack applied to the main API.
@@ -1789,8 +1794,8 @@ pub fn build(state: AppState) -> Router {
             "/v1/code/commit-delta",
             post(handlers::code::create_commit_delta),
         )
-        // Repository routes (deprecated - use /v1/code/repositories instead)
-        .route("/v1/repositories", get(handlers::list_adapter_repositories))
+        // Repository routes (deprecated - use /v1/adapter-repositories instead)
+        .route("/v1/repositories", get(handlers::list_repositories_legacy))
         // System overview routes
         .route(
             "/v1/system/integrity",

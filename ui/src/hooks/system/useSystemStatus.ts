@@ -146,6 +146,8 @@ function buildFallbackStatus(
       bootTraceId: readyzExtras?.boot_trace_id ?? null,
       degraded,
     },
+    inferenceReady: null,
+    inferenceBlockers: null,
     kernel: {
       activeModel: baseModel?.model_name ?? baseModel?.model_id ?? null,
       activePlan: adapterSummary.activePlan,

@@ -131,12 +131,12 @@ const initialABTests: ABTest[] = [
   },
   {
     id: 'ab-3',
-    name: 'Pricing Page CTA',
-    description: 'Testing different call-to-action button text',
+    name: 'License Activation CTA',
+    description: 'Testing call-to-action text for local license activation',
     status: 'paused',
     variants: [
-      { name: 'Get Started', weight: 50 },
-      { name: 'Start Free Trial', weight: 50 },
+      { name: 'Activate License', weight: 50 },
+      { name: 'Request License', weight: 50 },
     ],
     participants: 890,
     startDate: '2025-01-10',

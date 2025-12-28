@@ -99,6 +99,62 @@ let lastHealthError = null;
 let lastLoggedHealthError = null;
 let readinessAttemptCount = 0;
 
+function clearReadinessTimers() {
+  if (readinessInterval) {
+    clearInterval(readinessInterval);
+    readinessInterval = null;
+  }
+  if (readinessTimeout) {
+    clearTimeout(readinessTimeout);
+    readinessTimeout = null;
+  }
+  if (readinessInitialTimer) {
+    clearTimeout(readinessInitialTimer);
+    readinessInitialTimer = null;
+  }
+}
+
+function failFast(message) {
+  console.error(`[dev-server] FATAL: ${message}`);
+  clearReadinessTimers();
+  if (backend && !backend.killed) {
+    backend.kill('SIGTERM');
+  }
+  process.exit(1);
+}
+
+function startReadinessCheck() {
+  readinessTimeout = setTimeout(() => {
+    clearReadinessTimers();
+    const errorDetail = lastHealthError ? ` Last error: ${lastHealthError}` : '';
+    failFast(`Backend did not become ready within ${backendWaitMs}ms.${errorDetail}`);
+  }, backendWaitMs);
+
+  readinessInterval = setInterval(async () => {
+    readinessAttemptCount++;
+    try {
+      const response = await fetch(healthUrl);
+      if (response.ok) {
+        backendReady = true;
+        clearReadinessTimers();
+        console.log(`[dev-server] Backend ready after ${readinessAttemptCount} attempts.`);
+      } else {
+        lastHealthError = `HTTP ${response.status}`;
+        if (lastHealthError !== lastLoggedHealthError) {
+          console.log(`[dev-server] Health check attempt ${readinessAttemptCount}: ${lastHealthError}`);
+          lastLoggedHealthError = lastHealthError;
+        }
+      }
+    } catch (err) {
+      lastHealthError = err.message;
+      if (lastHealthError !== lastLoggedHealthError) {
+        console.log(`[dev-server] Health check attempt ${readinessAttemptCount}: ${lastHealthError}`);
+        lastLoggedHealthError = lastHealthError;
+      }
+    }
+  }, backendWaitIntervalMs);
+}
+
 if (!skipBackend) {
   const backendArgs = [
     'run',

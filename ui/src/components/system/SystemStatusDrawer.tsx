@@ -85,6 +85,19 @@ function formatIndicator(value: StatusIndicator): string {
   return trimmed.length ? trimmed : 'Unknown';
 }
 
+function formatInferenceReady(value: StatusIndicator): string {
+  if (value === true || value === 'true') return 'Ready';
+  if (value === false || value === 'false') return 'Not ready';
+  if (typeof value === 'string' && value.toLowerCase() === 'unknown') return 'Unknown';
+  return formatIndicator(value);
+}
+
+function formatBlockers(blockers: string[] | null | undefined): string {
+  if (blockers === null || blockers === undefined) return 'Unknown';
+  if (!blockers.length) return 'None';
+  return blockers.map((blocker) => blocker.replace(/_/g, ' ')).join(', ');
+}
+
 function formatAneMemory(ane: AneMemoryStatus | null | undefined): string {
   if (!ane) return 'Unknown';
   const parts: string[] = [];
@@ -180,6 +193,17 @@ export function SystemStatusDrawer({ open, onOpenChange, tenantId }: SystemStatu
       ]),
     [data?.readiness],
   );
+
+  const inferenceSeverity = useMemo(() => {
+    const readySeverity = resolveSeverity(data?.inferenceReady ?? null);
+    const blockerSeverity =
+      data?.inferenceBlockers === null || data?.inferenceBlockers === undefined
+        ? 'unknown'
+        : data.inferenceBlockers.length
+          ? 'critical'
+          : 'ok';
+    return pickSeverity([readySeverity, blockerSeverity as Severity]);
+  }, [data?.inferenceBlockers, data?.inferenceReady]);
 
   const kernelSeverity = useMemo(
     () =>
@@ -312,6 +336,27 @@ export function SystemStatusDrawer({ open, onOpenChange, tenantId }: SystemStatu
                 value={data?.readiness?.phase || 'Unknown'}
                 severity={resolveSeverity(data?.readiness?.phase ?? null)}
                 hint={data?.readiness?.bootTraceId ? `Boot trace: ${data.readiness.bootTraceId}` : undefined}
+              />
+            </Section>
+
+            <Section title="Inference" severity={inferenceSeverity}>
+              <StatusRow
+                label="Inference ready"
+                value={formatInferenceReady(data?.inferenceReady ?? null)}
+                severity={resolveSeverity(data?.inferenceReady ?? null)}
+                hint="Workers online with a loaded base model"
+              />
+              <StatusRow
+                label="Blockers"
+                value={formatBlockers(data?.inferenceBlockers)}
+                severity={
+                  data?.inferenceBlockers === null || data?.inferenceBlockers === undefined
+                    ? 'unknown'
+                    : data.inferenceBlockers.length
+                      ? 'critical'
+                      : resolveSeverity(data?.inferenceReady ?? null)
+                }
+                hint="Active model mismatch or missing dependencies"
               />
             </Section>
 

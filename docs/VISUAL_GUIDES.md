@@ -51,7 +51,7 @@ flowchart LR
 | **Determinism** | Same input → different output | Same input → identical output |
 | **Routing** | Hidden, variable | Quantized (Q15), recorded |
 | **Cache usage** | May exist, unproven | Proven in receipt |
-| **Token billing** | Trust the count | Cryptographically verified |
+| **Token accounting** | Trust the count | Cryptographically verified |
 | **Stop reason** | Often unstated | Enumerated, committed |
 | **Receipt** | Log files (mutable) | Signed digest (immutable) |
 | **Verification** | Requires provider access | Anyone, anywhere, offline |
