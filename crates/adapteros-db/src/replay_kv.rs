@@ -137,6 +137,10 @@ impl Db {
             execution_policy_version: meta.execution_policy_version,
             stop_policy_json: meta.stop_policy_json,
             policy_mask_digest_b3: meta.policy_mask_digest_b3,
+            rag_available_count: None,
+            rag_total_count: None,
+            rag_fidelity: None,
+            rag_staleness_checked_at: None,
             created_at: meta.created_at,
         })
     }

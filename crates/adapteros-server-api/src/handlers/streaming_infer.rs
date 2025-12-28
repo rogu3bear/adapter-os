@@ -19,7 +19,10 @@ use crate::chat_context::build_chat_prompt;
 use crate::citations::collect_citations_for_adapters;
 use crate::handlers::rag_common::{retrieve_rag_context, store_rag_evidence};
 use crate::inference_core::InferenceCore;
-use crate::middleware::policy_enforcement::{create_hook_context, enforce_at_hook};
+use crate::middleware::policy_enforcement::{
+    compute_policy_mask_digest, create_hook_context, enforce_at_hook,
+};
+use crate::types::run_envelope::set_policy_mask;
 use crate::security::check_tenant_access;
 use crate::state::AppState;
 use crate::types::*;
@@ -393,7 +396,10 @@ pub async fn streaming_infer_with_progress(
 
     // Generate request ID for hook contexts
     let request_id = uuid::Uuid::new_v4().to_string();
-    let run_envelope = new_run_envelope(&state, &claims, request_id.clone(), req.reasoning_mode);
+
+    // P2 HARDENING: Collect ALL policy decisions BEFORE creating envelope
+    // This ensures policy_mask_digest is a true pre-flight commitment, not post-hoc proof
+    let mut all_policy_decisions = Vec::new();
 
     // Enforce policies at OnRequestBeforeRouting hook (before adapter selection)
     let routing_hook_ctx = create_hook_context(
@@ -403,15 +409,17 @@ pub async fn streaming_infer_with_progress(
         "inference",
         None, // No adapter selected yet
     );
-    if let Err(violation) = enforce_at_hook(&state, &routing_hook_ctx).await {
-        return Err(ApiError::new(
-            StatusCode::FORBIDDEN,
-            "POLICY_HOOK_VIOLATION",
-            "Policy hook violation (pre-routing)",
-        )
-        .with_details(violation.message)
-        .into());
-    }
+    let routing_decisions = enforce_at_hook(&state, &routing_hook_ctx)
+        .await
+        .map_err(|violation| {
+            ApiError::new(
+                StatusCode::FORBIDDEN,
+                "POLICY_HOOK_VIOLATION",
+                "Policy hook violation (pre-routing)",
+            )
+            .with_details(violation.message)
+        })?;
+    all_policy_decisions.extend(routing_decisions);
 
     // Enforce policies at OnBeforeInference hook
     let hook_ctx = create_hook_context(
@@ -421,15 +429,26 @@ pub async fn streaming_infer_with_progress(
         "inference",
         Some(&adapter_id),
     );
-    if let Err(violation) = enforce_at_hook(&state, &hook_ctx).await {
-        return Err(ApiError::new(
-            StatusCode::FORBIDDEN,
-            "POLICY_HOOK_VIOLATION",
-            "Policy hook violation",
-        )
-        .with_details(violation.message)
-        .into());
-    }
+    let inference_decisions = enforce_at_hook(&state, &hook_ctx)
+        .await
+        .map_err(|violation| {
+            ApiError::new(
+                StatusCode::FORBIDDEN,
+                "POLICY_HOOK_VIOLATION",
+                "Policy hook violation",
+            )
+            .with_details(violation.message)
+        })?;
+    all_policy_decisions.extend(inference_decisions);
+
+    // P2 HARDENING: Compute policy digest BEFORE creating envelope
+    // This makes the digest a cryptographic commitment sent to client before inference begins
+    let policy_digest = compute_policy_mask_digest(&all_policy_decisions);
+
+    // Create envelope WITH pre-computed policy digest
+    let mut run_envelope =
+        new_run_envelope(&state, &claims, request_id.clone(), req.reasoning_mode);
+    set_policy_mask(&mut run_envelope, Some(&policy_digest));
 
     info!(
         prompt_len = req.prompt.len(),
@@ -535,7 +554,7 @@ pub async fn streaming_infer(
 
     // Generate request ID
     let request_id = format!("chatcmpl-{}", uuid::Uuid::new_v4());
-    let run_envelope = new_run_envelope(&state, &claims, request_id.clone(), req.reasoning_mode);
+    // NOTE: Envelope creation is deferred until AFTER policy enforcement (P2 hardening)
     let model_name = req.model.clone().unwrap_or_else(|| "adapteros".to_string());
 
     // CRITICAL: Validate session belongs to user's tenant if provided
@@ -570,6 +589,10 @@ pub async fn streaming_infer(
         }
     }
 
+    // P2 HARDENING: Collect ALL policy decisions BEFORE creating envelope
+    // This ensures policy_mask_digest is a true pre-flight commitment, not post-hoc proof
+    let mut all_policy_decisions = Vec::new();
+
     // Enforce policies at OnRequestBeforeRouting hook (before adapter selection)
     let routing_hook_ctx = create_hook_context(
         &claims,
@@ -578,15 +601,17 @@ pub async fn streaming_infer(
         "inference",
         None, // No adapter selected yet
     );
-    if let Err(violation) = enforce_at_hook(&state, &routing_hook_ctx).await {
-        return Err(ApiError::new(
-            StatusCode::FORBIDDEN,
-            "POLICY_HOOK_VIOLATION",
-            "Policy hook violation (pre-routing)",
-        )
-        .with_details(violation.message)
-        .into());
-    }
+    let routing_decisions = enforce_at_hook(&state, &routing_hook_ctx)
+        .await
+        .map_err(|violation| {
+            ApiError::new(
+                StatusCode::FORBIDDEN,
+                "POLICY_HOOK_VIOLATION",
+                "Policy hook violation (pre-routing)",
+            )
+            .with_details(violation.message)
+        })?;
+    all_policy_decisions.extend(routing_decisions);
 
     // Enforce policies at OnBeforeInference hook
     let adapter_id = req.adapters.as_ref().and_then(|a| a.first()).cloned();
@@ -609,15 +634,26 @@ pub async fn streaming_infer(
         "adapter_ids",
         serde_json::json!(adapter_ids_sorted.clone().unwrap_or_default()),
     );
-    if let Err(violation) = enforce_at_hook(&state, &hook_ctx).await {
-        return Err(ApiError::new(
-            StatusCode::FORBIDDEN,
-            "POLICY_HOOK_VIOLATION",
-            "Policy hook violation",
-        )
-        .with_details(violation.message)
-        .into());
-    }
+    let inference_decisions = enforce_at_hook(&state, &hook_ctx)
+        .await
+        .map_err(|violation| {
+            ApiError::new(
+                StatusCode::FORBIDDEN,
+                "POLICY_HOOK_VIOLATION",
+                "Policy hook violation",
+            )
+            .with_details(violation.message)
+        })?;
+    all_policy_decisions.extend(inference_decisions);
+
+    // P2 HARDENING: Compute policy digest BEFORE creating envelope
+    // This makes the digest a cryptographic commitment sent to client before inference begins
+    let policy_digest = compute_policy_mask_digest(&all_policy_decisions);
+
+    // Create envelope WITH pre-computed policy digest
+    let mut run_envelope =
+        new_run_envelope(&state, &claims, request_id.clone(), req.reasoning_mode);
+    set_policy_mask(&mut run_envelope, Some(&policy_digest));
 
     info!(
         request_id = %request_id,
@@ -718,8 +754,15 @@ pub async fn streaming_infer(
             {
                 Ok(rag_result) if !rag_result.context.is_empty() => {
                     // Store evidence for this retrieval
-                    store_rag_evidence(&state, &rag_result, &request_id, req.session_id.as_deref())
-                        .await;
+                    // NOTE: message_id is None because the message is created after inference completes
+                    store_rag_evidence(
+                        &state,
+                        &rag_result,
+                        &request_id,
+                        req.session_id.as_deref(),
+                        None, // TODO: Pass message_id when chat flow creates it before inference
+                    )
+                    .await;
 
                     info!(
                         request_id = %request_id,
@@ -1359,6 +1402,15 @@ impl LoadingStreamState {
     }
 
     fn format_loading_event(&self, event: InferenceEvent) -> Event {
+        // P2 HARDENING: Assert Run ID consistency between request and envelope
+        // This is a release-mode assertion - ID mutation breaks determinism receipts
+        assert_eq!(
+            self.request_id, self.run_envelope.run_id,
+            "Run ID mismatch in LoadingStreamState: request_id ({}) != envelope.run_id ({}). \
+             This indicates envelope recreation occurred after streaming began.",
+            self.request_id, self.run_envelope.run_id
+        );
+
         let json = serialize_safe(&event, "loading_event");
         Event::default().data(json)
     }
@@ -1694,6 +1746,15 @@ impl StreamState {
     }
 
     fn format_event(&self, event: StreamEvent) -> Event {
+        // P2 HARDENING: Assert Run ID consistency between chunk and envelope
+        // This is a release-mode assertion - ID mutation breaks determinism receipts
+        assert_eq!(
+            self.request_id, self.run_envelope.run_id,
+            "Run ID mismatch in StreamState: chunk.id ({}) != envelope.run_id ({}). \
+             This indicates envelope recreation occurred after streaming began.",
+            self.request_id, self.run_envelope.run_id
+        );
+
         match event {
             StreamEvent::Start => {
                 let chunk = StreamingChunk {
@@ -1756,28 +1817,32 @@ impl StreamState {
                     .collect();
                 let mut adapter_ids_sorted = adapter_ids_sorted;
                 adapter_ids_sorted.sort();
+                // P0 audit-correctness: preserve original claims for policy enforcement
+                let claims_clone = self.claims.clone();
 
                 tokio::spawn(async move {
+                    // Use stored claims with fallback only for truly None cases
+                    let claims_for_hook = claims_clone.unwrap_or_else(|| crate::auth::Claims {
+                        sub: user_id.clone(),
+                        email: String::new(),
+                        role: "user".to_string(),
+                        roles: Vec::new(),
+                        tenant_id: tenant_id.clone(),
+                        admin_tenants: Vec::new(),
+                        device_id: None,
+                        session_id: None,
+                        mfa_level: None,
+                        rot_id: None,
+                        exp: 0,
+                        iat: 0,
+                        jti: uuid::Uuid::new_v4().to_string(),
+                        nbf: 0,
+                        iss: JWT_ISSUER.to_string(),
+                        auth_mode: AuthMode::BearerToken,
+                        principal_type: Some(PrincipalType::User),
+                    });
                     let hook_ctx = create_hook_context(
-                        &crate::auth::Claims {
-                            sub: user_id.clone(),
-                            email: String::new(),
-                            role: "system".to_string(), // Hook fires post-stream, role used for audit only
-                            roles: Vec::new(),
-                            tenant_id: tenant_id.clone(),
-                            admin_tenants: Vec::new(),
-                            device_id: None,
-                            session_id: None,
-                            mfa_level: None,
-                            rot_id: None,
-                            exp: 0,
-                            iat: 0,
-                            jti: uuid::Uuid::new_v4().to_string(),
-                            nbf: 0,
-                            iss: JWT_ISSUER.to_string(),
-                            auth_mode: AuthMode::BearerToken,
-                            principal_type: Some(PrincipalType::InternalService),
-                        },
+                        &claims_for_hook,
                         &request_id,
                         PolicyHook::OnAfterInference,
                         "streaming_inference",

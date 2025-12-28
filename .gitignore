@@ -87,6 +87,7 @@ ui/.eslintcache
 **/test-results/
 **/.last-run.json
 *.repro
+ui/playwright-report/
 
 # Logs
 *.log

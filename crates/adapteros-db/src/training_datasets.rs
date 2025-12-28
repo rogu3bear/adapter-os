@@ -119,6 +119,9 @@ pub struct TrainingDataset {
     pub ownership: Option<String>,
     pub tenant_id: Option<String>,
     pub workspace_id: Option<String>,
+    // Hash repair tracking (added in migration 0239)
+    pub hash_needs_recompute: i32,
+    pub hash_algorithm_version: i32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
