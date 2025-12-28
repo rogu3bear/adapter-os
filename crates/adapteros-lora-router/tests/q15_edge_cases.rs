@@ -691,9 +691,10 @@ fn test_q15_clamping_prevents_overflow() {
         // This test documents current behavior.
 
         if gate <= 1.0 {
-            assert!(
-                q15_clamped <= 32767,
-                "Gate {} should not exceed Q15 max",
+            assert!(q15_raw >= 0, "Gate {} should not underflow Q15", gate);
+            assert_eq!(
+                q15_clamped, q15_raw,
+                "Gate {} should not be clamped in-range",
                 gate
             );
         } else {
@@ -746,16 +747,7 @@ fn test_full_routing_pipeline_q15_properties() {
         );
     }
 
-    // Property 2: All Q15 gates should be <= 32767
-    for &gate_q15 in &decision.gates_q15 {
-        assert!(
-            gate_q15 <= 32767,
-            "All Q15 gates should be <= 32767, got {}",
-            gate_q15
-        );
-    }
-
-    // Property 3: Float gates should sum to ~1.0
+    // Property 2: Float gates should sum to ~1.0
     let gates_f32 = decision.gates_f32();
     let sum_f32: f32 = gates_f32.iter().sum();
     assert!(
@@ -764,7 +756,7 @@ fn test_full_routing_pipeline_q15_properties() {
         sum_f32
     );
 
-    // Property 4: Q15 gates should sum to ~32767
+    // Property 3: Q15 gates should sum to ~32767
     let sum_q15: i32 = decision.gates_q15.iter().map(|&g| g as i32).sum();
     assert!(
         (sum_q15 - 32767).abs() <= decision.gates_q15.len() as i32,
@@ -772,7 +764,7 @@ fn test_full_routing_pipeline_q15_properties() {
         sum_q15
     );
 
-    // Property 5: Round-trip should preserve relative ordering
+    // Property 4: Round-trip should preserve relative ordering
     for i in 0..gates_f32.len() {
         for j in (i + 1)..gates_f32.len() {
             if decision.gates_q15[i] > decision.gates_q15[j] {

@@ -419,7 +419,7 @@ fn test_router_ring_invariants() {
         assert_ne!(indices_sorted[i], indices_sorted[i - 1]);
     }
 
-    // For K=0 case
+    // For K=0 case (clamped to 1)
     let mut router_k0 = Router::new(vec![1.0; 8], 0, 1.0, 0.01, seed).expect("router creation");
     let priors = vec![0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2];
     let adapter_info: Vec<AdapterInfo> = (0..priors.len())
@@ -438,8 +438,8 @@ fn test_router_ring_invariants() {
     let decision_k0 = router_k0
         .route_with_adapter_info(&[], &priors, &adapter_info, &mask_k0)
         .expect("router decision");
-    assert!(decision_k0.indices.is_empty());
-    assert!(decision_k0.gates_q15.is_empty());
+    assert_eq!(decision_k0.indices.len(), 1);
+    assert_eq!(decision_k0.gates_q15.len(), 1);
 }
 
 // Add more tests for varying K up to MAX_K
@@ -471,8 +471,9 @@ fn test_varying_k_stability() {
             .route_with_adapter_info(&[], &priors, &adapter_info, &mask)
             .expect("router decision");
 
-        assert_eq!(decision.indices.len(), k);
-        assert_eq!(decision.gates_q15.len(), k);
+        let expected_k = if k == 0 { 1 } else { k };
+        assert_eq!(decision.indices.len(), expected_k);
+        assert_eq!(decision.gates_q15.len(), expected_k);
     }
 }
 
@@ -623,17 +624,14 @@ fn test_k_sparse_boundary_conditions() {
         .collect();
     let mask = allow_all_mask(&adapter_info);
 
-    // Test K=0 (empty selection)
+    // Test K=0 (clamped to 1)
     let weights_vec = vec![1.0; 5];
     let mut router_k0 = Router::new(weights_vec, 0, 1.0, 0.02, seed).expect("router creation");
     let decision_k0 = router_k0
         .route_with_adapter_info(&[], &priors, &adapter_info, &mask)
         .expect("router decision");
-    assert!(
-        decision_k0.indices.is_empty(),
-        "K=0 should select no adapters"
-    );
-    assert!(decision_k0.gates_q15.is_empty(), "K=0 should have no gates");
+    assert_eq!(decision_k0.indices.len(), 1, "K=0 should clamp to 1");
+    assert_eq!(decision_k0.gates_q15.len(), 1, "K=0 should clamp to 1");
 
     // Test K=1 (single selection)
     let weights_vec = vec![1.0; 5];
