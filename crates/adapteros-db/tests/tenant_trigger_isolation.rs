@@ -962,3 +962,362 @@ async fn test_tenant_trigger_isolation_allows_adapter_version_history_same_tenan
         result.err()
     );
 }
+
+// ============================================================================
+// Migration 0223: adapter_stacks cross-tenant validation tests
+// ============================================================================
+
+async fn create_test_stack(db: &Db, tenant_id: &str, suffix: &str, adapter_ids: &[&str]) -> String {
+    let stack_id = format!("stack-{}-{}", tenant_id, uuid::Uuid::new_v4());
+    let adapter_ids_json = serde_json::to_string(adapter_ids).unwrap();
+    // Stack names must match format: stack.{namespace}[.{identifier}]
+    let stack_name = format!("stack.test.{}", suffix.replace(' ', "-").to_lowercase());
+
+    sqlx::query(
+        "INSERT INTO adapter_stacks (id, tenant_id, name, adapter_ids_json, version, lifecycle_state)
+         VALUES (?, ?, ?, ?, ?, ?)",
+    )
+    .bind(&stack_id)
+    .bind(tenant_id)
+    .bind(&stack_name)
+    .bind(&adapter_ids_json)
+    .bind("1.0.0")
+    .bind("active")
+    .execute(db.pool())
+    .await
+    .expect("create stack");
+
+    stack_id
+}
+
+#[tokio::test]
+async fn test_adapter_stacks_cross_tenant_insert_rejected() {
+    let db = new_test_db().await;
+    let (tenant_a, tenant_b) = setup_tenants(&db).await;
+
+    // Create adapter in tenant B
+    let adapter_b = create_test_adapter(&db, &tenant_b, "Adapter B").await;
+
+    // Try to create stack in tenant A with adapter from tenant B
+    let stack_id = format!("stack-{}", uuid::Uuid::new_v4());
+    let adapter_ids_json = serde_json::to_string(&[&adapter_b]).unwrap();
+
+    let result = sqlx::query(
+        "INSERT INTO adapter_stacks (id, tenant_id, name, adapter_ids_json, version, lifecycle_state)
+         VALUES (?, ?, ?, ?, ?, ?)",
+    )
+    .bind(&stack_id)
+    .bind(&tenant_a)
+    .bind("stack.test.cross-tenant")
+    .bind(&adapter_ids_json)
+    .bind("1.0.0")
+    .bind("active")
+    .execute(db.pool())
+    .await;
+
+    assert!(
+        result.is_err(),
+        "Stack with cross-tenant adapter should be rejected"
+    );
+}
+
+#[tokio::test]
+async fn test_adapter_stacks_same_tenant_insert_allowed() {
+    let db = new_test_db().await;
+    let (tenant_a, _) = setup_tenants(&db).await;
+
+    // Create adapter in tenant A
+    let adapter_a = create_test_adapter(&db, &tenant_a, "Adapter A").await;
+
+    // Create stack in tenant A with adapter from tenant A
+    let stack_id = format!("stack-{}", uuid::Uuid::new_v4());
+    let adapter_ids_json = serde_json::to_string(&[&adapter_a]).unwrap();
+
+    let result = sqlx::query(
+        "INSERT INTO adapter_stacks (id, tenant_id, name, adapter_ids_json, version, lifecycle_state)
+         VALUES (?, ?, ?, ?, ?, ?)",
+    )
+    .bind(&stack_id)
+    .bind(&tenant_a)
+    .bind("stack.test.same-tenant")
+    .bind(&adapter_ids_json)
+    .bind("1.0.0")
+    .bind("active")
+    .execute(db.pool())
+    .await;
+
+    assert!(
+        result.is_ok(),
+        "Stack with same-tenant adapter should succeed: {:?}",
+        result.err()
+    );
+}
+
+#[tokio::test]
+async fn test_adapter_stacks_cross_tenant_update_rejected() {
+    let db = new_test_db().await;
+    let (tenant_a, tenant_b) = setup_tenants(&db).await;
+
+    // Create adapters in both tenants
+    let adapter_a = create_test_adapter(&db, &tenant_a, "Adapter A").await;
+    let adapter_b = create_test_adapter(&db, &tenant_b, "Adapter B").await;
+
+    // Create stack with same-tenant adapter
+    let stack_id = create_test_stack(&db, &tenant_a, "Update Test Stack", &[&adapter_a]).await;
+
+    // Try to update stack to include cross-tenant adapter
+    let cross_tenant_json = serde_json::to_string(&[&adapter_b]).unwrap();
+    let result = sqlx::query("UPDATE adapter_stacks SET adapter_ids_json = ? WHERE id = ?")
+        .bind(&cross_tenant_json)
+        .bind(&stack_id)
+        .execute(db.pool())
+        .await;
+
+    assert!(
+        result.is_err(),
+        "Stack update with cross-tenant adapter should be rejected"
+    );
+}
+
+// ============================================================================
+// Migration 0224: training_jobs adapter tenant match tests
+// ============================================================================
+
+#[tokio::test]
+async fn test_training_jobs_adapter_cross_tenant_insert_rejected() {
+    let db = new_test_db().await;
+    let (tenant_a, tenant_b) = setup_tenants(&db).await;
+
+    // Create adapter in tenant B
+    let adapter_b = create_test_adapter(&db, &tenant_b, "Adapter B").await;
+    let dataset_a = create_test_dataset(&db, &tenant_a, "Dataset A").await;
+
+    // Try to create training job in tenant A with adapter from tenant B
+    let job_id = format!("job-{}", uuid::Uuid::new_v4());
+    let repo_id = format!("repo-{}", uuid::Uuid::new_v4());
+
+    // Create repo first
+    sqlx::query(
+        "INSERT INTO adapter_repositories (id, tenant_id, name, default_branch) VALUES (?, ?, ?, ?)",
+    )
+    .bind(&repo_id)
+    .bind(&tenant_a)
+    .bind("Test Repo")
+    .bind("main")
+    .execute(db.pool())
+    .await
+    .expect("create repo");
+
+    // Create git repo for FK
+    let git_id = format!("git-{}", uuid::Uuid::new_v4());
+    sqlx::query(
+        "INSERT OR IGNORE INTO git_repositories (id, repo_id, path, branch, analysis_json, evidence_json, security_scan_json, status, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(&git_id)
+    .bind(&repo_id)
+    .bind("var/test/repo")
+    .bind("main")
+    .bind("{}")
+    .bind("{}")
+    .bind("{}")
+    .bind("active")
+    .bind("test-user")
+    .execute(db.pool())
+    .await
+    .expect("create git repo");
+
+    let result = sqlx::query(
+        "INSERT INTO repository_training_jobs (id, repo_id, tenant_id, dataset_id, adapter_id, status, training_config_json, progress_json, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(&job_id)
+    .bind(&repo_id)
+    .bind(&tenant_a)
+    .bind(&dataset_a)
+    .bind(&adapter_b) // Cross-tenant adapter
+    .bind("pending")
+    .bind("{}")
+    .bind("{}")
+    .bind("test-user")
+    .execute(db.pool())
+    .await;
+
+    assert!(
+        result.is_err(),
+        "Training job with cross-tenant adapter should be rejected"
+    );
+}
+
+#[tokio::test]
+async fn test_training_jobs_adapter_same_tenant_insert_allowed() {
+    let db = new_test_db().await;
+    let (tenant_a, _) = setup_tenants(&db).await;
+
+    // Create adapter in tenant A
+    let adapter_a = create_test_adapter(&db, &tenant_a, "Adapter A").await;
+    let dataset_a = create_test_dataset(&db, &tenant_a, "Dataset A").await;
+
+    let job_id = format!("job-{}", uuid::Uuid::new_v4());
+    let repo_id = format!("repo-{}", uuid::Uuid::new_v4());
+
+    // Create repo first
+    sqlx::query(
+        "INSERT INTO adapter_repositories (id, tenant_id, name, default_branch) VALUES (?, ?, ?, ?)",
+    )
+    .bind(&repo_id)
+    .bind(&tenant_a)
+    .bind("Test Repo Same Tenant")
+    .bind("main")
+    .execute(db.pool())
+    .await
+    .expect("create repo");
+
+    // Create git repo for FK
+    let git_id = format!("git-{}", uuid::Uuid::new_v4());
+    sqlx::query(
+        "INSERT OR IGNORE INTO git_repositories (id, repo_id, path, branch, analysis_json, evidence_json, security_scan_json, status, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(&git_id)
+    .bind(&repo_id)
+    .bind("var/test/repo-same")
+    .bind("main")
+    .bind("{}")
+    .bind("{}")
+    .bind("{}")
+    .bind("active")
+    .bind("test-user")
+    .execute(db.pool())
+    .await
+    .expect("create git repo");
+
+    let result = sqlx::query(
+        "INSERT INTO repository_training_jobs (id, repo_id, tenant_id, dataset_id, adapter_id, status, training_config_json, progress_json, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(&job_id)
+    .bind(&repo_id)
+    .bind(&tenant_a)
+    .bind(&dataset_a)
+    .bind(&adapter_a) // Same-tenant adapter
+    .bind("pending")
+    .bind("{}")
+    .bind("{}")
+    .bind("test-user")
+    .execute(db.pool())
+    .await;
+
+    assert!(
+        result.is_ok(),
+        "Training job with same-tenant adapter should succeed: {:?}",
+        result.err()
+    );
+}
+
+// ============================================================================
+// Migration 0131: chat_sessions and routing_decisions tenant isolation tests
+// ============================================================================
+
+async fn create_test_collection(db: &Db, tenant_id: &str, name: &str) -> String {
+    let collection_id = format!("col-{}-{}", tenant_id, uuid::Uuid::new_v4());
+
+    sqlx::query("INSERT INTO document_collections (id, tenant_id, name) VALUES (?, ?, ?)")
+        .bind(&collection_id)
+        .bind(tenant_id)
+        .bind(name)
+        .execute(db.pool())
+        .await
+        .expect("create collection");
+
+    collection_id
+}
+
+#[tokio::test]
+async fn test_chat_sessions_cross_tenant_stack_rejected() {
+    let db = new_test_db().await;
+    let (tenant_a, tenant_b) = setup_tenants(&db).await;
+
+    // Create stack in tenant B
+    let adapter_b = create_test_adapter(&db, &tenant_b, "Adapter B").await;
+    let stack_b = create_test_stack(&db, &tenant_b, "Stack B", &[&adapter_b]).await;
+
+    // Try to create chat session in tenant A with stack from tenant B
+    let session_id = format!("session-{}", uuid::Uuid::new_v4());
+    let result = sqlx::query(
+        "INSERT INTO chat_sessions (id, tenant_id, stack_id, title, model_id, messages_json)
+         VALUES (?, ?, ?, ?, ?, ?)",
+    )
+    .bind(&session_id)
+    .bind(&tenant_a)
+    .bind(&stack_b) // Cross-tenant stack
+    .bind("Test Session")
+    .bind("test-model")
+    .bind("[]")
+    .execute(db.pool())
+    .await;
+
+    assert!(
+        result.is_err(),
+        "Chat session with cross-tenant stack should be rejected"
+    );
+}
+
+#[tokio::test]
+async fn test_chat_sessions_cross_tenant_collection_rejected() {
+    let db = new_test_db().await;
+    let (tenant_a, tenant_b) = setup_tenants(&db).await;
+
+    // Create collection in tenant B
+    let collection_b = create_test_collection(&db, &tenant_b, "Collection B").await;
+
+    // Try to create chat session in tenant A with collection from tenant B
+    let session_id = format!("session-{}", uuid::Uuid::new_v4());
+    let result = sqlx::query(
+        "INSERT INTO chat_sessions (id, tenant_id, collection_id, title, model_id, messages_json)
+         VALUES (?, ?, ?, ?, ?, ?)",
+    )
+    .bind(&session_id)
+    .bind(&tenant_a)
+    .bind(&collection_b) // Cross-tenant collection
+    .bind("Test Session")
+    .bind("test-model")
+    .bind("[]")
+    .execute(db.pool())
+    .await;
+
+    assert!(
+        result.is_err(),
+        "Chat session with cross-tenant collection should be rejected"
+    );
+}
+
+#[tokio::test]
+async fn test_routing_decisions_cross_tenant_stack_rejected() {
+    let db = new_test_db().await;
+    let (tenant_a, tenant_b) = setup_tenants(&db).await;
+
+    // Create stack in tenant B
+    let adapter_b = create_test_adapter(&db, &tenant_b, "Adapter B").await;
+    let stack_b = create_test_stack(&db, &tenant_b, "Stack B for Routing", &[&adapter_b]).await;
+
+    // Try to create routing decision in tenant A with stack from tenant B
+    let decision_id = format!("decision-{}", uuid::Uuid::new_v4());
+    let result = sqlx::query(
+        "INSERT INTO routing_decisions (id, tenant_id, stack_id, input_hash, decision_json, latency_ms)
+         VALUES (?, ?, ?, ?, ?, ?)",
+    )
+    .bind(&decision_id)
+    .bind(&tenant_a)
+    .bind(&stack_b) // Cross-tenant stack
+    .bind("abcd1234")
+    .bind("{}")
+    .bind(100)
+    .execute(db.pool())
+    .await;
+
+    assert!(
+        result.is_err(),
+        "Routing decision with cross-tenant stack should be rejected"
+    );
+}
