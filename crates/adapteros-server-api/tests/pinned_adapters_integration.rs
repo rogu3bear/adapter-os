@@ -188,7 +188,7 @@ fn test_inference_request_internal_with_pinned_adapters() {
         pinned_adapter_ids: Some(pinned.clone()),
         chat_context_hash: None,
         claims: None,
-        policy_mask_digest: None,
+        policy_mask_digest_b3: None,
         model: None,
         created_at: std::time::Instant::now(),
         router_seed: None,

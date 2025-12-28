@@ -154,7 +154,7 @@ fn minimal_request(tenant_id: &str, model_id: &str) -> InferenceRequestInternal 
         pinned_adapter_ids: None,
         chat_context_hash: None,
         claims: None,
-        policy_mask_digest: None,
+        policy_mask_digest_b3: None,
         model: Some(model_id.to_string()),
         created_at: std::time::Instant::now(),
         worker_auth_token: None,
