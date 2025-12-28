@@ -68,7 +68,7 @@ impl TelemetryCollector {
             let mut sys = System::new_with_specifics(
                 RefreshKind::new().with_cpu(CpuRefreshKind::everything()),
             );
-            sys.refresh_cpu();
+            sys.refresh_cpu_all();
             return Self {
                 sys,
                 last: snapshot.clone(),
@@ -94,7 +94,7 @@ impl TelemetryCollector {
 
     #[cfg(feature = "telemetry-sysinfo")]
     fn collect(&mut self) -> TelemetrySnapshot {
-        self.sys.refresh_cpu();
+        self.sys.refresh_cpu_all();
         let cpu_util = self.sys.global_cpu_info().cpu_usage().clamp(0.0, 100.0) / 100.0;
         let cpu_sample = DeviceSample {
             utilization: quantize(cpu_util),

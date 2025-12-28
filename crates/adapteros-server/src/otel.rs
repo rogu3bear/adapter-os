@@ -6,9 +6,9 @@
 use adapteros_server_api::config::OtelConfig;
 use anyhow::Result;
 use opentelemetry::trace::TracerProvider;
+use opentelemetry::KeyValue;
 use opentelemetry_sdk::{
-    runtime,
-    trace::{BatchConfigBuilder, BatchSpanProcessor, Sampler, TracerProvider as SdkTracerProvider},
+    trace::{BatchConfigBuilder, BatchSpanProcessor, Sampler, SdkTracerProvider},
     Resource,
 };
 use std::time::Duration;
@@ -26,11 +26,8 @@ impl Drop for OtelGuard {
         if let Some(provider) = self.provider.take() {
             info!("Shutting down OpenTelemetry tracer provider");
             // Force flush any pending spans
-            let flush_results = provider.force_flush();
-            for result in flush_results {
-                if let Err(e) = result {
-                    tracing::warn!(error = %e, "Failed to flush OpenTelemetry spans");
-                }
+            if let Err(e) = provider.force_flush() {
+                tracing::warn!(error = %e, "Failed to flush OpenTelemetry spans");
             }
             if let Err(e) = provider.shutdown() {
                 tracing::warn!(error = %e, "OpenTelemetry shutdown error");
@@ -58,14 +55,16 @@ pub fn init_otel(
     info!(endpoint = %endpoint, protocol = %config.protocol, "Initializing OpenTelemetry");
 
     // Build resource with service metadata
-    let resource = Resource::new(vec![
-        opentelemetry::KeyValue::new("service.name", config.service_name.clone()),
-        opentelemetry::KeyValue::new("service.version", env!("CARGO_PKG_VERSION")),
-        opentelemetry::KeyValue::new(
-            "deployment.environment",
-            std::env::var("AOS_ENVIRONMENT").unwrap_or_else(|_| "development".to_string()),
-        ),
-    ]);
+    let resource = Resource::builder()
+        .with_attributes([
+            KeyValue::new("service.name", config.service_name.clone()),
+            KeyValue::new("service.version", env!("CARGO_PKG_VERSION")),
+            KeyValue::new(
+                "deployment.environment",
+                std::env::var("AOS_ENVIRONMENT").unwrap_or_else(|_| "development".to_string()),
+            ),
+        ])
+        .build();
 
     // Configure sampler
     let sampler = if config.sampling_ratio >= 1.0 {
@@ -95,7 +94,7 @@ pub fn init_otel(
                 .build()
                 .map_err(|e| anyhow::anyhow!("Failed to build HTTP OTLP exporter: {}", e))?;
 
-            let batch_processor = BatchSpanProcessor::builder(exporter, runtime::Tokio)
+            let batch_processor = BatchSpanProcessor::builder(exporter)
                 .with_batch_config(batch_config)
                 .build();
 
@@ -115,7 +114,7 @@ pub fn init_otel(
                 .build()
                 .map_err(|e| anyhow::anyhow!("Failed to build gRPC OTLP exporter: {}", e))?;
 
-            let batch_processor = BatchSpanProcessor::builder(exporter, runtime::Tokio)
+            let batch_processor = BatchSpanProcessor::builder(exporter)
                 .with_batch_config(batch_config)
                 .build();
 
