@@ -503,7 +503,7 @@ pub fn float_to_q15(value: f32) -> i16 {
 
 /// Convert Q15 fixed-point to float
 pub fn q15_to_float(value: i16) -> f32 {
-    value as f32 / 32768.0
+    value as f32 / 32767.0
 }
 
 /// Generate Q15 gate weights for K adapters

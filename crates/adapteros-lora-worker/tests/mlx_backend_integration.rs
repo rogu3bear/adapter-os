@@ -301,7 +301,7 @@ fn test_mlx_run_step_with_adapters() {
         .expect("Register adapter 2");
 
     // Create router ring selecting both adapters
-    // Gates are Q15 format (scaled by 32768)
+    // Gates are Q15 format (scaled by 32767)
     let ring = create_router_ring(&[0, 1], &[16384, 8192]); // 0.5 and 0.25 weights
 
     // Create IO buffers

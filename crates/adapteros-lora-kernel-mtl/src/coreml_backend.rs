@@ -575,7 +575,7 @@ impl FusedKernels for CoreMLBackend {
             let total_gate_weight: f32 = ring
                 .active_gates()
                 .iter()
-                .map(|&gate| (gate as f32) / 32768.0)
+                .map(|&gate| (gate as f32) / 32767.0)
                 .sum();
 
             for logit in io.output_logits.iter_mut() {
