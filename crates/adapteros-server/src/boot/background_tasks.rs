@@ -73,14 +73,23 @@ pub async fn spawn_all_background_tasks(
         let state_clone = state.clone();
         let mut spawner = BackgroundTaskSpawner::new(shutdown_coordinator)
             .with_task_tracker(Arc::clone(&background_tasks));
+        let mut shutdown_rx = spawner.coordinator().subscribe_shutdown();
         if let Err(err) = spawner.spawn_with_details(
             "Status writer",
             async move {
                 let mut interval = tokio::time::interval(Duration::from_secs(5));
                 loop {
-                    interval.tick().await;
-                    if let Err(e) = status_writer::write_status(&state_clone).await {
-                        warn!(error = %e, "Failed to write status");
+                    tokio::select! {
+                        biased;
+                        _ = shutdown_rx.recv() => {
+                            info!("Status writer received shutdown signal, exiting gracefully");
+                            break;
+                        }
+                        _ = interval.tick() => {
+                            if let Err(e) = status_writer::write_status(&state_clone).await {
+                                warn!(error = %e, "Failed to write status");
+                            }
+                        }
                     }
                 }
             },
@@ -117,6 +126,7 @@ pub async fn spawn_all_background_tasks(
 
         let mut spawner = BackgroundTaskSpawner::new(shutdown_coordinator)
             .with_task_tracker(Arc::clone(&background_tasks));
+        let mut shutdown_rx = spawner.coordinator().subscribe_shutdown();
         if let Err(err) = spawner.spawn_with_details(
             "KV isolation scan",
             async move {
@@ -124,15 +134,23 @@ pub async fn spawn_all_background_tasks(
                 interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
                 loop {
-                    interval.tick().await;
-                    if let Err(e) = kv_isolation::run_kv_isolation_scan(
-                        &state_clone,
-                        base_config.clone(),
-                        "scheduled",
-                    )
-                    .await
-                    {
-                        warn!(error = %e, "KV isolation scan failed");
+                    tokio::select! {
+                        biased;
+                        _ = shutdown_rx.recv() => {
+                            info!("KV isolation scan received shutdown signal, exiting gracefully");
+                            break;
+                        }
+                        _ = interval.tick() => {
+                            if let Err(e) = kv_isolation::run_kv_isolation_scan(
+                                &state_clone,
+                                base_config.clone(),
+                                "scheduled",
+                            )
+                            .await
+                            {
+                                warn!(error = %e, "KV isolation scan failed");
+                            }
+                        }
                     }
                 }
             },
@@ -166,6 +184,7 @@ pub async fn spawn_all_background_tasks(
         let metrics_registry = Arc::clone(&metrics_registry);
         let mut spawner = BackgroundTaskSpawner::new(shutdown_coordinator)
             .with_task_tracker(Arc::clone(&background_tasks));
+        let mut shutdown_rx = spawner.coordinator().subscribe_shutdown();
         if spawner
             .spawn_optional(
                 "KV alert monitor",
@@ -179,46 +198,53 @@ pub async fn spawn_all_background_tasks(
                     interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
                     loop {
-                        interval.tick().await;
+                        tokio::select! {
+                            biased;
+                            _ = shutdown_rx.recv() => {
+                                info!("KV alert monitor received shutdown signal, exiting gracefully");
+                                break;
+                            }
+                            _ = interval.tick() => {
+                                let snapshot = kv_metrics::global_kv_metrics().snapshot();
 
-                        let snapshot = kv_metrics::global_kv_metrics().snapshot();
+                                // Record KV counters into the metrics registry for dashboards
+                                metrics_registry
+                                    .record_metric(
+                                        kv_metrics::KV_ALERT_METRIC_FALLBACKS.to_string(),
+                                        snapshot.fallback_operations_total as f64,
+                                    )
+                                    .await;
+                                metrics_registry
+                                    .record_metric(
+                                        kv_metrics::KV_ALERT_METRIC_ERRORS.to_string(),
+                                        snapshot.errors_total as f64,
+                                    )
+                                    .await;
+                                metrics_registry
+                                    .record_metric(
+                                        kv_metrics::KV_ALERT_METRIC_DRIFT.to_string(),
+                                        snapshot.drift_detections_total as f64,
+                                    )
+                                    .await;
+                                metrics_registry
+                                    .record_metric(
+                                        kv_metrics::KV_ALERT_METRIC_DEGRADATIONS.to_string(),
+                                        snapshot.degraded_events_total as f64,
+                                    )
+                                    .await;
 
-                        // Record KV counters into the metrics registry for dashboards
-                        metrics_registry
-                            .record_metric(
-                                kv_metrics::KV_ALERT_METRIC_FALLBACKS.to_string(),
-                                snapshot.fallback_operations_total as f64,
-                            )
-                            .await;
-                        metrics_registry
-                            .record_metric(
-                                kv_metrics::KV_ALERT_METRIC_ERRORS.to_string(),
-                                snapshot.errors_total as f64,
-                            )
-                            .await;
-                        metrics_registry
-                            .record_metric(
-                                kv_metrics::KV_ALERT_METRIC_DRIFT.to_string(),
-                                snapshot.drift_detections_total as f64,
-                            )
-                            .await;
-                        metrics_registry
-                            .record_metric(
-                                kv_metrics::KV_ALERT_METRIC_DEGRADATIONS.to_string(),
-                                snapshot.degraded_events_total as f64,
-                            )
-                            .await;
-
-                        // Evaluate alert rules and emit warn-level logs for now (log channel only)
-                        let alerts = kv_metrics::evaluate_kv_alerts(&snapshot, &mut alerting);
-                        for alert in alerts {
-                            warn!(
-                                metric = %alert.metric,
-                                rule = %alert.rule_name,
-                                severity = ?alert.severity,
-                                value = alert.value,
-                                "KV alert triggered"
-                            );
+                                // Evaluate alert rules and emit warn-level logs for now (log channel only)
+                                let alerts = kv_metrics::evaluate_kv_alerts(&snapshot, &mut alerting);
+                                for alert in alerts {
+                                    warn!(
+                                        metric = %alert.metric,
+                                        rule = %alert.rule_name,
+                                        severity = ?alert.severity,
+                                        value = alert.value,
+                                        "KV alert triggered"
+                                    );
+                                }
+                            }
                         }
                     }
                 },
@@ -253,6 +279,7 @@ pub async fn spawn_all_background_tasks(
                 // Spawn daily cleanup task
                 let mut spawner = BackgroundTaskSpawner::new(shutdown_coordinator)
                     .with_task_tracker(Arc::clone(&background_tasks));
+                let mut shutdown_rx = spawner.coordinator().subscribe_shutdown();
                 if spawner
                     .spawn_optional(
                         "Log cleanup",
@@ -262,25 +289,32 @@ pub async fn spawn_all_background_tasks(
                                 .set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
                             loop {
-                                interval.tick().await;
-
-                                match logging::cleanup_old_logs(&log_dir, retention_days).await {
-                                    Ok(count) => {
-                                        if count > 0 {
-                                            info!(
-                                                count,
-                                                retention_days,
-                                                log_dir = %log_dir,
-                                                "Cleaned up old log files"
-                                            );
-                                        }
+                                tokio::select! {
+                                    biased;
+                                    _ = shutdown_rx.recv() => {
+                                        info!("Log cleanup received shutdown signal, exiting gracefully");
+                                        break;
                                     }
-                                    Err(e) => {
-                                        error!(
-                                            error = %e,
-                                            log_dir = %log_dir,
-                                            "Failed to cleanup old logs"
-                                        );
+                                    _ = interval.tick() => {
+                                        match logging::cleanup_old_logs(&log_dir, retention_days).await {
+                                            Ok(count) => {
+                                                if count > 0 {
+                                                    info!(
+                                                        count,
+                                                        retention_days,
+                                                        log_dir = %log_dir,
+                                                        "Cleaned up old log files"
+                                                    );
+                                                }
+                                            }
+                                            Err(e) => {
+                                                error!(
+                                                    error = %e,
+                                                    log_dir = %log_dir,
+                                                    "Failed to cleanup old logs"
+                                                );
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -305,6 +339,7 @@ pub async fn spawn_all_background_tasks(
         let db_clone = db.clone();
         let mut spawner = BackgroundTaskSpawner::new(shutdown_coordinator)
             .with_task_tracker(Arc::clone(&background_tasks));
+        let mut shutdown_rx = spawner.coordinator().subscribe_shutdown();
         if spawner
             .spawn_optional(
                 "TTL cleanup",
@@ -315,7 +350,17 @@ pub async fn spawn_all_background_tasks(
                     const CIRCUIT_BREAKER_PAUSE_SECS: u64 = 1800; // 30 minutes
 
                     loop {
-                        interval.tick().await;
+                        // Check for shutdown before starting any work
+                        tokio::select! {
+                            biased;
+                            _ = shutdown_rx.recv() => {
+                                info!("TTL cleanup received shutdown signal, exiting gracefully");
+                                break;
+                            }
+                            _ = interval.tick() => {
+                                // Continue with cleanup work
+                            }
+                        }
 
                         // Circuit breaker: pause if too many consecutive errors
                         if consecutive_errors >= MAX_CONSECUTIVE_ERRORS {
@@ -324,8 +369,15 @@ pub async fn spawn_all_background_tasks(
                                 pause_duration_secs = CIRCUIT_BREAKER_PAUSE_SECS,
                                 "TTL cleanup circuit breaker triggered, pausing task"
                             );
-                            tokio::time::sleep(Duration::from_secs(CIRCUIT_BREAKER_PAUSE_SECS))
-                                .await;
+                            // Check shutdown during circuit breaker pause
+                            tokio::select! {
+                                biased;
+                                _ = shutdown_rx.recv() => {
+                                    info!("TTL cleanup received shutdown signal during circuit breaker pause, exiting");
+                                    break;
+                                }
+                                _ = tokio::time::sleep(Duration::from_secs(CIRCUIT_BREAKER_PAUSE_SECS)) => {}
+                            }
                             consecutive_errors = 0;
                             continue;
                         }
@@ -392,7 +444,15 @@ pub async fn spawn_all_background_tasks(
                                 consecutive_errors,
                                 backoff_secs, "TTL cleanup error, applying exponential backoff"
                             );
-                            tokio::time::sleep(Duration::from_secs(backoff_secs)).await;
+                            // Check shutdown during backoff
+                            tokio::select! {
+                                biased;
+                                _ = shutdown_rx.recv() => {
+                                    info!("TTL cleanup received shutdown signal during backoff, exiting");
+                                    break;
+                                }
+                                _ = tokio::time::sleep(Duration::from_secs(backoff_secs)) => {}
+                            }
                         } else {
                             consecutive_errors = 0; // Reset on success
                         }
@@ -412,6 +472,7 @@ pub async fn spawn_all_background_tasks(
         let db_clone = db.clone();
         let mut spawner = BackgroundTaskSpawner::new(shutdown_coordinator)
             .with_task_tracker(Arc::clone(&background_tasks));
+        let mut shutdown_rx = spawner.coordinator().subscribe_shutdown();
         if spawner
             .spawn_optional(
                 "WAL checkpoint",
@@ -420,19 +481,26 @@ pub async fn spawn_all_background_tasks(
                     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
                     loop {
-                        interval.tick().await;
-
-                        match db_clone.wal_checkpoint().await {
-                            Ok(()) => {
-                                // Success - checkpoint completed
-                                debug!("WAL checkpoint completed successfully");
+                        tokio::select! {
+                            biased;
+                            _ = shutdown_rx.recv() => {
+                                info!("WAL checkpoint received shutdown signal, exiting gracefully");
+                                break;
                             }
-                            Err(e) => {
-                                // Log but don't fail - checkpoints are best-effort
-                                warn!(
-                                    error = %e,
-                                    "WAL checkpoint failed (non-fatal, will retry)"
-                                );
+                            _ = interval.tick() => {
+                                match db_clone.wal_checkpoint().await {
+                                    Ok(()) => {
+                                        // Success - checkpoint completed
+                                        debug!("WAL checkpoint completed successfully");
+                                    }
+                                    Err(e) => {
+                                        // Log but don't fail - checkpoints are best-effort
+                                        warn!(
+                                            error = %e,
+                                            "WAL checkpoint failed (non-fatal, will retry)"
+                                        );
+                                    }
+                                }
                             }
                         }
                     }
@@ -471,6 +539,7 @@ pub async fn spawn_all_background_tasks(
         let db_clone = db.clone();
         let mut spawner = BackgroundTaskSpawner::new(shutdown_coordinator)
             .with_task_tracker(Arc::clone(&background_tasks));
+        let mut shutdown_rx = spawner.coordinator().subscribe_shutdown();
         if spawner
             .spawn_optional(
                 "Heartbeat recovery",
@@ -481,7 +550,17 @@ pub async fn spawn_all_background_tasks(
                     const CIRCUIT_BREAKER_PAUSE_SECS: u64 = 1800; // 30 minutes
 
                     loop {
-                        interval.tick().await;
+                        // Check for shutdown before starting any work
+                        tokio::select! {
+                            biased;
+                            _ = shutdown_rx.recv() => {
+                                info!("Heartbeat recovery received shutdown signal, exiting gracefully");
+                                break;
+                            }
+                            _ = interval.tick() => {
+                                // Continue with recovery work
+                            }
+                        }
 
                         // Circuit breaker: pause if too many consecutive errors
                         if consecutive_errors >= MAX_CONSECUTIVE_ERRORS {
@@ -490,8 +569,15 @@ pub async fn spawn_all_background_tasks(
                                 pause_duration_secs = CIRCUIT_BREAKER_PAUSE_SECS,
                                 "Heartbeat recovery circuit breaker triggered, pausing task"
                             );
-                            tokio::time::sleep(Duration::from_secs(CIRCUIT_BREAKER_PAUSE_SECS))
-                                .await;
+                            // Check shutdown during circuit breaker pause
+                            tokio::select! {
+                                biased;
+                                _ = shutdown_rx.recv() => {
+                                    info!("Heartbeat recovery received shutdown signal during circuit breaker pause, exiting");
+                                    break;
+                                }
+                                _ = tokio::time::sleep(Duration::from_secs(CIRCUIT_BREAKER_PAUSE_SECS)) => {}
+                            }
                             consecutive_errors = 0;
                             continue;
                         }
@@ -516,7 +602,15 @@ pub async fn spawn_all_background_tasks(
                                     backoff_secs,
                                     "Failed to recover stale adapters, applying exponential backoff"
                                 );
-                                tokio::time::sleep(Duration::from_secs(backoff_secs)).await;
+                                // Check shutdown during backoff
+                                tokio::select! {
+                                    biased;
+                                    _ = shutdown_rx.recv() => {
+                                        info!("Heartbeat recovery received shutdown signal during backoff, exiting");
+                                        break;
+                                    }
+                                    _ = tokio::time::sleep(Duration::from_secs(backoff_secs)) => {}
+                                }
                             }
                         }
                     }

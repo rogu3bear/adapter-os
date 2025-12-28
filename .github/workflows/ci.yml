@@ -216,11 +216,15 @@ jobs:
           DATABASE_URL: sqlite://./var/sqlx-ci.sqlite3
           SQLX_OFFLINE_DIR: crates/adapteros-db/.sqlx
         run: cargo sqlx prepare --workspace --check
-      - name: Verify offline build
+      - name: Verify offline build (all SQLx crates)
         env:
           SQLX_OFFLINE: "1"
           SQLX_OFFLINE_DIR: crates/adapteros-db/.sqlx
-        run: cargo check -p adapteros-server-api
+        run: |
+          # Verify all crates with sqlx::query! macros compile offline
+          cargo check -p adapteros-db
+          cargo check -p adapteros-server-api
+          cargo check -p adapteros-server
 
   cli-models-seed:
     name: CLI Models Seed

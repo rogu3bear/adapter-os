@@ -138,11 +138,9 @@ installer/*.xcodeproj/*.perspectivev3
 # Cursor IDE
 .cursor/
 
-# SQLx
+# SQLx offline cache (only adapteros-db has compile-time checked queries)
 /.sqlx
 .sqlx/
-!crates/adapteros-cli/.sqlx/
-!crates/adapteros-cli/.sqlx/**
 !crates/adapteros-db/.sqlx/
 !crates/adapteros-db/.sqlx/**
 

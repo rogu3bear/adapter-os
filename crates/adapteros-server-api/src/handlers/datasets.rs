@@ -2080,6 +2080,13 @@ pub async fn delete_dataset(
         ));
     }
 
+    // Check if dataset can be safely deleted (not in use by adapters or active training jobs)
+    state
+        .db
+        .validate_dataset_deletion(&dataset_id)
+        .await
+        .map_err(db_error)?;
+
     // Delete from database (cascades to files and statistics)
     state
         .db
