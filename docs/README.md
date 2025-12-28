@@ -343,6 +343,7 @@ open http://localhost:3200
 
 | Document | Description |
 |----------|-------------|
+| [**TERMINOLOGY.md**](TERMINOLOGY.md) | Workspace vs. tenant naming map |
 | [**GLOSSARY.md**](GLOSSARY.md) | Terminology and definitions |
 | [**CONCEPTS.md**](CONCEPTS.md) | Core concepts deep dive |
 
