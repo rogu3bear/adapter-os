@@ -8,9 +8,9 @@ use std::time::{Duration, Instant};
 
 use adapteros_api_types::system_status::{
     AdapterInventory, AneMemorySummary, BootFailure, BootPhaseTiming, BootStatus, ComponentCheck,
-    DegradedReason, DriftLevel, DriftStatus, InferenceBlocker, InferenceReadyState, IntegrityStatus,
-    KernelMemorySummary, KernelStatus, ModelStatusSummary, PlanStatusSummary, ReadinessChecks,
-    ReadinessStatus, StatusIndicator, SystemStatusResponse, UmaMemorySummary,
+    DegradedReason, DriftLevel, DriftStatus, InferenceBlocker, InferenceReadyState,
+    IntegrityStatus, KernelMemorySummary, KernelStatus, ModelStatusSummary, PlanStatusSummary,
+    ReadinessChecks, ReadinessStatus, StatusIndicator, SystemStatusResponse, UmaMemorySummary,
 };
 use adapteros_api_types::{ModelLoadStatus, API_SCHEMA_VERSION};
 use axum::{extract::State, Extension, Json};
@@ -361,9 +361,9 @@ async fn collect_inference_status(
         }
     };
 
-    let any_ready = model_statuses.iter().any(|status| {
-        ModelLoadStatus::parse_status(&status.status).is_ready()
-    });
+    let any_ready = model_statuses
+        .iter()
+        .any(|status| ModelLoadStatus::parse_status(&status.status).is_ready());
     if !any_ready {
         push_blocker(&mut blockers, InferenceBlocker::NoModelLoaded);
     }

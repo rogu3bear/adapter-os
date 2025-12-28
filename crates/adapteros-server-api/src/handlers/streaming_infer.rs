@@ -1974,8 +1974,10 @@ mod tests {
             body_str.contains("\"run_id\":\"stream-run\""),
             "expected serialized envelope in payload"
         );
-        let expected_schema =
-            format!("\"schema_version\":\"{}\"", adapteros_api_types::API_SCHEMA_VERSION);
+        let expected_schema = format!(
+            "\"schema_version\":\"{}\"",
+            adapteros_api_types::API_SCHEMA_VERSION
+        );
         assert!(
             body_str.contains(&expected_schema),
             "expected schema_version in payload"

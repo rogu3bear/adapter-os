@@ -559,10 +559,7 @@ pub async fn upload_dataset(
                 if msg.to_ascii_lowercase().contains("insufficient disk space") {
                     (
                         StatusCode::INSUFFICIENT_STORAGE,
-                        Json(
-                            ErrorResponse::new(msg.clone())
-                                .with_code("INSUFFICIENT_STORAGE"),
-                        ),
+                        Json(ErrorResponse::new(msg.clone()).with_code("INSUFFICIENT_STORAGE")),
                     )
                 } else {
                     internal_error(format!("Failed to store dataset file: {}", msg))

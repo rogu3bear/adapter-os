@@ -317,7 +317,8 @@ pub async fn download_run_evidence(
                 }
             }
         } else {
-            envelope_warnings.push("inference trace missing trace_id; envelope omitted".to_string());
+            envelope_warnings
+                .push("inference trace missing trace_id; envelope omitted".to_string());
         }
     } else {
         envelope_warnings.push("no inference trace found for run_id; envelope omitted".to_string());

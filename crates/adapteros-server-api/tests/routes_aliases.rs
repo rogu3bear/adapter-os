@@ -10,10 +10,7 @@ use tower::ServiceExt;
 mod common;
 use common::{setup_state, test_admin_claims, TestkitEnvGuard};
 
-async fn get_response(
-    app: &Router,
-    path: &str,
-) -> (StatusCode, HeaderMap, bytes::Bytes) {
+async fn get_response(app: &Router, path: &str) -> (StatusCode, HeaderMap, bytes::Bytes) {
     let response = app
         .clone()
         .oneshot(
@@ -94,11 +91,8 @@ async fn routes_workspace_active_state_alias_matches_canonical() -> anyhow::Resu
         .with_state(state);
 
     let workspace_id = "tenant-1";
-    let (canon_status, _canon_headers, canon_body) = get_response(
-        &app,
-        &format!("/v1/workspaces/{}/active", workspace_id),
-    )
-    .await;
+    let (canon_status, _canon_headers, canon_body) =
+        get_response(&app, &format!("/v1/workspaces/{}/active", workspace_id)).await;
     let (alias_status, alias_headers, alias_body) = get_response(
         &app,
         &format!("/v1/workspaces/{}/active-state", workspace_id),

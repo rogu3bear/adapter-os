@@ -27,7 +27,6 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 pub mod activity;
-pub mod aliases;
 pub mod adapter_health;
 pub mod adapter_lifecycle;
 pub mod adapter_stacks;
@@ -37,6 +36,7 @@ pub mod adapters;
 pub mod adapters_read;
 pub mod admin;
 pub mod admin_lifecycle;
+pub mod aliases;
 pub mod api_keys;
 pub mod auth;
 pub mod auth_enhanced;
@@ -116,12 +116,12 @@ pub mod workers;
 pub mod workspaces;
 
 // Re-export specialized adapter repository and validation handlers/types.
+#[allow(deprecated)]
+pub use adapters_read::list_repositories_legacy;
 pub use adapters_read::{
     create_adapter_repository, get_adapter_repository, get_adapter_repository_policy,
     list_adapter_repositories, upsert_adapter_repository_policy, ListAdapterRepositoriesParams,
 };
-#[allow(deprecated)]
-pub use adapters_read::list_repositories_legacy;
 pub use validation::{
     validate_adapter_name, validate_stack_name, NameViolationResponse, ParsedAdapterName,
     ParsedStackName, ValidateAdapterNameRequest, ValidateAdapterNameResponse,
