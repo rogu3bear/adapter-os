@@ -199,7 +199,7 @@ check_drift() {
 
     # Generate types to temporary file
     (cd "$PROJECT_ROOT/ui" && pnpm exec openapi-typescript \
-        "../$OPENAPI_SPEC" \
+        "$OPENAPI_SPEC" \
         --output src/api/generated.check.ts \
         --export-type \
         --enum \
