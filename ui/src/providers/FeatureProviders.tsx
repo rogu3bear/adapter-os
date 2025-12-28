@@ -8,6 +8,7 @@ import { BookmarkProvider } from '@/contexts/BookmarkContext';
 import { HistoryProvider } from '@/contexts/HistoryContext';
 import { BreadcrumbProvider } from '@/contexts/BreadcrumbContext';
 import { UndoRedoProvider } from '@/contexts/UndoRedoContext';
+import { OperationLockProvider } from '@/contexts/OperationLockContext';
 import { TENANT_SELECTION_REQUIRED_KEY, useAuth } from './CoreProviders';
 import { streamingService } from '@/services/StreamingService';
 import { TENANT_SWITCH_EVENT } from '@/utils/tenant';
@@ -445,16 +446,18 @@ function TenantProvider({ children }: { children: ReactNode }) {
 // Feature Providers Component
 export function FeatureProviders({ children }: { children: ReactNode }) {
   return (
-    <BookmarkProvider>
-      <HistoryProvider>
-        <BreadcrumbProvider>
-          <TenantProvider>
-            <UndoRedoProvider>
-              {children}
-            </UndoRedoProvider>
-          </TenantProvider>
-        </BreadcrumbProvider>
-      </HistoryProvider>
-    </BookmarkProvider>
+    <OperationLockProvider>
+      <BookmarkProvider>
+        <HistoryProvider>
+          <BreadcrumbProvider>
+            <TenantProvider>
+              <UndoRedoProvider>
+                {children}
+              </UndoRedoProvider>
+            </TenantProvider>
+          </BreadcrumbProvider>
+        </HistoryProvider>
+      </BookmarkProvider>
+    </OperationLockProvider>
   );
 }
