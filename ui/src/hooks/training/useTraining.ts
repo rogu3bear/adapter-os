@@ -1,3 +1,4 @@
+import { useRef } from 'react';
 import { useQuery, useMutation, useQueryClient, UseQueryOptions, UseMutationOptions, type QueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/services';
 import type {
@@ -19,6 +20,17 @@ import type {
 } from '@/api/training-types';
 import { useTenant } from '@/providers/FeatureProviders';
 import { withTenantKey } from '@/utils/tenant';
+
+/**
+ * Error thrown when workspace changes during a mutation operation.
+ * This prevents cross-workspace data corruption.
+ */
+export class WorkspaceChangedError extends Error {
+  constructor(originalTenant: string, currentTenant: string) {
+    super(`Workspace changed during operation (${originalTenant} → ${currentTenant}). Please retry.`);
+    this.name = 'WorkspaceChangedError';
+  }
+}
 
 type TrainingMetrics = {
   step?: number;
@@ -105,8 +117,19 @@ export function useTrainingJob(
 export function useStartTraining(
   options?: UseMutationOptions<TrainingJob, Error, StartTrainingRequest>
 ) {
+  const tenantContext = useTenant();
+  const tenantAtCreationRef = useRef(tenantContext.selectedTenant);
+
   return useMutation<TrainingJob, Error, StartTrainingRequest>({
-    mutationFn: (request) => apiClient.startTraining(request),
+    mutationFn: async (request) => {
+      // Validate workspace hasn't changed
+      const tenantAtCreation = tenantAtCreationRef.current;
+      const currentTenant = tenantContext.selectedTenant;
+      if (tenantAtCreation && currentTenant && tenantAtCreation !== currentTenant) {
+        throw new WorkspaceChangedError(tenantAtCreation, currentTenant);
+      }
+      return apiClient.startTraining(request);
+    },
     ...options,
   });
 }
@@ -114,8 +137,19 @@ export function useStartTraining(
 export function useCancelJob(
   options?: UseMutationOptions<void, Error, string>
 ) {
+  const tenantContext = useTenant();
+  const tenantAtCreationRef = useRef(tenantContext.selectedTenant);
+
   return useMutation<void, Error, string>({
-    mutationFn: (jobId) => apiClient.cancelTraining(jobId),
+    mutationFn: async (jobId) => {
+      // Validate workspace hasn't changed
+      const tenantAtCreation = tenantAtCreationRef.current;
+      const currentTenant = tenantContext.selectedTenant;
+      if (tenantAtCreation && currentTenant && tenantAtCreation !== currentTenant) {
+        throw new WorkspaceChangedError(tenantAtCreation, currentTenant);
+      }
+      return apiClient.cancelTraining(jobId);
+    },
     ...options,
   });
 }
@@ -216,8 +250,19 @@ export function useDatasetVersions(
 export function useCreateDataset(
   options?: UseMutationOptions<DatasetResponse, Error, CreateDatasetRequest>
 ) {
+  const tenantContext = useTenant();
+  const tenantAtCreationRef = useRef(tenantContext.selectedTenant);
+
   return useMutation<DatasetResponse, Error, CreateDatasetRequest>({
-    mutationFn: (request) => apiClient.createDataset(request),
+    mutationFn: async (request) => {
+      // Validate workspace hasn't changed
+      const tenantAtCreation = tenantAtCreationRef.current;
+      const currentTenant = tenantContext.selectedTenant;
+      if (tenantAtCreation && currentTenant && tenantAtCreation !== currentTenant) {
+        throw new WorkspaceChangedError(tenantAtCreation, currentTenant);
+      }
+      return apiClient.createDataset(request);
+    },
     ...options,
   });
 }
@@ -225,8 +270,19 @@ export function useCreateDataset(
 export function useValidateDataset(
   options?: UseMutationOptions<DatasetValidationResult, Error, string>
 ) {
+  const tenantContext = useTenant();
+  const tenantAtCreationRef = useRef(tenantContext.selectedTenant);
+
   return useMutation<DatasetValidationResult, Error, string>({
-    mutationFn: (datasetId) => apiClient.validateDataset(datasetId),
+    mutationFn: async (datasetId) => {
+      // Validate workspace hasn't changed
+      const tenantAtCreation = tenantAtCreationRef.current;
+      const currentTenant = tenantContext.selectedTenant;
+      if (tenantAtCreation && currentTenant && tenantAtCreation !== currentTenant) {
+        throw new WorkspaceChangedError(tenantAtCreation, currentTenant);
+      }
+      return apiClient.validateDataset(datasetId);
+    },
     ...options,
   });
 }
@@ -234,8 +290,19 @@ export function useValidateDataset(
 export function useDeleteDataset(
   options?: UseMutationOptions<void, Error, string>
 ) {
+  const tenantContext = useTenant();
+  const tenantAtCreationRef = useRef(tenantContext.selectedTenant);
+
   return useMutation<void, Error, string>({
-    mutationFn: (datasetId) => apiClient.deleteDataset(datasetId),
+    mutationFn: async (datasetId) => {
+      // Validate workspace hasn't changed
+      const tenantAtCreation = tenantAtCreationRef.current;
+      const currentTenant = tenantContext.selectedTenant;
+      if (tenantAtCreation && currentTenant && tenantAtCreation !== currentTenant) {
+        throw new WorkspaceChangedError(tenantAtCreation, currentTenant);
+      }
+      return apiClient.deleteDataset(datasetId);
+    },
     ...options,
   });
 }
@@ -253,7 +320,8 @@ export function useCreateDatasetFromDocuments(
   >
 ) {
   const queryClient = useQueryClient();
-  const { selectedTenant } = useTenant();
+  const tenantContext = useTenant();
+  const tenantAtCreationRef = useRef(tenantContext.selectedTenant);
   const { onSuccess, ...restOptions } = options ?? {};
 
   return useMutation<
@@ -261,10 +329,18 @@ export function useCreateDatasetFromDocuments(
     Error,
     { document_ids?: string[]; documentId?: string; collectionId?: string; name?: string; description?: string }
   >({
-    mutationFn: (params) => apiClient.createDatasetFromDocuments(params),
+    mutationFn: async (params) => {
+      // Validate workspace hasn't changed
+      const tenantAtCreation = tenantAtCreationRef.current;
+      const currentTenant = tenantContext.selectedTenant;
+      if (tenantAtCreation && currentTenant && tenantAtCreation !== currentTenant) {
+        throw new WorkspaceChangedError(tenantAtCreation, currentTenant);
+      }
+      return apiClient.createDatasetFromDocuments(params);
+    },
     ...restOptions,
     onSuccess: async (data, variables, context, mutation) => {
-      await invalidateTrainingCaches(queryClient, selectedTenant);
+      await invalidateTrainingCaches(queryClient, tenantContext.selectedTenant);
       // Call user-provided onSuccess if any
       await onSuccess?.(data, variables, context, mutation);
     },
@@ -332,15 +408,24 @@ export function useCreateChatFromJob(
   options?: UseMutationOptions<CreateChatFromJobResponse, Error, CreateChatFromJobRequest>
 ) {
   const queryClient = useQueryClient();
-  const { selectedTenant } = useTenant();
+  const tenantContext = useTenant();
+  const tenantAtCreationRef = useRef(tenantContext.selectedTenant);
   const { onSuccess, ...restOptions } = options ?? {};
 
   return useMutation<CreateChatFromJobResponse, Error, CreateChatFromJobRequest>({
-    mutationFn: (request) => apiClient.createChatFromTrainingJob(request),
+    mutationFn: async (request) => {
+      // Validate workspace hasn't changed
+      const tenantAtCreation = tenantAtCreationRef.current;
+      const currentTenant = tenantContext.selectedTenant;
+      if (tenantAtCreation && currentTenant && tenantAtCreation !== currentTenant) {
+        throw new WorkspaceChangedError(tenantAtCreation, currentTenant);
+      }
+      return apiClient.createChatFromTrainingJob(request);
+    },
     ...restOptions,
     onSuccess: async (data, variables, context, mutation) => {
       // Invalidate chat sessions list to show the new session
-      await queryClient.invalidateQueries({ queryKey: withTenantKey(['chat', 'sessions'], selectedTenant) });
+      await queryClient.invalidateQueries({ queryKey: withTenantKey(['chat', 'sessions'], tenantContext.selectedTenant) });
       // Call user-provided onSuccess if any
       await onSuccess?.(data, variables, context, mutation);
     },

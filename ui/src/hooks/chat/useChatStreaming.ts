@@ -2,6 +2,8 @@ import { useState, useRef, useCallback } from 'react';
 import { toast } from 'sonner';
 import { apiClient } from '@/api/services';
 import { logger, toError } from '@/utils/logger';
+import { useTenant } from '@/providers/FeatureProviders';
+import { useOperationLockOptional } from '@/contexts/OperationLockContext';
 import type { ChatMessage, ThroughputStats } from '@/components/chat/ChatMessage';
 import type { StreamingInferRequest } from '@/api/streaming-types';
 import type { RunMetadataPayload, UseChatStreamingOptions, UseChatStreamingReturn } from '@/types/hooks';
@@ -221,6 +223,11 @@ export function useChatStreaming(options: UseChatStreamingOptions): UseChatStrea
     onRunMetadata,
   } = options;
 
+  // Tenant and operation lock for workspace isolation
+  const { selectedTenant } = useTenant();
+  const operationLock = useOperationLockOptional();
+  const streamingLockIdRef = useRef<string | null>(null);
+
   // State
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamedText, setStreamedText] = useState('');
@@ -233,6 +240,25 @@ export function useChatStreaming(options: UseChatStreamingOptions): UseChatStrea
   const abortControllerRef = useRef<AbortController | null>(null);
   const streamStartTimeRef = useRef<number | null>(null);
   const tokenMetaRef = useRef<StreamTokenChunk[]>([]);
+
+  // Refs for envelope-based token buffering
+  const envelopeReceivedRef = useRef<boolean>(false);
+  const pendingTokensRef = useRef<Array<{ token: string; chunk: unknown }>>([]);
+  const envelopeRunIdRef = useRef<string | null>(null);
+  const currentTraceIdRef = useRef<string | null>(null);
+  const pendingTokensOverflowRef = useRef<boolean>(false);
+  const pendingTokensFirstTimestampRef = useRef<number | null>(null);
+  const envelopeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Refs for chunk de-duplication
+  const seenChunkIdsRef = useRef<Set<string>>(new Set());
+  const lastSequenceRef = useRef<number>(-1);
+
+  // Constants for buffer limits
+  const PENDING_TOKENS_LIMIT = 1000;
+  const ENVELOPE_TIMEOUT_MS = 5000;
+  const SEEN_CHUNK_IDS_MAX = 10000;
+  const SEEN_CHUNK_IDS_KEEP = 5000;
 
   const emitRunMetadata = useCallback(
     (payload: unknown, requestHint?: string, traceHint?: string): RunMetadataPayload | null => {
@@ -276,7 +302,31 @@ export function useChatStreaming(options: UseChatStreamingOptions): UseChatStrea
     setChunks([]);
     tokenMetaRef.current = [];
     streamStartTimeRef.current = null;
+    envelopeReceivedRef.current = false;
+    pendingTokensRef.current = [];
+    envelopeRunIdRef.current = null;
+    currentTraceIdRef.current = null;
+    pendingTokensOverflowRef.current = false;
+    pendingTokensFirstTimestampRef.current = null;
+    // Clear envelope timeout to prevent memory leaks
+    if (envelopeTimeoutRef.current) {
+      clearTimeout(envelopeTimeoutRef.current);
+      envelopeTimeoutRef.current = null;
+    }
+    // Clear de-dup set to prevent memory leaks across sessions
+    seenChunkIdsRef.current = new Set();
+    lastSequenceRef.current = -1;
   }, []);
+
+  /**
+   * Release the streaming operation lock
+   */
+  const releaseStreamingLock = useCallback(() => {
+    if (streamingLockIdRef.current && operationLock) {
+      operationLock.releaseLock(streamingLockIdRef.current);
+      streamingLockIdRef.current = null;
+    }
+  }, [operationLock]);
 
   /**
    * Cancel the current streaming request
@@ -286,6 +336,7 @@ export function useChatStreaming(options: UseChatStreamingOptions): UseChatStrea
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
       setIsStreaming(false);
+      releaseStreamingLock();
 
       // Calculate duration if streaming was in progress
       if (streamStartTimeRef.current) {
@@ -296,6 +347,17 @@ export function useChatStreaming(options: UseChatStreamingOptions): UseChatStrea
       setChunks([]);
       setStreamedText('');
       setTokensReceived(0);
+      // Note: Do NOT reset seenChunkIdsRef here - only reset in resetStream
+      // This preserves de-duplication state across cancel/retry cycles
+      envelopeReceivedRef.current = false;
+      pendingTokensRef.current = [];
+      pendingTokensOverflowRef.current = false;
+      pendingTokensFirstTimestampRef.current = null;
+      // Clear envelope timeout to prevent memory leaks
+      if (envelopeTimeoutRef.current) {
+        clearTimeout(envelopeTimeoutRef.current);
+        envelopeTimeoutRef.current = null;
+      }
 
       logger.info('Stream cancelled by user', {
         component: 'useChatStreaming',
@@ -303,7 +365,7 @@ export function useChatStreaming(options: UseChatStreamingOptions): UseChatStrea
         tokensReceived,
       });
     }
-  }, [currentRequestId, tokensReceived]);
+  }, [currentRequestId, tokensReceived, releaseStreamingLock]);
 
   /**
    * Validate and sanitize message content
@@ -359,6 +421,15 @@ export function useChatStreaming(options: UseChatStreamingOptions): UseChatStrea
     // Notify message sent
     onMessageSent?.(userMessage);
 
+    // Acquire operation lock to prevent workspace switching during streaming
+    if (operationLock && selectedTenant) {
+      streamingLockIdRef.current = operationLock.acquireLock(
+        'streaming',
+        'Chat inference in progress',
+        selectedTenant
+      );
+    }
+
     // Create abort controller for cancellation
     abortControllerRef.current = new AbortController();
     let traceId: string | undefined = undefined;
@@ -382,12 +453,86 @@ export function useChatStreaming(options: UseChatStreamingOptions): UseChatStrea
       let fullText = '';
       let tokenCount = 0;
 
+      // Helper to process a single token (used for both buffered and direct tokens)
+      const processToken = (token: string, chunk: unknown) => {
+        if (token.length === 0) {
+          return;
+        }
+
+        // Chunk de-duplication
+        const chunkRecord = asRecord(chunk);
+        const chunkId = chunkRecord
+          ? toStringValue(pickScalar(chunkRecord, ['chunk_id', 'chunkId', 'id']))
+          : undefined;
+        const sequence = chunkRecord
+          ? pickScalar(chunkRecord, ['sequence', 'seq', 'index'])
+          : undefined;
+        const seqNum = typeof sequence === 'number' ? sequence : undefined;
+
+        if (chunkId && seenChunkIdsRef.current.has(chunkId)) {
+          return; // Skip duplicate chunk
+        }
+        if (chunkId) {
+          // Sliding window cleanup: if set exceeds max size, keep only the most recent entries
+          if (seenChunkIdsRef.current.size > SEEN_CHUNK_IDS_MAX) {
+            const arr = Array.from(seenChunkIdsRef.current);
+            seenChunkIdsRef.current = new Set(arr.slice(-SEEN_CHUNK_IDS_KEEP));
+          }
+          seenChunkIdsRef.current.add(chunkId);
+        }
+        if (seqNum !== undefined) {
+          if (seqNum <= lastSequenceRef.current) {
+            return; // Skip out-of-order or duplicate sequence
+          }
+          lastSequenceRef.current = seqNum;
+        }
+
+        tokenCount++;
+        fullText += token;
+        setStreamedText(fullText);
+        setTokensReceived(tokenCount);
+        const choice = (chunk as unknown as { choices?: Array<Record<string, unknown>> })?.choices?.[0];
+        let logprob: number | null = null;
+        if (choice && typeof choice === 'object' && 'logprobs' in choice) {
+          const logprobs = (choice as Record<string, unknown>).logprobs as {
+            token_logprobs?: Array<number | null>;
+            top_logprobs?: Array<Record<string, number>>;
+          } | undefined;
+          if (logprobs?.token_logprobs && logprobs.token_logprobs.length > 0) {
+            const value = logprobs.token_logprobs[0];
+            logprob = typeof value === 'number' ? value : value ?? null;
+          } else if (logprobs?.top_logprobs && logprobs.top_logprobs.length > 0) {
+            const first = logprobs.top_logprobs[0];
+            const value = first && typeof first === 'object' ? Object.values(first)[0] : null;
+            logprob = typeof value === 'number' ? value : value ?? null;
+          }
+        }
+        const routerScore =
+          (chunk as unknown as { router_score?: number })?.router_score ??
+          (chunk as unknown as { metadata?: { router_score?: number } })?.metadata?.router_score ??
+          null;
+        const chunkEntry: StreamTokenChunk = {
+          token,
+          content: token,
+          timestamp: Date.now(),
+          index: tokenCount - 1,
+          logprob,
+          routerScore,
+        };
+        setChunks(prev => [
+          ...prev,
+          chunkEntry,
+        ]);
+        tokenMetaRef.current = [...tokenMetaRef.current.slice(-199), chunkEntry];
+      };
+
       await apiClient.streamInfer(
         request,
         {
           onToken: (token: string, chunk) => {
             if (!traceId && typeof chunk.id === 'string') {
               traceId = chunk.id;
+              currentTraceIdRef.current = chunk.id;
               setCurrentRequestId(chunk.id);
             }
             const runMetadata = emitRunMetadata(
@@ -397,52 +542,105 @@ export function useChatStreaming(options: UseChatStreamingOptions): UseChatStrea
             );
             if (!traceId && runMetadata?.traceId) {
               traceId = runMetadata.traceId;
+              currentTraceIdRef.current = runMetadata.traceId;
             } else if (!traceId && runMetadata?.requestId) {
               traceId = runMetadata.requestId;
+              currentTraceIdRef.current = runMetadata.requestId;
             }
-            if (token.length === 0 && isRunEnvelopeEvent(chunk)) {
+
+            // Check if this is an envelope event
+            if (isRunEnvelopeEvent(chunk)) {
+              // Mark envelope as received and store runId
+              envelopeReceivedRef.current = true;
+              if (runMetadata?.runId) {
+                envelopeRunIdRef.current = runMetadata.runId;
+              }
+
+              // Clear envelope timeout since envelope arrived
+              if (envelopeTimeoutRef.current) {
+                clearTimeout(envelopeTimeoutRef.current);
+                envelopeTimeoutRef.current = null;
+              }
+              pendingTokensFirstTimestampRef.current = null;
+
+              // Flush any pending tokens that arrived before the envelope
+              if (pendingTokensRef.current.length > 0) {
+                for (const pending of pendingTokensRef.current) {
+                  processToken(pending.token, pending.chunk);
+                }
+                pendingTokensRef.current = [];
+              }
+              pendingTokensOverflowRef.current = false;
               return;
             }
-            tokenCount++;
-            fullText += token;
-            setStreamedText(fullText);
-            setTokensReceived(tokenCount);
-            const choice = (chunk as unknown as { choices?: Array<Record<string, unknown>> })?.choices?.[0];
-            let logprob: number | null = null;
-            if (choice && typeof choice === 'object' && 'logprobs' in choice) {
-              const logprobs = (choice as Record<string, unknown>).logprobs as {
-                token_logprobs?: Array<number | null>;
-                top_logprobs?: Array<Record<string, number>>;
-              } | undefined;
-              if (logprobs?.token_logprobs && logprobs.token_logprobs.length > 0) {
-                const value = logprobs.token_logprobs[0];
-                logprob = typeof value === 'number' ? value : value ?? null;
-              } else if (logprobs?.top_logprobs && logprobs.top_logprobs.length > 0) {
-                const first = logprobs.top_logprobs[0];
-                const value = first && typeof first === 'object' ? Object.values(first)[0] : null;
-                logprob = typeof value === 'number' ? value : value ?? null;
-              }
+
+            // Skip empty tokens
+            if (token.length === 0) {
+              return;
             }
-            const routerScore =
-              (chunk as unknown as { router_score?: number })?.router_score ??
-              (chunk as unknown as { metadata?: { router_score?: number } })?.metadata?.router_score ??
-              null;
-            const chunkEntry: StreamTokenChunk = {
-              token,
-              content: token,
-              timestamp: Date.now(),
-              index: tokenCount - 1,
-              logprob,
-              routerScore,
-            };
-            setChunks(prev => [
-              ...prev,
-              chunkEntry,
-            ]);
-            tokenMetaRef.current = [...tokenMetaRef.current.slice(-199), chunkEntry];
+
+            // Buffer tokens until envelope is received (unless in overflow mode)
+            if (!envelopeReceivedRef.current && !pendingTokensOverflowRef.current) {
+              // Track first pending token timestamp for timeout
+              if (pendingTokensFirstTimestampRef.current === null) {
+                pendingTokensFirstTimestampRef.current = Date.now();
+                // Set up envelope timeout
+                envelopeTimeoutRef.current = setTimeout(() => {
+                  if (!envelopeReceivedRef.current && pendingTokensRef.current.length > 0) {
+                    logger.warn('Envelope timeout: flushing pending tokens without envelope context', {
+                      component: 'useChatStreaming',
+                      pendingCount: pendingTokensRef.current.length,
+                      timeoutMs: ENVELOPE_TIMEOUT_MS,
+                    });
+                    // Process all pending tokens without envelope context
+                    for (const pending of pendingTokensRef.current) {
+                      processToken(pending.token, pending.chunk);
+                    }
+                    pendingTokensRef.current = [];
+                    pendingTokensOverflowRef.current = true;
+                  }
+                  envelopeTimeoutRef.current = null;
+                }, ENVELOPE_TIMEOUT_MS);
+              }
+
+              // Check pending tokens limit
+              if (pendingTokensRef.current.length >= PENDING_TOKENS_LIMIT) {
+                logger.warn('Pending tokens buffer exceeded limit, processing without envelope context', {
+                  component: 'useChatStreaming',
+                  limit: PENDING_TOKENS_LIMIT,
+                  pendingCount: pendingTokensRef.current.length,
+                });
+                // Flush all pending tokens and switch to overflow mode
+                for (const pending of pendingTokensRef.current) {
+                  processToken(pending.token, pending.chunk);
+                }
+                pendingTokensRef.current = [];
+                pendingTokensOverflowRef.current = true;
+                // Clear the timeout since we're now in overflow mode
+                if (envelopeTimeoutRef.current) {
+                  clearTimeout(envelopeTimeoutRef.current);
+                  envelopeTimeoutRef.current = null;
+                }
+                // Process the current token immediately
+                processToken(token, chunk);
+                return;
+              }
+
+              pendingTokensRef.current.push({ token, chunk });
+              return;
+            }
+
+            // Process token normally after envelope received or in overflow mode
+            processToken(token, chunk);
           },
 
           onComplete: (completedText, finishReason, metadata) => {
+            // Clear envelope timeout to prevent memory leaks
+            if (envelopeTimeoutRef.current) {
+              clearTimeout(envelopeTimeoutRef.current);
+              envelopeTimeoutRef.current = null;
+            }
+
             // Calculate final duration
             const duration = streamStartTimeRef.current
               ? Date.now() - streamStartTimeRef.current
@@ -504,16 +702,33 @@ export function useChatStreaming(options: UseChatStreamingOptions): UseChatStrea
             });
 
             setIsStreaming(false);
+            releaseStreamingLock();
 
             // Notify completion
             onStreamComplete?.(assistantMessage);
           },
 
           onError: (error: Error) => {
+            // Clear envelope timeout to prevent memory leaks
+            if (envelopeTimeoutRef.current) {
+              clearTimeout(envelopeTimeoutRef.current);
+              envelopeTimeoutRef.current = null;
+            }
+
             logger.error('Stream error', {
               component: 'useChatStreaming',
               sessionId: sessionId ?? undefined,
             }, error);
+
+            // Emit accumulated metadata before clearing state (mid-stream disconnect preservation)
+            if (envelopeRunIdRef.current || currentTraceIdRef.current) {
+              emitRunMetadata({
+                runId: envelopeRunIdRef.current ?? undefined,
+                traceId: currentTraceIdRef.current,
+                streamInterrupted: true,
+                interruptReason: error.message,
+              }, currentTraceIdRef.current ?? undefined, currentTraceIdRef.current ?? undefined);
+            }
 
             // Calculate duration even on error
             if (streamStartTimeRef.current) {
@@ -521,6 +736,7 @@ export function useChatStreaming(options: UseChatStreamingOptions): UseChatStrea
             }
 
             setIsStreaming(false);
+            releaseStreamingLock();
             setCurrentRequestId(null);
 
             toast.error(`Inference failed: ${error.message}`);
@@ -552,6 +768,7 @@ export function useChatStreaming(options: UseChatStreamingOptions): UseChatStrea
       }
 
       setIsStreaming(false);
+      releaseStreamingLock();
       setCurrentRequestId(null);
     }
   }, [
@@ -559,8 +776,11 @@ export function useChatStreaming(options: UseChatStreamingOptions): UseChatStrea
     collectionId,
     documentId,
     sessionId,
+    selectedTenant,
+    operationLock,
     validateMessage,
     resetStream,
+    releaseStreamingLock,
     onMessageSent,
     onStreamComplete,
     onError,

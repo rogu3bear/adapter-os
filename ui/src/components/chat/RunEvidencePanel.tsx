@@ -1,7 +1,8 @@
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import type { RunMetadata } from '@/types/components';
-import { Download } from 'lucide-react';
+import { AlertTriangle, Download } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface RunEvidencePanelProps {
@@ -11,6 +12,8 @@ interface RunEvidencePanelProps {
   fallbackPlanId?: string | null;
   manifestFallback?: string | null;
   workspaceIdFallback?: string | null;
+  /** Currently selected workspace for mismatch detection */
+  selectedTenant?: string | null;
   pending?: boolean;
   showSeedValue?: boolean;
   onExport?: () => void;
@@ -24,6 +27,7 @@ export function RunEvidencePanel({
   fallbackPlanId,
   manifestFallback,
   workspaceIdFallback,
+  selectedTenant,
   pending = false,
   showSeedValue = false,
   onExport,
@@ -47,6 +51,10 @@ export function RunEvidencePanel({
   const workspaceIdPrimary = lookup(['workspaceId', 'workspace_id', 'tenantId', 'tenant_id']);
   const workspaceId = workspaceIdPrimary || workspaceIdFallback || undefined;
   const workspaceFallback = !workspaceIdPrimary && Boolean(workspaceIdFallback);
+  // Detect workspace mismatch - evidence from different workspace than currently selected
+  const workspaceMismatch = Boolean(
+    workspaceId && selectedTenant && workspaceId !== selectedTenant
+  );
 
   const manifestPrimary = lookup(['manifestHashB3', 'manifest_hash_b3']);
   const manifestHashB3 = manifestPrimary || manifestFallback || undefined;
@@ -96,6 +104,22 @@ export function RunEvidencePanel({
         <div className="flex items-center gap-2">
           <span className="font-semibold text-sm">Run evidence</span>
           {pending && <Badge variant="outline">streaming</Badge>}
+          {workspaceMismatch && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Badge variant="destructive" className="text-[10px] gap-1 cursor-help">
+                  <AlertTriangle className="h-3 w-3" />
+                  workspace mismatch
+                </Badge>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>This evidence belongs to a different workspace.</p>
+                <p className="text-muted-foreground text-xs mt-1">
+                  Evidence workspace: {workspaceId}
+                </p>
+              </TooltipContent>
+            </Tooltip>
+          )}
         </div>
         {onExport && (
           <Button
