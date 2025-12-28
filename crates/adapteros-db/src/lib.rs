@@ -2594,6 +2594,7 @@ pub mod messages;
 pub mod messages_kv;
 pub mod notifications;
 pub mod tutorials;
+pub mod workspace_active_state;
 pub mod workspaces;
 
 // System statistics module
@@ -2617,6 +2618,7 @@ pub use dashboard_configs::DashboardWidgetConfig;
 pub use notifications::{Notification, NotificationType};
 pub use runtime_sessions::RuntimeSession;
 pub use tutorials::TutorialStatus;
+pub use workspace_active_state::WorkspaceActiveState;
 pub use workspaces::{ResourceType, Workspace, WorkspaceMember, WorkspaceResource, WorkspaceRole};
 
 // Re-export unified access types

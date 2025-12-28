@@ -730,7 +730,9 @@ mod tests {
             description: Some("A test dataset".to_string()),
             format: "jsonl".to_string(),
             hash_b3: "b3:testdataset".to_string(),
+            dataset_hash_b3: Some("b3:testdataset".to_string()),
             storage_path: "/var/datasets/test".to_string(),
+            status: "ready".to_string(),
             validation_status: "valid".to_string(),
             validation_errors: None,
             file_count: 10,
@@ -744,6 +746,7 @@ mod tests {
             source_location: None,
             collection_method: None,
             ownership: Some("tenant-a".to_string()),
+            workspace_id: Some("workspace-1".to_string()),
         }
     }
 

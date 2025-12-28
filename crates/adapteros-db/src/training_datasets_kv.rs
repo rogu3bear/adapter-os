@@ -29,7 +29,9 @@ pub fn kv_dataset_from_record(record: &TrainingDataset, tenant_id: &str) -> Trai
         description: record.description.clone(),
         format: record.format.clone(),
         hash_b3: record.hash_b3.clone(),
+        dataset_hash_b3: Some(record.dataset_hash_b3.clone()),
         storage_path: record.storage_path.clone(),
+        status: record.status.clone(),
         validation_status: record.validation_status.clone(),
         validation_errors: record.validation_errors.clone(),
         file_count: record.file_count,
@@ -43,6 +45,7 @@ pub fn kv_dataset_from_record(record: &TrainingDataset, tenant_id: &str) -> Trai
         source_location: record.source_location.clone(),
         collection_method: record.collection_method.clone(),
         ownership: record.ownership.clone(),
+        workspace_id: record.workspace_id.clone(),
     }
 }
 
@@ -56,7 +59,12 @@ pub fn dataset_record_from_kv(kv: &TrainingDatasetKv) -> TrainingDataset {
         total_size_bytes: kv.total_size_bytes,
         format: kv.format.clone(),
         hash_b3: kv.hash_b3.clone(),
+        dataset_hash_b3: kv
+            .dataset_hash_b3
+            .clone()
+            .unwrap_or_else(|| kv.hash_b3.clone()),
         storage_path: kv.storage_path.clone(),
+        status: kv.status.clone(),
         validation_status: kv.validation_status.clone(),
         validation_errors: kv.validation_errors.clone(),
         metadata_json: kv.metadata_json.clone(),
@@ -69,6 +77,7 @@ pub fn dataset_record_from_kv(kv: &TrainingDatasetKv) -> TrainingDataset {
         collection_method: kv.collection_method.clone(),
         ownership: kv.ownership.clone(),
         tenant_id: Some(kv.tenant_id.clone()),
+        workspace_id: kv.workspace_id.clone(),
     }
 }
 

@@ -14,6 +14,9 @@ async fn latest_trusted_version_skips_blocked_head() -> Result<()> {
             "hash-ds",
             "var/ds-trust",
             None,
+            None,
+            Some("ready"),
+            Some("hash-ds"),
         )
         .await?;
 
