@@ -31,12 +31,14 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { logger, toError } from '@/utils/logger';
+import { getWorkspaceScopedKey } from '@/utils/storage';
 
 // ============================================================================
 // Constants
 // ============================================================================
 
-const STORAGE_KEY = 'aos_chat_loading_state';
+const BASE_STORAGE_KEY = 'aos_chat_loading_state';
+const LEGACY_STORAGE_KEY = 'aos_chat_loading_state'; // For migration
 const MAX_RECOVERY_AGE_MS = 5 * 60 * 1000; // 5 minutes
 
 // ============================================================================
@@ -63,6 +65,8 @@ export interface ChatLoadingState {
 export interface UseChatLoadingPersistenceOptions {
   /** Current stack ID (used for validation on recovery) */
   stackId?: string;
+  /** Workspace ID for storage isolation */
+  workspaceId?: string;
   /** Enable persistence (default: true) */
   enabled?: boolean;
 }
@@ -88,9 +92,9 @@ export interface UseChatLoadingPersistenceReturn {
 /**
  * Safely read from sessionStorage
  */
-function readFromStorage(): ChatLoadingState | null {
+function readFromStorage(storageKey: string): ChatLoadingState | null {
   try {
-    const raw = sessionStorage.getItem(STORAGE_KEY);
+    const raw = sessionStorage.getItem(storageKey);
     if (!raw) {
       return null;
     }
@@ -125,9 +129,9 @@ function readFromStorage(): ChatLoadingState | null {
 /**
  * Safely write to sessionStorage
  */
-function writeToStorage(state: ChatLoadingState): boolean {
+function writeToStorage(storageKey: string, state: ChatLoadingState): boolean {
   try {
-    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    sessionStorage.setItem(storageKey, JSON.stringify(state));
     return true;
   } catch (err: unknown) {
     // Handle quota exceeded or other storage errors
@@ -151,15 +155,62 @@ function writeToStorage(state: ChatLoadingState): boolean {
 /**
  * Safely clear from sessionStorage
  */
-function clearFromStorage(): void {
+function clearFromStorage(storageKey: string): void {
   try {
-    sessionStorage.removeItem(STORAGE_KEY);
+    sessionStorage.removeItem(storageKey);
   } catch (err) {
     logger.error(
       'Failed to clear persisted loading state',
       { component: 'useChatLoadingPersistence', operation: 'clear' },
       toError(err)
     );
+  }
+}
+
+/**
+ * Migrate data from legacy global key to workspace-scoped key
+ */
+function migrateFromLegacyStorage(workspaceScopedKey: string): ChatLoadingState | null {
+  try {
+    const legacyData = sessionStorage.getItem(LEGACY_STORAGE_KEY);
+    if (!legacyData) {
+      return null;
+    }
+
+    const parsed = JSON.parse(legacyData) as ChatLoadingState;
+
+    // Validate structure before migrating
+    if (
+      typeof parsed.stackId !== 'string' ||
+      typeof parsed.startedAt !== 'number' ||
+      typeof parsed.lastUpdated !== 'number' ||
+      !Array.isArray(parsed.adaptersToLoad)
+    ) {
+      // Invalid legacy data, just remove it
+      sessionStorage.removeItem(LEGACY_STORAGE_KEY);
+      return null;
+    }
+
+    // Write to new workspace-scoped key
+    sessionStorage.setItem(workspaceScopedKey, legacyData);
+
+    // Remove legacy key
+    sessionStorage.removeItem(LEGACY_STORAGE_KEY);
+
+    logger.info('Migrated loading state from legacy to workspace-scoped storage', {
+      component: 'useChatLoadingPersistence',
+      operation: 'migrate',
+      stackId: parsed.stackId,
+    });
+
+    return parsed;
+  } catch (err) {
+    logger.error(
+      'Failed to migrate legacy loading state',
+      { component: 'useChatLoadingPersistence', operation: 'migrate' },
+      toError(err)
+    );
+    return null;
   }
 }
 
@@ -199,13 +250,16 @@ function isStateForStack(state: ChatLoadingState, stackId?: string): boolean {
 export function useChatLoadingPersistence(
   options: UseChatLoadingPersistenceOptions = {}
 ): UseChatLoadingPersistenceReturn {
-  const { stackId, enabled = true } = options;
+  const { stackId, workspaceId, enabled = true } = options;
 
   const [persistedState, setPersistedState] = useState<ChatLoadingState | null>(null);
   const [isRecoverable, setIsRecoverable] = useState(false);
   const isInitialMountRef = useRef(true);
 
-  // Load persisted state on mount
+  // Get workspace-scoped storage key
+  const storageKey = getWorkspaceScopedKey(workspaceId || 'default', BASE_STORAGE_KEY);
+
+  // Load persisted state on mount (with migration from legacy key)
   useEffect(() => {
     if (!enabled || !isInitialMountRef.current) {
       return;
@@ -213,7 +267,14 @@ export function useChatLoadingPersistence(
 
     isInitialMountRef.current = false;
 
-    const state = readFromStorage();
+    // Try to read from workspace-scoped key first
+    let state = readFromStorage(storageKey);
+
+    // If not found, try migrating from legacy key
+    if (!state) {
+      state = migrateFromLegacyStorage(storageKey);
+    }
+
     if (!state) {
       logger.debug('No persisted loading state found', {
         component: 'useChatLoadingPersistence',
@@ -232,7 +293,7 @@ export function useChatLoadingPersistence(
         operation: 'mount',
         age: Date.now() - state.lastUpdated,
       });
-      clearFromStorage();
+      clearFromStorage(storageKey);
       return;
     }
 
@@ -257,7 +318,7 @@ export function useChatLoadingPersistence(
 
     setPersistedState(state);
     setIsRecoverable(true);
-  }, [enabled, stackId]);
+  }, [enabled, stackId, storageKey]);
 
   // Persist loading state
   const persist = useCallback(
@@ -266,7 +327,7 @@ export function useChatLoadingPersistence(
         return;
       }
 
-      const success = writeToStorage(state);
+      const success = writeToStorage(storageKey, state);
       if (success) {
         setPersistedState(state);
         setIsRecoverable(true);
@@ -283,7 +344,7 @@ export function useChatLoadingPersistence(
         setIsRecoverable(false);
       }
     },
-    [enabled]
+    [enabled, storageKey]
   );
 
   // Clear persisted state
@@ -292,7 +353,7 @@ export function useChatLoadingPersistence(
       return;
     }
 
-    clearFromStorage();
+    clearFromStorage(storageKey);
     setPersistedState(null);
     setIsRecoverable(false);
 
@@ -300,7 +361,7 @@ export function useChatLoadingPersistence(
       component: 'useChatLoadingPersistence',
       operation: 'clear',
     });
-  }, [enabled]);
+  }, [enabled, storageKey]);
 
   return {
     persistedState,

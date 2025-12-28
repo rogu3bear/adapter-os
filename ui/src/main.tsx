@@ -14,7 +14,7 @@ import { toast } from "sonner";
 import { useToastQueue } from "@/components/toast/ToastProvider";
 import NotFoundPage from "@/pages/NotFoundPage";
 import { isDevBypassEnabled } from "@/auth/authBootstrap";
-import { applyE2EToastGuards, applyE2EVisualGuards } from "@/utils/e2e";
+import { applyE2EToastGuards, applyE2EVisualGuards, applyE2EModeStyles, patchToastTestIds } from "@/utils/e2e";
 import { getDemoEntryPath, isDemoEnvEnabled, isDemoMvpMode } from "@/config/demo";
 import { useAuthFlow } from "@/hooks/auth";
 
@@ -22,7 +22,6 @@ import "./index.css";
 
 applyE2EVisualGuards();
 applyE2EToastGuards();
-import { applyE2EModeStyles, patchToastTestIds } from "@/utils/e2e";
 
 // Global error handlers - always enabled with different behavior for dev vs prod
 window.addEventListener('error', (event) => {
