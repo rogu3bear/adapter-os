@@ -298,6 +298,12 @@ pub fn verify_embedded_manifest(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Mutex, OnceLock};
+
+    fn env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
 
     fn set_env(var: &str, val: Option<&str>) -> Option<String> {
         let prev = std::env::var(var).ok();
@@ -345,6 +351,7 @@ mod tests {
 
     #[test]
     fn test_skip_sig_rejected_in_production_mode() {
+        let _guard = env_lock().lock().expect("env lock");
         let prod_prev = set_env("AOS_SERVER_PRODUCTION_MODE", Some("true"));
         let skip_prev = set_env("AOS_SKIP_KERNEL_SIGNATURE_VERIFY", Some("1"));
 
@@ -361,6 +368,7 @@ mod tests {
     #[cfg(debug_assertions)]
     #[test]
     fn test_skip_sig_allowed_in_dev_debug() {
+        let _guard = env_lock().lock().expect("env lock");
         let prod_prev = set_env("AOS_SERVER_PRODUCTION_MODE", Some("false"));
         let skip_prev = set_env("AOS_SKIP_KERNEL_SIGNATURE_VERIFY", Some("1"));
 
@@ -376,6 +384,7 @@ mod tests {
 
     #[test]
     fn test_metallib_skip_blocked_in_production_mode() {
+        let _guard = env_lock().lock().expect("env lock");
         let prod_prev = set_env("AOS_SERVER_PRODUCTION_MODE", Some("true"));
         let skip_prev = set_env("AOS_DEV_SKIP_METALLIB_CHECK", Some("1"));
 
@@ -395,6 +404,7 @@ mod tests {
     #[cfg(debug_assertions)]
     #[test]
     fn test_metallib_skip_allowed_in_dev_debug() {
+        let _guard = env_lock().lock().expect("env lock");
         let prod_prev = set_env("AOS_SERVER_PRODUCTION_MODE", Some("false"));
         let skip_prev = set_env("AOS_DEV_SKIP_METALLIB_CHECK", Some("1"));
 
