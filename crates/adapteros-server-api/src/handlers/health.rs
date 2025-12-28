@@ -198,9 +198,11 @@ pub async fn ready(State(state): State<AppState>) -> impl IntoResponse {
             worker_check.hint = Some("failed".to_string());
         }
     } else if current.is_degraded() {
-        // Degraded state - system is operational but should not advertise ready
-        worker_check.ok = false;
-        worker_check.hint = Some("degraded".to_string());
+        // Degraded state - system is operational, keep ready but report degraded status.
+        // Degraded is for non-critical dependencies (metrics, telemetry) - NOT a reason to fail readiness.
+        // STABILITY: Do NOT set worker_check.ok = false here - degraded should still be ready
+        // to prevent orchestrator flapping on transient non-critical failures.
+        worker_check.hint = Some("degraded (non-critical)".to_string());
     } else if current.is_maintenance() {
         worker_check.ok = false;
         worker_check.hint = Some("maintenance".to_string());
@@ -348,6 +350,10 @@ pub async fn ready(State(state): State<AppState>) -> impl IntoResponse {
         }
 
         if models_seeded_check.ok {
+            // System-level mismatch detection: uses global list intentionally for
+            // overall health visibility. This check is informational only (sets a
+            // hint but doesn't fail readiness) and doesn't expose tenant-specific
+            // data - only a generic "mismatch exists" signal.
             if let (Ok(active_states), Ok(statuses)) = (
                 state.db.list_workspace_active_states().await,
                 state.db.list_base_model_statuses().await,
