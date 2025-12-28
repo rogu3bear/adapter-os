@@ -284,13 +284,30 @@ export function useDataLoader<T>(options: UseDataLoaderOptions<T>): UseDataLoade
   }, [shouldUseLiveData, enabled, simpleFetch]);
 
   // ============================================================================
-  // Focus Refetching
+  // Focus Refetching (with debounce to avoid N refetches when N components focus)
   // ============================================================================
+
+  // Use ref to track last focus time and prevent rapid refetches
+  const lastFocusRefetchRef = useRef<number>(0);
+  const FOCUS_REFETCH_DEBOUNCE_MS = 500; // Debounce focus refetches by 500ms
 
   useEffect(() => {
     if (!refetchOnFocus || !enabled) return;
 
     const handleFocus = () => {
+      const now = Date.now();
+      // Debounce: skip if we refetched recently
+      if (now - lastFocusRefetchRef.current < FOCUS_REFETCH_DEBOUNCE_MS) {
+        logger.debug('Focus refetch debounced', {
+          component: 'useDataLoader',
+          operation: operationName,
+          timeSinceLastRefetch: now - lastFocusRefetchRef.current,
+        });
+        return;
+      }
+
+      lastFocusRefetchRef.current = now;
+
       if (shouldUseLiveData) {
         liveDataResult.refetch();
       } else {
@@ -300,7 +317,7 @@ export function useDataLoader<T>(options: UseDataLoaderOptions<T>): UseDataLoade
 
     window.addEventListener('focus', handleFocus);
     return () => window.removeEventListener('focus', handleFocus);
-  }, [refetchOnFocus, enabled, shouldUseLiveData, liveDataResult, simpleFetch]);
+  }, [refetchOnFocus, enabled, shouldUseLiveData, liveDataResult, simpleFetch, operationName]);
 
   // ============================================================================
   // Cleanup

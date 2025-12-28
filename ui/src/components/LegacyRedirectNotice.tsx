@@ -6,6 +6,8 @@ import { Button } from '@/components/ui/button';
 type LegacyRedirectNoticeProps = {
   to: string;
   label?: string;
+  /** Explains why this redirect exists - shown to user for context */
+  reason?: string;
   autoRedirect?: boolean;
   delayMs?: number;
 };
@@ -13,6 +15,7 @@ type LegacyRedirectNoticeProps = {
 export default function LegacyRedirectNotice({
   to,
   label,
+  reason,
   autoRedirect = true,
   delayMs = 150,
 }: LegacyRedirectNoticeProps) {
@@ -30,9 +33,10 @@ export default function LegacyRedirectNotice({
         <AlertTitle>Redirecting to the updated flow</AlertTitle>
         <AlertDescription className="space-y-3">
           <p>
-            This page is deprecated and now lives in {label ?? to}. You&apos;ll be redirected
+            This page has moved to <strong>{label ?? to}</strong>. You&apos;ll be redirected
             automatically.
           </p>
+          {reason && <p className="text-sm text-muted-foreground">{reason}</p>}
           <div className="flex gap-3">
             <Button asChild size="sm">
               <Link to={to} replace>
@@ -48,4 +52,3 @@ export default function LegacyRedirectNotice({
     </div>
   );
 }
-

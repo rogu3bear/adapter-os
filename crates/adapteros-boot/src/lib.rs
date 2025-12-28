@@ -71,6 +71,7 @@ pub mod boot_report;
 pub mod error;
 pub mod jti_cache;
 pub mod key_ring;
+pub mod key_update;
 pub mod lifecycle_builder;
 pub mod phase;
 pub mod runtime_dir;
@@ -84,6 +85,9 @@ pub use jti_cache::{JtiCacheStore, JtiEntry, DEFAULT_JTI_CACHE_SIZE, JTI_CACHE_S
 pub use key_ring::{
     extract_kid_from_token, RotationMeta, RotationReceipt, WorkerKeyRing,
     DEFAULT_ROTATION_GRACE_PERIOD_SECS,
+};
+pub use key_update::{
+    KeyUpdateRequest, KeyUpdateResponse, KEY_UPDATE_MAX_AGE_SECS, KEY_UPDATE_PROTOCOL_VERSION,
 };
 pub use lifecycle_builder::{BootArtifacts, LifecycleBuilder, LifecycleConfig};
 pub use phase::{BootPhase, PhaseTiming, PhaseTransitions};
