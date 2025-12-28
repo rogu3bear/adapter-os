@@ -8,7 +8,7 @@ use adapteros_types::{
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use crate::schema_version;
+use crate::{schema_version, RunEnvelope};
 
 pub use adapteros_types::inference::{StopReasonCode, STOP_Q15_DENOM};
 
@@ -136,6 +136,9 @@ pub struct InferResponse {
     /// runtime state.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub deterministic_receipt: Option<DeterministicReceipt>,
+    /// Canonical run envelope describing the execution context.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub run_envelope: Option<RunEnvelope>,
     /// Source citations for the response
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub citations: Vec<Citation>,

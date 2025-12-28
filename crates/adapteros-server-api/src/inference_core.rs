@@ -124,22 +124,20 @@
 use crate::chat_session_config::ChatSessionConfig;
 use crate::citations::collect_citations_for_adapters;
 use crate::handlers::rag_common::{retrieve_rag_context, store_rag_evidence, RagContextResult};
-use crate::middleware::policy_enforcement::{
-    compute_policy_mask_digest, create_hook_context, enforce_at_hook,
-};
+use crate::middleware::policy_enforcement::{compute_policy_mask_digest, enforce_at_hook};
 use crate::state::AppState;
 use crate::types::{
-    ChunkReference, InferenceError, InferenceRequestInternal, InferenceResult, PlacementReplay,
+    new_run_envelope, set_policy_mask, set_router_seed, set_worker_context, ChunkReference,
+    InferenceError, InferenceRequestInternal, InferenceResult, PlacementReplay,
     PlacementTraceEntry, RagEvidence, ReplayContext, RouterCandidateRecord, RouterDecisionRecord,
     SamplingParams, WorkerInferRequest, MAX_REPLAY_TEXT_SIZE, SAMPLING_ALGORITHM_VERSION,
 };
 use crate::uds_client::UdsClient;
-use adapteros_api_types::FailureCode;
-use adapteros_policy::hooks::{HookContext, PolicyDecision, PolicyHook};
 use adapteros_api_types::inference::{
     ReplayGuarantee, RouterDecision as ApiRouterDecision,
     RouterDecisionChainEntry as ApiRouterDecisionChainEntry,
 };
+use adapteros_api_types::{RunActor, RunEnvelope};
 use adapteros_config::PlacementConfig;
 use adapteros_core::{
     determinism_mode::DeterminismMode, identity::IdentityEnvelope, B3Hash, BackendKind,
@@ -147,6 +145,7 @@ use adapteros_core::{
 };
 use adapteros_db::workers::WorkerWithBinding;
 use adapteros_db::{chat_sessions::ChatSession, CreateReplayMetadataParams};
+use adapteros_policy::hooks::{HookContext, PolicyHook};
 use adapteros_telemetry::unified_events::{EventType, LogLevel, TelemetryEventBuilder};
 use adapteros_telemetry::{
     build_inference_metrics_event, build_routing_event, InferenceMetricsEvent,
@@ -618,6 +617,47 @@ impl<'a> InferenceCore<'a> {
 
         let result = async {
         let mut all_policy_decisions = Vec::new();
+        if request.run_envelope.is_none() {
+            if let Some(claims) = request.claims.as_ref() {
+                request.run_envelope = Some(new_run_envelope(
+                    self.state,
+                    claims,
+                    request.request_id.clone(),
+                    request.reasoning_mode,
+                ));
+            } else {
+                request.run_envelope = Some(RunEnvelope {
+                    run_id: request.request_id.clone(),
+                    schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
+                    workspace_id: request.cpid.clone(),
+                    actor: RunActor {
+                        subject: "unknown".to_string(),
+                        roles: Vec::new(),
+                        principal_type: Some("unknown".to_string()),
+                        auth_mode: Some("unauthenticated".to_string()),
+                    },
+                    manifest_hash_b3: self.state.manifest_hash.clone(),
+                    plan_id: None,
+                    policy_mask_digest_b3: None,
+                    router_seed: None,
+                    tick: self
+                        .state
+                        .tick_ledger
+                        .as_ref()
+                        .map(|ledger| ledger.increment_tick()),
+                    worker_id: None,
+                    reasoning_mode: request.reasoning_mode,
+                    determinism_version: crate::types::run_envelope::RUN_ENVELOPE_VERSION
+                        .to_string(),
+                    boot_trace_id: self
+                        .state
+                        .boot_state
+                        .as_ref()
+                        .map(|boot| boot.boot_trace_id()),
+                    created_at: chrono::Utc::now(),
+                });
+            }
+        }
         if let Some(token) = cancellation_token.as_ref() {
             if token.is_cancelled() {
                 return Err(InferenceError::ClientClosed(
@@ -776,6 +816,9 @@ impl<'a> InferenceCore<'a> {
         request.request_seed = Some(determinism_ctx.request_seed());
         request.router_seed = Some(determinism_ctx.router_seed_hex().to_string());
         request.seed = Some(determinism_ctx.request_seed_low64());
+        if let Some(ref mut envelope) = request.run_envelope {
+            set_router_seed(envelope, request.router_seed.as_ref());
+        }
 
         // Validate strict mode constraints (seed required for strict mode)
         validate_strict_mode_constraints(resolved_policy.effective_determinism_mode, request.seed)?;
@@ -834,7 +877,7 @@ impl<'a> InferenceCore<'a> {
 
         // 1. Resolve worker UDS path and capture worker identifier for telemetry
         // For replay: enforce manifest/backend constraints first, then reuse standard selection.
-        let (uds_path, selected_worker_id) = if let Some(ref ctx) = replay_context {
+        let (uds_path, selected_worker) = if let Some(ref ctx) = replay_context {
             let path = self
                 .resolve_worker_path_for_replay(
                     &request.cpid,
@@ -843,11 +886,12 @@ impl<'a> InferenceCore<'a> {
                 )
                 .await?;
             let worker = self.select_worker_for_tenant(&request.cpid).await.ok();
-            (path, worker.map(|w| w.id))
+            (path, worker)
         } else {
             let worker = self.select_worker_for_tenant(&request.cpid).await?;
-            (PathBuf::from(&worker.uds_path), Some(worker.id))
+            (PathBuf::from(&worker.uds_path), Some(worker))
         };
+        let selected_worker_id = selected_worker.as_ref().map(|w| w.id.clone());
 
         // 2. Retrieve RAG context if enabled
         // ┌─────────────────────────────────────────────────────────────────┐
@@ -1002,6 +1046,14 @@ impl<'a> InferenceCore<'a> {
         // Compute policy mask digest for the worker call
         let policy_mask_digest = compute_policy_mask_digest(&all_policy_decisions);
         request.policy_mask_digest = Some(policy_mask_digest);
+        if let Some(ref mut envelope) = request.run_envelope {
+            set_policy_mask(envelope, Some(&policy_mask_digest));
+            set_worker_context(
+                envelope,
+                selected_worker.as_ref(),
+                self.state.manifest_hash.clone(),
+            );
+        }
 
         // 3. Create worker request with full sampling parameters
         let worker_request = WorkerInferRequest {
@@ -1009,6 +1061,7 @@ impl<'a> InferenceCore<'a> {
             prompt: augmented_prompt.clone(),
             max_tokens: request.max_tokens,
             request_id: Some(request.request_id.clone()),
+            run_envelope: request.run_envelope.clone(),
             require_evidence: request.require_evidence,
             admin_override: request.admin_override,
             reasoning_mode: request.reasoning_mode,
@@ -1037,6 +1090,24 @@ impl<'a> InferenceCore<'a> {
             policy_mask_digest: Some(policy_mask_digest),
             utf8_healing: request.utf8_healing.unwrap_or(true),
         };
+
+        if let Some(ref envelope) = worker_request.run_envelope {
+            info!(
+                run_id = %envelope.run_id,
+                worker_id = %envelope.worker_id.as_deref().unwrap_or("unknown"),
+                plan_id = %envelope.plan_id.as_deref().unwrap_or("none"),
+                manifest_hash_b3 = %envelope
+                    .manifest_hash_b3
+                    .as_deref()
+                    .unwrap_or("unknown"),
+                policy_mask_digest_b3 = %envelope
+                    .policy_mask_digest_b3
+                    .as_deref()
+                    .unwrap_or("none"),
+                router_seed = %envelope.router_seed.as_deref().unwrap_or("none"),
+                "Dispatching worker inference with run envelope"
+            );
+        }
 
         // 4. Call worker via UDS
         // Longer timeout for replay to account for cold worker startup
@@ -1614,6 +1685,7 @@ impl<'a> InferenceCore<'a> {
             determinism_mode_applied: Some(determinism_mode_applied),
             replay_guarantee: Some(replay_guarantee),
             placement_trace: worker_response.placement_trace.clone(),
+            run_envelope: request.run_envelope.clone(),
             // Stop Controller fields
             stop_reason_code: worker_response.stop_reason_code,
             stop_reason_token_index: worker_response.stop_reason_token_index,
@@ -2656,7 +2728,41 @@ impl<'a> InferenceCore<'a> {
         }
     }
 
-    fn build_minimal_replay_metadata_params(
+    /// Resolve dataset hash for replay metadata (best-effort).
+    async fn resolve_dataset_hash(&self, dataset_version_id: Option<&String>) -> Option<String> {
+        if let Some(version_id) = dataset_version_id {
+            match self.state.db.get_training_dataset_version(version_id).await {
+                Ok(Some(ver)) => Some(ver.hash_b3),
+                _ => None,
+            }
+        } else {
+            None
+        }
+    }
+
+    /// Resolve adapter hashes for replay metadata (best-effort).
+    async fn resolve_adapter_hashes(
+        &self,
+        tenant_id: &str,
+        adapter_ids: Option<&Vec<String>>,
+    ) -> Option<Vec<String>> {
+        if let Some(ids) = adapter_ids {
+            let mut hashes = Vec::new();
+            for id in ids {
+                if let Ok(Some(adapter)) = self.state.db.get_adapter_for_tenant(tenant_id, id).await
+                {
+                    hashes.push(adapter.hash_b3.clone());
+                }
+            }
+            if !hashes.is_empty() {
+                hashes.sort();
+                return Some(hashes);
+            }
+        }
+        None
+    }
+
+    async fn build_minimal_replay_metadata_params(
         &self,
         request: &InferenceRequestInternal,
         latency_ms: Option<u64>,
@@ -2684,6 +2790,17 @@ impl<'a> InferenceCore<'a> {
             adapteros_config::PlacementMode::Off => "off",
         };
 
+        let adapter_ids = request
+            .effective_adapter_ids
+            .clone()
+            .or_else(|| request.adapters.clone());
+        let dataset_hash = self
+            .resolve_dataset_hash(request.dataset_version_id.as_ref())
+            .await;
+        let adapter_hashes = self
+            .resolve_adapter_hashes(&request.cpid, adapter_ids.as_ref())
+            .await;
+
         let sampling_params = SamplingParams {
             temperature: request.temperature,
             top_k: request.top_k,
@@ -2699,6 +2816,9 @@ impl<'a> InferenceCore<'a> {
                 weights: cfg.weights.into(),
                 trace: Vec::new(),
             }),
+            run_envelope: request.run_envelope.clone(),
+            adapter_hashes_b3: adapter_hashes.clone(),
+            dataset_hash_b3: dataset_hash.clone(),
         };
         let sampling_params_json = serde_json::to_string(&sampling_params).unwrap_or_default();
 
@@ -2709,10 +2829,6 @@ impl<'a> InferenceCore<'a> {
             request.prompt.clone()
         };
 
-        let adapter_ids = request
-            .effective_adapter_ids
-            .clone()
-            .or_else(|| request.adapters.clone());
         let base_only = matches!(
             request.effective_adapter_ids.as_ref(),
             Some(ids) if ids.is_empty()
@@ -2769,12 +2885,14 @@ impl<'a> InferenceCore<'a> {
         error: &InferenceError,
         latency_ms: u64,
     ) {
-        let params = self.build_minimal_replay_metadata_params(
-            request,
-            Some(latency_ms),
-            "failed_inference",
-            Some(error.error_code()),
-        );
+        let params = self
+            .build_minimal_replay_metadata_params(
+                request,
+                Some(latency_ms),
+                "failed_inference",
+                Some(error.error_code()),
+            )
+            .await;
 
         if let Err(e) = self.state.db.create_replay_metadata(params).await {
             warn!(
@@ -2799,12 +2917,9 @@ impl<'a> InferenceCore<'a> {
         latency_ms: Option<u64>,
         error_code: Option<&str>,
     ) {
-        let params = self.build_minimal_replay_metadata_params(
-            request,
-            latency_ms,
-            "failed_capture",
-            error_code,
-        );
+        let params = self
+            .build_minimal_replay_metadata_params(request, latency_ms, "failed_capture", error_code)
+            .await;
 
         match self.state.db.create_replay_metadata(params).await {
             Ok(_) => {
@@ -2900,6 +3015,17 @@ impl<'a> InferenceCore<'a> {
             ReplayGuarantee::None => "none",
         };
 
+        let adapter_ids_for_hash = request
+            .effective_adapter_ids
+            .clone()
+            .or_else(|| request.adapters.clone());
+        let adapter_hashes = self
+            .resolve_adapter_hashes(&request.cpid, adapter_ids_for_hash.as_ref())
+            .await;
+        let dataset_hash = self
+            .resolve_dataset_hash(request.dataset_version_id.as_ref())
+            .await;
+
         let placement_replay = placement_trace.map(|trace| {
             let cfg = PlacementConfig::from_env();
             let mode_str = match cfg.mode {
@@ -2942,6 +3068,9 @@ impl<'a> InferenceCore<'a> {
                     trace: Vec::new(),
                 })
             }),
+            run_envelope: request.run_envelope.clone(),
+            adapter_hashes_b3: adapter_hashes.clone(),
+            dataset_hash_b3: dataset_hash.clone(),
         };
         let sampling_params_json = serde_json::to_string(&sampling_params).unwrap_or_default();
 
@@ -2986,10 +3115,7 @@ impl<'a> InferenceCore<'a> {
         };
 
         // Get adapter IDs from effective set (preferred) or requested adapters
-        let adapter_ids = request
-            .effective_adapter_ids
-            .clone()
-            .or_else(|| request.adapters.clone());
+        let adapter_ids = adapter_ids_for_hash;
         let base_only = matches!(
             request.effective_adapter_ids.as_ref(),
             Some(ids) if ids.is_empty()
@@ -3082,7 +3208,6 @@ mod tests {
     use crate::telemetry::MetricsRegistry;
     use adapteros_api_types::{CreateExecutionPolicyRequest, DeterminismPolicy};
     use adapteros_core::{BackendKind, SeedMode};
-    use adapteros_db::adapters::AdapterRegistrationBuilder;
     use adapteros_db::chat_sessions::CreateChatSessionParams;
     use adapteros_db::traits::CreateStackRequest;
     use adapteros_db::Db;
@@ -3302,7 +3427,29 @@ mod tests {
     }
 
     #[test]
-    fn test_sampling_params_serialization() {
+    fn test_sampling_params_serialization_includes_run_envelope() {
+        let envelope = adapteros_api_types::RunEnvelope {
+            run_id: "run-123".to_string(),
+            schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
+            workspace_id: "tenant-1".to_string(),
+            actor: adapteros_api_types::RunActor {
+                subject: "user".to_string(),
+                roles: vec!["role".to_string()],
+                principal_type: Some("user".to_string()),
+                auth_mode: Some("bearer".to_string()),
+            },
+            manifest_hash_b3: Some("hash".to_string()),
+            plan_id: Some("plan".to_string()),
+            policy_mask_digest_b3: None,
+            router_seed: None,
+            tick: Some(1),
+            worker_id: None,
+            reasoning_mode: false,
+            determinism_version: "v1".to_string(),
+            boot_trace_id: None,
+            created_at: chrono::Utc::now(),
+        };
+
         let params = SamplingParams {
             temperature: 0.7,
             top_k: Some(50),
@@ -3314,6 +3461,9 @@ mod tests {
             backend_profile: None,
             request_seed_hex: None,
             placement: None,
+            run_envelope: Some(envelope),
+            adapter_hashes_b3: None,
+            dataset_hash_b3: None,
         };
         let json = serde_json::to_string(&params).unwrap();
         assert!(json.contains("\"temperature\":0.7"));
@@ -3321,6 +3471,13 @@ mod tests {
         assert!(json.contains("\"top_k\":50"));
         assert!(json.contains("\"top_p\":0.9"));
         assert!(json.contains("\"max_tokens\":100"));
+        assert!(json.contains("\"run_id\":\"run-123\""));
+        let expected_schema =
+            format!("\"schema_version\":\"{}\"", adapteros_api_types::API_SCHEMA_VERSION);
+        assert!(
+            json.contains(&expected_schema),
+            "expected run_envelope schema_version in replay sampling params"
+        );
 
         // Verify round-trip
         let parsed: SamplingParams = serde_json::from_str(&json).unwrap();
@@ -3345,6 +3502,9 @@ mod tests {
             backend_profile: None,
             request_seed_hex: None,
             placement: None,
+            run_envelope: None,
+            adapter_hashes_b3: None,
+            dataset_hash_b3: None,
         };
         let json = serde_json::to_string(&params).unwrap();
 
@@ -3369,6 +3529,9 @@ mod tests {
             backend_profile: None,
             request_seed_hex: None,
             placement: None,
+            run_envelope: None,
+            adapter_hashes_b3: None,
+            dataset_hash_b3: None,
         };
         assert_eq!(params.temperature, 0.0);
 
@@ -3470,7 +3633,7 @@ mod tests {
         let db = Db::connect(db_path.to_str().unwrap()).await.unwrap();
         db.migrate().await.unwrap();
         // Keep the tempdir alive for the lifetime of the test database
-        let _db_dir = dir.into_path();
+        let _db_dir = dir.keep();
         // Seed tenant
         adapteros_db::sqlx::query(
             "INSERT OR IGNORE INTO tenants (id, name) VALUES ('tenant-1', 'Test Tenant')",

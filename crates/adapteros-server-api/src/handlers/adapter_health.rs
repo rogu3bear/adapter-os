@@ -4,18 +4,16 @@
 
 use crate::auth::Claims;
 use crate::handlers::utils::aos_error_to_response;
-use crate::middleware::{require_any_role, require_role};
+use crate::middleware::require_any_role;
 use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
 use crate::types::*;
 use adapteros_core::AosError;
 use adapteros_db::users::Role;
-use adapteros_lora_lifecycle::GpuIntegrityReport;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::{Extension, Json};
-use serde_json::json;
 use sqlx::Row;
 use std::collections::HashMap;
 

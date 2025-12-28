@@ -97,8 +97,8 @@ async fn drain_timeout_is_respected_when_requests_dont_complete() {
     let in_flight_requests = Arc::new(AtomicUsize::new(0));
 
     // Transition to Ready state first
-    boot_state.boot().await;
-    boot_state.init_db().await;
+    boot_state.start().await;
+    boot_state.db_connecting().await;
     boot_state.load_policies().await;
     boot_state.start_backend().await;
     boot_state.load_base_models().await;
@@ -155,8 +155,8 @@ async fn drain_completes_successfully_when_all_requests_finish() {
     let in_flight_requests = Arc::new(AtomicUsize::new(0));
 
     // Transition to Ready state
-    boot_state.boot().await;
-    boot_state.init_db().await;
+    boot_state.start().await;
+    boot_state.db_connecting().await;
     boot_state.load_policies().await;
     boot_state.start_backend().await;
     boot_state.load_base_models().await;
@@ -264,8 +264,8 @@ async fn drain_handles_zero_in_flight_requests_immediately() {
     let in_flight_requests = Arc::new(AtomicUsize::new(0));
 
     // Transition to Ready then Draining
-    boot_state.boot().await;
-    boot_state.init_db().await;
+    boot_state.start().await;
+    boot_state.db_connecting().await;
     boot_state.load_policies().await;
     boot_state.start_backend().await;
     boot_state.load_base_models().await;
@@ -355,8 +355,8 @@ async fn boot_state_transitions_to_stopping_after_drain() {
     let boot_state = BootStateManager::new();
 
     // Complete boot sequence
-    boot_state.boot().await;
-    boot_state.init_db().await;
+    boot_state.start().await;
+    boot_state.db_connecting().await;
     boot_state.load_policies().await;
     boot_state.start_backend().await;
     boot_state.load_base_models().await;
@@ -381,8 +381,8 @@ async fn drain_from_fully_ready_state_works() {
     let boot_state = BootStateManager::new();
 
     // Complete full boot sequence including FullyReady
-    boot_state.boot().await;
-    boot_state.init_db().await;
+    boot_state.start().await;
+    boot_state.db_connecting().await;
     boot_state.load_policies().await;
     boot_state.start_backend().await;
     boot_state.load_base_models().await;
@@ -401,8 +401,8 @@ async fn drain_from_maintenance_state_works() {
     let boot_state = BootStateManager::new();
 
     // Boot to Ready then enter Maintenance
-    boot_state.boot().await;
-    boot_state.init_db().await;
+    boot_state.start().await;
+    boot_state.db_connecting().await;
     boot_state.load_policies().await;
     boot_state.start_backend().await;
     boot_state.load_base_models().await;

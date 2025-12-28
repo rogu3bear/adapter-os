@@ -200,12 +200,15 @@ impl DefaultTrainingDatasetService {
                 &content_hash,
                 "",
                 Some(&claims.sub),
+                None,
+                Some("ready"),
+                Some(&content_hash),
             )
             .await
             .map_err(|e| db_error(format!("Failed to create dataset record: {}", e)))?;
 
         // Create directory for dataset
-        let dataset_path = dataset_paths.dataset_dir(&dataset_id);
+        let dataset_path = dataset_paths.dataset_dir(&claims.tenant_id, &dataset_id);
         if let Err(e) = ensure_dirs([dataset_path.as_path()]).await {
             self.cleanup_dataset(&dataset_id, &dataset_path).await;
             return Err(e);
@@ -318,8 +321,11 @@ impl DefaultTrainingDatasetService {
             file_count: 1,
             total_size_bytes: file_size,
             format: "jsonl".to_string(),
-            hash: content_hash,
+            hash: content_hash.clone(),
+            dataset_hash_b3: Some(content_hash),
             storage_path: dataset_path.to_string_lossy().to_string(),
+            status: "ready".to_string(),
+            workspace_id: None,
             validation_status: response_validation_status,
             validation_errors: response_validation_errors,
             trust_state: None,

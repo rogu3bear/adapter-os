@@ -129,6 +129,9 @@ mod tests {
             backend_profile: None,
             request_seed_hex: Some(hex::encode(ctx_from_request.request_seed())),
             placement: None,
+            run_envelope: None,
+            adapter_hashes_b3: None,
+            dataset_hash_b3: None,
         };
 
         let metadata = InferenceReplayMetadata {
@@ -221,6 +224,9 @@ mod tests {
             backend_profile: None,
             request_seed_hex: None,
             placement: None,
+            run_envelope: None,
+            adapter_hashes_b3: None,
+            dataset_hash_b3: None,
         };
 
         let metadata = InferenceReplayMetadata {
@@ -291,6 +297,9 @@ mod tests {
             backend_profile: None,
             request_seed_hex: None,
             placement: None,
+            run_envelope: None,
+            adapter_hashes_b3: None,
+            dataset_hash_b3: None,
         };
 
         let metadata = InferenceReplayMetadata {

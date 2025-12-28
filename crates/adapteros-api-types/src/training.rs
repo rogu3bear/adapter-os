@@ -355,6 +355,9 @@ pub struct TrainingJobResponse {
     pub code_commit_sha: Option<String>,
     pub data_spec_hash: Option<String>,
     pub dataset_id: Option<String>,
+    /// Dataset manifest hash captured at job creation (combined when multi-dataset).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dataset_hash_b3: Option<String>,
     /// Dataset versions used for this job (order preserved)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dataset_version_ids: Option<Vec<DatasetVersionSelection>>,
@@ -445,6 +448,8 @@ pub struct TrainingJobResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub training_seed: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub seed_inputs_json: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub require_gpu: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_gpu_memory_mb: Option<u64>,
@@ -474,6 +479,8 @@ pub struct TrainingJobResponse {
     pub aos_path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub package_hash_b3: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub manifest_hash_b3: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub manifest_rank: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -561,6 +568,7 @@ impl From<TrainingJob> for TrainingJobResponse {
             data_spec: job.data_spec_json,
             data_spec_hash,
             dataset_id: job.dataset_id,
+            dataset_hash_b3: job.dataset_hash_b3,
             dataset_version_ids: job.dataset_version_ids.map(|versions| {
                 versions
                     .into_iter()
@@ -622,6 +630,7 @@ impl From<TrainingJob> for TrainingJobResponse {
             coreml_adapter_hash_b3: job.coreml_adapter_hash_b3,
             determinism_mode: job.determinism_mode,
             training_seed: job.training_seed,
+            seed_inputs_json: job.seed_inputs_json,
             require_gpu: job.require_gpu,
             max_gpu_memory_mb: job.max_gpu_memory_mb,
             // Extended metrics
@@ -635,7 +644,8 @@ impl From<TrainingJob> for TrainingJobResponse {
             artifact_path,
             artifact_hash_b3,
             aos_path,
-            package_hash_b3,
+            package_hash_b3: package_hash_b3.clone(),
+            manifest_hash_b3: job.manifest_hash_b3.or_else(|| package_hash_b3),
             manifest_rank: job.manifest_rank,
             manifest_base_model: job.manifest_base_model,
             manifest_per_layer_hashes: job.manifest_per_layer_hashes,
@@ -866,6 +876,13 @@ pub struct UploadDatasetResponse {
     pub total_size_bytes: i64,
     pub format: String,
     pub hash: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dataset_hash_b3: Option<String>,
+    pub status: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workspace_id: Option<String>,
+    #[serde(default)]
+    pub reused: bool,
     pub created_at: String,
 }
 
@@ -885,7 +902,12 @@ pub struct DatasetResponse {
     pub total_size_bytes: i64,
     pub format: String,
     pub hash: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dataset_hash_b3: Option<String>,
     pub storage_path: String,
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workspace_id: Option<String>,
     pub validation_status: DatasetValidationStatus,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub validation_errors: Option<Vec<String>>,

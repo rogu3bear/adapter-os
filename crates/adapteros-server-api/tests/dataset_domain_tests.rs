@@ -39,6 +39,9 @@ async fn create_dataset(state: &AppState) -> String {
             "hash",
             "var/raw",
             None,
+            None,
+            Some("ready"),
+            Some("hash"),
         )
         .await
         .expect("dataset created");

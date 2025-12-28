@@ -686,10 +686,15 @@ pub async fn execute_replay(
         );
     }
 
+    let mut run_envelope = new_run_envelope(&state, &claims, replay_id.clone(), false);
+    run_envelope.manifest_hash_b3 = Some(metadata.manifest_hash.clone());
+    set_policy_mask(&mut run_envelope, stored_policy_mask_digest.as_ref());
+
     let inference_request = InferenceRequestInternal {
         request_id: replay_id.clone(),
         cpid: claims.tenant_id.clone(),
         prompt: prompt.clone(),
+        run_envelope: Some(run_envelope),
         reasoning_mode: false,
         admin_override: false,
         stream: false,
@@ -725,6 +730,7 @@ pub async fn execute_replay(
         session_id: None,
         pinned_adapter_ids: None, // Not used in replay
         chat_context_hash: None,
+        claims: Some(claims.clone()),
         model: None,
         stop_policy, // Restored from original inference for deterministic replay
         created_at: std::time::Instant::now(),

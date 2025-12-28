@@ -998,11 +998,11 @@ mod tests {
         assert!(!manager.is_booting());
 
         // Boot sequence
-        manager.boot().await;
+        manager.start().await;
         assert_eq!(manager.current_state(), BootState::Booting);
         assert!(manager.is_booting());
 
-        manager.init_db().await;
+        manager.db_connecting().await;
         assert_eq!(manager.current_state(), BootState::InitializingDb);
 
         manager.load_policies().await;
@@ -1070,8 +1070,8 @@ mod tests {
         let manager = BootStateManager::new();
 
         // Boot to Ready state
-        manager.boot().await;
-        manager.init_db().await;
+        manager.start().await;
+        manager.db_connecting().await;
         manager.load_policies().await;
         manager.start_backend().await;
         manager.load_base_models().await;
@@ -1095,10 +1095,10 @@ mod tests {
         let manager = BootStateManager::new();
 
         // This mirrors the startup order used by adapteros-server today.
-        manager.boot().await;
+        manager.start().await;
         manager.start_backend().await;
         manager.load_base_models().await;
-        manager.init_db().await;
+        manager.db_connecting().await;
         manager.load_policies().await;
         manager.load_adapters().await;
         manager.ready().await;
@@ -1149,8 +1149,8 @@ mod tests {
     #[tokio::test]
     async fn test_maintenance_transition() {
         let manager = BootStateManager::new();
-        manager.boot().await;
-        manager.init_db().await;
+        manager.start().await;
+        manager.db_connecting().await;
         manager.load_policies().await;
         manager.start_backend().await;
         manager.load_base_models().await;
@@ -1177,8 +1177,8 @@ mod tests {
         assert_eq!(manager.current_state(), BootState::Stopped);
 
         // Progress to Ready, then attempt backward invalid transition
-        manager.boot().await;
-        manager.init_db().await;
+        manager.start().await;
+        manager.db_connecting().await;
         manager.load_policies().await;
         manager.start_backend().await;
         manager.load_base_models().await;
@@ -1197,8 +1197,8 @@ mod tests {
     async fn attach_db_preserves_state_and_transitions_ordered() {
         let manager = BootStateManager::new();
 
-        manager.boot().await;
-        manager.init_db().await;
+        manager.start().await;
+        manager.db_connecting().await;
 
         let elapsed_before = manager.elapsed();
 
@@ -1224,8 +1224,8 @@ mod tests {
         let manager = BootStateManager::new();
 
         // Boot to FullyReady state
-        manager.boot().await;
-        manager.init_db().await;
+        manager.start().await;
+        manager.db_connecting().await;
         manager.load_policies().await;
         manager.start_backend().await;
         manager.load_base_models().await;
@@ -1300,10 +1300,10 @@ mod tests {
         assert!(!manager.is_maintenance());
 
         // Boot to Ready and enter maintenance
-        manager.boot().await;
+        manager.start().await;
         manager.start_backend().await;
         manager.load_base_models().await;
-        manager.init_db().await;
+        manager.db_connecting().await;
         manager.load_policies().await;
         manager.load_adapters().await;
         manager.ready().await;
@@ -1339,8 +1339,8 @@ mod tests {
         let manager = BootStateManager::new();
 
         // Progress to Stopping state
-        manager.boot().await;
-        manager.init_db().await;
+        manager.start().await;
+        manager.db_connecting().await;
         manager.load_policies().await;
         manager.start_backend().await;
         manager.load_base_models().await;
@@ -1416,7 +1416,7 @@ mod tests {
         assert!(!manager.current_state().is_terminal());
 
         // Stopped should allow transition to Booting (reboot scenario)
-        manager.boot().await;
+        manager.start().await;
         assert_eq!(manager.current_state(), BootState::Booting);
     }
 
@@ -1463,8 +1463,8 @@ mod tests {
     async fn test_concurrent_state_transitions() {
         // Create a manager and progress to a state where we can test concurrent transitions
         let manager = Arc::new(BootStateManager::new());
-        manager.boot().await;
-        manager.init_db().await;
+        manager.start().await;
+        manager.db_connecting().await;
         manager.load_policies().await;
         manager.start_backend().await;
         manager.load_base_models().await;
@@ -1621,8 +1621,8 @@ mod tests {
         let manager = Arc::new(BootStateManager::new());
 
         // Transition to Ready state
-        manager.boot().await;
-        manager.init_db().await;
+        manager.start().await;
+        manager.db_connecting().await;
         manager.load_policies().await;
         manager.start_backend().await;
         manager.load_base_models().await;

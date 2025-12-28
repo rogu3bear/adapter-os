@@ -66,7 +66,7 @@ async fn fetch_manifest_by_hash_returns_yaml_and_hash() {
     let metrics_registry = Arc::new(MetricsRegistry::new());
     let uma_monitor = Arc::new(UmaPressureMonitor::new(15, None));
 
-    let mut state = AppState::new(
+    let state = AppState::new(
         db,
         b"test-jwt-secret-key-32-bytes-long".to_vec(),
         api_config,

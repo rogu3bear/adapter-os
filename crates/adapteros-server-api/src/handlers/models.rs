@@ -15,6 +15,7 @@ use adapteros_config::{
     resolve_base_model_location, resolve_worker_socket_for_cp, DEFAULT_MODEL_CACHE_ROOT,
 };
 use adapteros_db::users::Role;
+use adapteros_lora_worker::memory::UmaStats;
 use std::path::{Path as StdPath, PathBuf};
 use std::time::Duration;
 use tracing::{error, warn};
@@ -78,6 +79,10 @@ pub struct ModelStatusResponse {
     pub error_message: Option<String>,
     pub memory_usage_mb: Option<i32>,
     pub is_loaded: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ane_memory: Option<AneMemoryStatus>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub uma_pressure_level: Option<String>,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -106,6 +111,57 @@ pub struct ModelRuntimeHealthResponse {
     pub health_status: String,
     pub memory_usage_mb: Option<i32>,
     pub last_accessed: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct AneMemoryStatus {
+    pub allocated_mb: u64,
+    pub used_mb: u64,
+    pub available_mb: u64,
+    pub usage_pct: f32,
+}
+
+async fn build_model_status_response(
+    state: &AppState,
+    model_id: String,
+    model_name: String,
+    model_path: Option<String>,
+    status: ModelLoadStatus,
+    loaded_at: Option<String>,
+    error_message: Option<String>,
+    memory_usage_mb: Option<i32>,
+    is_loaded: bool,
+) -> ModelStatusResponse {
+    let stats = state.uma_monitor.get_uma_stats().await;
+    let ane_memory = ane_usage_from_stats(&stats);
+    let uma_pressure_level = Some(state.uma_monitor.get_current_pressure().to_string());
+
+    ModelStatusResponse {
+        model_id,
+        model_name,
+        model_path,
+        status,
+        loaded_at,
+        error_message,
+        memory_usage_mb,
+        is_loaded,
+        ane_memory,
+        uma_pressure_level,
+    }
+}
+
+fn ane_usage_from_stats(stats: &UmaStats) -> Option<AneMemoryStatus> {
+    let allocated_mb = stats.ane_allocated_mb?;
+    let used_mb = stats.ane_used_mb?;
+    let available_mb = stats.ane_available_mb?;
+    let usage_pct = stats.ane_usage_percent?;
+
+    Some(AneMemoryStatus {
+        allocated_mb,
+        used_mb,
+        available_mb,
+        usage_pct,
+    })
 }
 
 /// Load a base model into memory
@@ -222,22 +278,43 @@ pub async fn load_model(
         state_before,
         ModelLoadStatus::Ready | ModelLoadStatus::Loading
     ) {
+        if state_before.is_ready() {
+            if let Err(e) = state
+                .db
+                .set_active_base_model_if_empty(
+                    tenant_id,
+                    &model_id,
+                    state.manifest_hash.as_deref(),
+                )
+                .await
+            {
+                error!(
+                    error = %e,
+                    model_id = %model_id,
+                    tenant_id = %tenant_id,
+                    "Failed to set active base model during fast-path load"
+                );
+            }
+        }
         let latest = aggregated.latest;
         state.metrics_exporter.set_model_loaded_gauge(
             &model_id,
             tenant_id,
             state_before.is_ready(),
         );
-        return Ok(Json(ModelStatusResponse {
+        let response = build_model_status_response(
+            &state,
             model_id,
-            model_name: model.name,
-            model_path: model.model_path,
-            status: state_before,
-            loaded_at: latest.and_then(|s| s.loaded_at.clone()),
-            error_message: latest.and_then(|s| s.error_message.clone()),
-            memory_usage_mb: latest.and_then(|s| s.memory_usage_mb),
-            is_loaded: state_before.is_ready(),
-        }));
+            model.name,
+            model.model_path,
+            state_before,
+            latest.and_then(|s| s.loaded_at.clone()),
+            latest.and_then(|s| s.error_message.clone()),
+            latest.and_then(|s| s.memory_usage_mb),
+            state_before.is_ready(),
+        )
+        .await;
+        return Ok(Json(response));
     }
 
     // Update status to "loading" first (idempotent ensure)
@@ -443,16 +520,19 @@ pub async fn load_model(
         state
             .metrics_exporter
             .record_model_load(&model_id, tenant_id, false);
-        return Ok(Json(ModelStatusResponse {
+        let response = build_model_status_response(
+            &state,
             model_id,
-            model_name: model.name,
-            model_path: model.model_path,
-            status: ModelLoadStatus::Error,
-            loaded_at: None,
-            error_message: Some(e.to_string()),
-            memory_usage_mb: Some(estimated_memory_mb),
-            is_loaded: false,
-        }));
+            model.name,
+            model.model_path,
+            ModelLoadStatus::Error,
+            None,
+            Some(e.to_string()),
+            Some(estimated_memory_mb),
+            false,
+        )
+        .await;
+        return Ok(Json(response));
     }
 
     // If worker returned an error, report it
@@ -473,16 +553,19 @@ pub async fn load_model(
         state
             .metrics_exporter
             .record_model_load(&model_id, tenant_id, false);
-        return Ok(Json(ModelStatusResponse {
+        let response = build_model_status_response(
+            &state,
             model_id,
-            model_name: model.name,
-            model_path: model.model_path,
-            status: ModelLoadStatus::Error,
-            loaded_at: None,
-            error_message: Some(error_msg),
-            memory_usage_mb: Some(estimated_memory_mb),
-            is_loaded: false,
-        }));
+            model.name,
+            model.model_path,
+            ModelLoadStatus::Error,
+            None,
+            Some(error_msg),
+            Some(estimated_memory_mb),
+            false,
+        )
+        .await;
+        return Ok(Json(response));
     }
 
     // Log successful operation
@@ -514,16 +597,33 @@ pub async fn load_model(
         .metrics_exporter
         .record_model_load(&model_id, tenant_id, true);
 
-    Ok(Json(ModelStatusResponse {
+    if let Err(e) = state
+        .db
+        .set_active_base_model_if_empty(tenant_id, &model_id, state.manifest_hash.as_deref())
+        .await
+    {
+        error!(
+            error = %e,
+            model_id = %model_id,
+            tenant_id = %tenant_id,
+            "Failed to set active base model after load"
+        );
+    }
+
+    let response = build_model_status_response(
+        &state,
         model_id,
-        model_name: model.name,
-        model_path: model.model_path,
-        status: ModelLoadStatus::Ready,
-        loaded_at: Some(chrono::Utc::now().to_rfc3339()),
-        error_message: None,
-        memory_usage_mb: Some(estimated_memory_mb),
-        is_loaded: true,
-    }))
+        model.name,
+        model.model_path,
+        ModelLoadStatus::Ready,
+        Some(chrono::Utc::now().to_rfc3339()),
+        None,
+        Some(estimated_memory_mb),
+        true,
+    )
+    .await;
+
+    Ok(Json(response))
 }
 
 /// Unload a base model from memory
@@ -634,6 +734,19 @@ pub async fn unload_model(
         "model_unload_request"
     );
 
+    if let Err(e) = state
+        .db
+        .clear_active_base_model_if_matches(tenant_id, &model_id)
+        .await
+    {
+        error!(
+            error = %e,
+            model_id = %model_id,
+            tenant_id = %tenant_id,
+            "Failed to clear active base model during unload"
+        );
+    }
+
     // Idempotent no-op for non-ready states
     if !matches!(state_before, ModelLoadStatus::Ready) {
         let latest = aggregated.latest;
@@ -642,16 +755,19 @@ pub async fn unload_model(
             tenant_id,
             state_before.is_ready(),
         );
-        return Ok(Json(ModelStatusResponse {
+        let response = build_model_status_response(
+            &state,
             model_id,
-            model_name: model.name,
-            model_path: model.model_path,
-            status: state_before,
-            loaded_at: latest.and_then(|s| s.loaded_at.clone()),
-            error_message: latest.and_then(|s| s.error_message.clone()),
-            memory_usage_mb: latest.and_then(|s| s.memory_usage_mb),
-            is_loaded: state_before.is_ready(),
-        }));
+            model.name,
+            model.model_path,
+            state_before,
+            latest.and_then(|s| s.loaded_at.clone()),
+            latest.and_then(|s| s.error_message.clone()),
+            latest.and_then(|s| s.memory_usage_mb),
+            state_before.is_ready(),
+        )
+        .await;
+        return Ok(Json(response));
     }
 
     // Log operation
@@ -710,16 +826,19 @@ pub async fn unload_model(
         state
             .metrics_exporter
             .record_model_unload(&model_id, tenant_id, false);
-        return Ok(Json(ModelStatusResponse {
+        let response = build_model_status_response(
+            &state,
             model_id,
-            model_name: model.name,
-            model_path: model.model_path,
-            status: ModelLoadStatus::Error,
-            loaded_at: None,
-            error_message: Some(e.to_string()),
-            memory_usage_mb: None,
-            is_loaded: false,
-        }));
+            model.name,
+            model.model_path,
+            ModelLoadStatus::Error,
+            None,
+            Some(e.to_string()),
+            None,
+            false,
+        )
+        .await;
+        return Ok(Json(response));
     }
 
     if let Err(e) = state
@@ -752,16 +871,19 @@ pub async fn unload_model(
         state
             .metrics_exporter
             .record_model_unload(&model_id, tenant_id, false);
-        return Ok(Json(ModelStatusResponse {
+        let response = build_model_status_response(
+            &state,
             model_id,
-            model_name: model.name,
-            model_path: model.model_path,
-            status: ModelLoadStatus::Error,
-            loaded_at: None,
-            error_message: Some(e.to_string()),
-            memory_usage_mb: None,
-            is_loaded: false,
-        }));
+            model.name,
+            model.model_path,
+            ModelLoadStatus::Error,
+            None,
+            Some(e.to_string()),
+            None,
+            false,
+        )
+        .await;
+        return Ok(Json(response));
     }
 
     // Log successful operation
@@ -792,16 +914,20 @@ pub async fn unload_model(
         .metrics_exporter
         .record_model_unload(&model_id, tenant_id, true);
 
-    Ok(Json(ModelStatusResponse {
+    let response = build_model_status_response(
+        &state,
         model_id,
-        model_name: model.name,
-        model_path: model.model_path,
-        status: ModelLoadStatus::NoModel,
-        loaded_at: None,
-        error_message: None,
-        memory_usage_mb: None,
-        is_loaded: false,
-    }))
+        model.name,
+        model.model_path,
+        ModelLoadStatus::NoModel,
+        None,
+        None,
+        None,
+        false,
+    )
+    .await;
+
+    Ok(Json(response))
 }
 
 /// Get model status
@@ -901,16 +1027,20 @@ pub async fn get_model_status(
     let aggregated = aggregate_status(status.iter().copied());
     let latest = aggregated.latest;
 
-    Ok(Json(ModelStatusResponse {
+    let response = build_model_status_response(
+        &state,
         model_id,
-        model_name: model.name,
-        model_path: model.model_path,
-        status: aggregated.status,
-        loaded_at: latest.and_then(|s| s.loaded_at.clone()),
-        error_message: latest.and_then(|s| s.error_message.clone()),
-        memory_usage_mb: latest.and_then(|s| s.memory_usage_mb),
-        is_loaded: aggregated.status.is_ready(),
-    }))
+        model.name,
+        model.model_path,
+        aggregated.status,
+        latest.and_then(|s| s.loaded_at.clone()),
+        latest.and_then(|s| s.error_message.clone()),
+        latest.and_then(|s| s.memory_usage_mb),
+        aggregated.status.is_ready(),
+    )
+    .await;
+
+    Ok(Json(response))
 }
 
 /// Validate a model

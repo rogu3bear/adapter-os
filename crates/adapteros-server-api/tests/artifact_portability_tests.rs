@@ -378,7 +378,7 @@ async fn test_adapter_registration_with_artifact_fields() {
     // Retrieve by external adapter_id (not internal UUID)
     let adapter = state
         .db
-        .get_adapter(adapter_id)
+        .get_adapter_for_tenant("tenant-1", adapter_id)
         .await
         .expect("get")
         .expect("exists");
@@ -419,7 +419,7 @@ async fn test_adapter_registration_without_artifact_fields() {
     // Retrieve by external adapter_id (not internal UUID)
     let adapter = state
         .db
-        .get_adapter(adapter_id)
+        .get_adapter_for_tenant("tenant-1", adapter_id)
         .await
         .expect("get")
         .expect("exists");

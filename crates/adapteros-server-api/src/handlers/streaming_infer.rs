@@ -34,7 +34,7 @@ use axum::{
     response::sse::{Event, KeepAlive, Sse},
     Json,
 };
-use futures_util::stream::{self, Stream};
+use futures_util::stream::{self, Stream, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::convert::Infallible;
 use std::sync::Arc;
@@ -123,6 +123,7 @@ impl From<(&StreamingInferRequest, &Claims)> for InferenceRequestInternal {
             request_id: uuid::Uuid::new_v4().to_string(),
             cpid: claims.tenant_id.clone(),
             prompt: req.prompt.clone(),
+            run_envelope: None,
             reasoning_mode: req.reasoning_mode,
             admin_override: is_admin,
             stream: true, // Always streaming for this endpoint
@@ -154,6 +155,7 @@ impl From<(&StreamingInferRequest, &Claims)> for InferenceRequestInternal {
             session_id: req.session_id.clone(),
             pinned_adapter_ids: None, // Looked up from session in route_and_infer if session_id is set
             chat_context_hash: None,  // Set later after build_chat_prompt
+            claims: Some(claims.clone()),
             model: req.model.clone(),
             stop_policy: req.stop_policy.clone(),
             created_at: std::time::Instant::now(),
@@ -307,6 +309,12 @@ fn serialize_safe<T: Serialize>(value: &T, context: &str) -> String {
     }
 }
 
+fn run_envelope_event(envelope: &adapteros_api_types::RunEnvelope) -> Event {
+    Event::default()
+        .event("aos.run_envelope")
+        .data(serialize_safe(envelope, "run_envelope"))
+}
+
 /// Streaming inference handler with loading progress
 ///
 /// Accepts inference requests and returns a stream of Server-Sent Events (SSE)
@@ -385,6 +393,7 @@ pub async fn streaming_infer_with_progress(
 
     // Generate request ID for hook contexts
     let request_id = uuid::Uuid::new_v4().to_string();
+    let run_envelope = new_run_envelope(&state, &claims, request_id.clone(), req.reasoning_mode);
 
     // Enforce policies at OnRequestBeforeRouting hook (before adapter selection)
     let routing_hook_ctx = create_hook_context(
@@ -446,11 +455,15 @@ pub async fn streaming_infer_with_progress(
     let stream = stream_with_loading_progress(
         &state,
         req,
+        run_envelope.clone(),
         adapter_id,
         claims.tenant_id.clone(),
         claims.sub.clone(),
+        Some(claims),
     )
     .await;
+
+    let stream = stream::once(async move { Ok(run_envelope_event(&run_envelope)) }).chain(stream);
 
     Ok(Sse::new(stream).keep_alive(
         KeepAlive::new()
@@ -522,6 +535,7 @@ pub async fn streaming_infer(
 
     // Generate request ID
     let request_id = format!("chatcmpl-{}", uuid::Uuid::new_v4());
+    let run_envelope = new_run_envelope(&state, &claims, request_id.clone(), req.reasoning_mode);
     let model_name = req.model.clone().unwrap_or_else(|| "adapteros".to_string());
 
     // CRITICAL: Validate session belongs to user's tenant if provided
@@ -807,12 +821,14 @@ pub async fn streaming_infer(
                 max_tokens,
                 temperature,
                 request_id_clone,
+                run_envelope.clone(),
                 model_name_clone,
                 session_id,
                 adapters,
                 tenant_id,
                 user_id,
                 chat_context_hash,
+                Some(claims),
                 cancellation_token,
             ),
             Some(drop_guard), // Keep guard alive while stream is active
@@ -827,6 +843,8 @@ pub async fn streaming_infer(
             }
         },
     );
+
+    let stream = stream::once(async move { Ok(run_envelope_event(&run_envelope)) }).chain(stream);
 
     Ok(Sse::new(stream).keep_alive(
         KeepAlive::new()
@@ -844,22 +862,27 @@ pub async fn streaming_infer(
 pub async fn stream_with_loading_progress(
     state: &AppState,
     request: StreamingInferRequest,
+    run_envelope: adapteros_api_types::RunEnvelope,
     adapter_id: String,
     tenant_id: String,
     user_id: String,
+    claims: Option<crate::auth::Claims>,
 ) -> impl Stream<Item = Result<Event, Infallible>> {
     let state_clone = state.clone();
     let adapter_id_clone = adapter_id.clone();
     let tenant_id_clone = tenant_id.clone();
     let user_id_clone = user_id.clone();
+    let claims_clone = claims.clone();
 
     stream::unfold(
         LoadingStreamState::new(
             state_clone,
             request,
+            run_envelope,
             adapter_id_clone,
             tenant_id_clone,
             user_id_clone,
+            claims_clone,
         ),
         |mut loading_state| async move {
             match loading_state.next_loading_event().await {
@@ -877,6 +900,7 @@ pub async fn stream_with_loading_progress(
 struct LoadingStreamState {
     state: AppState,
     request: StreamingInferRequest,
+    run_envelope: adapteros_api_types::RunEnvelope,
     adapter_id: String,
     tenant_id: String,
     user_id: String,
@@ -889,6 +913,8 @@ struct LoadingStreamState {
     unavailable_pinned_adapters: Option<Vec<String>>,
     /// Routing fallback mode
     pinned_routing_fallback: Option<String>,
+    /// User claims for policy enforcement
+    claims: Option<crate::auth::Claims>,
     /// Stop reason code (PRD: Hard Deterministic Stop Controller)
     stop_reason_code: Option<adapteros_api_types::inference::StopReasonCode>,
     /// Token index at which the stop decision was made
@@ -910,17 +936,21 @@ impl LoadingStreamState {
     fn new(
         state: AppState,
         request: StreamingInferRequest,
+        run_envelope: adapteros_api_types::RunEnvelope,
         adapter_id: String,
         tenant_id: String,
         user_id: String,
+        claims: Option<crate::auth::Claims>,
     ) -> Self {
-        let request_id = uuid::Uuid::new_v4().to_string();
+        let request_id = run_envelope.run_id.clone();
         Self {
             state,
             request,
+            run_envelope,
             adapter_id,
             tenant_id,
             user_id,
+            claims,
             cancellation_token: CancellationToken::new(),
             phase: LoadingPhase::CheckingState,
             start_time: std::time::Instant::now(),
@@ -1038,28 +1068,32 @@ impl LoadingStreamState {
                         let user_id = self.user_id.clone();
                         let request_id = self.request_id.clone();
                         let adapter_id = self.adapter_id.clone();
+                        let claims_clone = self.claims.clone();
 
                         tokio::spawn(async move {
+                            // Use real claims if available, fallback to basic user claims
+                            let claims = claims_clone.unwrap_or_else(|| crate::auth::Claims {
+                                sub: user_id.clone(),
+                                email: String::new(),
+                                role: "user".to_string(),
+                                roles: Vec::new(),
+                                tenant_id: tenant_id.clone(),
+                                admin_tenants: Vec::new(),
+                                device_id: None,
+                                session_id: None,
+                                mfa_level: None,
+                                rot_id: None,
+                                exp: 0,
+                                iat: 0,
+                                jti: uuid::Uuid::new_v4().to_string(),
+                                nbf: 0,
+                                iss: JWT_ISSUER.to_string(),
+                                auth_mode: AuthMode::BearerToken,
+                                principal_type: Some(PrincipalType::User),
+                            });
+
                             let hook_ctx = create_hook_context(
-                                &crate::auth::Claims {
-                                    sub: user_id.clone(),
-                                    email: String::new(),
-                                    role: "system".to_string(),
-                                    roles: Vec::new(),
-                                    tenant_id: tenant_id.clone(),
-                                    admin_tenants: Vec::new(),
-                                    device_id: None,
-                                    session_id: None,
-                                    mfa_level: None,
-                                    rot_id: None,
-                                    exp: 0,
-                                    iat: 0,
-                                    jti: uuid::Uuid::new_v4().to_string(),
-                                    nbf: 0,
-                                    iss: JWT_ISSUER.to_string(),
-                                    auth_mode: AuthMode::BearerToken,
-                                    principal_type: Some(PrincipalType::InternalService),
-                                },
+                                &claims,
                                 &request_id,
                                 PolicyHook::OnAfterInference,
                                 "streaming_inference",
@@ -1258,8 +1292,8 @@ impl LoadingStreamState {
         // This ensures routing enforcement, RAG, evidence recording, and session activity
         // are all handled consistently.
 
-        // Build Claims from stored tenant/user info
-        let claims = Claims {
+        // Build Claims from stored tenant/user info, or use provided claims
+        let claims = self.claims.clone().unwrap_or_else(|| Claims {
             sub: self.user_id.clone(),
             email: String::new(),
             role: "user".to_string(),
@@ -1277,10 +1311,12 @@ impl LoadingStreamState {
             iss: JWT_ISSUER.to_string(),
             auth_mode: AuthMode::BearerToken,
             principal_type: Some(PrincipalType::User),
-        };
+        });
 
         // Convert StreamingInferRequest to InferenceRequestInternal
-        let internal_request: InferenceRequestInternal = (&self.request, &claims).into();
+        let mut internal_request: InferenceRequestInternal = (&self.request, &claims).into();
+        internal_request.request_id = self.request_id.clone();
+        internal_request.run_envelope = Some(self.run_envelope.clone());
 
         // Execute via InferenceCore - the single entry point for all inference
         let core = InferenceCore::new(&self.state);
@@ -1339,6 +1375,7 @@ struct StreamState {
     /// Temperature (reserved for future token-by-token streaming)
     temperature: f32,
     request_id: String,
+    run_envelope: adapteros_api_types::RunEnvelope,
     model_name: String,
     // State machine
     phase: StreamPhase,
@@ -1361,6 +1398,8 @@ struct StreamState {
     after_hook_fired: bool,
     // BLAKE3 hash of chat context for replay metadata
     chat_context_hash: Option<String>,
+    // User claims for policy enforcement
+    claims: Option<crate::auth::Claims>,
     // Stop controller metadata (PRD: Hard Deterministic Stop Controller)
     stop_reason_code: Option<adapteros_api_types::inference::StopReasonCode>,
     stop_reason_token_index: Option<u32>,
@@ -1408,21 +1447,33 @@ impl StreamState {
         max_tokens: usize,
         temperature: f32,
         request_id: String,
+        run_envelope: adapteros_api_types::RunEnvelope,
         model_name: String,
         session_id: Option<String>,
         adapters: Option<Vec<String>>,
         tenant_id: String,
         user_id: String,
         chat_context_hash: Option<String>,
+        claims: Option<crate::auth::Claims>,
         cancellation_token: CancellationToken,
     ) -> Self {
+        let canonical_request_id = run_envelope.run_id.clone();
+        if request_id != canonical_request_id {
+            warn!(
+                request_id = %request_id,
+                run_id = %canonical_request_id,
+                "Streaming request_id mismatch; using run_envelope.run_id"
+            );
+        }
+
         Self {
             state,
             uds_path,
             prompt,
             max_tokens,
             temperature,
-            request_id,
+            request_id: canonical_request_id,
+            run_envelope,
             model_name,
             phase: StreamPhase::Start,
             tenant_id,
@@ -1437,6 +1488,7 @@ impl StreamState {
             session_id,
             adapters,
             chat_context_hash,
+            claims,
             stop_reason_code: None,
             stop_reason_token_index: None,
             stop_policy_digest_b3: None,
@@ -1554,6 +1606,7 @@ impl StreamState {
             request_id: self.request_id.clone(),
             cpid: self.tenant_id.clone(),
             prompt: self.prompt.clone(),
+            run_envelope: Some(self.run_envelope.clone()),
             reasoning_mode: false,
             admin_override: false,
             stream: true,
@@ -1585,6 +1638,7 @@ impl StreamState {
             session_id: self.session_id.clone(),
             pinned_adapter_ids: None, // Pinning not yet exposed in streaming API
             chat_context_hash: self.chat_context_hash.clone(),
+            claims: self.claims.clone(),
             adapter_strength_overrides: None,
             model: Some(self.model_name.clone()),
             stop_policy: None, // StreamState doesn't carry stop_policy yet
@@ -1790,6 +1844,9 @@ fn current_timestamp() -> u64 {
 mod tests {
     use super::*;
     use crate::handlers::rag_common::parse_rag_doc_id;
+    use axum::body::to_bytes;
+    use axum::response::IntoResponse;
+    use futures_util::stream;
 
     #[test]
     fn test_streaming_request_defaults() {
@@ -1873,6 +1930,66 @@ mod tests {
             serialized
         );
         assert!(serialized.contains("test_context"));
+    }
+
+    #[tokio::test]
+    async fn run_envelope_event_includes_payload_first() {
+        let envelope = adapteros_api_types::RunEnvelope {
+            run_id: "stream-run".to_string(),
+            schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
+            workspace_id: "tenant-x".to_string(),
+            actor: adapteros_api_types::RunActor {
+                subject: "tester".to_string(),
+                roles: vec!["role".to_string()],
+                principal_type: Some("user".to_string()),
+                auth_mode: Some("bearer".to_string()),
+            },
+            manifest_hash_b3: Some("b3hash".to_string()),
+            plan_id: None,
+            policy_mask_digest_b3: None,
+            router_seed: None,
+            tick: Some(42),
+            worker_id: None,
+            reasoning_mode: false,
+            determinism_version: "v1".to_string(),
+            boot_trace_id: None,
+            created_at: chrono::Utc::now(),
+        };
+
+        let envelope_event = run_envelope_event(&envelope);
+        let follow_on = Event::default().event("other").data("payload");
+        let sse = Sse::new(stream::iter(vec![
+            Ok::<_, Infallible>(envelope_event),
+            Ok::<_, Infallible>(follow_on),
+        ]));
+        let response = sse.into_response();
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body_str = String::from_utf8(body.to_vec()).unwrap();
+
+        assert!(
+            body_str.starts_with("event: aos.run_envelope"),
+            "expected run envelope event to lead the stream, got: {body_str}"
+        );
+        assert!(
+            body_str.contains("\"run_id\":\"stream-run\""),
+            "expected serialized envelope in payload"
+        );
+        let expected_schema =
+            format!("\"schema_version\":\"{}\"", adapteros_api_types::API_SCHEMA_VERSION);
+        assert!(
+            body_str.contains(&expected_schema),
+            "expected schema_version in payload"
+        );
+        let first_idx = body_str
+            .find("event: aos.run_envelope")
+            .expect("envelope event present");
+        let other_idx = body_str
+            .find("event: other")
+            .expect("follow-on event present");
+        assert!(
+            first_idx < other_idx,
+            "envelope event must precede streaming payload"
+        );
     }
 
     #[test]
@@ -2078,6 +2195,7 @@ mod tests {
             routing_determinism_mode: None,
             session_id: Some("test-session".to_string()),
             effective_adapter_ids: None,
+            reasoning_mode: false,
             stop_policy: None,
         };
 
@@ -2155,6 +2273,7 @@ mod tests {
             routing_determinism_mode: None,
             session_id: None,
             effective_adapter_ids: None,
+            reasoning_mode: false,
             stop_policy: None,
         };
 

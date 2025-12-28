@@ -11,7 +11,6 @@
 use adapteros_core::{AosError, Result};
 use adapteros_db::models::ModelRegistrationBuilder;
 use adapteros_db::sqlx;
-use adapteros_db::users::Role;
 use adapteros_db::Db;
 use adapteros_server_api::auth::{AuthMode, Claims, PrincipalType};
 use adapteros_server_api::handlers::models::{

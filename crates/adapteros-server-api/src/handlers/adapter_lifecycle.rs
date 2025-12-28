@@ -3,20 +3,14 @@
 //! Handlers for loading, unloading, and promoting adapters.
 
 use crate::auth::Claims;
-use crate::middleware::{require_any_role, require_role};
-use crate::permissions::{require_permission, Permission};
-use crate::security::validate_tenant_isolation;
+use crate::middleware::require_any_role;
 use crate::state::AppState;
 use crate::types::*;
-use adapteros_core::{AosError, B3Hash};
 use adapteros_db::users::Role;
-use adapteros_types::training::LoraTier;
-use axum::extract::{Path, Query, State};
+use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::{Extension, Json};
-use serde_json::json;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 // Import helper functions from other modules
 use super::adapter_utils::{

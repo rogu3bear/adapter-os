@@ -24,7 +24,7 @@ use adapteros_server_api::middleware::policy_enforcement::{create_hook_context, 
 #[tokio::test]
 async fn test_hook_enforcement_logs_decisions() -> Result<()> {
     let state = common::setup_state(None).await.unwrap();
-    let claims = common::test_admin_claims();
+    let _claims = common::test_admin_claims();
 
     // Create tenant and initialize policy bindings
     adapteros_db::sqlx::query(

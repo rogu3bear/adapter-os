@@ -25,12 +25,17 @@ impl DatasetPaths {
         }
     }
 
-    pub fn dataset_dir(&self, dataset_id: &str) -> PathBuf {
-        self.files.join(dataset_id)
+    pub fn dataset_dir(&self, workspace_id: &str, dataset_id: &str) -> PathBuf {
+        self.files.join(workspace_id).join(dataset_id)
     }
 
-    pub fn dataset_temp_dir(&self, dataset_id: &str) -> PathBuf {
-        self.temp.join(dataset_id)
+    pub fn dataset_temp_dir(&self, workspace_id: &str, dataset_id: &str) -> PathBuf {
+        self.temp.join(workspace_id).join(dataset_id)
+    }
+
+    /// Legacy helper for callers that do not yet provide workspace scoping.
+    pub fn dataset_dir_unscoped(&self, dataset_id: &str) -> PathBuf {
+        self.files.join(dataset_id)
     }
 }
 

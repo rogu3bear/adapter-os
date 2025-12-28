@@ -105,7 +105,7 @@ impl DatasetDomainService {
     fn resolve_version_dir(&self, dataset_id: &str, version_id: &str) -> Result<PathBuf> {
         Ok(self
             .dataset_paths()?
-            .dataset_dir(dataset_id)
+            .dataset_dir_unscoped(dataset_id)
             .join("versions")
             .join(version_id))
     }

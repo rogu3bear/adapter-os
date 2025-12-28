@@ -72,7 +72,7 @@ async fn create_general_session_and_messages_flow() {
         content: "hi back".to_string(),
         metadata_json: None,
     };
-    add_chat_message(
+    let _ = add_chat_message(
         State(state.clone()),
         Extension(claims.clone()),
         Path(created.session_id.clone()),
@@ -80,7 +80,7 @@ async fn create_general_session_and_messages_flow() {
     )
     .await
     .expect("user message created");
-    add_chat_message(
+    let _ = add_chat_message(
         State(state.clone()),
         Extension(claims.clone()),
         Path(created.session_id.clone()),

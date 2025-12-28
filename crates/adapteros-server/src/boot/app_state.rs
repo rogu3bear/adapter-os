@@ -11,6 +11,7 @@ use adapteros_metrics_exporter::MetricsExporter;
 use adapteros_orchestrator::{FederationDaemon, TrainingService};
 use adapteros_server_api::boot_state::BootStateManager;
 use adapteros_server_api::config::Config;
+use adapteros_server_api::handlers::workspaces::reconcile_active_models;
 use adapteros_server_api::runtime_mode::RuntimeMode;
 use adapteros_server_api::state::BackgroundTaskTracker;
 use adapteros_server_api::storage_reconciler::spawn_storage_reconciler;
@@ -255,6 +256,9 @@ pub async fn build_app_state(
 
     // Spawn storage reconciler in the background to detect missing/orphaned bytes.
     spawn_storage_reconciler(Arc::new(state.clone()));
+
+    // Reconcile active workspace state to surface model/worker mismatches on startup.
+    reconcile_active_models(&state).await;
 
     // Git subsystem initialization
     let git_enabled = server_config

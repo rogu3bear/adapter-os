@@ -35,9 +35,6 @@ impl StackMetadataExt for RouterDecisionEvent {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use adapteros_telemetry::events::InferenceEvent;
-
     #[tokio::test]
     async fn test_stack_metadata_ext_no_active_stack() {
         // This would require mock AppState setup

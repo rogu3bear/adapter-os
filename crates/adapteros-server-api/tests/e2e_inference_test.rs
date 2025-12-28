@@ -217,6 +217,10 @@ async fn test_e2e_inference_with_audit_trail() {
             },
             router_decisions: None,
             router_decision_chain: None,
+            moe_info: None,
+            expert_routing: None,
+            active_experts: None,
+            model_type: None,
         },
         backend_used: Some(backend_name.to_string()),
         backend_version: Some("mlx-0.1.0".to_string()),
@@ -249,7 +253,7 @@ async fn test_e2e_inference_with_audit_trail() {
 
         if let Ok((mut stream, _)) = listener.accept().await {
             let mut buf = vec![0u8; 8192];
-            let n = stream
+            let _n = stream
                 .read(&mut buf)
                 .await
                 .expect("Failed to read from UDS");

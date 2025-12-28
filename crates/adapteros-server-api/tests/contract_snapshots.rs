@@ -1,5 +1,3 @@
-use std::env;
-
 use adapteros_db::sqlx;
 use adapteros_server_api::{create_app, AppState};
 use axum::{
@@ -209,7 +207,7 @@ impl ContractHarness {
 #[tokio::test]
 async fn api_contract_snapshots() {
     let harness = ContractHarness::new().await;
-    let mut settings = snapshot_settings();
+    let settings = snapshot_settings();
 
     // Login success
     let (login_status, mut login_body) = harness

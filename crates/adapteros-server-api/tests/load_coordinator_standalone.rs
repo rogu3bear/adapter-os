@@ -4,7 +4,7 @@
 
 use adapteros_core::AosError;
 use adapteros_lora_lifecycle::loader::{AdapterHandle, AdapterMetadata};
-use adapteros_server_api::{LoadCoordinator, LoadCoordinatorMetrics};
+use adapteros_server_api::LoadCoordinator;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;

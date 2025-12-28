@@ -1111,6 +1111,7 @@ mod tests {
             prompt: "Hello worker".to_string(),
             max_tokens: 128,
             request_id: Some("req-123".to_string()),
+            run_envelope: None,
             require_evidence: true,
             admin_override: false,
             reasoning_mode: false,
@@ -1140,6 +1141,7 @@ mod tests {
             adapter_strength_overrides: Some(
                 [("adapter-a".to_string(), 0.8_f32)].into_iter().collect(),
             ),
+            policy_mask_digest: None,
             utf8_healing: true,
         };
 

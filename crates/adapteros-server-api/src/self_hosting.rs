@@ -1299,6 +1299,9 @@ mod tests {
                 "hash",
                 "var/test-data/path",
                 None, // created_by must be valid user ID or None (FK constraint)
+                None,
+                Some("ready"),
+                Some("hash"),
             )
             .await
             .unwrap();
@@ -1344,7 +1347,7 @@ mod tests {
 
     #[tokio::test]
     async fn promotion_rolls_back_on_invalid_transition() {
-        let mut agent = build_agent().await;
+        let agent = build_agent().await;
         let repo_id = agent
             .state
             .db

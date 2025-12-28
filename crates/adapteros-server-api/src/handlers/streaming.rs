@@ -8,12 +8,9 @@
 use crate::auth::Claims;
 use crate::state::AppState;
 use axum::{
-    extract::Extension,
-    extract::State,
+    extract::{Extension, State},
     http::StatusCode,
     response::sse::{Event, KeepAlive, Sse},
-    response::IntoResponse,
-    Json,
 };
 use futures_util::stream::{self, Stream};
 use serde::{Deserialize, Serialize};

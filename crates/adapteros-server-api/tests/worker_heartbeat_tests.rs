@@ -90,7 +90,7 @@ async fn test_heartbeat_updates_last_seen_at() {
         .expect("Failed to create test worker");
 
     // Get initial last_seen_at
-    let worker_before = db
+    let _worker_before = db
         .get_worker(worker_id)
         .await
         .expect("Failed to get worker")

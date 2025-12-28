@@ -9,12 +9,7 @@ use crate::types::*; // This already re-exports adapteros_api_types::*
 use crate::uds_client::{UdsClient, UdsClientError};
 use crate::validation::*;
 use adapteros_core::tenant_snapshot::TenantStateSnapshot;
-use adapteros_core::{AosError, B3Hash};
-use adapteros_db::{
-    AdapterVersionRuntimeState, CreateDraftVersionParams as CreateDraftAdapterVersionParams,
-};
-use adapteros_lora_lifecycle::GpuIntegrityReport;
-use adapteros_types::training::LoraTier;
+use adapteros_core::AosError;
 use sqlx::{Row, Sqlite, Transaction};
 // System metrics integration
 use adapteros_system_metrics;
@@ -28,11 +23,11 @@ use chrono::Utc;
 use serde_json::json;
 use serde_json::Value;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use utoipa::{IntoParams, ToSchema};
+use utoipa::ToSchema;
 use uuid::Uuid;
 
 pub mod activity;
+pub mod aliases;
 pub mod adapter_health;
 pub mod adapter_lifecycle;
 pub mod adapter_stacks;
@@ -93,15 +88,18 @@ pub mod replay_inference;
 pub mod repos;
 pub mod router_config;
 pub mod routing_decisions;
+pub mod run_evidence;
 pub mod runtime;
 pub mod services;
 pub mod settings;
 pub mod storage;
 pub mod streaming;
 pub mod streaming_infer;
+pub mod system;
 pub mod system_info;
 pub mod system_overview;
 pub mod system_state;
+pub mod system_status;
 pub mod telemetry;
 pub mod tenant_policies;
 pub mod tenants;
@@ -206,6 +204,7 @@ pub use training::*;
 // Re-export health and system info handlers
 pub use coreml_verification::*;
 pub use health::*;
+pub use system::*;
 pub use system_info::*;
 
 // Re-export system state handler
@@ -244,7 +243,7 @@ use axum::{
     Extension, Json,
 };
 use serde::{Deserialize, Serialize};
-use tracing::{error, info, info_span, warn};
+use tracing::{error, info_span, warn};
 
 /// Upsert a synthetic directory adapter and optionally activate it.
 ///
@@ -819,6 +818,23 @@ pub async fn get_uma_memory(
     .map(|rows| rows.into_iter().map(|(id,)| id).collect())
     .unwrap_or_default();
 
+    let ane_usage =
+        if let (Some(allocated_mb), Some(used_mb), Some(available_mb), Some(usage_pct)) = (
+            stats.ane_allocated_mb,
+            stats.ane_used_mb,
+            stats.ane_available_mb,
+            stats.ane_usage_percent,
+        ) {
+            Some(system_info::AneUsage {
+                allocated_mb,
+                used_mb,
+                available_mb,
+                usage_pct,
+            })
+        } else {
+            None
+        };
+
     Ok(Json(UmaMemoryResponse {
         total_mb: stats.total_mb,
         used_mb: stats.used_mb,
@@ -827,6 +843,7 @@ pub async fn get_uma_memory(
         pressure_level: pressure.to_string(),
         eviction_candidates: candidates,
         timestamp: chrono::Utc::now().to_rfc3339(),
+        ane: ane_usage,
     }))
 }
 
@@ -839,6 +856,8 @@ pub struct UmaMemoryResponse {
     pressure_level: String,
     eviction_candidates: Vec<String>,
     timestamp: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ane: Option<system_info::AneUsage>,
 }
 
 // In AppState, add uma_monitor: Arc<UmaPressureMonitor> = Arc::new(UmaPressureMonitor::new(15, Some(telemetry.clone())));

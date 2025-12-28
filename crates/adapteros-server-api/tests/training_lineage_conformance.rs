@@ -110,6 +110,9 @@ async fn seed_dataset_version(
             hash_b3,
             "var/test-dataset",
             Some("tester"),
+            None,
+            Some("ready"),
+            Some(hash_b3),
         )
         .await
         .unwrap();

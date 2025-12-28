@@ -10,7 +10,6 @@
 use adapteros_api_types::adapters::PromoteVersionRequest;
 use adapteros_api_types::training::ValidateDatasetRequest;
 use adapteros_core::{AosError, Result};
-use adapteros_crypto::Keypair;
 use adapteros_db::adapter_repositories::CreateRepositoryParams;
 use adapteros_db::adapters::AdapterRegistrationBuilder;
 use adapteros_db::sqlx;
@@ -27,7 +26,6 @@ use adapteros_server_api::permissions::{require_permission, Permission};
 use adapteros_server_api::state::AppState;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use axum::response::IntoResponse;
 use axum::{Extension, Json};
 use chrono::{Duration, Utc};
 mod common;
@@ -424,6 +422,9 @@ async fn test_dataset_validate_enforces_tenant_isolation() -> Result<()> {
             "hash-iso",
             "var/ds",
             None,
+            None,
+            Some("ready"),
+            Some("hash-iso"),
         )
         .await?;
     sqlx::query("UPDATE training_datasets SET tenant_id = ? WHERE id = ?")

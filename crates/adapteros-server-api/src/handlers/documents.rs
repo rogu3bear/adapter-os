@@ -19,10 +19,13 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use std::path::{Path as StdPath, PathBuf};
+#[cfg(feature = "embeddings")]
 use std::sync::Arc;
+#[cfg(feature = "embeddings")]
 use std::time::Duration;
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
+#[cfg(feature = "embeddings")]
 use tokio::time::sleep;
 use tracing::{debug, info, warn};
 use utoipa::ToSchema;
@@ -30,7 +33,9 @@ use uuid::Uuid;
 
 /// Maximum document size (100MB)
 const MAX_DOCUMENT_SIZE: usize = 100 * 1024 * 1024;
+#[cfg(feature = "embeddings")]
 const EMBEDDING_MAX_RETRIES: usize = 3;
+#[cfg(feature = "embeddings")]
 const EMBEDDING_BACKOFF_MS: u64 = 200;
 
 /// Document response

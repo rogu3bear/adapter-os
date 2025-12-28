@@ -25,6 +25,7 @@ mod adapter_tenant;
 // Transitions are logged with telemetry events including actor, reason, old/new states.
 
 use crate::auth::Claims;
+use crate::handlers::workspaces::build_active_state_response;
 use crate::middleware::require_any_role;
 use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
@@ -37,6 +38,7 @@ use adapter_hashing::hash_multi_bytes;
 use adapter_paths::resolve_adapter_roots;
 use adapter_progress::emit_adapter_progress;
 use adapter_repo::{map_repo_error, AdapterRepo, DefaultAdapterRepo, StoreBundleRequest};
+use adapteros_db::adapter_snapshots::CreateSnapshotParams;
 use adapteros_db::adapters::Adapter;
 use adapteros_db::users::Role;
 use adapteros_db::{AdapterRegistrationBuilder, AdapterTrainingSnapshot};
@@ -74,6 +76,223 @@ pub struct LifecycleTransitionResponse {
     pub reason: String,
     pub actor: String,
     pub timestamp: String,
+}
+
+// ============================================================================
+// Adapter Activation (workspace-scoped)
+// ============================================================================
+
+#[derive(Debug, Default, Deserialize, Serialize, ToSchema)]
+pub struct AdapterActivateRequest {
+    /// Workspace identifier; defaults to caller tenant
+    #[serde(default)]
+    pub workspace_id: Option<String>,
+}
+
+/// Activate an adapter for a workspace and update workspace active state.
+#[utoipa::path(
+    post,
+    path = "/v1/adapters/{adapter_id}/activate",
+    params(
+        ("adapter_id" = String, Path, description = "Adapter ID to activate")
+    ),
+    request_body = AdapterActivateRequest,
+    responses(
+        (status = 200, description = "Adapter activated", body = crate::handlers::workspaces::WorkspaceActiveStateResponse),
+        (status = 403, description = "Access denied"),
+        (status = 404, description = "Adapter not found")
+    ),
+    tag = "adapters"
+)]
+pub async fn activate_adapter(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(adapter_id): Path<String>,
+    Json(req): Json<AdapterActivateRequest>,
+) -> Result<
+    Json<crate::handlers::workspaces::WorkspaceActiveStateResponse>,
+    (StatusCode, Json<ErrorResponse>),
+> {
+    require_permission(&claims, Permission::AdapterLoad)?;
+
+    let workspace_id = req
+        .workspace_id
+        .clone()
+        .unwrap_or_else(|| claims.tenant_id.clone());
+
+    // Enforce workspace membership when caller scopes outside their tenant
+    if workspace_id != claims.tenant_id {
+        let access = state
+            .db
+            .check_workspace_access(&workspace_id, &claims.sub, &claims.tenant_id)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("failed to check workspace access")
+                            .with_code("INTERNAL_ERROR")
+                            .with_string_details(e.to_string()),
+                    ),
+                )
+            })?;
+        if access.is_none() {
+            return Err((
+                StatusCode::FORBIDDEN,
+                Json(
+                    ErrorResponse::new("workspace access denied")
+                        .with_code("TENANT_ISOLATION_ERROR"),
+                ),
+            ));
+        }
+    }
+
+    let adapter = state
+        .db
+        .get_adapter_for_tenant(&workspace_id, &adapter_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to load adapter")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse::new("adapter not found").with_code("NOT_FOUND")),
+            )
+        })?;
+
+    // Ensure a training snapshot exists to satisfy lifecycle policy
+    let snapshot_exists = state
+        .db
+        .get_adapter_training_snapshot(&adapter_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to load training snapshot")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?
+        .is_some();
+
+    if !snapshot_exists {
+    if let Ok(Some(job)) = state
+        .db
+        .get_training_job_by_adapter(&adapter_id, &workspace_id)
+            .await
+        {
+            let metadata: Option<serde_json::Value> = job
+                .metadata_json
+                .as_ref()
+                .and_then(|raw| serde_json::from_str(raw).ok());
+            let manifest_hash = metadata
+                .as_ref()
+                .and_then(|m| m.get("manifest_hash_b3"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            let dataset_hash = metadata
+                .as_ref()
+                .and_then(|m| m.get("dataset_hash_b3"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            let chunk_hash = manifest_hash
+                .or(dataset_hash)
+                .or_else(|| adapter.content_hash_b3.clone())
+                .unwrap_or_else(|| adapter.hash_b3.clone());
+
+            let documents_json = serde_json::json!([{
+                "dataset_id": job.dataset_id,
+                "dataset_version_ids": job
+                    .data_spec_json
+                    .as_ref()
+                    .and_then(|raw| serde_json::from_str::<serde_json::Value>(raw).ok())
+            }])
+            .to_string();
+            let chunk_cfg = job
+                .data_spec_json
+                .clone()
+                .unwrap_or_else(|| "{}".to_string());
+            let _ = state
+                .db
+                .create_training_snapshot(CreateSnapshotParams {
+                    adapter_id: adapter_id.clone(),
+                    training_job_id: job.id.clone(),
+                    collection_id: job.collection_id.clone(),
+                    documents_json,
+                    chunk_manifest_hash: chunk_hash,
+                    chunking_config_json: chunk_cfg,
+                })
+                .await;
+        }
+    }
+
+    // Best-effort lifecycle promotion to active
+    if let Err(e) = state
+        .db
+        .transition_adapter_lifecycle(&adapter_id, "active", "workspace_activate", &claims.sub)
+        .await
+    {
+        warn!(
+            adapter_id = %adapter_id,
+            error = %e,
+            "Failed to promote adapter to active; continuing to update active state"
+        );
+    }
+
+    // Derive manifest hash from training metadata or adapter content hash
+    let manifest_hash = if let Ok(Some(job)) = state
+        .db
+        .get_training_job_by_adapter(&adapter_id, &workspace_id)
+        .await
+    {
+        job.metadata_json
+            .as_ref()
+            .and_then(|raw| serde_json::from_str::<serde_json::Value>(raw).ok())
+            .and_then(|v| {
+                v.get("manifest_hash_b3")
+                    .and_then(|s| s.as_str().map(|s| s.to_string()))
+            })
+    } else {
+        None
+    }
+    .or(adapter.content_hash_b3.clone())
+    .or(adapter.aos_file_hash.clone());
+
+    let state_record = state
+        .db
+        .upsert_workspace_active_state(
+            &workspace_id,
+            adapter.base_model_id.as_deref(),
+            None,
+            Some(&vec![adapter_id.clone()]),
+            manifest_hash.as_deref(),
+        )
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to update workspace active state")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    let response =
+        build_active_state_response(&state, workspace_id.clone(), Some(state_record)).await?;
+
+    Ok(Json(response))
 }
 
 /// Manually promote adapter to next lifecycle tier

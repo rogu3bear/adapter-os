@@ -14,17 +14,14 @@
 
 use adapteros_api_types::workers::{WorkerRegistrationRequest, WorkerStatusNotification};
 use adapteros_api_types::API_SCHEMA_VERSION;
-use adapteros_core::{AosError, Result, WorkerStatus};
 use adapteros_db::sqlx;
-use adapteros_db::users::Role;
-use adapteros_db::workers::{WorkerIncidentType, WorkerInsertBuilder, WorkerRegistrationParams};
+use adapteros_db::workers::{WorkerIncidentType, WorkerRegistrationParams};
 use adapteros_db::Db;
 use adapteros_server_api::auth::{AuthMode, Claims, PrincipalType};
 use adapteros_server_api::handlers::workers::{
     get_worker_history, list_workers, notify_worker_status, register_worker, stop_worker,
     HistoryQuery, ListWorkersQuery,
 };
-use adapteros_server_api::state::AppState;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::{Extension, Json};

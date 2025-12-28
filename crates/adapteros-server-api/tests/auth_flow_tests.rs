@@ -7,7 +7,7 @@ use adapteros_api_types::auth::{LoginRequest, UserInfoResponse};
 use adapteros_db::users::Role;
 use adapteros_server_api::auth::{
     hash_password, validate_refresh_token_ed25519, validate_refresh_token_hmac, validate_token,
-    validate_token_ed25519, AuthMode, Claims, RefreshClaims,
+    validate_token_ed25519, Claims, RefreshClaims,
 };
 use adapteros_server_api::handlers::auth::auth_me;
 use adapteros_server_api::handlers::auth_enhanced::{login_handler, refresh_token_handler};
@@ -273,6 +273,7 @@ async fn csrf_protects_unsafe_requests() {
     assert_eq!(ok_resp.status(), StatusCode::OK);
 }
 
+#[allow(dead_code)]
 async fn audit_count_by_action(db: &adapteros_db::Db, action: &str) -> i64 {
     let stats = db
         .get_audit_stats_by_action(None, None)

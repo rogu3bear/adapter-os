@@ -199,6 +199,17 @@ pub async fn check_service_health(state: &AppState) -> Vec<ServiceStatus> {
     let telemetry_status = telemetry_result.unwrap_or_else(|_| timeout_status());
     let mlx_status = mlx_result.unwrap_or_else(|_| timeout_status());
     let router_status = router_result.unwrap_or_else(|_| timeout_status());
+    let federation_status = if state.federation_daemon.is_some() {
+        (
+            ServiceHealthStatus::Healthy,
+            Some("Federation daemon configured".to_string()),
+        )
+    } else {
+        (
+            ServiceHealthStatus::Unknown,
+            Some("Federation daemon not configured (standalone mode)".to_string()),
+        )
+    };
 
     vec![
         ServiceStatus {
@@ -235,6 +246,12 @@ pub async fn check_service_health(state: &AppState) -> Vec<ServiceStatus> {
             name: "router".to_string(),
             status: router_status.0,
             message: router_status.1,
+            last_check: timestamp,
+        },
+        ServiceStatus {
+            name: "federation_daemon".to_string(),
+            status: federation_status.0,
+            message: federation_status.1,
             last_check: timestamp,
         },
     ]

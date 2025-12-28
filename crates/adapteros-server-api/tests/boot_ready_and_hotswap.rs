@@ -39,8 +39,8 @@ async fn readyz_does_not_report_stopped_during_startup() {
 #[tokio::test]
 async fn boot_state_does_not_reset_when_db_is_attached_mid_boot() {
     let boot_state = BootStateManager::new();
-    boot_state.boot().await;
-    boot_state.init_db().await;
+    boot_state.start().await;
+    boot_state.db_connecting().await;
 
     let elapsed_before = boot_state.elapsed();
     let db = Arc::new(adapteros_db::Db::new_in_memory().await.unwrap());
@@ -77,7 +77,7 @@ async fn boot_state_does_not_reset_when_db_is_attached_mid_boot() {
 
 #[tokio::test]
 async fn unload_adapter_rejects_when_in_flight_requests_exist() {
-    let mut state = setup_state(None).await.unwrap();
+    let state = setup_state(None).await.unwrap();
     create_test_adapter_default(&state, "adapter-1", "tenant-1")
         .await
         .unwrap();
@@ -99,7 +99,7 @@ async fn unload_adapter_rejects_when_in_flight_requests_exist() {
 
 #[tokio::test]
 async fn deactivate_stack_rejects_when_in_flight_requests_exist() {
-    let mut state = setup_state(None).await.unwrap();
+    let state = setup_state(None).await.unwrap();
 
     // Seed an active stack for the tenant
     {

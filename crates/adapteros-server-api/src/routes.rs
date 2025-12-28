@@ -34,6 +34,7 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::health,
         handlers::ready,
         handlers::get_status,
+        handlers::system_status::get_system_status,
         handlers::admin_lifecycle::request_shutdown,
         handlers::admin_lifecycle::request_maintenance,
         handlers::admin_lifecycle::safe_restart,
@@ -279,6 +280,8 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::workspaces::list_workspace_resources,
         handlers::workspaces::share_workspace_resource,
         handlers::workspaces::unshare_workspace_resource,
+        handlers::workspaces::get_workspace_active_state,
+        handlers::workspaces::set_workspace_active_state,
         // Notification handlers
         handlers::notifications::list_notifications,
         handlers::notifications::get_notification_summary,
@@ -552,6 +555,8 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::workspaces::AddWorkspaceMemberRequest,
         handlers::workspaces::UpdateWorkspaceMemberRequest,
         handlers::workspaces::ShareResourceRequest,
+        handlers::workspaces::WorkspaceActiveStateRequest,
+        handlers::workspaces::WorkspaceActiveStateResponse,
         // Notification types
         handlers::notifications::NotificationResponse,
         handlers::notifications::NotificationSummary,
@@ -1152,6 +1157,14 @@ pub fn build(state: AppState) -> Router {
             "/v1/replay/history/{inference_id}",
             get(handlers::replay_inference::get_replay_history),
         )
+        .route(
+            "/v1/runs/{run_id}/evidence",
+            get(handlers::run_evidence::download_run_evidence),
+        )
+        .route(
+            "/v1/evidence/runs/{run_id}/export",
+            get(handlers::aliases::run_evidence::download_run_evidence_alias),
+        )
         .route("/v1/patch/propose", post(handlers::code::propose_patch))
         // OpenAI-compatible shim (used by OpenCode and other OpenAI clients)
         .route(
@@ -1380,6 +1393,10 @@ pub fn build(state: AppState) -> Router {
             post(handlers::adapters_lifecycle::unload_adapter),
         )
         .route(
+            "/v1/adapters/{adapter_id}/activate",
+            post(handlers::adapters::activate_adapter),
+        )
+        .route(
             "/v1/adapters/verify-gpu",
             get(handlers::adapters::verify_gpu_integrity),
         )
@@ -1588,6 +1605,10 @@ pub fn build(state: AppState) -> Router {
             post(handlers::datasets::upload_dataset),
         )
         .route(
+            "/v1/datasets",
+            get(handlers::datasets::list_datasets).post(handlers::datasets::upload_dataset),
+        )
+        .route(
             "/v1/datasets/chunked-upload/initiate",
             post(handlers::datasets::initiate_chunked_upload),
         )
@@ -1611,7 +1632,6 @@ pub fn build(state: AppState) -> Router {
             "/v1/datasets/chunked-upload/{session_id}",
             delete(handlers::datasets::cancel_chunked_upload),
         )
-        .route("/v1/datasets", get(handlers::datasets::list_datasets))
         .route(
             "/v1/datasets/{dataset_id}",
             get(handlers::datasets::get_dataset),
@@ -1773,6 +1793,14 @@ pub fn build(state: AppState) -> Router {
         .route("/v1/repositories", get(handlers::list_adapter_repositories))
         // System overview routes
         .route(
+            "/v1/system/integrity",
+            get(handlers::system::get_system_integrity),
+        )
+        .route(
+            "/v1/system/status",
+            get(handlers::system_status::get_system_status),
+        )
+        .route(
             "/v1/system/overview",
             get(handlers::system_overview::get_system_overview),
         )
@@ -1911,7 +1939,10 @@ pub fn build(state: AppState) -> Router {
             get(handlers::telemetry::get_metrics_series),
         )
         // Training routes
-        .route("/v1/training/jobs", get(handlers::list_training_jobs))
+        .route(
+            "/v1/training/jobs",
+            get(handlers::list_training_jobs).post(handlers::create_training_job),
+        )
         .route(
             "/v1/training/queue",
             get(handlers::training::get_training_queue),
@@ -2197,6 +2228,15 @@ pub fn build(state: AppState) -> Router {
         .route(
             "/v1/workspaces/{workspace_id}/resources/{resource_id}",
             delete(handlers::workspaces::unshare_workspace_resource),
+        )
+        .route(
+            "/v1/workspaces/{workspace_id}/active",
+            get(handlers::workspaces::get_workspace_active_state)
+                .post(handlers::workspaces::set_workspace_active_state),
+        )
+        .route(
+            "/v1/workspaces/{workspace_id}/active-state",
+            get(handlers::aliases::workspaces::get_workspace_active_state_alias),
         )
         // Notification routes
         .route(

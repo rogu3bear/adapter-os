@@ -295,7 +295,7 @@ async fn pinned_adapter_cross_tenant_is_indistinguishable_from_not_found() -> Re
     request.pinned_adapter_ids = Some(vec![foreign_adapter_id.clone()]);
 
     let core = InferenceCore::new(&state);
-    let err = core.route_and_infer(request, None).await.unwrap_err();
+    let err = core.route_and_infer(request, None, None).await.unwrap_err();
 
     match err {
         InferenceError::AdapterNotFound(msg) => {
