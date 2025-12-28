@@ -348,6 +348,73 @@ impl WorkerKeyRing {
     pub fn rotation_meta(&self) -> &RotationMeta {
         &self.rotation_meta
     }
+
+    /// Add a verifying key with a grace period for the current key.
+    ///
+    /// This is used during key update to add a new key while scheduling
+    /// the current key for removal after the grace period.
+    ///
+    /// # Arguments
+    ///
+    /// * `verifying_key` - The new verifying key to add
+    /// * `grace_period_secs` - How long the current key should remain valid
+    ///
+    /// # Returns
+    ///
+    /// The key ID (kid) of the newly added key.
+    pub fn add_verifying_key_with_grace(
+        &mut self,
+        verifying_key: VerifyingKey,
+        grace_period_secs: u64,
+    ) -> String {
+        let new_kid = derive_kid_from_verifying_key(&verifying_key);
+
+        // Add the new key to verifying keys
+        self.verifying_keys
+            .insert(new_kid.clone(), Arc::new(verifying_key));
+
+        // Schedule current key for removal after grace period
+        let expiry = Utc::now().timestamp() + grace_period_secs as i64;
+        self.rotation_meta
+            .pending_removal
+            .insert(self.current_kid.clone(), expiry);
+
+        new_kid
+    }
+
+    /// Check if a nonce has already been seen (for replay attack prevention).
+    ///
+    /// # Arguments
+    ///
+    /// * `nonce` - The nonce to check
+    ///
+    /// # Returns
+    ///
+    /// `true` if the nonce has been seen and is still valid (not expired).
+    pub fn has_seen_nonce(&self, nonce: &str) -> bool {
+        let cache = self.jti_cache.read().unwrap();
+        if let Some(&expiry) = cache.peek(nonce) {
+            // Check if nonce is still valid (not expired)
+            let now = Utc::now().timestamp();
+            expiry > now
+        } else {
+            false
+        }
+    }
+
+    /// Record a nonce to prevent replay attacks.
+    ///
+    /// This adds the nonce to the JTI cache with an expiry timestamp.
+    /// The nonce will be rejected if seen again before expiry.
+    ///
+    /// # Arguments
+    ///
+    /// * `nonce` - The nonce string to record
+    /// * `expiry` - Unix timestamp when this nonce entry should expire
+    pub fn record_nonce(&mut self, nonce: &str, expiry: i64) {
+        let mut cache = self.jti_cache.write().unwrap();
+        cache.put(nonce.to_string(), expiry);
+    }
 }
 
 /// Extract the key ID (kid) from a JWT token header.

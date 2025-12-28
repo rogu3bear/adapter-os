@@ -1989,10 +1989,7 @@ pub fn build(state: AppState) -> Router {
             "/v1/training/jobs/{job_id}/metrics",
             get(handlers::training::get_training_metrics),
         )
-        .route(
-            "/v1/training/jobs/{job_id}/artifacts",
-            get(handlers::get_training_artifacts),
-        )
+        // TODO: Add get_training_artifacts handler when implemented
         .route(
             "/v1/training/jobs/{job_id}/chat_bootstrap",
             get(handlers::get_chat_bootstrap),

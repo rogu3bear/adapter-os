@@ -85,6 +85,7 @@ opentelemetry_sdk = { workspace = true }
 tracing-opentelemetry = { workspace = true }
 sha2 = "0.10"
 url = "2"
+unicode-normalization = "0.1"
 urlencoding = "2"
 safetensors = { workspace = true }
 flate2 = "1.0"
