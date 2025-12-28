@@ -1,7 +1,7 @@
-use super::adapter_fs_utils::{ensure_repo_dirs, finalize_bundle_move};
-use super::adapter_paths::resolve_adapter_roots;
-use super::adapter_progress::emit_adapter_progress;
-use super::adapter_tenant::bind_adapter_to_tenant;
+use super::fs_utils::{ensure_repo_dirs, finalize_bundle_move};
+use super::paths::resolve_adapter_roots;
+use super::progress::emit_adapter_progress;
+use super::tenant::bind_adapter_to_tenant;
 use crate::error_helpers::internal_error;
 use crate::state::AppState;
 use crate::types::ErrorResponse;
