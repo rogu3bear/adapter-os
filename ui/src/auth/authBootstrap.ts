@@ -2,8 +2,8 @@ import type { UserInfoResponse } from '@/api/auth-types';
 import { logger } from '@/utils/logger';
 
 export function isDevBypassEnabled(): boolean {
-  // Dev bypass environment matrix: see docs/AUTHENTICATION.md (Dev bypass policy)
   const env = typeof import.meta !== 'undefined' ? import.meta.env : undefined;
+  if (env?.PROD === true) return false;
   const devMode = env?.DEV === true;
   const explicitFlag = env?.VITE_ENABLE_DEV_BYPASS === 'true';
   return Boolean(devMode || explicitFlag);

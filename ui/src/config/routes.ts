@@ -84,7 +84,8 @@ const DevContractsPage = lazy(() => import('@/pages/Dev/ContractsPage'));
 const RoutesDebugPage = lazy(() => import('@/pages/Dev/RoutesDebugPage'));
 const TelemetryPage = lazy(() => import('@/pages/TelemetryPage'));
 
-const redirectTo = (to: string, label?: string) => () => createElement(LegacyRedirectNotice, { to, label });
+const redirectTo = (to: string, label?: string, reason?: string) =>
+  () => createElement(LegacyRedirectNotice, { to, label, reason });
 
 const redirectTelemetry = (tab: 'events' | 'traces' | 'viewer', includeTraceId = false) =>
   () => createElement(TelemetryRedirect, { tab, includeTraceId });
@@ -276,7 +277,11 @@ export interface RouteConfig {
 export const routes: RouteConfig[] = [
   {
     path: '/owner',
-    component: redirectTo('/admin', 'Admin'),
+    component: redirectTo(
+      '/admin',
+      'Admin',
+      'The owner dashboard has been consolidated into the Admin hub for a unified administration experience.',
+    ),
     requiresAuth: true,
     requiredRoles: ['admin'],
     skeletonVariant: 'dashboard',
@@ -327,7 +332,11 @@ export const routes: RouteConfig[] = [
   },
   {
     path: '/workflow',
-    component: redirectTo('/training', 'Training'),
+    component: redirectTo(
+      '/training',
+      'Training',
+      'Training workflows have moved to the unified Training hub where you can manage jobs, datasets, and artifacts in one place.',
+    ),
     requiresAuth: true,
     skeletonVariant: 'default',
     breadcrumb: 'Onboarding',
@@ -1157,7 +1166,11 @@ export const routes: RouteConfig[] = [
   },
   {
     path: '/admin/tenants',
-    component: redirectTo('/workspaces', 'Workspaces'),
+    component: redirectTo(
+      '/workspaces',
+      'Workspaces',
+      'Workspace management has moved to a dedicated page for easier access and management.',
+    ),
     requiresAuth: true,
     requiredRoles: ['admin'],
     skeletonVariant: 'table',
@@ -1169,7 +1182,11 @@ export const routes: RouteConfig[] = [
   },
   {
     path: '/admin/tenants/:tenantId',
-    component: redirectTo('/workspaces', 'Workspaces'),
+    component: redirectTo(
+      '/workspaces',
+      'Workspaces',
+      'Workspace details are now accessible from the Workspaces page.',
+    ),
     requiresAuth: true,
     requiredRoles: ['admin'],
     skeletonVariant: 'default',
