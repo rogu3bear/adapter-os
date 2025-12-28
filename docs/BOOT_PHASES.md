@@ -502,9 +502,9 @@ Priority (highest to lowest):
 
 ## Health Endpoint Behavior Per State
 
-The health endpoints (`/api/healthz` and `/api/readyz`) return different responses based on boot state.
+The health endpoints (`/healthz` and `/readyz`) return different responses based on boot state.
 
-### /api/healthz (Liveness Probe)
+### /healthz (Liveness Probe)
 
 **Purpose:** Kubernetes liveness check. Returns 200 if process is alive.
 
@@ -513,7 +513,7 @@ The health endpoints (`/api/healthz` and `/api/readyz`) return different respons
 | Any non-failed state | 200 OK | `{"status": "ok"}` |
 | `failed` | 503 | `{"status": "failed", "reason": "..."}` |
 
-### /api/readyz (Readiness Probe)
+### /readyz (Readiness Probe)
 
 **Purpose:** Kubernetes readiness check. Returns 200 only when ready for traffic.
 
@@ -547,21 +547,21 @@ spec:
     - name: adapteros
       livenessProbe:
         httpGet:
-          path: /api/healthz
+          path: /healthz
           port: 8080
         initialDelaySeconds: 5
         periodSeconds: 10
         failureThreshold: 3
       readinessProbe:
         httpGet:
-          path: /api/readyz
+          path: /readyz
           port: 8080
         initialDelaySeconds: 10
         periodSeconds: 5
         failureThreshold: 6  # Allow ~30s for boot
       startupProbe:
         httpGet:
-          path: /api/readyz
+          path: /readyz
           port: 8080
         initialDelaySeconds: 5
         periodSeconds: 10

@@ -2,7 +2,7 @@
 // Quick helper to verify the control plane health endpoint used by E2E runs.
 const backendHost = process.env.AOS_SERVER_HOST ?? '127.0.0.1';
 const backendPort = process.env.AOS_SERVER_PORT ?? process.env.AOS_SERVER__PORT ?? '8080';
-const healthPath = process.env.AOS_BACKEND_HEALTH_PATH ?? '/api/readyz'; // Public and unauthenticated
+const healthPath = process.env.AOS_BACKEND_HEALTH_PATH ?? '/readyz'; // Public and unauthenticated
 const healthUrl = `http://${backendHost}:${backendPort}${healthPath}`;
 
 async function main() {

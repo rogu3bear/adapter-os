@@ -1075,7 +1075,7 @@ Problem Detected
    YES → Continue to 3
 
 3. Does /readyz return 200?
-   NO  → Check boot state: curl /api/readyz | jq .boot_state
+   NO  → Check boot state: curl /readyz | jq .boot_state
    YES → Continue to 4
 
 4. Can you authenticate?
@@ -1104,7 +1104,7 @@ curl -f http://localhost:8080/readyz && \
 echo "System healthy"
 
 # Detailed status
-curl -s http://localhost:8080/api/readyz | jq '{
+curl -s http://localhost:8080/readyz | jq '{
   boot_state: .boot_state,
   worker_connected: .worker_connected,
   database_healthy: .database_healthy

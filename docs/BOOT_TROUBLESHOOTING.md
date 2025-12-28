@@ -375,7 +375,7 @@ FATAL: Boot timeout after 300 seconds. Boot was stuck in state: DiscoveringWorke
 # In configs/aos.toml: boot_timeout_secs = 600
 
 # Check which phase is slow
-curl -s http://localhost:8080/api/readyz | jq
+curl -s http://localhost:8080/readyz | jq
 
 # If stuck on DiscoveringWorkers:
 # - Check worker process: ps aux | grep aos_worker
@@ -496,10 +496,10 @@ system_profiler SPDisplaysDataType | grep "Metal"
 ./aosctl status
 
 # Health check
-curl -s http://localhost:8080/api/healthz | jq
+curl -s http://localhost:8080/healthz | jq
 
 # Ready check (includes boot state)
-curl -s http://localhost:8080/api/readyz | jq
+curl -s http://localhost:8080/readyz | jq
 
 # Boot report
 cat var/run/boot_report.json | jq
