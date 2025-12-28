@@ -32,7 +32,7 @@ fs2 = { workspace = true }
 semver = "1.0"
 
 # Database
-sqlx = { workspace = true, default-features = false, features = ["runtime-tokio", "sqlite", "macros", "migrate", "chrono", "uuid", "json"] }
+sqlx = { workspace = true, default-features = false, features = ["runtime-tokio", "sqlite", "macros", "migrate", "chrono", "uuid"] }
 uuid = { version = "1.6", features = ["v7", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 
