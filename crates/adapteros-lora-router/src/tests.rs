@@ -1,7 +1,9 @@
 use super::*;
 use crate::policy_mask::PolicyMask;
-use adapteros_core::determinism::DeterminismSource;
+use adapteros_core::determinism::{DeterminismContext, DeterminismSource};
 use adapteros_core::seed::{derive_seed_full, hash_adapter_dir};
+use adapteros_core::B3Hash;
+use smallvec::SmallVec;
 use std::path::Path;
 
 fn mask_all(adapters: &[AdapterInfo]) -> PolicyMask {
@@ -358,7 +360,8 @@ fn test_router_with_policy_config_sample_tokens() {
 
     // Verify that sample tokens is read from policy config
     assert_eq!(
-        router.full_log_tokens, 256,
+        router.full_log_tokens(),
+        256,
         "Full log tokens should match policy config"
     );
 }
@@ -375,7 +378,7 @@ fn test_router_with_policy_config_k_sparse_clamping() {
     let router = Router::new_with_policy_config(RouterWeights::default(), 6, 1.0, &policy_config);
 
     // Verify that k is clamped to policy maximum
-    assert_eq!(router.k, 4, "K should be clamped to policy maximum");
+    assert_eq!(router.top_k(), 4, "K should be clamped to policy maximum");
 }
 
 #[test]
@@ -956,12 +959,12 @@ fn test_abstain_thresholds_from_policy_config() {
 
     // Verify that thresholds are set from policy config
     assert_eq!(
-        router.abstain_entropy_threshold,
+        router.abstain_entropy_threshold(),
         Some(0.9),
         "Entropy threshold should match policy config"
     );
     assert_eq!(
-        router.abstain_confidence_threshold,
+        router.abstain_confidence_threshold(),
         Some(0.3),
         "Confidence threshold should match policy config"
     );
@@ -972,14 +975,14 @@ fn test_set_abstain_thresholds() {
     let mut router = Router::new_with_weights(RouterWeights::default(), 3, 1.0, 0.02);
 
     // Initially no thresholds
-    assert!(router.abstain_entropy_threshold.is_none());
-    assert!(router.abstain_confidence_threshold.is_none());
+    assert!(router.abstain_entropy_threshold().is_none());
+    assert!(router.abstain_confidence_threshold().is_none());
 
     // Set thresholds
     router.set_abstain_thresholds(Some(0.85), Some(0.25));
 
-    assert_eq!(router.abstain_entropy_threshold, Some(0.85));
-    assert_eq!(router.abstain_confidence_threshold, Some(0.25));
+    assert_eq!(router.abstain_entropy_threshold(), Some(0.85));
+    assert_eq!(router.abstain_confidence_threshold(), Some(0.25));
 }
 
 #[test]

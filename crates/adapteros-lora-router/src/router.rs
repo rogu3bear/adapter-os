@@ -357,6 +357,21 @@ impl Router {
         self.full_log_tokens
     }
 
+    /// Get the top-K selection size (for testing)
+    pub fn top_k(&self) -> usize {
+        self.k
+    }
+
+    /// Get abstain entropy threshold (for testing)
+    pub fn abstain_entropy_threshold(&self) -> Option<f32> {
+        self.abstain_entropy_threshold
+    }
+
+    /// Get abstain confidence threshold (for testing)
+    pub fn abstain_confidence_threshold(&self) -> Option<f32> {
+        self.abstain_confidence_threshold
+    }
+
     /// Ensure router inputs do not contain NaN or Inf to protect determinism.
     fn validate_router_inputs(&self, features: &[f32], priors: &[f32]) -> Result<()> {
         if let Err(err) = check_numerics(features) {
