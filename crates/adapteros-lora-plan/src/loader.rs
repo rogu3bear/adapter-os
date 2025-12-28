@@ -509,6 +509,7 @@ mod tests {
             repo_id: None,
             commit_sha: None,
             intent: Some("inference".to_string()),
+            recommended_for_moe: true,
             // State management hints
             auto_promote: false,
             eviction_priority: adapteros_manifest::EvictionPriority::Normal,

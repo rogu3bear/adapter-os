@@ -256,6 +256,8 @@ fn test_routing_decision_serialization() {
         stack_hash: Some("abc123".to_string()),
         stack_id: Some("stack-001".to_string()),
         stack_version: Some(1),
+        model_type: adapteros_types::routing::RouterModelType::Dense,
+        active_experts: None,
     };
 
     // Serialize

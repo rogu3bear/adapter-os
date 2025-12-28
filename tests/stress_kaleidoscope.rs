@@ -16,7 +16,7 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
-use sysinfo::{CpuExt, System, SystemExt};
+use sysinfo::System;
 use tokio::task::JoinSet;
 
 const ROUTER_SEED: [u8; 32] = *b"kaleidoscope-router-seed-0000000";
@@ -234,7 +234,7 @@ fn write_report(output_sha: &str) -> Result<()> {
         cpu: sys
             .cpus()
             .get(0)
-            .map(|c| c.brand().to_string())
+            .map(|c: &sysinfo::Cpu| c.brand().to_string())
             .unwrap_or_else(|| "unknown".to_string()),
         logical_cores: sys.cpus().len(),
         memory_mb: sys.total_memory() / 1024,

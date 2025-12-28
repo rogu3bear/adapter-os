@@ -11,7 +11,7 @@ use rand::{rngs::StdRng, Rng, SeedableRng};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
-use sysinfo::{System, SystemExt};
+use sysinfo::System;
 use tokio::task::JoinHandle;
 use tokio::time::{sleep, Duration};
 

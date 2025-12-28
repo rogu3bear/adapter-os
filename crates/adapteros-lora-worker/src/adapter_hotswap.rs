@@ -2170,10 +2170,7 @@ mod tests {
             let table = Arc::new(AdapterTable::new());
             let h = B3Hash::zero();
             loom::future::block_on(async {
-                table
-                    .preload("test".to_string(), h, 10)
-                    .await
-                    .unwrap();
+                table.preload("test".to_string(), h, 10).await.unwrap();
                 table
                     .swap(&["test".to_string()], &[] as &[String])
                     .await

@@ -88,10 +88,10 @@ fn create_test_manifest() -> ManifestV3 {
             },
             refusal: RefusalPolicy {
                 abstain_threshold: 0.55,
-                missing_fields_templates: HashMap::new(),
+                missing_fields_templates: BTreeMap::new(),
             },
             numeric: NumericPolicy {
-                canonical_units: HashMap::new(),
+                canonical_units: BTreeMap::new(),
                 max_rounding_error: 0.5,
                 require_units_in_trace: true,
             },
@@ -185,6 +185,7 @@ fn create_test_adapter(id: &str, rank: u32) -> Adapter {
         repo_id: None,
         commit_sha: None,
         intent: Some("inference".to_string()),
+        recommended_for_moe: true,
         auto_promote: false,
         eviction_priority: EvictionPriority::Normal,
         free_tokens: None,

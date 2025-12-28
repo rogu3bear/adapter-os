@@ -141,6 +141,8 @@ fn test_router_determinism_with_decision_hash() {
             scope_path: None,
             lora_tier: None,
             base_model: None,
+            recommended_for_moe: true,
+            reasoning_specialties: Vec::new(),
         })
         .collect();
 

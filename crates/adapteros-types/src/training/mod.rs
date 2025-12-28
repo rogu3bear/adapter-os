@@ -320,6 +320,9 @@ pub struct TrainingJob {
         skip_serializing_if = "Option::is_none"
     )]
     pub dataset_version_trust: Option<Vec<DatasetVersionTrustSnapshot>>,
+    /// BLAKE3 hash of the dataset manifest used for training (combined when multi-dataset).
+    #[serde(rename = "dataset_hash_b3", skip_serializing_if = "Option::is_none")]
+    pub dataset_hash_b3: Option<String>,
     /// Whether this training run explicitly opted into synthetic/diagnostic data
     #[serde(rename = "synthetic_mode", default)]
     pub synthetic_mode: bool,
@@ -570,6 +573,9 @@ pub struct TrainingJob {
     /// 64-bit deterministic training seed (audit)
     #[serde(rename = "training_seed", skip_serializing_if = "Option::is_none")]
     pub training_seed: Option<u64>,
+    /// Seed derivation inputs captured for determinism auditing (JSON)
+    #[serde(rename = "seed_inputs_json", skip_serializing_if = "Option::is_none")]
+    pub seed_inputs_json: Option<String>,
     /// Whether GPU was required for this run
     #[serde(rename = "require_gpu", skip_serializing_if = "Option::is_none")]
     pub require_gpu: Option<bool>,
@@ -610,6 +616,9 @@ pub struct TrainingJob {
     /// Hash of packaged archive (BLAKE3)
     #[serde(rename = "package_hash_b3", skip_serializing_if = "Option::is_none")]
     pub package_hash_b3: Option<String>,
+    /// Manifest hash BLAKE3 for the packaged adapter (alias for artifact hash when available)
+    #[serde(rename = "manifest_hash_b3", skip_serializing_if = "Option::is_none")]
+    pub manifest_hash_b3: Option<String>,
     /// Adapter manifest rank (if available)
     #[serde(rename = "manifest_rank", skip_serializing_if = "Option::is_none")]
     pub manifest_rank: Option<u32>,
@@ -657,6 +666,7 @@ impl TrainingJob {
             dataset_id: None,
             dataset_version_ids: None,
             dataset_version_trust: None,
+            dataset_hash_b3: None,
             synthetic_mode: false,
             data_lineage_mode: None,
             base_model_id: None,
@@ -718,6 +728,7 @@ impl TrainingJob {
             coreml_adapter_hash_b3: None,
             determinism_mode: None,
             training_seed: None,
+            seed_inputs_json: None,
             require_gpu: None,
             max_gpu_memory_mb: None,
             // Extended metrics defaults
@@ -730,6 +741,7 @@ impl TrainingJob {
             // Packaging defaults
             aos_path: None,
             package_hash_b3: None,
+            manifest_hash_b3: None,
             manifest_rank: None,
             manifest_base_model: None,
             manifest_per_layer_hashes: None,

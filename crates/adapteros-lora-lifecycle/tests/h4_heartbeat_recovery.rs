@@ -3,7 +3,7 @@
 //! Tests 5-minute stale adapter timeout and auto-recovery.
 
 use adapteros_core::B3Hash;
-use adapteros_db::Db;
+use adapteros_db::{Db, ProtectedDb};
 use adapteros_lora_lifecycle::LifecycleManager;
 use adapteros_manifest::Policies;
 use std::collections::HashMap;
@@ -48,7 +48,7 @@ async fn test_h4_heartbeat_updates_timestamp() {
         temp_dir.path().to_path_buf(),
         None,
         3,
-        db.clone(),
+        ProtectedDb::new(db.clone()),
     );
 
     // Send heartbeat
@@ -91,7 +91,7 @@ async fn test_h4_5_minute_stale_detection() {
         temp_dir.path().to_path_buf(),
         None,
         3,
-        db.clone(),
+        ProtectedDb::new(db.clone()),
     );
 
     // Set old heartbeat (400 seconds ago > 300 second threshold)
@@ -143,7 +143,7 @@ async fn test_h4_auto_recovery_to_unloaded() {
         temp_dir.path().to_path_buf(),
         None,
         3,
-        db.clone(),
+        ProtectedDb::new(db.clone()),
     );
 
     // Set old heartbeat and loaded state
@@ -205,7 +205,7 @@ async fn test_h4_threshold_edge_cases() {
         temp_dir.path().to_path_buf(),
         None,
         3,
-        db.clone(),
+        ProtectedDb::new(db.clone()),
     );
 
     let now = std::time::SystemTime::now()
@@ -265,7 +265,7 @@ async fn test_h4_unloaded_adapters_not_checked() {
         temp_dir.path().to_path_buf(),
         None,
         3,
-        db.clone(),
+        ProtectedDb::new(db.clone()),
     );
 
     // Set old heartbeat but keep state as unloaded
