@@ -763,6 +763,39 @@ impl Db {
         Ok(())
     }
 
+    /// Check if a dataset can be safely deleted.
+    /// Returns error if dataset is in use by adapters or active training jobs.
+    /// This is a guard to prevent accidental deletion of datasets that are still being used.
+    pub async fn validate_dataset_deletion(&self, dataset_id: &str) -> Result<()> {
+        // Check adapter links via dataset_adapter_links table
+        let usage_count = self.count_dataset_usage(dataset_id).await?;
+        if usage_count > 0 {
+            return Err(AosError::Validation(format!(
+                "Cannot delete dataset: {} adapter(s) are using it. Unlink adapters first.",
+                usage_count
+            )));
+        }
+
+        // Check active training jobs that reference this dataset
+        let active_jobs: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM repository_training_jobs
+             WHERE dataset_id = ? AND status IN ('pending', 'running', 'queued')",
+        )
+        .bind(dataset_id)
+        .fetch_one(self.pool())
+        .await
+        .map_err(db_err("check active training jobs for dataset"))?;
+
+        if active_jobs.0 > 0 {
+            return Err(AosError::Validation(format!(
+                "Cannot delete dataset: {} active training job(s). Wait for completion.",
+                active_jobs.0
+            )));
+        }
+
+        Ok(())
+    }
+
     /// Add file to dataset
     pub async fn add_dataset_file(
         &self,

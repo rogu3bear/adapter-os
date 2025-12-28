@@ -275,28 +275,26 @@ pub async fn create_evidence(
         metadata_json: request.metadata_json.clone(),
     };
 
-    let entry_id = state
+    let create_result = state
         .db
         .create_evidence_entry_with_params(&params)
-        .await
-        .map_err(|e| {
-            error!(error = %e, "Failed to create evidence entry");
-            let db = state.db.clone();
-            let claims = claims.clone();
-            let message = format!("Failed to create evidence: {}", e);
-            tokio::spawn(async move {
-                log_failure_or_warn(
-                    &db,
-                    &claims,
-                    actions::ADAPTER_REGISTER,
-                    resources::ADAPTER,
-                    None,
-                    &message,
-                )
-                .await;
-            });
-            internal_error(e)
-        })?;
+        .await;
+
+    // Handle error with synchronous audit logging (not fire-and-forget)
+    if let Err(e) = &create_result {
+        error!(error = %e, "Failed to create evidence entry");
+        let message = format!("Failed to create evidence: {}", e);
+        log_failure_or_warn(
+            &state.db,
+            &claims,
+            actions::ADAPTER_REGISTER,
+            resources::ADAPTER,
+            None,
+            &message,
+        )
+        .await;
+    }
+    let entry_id = create_result.map_err(internal_error)?;
 
     // Retrieve the created entry
     let entry = state
@@ -436,25 +434,23 @@ pub async fn delete_evidence(
             .ok_or_else(|| not_found("Adapter"))?;
     }
 
-    state.db.delete_evidence_entry(&id).await.map_err(|e| {
+    let delete_result = state.db.delete_evidence_entry(&id).await;
+
+    // Handle error with synchronous audit logging (not fire-and-forget)
+    if let Err(e) = &delete_result {
         error!(error = %e, id = %id, "Failed to delete evidence entry");
-        let db = state.db.clone();
-        let claims = claims.clone();
-        let id = id.clone();
         let message = format!("Failed to delete evidence: {}", e);
-        tokio::spawn(async move {
-            log_failure_or_warn(
-                &db,
-                &claims,
-                actions::ADAPTER_DELETE,
-                resources::ADAPTER,
-                Some(id.as_str()),
-                &message,
-            )
-            .await;
-        });
-        internal_error(e)
-    })?;
+        log_failure_or_warn(
+            &state.db,
+            &claims,
+            actions::ADAPTER_DELETE,
+            resources::ADAPTER,
+            Some(&id),
+            &message,
+        )
+        .await;
+    }
+    delete_result.map_err(internal_error)?;
 
     log_success_or_warn(
         &state.db,

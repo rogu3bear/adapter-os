@@ -43,6 +43,9 @@ pub struct ShutdownConfig {
     pub git_daemon_timeout: Duration,
     pub policy_watcher_timeout: Duration,
     pub overall_timeout: Duration,
+    /// Timeout for background tasks to respond to shutdown signal before abort.
+    /// Tasks should use `tokio::select!` to check for shutdown signals.
+    pub background_task_timeout: Duration,
 }
 
 impl Default for ShutdownConfig {
@@ -54,6 +57,7 @@ impl Default for ShutdownConfig {
             git_daemon_timeout: Duration::from_secs(10),
             policy_watcher_timeout: Duration::from_secs(5),
             overall_timeout: Duration::from_secs(30),
+            background_task_timeout: Duration::from_secs(5),
         }
     }
 }
@@ -410,30 +414,42 @@ impl ShutdownCoordinator {
         }
 
         // 7. Background tasks - status writer, TTL cleanup, heartbeat recovery
+        // Tasks should respond to the shutdown broadcast signal sent earlier.
+        // We give them time to complete gracefully before forcing abort.
         let background_handles = std::mem::take(&mut self.background_handles);
         if !background_handles.is_empty() {
             info!(
-                "Shutting down {} background tasks",
-                background_handles.len()
+                "Shutting down {} background tasks (waiting up to {:?} for graceful exit)",
+                background_handles.len(),
+                self.config.background_task_timeout
             );
+
+            // Wait for tasks to respond to shutdown signal
+            tokio::time::sleep(self.config.background_task_timeout).await;
+
+            // Abort any tasks that haven't completed gracefully
             for (i, handle) in background_handles.into_iter().enumerate() {
-                self.report_progress(
-                    &format!("background_task_{}", i),
-                    ShutdownStatus::InProgress,
-                    start_time.elapsed(),
-                );
-                handle.abort();
-                self.report_progress(
-                    &format!("background_task_{}", i),
-                    ShutdownStatus::Completed,
-                    start_time.elapsed(),
-                );
-                // Note: DeterministicJoinHandle doesn't support timeout waiting
+                if !handle.is_finished() {
+                    warn!(
+                        "Background task {} did not complete within {:?}, aborting",
+                        i,
+                        self.config.background_task_timeout
+                    );
+                    handle.abort();
+                    self.report_progress(
+                        &format!("background_task_{}", i),
+                        ShutdownStatus::Timeout,
+                        start_time.elapsed(),
+                    );
+                } else {
+                    self.report_progress(
+                        &format!("background_task_{}", i),
+                        ShutdownStatus::Completed,
+                        start_time.elapsed(),
+                    );
+                }
             }
         }
-
-        // Give remaining tasks a brief moment to respond to abort signals
-        tokio::time::sleep(Duration::from_millis(100)).await;
 
         // Database connections will be cleaned up automatically by the connection pool
         info!("Database connection pool cleanup handled automatically");

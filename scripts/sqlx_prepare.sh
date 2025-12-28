@@ -8,7 +8,7 @@ cd "$REPO_ROOT"
 
 DATABASE_URL="${DATABASE_URL:-sqlite://./var/sqlx-dev.sqlite3}"
 SQLX_OFFLINE_DIR="${SQLX_OFFLINE_DIR:-crates/adapteros-db/.sqlx}"
-SQLX_CHECK_CRATES="${SQLX_CHECK_CRATES:-adapteros-server-api}"
+SQLX_CHECK_CRATES="${SQLX_CHECK_CRATES:-adapteros-db adapteros-server-api adapteros-server}"
 
 if ! command -v cargo-sqlx >/dev/null 2>&1; then
   echo "Error: sqlx-cli is required. Install with:" >&2
