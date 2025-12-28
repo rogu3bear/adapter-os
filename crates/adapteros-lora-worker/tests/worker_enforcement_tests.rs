@@ -144,7 +144,7 @@ fn test_routing_policy_denies_specific_adapter() {
             },
         ],
         decision_hash: None,
-        policy_mask_digest: None,
+        policy_mask_digest_b3: None,
         policy_overrides_applied: None,
     };
 
@@ -185,7 +185,7 @@ fn test_routing_policy_denies_all_adapters() {
             gate_q15: 16000,
         }],
         decision_hash: None,
-        policy_mask_digest: None,
+        policy_mask_digest_b3: None,
         policy_overrides_applied: None,
     };
 
@@ -378,7 +378,7 @@ fn base_only_request_zeroes_priors_and_clears_decisions() {
             },
         ],
         decision_hash: None,
-        policy_mask_digest: None,
+        policy_mask_digest_b3: None,
         policy_overrides_applied: None,
     };
 
@@ -408,7 +408,7 @@ fn base_only_request_zeroes_priors_and_clears_decisions() {
             stack_hash: None,
             interval_id: None,
             allowed_mask: None,
-            policy_mask_digest: None,
+            policy_mask_digest_b3: None,
             policy_overrides_applied: None,
             model_type: adapteros_api_types::inference::RouterModelType::Dense,
             active_experts: None,

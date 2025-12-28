@@ -401,12 +401,9 @@ async fn collect_inference_status(
         push_blocker(&mut blockers, InferenceBlocker::NoModelLoaded);
     }
 
-    // Use tenant-scoped query when tenant_id is provided for workspace isolation
-    let active_states = match tenant_id {
-        Some(tid) => state.db.list_workspace_active_states_for_tenant(tid).await,
-        None => state.db.list_workspace_active_states().await,
-    };
-    let active_states = match active_states {
+    // Fetch all active states and filter by tenant if provided
+    // Note: DB layer doesn't support tenant-scoped query, so we filter in memory
+    let all_states = match state.db.list_workspace_active_states().await {
         Ok(states) => states,
         Err(e) => {
             warn!(error = %e, "Failed to load workspace active state for inference readiness");
@@ -415,6 +412,14 @@ async fn collect_inference_status(
                 vec![InferenceBlocker::DatabaseUnavailable],
             );
         }
+    };
+    // Filter by tenant_id if provided for proper tenant isolation
+    let active_states: Vec<_> = match tenant_id {
+        Some(tid) => all_states
+            .into_iter()
+            .filter(|s| s.tenant_id == tid)
+            .collect(),
+        None => all_states,
     };
 
     let has_mismatch = active_states.iter().any(|active| {
@@ -470,18 +475,20 @@ async fn collect_kernel_status(
 
         let mut active_adapter_count: Option<i64> = None;
         let mut active_plan_summary: Option<PlanStatusSummary> = None;
-        // Use tenant-scoped query when tenant_id is provided for workspace isolation
-        let active_states = match tenant_id {
-            Some(tid) => state.db.list_workspace_active_states_for_tenant(tid).await,
-            None => state.db.list_workspace_active_states().await,
-        };
-        let active_states = match active_states {
+        // Fetch all active states and filter by tenant if provided
+        // Note: DB layer doesn't support tenant-scoped query, so we filter in memory
+        let all_states = match state.db.list_workspace_active_states().await {
             Ok(states) => Some(states),
             Err(e) => {
                 warn!(error = %e, "Failed to load workspace active state for system status");
                 None
             }
         };
+        // Filter by tenant_id if provided for proper tenant isolation
+        let active_states: Option<Vec<_>> = all_states.map(|states| match tenant_id {
+            Some(tid) => states.into_iter().filter(|s| s.tenant_id == tid).collect(),
+            None => states,
+        });
 
         if let Some(states) = active_states.as_ref() {
             if !states.is_empty() {

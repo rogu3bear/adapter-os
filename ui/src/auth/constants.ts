@@ -30,6 +30,8 @@ export const AUTH_STORAGE_KEYS = {
   DEVICE_ID: 'aos-device-id',
   /** Marks first admin login completed (skips onboarding) */
   FIRST_RUN: 'aos-first-login-completed',
+  /** Timestamp when dev bypass was activated (for timeout checking) */
+  DEV_BYPASS_ACTIVATED_AT: 'aos-dev-bypass-activated-at',
 } as const;
 
 /** Type for storage key values */
@@ -119,4 +121,6 @@ export const AUTH_DEFAULTS = {
   HEALTH_CHECK_TIMEOUT: 10000,
   /** Auth bootstrap timeout (ms) */
   AUTH_BOOTSTRAP_TIMEOUT: 30000,
+  /** Dev bypass session timeout (1 hour in milliseconds) */
+  DEV_BYPASS_TIMEOUT_MS: 60 * 60 * 1000,
 } as const;

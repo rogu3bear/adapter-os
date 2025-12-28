@@ -39,7 +39,7 @@ async fn trace_persistence_and_receipt_verification() -> anyhow::Result<()> {
             token_index: 0,
             adapter_ids: vec!["adapter-a".into()],
             gates_q15: vec![123],
-            policy_mask_digest: Some(B3Hash::hash(b"mask").to_bytes()),
+            policy_mask_digest_b3: Some(B3Hash::hash(b"mask").to_bytes()),
             allowed_mask: Some(vec![true]),
             policy_overrides_applied: Some(PolicyOverrideFlags {
                 allow_list: true,
@@ -53,7 +53,7 @@ async fn trace_persistence_and_receipt_verification() -> anyhow::Result<()> {
             token_index: 1,
             adapter_ids: vec!["adapter-b".into(), "adapter-c".into()],
             gates_q15: vec![321, 111],
-            policy_mask_digest: Some(B3Hash::hash(b"mask").to_bytes()),
+            policy_mask_digest_b3: Some(B3Hash::hash(b"mask").to_bytes()),
             allowed_mask: Some(vec![false, true]),
             policy_overrides_applied: Some(PolicyOverrideFlags {
                 allow_list: false,
@@ -67,7 +67,7 @@ async fn trace_persistence_and_receipt_verification() -> anyhow::Result<()> {
             token_index: 2,
             adapter_ids: vec!["adapter-a".into()],
             gates_q15: vec![99],
-            policy_mask_digest: Some(B3Hash::hash(b"mask").to_bytes()),
+            policy_mask_digest_b3: Some(B3Hash::hash(b"mask").to_bytes()),
             allowed_mask: Some(vec![true]),
             policy_overrides_applied: None,
             backend_id: Some("coreml".into()),

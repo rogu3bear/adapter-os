@@ -78,8 +78,8 @@ pub struct RouterDecision {
     pub interval_id: Option<String>,
 
     /// Digest binding routing policy context to the applied mask (if any).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub policy_mask_digest: Option<B3Hash>,
+    #[serde(skip_serializing_if = "Option::is_none", alias = "policy_mask_digest")]
+    pub policy_mask_digest_b3: Option<B3Hash>,
 
     /// Flags indicating which policy overrides were applied.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -113,7 +113,7 @@ impl RouterDecision {
             allowed_mask: None,
             stack_hash: None,
             interval_id: None,
-            policy_mask_digest: None,
+            policy_mask_digest_b3: None,
             policy_overrides_applied: None,
             model_type: RouterModelType::Dense,
             active_experts: None,

@@ -432,8 +432,7 @@ impl ShutdownCoordinator {
                 if !handle.is_finished() {
                     warn!(
                         "Background task {} did not complete within {:?}, aborting",
-                        i,
-                        self.config.background_task_timeout
+                        i, self.config.background_task_timeout
                     );
                     handle.abort();
                     self.report_progress(

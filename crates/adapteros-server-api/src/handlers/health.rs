@@ -372,11 +372,9 @@ pub async fn ready(State(state): State<AppState>) -> impl IntoResponse {
                     !ready
                 });
 
-                if has_mismatch {
-                    if models_seeded_check.hint.is_none() {
-                        models_seeded_check.hint =
-                            Some("active model mismatch (not loaded)".to_string());
-                    }
+                if has_mismatch && models_seeded_check.hint.is_none() {
+                    models_seeded_check.hint =
+                        Some("active model mismatch (not loaded)".to_string());
                 }
             }
         }

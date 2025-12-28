@@ -37,11 +37,7 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, OnceLock,
 };
-use std::{
-    fs,
-    path::PathBuf,
-    str::FromStr,
-};
+use std::{fs, path::PathBuf, str::FromStr};
 use tokio::signal;
 use tokio::sync::Mutex;
 use tracing::{error, info, info_span, warn};

@@ -129,7 +129,7 @@ function RootLayoutContent({
   tenantId,
 }: RootLayoutContentProps) {
   const { theme, toggleTheme } = useTheme();
-  const { user, logout, sessionMode } = useAuth();
+  const { user, logout, sessionMode, isDevBypassActive, devBypassRemainingMs } = useAuth();
   const backendReachability = useBackendReachability();
   const location = useLocation();
   const navigate = useNavigate();
@@ -326,6 +326,8 @@ function RootLayoutContent({
             <AppHeader
               user={user ?? { email: 'guest@example.com', role: 'viewer' }}
               sessionMode={sessionMode}
+              isDevBypassActive={isDevBypassActive}
+              devBypassRemainingMs={devBypassRemainingMs}
               theme={theme}
               onLogout={() => void logout()}
               onOpenHelp={() => setHelpCenterOpen(true)}

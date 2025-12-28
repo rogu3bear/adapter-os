@@ -4,7 +4,14 @@ import type { User } from '@/api/types';
 import type { LoginRequest, LoginResponse, SessionMode } from '@/api/auth-types';
 import { logger, toError } from '@/utils/logger';
 import { ThemeProvider as AosThemeProvider } from '@/theme/ThemeProvider';
-import { isDevBypassEnabled, tryDevBypassLogin } from '@/auth/authBootstrap';
+import {
+  isDevBypassEnabled,
+  tryDevBypassLogin,
+  markDevBypassActivated,
+  clearDevBypassTimestamp,
+  isDevBypassExpired,
+  getDevBypassRemainingMs,
+} from '@/auth/authBootstrap';
 import { clearSessionExpiredFlag, markSessionExpired } from '@/auth/session';
 import { logAuthEvent } from '@/lib/logUIError';
 import { AUTH_STORAGE_KEYS } from '@/auth/constants';
@@ -43,6 +50,10 @@ interface AuthContextValue {
   authTimeout: boolean;
   accessToken: string | null;
   sessionMode: SessionMode;
+  /** Whether dev bypass mode is currently active (session mode is dev_bypass and not expired) */
+  isDevBypassActive: boolean;
+  /** Remaining time in ms before dev bypass expires (0 if not active) */
+  devBypassRemainingMs: number;
   login: (credentials: LoginRequest) => Promise<LoginResponse>;
   devBypassLogin: () => Promise<LoginResponse>;
   logout: () => Promise<void>;
@@ -107,10 +118,59 @@ function AuthProvider({ children }: { children: ReactNode }) {
   const [authTimeout, setAuthTimeout] = useState(false);
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [sessionMode, setSessionMode] = useState<SessionMode>('normal');
+  const [devBypassRemainingMs, setDevBypassRemainingMs] = useState(0);
   const isRefreshingRef = useRef(false);
+  const devBypassTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const clearAuthError = useCallback(() => {
     setAuthError(null);
+  }, []);
+
+  // Start the dev bypass countdown timer
+  const startDevBypassTimer = useCallback(() => {
+    // Clear any existing timer
+    if (devBypassTimerRef.current) {
+      clearInterval(devBypassTimerRef.current);
+      devBypassTimerRef.current = null;
+    }
+
+    // Update immediately
+    setDevBypassRemainingMs(getDevBypassRemainingMs());
+
+    // Update every second
+    devBypassTimerRef.current = setInterval(() => {
+      const remaining = getDevBypassRemainingMs();
+      setDevBypassRemainingMs(remaining);
+
+      // If expired, trigger logout
+      if (remaining <= 0) {
+        logger.info('Dev bypass session expired after 1 hour timeout', { component: 'AuthProvider' });
+        if (devBypassTimerRef.current) {
+          clearInterval(devBypassTimerRef.current);
+          devBypassTimerRef.current = null;
+        }
+        // Clear the user state to force re-authentication
+        setUser(null);
+        setSessionMode('normal');
+        setAccessToken(null);
+        clearDevBypassTimestamp();
+        markSessionExpired();
+        try {
+          sessionStorage.removeItem(AUTH_STORAGE_KEYS.AUTH_SESSION);
+        } catch {
+          // ignore storage errors
+        }
+      }
+    }, 1000);
+  }, []);
+
+  // Stop the dev bypass timer
+  const stopDevBypassTimer = useCallback(() => {
+    if (devBypassTimerRef.current) {
+      clearInterval(devBypassTimerRef.current);
+      devBypassTimerRef.current = null;
+    }
+    setDevBypassRemainingMs(0);
   }, []);
 
   const refreshUser = useCallback(async () => {
@@ -297,6 +357,11 @@ function AuthProvider({ children }: { children: ReactNode }) {
         emailHint: response.user_id,
         sessionMode: normalizedMode,
       });
+
+      // Mark dev bypass activation and start timer for 1-hour timeout
+      markDevBypassActivated();
+      startDevBypassTimer();
+
       logAuthEvent('UI auth session established', {
         component: 'AuthProvider',
         operation: 'devBypassLogin',
@@ -311,7 +376,7 @@ function AuthProvider({ children }: { children: ReactNode }) {
       logger.error('Dev bypass login failed', { component: 'AuthProvider' }, err);
       throw error;
     }
-  }, [applyLoginResponse]);
+  }, [applyLoginResponse, startDevBypassTimer]);
 
   const logout = useCallback(async () => {
     try {
@@ -325,6 +390,10 @@ function AuthProvider({ children }: { children: ReactNode }) {
       setSessionMode('normal');
       setAuthError(null);
 
+      // Stop dev bypass timer and clear timestamp
+      stopDevBypassTimer();
+      clearDevBypassTimestamp();
+
       // Atomic session state clear - all or nothing
       try {
         sessionStorage.removeItem(AUTH_STORAGE_KEYS.SELECTED_TENANT);
@@ -336,7 +405,7 @@ function AuthProvider({ children }: { children: ReactNode }) {
         // Ignore storage errors during logout
       }
     }
-  }, []);
+  }, [stopDevBypassTimer]);
 
   const refreshSession = useCallback(async () => {
     try {
@@ -376,6 +445,10 @@ function AuthProvider({ children }: { children: ReactNode }) {
       setSessionMode('normal');
       setAuthError(null);
 
+      // Stop dev bypass timer and clear timestamp
+      stopDevBypassTimer();
+      clearDevBypassTimestamp();
+
       // Atomic session state clear - all or nothing
       try {
         sessionStorage.removeItem(AUTH_STORAGE_KEYS.SELECTED_TENANT);
@@ -387,7 +460,7 @@ function AuthProvider({ children }: { children: ReactNode }) {
         // Ignore storage errors during logout
       }
     }
-  }, []);
+  }, [stopDevBypassTimer]);
 
   const updateProfile = useCallback(async (updates: { display_name?: string; avatar_url?: string }) => {
     try {
@@ -415,39 +488,56 @@ function AuthProvider({ children }: { children: ReactNode }) {
       try {
         const devBypassEnvEnabled = isDevBypassEnabled(); // Dev bypass environment policy documented in docs/AUTHENTICATION.md
         if (devBypassEnvEnabled) {
-          const devClaims = await tryDevBypassLogin();
-          if (devClaims) {
-            logger.debug('AuthProvider: using dev-bypass claims from /auth/me', {
+          // Check if dev bypass has expired (1 hour timeout)
+          if (isDevBypassExpired()) {
+            logger.debug('Dev bypass session expired; clearing state and requiring re-authentication', {
               component: 'AuthProvider',
             });
-            const normalizedRole = typeof devClaims.role === 'string' ? devClaims.role.toLowerCase() : undefined;
-            const allowedRoles = ['admin', 'operator', 'sre', 'compliance', 'auditor', 'viewer'] as const;
-            const resolvedRole = (allowedRoles as readonly string[]).includes(normalizedRole ?? '')
-              ? (normalizedRole as User['role'])
-              : 'viewer';
+            clearDevBypassTimestamp();
+            // Continue to normal auth flow
+          } else {
+            const devClaims = await tryDevBypassLogin();
+            if (devClaims) {
+              logger.debug('AuthProvider: using dev-bypass claims from /auth/me', {
+                component: 'AuthProvider',
+              });
+              const normalizedRole = typeof devClaims.role === 'string' ? devClaims.role.toLowerCase() : undefined;
+              const allowedRoles = ['admin', 'operator', 'sre', 'compliance', 'auditor', 'viewer'] as const;
+              const resolvedRole = (allowedRoles as readonly string[]).includes(normalizedRole ?? '')
+                ? (normalizedRole as User['role'])
+                : 'viewer';
 
-            setSessionMode('dev_bypass');
-            setUser({
-              id: devClaims.user_id,
-              email: devClaims.email,
-              display_name: devClaims.display_name || devClaims.email,
-              role: resolvedRole,
-              tenant_id: workspaceIdFromTenantId(devClaims.tenant_id),
-              permissions: devClaims.permissions || [],
-              last_login_at: devClaims.last_login_at ?? undefined,
-              mfa_enabled: devClaims.mfa_enabled ?? undefined,
-              token_last_rotated_at: devClaims.token_last_rotated_at ?? undefined,
-              admin_tenants: devClaims.admin_tenants,
-            });
-            setAuthError(null);
-            try {
-              sessionStorage.setItem(AUTH_STORAGE_KEYS.AUTH_SESSION, 'true');
-              sessionStorage.removeItem(AUTH_STORAGE_KEYS.SESSION_EXPIRED);
-            } catch {
-              // ignore storage errors
+              setSessionMode('dev_bypass');
+              setUser({
+                id: devClaims.user_id,
+                email: devClaims.email,
+                display_name: devClaims.display_name || devClaims.email,
+                role: resolvedRole,
+                tenant_id: workspaceIdFromTenantId(devClaims.tenant_id),
+                permissions: devClaims.permissions || [],
+                last_login_at: devClaims.last_login_at ?? undefined,
+                mfa_enabled: devClaims.mfa_enabled ?? undefined,
+                token_last_rotated_at: devClaims.token_last_rotated_at ?? undefined,
+                admin_tenants: devClaims.admin_tenants,
+              });
+              setAuthError(null);
+
+              // If there's no activation timestamp yet, mark it now (first page load after login)
+              // If there is one, just start the timer to track remaining time
+              if (isDevBypassExpired()) {
+                markDevBypassActivated();
+              }
+              startDevBypassTimer();
+
+              try {
+                sessionStorage.setItem(AUTH_STORAGE_KEYS.AUTH_SESSION, 'true');
+                sessionStorage.removeItem(AUTH_STORAGE_KEYS.SESSION_EXPIRED);
+              } catch {
+                // ignore storage errors
+              }
+              clearTimeout(timeoutId);
+              return;
             }
-            clearTimeout(timeoutId);
-            return;
           }
         } else {
           logger.debug('Dev bypass disabled by env; skipping bootstrap', { component: 'AuthProvider' });
@@ -469,7 +559,20 @@ function AuthProvider({ children }: { children: ReactNode }) {
       }
     };
     checkAuth();
-  }, [refreshUser]);
+  }, [refreshUser, startDevBypassTimer]);
+
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (devBypassTimerRef.current) {
+        clearInterval(devBypassTimerRef.current);
+        devBypassTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  // Compute isDevBypassActive from sessionMode and remaining time
+  const isDevBypassActive = sessionMode === 'dev_bypass' && devBypassRemainingMs > 0;
 
   const value: AuthContextValue = {
     user,
@@ -478,6 +581,8 @@ function AuthProvider({ children }: { children: ReactNode }) {
     authTimeout,
     accessToken,
     sessionMode,
+    isDevBypassActive,
+    devBypassRemainingMs,
     login,
     devBypassLogin,
     logout,

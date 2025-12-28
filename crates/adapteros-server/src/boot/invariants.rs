@@ -21,7 +21,7 @@
 
 use adapteros_core::AosError;
 use adapteros_db::adapters::AtomicDualWriteConfig;
-use adapteros_server_api::config::{is_production, Config, InvariantsConfig};
+use adapteros_server_api::config::{is_production, Config};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 use tracing::{error, info, warn};

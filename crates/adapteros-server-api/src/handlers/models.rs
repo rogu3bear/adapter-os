@@ -121,6 +121,7 @@ pub struct AneMemoryStatus {
     pub usage_pct: f32,
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn build_model_status_response(
     state: &AppState,
     model_id: String,

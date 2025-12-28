@@ -73,7 +73,6 @@ pub struct PromoteCPRequest {
     pub plan_id: String,
 }
 
-
 /// Rollback CP request
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct RollbackCPRequest {
@@ -358,7 +357,7 @@ pub struct WorkerInferRequest {
 
     /// BLAKE3 digest of policy decisions applied during request processing
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub policy_mask_digest: Option<[u8; 32]>,
+    pub policy_mask_digest_b3: Option<[u8; 32]>,
 
     /// Enable UTF-8 token healing (default: true)
     /// When enabled, incomplete multi-byte UTF-8 sequences are buffered until complete

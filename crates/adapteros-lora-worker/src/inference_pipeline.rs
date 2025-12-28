@@ -1742,7 +1742,7 @@ fn fallback_decision(
             entropy: 0.0,
             candidates: Vec::new(),
             decision_hash: None,
-            policy_mask_digest: None,
+            policy_mask_digest_b3: None,
             policy_overrides_applied: None,
         };
     }
@@ -1754,7 +1754,7 @@ fn fallback_decision(
             entropy: 0.0,
             candidates: Vec::new(),
             decision_hash: None,
-            policy_mask_digest: None,
+            policy_mask_digest_b3: None,
             policy_overrides_applied: None,
         },
         _ => previous
@@ -1765,7 +1765,7 @@ fn fallback_decision(
                 entropy: 0.0,
                 candidates: Vec::new(),
                 decision_hash: None,
-                policy_mask_digest: None,
+                policy_mask_digest_b3: None,
                 policy_overrides_applied: None,
             }),
     }

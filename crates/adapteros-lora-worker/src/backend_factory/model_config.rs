@@ -1,7 +1,7 @@
+use crate::model_key::ModelCacheIdentity;
 use adapteros_config::{reject_tmp_persistent_path, ConfigLoader, ModelConfig};
 use adapteros_core::{AosError, Result};
 use adapteros_lora_kernel_api::attestation::BackendType;
-use crate::model_key::ModelCacheIdentity;
 use std::path::Path;
 use tracing::{debug, error, warn};
 

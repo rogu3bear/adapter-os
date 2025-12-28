@@ -2619,16 +2619,17 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             }
         }
 
-        let policy_mask_digest: Option<[u8; 32]> = allowed_active_indices.as_ref().map(|allowed| {
-            let mut ordered: Vec<u16> = allowed.iter().map(|idx| *idx as u16).collect();
-            ordered.sort_unstable();
-            let mut buf = Vec::with_capacity(4 + ordered.len() * 2);
-            buf.extend_from_slice(&(ordered.len() as u32).to_le_bytes());
-            for idx in ordered {
-                buf.extend_from_slice(&idx.to_le_bytes());
-            }
-            B3Hash::hash(&buf).to_bytes()
-        });
+        let policy_mask_digest_b3: Option<[u8; 32]> =
+            allowed_active_indices.as_ref().map(|allowed| {
+                let mut ordered: Vec<u16> = allowed.iter().map(|idx| *idx as u16).collect();
+                ordered.sort_unstable();
+                let mut buf = Vec::with_capacity(4 + ordered.len() * 2);
+                buf.extend_from_slice(&(ordered.len() as u32).to_le_bytes());
+                for idx in ordered {
+                    buf.extend_from_slice(&idx.to_le_bytes());
+                }
+                B3Hash::hash(&buf).to_bytes()
+            });
 
         // Build placement state per-request (env + optional override)
         let mut placement_state = if let Some((base_cfg, lanes)) = &self.placement_template {
@@ -3073,7 +3074,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 stack_hash: self.router.stack_hash(),
                 allowed_mask: Some(policy_mask.allowed.clone()),
                 interval_id: Some(fusion_interval.interval_id_for_step(step_with_free)),
-                policy_mask_digest: decision.policy_mask_digest,
+                policy_mask_digest_b3: decision.policy_mask_digest_b3,
                 policy_overrides_applied: decision.policy_overrides_applied.as_ref().map(|flags| {
                     adapteros_api_types::inference::PolicyOverrideFlags {
                         allow_list: flags.allow_list,
@@ -3153,7 +3154,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 decision_hash: decision_hash_payload,
                 previous_hash: previous_chain_hash.clone(),
                 entry_hash: entry_hash.clone(),
-                policy_mask_digest: decision.policy_mask_digest,
+                policy_mask_digest_b3: decision.policy_mask_digest_b3,
                 policy_overrides_applied: decision.policy_overrides_applied.as_ref().map(|flags| {
                     adapteros_api_types::inference::PolicyOverrideFlags {
                         allow_list: flags.allow_list,
@@ -3226,7 +3227,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                     token_index: step_with_free as u32,
                     adapter_ids: adapter_ids_for_trace.clone(),
                     gates_q15: decision.gates_q15.iter().copied().collect(),
-                    policy_mask_digest,
+                    policy_mask_digest_b3,
                     allowed_mask: Some(policy_mask.allowed.clone()),
                     policy_overrides_applied: decision.policy_overrides_applied.as_ref().map(
                         |flags| adapteros_api_types::inference::PolicyOverrideFlags {
@@ -3715,7 +3716,7 @@ mod strict_mode_guard_tests {
             decision_hash: None,
             previous_hash: None,
             entry_hash: "h".into(),
-            policy_mask_digest: None,
+            policy_mask_digest_b3: None,
             policy_overrides_applied: None,
         };
 

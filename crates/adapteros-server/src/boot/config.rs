@@ -356,7 +356,7 @@ fn latest_log_tail(log_dir: &str, prefix: &str, max_lines: usize) -> Vec<String>
                     let is_newer = newest
                         .as_ref()
                         .and_then(|cur| cur.metadata().ok().and_then(|m| m.modified().ok()));
-                    if is_newer.map_or(true, |cur_mod| modified.map_or(false, |m| m > cur_mod)) {
+                    if is_newer.is_none_or(|cur_mod| modified.is_some_and(|m| m > cur_mod)) {
                         newest = Some(p);
                     }
                 }

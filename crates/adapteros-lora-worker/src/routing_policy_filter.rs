@@ -22,7 +22,7 @@ pub fn filter_decision_by_policy(
     adapter_clusters: &[Option<String>],
     policy: Option<&RoutingPolicy>,
 ) -> Result<Decision> {
-    let policy_mask_digest = decision.policy_mask_digest;
+    let policy_mask_digest_b3 = decision.policy_mask_digest_b3;
     let policy_overrides_applied = decision.policy_overrides_applied.clone();
 
     if adapter_ids.len() != adapter_clusters.len() {
@@ -135,7 +135,7 @@ pub fn filter_decision_by_policy(
         entropy: decision.entropy,
         candidates: filtered_candidates,
         decision_hash: decision.decision_hash,
-        policy_mask_digest,
+        policy_mask_digest_b3,
         policy_overrides_applied,
     })
 }
@@ -153,7 +153,7 @@ mod tests {
             entropy: 0.0,
             candidates: Vec::new(),
             decision_hash: None,
-            policy_mask_digest: None,
+            policy_mask_digest_b3: None,
             policy_overrides_applied: None,
         }
     }

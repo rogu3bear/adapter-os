@@ -28,7 +28,7 @@ fn test_router_produces_q15_gates() {
         entropy: 0.5,
         candidates: vec![],
         decision_hash: None,
-        policy_mask_digest: None,
+        policy_mask_digest_b3: None,
         policy_overrides_applied: None,
     };
 
@@ -57,7 +57,7 @@ fn test_decision_to_router_ring_preserves_gates() -> Result<()> {
         entropy: 0.5,
         candidates: vec![],
         decision_hash: None,
-        policy_mask_digest: None,
+        policy_mask_digest_b3: None,
         policy_overrides_applied: None,
     };
 
@@ -102,7 +102,7 @@ fn test_router_ring_preserves_decision_order() -> Result<()> {
         entropy: 0.3,
         candidates: vec![],
         decision_hash: None,
-        policy_mask_digest: None,
+        policy_mask_digest_b3: None,
         policy_overrides_applied: None,
     };
 
@@ -124,7 +124,7 @@ fn test_adapter_strength_scaling() -> Result<()> {
         entropy: 0.5,
         candidates: vec![],
         decision_hash: None,
-        policy_mask_digest: None,
+        policy_mask_digest_b3: None,
         policy_overrides_applied: None,
     };
 
@@ -158,7 +158,7 @@ fn test_e2e_router_to_worker_flow() -> Result<()> {
         entropy: 0.8,
         candidates: vec![],
         decision_hash: None,
-        policy_mask_digest: None,
+        policy_mask_digest_b3: None,
         policy_overrides_applied: None,
     };
 
@@ -196,7 +196,7 @@ fn test_negative_q15_gates() -> Result<()> {
         entropy: 0.5,
         candidates: vec![],
         decision_hash: None,
-        policy_mask_digest: None,
+        policy_mask_digest_b3: None,
         policy_overrides_applied: None,
     };
 
@@ -225,7 +225,7 @@ fn test_empty_decision() -> Result<()> {
         entropy: 0.0,
         candidates: vec![],
         decision_hash: None,
-        policy_mask_digest: None,
+        policy_mask_digest_b3: None,
         policy_overrides_applied: None,
     };
 
@@ -250,7 +250,7 @@ fn test_max_k_decision() -> Result<()> {
         entropy: 1.0,
         candidates: vec![],
         decision_hash: None,
-        policy_mask_digest: None,
+        policy_mask_digest_b3: None,
         policy_overrides_applied: None,
     };
 
@@ -272,7 +272,7 @@ fn test_out_of_bounds_adapter_index() {
         entropy: 0.5,
         candidates: vec![],
         decision_hash: None,
-        policy_mask_digest: None,
+        policy_mask_digest_b3: None,
         policy_overrides_applied: None,
     };
 
@@ -311,7 +311,7 @@ fn test_router_ring_zero_fill() -> Result<()> {
         entropy: 0.5,
         candidates: vec![],
         decision_hash: None,
-        policy_mask_digest: None,
+        policy_mask_digest_b3: None,
         policy_overrides_applied: None,
     };
 

@@ -426,7 +426,7 @@ pub async fn create_training_job(
     let adapter_name = req
         .adapter_name
         .clone()
-        .unwrap_or_else(|| format!("ws-{}-{}", workspace_id, Uuid::now_v7().to_string()));
+        .unwrap_or_else(|| format!("ws-{}-{}", workspace_id, Uuid::now_v7()));
 
     let config = training_config_from_request(req.params.clone());
     let dataset_version_ids = vec![CoreDatasetVersionSelection {
@@ -2781,20 +2781,16 @@ pub async fn get_training_logs(
     Extension(claims): Extension<Claims>,
     Path(job_id): Path<String>,
 ) -> Result<Json<Vec<String>>, (StatusCode, Json<ErrorResponse>)> {
-    let job = state
-        .db
-        .get_training_job(&job_id)
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Failed to get training job")
-                        .with_code("INTERNAL_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
+    let job = state.db.get_training_job(&job_id).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("Failed to get training job")
+                    .with_code("INTERNAL_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
 
     let job = job.ok_or_else(|| {
         (
@@ -2868,8 +2864,10 @@ pub async fn get_training_metrics(
     Extension(claims): Extension<Claims>,
     Path(job_id): Path<String>,
     Query(params): Query<TrainingMetricsQuery>,
-) -> Result<Json<Vec<adapteros_db::training_jobs::TrainingMetricRow>>, (StatusCode, Json<ErrorResponse>)>
-{
+) -> Result<
+    Json<Vec<adapteros_db::training_jobs::TrainingMetricRow>>,
+    (StatusCode, Json<ErrorResponse>),
+> {
     // First verify the job exists and belongs to the caller's tenant
     let job = state
         .db
@@ -2930,8 +2928,10 @@ pub async fn get_training_metrics(
 pub async fn list_training_templates(
     State(_state): State<AppState>,
     Extension(_claims): Extension<Claims>,
-) -> Result<Json<Vec<adapteros_api_types::TrainingTemplateResponse>>, (StatusCode, Json<ErrorResponse>)>
-{
+) -> Result<
+    Json<Vec<adapteros_api_types::TrainingTemplateResponse>>,
+    (StatusCode, Json<ErrorResponse>),
+> {
     // Stub - would return pre-configured training templates
     Ok(Json(vec![]))
 }

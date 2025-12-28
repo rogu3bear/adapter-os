@@ -11,7 +11,9 @@ use super::types::{InitiateChunkedUploadRequest, InitiateChunkedUploadResponse};
 use crate::auth::Claims;
 use crate::citations::build_dataset_index;
 use crate::error_helpers::{bad_request, db_error, forbidden, internal_error, payload_too_large};
-use crate::handlers::chunked_upload::{CompressionFormat, DEFAULT_CHUNK_SIZE, MAX_CHUNK_SIZE, MIN_CHUNK_SIZE};
+use crate::handlers::chunked_upload::{
+    CompressionFormat, DEFAULT_CHUNK_SIZE, MAX_CHUNK_SIZE, MIN_CHUNK_SIZE,
+};
 use crate::permissions::{require_permission, Permission};
 use crate::state::AppState;
 use crate::storage_usage::compute_tenant_storage_usage;

@@ -297,7 +297,7 @@ export default function RepositoriesPage() {
                   <SelectValue placeholder="Workspace" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All tenants</SelectItem>
+                  <SelectItem value="all">All workspaces</SelectItem>
                   {tenantOptions.map(t => (
                     <SelectItem key={t} value={t}>
                       {t === 'unknown' ? 'Unknown' : t}

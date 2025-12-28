@@ -8,7 +8,7 @@ use crate::types::InferenceError;
 use adapteros_api_types::inference::{
     ReplayGuarantee, RouterDecisionChainEntry as ApiRouterDecisionChainEntry,
 };
-use adapteros_core::{determinism_mode::DeterminismMode, BackendKind, B3Hash};
+use adapteros_core::{determinism_mode::DeterminismMode, B3Hash, BackendKind};
 use std::str::FromStr;
 
 /// Compute replay guarantee based on determinism mode and execution path
@@ -187,7 +187,7 @@ mod tests {
             decision_hash: None,
             previous_hash: None,
             entry_hash: "h".into(),
-            policy_mask_digest: None,
+            policy_mask_digest_b3: None,
             policy_overrides_applied: None,
         }];
 
@@ -314,7 +314,7 @@ mod tests {
             decision_hash: None,
             previous_hash: None,
             entry_hash: "h".into(),
-            policy_mask_digest: None,
+            policy_mask_digest_b3: None,
             policy_overrides_applied: None,
         }];
 

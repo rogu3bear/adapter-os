@@ -1,6 +1,8 @@
 //! Response types for API endpoints.
 
-use adapteros_api_types::{InferResponse, ModelLoadStatus, TrainingJobResponse, TrainingTemplateResponse};
+use adapteros_api_types::{
+    InferResponse, ModelLoadStatus, TrainingJobResponse, TrainingTemplateResponse,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;

@@ -645,7 +645,7 @@ impl From<TrainingJob> for TrainingJobResponse {
             artifact_hash_b3,
             aos_path,
             package_hash_b3: package_hash_b3.clone(),
-            manifest_hash_b3: job.manifest_hash_b3.or_else(|| package_hash_b3),
+            manifest_hash_b3: job.manifest_hash_b3.or(package_hash_b3),
             manifest_rank: job.manifest_rank,
             manifest_base_model: job.manifest_base_model,
             manifest_per_layer_hashes: job.manifest_per_layer_hashes,

@@ -113,7 +113,7 @@ export default function PolicyReviewQueue() {
         <div>
           <h1 className="text-3xl font-bold">Policy Review Queue</h1>
           <p className="text-muted-foreground mt-1">
-            Review and approve tenant policy customizations
+            Review and approve workspace policy customizations
           </p>
         </div>
         <Button onClick={() => refetch()} variant="outline" size="sm">

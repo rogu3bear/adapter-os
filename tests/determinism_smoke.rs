@@ -101,7 +101,7 @@ impl TokenFixture {
             token_index: self.token_index,
             adapter_ids: self.adapter_ids.clone(),
             gates_q15: self.gates_q15.clone(),
-            policy_mask_digest: self.policy_digest_bytes()?,
+            policy_mask_digest_b3: self.policy_digest_bytes()?,
             allowed_mask: self.allowed_mask.clone(),
             policy_overrides_applied: self.policy_overrides_applied.clone(),
             backend_id: self.backend_id.clone(),

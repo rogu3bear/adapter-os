@@ -275,10 +275,7 @@ pub async fn create_evidence(
         metadata_json: request.metadata_json.clone(),
     };
 
-    let create_result = state
-        .db
-        .create_evidence_entry_with_params(&params)
-        .await;
+    let create_result = state.db.create_evidence_entry_with_params(&params).await;
 
     // Handle error with synchronous audit logging (not fire-and-forget)
     if let Err(e) = &create_result {

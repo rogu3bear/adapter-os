@@ -1,5 +1,6 @@
 import type { UserInfoResponse } from '@/api/auth-types';
 import { logger } from '@/utils/logger';
+import { AUTH_STORAGE_KEYS, AUTH_DEFAULTS } from './constants';
 
 export function isDevBypassEnabled(): boolean {
   const env = typeof import.meta !== 'undefined' ? import.meta.env : undefined;
@@ -7,6 +8,66 @@ export function isDevBypassEnabled(): boolean {
   const devMode = env?.DEV === true;
   const explicitFlag = env?.VITE_ENABLE_DEV_BYPASS === 'true';
   return Boolean(devMode || explicitFlag);
+}
+
+/**
+ * Record the timestamp when dev bypass was activated.
+ * Used for enforcing the 1-hour session timeout.
+ */
+export function markDevBypassActivated(): void {
+  try {
+    localStorage.setItem(AUTH_STORAGE_KEYS.DEV_BYPASS_ACTIVATED_AT, Date.now().toString());
+    logger.debug('Dev bypass activation timestamp recorded', { component: 'authBootstrap' });
+  } catch {
+    // Ignore storage errors
+  }
+}
+
+/**
+ * Clear the dev bypass activation timestamp.
+ * Called on logout or when session expires.
+ */
+export function clearDevBypassTimestamp(): void {
+  try {
+    localStorage.removeItem(AUTH_STORAGE_KEYS.DEV_BYPASS_ACTIVATED_AT);
+  } catch {
+    // Ignore storage errors
+  }
+}
+
+/**
+ * Check if the dev bypass session has expired (1 hour timeout).
+ * Returns true if expired or if no timestamp exists.
+ */
+export function isDevBypassExpired(): boolean {
+  try {
+    const activatedAt = localStorage.getItem(AUTH_STORAGE_KEYS.DEV_BYPASS_ACTIVATED_AT);
+    if (!activatedAt) {
+      return true; // No timestamp means not activated or cleared
+    }
+    const elapsed = Date.now() - parseInt(activatedAt, 10);
+    return elapsed > AUTH_DEFAULTS.DEV_BYPASS_TIMEOUT_MS;
+  } catch {
+    return true; // Treat storage errors as expired
+  }
+}
+
+/**
+ * Get the remaining time in milliseconds before dev bypass expires.
+ * Returns 0 if expired or no timestamp exists.
+ */
+export function getDevBypassRemainingMs(): number {
+  try {
+    const activatedAt = localStorage.getItem(AUTH_STORAGE_KEYS.DEV_BYPASS_ACTIVATED_AT);
+    if (!activatedAt) {
+      return 0;
+    }
+    const elapsed = Date.now() - parseInt(activatedAt, 10);
+    const remaining = AUTH_DEFAULTS.DEV_BYPASS_TIMEOUT_MS - elapsed;
+    return Math.max(0, remaining);
+  } catch {
+    return 0;
+  }
 }
 
 /**

@@ -62,7 +62,7 @@ async fn create_test_trace(
             token_index: i as u32,
             adapter_ids: vec![format!("adapter-{}", i % 3)],
             gates_q15: vec![(100 + i * 10) as i16],
-            policy_mask_digest: Some(B3Hash::hash(b"policy-mask").to_bytes()),
+            policy_mask_digest_b3: Some(B3Hash::hash(b"policy-mask").to_bytes()),
             allowed_mask: Some(vec![true]),
             policy_overrides_applied: Some(PolicyOverrideFlags {
                 allow_list: true,

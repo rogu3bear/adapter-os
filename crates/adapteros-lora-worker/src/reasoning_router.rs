@@ -290,9 +290,9 @@ impl StreamInspector {
             }
         };
 
-        let cooldown_ready = self.last_swap_token.is_none_or(|last| {
-            token_index.saturating_sub(last) >= self.config.debounce_tokens
-        });
+        let cooldown_ready = self
+            .last_swap_token
+            .is_none_or(|last| token_index.saturating_sub(last) >= self.config.debounce_tokens);
 
         info!(
             "Reasoning decision: [Thought: \"{}\"] -> [Transition: {} -> {}] -> [Score: {:.2}]",

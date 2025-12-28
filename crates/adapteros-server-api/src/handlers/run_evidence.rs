@@ -127,8 +127,8 @@ fn trace_receipt_to_ref(receipt: &TraceReceipt) -> InferenceReceiptRef {
         billed_output_tokens: receipt.billed_output_tokens,
         stop_reason_code: receipt.stop_reason_code.clone(),
         stop_reason_token_index: receipt.stop_reason_token_index,
-        stop_policy_digest_b3: receipt.stop_policy_digest_b3.clone(),
-        model_cache_identity_v2_digest_b3: receipt.model_cache_identity_v2_digest_b3.clone(),
+        stop_policy_digest_b3: receipt.stop_policy_digest_b3,
+        model_cache_identity_v2_digest_b3: receipt.model_cache_identity_v2_digest_b3,
     }
 }
 
@@ -403,6 +403,7 @@ pub async fn download_run_evidence(
     ));
     let run_id_for_placeholder = run_id.clone();
     let envelope_warnings_clone = envelope_warnings.clone();
+    let has_envelope = run_envelope_bytes.is_some();
     files.push((
         "run_envelope.json".to_string(),
         run_envelope_bytes.unwrap_or_else(|| {
@@ -443,7 +444,7 @@ pub async fn download_run_evidence(
         "manifest_hash": metadata.manifest_hash,
         "bundle_size_bytes": buffer.len(),
         "warnings_count": warnings.len(),
-        "has_envelope": run_envelope_bytes.is_some(),
+        "has_envelope": has_envelope,
     });
     if let Err(e) = state
         .db

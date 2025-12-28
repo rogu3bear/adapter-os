@@ -715,8 +715,8 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
                 // Validate the request and prepare response (all sync operations)
                 // Lock must be dropped before any async operations
                 enum KeyUpdateOutcome {
-                    Error(String, usize),          // error_msg, key_count
-                    Success(String, usize),        // new_kid, key_count
+                    Error(String, usize),   // error_msg, key_count
+                    Success(String, usize), // new_kid, key_count
                 }
 
                 let outcome = {

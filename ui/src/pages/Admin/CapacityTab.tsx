@@ -215,7 +215,7 @@ export function CapacityTab() {
               <div className="text-sm text-muted-foreground">Adapters Loaded</div>
               <div className="text-2xl font-bold">{data.usage.adapters_loaded}</div>
               {data.limits.models_per_tenant && (
-                <div className="text-xs text-muted-foreground">Limit: {data.limits.models_per_tenant} per tenant</div>
+                <div className="text-xs text-muted-foreground">Limit: {data.limits.models_per_tenant} per workspace</div>
               )}
             </div>
             <div>

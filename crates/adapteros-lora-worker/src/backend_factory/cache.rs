@@ -80,7 +80,7 @@ pub fn validate_model_cache_budget() -> Result<u64> {
             );
             Ok(budget_bytes)
         }
-        Err(e) => {
+        Err(_e) => {
             // Build a helpful error message with context
             let mut error_msg = String::from("Model cache budget not configured.\n\n");
 

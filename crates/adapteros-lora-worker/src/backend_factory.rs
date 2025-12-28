@@ -17,8 +17,8 @@ mod model_io;
 pub use cache::{configure_model_cache_telemetry, get_model_cache, validate_model_cache_budget};
 pub use capabilities::{
     auto_select_backend, auto_select_backend_with_model, describe_available_backends,
-    detect_capabilities, is_moe_model, select_backend_from_execution_profile,
-    BackendCapabilities, BackendSelection, BackendStrategy, SelectionContext,
+    detect_capabilities, is_moe_model, select_backend_from_execution_profile, BackendCapabilities,
+    BackendSelection, BackendStrategy, SelectionContext,
 };
 pub use model_io::load_model_bytes_verified;
 
@@ -28,10 +28,10 @@ use adapteros_config::{model, reject_tmp_persistent_path, BackendPreference, Mod
 use adapteros_core::{constants::BYTES_PER_MB, AosError, B3Hash, Result};
 use adapteros_lora_kernel_api::attestation::BackendType;
 use adapteros_lora_kernel_api::FusedKernels;
-use model_io::{compute_model_directory_hash, load_model_bytes_atomic_verified, verify_model_integrity};
+use model_io::load_model_bytes_atomic_verified;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tracing::{debug, error, info, warn};
+use tracing::{info, warn};
 
 #[cfg(any(target_os = "macos", feature = "multi-backend"))]
 use model_config::{build_model_cache_identity, load_and_validate_model_config};

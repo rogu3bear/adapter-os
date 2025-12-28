@@ -162,7 +162,7 @@ fn make_token_input(
         token_index,
         adapter_ids,
         gates_q15,
-        policy_mask_digest: None,
+        policy_mask_digest_b3: None,
         allowed_mask: None,
         policy_overrides_applied: None,
         backend_id: None,

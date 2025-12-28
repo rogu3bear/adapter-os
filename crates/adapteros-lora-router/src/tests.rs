@@ -336,8 +336,7 @@ fn test_router_with_policy_config_entropy_floor() {
         ..Default::default()
     };
 
-    let router =
-        Router::new_with_policy_config(RouterWeights::default(), 3, 1.0, &policy_config);
+    let router = Router::new_with_policy_config(RouterWeights::default(), 3, 1.0, &policy_config);
 
     // Verify that the entropy floor is read from policy config
     assert_eq!(
@@ -355,8 +354,7 @@ fn test_router_with_policy_config_sample_tokens() {
         ..Default::default()
     };
 
-    let router =
-        Router::new_with_policy_config(RouterWeights::default(), 3, 1.0, &policy_config);
+    let router = Router::new_with_policy_config(RouterWeights::default(), 3, 1.0, &policy_config);
 
     // Verify that sample tokens is read from policy config
     assert_eq!(
@@ -374,8 +372,7 @@ fn test_router_with_policy_config_k_sparse_clamping() {
     };
 
     // Try to create router with k=6 (exceeds policy limit)
-    let router =
-        Router::new_with_policy_config(RouterWeights::default(), 6, 1.0, &policy_config);
+    let router = Router::new_with_policy_config(RouterWeights::default(), 6, 1.0, &policy_config);
 
     // Verify that k is clamped to policy maximum
     assert_eq!(router.k, 4, "K should be clamped to policy maximum");
@@ -568,16 +565,14 @@ fn test_route_gates_follow_deterministic_softmax_path() {
         })
         .collect();
 
-    let mut router =
-        Router::new_with_weights(RouterWeights::default(), priors.len(), 1.0, 0.01);
+    let mut router = Router::new_with_weights(RouterWeights::default(), priors.len(), 1.0, 0.01);
     let mask = mask_all(&adapter_info);
     let decision = router
         .route_with_adapter_info(&features, &priors, &adapter_info, &mask)
         .expect("router decision");
 
     // Recreate the router's top-k ordering
-    let mut scores: Vec<(usize, f32)> =
-        priors.iter().enumerate().map(|(i, &p)| (i, p)).collect();
+    let mut scores: Vec<(usize, f32)> = priors.iter().enumerate().map(|(i, &p)| (i, p)).collect();
     scores.sort_by(|a, b| {
         b.1.partial_cmp(&a.1)
             .unwrap_or(std::cmp::Ordering::Equal)
@@ -699,8 +694,7 @@ fn test_seed_changes_can_shift_routing() {
         .expect("router decision");
 
     assert!(
-        decision_a.indices != decision_b.indices
-            || decision_a.gates_q15 != decision_b.gates_q15,
+        decision_a.indices != decision_b.indices || decision_a.gates_q15 != decision_b.gates_q15,
         "Different seed contexts should change routing choices or gates when priors differ"
     );
 }
@@ -871,8 +865,7 @@ fn test_decision_hash_reproducibility() {
 #[test]
 fn test_ieee754_deterministic_flag() {
     // Test that the IEEE 754 deterministic flag is respected
-    let mut router_deterministic =
-        Router::new_with_weights(RouterWeights::default(), 3, 1.0, 0.02);
+    let mut router_deterministic = Router::new_with_weights(RouterWeights::default(), 3, 1.0, 0.02);
     let mut router_standard = Router::new_with_weights(RouterWeights::default(), 3, 1.0, 0.02);
 
     // Enable deterministic mode for first router
@@ -959,8 +952,7 @@ fn test_abstain_thresholds_from_policy_config() {
     policy_config.abstain_entropy_threshold = Some(0.9);
     policy_config.abstain_confidence_threshold = Some(0.3);
 
-    let router =
-        Router::new_with_policy_config(RouterWeights::default(), 3, 1.0, &policy_config);
+    let router = Router::new_with_policy_config(RouterWeights::default(), 3, 1.0, &policy_config);
 
     // Verify that thresholds are set from policy config
     assert_eq!(
@@ -1226,7 +1218,7 @@ fn test_q15_decision_gates_f32_method() {
         entropy: 0.5,
         candidates: vec![],
         decision_hash: None,
-        policy_mask_digest: None,
+        policy_mask_digest_b3: None,
         policy_overrides_applied: None,
     };
 

@@ -58,6 +58,7 @@ use tracing::{debug, error, info, warn};
 /// # Errors
 ///
 /// Returns error if strict mode is enabled and a critical task fails to spawn
+#[allow(clippy::too_many_arguments)]
 pub async fn spawn_all_background_tasks(
     state: &AppState,
     db: &Db,

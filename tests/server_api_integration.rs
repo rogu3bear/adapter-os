@@ -238,7 +238,7 @@ fn build_stub_router_chain(adapter_id: &str) -> Vec<RouterDecisionChainEntry> {
         decision_hash: None,
         previous_hash: None,
         entry_hash: B3Hash::hash(format!("{adapter_id}-step-0").as_bytes()).to_hex(),
-        policy_mask_digest: None,
+        policy_mask_digest_b3: None,
         policy_overrides_applied: None,
     }]
 }

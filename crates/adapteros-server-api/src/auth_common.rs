@@ -90,10 +90,20 @@ impl<'a> AuthConfig<'a> {
     }
 
     /// Whether dev login is allowed under the current config.
-    /// Requires explicit opt-in via `dev_login_enabled` regardless of production mode.
-    /// This allows staging/QA environments to use dev bypass when explicitly configured.
+    /// Security: Also checks ADAPTEROS_ENV runtime variable.
     pub fn dev_login_allowed(&self) -> bool {
-        self.dev_login_enabled && cfg!(all(feature = "dev-bypass", debug_assertions))
+        // Compile-time check: must be debug build with dev-bypass feature
+        if !cfg!(all(feature = "dev-bypass", debug_assertions)) {
+            return false;
+        }
+
+        // Runtime check: environment must be explicitly set to development
+        let is_dev_env = std::env::var("ADAPTEROS_ENV")
+            .map(|v| v == "development" || v == "dev")
+            .unwrap_or(false);
+
+        // Both config flag AND dev environment must be true
+        self.dev_login_enabled && is_dev_env
     }
 
     /// Cookie expiration instant for the current TTL.

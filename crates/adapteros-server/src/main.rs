@@ -3,6 +3,13 @@
 //! This is the main entry point for the control plane server. Boot logic is
 //! modularized in the `boot` module for testability.
 
+// We intentionally use map_err for boot phase error tracking to capture
+// errors in the BootStateManager before propagating them. This is clearer
+// than using inspect_err when we need to call methods on the error.
+#![allow(clippy::manual_inspect)]
+// B3Hash and RuntimeMode are Copy but cloning for clarity in state construction
+#![allow(clippy::clone_on_copy)]
+
 mod assets;
 
 use adapteros_server::boot::api_config::{build_api_config, spawn_sighup_handler};
@@ -214,9 +221,9 @@ async fn main() -> Result<()> {
             shutdown_coordinator,
             executor_ctx.background_tasks.clone(),
             &db_ctx.boot_state,
-            db_ctx.runtime_mode.clone(),
+            db_ctx.runtime_mode,
             db_ctx.tick_ledger.clone(),
-            executor_ctx.manifest_hash.clone(),
+            executor_ctx.manifest_hash,
             cli.strict,
         )
         .await?;

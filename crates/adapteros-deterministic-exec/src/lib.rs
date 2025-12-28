@@ -25,7 +25,7 @@ pub mod multi_agent;
 pub mod select;
 
 use std::{
-    collections::VecDeque,
+    collections::{HashSet, VecDeque},
     future::Future,
     pin::Pin,
     sync::{
@@ -202,15 +202,12 @@ pub type Result<T> = std::result::Result<T, DeterministicExecutorError>;
 /// Handle for a spawned deterministic task
 pub struct DeterministicJoinHandle {
     task_id: TaskId,
-    _executor: Arc<DeterministicExecutor>,
+    executor: Arc<DeterministicExecutor>,
 }
 
 impl DeterministicJoinHandle {
     pub fn new(task_id: TaskId, executor: Arc<DeterministicExecutor>) -> Self {
-        Self {
-            task_id,
-            _executor: executor,
-        }
+        Self { task_id, executor }
     }
 
     /// Abort the task
@@ -227,12 +224,9 @@ impl DeterministicJoinHandle {
 
     /// Check if the task has finished
     ///
-    /// For now, returns false since we don't track completion state.
-    /// In a real implementation, this would check the task's completion status.
+    /// Returns true if the task has completed execution.
     pub fn is_finished(&self) -> bool {
-        // Stub: we don't currently track task completion state
-        // Return false to trigger abort behavior in shutdown
-        false
+        self.executor.is_task_finished(self.task_id)
     }
 }
 
@@ -469,6 +463,8 @@ pub struct DeterministicExecutor {
     pinned_threads: Mutex<Vec<ThreadId>>,
     /// Global tick ledger (optional, for cross-host tracking)
     global_ledger: Option<Arc<global_ledger::GlobalTickLedger>>,
+    /// Set of completed task IDs for is_finished() checks
+    completed_tasks: Mutex<HashSet<TaskId>>,
 }
 
 impl DeterministicExecutor {
@@ -500,6 +496,7 @@ impl DeterministicExecutor {
             running: Arc::new(AtomicU64::new(0)),
             pinned_threads: Mutex::new(Vec::new()),
             global_ledger: None,
+            completed_tasks: Mutex::new(HashSet::new()),
         }
     }
 
@@ -511,6 +508,14 @@ impl DeterministicExecutor {
         let mut executor = Self::new(config);
         executor.global_ledger = Some(ledger);
         executor
+    }
+
+    /// Check if a task has finished
+    ///
+    /// Returns true if the task has completed execution, false if it's
+    /// still pending or if the task ID is unknown.
+    pub fn is_task_finished(&self, task_id: TaskId) -> bool {
+        self.completed_tasks.lock().contains(&task_id)
     }
 
     /// Spawn a deterministic task
@@ -639,6 +644,9 @@ impl DeterministicExecutor {
                 Poll::Ready(()) => {
                     let completion_tick = self.tick_counter.load(Ordering::Relaxed);
                     let duration_ticks = completion_tick - task.spawn_tick;
+
+                    // Record task as completed for is_finished() checks
+                    self.completed_tasks.lock().insert(task.id);
 
                     debug!(
                         task_id = %task.id,

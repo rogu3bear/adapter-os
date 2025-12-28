@@ -6,7 +6,7 @@ use crate::types::*;
 use adapteros_api_types::workers::{
     WorkerRegistrationRequest, WorkerRegistrationResponse, WorkerStatusNotification,
 };
-use adapteros_config::{reject_tmp_persistent_path, reject_tmp_socket};
+use adapteros_config::reject_tmp_socket;
 use adapteros_core::{identity::IdentityEnvelope, version::API_SCHEMA_VERSION, WorkerStatus};
 use adapteros_db::users::Role;
 use adapteros_db::workers::{is_schema_compatible, WorkerRegistrationParams};
@@ -93,25 +93,13 @@ pub async fn worker_spawn(
             not_found_with_details("node not found", format!("Node ID: {}", req.node_id))
         })?;
 
-    // Prepare spawn request for node agent with config propagation
-    let mut spawn_req = serde_json::json!({
+    // Prepare spawn request for node agent
+    let spawn_req = serde_json::json!({
         "tenant_id": req.tenant_id,
         "plan_id": req.plan_id,
-        "uid": req.uid,
-        "gid": req.gid,
+        "node_id": req.node_id,
+        "uds_path": req.uds_path,
     });
-
-    // Include model cache budget if provided (critical for worker startup)
-    if let Some(cache_mb) = req.model_cache_max_mb {
-        spawn_req["model_cache_max_mb"] = serde_json::json!(cache_mb);
-    }
-
-    // Include config TOML path if provided
-    if let Some(config_path) = &req.config_toml_path {
-        reject_tmp_persistent_path(std::path::Path::new(config_path), "config-toml")
-            .map_err(|e| internal_error_msg("config TOML path validation failed", e))?;
-        spawn_req["config_toml_path"] = serde_json::json!(config_path);
-    }
 
     // Send HTTP POST to node agent
     let client = reqwest::Client::builder()
