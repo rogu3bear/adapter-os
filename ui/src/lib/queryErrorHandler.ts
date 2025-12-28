@@ -26,8 +26,8 @@ export function createQueryErrorHandler() {
 
     if (failureCode === 'TENANT_ACCESS_DENIED' || (err as { status?: number }).status === 403) {
       window.dispatchEvent(new CustomEvent(TENANT_ACCESS_DENIED_EVENT, { detail: err }));
-      toast.error('Tenant access denied', {
-        description: 'Select a permitted tenant and try again. (TENANT_ACCESS_DENIED)',
+      toast.error('Workspace access denied', {
+        description: 'Select a permitted workspace and try again. (TENANT_ACCESS_DENIED)',
       });
       return;
     }
@@ -55,4 +55,3 @@ export function createQueryErrorHandler() {
     });
   };
 }
-

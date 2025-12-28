@@ -75,7 +75,7 @@ export function TenantFormModal({ open, onOpenChange, tenant }: TenantFormModalP
     <FormModalWithHookForm
       open={open}
       onOpenChange={onOpenChange}
-      title={isEdit ? 'Edit Organization' : 'Create Organization'}
+      title={isEdit ? 'Edit Workspace' : 'Create Workspace'}
       description={
         isEdit
           ? 'Update organization configuration'

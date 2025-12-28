@@ -39,14 +39,14 @@ export const StackFormSchema = z.object({
 export type StackFormData = z.infer<typeof StackFormSchema>;
 
 /**
- * Tenant Form Schema
+ * Workspace Form Schema
  * Validates tenant creation and update parameters
  * Maps to CreateTenantRequest in API types
  */
 export const TenantFormSchema = z.object({
   name: z
     .string()
-    .min(1, 'Tenant name is required')
+    .min(1, 'Workspace name is required')
     .min(3, 'Name must be at least 3 characters')
     .max(100, 'Name must be at most 100 characters')
     .regex(

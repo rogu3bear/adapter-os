@@ -168,7 +168,7 @@ export function PromotionWorkflowExample({
                 <CardContent className="space-y-3">
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <p className="text-xs text-muted-foreground">Organization</p>
+                      <p className="text-xs text-muted-foreground">Workspace</p>
                       <p className="font-medium">{selectedTenant}</p>
                     </div>
                     <div>

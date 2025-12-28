@@ -258,7 +258,7 @@ describe('ChatInterface - Mock Factory Example', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText('Default stack for tenant')).toBeTruthy();
+      expect(screen.getByText('Default stack for this workspace')).toBeTruthy();
     });
   });
 

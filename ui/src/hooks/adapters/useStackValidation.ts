@@ -154,15 +154,15 @@ const validateSemanticNaming = (adapters: StackAdapter[], stackName?: string): V
   adapters.forEach((item) => {
     const nameParts = item.adapter.name.split('/');
     if (nameParts.length < 4) {
-      issues.push({
-        level: 'warning',
-        category: 'Semantic Naming',
-        message: `Adapter "${item.adapter.name}" doesn't follow semantic naming format`,
-        adapter: item.adapter.name,
-        suggestion:
-          'Use format: {tenant}/{domain}/{purpose}/{revision} (e.g., tenant-a/engineering/code-review/r001)',
-      });
-    }
+        issues.push({
+          level: 'warning',
+          category: 'Semantic Naming',
+          message: `Adapter "${item.adapter.name}" doesn't follow semantic naming format`,
+          adapter: item.adapter.name,
+          suggestion:
+            'Use format: {workspace}/{domain}/{purpose}/{revision} (e.g., workspace-a/engineering/code-review/r001)',
+        });
+      }
 
     // Check for revision gap (max 5)
     if (nameParts.length === 4) {

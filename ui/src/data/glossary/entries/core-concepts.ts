@@ -3,18 +3,18 @@ import type { GlossaryEntry } from '@/data/glossary/types';
 export const coreConceptsEntries: GlossaryEntry[] = [
   {
     id: 'tenant',
-    term: 'Tenant',
+    term: 'Workspace',
     category: 'core-concepts',
     content: {
-      brief: 'A tenant is the top-level isolation unit in AdapterOS, representing a user, organization, or environment with complete resource separation.',
-      detailed: `A tenant provides strong isolation boundaries for adapters, stacks, training jobs, policies, and telemetry. Each tenant operates independently with its own namespace, permissions, and resource quotas.
+      brief: 'A workspace is the top-level isolation unit in AdapterOS, representing a user, organization, or environment with complete resource separation.',
+      detailed: `A workspace provides strong isolation boundaries for adapters, stacks, training jobs, policies, and telemetry. Each workspace operates independently with its own namespace, permissions, and resource quotas.
 
-Tenants enable multi-user deployments where different organizations or teams can share the same AdapterOS installation without interference. All resources (adapters, datasets, execution plans) are scoped to a tenant.
+Workspaces enable multi-user deployments where different organizations or teams can share the same AdapterOS installation without interference. All resources (adapters, datasets, execution plans) are scoped to a workspace.
 
-Common tenant patterns include: production/staging environments, per-customer deployments in SaaS scenarios, or departmental isolation within an organization. Tenant IDs follow the format \`tenant/domain/purpose/revision\` for hierarchical organization.`,
+Common workspace patterns include: production/staging environments, per-customer deployments in SaaS scenarios, or departmental isolation within an organization. Workspace IDs follow the format \`workspace/domain/purpose/revision\` for hierarchical organization.`,
     },
     relatedTerms: ['adapter', 'stack', 'isolation', 'rbac'],
-    aliases: ['tenancy', 'tenant-id', 'tenant isolation'],
+    aliases: ['workspace', 'workspace-id', 'workspace isolation'],
   },
   {
     id: 'adapter',
@@ -36,7 +36,7 @@ Typical adapter sizes range from 10-50MB (compared to multi-GB base models), ena
     term: 'Stack',
     category: 'core-concepts',
     content: {
-      brief: 'A stack is a tenant-scoped collection of adapters with execution rules (workflow type, policies) that defines how adapters are combined for inference.',
+      brief: 'A stack is a workspace-scoped collection of adapters with execution rules (workflow type, policies) that defines how adapters are combined for inference.',
       detailed: `Stacks orchestrate multiple adapters to handle complex tasks requiring different specializations. Each stack specifies a workflow type (Sequential, Parallel, or UpstreamDownstream) that controls execution order and data flow.
 
 Stacks are the primary unit of inference deployment. When you send an inference request, you target a specific stack, and the router selects the most relevant adapters from that stack's membership. Stacks can be activated/deactivated for deployment control.
@@ -84,7 +84,7 @@ Deterministic kernels are critical for reproducible inference: identical inputs 
       brief: 'The base model is the foundation large language model (e.g., Qwen, Llama) that adapters specialize without modifying its frozen weights.',
       detailed: `Base models provide general language understanding and generation capabilities. In AdapterOS, base models remain immutable during inference and training—only adapter weights are learned or modified.
 
-Supported base models include Qwen 2.5 (7B/14B/32B), Llama 3, and compatible architectures. Base models are stored separately from adapters and shared across all tenants to minimize storage.
+Supported base models include Qwen 2.5 (7B/14B/32B), Llama 3, and compatible architectures. Base models are stored separately from adapters and shared across all workspaces to minimize storage.
 
 The base model's architecture determines adapter compatibility: rank dimensions, attention heads, and layer counts must match. AdapterOS validates adapter-to-base-model compatibility during registration to prevent runtime errors.`,
     },
@@ -144,7 +144,7 @@ UpstreamDownstream workflows split execution into two phases: upstream adapters 
       brief: 'Telemetry is the structured event logging system that creates an immutable audit trail of all inference, training, and system operations in canonical JSON format.',
       detailed: `Every significant operation in AdapterOS emits telemetry events: adapter loads, inference requests, policy checks, training steps. Events are timestamped, signed, and linked in a Merkle chain for integrity.
 
-Telemetry events follow a canonical schema with strict versioning. They include: event type, timestamp, actor (user/system), resources (adapter IDs, tenant), operation details, and outcome (success/error).
+Telemetry events follow a canonical schema with strict versioning. They include: event type, timestamp, actor (user/system), resources (adapter IDs, workspace), operation details, and outcome (success/error).
 
 Telemetry enables: compliance auditing (who did what when), debugging (trace request flow), performance analysis (latency breakdowns), and determinism verification (replay golden runs). Events are stored in SQLite WAL mode and archived in signed bundles.`,
     },
@@ -332,7 +332,7 @@ The hot swap system (\`adapteros-lora-worker/adapter_hotswap.rs\`) manages memor
 
 Policies are defined in TOML, cryptographically signed (Ed25519), and enforced by the policy engine. Violations can trigger: request rejection, adapter unloading, alerts, or logging.
 
-Policies are scoped to tenants or stacks. Stack policies override tenant policies for specific workflows. Policy evaluation is logged in telemetry for audit trails.
+Policies are scoped to workspaces or stacks. Stack policies override workspace policies for specific workflows. Policy evaluation is logged in telemetry for audit trails.
 
 Use \`aosctl policy list\` to view active policies, \`aosctl policy validate\` to check compliance, and \`aosctl policy sign\` to approve new policies (requires Admin role).`,
     },

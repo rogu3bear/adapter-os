@@ -205,7 +205,7 @@ export const systemEntries: GlossaryEntry[] = [
     category: 'system',
     content: {
       brief: 'Concurrent active user or service sessions currently using the system.',
-      detailed: 'Active sessions represent authenticated users or services with valid JWT tokens currently interacting with AdapterOS. Session count affects resource allocation, rate limiting, and capacity planning. Each session maintains state including tenant context, permissions, and request history for audit logging.'
+      detailed: 'Active sessions represent authenticated users or services with valid JWT tokens currently interacting with AdapterOS. Session count affects resource allocation, rate limiting, and capacity planning. Each session maintains state including workspace context, permissions, and request history for audit logging.'
     },
     relatedTerms: ['worker'],
     aliases: ['concurrent sessions', 'user sessions', 'active users']

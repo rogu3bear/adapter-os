@@ -48,6 +48,33 @@ export interface QuarantineStatusResponse {
 }
 
 /**
+ * Peer sync summary (derived from federation daemon)
+ * Source: PeerSyncSummary in handlers/federation.rs
+ */
+export interface PeerSyncSummary {
+  peer_id: string;
+  host: string;
+  in_sync: boolean;
+  last_sync_at?: string;
+}
+
+/**
+ * Federation sync status response
+ * Source: FederationSyncStatusResponse in handlers/federation.rs
+ */
+export interface FederationSyncStatusResponse {
+  schema_version: string;
+  syncing: boolean;
+  progress_pct: number;
+  peers_in_sync: number;
+  peers_out_of_sync: number;
+  total_peers: number;
+  peers: PeerSyncSummary[];
+  last_sync_at?: string;
+  timestamp: string;
+}
+
+/**
  * Release quarantine request
  * Used with POST /v1/federation/release-quarantine
  */

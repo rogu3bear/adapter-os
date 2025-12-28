@@ -127,9 +127,9 @@ describe('StartTrainingForm dataset version handling', () => {
 
     await waitFor(() => expect(listDatasetsMock).toHaveBeenCalled());
 
-    const adapterInput = screen.getByPlaceholderText('organization/domain/purpose/r001');
+    const adapterInput = screen.getByPlaceholderText('workspace/domain/purpose/r001');
     await userEvent.clear(adapterInput);
-    await userEvent.type(adapterInput, 'tenant/domain/task/r001');
+    await userEvent.type(adapterInput, 'workspace/domain/task/r001');
 
     const submit = screen.getByRole('button', { name: /start training/i });
     expect(submit).toBeEnabled();
@@ -166,9 +166,9 @@ describe('StartTrainingForm dataset version handling', () => {
 
     await waitFor(() => expect(listDatasetsMock).toHaveBeenCalled());
 
-    const adapterInput = screen.getByPlaceholderText('organization/domain/purpose/r001');
+    const adapterInput = screen.getByPlaceholderText('workspace/domain/purpose/r001');
     await userEvent.clear(adapterInput);
-    await userEvent.type(adapterInput, 'tenant/domain/task/r001');
+    await userEvent.type(adapterInput, 'workspace/domain/task/r001');
 
     // Click the "Data" tab to see the dataset version error
     const dataTab = screen.getByRole('tab', { name: /data/i });
@@ -187,7 +187,7 @@ describe('StartTrainingForm dataset version handling', () => {
     await waitFor(() => {
       expect(
         screen.getByText(
-          'This high-assurance tenant requires dataset versions. Please create a dataset version before training.',
+          'This high-assurance workspace requires dataset versions. Please create a dataset version before training.',
         ),
       ).toBeInTheDocument();
     });

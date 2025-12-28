@@ -223,14 +223,14 @@ export default function AdminDashboard() {
   // Quick actions
   const quickActions = [
     {
-      label: 'Create Tenant',
+      label: 'Create Workspace',
       icon: Building2,
       color: 'text-blue-600',
       helpId: 'admin-create-tenant',
       onClick: () => navigate(buildAdminTenantsLink({ action: 'create' })),
     },
     {
-      label: 'Manage Tenants',
+      label: 'Manage Workspaces',
       icon: Users,
       color: 'text-purple-600',
       helpId: 'admin-manage-tenants',
@@ -278,14 +278,14 @@ export default function AdminDashboard() {
 
       {isDemo && <DemoControls onRefresh={handleRefresh} />}
 
-      {/* Organization Summary */}
-      <SectionErrorBoundary sectionName="Organization Summary">
+      {/* Workspace Summary */}
+      <SectionErrorBoundary sectionName="Workspace Summary">
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Building2 className="h-5 w-5" />
-                <span>Organization Summary</span>
+                <span>Workspace Summary</span>
               </div>
               <Button variant="ghost" size="sm" onClick={() => navigate(buildAdminTenantsLink())}>
                 View All
@@ -301,7 +301,7 @@ export default function AdminDashboard() {
             ) : tenantsError ? (
               <Alert variant="destructive">
                 <AlertTriangle className="h-4 w-4" />
-                <AlertTitle>Failed to load tenants</AlertTitle>
+                <AlertTitle>Failed to load workspaces</AlertTitle>
                 <AlertDescription>
                   {tenantsError instanceof Error
                     ? tenantsError.message
@@ -316,7 +316,7 @@ export default function AdminDashboard() {
                   </p>
                   <p className="text-sm text-muted-foreground flex items-center gap-1">
                     <GlossaryTooltip brief="Workspaces your teams use" variant="inline">
-                      <span>Workspaces (Tenants)</span>
+                      <span>Workspaces</span>
                     </GlossaryTooltip>
                   </p>
                 </div>

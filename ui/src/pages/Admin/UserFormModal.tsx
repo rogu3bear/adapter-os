@@ -198,17 +198,17 @@ export function UserFormModal({ open, onOpenChange, user }: UserFormModalProps) 
             {/* Tenant (only for create) */}
             {!isEdit && tenants && tenants.length > 0 && (
               <div className="grid gap-2">
-                <Label htmlFor="tenant_id">Organization</Label>
+                <Label htmlFor="tenant_id">Workspace</Label>
                 <Select
                   value={selectedTenantId || '__none__'}
                   onValueChange={(value) => setValue('tenant_id', value === '__none__' ? undefined : value)}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="Select an organization (optional)" />
+                    <SelectValue placeholder="Select a workspace (optional)" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="__none__">
-                      <span className="text-muted-foreground">Global (no organization)</span>
+                      <span className="text-muted-foreground">Global (no workspace)</span>
                     </SelectItem>
                     {tenants.map((tenant) => (
                       <SelectItem key={tenant.id} value={tenant.id}>

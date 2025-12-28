@@ -124,7 +124,7 @@ const buildScreenContext = (pageTitle: string): CopilotScreenContext => {
   const heading = readHeading();
   const breadcrumbs = readBreadcrumbs();
   const testIds = readActiveTestIds();
-  const headingLabel = heading || pageTitle || 'Tenant Settings';
+  const headingLabel = heading || pageTitle || 'Workspace Settings';
   const breadcrumbsSentence = breadcrumbs.length ? `Breadcrumbs: ${breadcrumbs.join(' > ')}.` : '';
   const testIdSentence = testIds.length ? `Active test IDs: ${testIds.join(', ')}.` : '';
 

@@ -420,7 +420,7 @@ export function useEnhancedActionHistory(options: HistoryStorageOptions = {}) {
         2
       );
     } else if (options.format === 'csv') {
-      const headers = ['ID', 'Action', 'Resource', 'Timestamp', 'Description', 'Status', 'Duration (ms)', 'User ID', 'Tenant ID', 'Tags'];
+      const headers = ['ID', 'Action', 'Resource', 'Timestamp', 'Description', 'Status', 'Duration (ms)', 'User ID', 'Workspace ID', 'Tags'];
       const rows = actionsToExport.map((action) => [
         action.id,
         action.action,
@@ -448,7 +448,7 @@ export function useEnhancedActionHistory(options: HistoryStorageOptions = {}) {
         markdown += `- **Status:** ${action.status}\n`;
         if (action.duration) markdown += `- **Duration:** ${action.duration}ms\n`;
         if (action.userId) markdown += `- **User:** ${action.userId}\n`;
-        if (action.tenantId) markdown += `- **Tenant:** ${action.tenantId}\n`;
+        if (action.tenantId) markdown += `- **Workspace:** ${action.tenantId}\n`;
         if (action.tags && action.tags.length > 0) markdown += `- **Tags:** ${action.tags.join(', ')}\n`;
         if (action.errorMessage) markdown += `- **Error:** ${action.errorMessage}\n`;
         markdown += '\n';

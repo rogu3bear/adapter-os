@@ -10,6 +10,19 @@ import type { ReplayResponse } from '@/api/replay-types';
 import type { ChatSessionWithStatus } from '@/api/chat-types';
 import type { AdapterLoadingItem } from '@/hooks/model-loading/types';
 
+export interface RunMetadata {
+  runId?: string;
+  requestId?: string;
+  traceId?: string;
+  manifestHashB3?: string;
+  policyMaskDigestB3?: string;
+  planId?: string;
+  workerId?: string;
+  reasoningMode?: string;
+  seedMaterial?: string | number;
+  seededViaHkdf?: boolean;
+}
+
 /**
  * Evidence item for RAG-based responses
  */
@@ -92,6 +105,10 @@ export interface ChatMessage {
   throughputStats?: ThroughputStats;
   /** Per-token streaming metadata for kernel/debug view */
   tokenStream?: TokenStreamEntry[];
+  /** Run-level metadata captured during streaming */
+  runMetadata?: RunMetadata;
+  /** Optional error message if streaming failed */
+  streamError?: string | null;
 }
 
 /**

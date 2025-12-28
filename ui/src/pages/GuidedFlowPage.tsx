@@ -308,7 +308,7 @@ export default function GuidedFlowPage() {
               <p className="text-sm text-muted-foreground">
                 {stackId
                   ? `Chat is using stack: ${selectedStackName || stackId}.`
-                  : 'Chat will use the default stack for this tenant.'}
+                  : 'Chat will use the default stack for this workspace.'}
               </p>
               <div className="border rounded-lg h-[calc(var(--base-unit)*125)]">
                 <ChatInterface selectedTenant={selectedTenant} initialStackId={stackId} />

@@ -190,7 +190,7 @@ export default function EvidencePage() {
             </div>
             <div className="flex items-center justify-between">
               <div className="text-sm text-muted-foreground">
-                Tenant scope: {selectedTenant || 'None selected'}
+                Workspace scope: {selectedTenant || 'None selected'}
               </div>
               <Button onClick={handleCreate} disabled={isCreating || !selectedTenant} className="gap-2">
                 <PlusCircle className={`h-4 w-4 ${isCreating ? 'animate-spin' : ''}`} />
@@ -309,4 +309,3 @@ export default function EvidencePage() {
     </FeatureLayout>
   );
 }
-

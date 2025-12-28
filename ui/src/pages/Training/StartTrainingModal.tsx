@@ -12,6 +12,7 @@ import {
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { useTraining } from '@/hooks/training';
+import { useModelStatus } from '@/hooks/model-loading';
 import { AlertCircle } from 'lucide-react';
 import type { StartTrainingRequest, TrainingConfigRequest, DatasetVersionSelection } from '@/api/training-types';
 import { useTenant } from '@/providers/FeatureProviders';
@@ -36,6 +37,7 @@ export function StartTrainingModal({ open, onOpenChange, onSuccess }: StartTrain
   const { data: datasetsData } = useTraining.useDatasets();
   const { data: templatesData } = useTraining.useTemplates();
   const { selectedTenant, tenants } = useTenant();
+  const modelStatus = useModelStatus(selectedTenant ?? 'default');
 
   const { mutateAsync: startTraining, isPending, error } = useTraining.useStartTraining({
     onSuccess: (job) => {
@@ -80,6 +82,7 @@ export function StartTrainingModal({ open, onOpenChange, onSuccess }: StartTrain
     const request: StartTrainingRequest = {
       adapter_name: adapterName,
       config,
+      base_model_id: modelStatus.modelId ?? undefined,
       ...(datasetId && { dataset_id: datasetId }),
       ...(datasetVersionSelections.length > 0 && { dataset_version_ids: datasetVersionSelections }),
       ...(templateId && { template_id: templateId }),
@@ -140,11 +143,11 @@ export function StartTrainingModal({ open, onOpenChange, onSuccess }: StartTrain
               id="adapterName"
               value={adapterName}
               onChange={(e) => setAdapterName(e.target.value)}
-              placeholder="tenant-a/engineering/code-review/r001"
+              placeholder="workspace-a/engineering/code-review/r001"
               required
             />
             <p className="text-xs text-muted-foreground mt-1">
-              Format: tenant/domain/purpose/revision
+              Format: workspace/domain/purpose/revision
             </p>
           </div>
 
@@ -183,7 +186,7 @@ export function StartTrainingModal({ open, onOpenChange, onSuccess }: StartTrain
                 <AlertCircle className="h-4 w-4" />
                 <AlertDescription>
                   This dataset has no version bound. Please create a dataset version before training.
-                  {isHighAssuranceTenant ? ' High-assurance tenants require versioned lineage.' : ''}
+                  {isHighAssuranceTenant ? ' High-assurance workspaces require versioned lineage.' : ''}
                 </AlertDescription>
               </Alert>
             )}

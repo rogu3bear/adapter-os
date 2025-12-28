@@ -27,6 +27,8 @@ import { TrainingWizardProvider, SimpleDatasetMode, ConversionStatus } from './T
 import { useDocuments } from '@/hooks/documents';
 import { useCollections } from '@/hooks/api/useCollectionsApi';
 import { useTrainingDataOrchestrator } from '@/hooks/training';
+import { useModelStatus } from '@/hooks/model-loading';
+import { useTenant } from '@/providers/FeatureProviders';
 import { buildTrainingJobDetailLink, buildDatasetDetailLink, buildTrainingOverviewLink } from '@/utils/navLinks';
 import { CategoryStep } from './TrainingWizard/steps/CategoryStep';
 import { BasicInfoStep } from './TrainingWizard/steps/BasicInfoStep';
@@ -48,7 +50,7 @@ function getTrainingErrorMessage(code: string, fallback: string): string {
   const messages: Record<string, string> = {
     'VALIDATION_ERROR': 'Please fix the highlighted configuration issues and try again.',
     'NOT_FOUND': 'The dataset or template was deleted. Please reselect.',
-    'TENANT_ISOLATION_ERROR': 'This dataset belongs to a different tenant.',
+    'TENANT_ISOLATION_ERROR': 'This dataset belongs to a different workspace.',
     'POLICY_VIOLATION': 'Policy requirements not met. Check dataset validation status.',
     'TRAINING_CAPACITY_LIMIT': 'System is at capacity. Try again later or reduce batch size.',
     'MEMORY_PRESSURE_CRITICAL': 'Memory pressure too high. Reduce batch size or wait.',
@@ -91,6 +93,8 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
   const [conversionStatus, setConversionStatus] = useState<ConversionStatus>('idle');
   const [conversionError, setConversionError] = useState<string | null>(null);
   const { orchestrate: orchestrateTrainingData } = useTrainingDataOrchestrator();
+  const { selectedTenant } = useTenant();
+  const modelStatus = useModelStatus(selectedTenant ?? 'default');
 
   const initialState: WizardState = {
     currentStep: 0,
@@ -583,6 +587,7 @@ function TrainingWizardInner({ onComplete, onCancel, initialDatasetId, lockDatas
       const trainingRequest: any = {
         adapter_name: stateToValidate.name,
         config: trainingConfig,
+        base_model_id: modelStatus.modelId ?? undefined,
 
         // Category & metadata
         category: stateToValidate.category || 'codebase',

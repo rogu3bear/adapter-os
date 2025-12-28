@@ -47,7 +47,7 @@ export function getResourceLabel(resource: ResourceType): string {
     model: 'Model',
     policy: 'Policy',
     node: 'Node',
-    tenant: 'Tenant',
+    tenant: 'Workspace',
     other: 'Other',
   };
   return labels[resource] || labels.other;

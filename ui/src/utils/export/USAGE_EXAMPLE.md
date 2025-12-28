@@ -222,7 +222,7 @@ downloadTextFile(json, 'evidence-bundle.json', 'application/json');
 - **Determinism Mode**: deterministic
 - **Determinism State**: verified
 - **Dataset Version ID**: dataset-v1.2.3
-- **Tenant ID**: tenant-001
+- **Workspace ID**: tenant-001
 - **Collection ID**: collection-support
 
 ### Adapter Stack

@@ -488,7 +488,7 @@ export function AdminPolicyConsole() {
                 <div className="space-y-3">
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <ShieldCheck className="h-4 w-4" />
-                    Tenant: {usage.tenant_id}
+                    Workspace: {usage.tenant_id}
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     <div className="rounded border p-3">

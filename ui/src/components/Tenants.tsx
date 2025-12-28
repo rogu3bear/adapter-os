@@ -129,11 +129,11 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
           operation: 'fetchTenants',
           userId
         }, err);
-        addError('fetch-tenants', err.message || 'Failed to load tenants.', () => {
+        addError('fetch-tenants', err.message || 'Failed to load workspaces.', () => {
           clearError('fetch-tenants');
           refetchTenants();
         });
-        toast.error('Failed to load organizations');
+        toast.error('Failed to load workspaces');
       }
     }
   );
@@ -175,12 +175,12 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
     if (!selectedTenantForAction) return;
     try {
       await apiClient.updateTenant(selectedTenantForAction.id, editName);
-      showStatus('Organization updated.', 'success');
+      showStatus('Workspace updated.', 'success');
       clearError('edit-tenant');
       dialogs.closeDialog('edit');
       refetchTenants();
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Failed to update tenant';
+      const errorMsg = err instanceof Error ? err.message : 'Failed to update workspace';
       addError('edit-tenant', errorMsg, handleEdit);
     }
   };
@@ -191,7 +191,7 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
     try {
       const tenant = selectedTenantForAction;
       await apiClient.archiveTenant(tenant.id);
-      showStatus('Organization archived.', 'success');
+      showStatus('Workspace archived.', 'success');
       clearError('archive-tenant');
       dialogs.closeDialog('archive');
       setSelectedTenantForAction(null);
@@ -200,7 +200,7 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
       // Record undo action
       addAction({
         type: 'archive_tenant',
-        description: `Archive tenant "${tenant.name}"`,
+        description: `Archive workspace "${tenant.name}"`,
         previousState: tenant,
         reverse: async () => {
           // Would need restore/unarchive endpoint - for now, show warning
@@ -208,7 +208,7 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
         },
       });
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Failed to archive tenant';
+      const errorMsg = err instanceof Error ? err.message : 'Failed to archive workspace';
       addError('archive-tenant', errorMsg, handleArchive);
     }
   };
@@ -249,7 +249,7 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
       clearError('view-usage');
       dialogs.openDialog('usage');
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Failed to fetch tenant usage';
+      const errorMsg = err instanceof Error ? err.message : 'Failed to fetch workspace usage';
       addError('view-usage', errorMsg, () => handleViewUsage(tenant));
     }
   };
@@ -258,14 +258,14 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
     try {
       const previousStatus = tenant.status;
       await apiClient.pauseTenant(tenant.id);
-      showStatus(`Organization "${tenant.name}" paused.`, 'success');
+      showStatus(`Workspace "${tenant.name}" paused.`, 'success');
       clearError('pause-tenant');
       await refetchTenants();
 
       // Record undo action
       addAction({
         type: 'pause_tenant',
-        description: `Pause tenant "${tenant.name}"`,
+        description: `Pause workspace "${tenant.name}"`,
         previousState: tenant,
         reverse: async () => {
           // Resume tenant - would need an API endpoint to resume
@@ -277,7 +277,7 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
         },
       });
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Failed to pause tenant';
+      const errorMsg = err instanceof Error ? err.message : 'Failed to pause workspace';
       addError('pause-tenant', errorMsg, () => handlePause(tenant));
     }
   };
@@ -304,12 +304,12 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
       }
 
       if (successCount > 0) {
-        showStatus(`Successfully paused ${successCount} organization(s).`, 'success');
+        showStatus(`Successfully paused ${successCount} workspace(s).`, 'success');
 
         // Record undo action
         addAction({
           type: 'bulk_pause_tenants',
-          description: `Pause ${successCount} tenant(s)`,
+          description: `Pause ${successCount} workspace(s)`,
           previousState: pausedTenants.slice(0, successCount),
           reverse: async () => {
             showStatus('Undo not available - resume requires API endpoint.', 'warning');
@@ -317,7 +317,7 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
         });
       }
       if (errorCount > 0) {
-        addError('bulk-pause', `Failed to pause ${errorCount} organization(s).`, performBulkPause);
+        addError('bulk-pause', `Failed to pause ${errorCount} workspace(s).`, performBulkPause);
       }
 
       await refetchTenants();
@@ -325,9 +325,9 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
     };
 
     setConfirmationOptions({
-      title: 'Pause Organizations',
-      description: `Pause ${tenantIds.length} organization(s)? This will stop new sessions for these organizations.`,
-      confirmText: 'Pause Organizations',
+      title: 'Pause Workspaces',
+      description: `Pause ${tenantIds.length} workspace(s)? This will stop new sessions for these workspaces.`,
+      confirmText: 'Pause Workspaces',
       variant: 'default'
     });
     setPendingBulkAction(() => performBulkPause);
@@ -355,12 +355,12 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
       }
 
       if (successCount > 0) {
-        showStatus(`Successfully archived ${successCount} organization(s).`, 'success');
+        showStatus(`Successfully archived ${successCount} workspace(s).`, 'success');
 
         // Record undo action
         addAction({
           type: 'bulk_archive_tenants',
-          description: `Archive ${successCount} tenant(s)`,
+          description: `Archive ${successCount} workspace(s)`,
           previousState: archivedTenants.slice(0, successCount),
           reverse: async () => {
             showStatus('Undo not available - restore requires API endpoint.', 'warning');
@@ -368,7 +368,7 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
         });
       }
       if (errorCount > 0) {
-        addError('bulk-archive', `Failed to archive ${errorCount} organization(s).`, performBulkArchive);
+        addError('bulk-archive', `Failed to archive ${errorCount} workspace(s).`, performBulkArchive);
       }
 
       await refetchTenants();
@@ -376,9 +376,9 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
     };
 
     setConfirmationOptions({
-      title: 'Archive Organizations',
-      description: `Permanently archive ${tenantIds.length} organization(s)? All associated resources will be suspended. This action can be reversed by an administrator.`,
-      confirmText: 'Archive Organizations',
+      title: 'Archive Workspaces',
+      description: `Permanently archive ${tenantIds.length} workspace(s)? All associated resources will be suspended. This action can be reversed by an administrator.`,
+      confirmText: 'Archive Workspaces',
       variant: 'destructive'
     });
     setPendingBulkAction(() => performBulkArchive);
@@ -413,14 +413,14 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
       }
 
       if (tenantsToExport.length === 0) {
-        showStatus('No organizations to export.', 'warning');
+        showStatus('No workspaces to export.', 'warning');
         dialogs.closeDialog('export');
         return;
       }
 
       // Create export file
       const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
-      const filename = `tenants-export-${timestamp}`;
+      const filename = `workspaces-export-${timestamp}`;
 
       if (options.format === 'json') {
         const blob = new Blob([JSON.stringify(tenantsToExport, null, 2)], { type: 'application/json' });
@@ -453,10 +453,10 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
         URL.revokeObjectURL(url);
       }
 
-      showStatus(`Exported ${tenantsToExport.length} organization(s).`, 'success');
+      showStatus(`Exported ${tenantsToExport.length} workspace(s).`, 'success');
       dialogs.closeDialog('export');
     } catch (err) {
-      const error = err instanceof Error ? err : new Error('Failed to export tenants');
+      const error = err instanceof Error ? err : new Error('Failed to export workspaces');
       addError('export-tenants', error.message, () => handleExport(options));
     }
   };
@@ -510,13 +510,13 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
     if (!newTenant.name.trim()) return;
     try {
       await apiClient.createTenant({ name: newTenant.name, isolation_level: 'standard' });
-      showStatus('Organization created.', 'success');
+      showStatus('Workspace created.', 'success');
       clearError('create-tenant');
       setNewTenant({ name: '', description: '', dataClassification: 'internal', itarCompliant: false });
       setIsCreateDialogOpen(false);
       await refetchTenants();
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Failed to create tenant';
+      const errorMsg = err instanceof Error ? err.message : 'Failed to create workspace';
       addError('create-tenant', errorMsg, handleCreateTenant);
     }
   };
@@ -528,7 +528,7 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
           <Shield className="h-12 w-12 text-muted-foreground mx-auto" />
           <h3>Access Restricted</h3>
           <p className="text-muted-foreground">
-            Organization management requires Administrator privileges.
+            Workspace management requires Administrator privileges.
           </p>
           <GlossaryTooltip termId="requires-admin">
             <Button variant="ghost" size="sm" className="text-muted-foreground">
@@ -579,9 +579,9 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold">Organization Management</h1>
+          <h1 className="text-2xl font-bold">Workspace Management</h1>
           <p className="text-sm text-muted-foreground">
-            Manage organization isolation, data classification, and access controls
+            Manage workspace isolation, data classification, and access controls
           </p>
         </div>
         <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
@@ -589,25 +589,25 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
             <GlossaryTooltip termId="create-tenant-button">
               <Button disabled={!can('tenant:manage')}>
                 <Plus className="h-4 w-4 mr-2" />
-                Create Organization
+                Create Workspace
               </Button>
             </GlossaryTooltip>
           </DialogTrigger>
           <DialogContent className="max-w-md">
             <DialogHeader>
-              <DialogTitle>Create New Organization</DialogTitle>
+              <DialogTitle>Create New Workspace</DialogTitle>
             </DialogHeader>
             <div className="mb-4">
               <div className="mb-4">
                 <div className="flex items-center gap-1 mb-1">
-                  <Label htmlFor="name" className="font-medium text-sm">Organization Name</Label>
+                  <Label htmlFor="name" className="font-medium text-sm">Workspace Name</Label>
                   <GlossaryTooltip termId="tenant-name">
                     <span className="cursor-help text-muted-foreground">(?)</span>
                   </GlossaryTooltip>
                 </div>
                 <Input
                   id="name"
-                  placeholder="Enter organization name"
+                  placeholder="Enter workspace name"
                   value={newTenant.name}
                   onChange={(e) => setNewTenant({ ...newTenant, name: e.target.value })}
                 />
@@ -622,7 +622,7 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
                 </div>
                 <Textarea
                   id="description"
-                  placeholder="Describe the organization's purpose"
+                  placeholder="Describe the workspace's purpose"
                   value={newTenant.description}
                   onChange={(e) => setNewTenant({ ...newTenant, description: e.target.value })}
                 />
@@ -671,7 +671,7 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
                 </Button>
                 <GlossaryTooltip termId="create-tenant-action">
                   <Button onClick={handleCreateTenant} disabled={!newTenant.name.trim() || !can('tenant:manage')}>
-                    Create Organization
+                    Create Workspace
                   </Button>
                 </GlossaryTooltip>
               </div>
@@ -680,7 +680,7 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
         </Dialog>
       </div>
 
-      {/* Tenant Statistics */}
+      {/* Workspace Statistics */}
       <KpiGrid>
         <Card className="p-4 rounded-lg border border-border bg-card shadow-md">
           <CardContent className="pt-6">
@@ -688,7 +688,7 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
               <Users className="h-4 w-4 text-blue-600" />
               <div>
                 <p className="text-2xl font-bold">{tenants.length}</p>
-                <p className="text-xs text-muted-foreground">Total Organizations</p>
+                <p className="text-xs text-muted-foreground">Total Workspaces</p>
               </div>
             </div>
           </CardContent>
@@ -731,12 +731,12 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
         </Card>
       </KpiGrid>
 
-      {/* Tenants Table */}
+      {/* Workspaces Table */}
       <Card className="p-4 rounded-lg border border-border bg-card shadow-md">
         <CardHeader>
           <div className="flex items-center justify-between">
             <CardTitle className="flex items-center gap-2">
-              Active Organizations
+              Active Workspaces
               <GlossaryTooltip termId="tenant" variant="icon" />
               <GlossaryTooltip termId="active-tenants">
                 <span className="cursor-help text-muted-foreground text-sm">(Help)</span>
@@ -791,7 +791,7 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
                         setSelectedTenants([]);
                       }
                     }}
-                    aria-label="Select all tenants"
+                    aria-label="Select all workspaces"
                   />
                 </TableHead>
                 <TableHead className="table-cell-standard">
@@ -884,7 +884,7 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
                               title={tenantTyped.name}
                               url={`/tenants?tenant=${encodeURIComponent(tenantTyped.id)}`}
                               entityId={tenantTyped.id}
-                              description={tenantTyped.description || `Tenant • ${tenantTyped.isolation_level || 'Unknown isolation'}`}
+                              description={tenantTyped.description || `Workspace • ${tenantTyped.isolation_level || 'Unknown isolation'}`}
                               variant="ghost"
                               size="icon"
                             />
@@ -963,16 +963,16 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
         </CardContent>
       </Card>
 
-      {/* Edit Tenant Modal */}
+      {/* Edit Workspace Modal */}
       <Dialog open={dialogs.isOpen('edit')} onOpenChange={(open) => !open && dialogs.closeDialog('edit')}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Edit Organization</DialogTitle>
+            <DialogTitle>Edit Workspace</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div>
               <div className="flex items-center gap-1 mb-1">
-                <Label>Organization Name</Label>
+                <Label>Workspace Name</Label>
                 <GlossaryTooltip termId="tenant-name">
                   <span className="cursor-help text-muted-foreground">(?)</span>
                 </GlossaryTooltip>
@@ -980,16 +980,16 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
               <Input
                 value={editName}
                 onChange={(e) => setEditName(e.target.value)}
-                placeholder="Enter organization name"
+                placeholder="Enter workspace name"
               />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => dialogs.closeDialog('edit')} aria-label="Cancel tenant edit">
+            <Button variant="outline" onClick={() => dialogs.closeDialog('edit')} aria-label="Cancel workspace edit">
               Cancel
             </Button>
             <GlossaryTooltip termId="save-tenant-changes">
-              <Button onClick={handleEdit} aria-label="Save tenant changes" disabled={!can('tenant:manage')}>
+              <Button onClick={handleEdit} aria-label="Save workspace changes" disabled={!can('tenant:manage')}>
                 Save Changes
               </Button>
             </GlossaryTooltip>
@@ -1097,7 +1097,7 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
       <Dialog open={dialogs.isOpen('usage')} onOpenChange={(open) => !open && dialogs.closeDialog('usage')}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Organization Usage - {selectedTenantForAction?.name}</DialogTitle>
+            <DialogTitle>Workspace Usage - {selectedTenantForAction?.name}</DialogTitle>
           </DialogHeader>
           {usageData && (
             <div className="space-y-4">
@@ -1145,7 +1145,7 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
                     const url = URL.createObjectURL(blob);
                     const a = document.createElement('a');
                     a.href = url;
-                    a.download = `tenant-usage-${selectedTenantForAction?.id}.csv`;
+                    a.download = `workspace-usage-${selectedTenantForAction?.id}.csv`;
                     a.click();
                     URL.revokeObjectURL(url);
                   }}
@@ -1159,16 +1159,16 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
         </DialogContent>
       </Dialog>
 
-      {/* Archive Tenant Modal */}
+      {/* Archive Workspace Modal */}
       <Dialog open={dialogs.isOpen('archive')} onOpenChange={(open) => !open && dialogs.closeDialog('archive')}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Archive Organization</DialogTitle>
+            <DialogTitle>Archive Workspace</DialogTitle>
           </DialogHeader>
           <Alert variant="destructive">
             <AlertTriangle className="h-4 w-4" />
             <AlertDescription>
-              This will archive organization <strong>{selectedTenantForAction?.name}</strong>.
+              This will archive workspace <strong>{selectedTenantForAction?.name}</strong>.
               All associated resources will be suspended. This action can be reversed by an administrator.
             </AlertDescription>
           </Alert>
@@ -1181,7 +1181,7 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
             </Button>
             <GlossaryTooltip termId="archive-tenant-action">
               <Button variant="destructive" onClick={handleArchive} disabled={!can('tenant:manage')}>
-                Archive Organization
+                Archive Workspace
               </Button>
             </GlossaryTooltip>
           </DialogFooter>
@@ -1193,7 +1193,7 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
         selectedItems={selectedTenants}
         actions={bulkActions}
         onClearSelection={() => setSelectedTenants([])}
-        itemName="tenant"
+        itemName="workspace"
       />
 
       {/* Confirmation Dialog */}
@@ -1225,7 +1225,7 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
         open={dialogs.isOpen('export')}
         onOpenChange={(open) => !open && dialogs.closeDialog('export')}
         onExport={handleExport}
-        itemName="tenants"
+        itemName="workspaces"
         hasSelected={selectedTenants.length > 0}
         hasFilters={false}
         defaultFormat="json"
@@ -1236,13 +1236,13 @@ function TenantsContent({ user, selectedTenant }: TenantsProps) {
       <Dialog open={dialogs.isOpen('import')} onOpenChange={(open) => !open && dialogs.closeDialog('import')}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Import Organization</DialogTitle>
+            <DialogTitle>Import Workspace</DialogTitle>
           </DialogHeader>
           <TenantImportWizard
             onComplete={(tenant) => {
               dialogs.closeDialog('import');
               refetchTenants();
-              showStatus(`Organization "${tenant.name}" created successfully.`, 'success');
+              showStatus(`Workspace "${tenant.name}" created successfully.`, 'success');
             }}
             onCancel={() => dialogs.closeDialog('import')}
           />

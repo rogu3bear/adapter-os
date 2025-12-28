@@ -7,10 +7,10 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { apiClient } from '@/api/services';
-import { FederationStatusResponse, FederationAuditResponse, QuarantineStatusResponse, PeerListResponse } from '@/api/federation-types';
+import { FederationStatusResponse, FederationAuditResponse, QuarantineStatusResponse, PeerListResponse, FederationSyncStatusResponse } from '@/api/federation-types';
 import { useDensity } from '@/contexts/DensityContext';
 import { PeerSyncStatusCard } from '@/components/federation/PeerSyncStatusCard';
-import { derivePeerSyncInfoList } from '@/utils/peerSync';
+import { derivePeerSyncInfoList, derivePeerSyncInfoListFromSummaries } from '@/utils/peerSync';
 import { DensityControls } from '@/components/ui/density-controls';
 import { useRBAC } from '@/hooks/security/useRBAC';
 import { ErrorRecovery, errorRecoveryTemplates } from '@/components/ui/error-recovery';
@@ -248,6 +248,57 @@ function StatusSummaryCard({
           </div>
         ) : (
           !isLoading && <div className="py-8 text-center text-muted-foreground">No federation status data available</div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function SyncStatusCard({
+  status,
+  isLoading,
+  error,
+  onRetry,
+}: {
+  status?: FederationSyncStatusResponse;
+  isLoading: boolean;
+  error: Error | null;
+  onRetry: () => void;
+}) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Activity className="h-5 w-5" />
+          Sync Status
+          <GlossaryTooltip termId="federation-sync-status">
+            <span className="cursor-help text-muted-foreground">(?)</span>
+          </GlossaryTooltip>
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {error && errorRecoveryTemplates.genericError(error.message, onRetry)}
+        {isLoading && !status && <LoadingSpinner />}
+        {status ? (
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            <StatusStat
+              label="Sync Progress"
+              value={`${status.progress_pct.toFixed(1)}%`}
+              valueClassName="font-semibold"
+            />
+            <StatusStat label="Peers In Sync" value={status.peers_in_sync} />
+            <StatusStat label="Out of Sync" value={status.peers_out_of_sync} />
+            <StatusStat
+              label="Last Sync"
+              value={status.last_sync_at ? formatTimestamp(status.last_sync_at) : 'N/A'}
+            />
+          </div>
+        ) : (
+          !isLoading && (
+            <div className="py-4 text-sm text-muted-foreground">
+              No sync data available
+            </div>
+          )
         )}
       </CardContent>
     </Card>
@@ -524,6 +575,27 @@ function FederationPageInner() {
 
   const auditDataFormatted = auditData ?? undefined;
 
+  // Fetch sync status for federation peers
+  const fetchSyncStatus = useCallback(async () => {
+    return await apiClient.getSyncStatus();
+  }, []);
+
+  const {
+    data: syncStatus,
+    isLoading: syncLoading,
+    error: syncError,
+    refetch: refetchSyncStatus,
+  } = usePolling<FederationSyncStatusResponse>(
+    fetchSyncStatus,
+    'normal',
+    {
+      enabled: true,
+      operationName: 'fetchFederationSyncStatus',
+    }
+  );
+
+  const syncStatusData = syncStatus ?? undefined;
+
   // Fetch peer list for sync status
   const fetchPeers = useCallback(async () => {
     return await apiClient.getFederationPeers();
@@ -543,6 +615,15 @@ function FederationPageInner() {
     }
   );
 
+  const peerSyncInfos = peersData?.peers?.length
+    ? derivePeerSyncInfoList(peersData.peers)
+    : syncStatusData?.peers
+      ? derivePeerSyncInfoListFromSummaries(syncStatusData.peers)
+      : [];
+
+  const peersErrorObject = peersError instanceof Error ? peersError : peersError ? new Error(String(peersError)) : null;
+  const syncErrorObject = syncError instanceof Error ? syncError : syncError ? new Error(String(syncError)) : null;
+
   const handleReleaseQuarantine = async () => {
     setReleasing(true);
     try {
@@ -551,6 +632,7 @@ function FederationPageInner() {
         toast.success('Quarantine released successfully');
         refetchStatus();
         refetchQuarantine();
+        refetchSyncStatus();
         setQuarantineDialogOpen(false);
       } else {
         toast.error(result.message || 'Failed to release quarantine');
@@ -566,6 +648,7 @@ function FederationPageInner() {
     refetchStatus();
     refetchQuarantine();
     refetchAudit();
+    refetchSyncStatus();
     refetchPeers();
   };
 
@@ -593,15 +676,19 @@ function FederationPageInner() {
             canRelease={canReleaseFederation}
             onReleaseClick={() => setQuarantineDialogOpen(true)}
           />
-          {peersError && errorRecoveryTemplates.genericError(peersError.message, refetchPeers)}
-          {peersData && (
-            <PeerSyncStatusCard
-              peers={derivePeerSyncInfoList(peersData.peers)}
-              isLoading={peersLoading}
-              showTitle={true}
-              compact={false}
-            />
-          )}
+          <SyncStatusCard
+            status={syncStatusData}
+            isLoading={syncLoading}
+            error={syncErrorObject}
+            onRetry={refetchSyncStatus}
+          />
+          {peersErrorObject && errorRecoveryTemplates.genericError(peersErrorObject.message, refetchPeers)}
+          <PeerSyncStatusCard
+            peers={peerSyncInfos}
+            isLoading={peersLoading || syncLoading}
+            showTitle={true}
+            compact={false}
+          />
           <QuarantineCard
             status={quarantineStatusData}
             isLoading={quarantineLoading}

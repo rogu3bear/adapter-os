@@ -173,7 +173,7 @@ The component supports all 23 policies from AdapterOS:
 ### Security (7 policies)
 - Egress Control (zero network egress in production)
 - Input Validation
-- Tenant Isolation
+- Workspace Isolation
 - Memory Safety (no unsafe blocks in app crates)
 - Artifact Signature (ED25519)
 - Secrets Rotation

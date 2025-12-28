@@ -6,7 +6,7 @@ export const securityEntries: GlossaryEntry[] = [
     term: 'Guardrails',
     category: 'security',
     content: {
-      brief: 'Guardrails (policy packs) are sets of rules enforced across tenants, adapters, and execution contexts to ensure compliance and security.',
+      brief: 'Guardrails (policy packs) are sets of rules enforced across workspaces, adapters, and execution contexts to ensure compliance and security.',
       detailed: `Guardrails (technically called policy packs) are collections of related security and operational policies that are enforced throughout the AdapterOS system. Examples include the Egress Policy (network restrictions), Determinism Policy (reproducible execution), and Router Policy (adapter selection rules). Each policy pack has a version, status (Active/Draft/Disabled), and can be cryptographically signed to ensure authenticity. Policy packs are typically grouped by Control Plane ID (CPID) and validated using schema hashes.`,
     },
     relatedTerms: ['policy-name', 'policy-version', 'policy-status', 'policy-signed', 'policy-cpid', 'schema-hash'],
@@ -62,7 +62,7 @@ export const securityEntries: GlossaryEntry[] = [
     category: 'security',
     content: {
       brief: 'Unique identifier that groups policies, plans, and telemetry for coordinated control and monitoring.',
-      detailed: `The Control Plane ID (CPID) is a unique identifier that associates related policies, execution plans, and telemetry data within AdapterOS. CPIDs enable centralized management and coordination of policy enforcement across distributed nodes. All policies, adapter configurations, and telemetry events sharing the same CPID are part of a unified control domain. This grouping is essential for federated deployments, multi-tenant environments, and compliance reporting where policies must be consistently enforced and audited across organizational boundaries.`,
+      detailed: `The Control Plane ID (CPID) is a unique identifier that associates related policies, execution plans, and telemetry data within AdapterOS. CPIDs enable centralized management and coordination of policy enforcement across distributed nodes. All policies, adapter configurations, and telemetry events sharing the same CPID are part of a unified control domain. This grouping is essential for federated deployments, multi-workspace environments, and compliance reporting where policies must be consistently enforced and audited across organizational boundaries.`,
     },
     relatedTerms: ['policy-pack', 'audit-log', 'isolation', 'compliance'],
     aliases: ['control-plane-id', 'cpid', 'control-id'],
@@ -105,11 +105,11 @@ export const securityEntries: GlossaryEntry[] = [
     term: 'Isolation',
     category: 'security',
     content: {
-      brief: 'Security boundary preventing unauthorized access between tenants, adapters, or resources.',
-      detailed: `Isolation is a fundamental security principle in AdapterOS that creates strict boundaries between different security domains. Tenant isolation ensures that data and operations from one organization cannot be accessed by another. Adapter isolation prevents inference requests from one adapter affecting another. Process isolation uses separate memory spaces and execution contexts. Network isolation (enforced by Egress Policy) restricts communication channels. Database isolation uses row-level security and schema separation. Isolation is enforced through multiple layers: access control (RBAC), cryptographic separation, and runtime boundaries.`,
+      brief: 'Security boundary preventing unauthorized access between workspaces, adapters, or resources.',
+      detailed: `Isolation is a fundamental security principle in AdapterOS that creates strict boundaries between different security domains. Workspace isolation ensures that data and operations from one organization cannot be accessed by another. Adapter isolation prevents inference requests from one adapter affecting another. Process isolation uses separate memory spaces and execution contexts. Network isolation (enforced by Egress Policy) restricts communication channels. Database isolation uses row-level security and schema separation. Isolation is enforced through multiple layers: access control (RBAC), cryptographic separation, and runtime boundaries.`,
     },
     relatedTerms: ['policy-pack', 'data-classification', 'compliance', 'audit-log'],
-    aliases: ['tenant-isolation', 'security-boundary', 'sandboxing'],
+    aliases: ['workspace-isolation', 'security-boundary', 'sandboxing'],
   },
   {
     id: 'audit-log',
@@ -183,7 +183,7 @@ export const securityEntries: GlossaryEntry[] = [
     category: 'security',
     content: {
       brief: 'This action requires the Admin role.',
-      detailed: `Operations marked as "Requires Admin" can only be performed by users with the Admin role, the highest privilege level in AdapterOS RBAC. Admin-only operations include: creating or deleting tenants, signing and applying policies, managing user roles and permissions, accessing system configuration, performing node management operations, and executing potentially destructive actions like adapter deletion or database migrations. The Admin role has all 55 permissions in the system. Admin actions are always logged in audit trails with enhanced detail for compliance and security review.`,
+      detailed: `Operations marked as "Requires Admin" can only be performed by users with the Admin role, the highest privilege level in AdapterOS RBAC. Admin-only operations include: creating or deleting workspaces, signing and applying policies, managing user roles and permissions, accessing system configuration, performing node management operations, and executing potentially destructive actions like adapter deletion or database migrations. The Admin role has all 55 permissions in the system. Admin actions are always logged in audit trails with enhanced detail for compliance and security review.`,
     },
     relatedTerms: ['policy-signed', 'policy-status', 'audit-log', 'compliance', 'isolation'],
     aliases: ['admin-only', 'admin-required', 'privileged-operation'],

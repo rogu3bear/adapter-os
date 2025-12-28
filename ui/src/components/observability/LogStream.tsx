@@ -223,7 +223,7 @@ export function LogStream() {
               onChange={(e) => setFilters({ ...filters, component: e.target.value })}
             />
             <Input
-              placeholder="Filter by tenant..."
+              placeholder="Filter by workspace..."
               value={filters.tenant_id}
               onChange={(e) => setFilters({ ...filters, tenant_id: e.target.value })}
             />

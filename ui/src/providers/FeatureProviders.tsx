@@ -222,7 +222,7 @@ function TenantProvider({ children }: { children: ReactNode }) {
         // ignore storage errors
       }
       if (tenantList.length > 1) {
-        toast.info('Multiple tenants available. Use the tenant switcher to pick one.');
+        toast.info('Multiple workspaces available. Use the workspace switcher to pick one.');
       }
       try {
         if (tenantList.length > 1) {
@@ -367,7 +367,7 @@ function TenantProvider({ children }: { children: ReactNode }) {
       }
 
       if (err?.status === 403 || err?.code === 'TENANT_ACCESS_DENIED' || err?.failure_code === 'TENANT_ACCESS_DENIED') {
-        toast.error('You do not have access to this tenant.');
+        toast.error('You do not have access to this workspace.');
         return false;
       }
 

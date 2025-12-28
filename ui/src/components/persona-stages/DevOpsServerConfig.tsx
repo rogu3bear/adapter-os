@@ -93,7 +93,7 @@ export default function DevOpsServerConfig() {
 
                 <div className="flex items-center justify-between">
                   <div>
-                    <Label>Organization Isolation</Label>
+                    <Label>Workspace Isolation</Label>
                     <p className="text-sm text-muted-foreground">Multi-organization data separation</p>
                   </div>
                   <Switch defaultChecked />

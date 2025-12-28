@@ -59,7 +59,7 @@ export function useAdapterFilters(adapters: Adapter[]) {
       type: 'multiSelect',
       options: [
         { value: 'global', label: 'Global' },
-        { value: 'tenant', label: 'Organization' },
+        { value: 'tenant', label: 'Workspace' },
         { value: 'repo', label: 'Repo' },
         { value: 'commit', label: 'Commit' },
       ],

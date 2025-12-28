@@ -30,11 +30,13 @@ import {
   Layers,
   MessageSquare,
   Send,
+  Power,
 } from 'lucide-react';
 import { apiClient } from '@/api/services';
 import { useLiveData } from '@/hooks/realtime/useLiveData';
 import { logger } from '@/utils/logger';
 import { useToast } from '@/hooks/use-toast';
+import { useTenant } from '@/providers/FeatureProviders';
 import { StackFormModal } from '@/pages/Admin/StackFormModal';
 import { PublishAdapterDialog } from '@/components/training/PublishAdapterDialog';
 import type {
@@ -152,11 +154,13 @@ function TrainingJobDetailContent() {
   const navigate = useNavigate();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { selectedTenant } = useTenant();
 
   const [activeTab, setActiveTab] = useState('overview');
   const [stackModalOpen, setStackModalOpen] = useState(false);
   const [publishDialogOpen, setPublishDialogOpen] = useState(false);
   const [downloadingArtifacts, setDownloadingArtifacts] = useState<Set<string>>(() => new Set());
+  const [isActivatingAdapter, setIsActivatingAdapter] = useState(false);
   const missingJobId = !jobId;
 
   // Fetch job data using React Query
@@ -294,6 +298,32 @@ function TrainingJobDetailContent() {
       });
     }, 2000);
   }, [toast]);
+
+  const handleActivateAdapter = useCallback(async () => {
+    if (!job?.adapter_id || isActivatingAdapter) return;
+    setIsActivatingAdapter(true);
+    try {
+      await apiClient.activateAdapter(job.adapter_id, {
+        workspace_id: selectedTenant ?? undefined,
+      });
+      toast({
+        title: 'Adapter activated',
+        description: selectedTenant
+          ? `Activated for workspace ${selectedTenant}.`
+          : 'Activated for your workspace.',
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to activate adapter';
+      toast({
+        title: 'Activation failed',
+        description: message,
+        variant: 'destructive',
+      });
+      logger.error('Failed to activate adapter', { adapterId: job.adapter_id }, error as Error);
+    } finally {
+      setIsActivatingAdapter(false);
+    }
+  }, [job?.adapter_id, isActivatingAdapter, selectedTenant, toast]);
 
   if (missingJobId) {
     return (
@@ -442,6 +472,14 @@ function TrainingJobDetailContent() {
           )}
           {job.status === 'completed' && job.adapter_id && (
             <>
+              <Button
+                onClick={handleActivateAdapter}
+                variant="default"
+                disabled={isActivatingAdapter}
+              >
+                <Power className="h-4 w-4 mr-2" />
+                {isActivatingAdapter ? 'Activating...' : 'Activate Adapter'}
+              </Button>
               {/* Publish button - show for completed jobs with produced version */}
               {job.repo_id && job.produced_version_id && (
                 <Button

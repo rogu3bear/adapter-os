@@ -32,8 +32,8 @@ export default function TelemetryFiltersTab() {
       <CardContent className="space-y-4">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
           <div className="space-y-1">
-            <Label htmlFor="tenant">Tenant</Label>
-            <Input id="tenant" value={tenantId} onChange={(e) => setTenantId(e.target.value)} placeholder="tenant id" />
+            <Label htmlFor="tenant">Workspace</Label>
+            <Input id="tenant" value={tenantId} onChange={(e) => setTenantId(e.target.value)} placeholder="workspace id" />
           </div>
           <div className="space-y-1">
             <Label htmlFor="eventType">Event type</Label>
@@ -68,7 +68,7 @@ export default function TelemetryFiltersTab() {
                   <TableHead>Event</TableHead>
                   <TableHead>Type</TableHead>
                   <TableHead>Level</TableHead>
-                  <TableHead>Tenant</TableHead>
+                  <TableHead>Workspace</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>

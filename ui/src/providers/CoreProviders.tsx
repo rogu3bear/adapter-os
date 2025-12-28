@@ -8,6 +8,7 @@ import { isDevBypassEnabled, tryDevBypassLogin } from '@/auth/authBootstrap';
 import { clearSessionExpiredFlag, markSessionExpired } from '@/auth/session';
 import { logAuthEvent } from '@/lib/logUIError';
 import { AUTH_STORAGE_KEYS } from '@/auth/constants';
+import { workspaceIdFromTenantId, type WorkspaceId } from '@/types/workspace';
 
 // Re-export for backward compatibility
 export const SESSION_EXPIRED_FLAG_KEY = AUTH_STORAGE_KEYS.SESSION_EXPIRED;
@@ -15,7 +16,7 @@ export const TENANT_SELECTION_REQUIRED_KEY = AUTH_STORAGE_KEYS.TENANT_SELECTION_
 
 // Session-scoped tenant selection with user validation
 interface TenantSelection {
-  tenantId: string;
+  tenantId: WorkspaceId;
   userId: string;
 }
 
@@ -126,7 +127,7 @@ function AuthProvider({ children }: { children: ReactNode }) {
         email: userInfo.email,
         display_name: userInfo.display_name || userInfo.email,
         role: userInfo.role as User['role'],
-        tenant_id: userInfo.tenant_id || '',
+        tenant_id: workspaceIdFromTenantId(userInfo.tenant_id),
         permissions: userInfo.permissions || [],
         last_login_at: userInfo.last_login_at ?? undefined,
         mfa_enabled: userInfo.mfa_enabled ?? undefined,
@@ -169,7 +170,7 @@ function AuthProvider({ children }: { children: ReactNode }) {
       setAccessToken(response.token);
 
       // Prefer previously selected tenant when still available to avoid landing in wrong tenant
-      let resolvedTenantId = response.tenant_id || '';
+      let resolvedTenantId = workspaceIdFromTenantId(response.tenant_id);
       let resolvedTenants = response.tenants;
       try {
         const cachedSelectionJson = sessionStorage.getItem(AUTH_STORAGE_KEYS.SELECTED_TENANT);
@@ -183,7 +184,7 @@ function AuthProvider({ children }: { children: ReactNode }) {
             cachedSelection.tenantId !== resolvedTenantId
           ) {
             const switched = await apiClient.switchTenant(cachedSelection.tenantId);
-            resolvedTenantId = switched.tenant_id || cachedSelection.tenantId;
+            resolvedTenantId = workspaceIdFromTenantId(switched.tenant_id ?? cachedSelection.tenantId);
             resolvedTenants = switched.tenants ?? resolvedTenants;
           } else if (cachedSelection.userId !== response.user_id) {
             // Clear stale cache from previous user
@@ -431,7 +432,7 @@ function AuthProvider({ children }: { children: ReactNode }) {
               email: devClaims.email,
               display_name: devClaims.display_name || devClaims.email,
               role: resolvedRole,
-              tenant_id: devClaims.tenant_id || '',
+              tenant_id: workspaceIdFromTenantId(devClaims.tenant_id),
               permissions: devClaims.permissions || [],
               last_login_at: devClaims.last_login_at ?? undefined,
               mfa_enabled: devClaims.mfa_enabled ?? undefined,

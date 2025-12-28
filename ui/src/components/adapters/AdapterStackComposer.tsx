@@ -287,7 +287,7 @@ export const AdapterStackComposer: React.FC<AdapterStackComposerProps> = ({
                   className="mt-2"
                 />
                 <p className="text-xs text-muted-foreground mt-2">
-                  Use semantic naming: {'{tenant}/{domain}/{purpose}/{revision}'}
+                  Use semantic naming: {'{workspace}/{domain}/{purpose}/{revision}'}
                 </p>
               </div>
 

@@ -68,7 +68,7 @@ vi.mock('@/hooks/admin/useAdmin', () => ({
 vi.mock('@/components/ChatInterface', () => ({
   ChatInterface: ({ selectedTenant, initialStackId }: { selectedTenant: string; initialStackId?: string }) => (
     <div data-testid="chat-interface">
-      ChatInterface - Tenant: {selectedTenant}
+      ChatInterface - Workspace: {selectedTenant}
       {initialStackId && ` - Stack: ${initialStackId}`}
     </div>
   ),

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Activity, Clock, Cpu, HardDrive } from 'lucide-react';
+import { Activity, Clock, Cpu, HardDrive, ShieldAlert, ShieldCheck } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { useKernelTelemetry } from '@/contexts/KernelTelemetryContext';
@@ -32,6 +32,16 @@ function formatVram(used?: number | null, total?: number | null): string {
 export function KernelStatusBar({ className, onDetachAll, showEmergencyStop = true }: KernelStatusBarProps) {
   const telemetry = useKernelTelemetry();
   const [isStopping, setIsStopping] = useState(false);
+
+  const integrityTone =
+    telemetry.integrity.variant === 'success'
+      ? 'text-emerald-300'
+      : telemetry.integrity.variant === 'warning'
+        ? 'text-amber-200'
+        : telemetry.integrity.variant === 'danger'
+          ? 'text-red-200'
+          : 'text-slate-200';
+  const IntegrityIcon = telemetry.integrity.variant === 'danger' ? ShieldAlert : ShieldCheck;
 
   const vramLabel = useMemo(
     () => formatVram(telemetry.vramUsedMb, telemetry.vramTotalMb),
@@ -69,6 +79,21 @@ export function KernelStatusBar({ className, onDetachAll, showEmergencyStop = tr
       <div className="flex items-center gap-2 font-mono uppercase tracking-wide text-[11px] text-slate-300">
         <Activity className="h-3.5 w-3.5 text-emerald-400" />
         Kernel
+      </div>
+
+      <div
+        className={cn(
+          'flex items-center gap-2 rounded-md border border-white/5 bg-white/5 px-2 py-1',
+          integrityTone
+        )}
+      >
+        <IntegrityIcon className="h-3.5 w-3.5" />
+        <div className="leading-tight">
+          <div className="text-[10px] uppercase text-slate-300">System Integrity</div>
+          <div className="font-semibold text-xs text-white">
+            <span className={integrityTone}>{telemetry.integrity.label}</span>
+          </div>
+        </div>
       </div>
 
       <div className="flex items-center gap-2 text-slate-200">

@@ -164,7 +164,7 @@ export function renderExtendedChatSessionMarkdown(
     md += `- **Dataset Version ID**: ${metadata.datasetVersionId}\n`;
   }
   if (metadata.tenantId) {
-    md += `- **Tenant ID**: ${metadata.tenantId}\n`;
+    md += `- **Workspace ID**: ${metadata.tenantId}\n`;
   }
   if (metadata.collectionId) {
     md += `- **Collection ID**: ${metadata.collectionId}\n`;
@@ -322,7 +322,7 @@ export function renderSingleAnswerMarkdown(
     md += `- **Dataset Version ID**: ${metadata.datasetVersionId}\n`;
   }
   if (metadata.tenantId) {
-    md += `- **Tenant ID**: ${metadata.tenantId}\n`;
+    md += `- **Workspace ID**: ${metadata.tenantId}\n`;
   }
   if (metadata.collectionId) {
     md += `- **Collection ID**: ${metadata.collectionId}\n`;

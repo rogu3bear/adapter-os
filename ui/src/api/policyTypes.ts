@@ -194,7 +194,7 @@ export const CANONICAL_POLICIES = [
     id: 'naming',
     name: 'Semantic Naming',
     category: 'compliance' as PolicyCategory,
-    description: 'Adapter naming: {tenant}/{domain}/{purpose}/{revision}',
+    description: 'Adapter naming: {workspace}/{domain}/{purpose}/{revision}',
   },
 
   // Security (Input Validation)
@@ -208,9 +208,9 @@ export const CANONICAL_POLICIES = [
   // Security (Tenant Isolation)
   {
     id: 'tenant-isolation',
-    name: 'Tenant Isolation',
+    name: 'Workspace Isolation',
     category: 'security' as PolicyCategory,
-    description: 'Enforce tenant data and process isolation',
+    description: 'Enforce workspace data and process isolation',
   },
 
   // Quality (Typed Errors)
@@ -411,9 +411,9 @@ function getDefaultRemediation(policyId: string): string {
     router: 'Verify Q15 quantization is applied to all gate values',
     evidence: 'Ensure all evidence spans have min relevance/confidence scores',
     telemetry: 'Use canonical JSON format with proper event signatures',
-    naming: 'Follow {tenant}/{domain}/{purpose}/{revision} naming convention',
+    naming: 'Follow {workspace}/{domain}/{purpose}/{revision} naming convention',
     'input-validation': 'Add input validation before processing user data',
-    'tenant-isolation': 'Use tenant ID for all data access control checks',
+    'tenant-isolation': 'Use workspace ID for all data access control checks',
     'typed-errors': 'Replace Option<T> with Result<T, AosError>',
     'latency-p95': 'Profile and optimize slow code paths',
     'throughput': 'Reduce memory allocations or batch process requests',
@@ -427,7 +427,7 @@ function getDefaultRemediation(policyId: string): string {
     'secrets-rotation': 'Enable automatic secrets rotation on promotion',
     'adapter-quality': 'Train adapter with sufficient data or increase threshold',
     'itar-compliance': 'Use ITAR-approved artifact handling procedures',
-    'rate-limiting': 'Configure rate limits per tenant/endpoint',
+    'rate-limiting': 'Configure rate limits per workspace/endpoint',
     'control-matrix': 'Map implementation to control requirements',
   };
 

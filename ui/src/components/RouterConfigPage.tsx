@@ -34,7 +34,7 @@ function InfoRow({ label, value }: { label: string; value: string | number | und
 
 function renderPolicy(policy?: RoutingPolicy) {
   if (!policy) {
-    return <p className="text-sm text-muted-foreground">No routing policy configured for this tenant.</p>;
+    return <p className="text-sm text-muted-foreground">No routing policy configured for this workspace.</p>;
   }
 
   return (
@@ -175,7 +175,7 @@ export function RouterConfigPage({ selectedTenant, focusAdapterId, onClearFocus 
           <AlertCircle className="h-4 w-4" />
           <AlertTitle>No router configuration available</AlertTitle>
           <AlertDescription>
-            No configuration was found for this tenant. The router will fall back to manifest defaults.
+            No configuration was found for this workspace. The router will fall back to manifest defaults.
           </AlertDescription>
         </Alert>
       )}
@@ -253,7 +253,7 @@ export function RouterConfigPage({ selectedTenant, focusAdapterId, onClearFocus 
                     const isAllowed = policy?.allowed_adapter_ids
                       ? policy.allowed_adapter_ids.includes(adapter.adapter_id)
                       : true;
-                    const policySourceLabel = policy ? 'Tenant policy' : 'Manifest defaults';
+                    const policySourceLabel = policy ? 'Workspace policy' : 'Manifest defaults';
                     const envLabel = import.meta.env.MODE || 'development';
                     return (
                       <TableRow key={adapter.adapter_id}>
@@ -287,7 +287,7 @@ export function RouterConfigPage({ selectedTenant, focusAdapterId, onClearFocus 
                           )}
                         </TableCell>
                         <TableCell>
-                          <Badge variant="outline" title={policy ? 'Tenant routing policy in effect' : 'Fallback to manifest routing'}>
+                          <Badge variant="outline" title={policy ? 'Workspace routing policy in effect' : 'Fallback to manifest routing'}>
                             {policySourceLabel}
                           </Badge>
                         </TableCell>
@@ -305,7 +305,7 @@ export function RouterConfigPage({ selectedTenant, focusAdapterId, onClearFocus 
           <Card>
             <CardHeader>
               <CardTitle>Routing Policy</CardTitle>
-              <CardDescription>Tenant execution policy constraints applied before routing.</CardDescription>
+              <CardDescription>Workspace execution policy constraints applied before routing.</CardDescription>
             </CardHeader>
             <CardContent>{renderPolicy(config.routing_policy)}</CardContent>
           </Card>
@@ -314,7 +314,7 @@ export function RouterConfigPage({ selectedTenant, focusAdapterId, onClearFocus 
             <CardHeader>
               <CardTitle>Adapters in Scope</CardTitle>
               <CardDescription>
-                Effective adapter set from the tenant&apos;s default stack (if configured) or manifest adapters.
+                Effective adapter set from the workspace&apos;s default stack (if configured) or manifest adapters.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
@@ -326,7 +326,7 @@ export function RouterConfigPage({ selectedTenant, focusAdapterId, onClearFocus 
                 </div>
               ) : (
                 <div className="text-sm text-muted-foreground">
-                  No default stack set; showing manifest/tenant adapter set.
+                  No default stack set; showing manifest/workspace adapter set.
                 </div>
               )}
               <div className="space-y-2">
@@ -348,4 +348,3 @@ export function RouterConfigPage({ selectedTenant, focusAdapterId, onClearFocus 
     </div>
   );
 }
-

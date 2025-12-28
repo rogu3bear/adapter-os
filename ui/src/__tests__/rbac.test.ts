@@ -206,7 +206,7 @@ describe('Permission descriptions', () => {
   it('returns description for known permissions', () => {
     expect(getPermissionDescription(PERMISSIONS.ADAPTER_LIST)).toBe('View adapters');
     expect(getPermissionDescription(PERMISSIONS.ADAPTER_DELETE)).toBe('Delete adapters');
-    expect(getPermissionDescription(PERMISSIONS.TENANT_MANAGE)).toBe('Manage tenants');
+    expect(getPermissionDescription(PERMISSIONS.TENANT_MANAGE)).toBe('Manage workspaces');
     expect(getPermissionDescription(PERMISSIONS.INFERENCE_EXECUTE)).toBe('Execute inference');
   });
 

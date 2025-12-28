@@ -50,6 +50,7 @@ export type {
   EvidenceItem,
   ThroughputStats,
   ChatMessage,
+  RunMetadata,
   ChatInterfaceProps,
   ChatMessageProps,
   ChatSearchBarProps,

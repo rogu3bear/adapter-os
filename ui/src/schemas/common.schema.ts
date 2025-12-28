@@ -9,20 +9,20 @@
 import { z } from 'zod';
 
 /**
- * Tenant ID schema
+ * Workspace ID schema
  *
  * From: adapteros-server-api/src/validation.rs::validate_tenant_id()
  * - Must contain only lowercase letters, numbers, underscores, and hyphens
  * - Maximum length: 50 characters
  */
 export const tenantIdSchema = z.string()
-  .min(1, 'Tenant ID is required')
-  .max(50, 'Tenant ID must not exceed 50 characters')
+  .min(1, 'Workspace ID is required')
+  .max(50, 'Workspace ID must not exceed 50 characters')
   .regex(
     /^[a-z0-9_-]+$/,
-    'Tenant ID must contain only lowercase letters, numbers, underscores, and hyphens'
+    'Workspace ID must contain only lowercase letters, numbers, underscores, and hyphens'
   )
-  .describe('Tenant identifier');
+  .describe('Workspace identifier');
 
 export type TenantId = z.infer<typeof tenantIdSchema>;
 
@@ -400,8 +400,8 @@ export type LoginFormData = z.infer<typeof LoginFormSchema>;
  */
 export const TenantSummarySchema = z.object({
   schema_version: z.string().default('v1'),
-  id: z.string().min(1, 'Tenant ID is required'),
-  name: z.string().min(1, 'Tenant name is required'),
+  id: z.string().min(1, 'Workspace ID is required'),
+  name: z.string().min(1, 'Workspace name is required'),
   status: z.string().nullable().optional(),
   created_at: z.string().nullable().optional(),
 });
@@ -420,8 +420,8 @@ export const LoginResponseSchema = z.object({
     .describe('Unique user identifier'),
 
   tenant_id: z.string()
-    .min(1, 'Tenant ID is required')
-    .describe('Associated tenant ID'),
+    .min(1, 'Workspace ID is required')
+    .describe('Associated workspace ID'),
 
   role: z.string()
     .min(1, 'Role is required')

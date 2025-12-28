@@ -25,6 +25,7 @@ import { PageAsyncBoundary, SectionAsyncBoundary } from '@/components/shared/Fee
 
 import { useTraining } from '@/hooks/training';
 import { useRBAC } from '@/hooks/security/useRBAC';
+import { useModelStatus } from '@/hooks/model-loading';
 import { logger } from '@/utils/logger';
 import type { Dataset, DatasetValidationStatus, ValidationStatus, DatasetVersionSummary, TrustState, StartTrainingRequest } from '@/api/training-types';
 import { TrainingWizard } from '@/components/TrainingWizard';
@@ -33,6 +34,7 @@ import { canUseQuickTrain } from '@/utils/trainingPreflight';
 import { useLineage } from '@/hooks/observability/useLineage';
 import { apiClient } from '@/api/services';
 import { LineageViewer } from '@/components/lineage/LineageViewer';
+import { useTenant } from '@/providers/FeatureProviders';
 
 import DatasetOverview from './DatasetOverview';
 import DatasetFiles from './DatasetFiles';
@@ -375,6 +377,8 @@ function DatasetDetailContent() {
   const { datasetId } = useParams<{ datasetId: string }>();
   const navigate = useNavigate();
   const { can } = useRBAC();
+  const { selectedTenant } = useTenant();
+  const modelStatus = useModelStatus(selectedTenant ?? 'default');
   const [activeTab, setActiveTab] = useState<TabValue>('overview');
   const [isTrainingWizardOpen, setIsTrainingWizardOpen] = useState(false);
   const [isQuickTrainOpen, setIsQuickTrainOpen] = useState(false);
@@ -479,6 +483,7 @@ function DatasetDetailContent() {
         const request: StartTrainingRequest = {
           adapter_name: config.adapterName,
           dataset_id: dataset.id,
+          base_model_id: modelStatus.modelId ?? undefined,
           config: {
             rank: config.rank,
             alpha: config.alpha,
@@ -506,7 +511,7 @@ function DatasetDetailContent() {
         setIsStartingTraining(false);
       }
     },
-    [dataset, datasetId, navigate],
+    [dataset, datasetId, navigate, modelStatus.modelId],
   );
 
   const handleNavigateLineageNode = useCallback(
@@ -682,4 +687,3 @@ function DatasetDetailContent() {
     </FeatureLayout>
   );
 }
-

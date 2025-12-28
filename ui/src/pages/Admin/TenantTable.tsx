@@ -48,7 +48,7 @@ export function TenantTable({ tenants }: TenantTableProps) {
   const columns: ColumnDef<Tenant>[] = [
     {
       id: 'tenant_id',
-      header: 'Organization ID',
+      header: 'Workspace ID',
       accessorKey: 'id',
       enableSorting: true,
       cell: (context) => (
@@ -176,7 +176,7 @@ export function TenantTable({ tenants }: TenantTableProps) {
       <Dialog open={!!confirmArchive} onOpenChange={() => setConfirmArchive(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Archive Organization</DialogTitle>
+            <DialogTitle>Archive Workspace</DialogTitle>
             <DialogDescription>
               Are you sure you want to archive organization "{confirmArchive?.name}"? This action can be
               undone later.

@@ -13,9 +13,9 @@ export interface ConceptTooltip {
 
 export const conceptTooltips: Record<string, ConceptTooltip> = {
   tenant: {
-    term: 'Tenant',
-    definition: 'A tenant is the top-level isolation unit in AdapterOS, representing a user, organization, or environment.',
-    learnMoreUrl: '/docs/concepts#tenant'
+    term: 'Workspace',
+    definition: 'A workspace is the top-level isolation unit in AdapterOS, representing a user, organization, or environment.',
+    learnMoreUrl: '/docs/terminology#workspace'
   },
 
   adapter: {
@@ -26,7 +26,7 @@ export const conceptTooltips: Record<string, ConceptTooltip> = {
 
   stack: {
     term: 'Stack',
-    definition: 'A stack is a tenant-scoped set of adapters with execution rules (workflow type, policies) used for inference.',
+    definition: 'A stack is a workspace-scoped set of adapters with execution rules (workflow type, policies) used for inference.',
     learnMoreUrl: '/docs/concepts#stack'
   },
 
@@ -62,7 +62,7 @@ export const conceptTooltips: Record<string, ConceptTooltip> = {
 
   policy: {
     term: 'Policy Pack',
-    definition: 'Policy packs are sets of rules enforced across tenants, adapters, and execution (e.g., Egress Policy, Determinism Policy).',
+    definition: 'Policy packs are sets of rules enforced across workspaces, adapters, and execution (e.g., Egress Policy, Determinism Policy).',
     learnMoreUrl: '/docs/concepts#policy-layer'
   },
 

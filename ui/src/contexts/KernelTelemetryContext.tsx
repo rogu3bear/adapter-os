@@ -5,6 +5,13 @@ import { useModelStatus } from '@/hooks/model-loading/useModelStatus';
 import { useSystemState } from '@/hooks/system/useSystemState';
 import type { MetricsStreamEvent, MetricsSnapshotEvent, SystemMetricsEvent } from '@/api/streaming-types';
 
+type IntegrityStatus = {
+  label: string;
+  variant: 'success' | 'warning' | 'danger' | 'muted';
+  detail?: string;
+  role?: string | null;
+};
+
 type KernelTelemetryState = {
   backendLabel: 'Metal' | 'CPU' | 'Auto';
   vramUsedMb?: number | null;
@@ -19,6 +26,7 @@ type KernelTelemetryState = {
   metricsError: Error | null;
   metricsStale: boolean;
   lastMetricsAt?: number | null;
+  integrity: IntegrityStatus;
 };
 
 const KernelTelemetryContext = createContext<KernelTelemetryState | null>(null);
@@ -75,10 +83,11 @@ export function KernelTelemetryProvider({ tenantId, children }: KernelTelemetryP
     }
   );
 
-  const { node: systemNode } = useSystemState({
+  const systemState = useSystemState({
     tenantId,
     pollingInterval: 20000,
-  }).data ?? { node: null };
+  }).data ?? null;
+  const systemNode = systemState?.node ?? null;
 
   const modelStatus = useModelStatus(tenantId, 5000);
 
@@ -96,6 +105,62 @@ export function KernelTelemetryProvider({ tenantId, children }: KernelTelemetryP
       Date.now() - lastMetricsAt > 5000
     );
 
+    const integrity: IntegrityStatus = (() => {
+      if (!systemState) {
+        return {
+          label: 'Integrity: Checking…',
+          variant: 'warning',
+          detail: 'Awaiting system state response',
+          role: null,
+        };
+      }
+
+      const role = systemState.origin?.federation_role?.toLowerCase() ?? 'standalone';
+      const federationService = systemState.node?.services?.find(
+        (svc) => svc.name === 'federation_daemon'
+      );
+
+      if (role === 'standalone' || !federationService) {
+        return {
+          label: 'Local Integrity: Verified',
+          variant: 'success',
+          detail: 'Standalone mode without federation daemon',
+          role,
+        };
+      }
+
+      switch (federationService.status) {
+        case 'healthy':
+          return {
+            label: 'Federation Integrity: Verified',
+            variant: 'success',
+            detail: 'Federation daemon healthy',
+            role,
+          };
+        case 'degraded':
+          return {
+            label: 'Federation Integrity: Degraded',
+            variant: 'warning',
+            detail: 'Federation daemon reporting degraded health',
+            role,
+          };
+        case 'unhealthy':
+          return {
+            label: 'Federation Integrity: Attention',
+            variant: 'danger',
+            detail: 'Federation daemon unhealthy',
+            role,
+          };
+        default:
+          return {
+            label: 'Federation Integrity: Checking…',
+            variant: 'warning',
+            detail: 'Awaiting federation health',
+            role,
+          };
+      }
+    })();
+
     return {
       backendLabel,
       vramUsedMb: gpuMetrics.used,
@@ -110,6 +175,7 @@ export function KernelTelemetryProvider({ tenantId, children }: KernelTelemetryP
       metricsError,
       metricsStale,
       lastMetricsAt,
+      integrity,
     };
   }, [
     latestEvent,
@@ -122,6 +188,7 @@ export function KernelTelemetryProvider({ tenantId, children }: KernelTelemetryP
     modelStatus.status,
     modelStatus.modelPath,
     lastMetricsAt,
+    systemState,
   ]);
 
   return (
@@ -148,6 +215,12 @@ export function useKernelTelemetry(): KernelTelemetryState {
       metricsError: null,
       metricsStale: true,
       lastMetricsAt: null,
+      integrity: {
+        label: 'Integrity: Unknown',
+        variant: 'muted',
+        detail: 'Kernel telemetry unavailable',
+        role: null,
+      },
     } as KernelTelemetryState;
   }
   return ctx;

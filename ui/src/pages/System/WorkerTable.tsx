@@ -137,7 +137,7 @@ export default function WorkerTable({
       {
         id: 'tenant_id',
         accessorKey: 'tenant_id',
-        header: 'Organization',
+        header: 'Workspace',
         cell: ({ row }) => row.tenant_id ?? '--',
       },
       {

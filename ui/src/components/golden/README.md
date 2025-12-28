@@ -181,7 +181,7 @@ See [docs/ARCHITECTURE.md](../../docs/ARCHITECTURE.md) for detailed descriptions
 **Security (7)**
 - Egress Control
 - Input Validation
-- Tenant Isolation
+- Workspace Isolation
 - Memory Safety
 - Artifact Signature
 - Secrets Rotation

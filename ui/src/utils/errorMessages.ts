@@ -144,9 +144,9 @@ const ERROR_CODE_MAP: Record<string, (context?: ErrorContext) => UserFriendlyErr
   }),
 
   'TENANT_ACCESS_DENIED': () => ({
-    title: 'Tenant Access Denied',
-    message: 'You do not have access to this tenant. Switch to an allowed tenant.',
-    actionText: 'Select tenant',
+    title: 'Workspace Access Denied',
+    message: 'You do not have access to this workspace. Switch to an allowed workspace.',
+    actionText: 'Select workspace',
     helpUrl: '/docs/administration#tenants',
     variant: 'warning'
   }),

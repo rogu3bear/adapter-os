@@ -27,7 +27,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
       title: 'System Dashboard',
       tips: [
         'Monitor overall system health and resource utilization',
-        'Check adapter deployment status across organizations',
+        'Check adapter deployment status across workspaces',
         'Review recent alerts and system events'
       ],
       relatedPages: [
@@ -101,7 +101,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
     admin: {
       title: 'Adapter Management',
       tips: [
-        'Manage adapters across all organizations',
+        'Manage adapters across all workspaces',
         'Review deployment status and resource usage',
         'Monitor adapter performance metrics'
       ],
@@ -173,11 +173,11 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
   },
   '/admin/tenants': {
     admin: {
-      title: 'Organization Management',
+      title: 'Workspace Management',
       tips: [
-        'Create and manage organization workspaces',
-        'Configure organization isolation and resources',
-        'Monitor organization activity and usage'
+        'Create and manage workspace workspaces',
+        'Configure workspace isolation and resources',
+        'Monitor workspace activity and usage'
       ],
       relatedPages: [
         { label: 'Dashboard', route: '/dashboard', description: 'System overview' },
@@ -187,34 +187,34 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
     developer: { title: '', tips: [], relatedPages: [] },
     operator: { title: '', tips: [], relatedPages: [] },
     sre: {
-      title: 'Organization Infrastructure',
+      title: 'Workspace Infrastructure',
       tips: [
-        'Monitor organization resource allocation',
-        'Review organization isolation status',
-        'Check organization node assignments'
+        'Monitor workspace resource allocation',
+        'Review workspace isolation status',
+        'Check workspace node assignments'
       ],
       relatedPages: [
         { label: 'Metrics', route: '/metrics', description: 'Resource metrics' }
       ]
     },
     compliance: {
-      title: 'Organization Compliance',
+      title: 'Workspace Compliance',
       tips: [
-        'Review organization data classification',
-        'Verify organization isolation compliance',
-        'Check organization policy assignments'
+        'Review workspace data classification',
+        'Verify workspace isolation compliance',
+        'Check workspace policy assignments'
       ],
       relatedPages: [
-        { label: 'Policies', route: '/security/policies', description: 'Organization policies' },
-        { label: 'Audit', route: '/security/audit', description: 'Organization audit logs' }
+        { label: 'Policies', route: '/security/policies', description: 'Workspace policies' },
+        { label: 'Audit', route: '/security/audit', description: 'Workspace audit logs' }
       ]
     },
     auditor: {
-      title: 'Organization Audit',
+      title: 'Workspace Audit',
       tips: [
-        'Review organization configuration history',
-        'Verify organization access controls',
-        'Export organization audit data'
+        'Review workspace configuration history',
+        'Verify workspace access controls',
+        'Export workspace audit data'
       ],
       relatedPages: [
         { label: 'Audit', route: '/security/audit', description: 'Full audit trail' }
@@ -490,7 +490,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
     admin: {
       title: 'Inference Testing',
       tips: [
-        'Test adapters across all organizations',
+        'Test adapters across all workspaces',
         'Monitor inference performance and resource usage',
         'Review inference request patterns'
       ],
@@ -637,7 +637,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
       tips: [
         'Manage base model configurations',
         'Review base model resource allocation',
-        'Monitor base model usage across organizations'
+        'Monitor base model usage across workspaces'
       ],
       relatedPages: [
         { label: 'Adapters', route: '/adapters', description: 'View adapter models' },
@@ -1165,7 +1165,7 @@ const pageGuidanceMap: Record<string, Record<UserRole, PageGuidance>> = {
       relatedPages: [
         { label: 'Dashboard', route: '/dashboard', description: 'System overview' },
         { label: 'Metrics', route: '/metrics', description: 'System metrics' },
-        { label: 'Organizations', route: '/admin/tenants', description: 'Organization management' }
+        { label: 'Workspaces', route: '/admin/tenants', description: 'Workspace management' }
       ]
     },
     developer: { title: '', tips: [], relatedPages: [] },

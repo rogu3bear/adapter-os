@@ -331,7 +331,7 @@ export function AuditLogsTab() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="tenant_id">Organization ID</Label>
+                <Label htmlFor="tenant_id">Workspace ID</Label>
                 <Input
                   id="tenant_id"
                   placeholder="e.g., acme-corp"
@@ -398,7 +398,7 @@ export function AuditLogsTab() {
                     )}
                     {log.tenant_id && (
                       <div>
-                        <span className="font-medium">Organization:</span> {log.tenant_id}
+                        <span className="font-medium">Workspace:</span> {log.tenant_id}
                       </div>
                     )}
                   </div>

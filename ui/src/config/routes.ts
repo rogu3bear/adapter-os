@@ -52,14 +52,9 @@ import {
 } from 'lucide-react';
 
 // Lazy-loaded page components for code splitting
-const OwnerHomePage = lazy(() => import('@/pages/OwnerHome'));
 const DashboardPage = lazy(() => import('@/pages/DashboardPage'));
-const TenantsPage = lazy(() => import('@/pages/TenantsPage'));
-const TenantDetailRoutePage = lazy(() => import('@/pages/Admin/TenantDetailPage'));
+const WorkspacesPage = lazy(() => import('@/pages/WorkspacesPage'));
 const StackDetailRoutePage = lazy(() => import('@/pages/Admin/StackDetailModal'));
-const AdaptersPage = lazy(() => import('@/pages/AdaptersPage'));
-const AdapterDetailPage = lazy(() => import('@/pages/Adapters/AdapterDetailPage'));
-const AdapterRegisterPage = lazy(() => import('@/pages/Adapters/AdapterRegisterPage'));
 const AdaptersShellPage = lazyWithRetry(() => import('@/pages/Adapters/AdaptersShell'));
 const PoliciesPage = lazy(() => import('@/pages/PoliciesPage'));
 const MetricsPage = lazy(() => import('@/pages/MetricsPage'));
@@ -70,29 +65,17 @@ const RepositoriesShellPage = lazy(() => import('@/pages/Repositories/Repositori
 const CompliancePage = lazyRouteableNamed(() => import('@/pages/Security/ComplianceTab'), 'ComplianceTab');
 const EvidencePage = lazy(() => import('@/pages/EvidencePage'));
 const BaseModelsPage = lazy(() => import('@/pages/BaseModelsPage'));
-const WorkflowPage = lazy(() => import('@/pages/WorkflowPage'));
-const TrainingPage = lazy(() => import('@/pages/Training/TrainingPage'));
-const TrainingJobsPage = lazy(() => import('@/pages/Training/TrainingJobsPage'));
-const TrainingJobDetailPage = lazy(() => import('@/pages/Training/TrainingJobDetail'));
-const TrainingDatasetsPage = lazyRouteableNamed(() => import('@/pages/Training/DatasetsTab'), 'DatasetsTab');
-const DatasetDetailPage = lazy(() => import('@/pages/Training/DatasetDetailPage'));
 const DatasetChatPage = lazy(() => import('@/pages/Training/DatasetChatPage'));
 const ResultChatPage = lazy(() => import('@/pages/Training/ResultChatPage'));
-const TrainingTemplatesPage = lazyRouteableNamed(() => import('@/pages/Training/TemplatesTab'), 'TemplatesTab');
 const TrainingShellPage = lazy(() => import('@/pages/Training/TrainingShell'));
-const CreateAdapterPage = lazy(() => import('@/pages/CreateAdapterPage'));
 const TestingPage = lazy(() => import('@/pages/TestingPage'));
 const GoldenPage = lazy(() => import('@/pages/GoldenPage'));
-const PromotionPage = lazy(() => import('@/pages/PromotionPage'));
 const RoutingPage = lazy(() => import('@/pages/RoutingPage'));
 const ReplayShellPage = lazy(() => import('@/pages/Replay/ReplayShell'));
-const AdminPage = lazy(() => import('@/pages/AdminPage'));
+const AdminPage = lazy(() => import('@/pages/Admin/AdminPage'));
 const AdminStacksPage = lazyRouteableNamed(() => import('@/pages/Admin/AdapterStacksTab'), 'AdapterStacksTab');
 const AdminPluginsPage = lazy(() => import('@/pages/Admin/PluginsPage'));
 const AdminSettingsPage = lazy(() => import('@/pages/Admin/SettingsPage'));
-const TrainerPage = lazy(() => import('@/pages/TrainerPage'));
-const PersonasPage = lazy(() => import('@/pages/PersonasPage'));
-const ManagementPage = lazy(() => import('@/pages/ManagementPage'));
 const SystemOverviewPage = lazy(() => import('@/pages/System/SystemOverviewPage'));
 const SystemNodesPage = lazy(() => import('@/pages/System/NodesTab'));
 const NodeDetailRoutePage = lazy(() => import('@/pages/System/NodeDetailModal'));
@@ -100,7 +83,6 @@ const SystemWorkersPage = lazy(() => import('@/pages/System/WorkersTab'));
 const SystemMemoryPage = lazy(() => import('@/pages/System/MemoryTab'));
 const SystemMetricsPage = lazy(() => import('@/pages/System/MetricsTab'));
 const PilotStatusPage = lazy(() => import('@/pages/System/PilotStatusPage'));
-const GuidedFlowPage = lazy(() => import('@/pages/GuidedFlowPage'));
 const DocumentLibraryPage = lazy(() => import('@/pages/DocumentLibrary'));
 const DocumentChatPage = lazy(() => import('@/pages/DocumentLibrary/DocumentChatPage'));
 const RouterConfigPage = lazy(() => import('@/pages/RouterConfigPage'));
@@ -259,26 +241,42 @@ export interface RouteConfig {
 }
 
 /**
- * LEGACY REDIRECTS - Candidates for removal
- * ==========================================
- * The following routes are legacy redirects that should be removed after
- * confirming no external links depend on them:
+ * ROUTE MANIFEST
+ * ==============
+ * Canonical routes (MVP spine + essential ops):
+ * - /dashboard (Home)
+ * - /workspaces (Workspaces)
+ * - /base-models (Base Models)
+ * - /documents (Upload Data)
+ * - /training (Training)
+ * - /chat (Chat)
+ * - /metrics (Metrics)
+ * - /routing (Routing History)
+ * - /system (System Overview)
+ * - /telemetry (Event History)
+ * - /replay (Run History)
+ * - /security/policies (Guardrails)
  *
- * | Path              | Redirects To    | Notes                          |
- * |-------------------|-----------------|--------------------------------|
- * | /owner            | /admin          | Legacy owner home              |
- * | /management       | /dashboard      | Legacy management panel        |
- * | /workflow         | /training       | Legacy onboarding              |
- * | /personas         | /dashboard      | Legacy personas tour           |
- * | /flow/lora        | /training       | Legacy guided setup            |
- * | /trainer          | /training       | Legacy quick trainer           |
- * | /create-adapter   | /adapters#register | Legacy adapter creation     |
- * | /promotion        | /adapters       | Legacy promotion flow          |
- * | /monitoring       | /metrics        | Merged into metrics            |
- * | /reports          | /metrics        | Merged into metrics            |
- * | /code-intelligence| /telemetry      | Moved to telemetry viewer      |
- * | /metrics/advanced | /metrics        | Consolidated into main metrics |
- * | /help             | /dashboard      | Legacy help center             |
+ * Deprecated routes (redirects, keep deep links):
+ * - /owner -> /admin
+ * - /management -> /dashboard
+ * - /workflow -> /training
+ * - /personas -> /dashboard
+ * - /flow/lora -> /training
+ * - /trainer -> /training
+ * - /create-adapter -> /adapters#register
+ * - /promotion -> /adapters
+ * - /monitoring -> /metrics
+ * - /reports -> /metrics
+ * - /code-intelligence -> /telemetry/viewer?source_type=code_intelligence
+ * - /metrics/advanced -> /metrics
+ * - /help -> /dashboard
+ * - /admin/tenants -> /workspaces
+ * - /admin/tenants/:tenantId -> /workspaces
+ * - /telemetry/traces -> /telemetry/viewer
+ * - /telemetry/traces/:traceId -> /telemetry/viewer/:traceId
+ * - /chat/sessions/:sessionId -> /chat?session=:sessionId
+ * - /security -> /security/policies
  *
  * Audit date: 2025-12-19
  * TODO: Track usage analytics before removing these routes
@@ -299,14 +297,29 @@ export const routes: RouteConfig[] = [
     path: '/dashboard',
     component: DashboardPage,
     requiresAuth: true,
-    navGroup: 'Run',
-    navTitle: 'Dashboard',
+    navGroup: 'Get Started',
+    navTitle: 'Home',
     navIcon: LayoutDashboard,
     navOrder: 0,
     skeletonVariant: 'dashboard',
-    breadcrumb: 'Dashboard',
+    breadcrumb: 'Home',
     cluster: 'Run',
     roleVisibility: ['admin', 'operator', 'sre', 'compliance', 'auditor', 'viewer'],
+    modes: [UiMode.User],
+  },
+  {
+    path: '/workspaces',
+    component: WorkspacesPage,
+    requiresAuth: true,
+    navGroup: 'Get Started',
+    navTitle: 'Workspaces',
+    navIcon: Building,
+    navOrder: 1,
+    skeletonVariant: 'table',
+    breadcrumb: 'Workspaces',
+    cluster: 'Build',
+    roleVisibility: ['admin', 'operator', 'sre', 'compliance', 'auditor', 'viewer'],
+    requiredRoles: ['admin', 'operator', 'sre', 'compliance', 'auditor', 'viewer'],
     modes: [UiMode.User],
   },
   {
@@ -324,6 +337,7 @@ export const routes: RouteConfig[] = [
     path: '/workflow',
     component: redirectTo('/training', 'Training'),
     requiresAuth: true,
+    skeletonVariant: 'default',
     breadcrumb: 'Onboarding',
     cluster: 'Build',
     roleVisibility: ['admin'],
@@ -411,16 +425,16 @@ export const routes: RouteConfig[] = [
     path: '/training',
     component: TrainingShellPage,
     requiresAuth: true,
-    requiredRoles: ['admin', 'operator'],
-    navGroup: 'Build',
-    navTitle: 'Training',
+    requiredRoles: ['admin', 'operator', 'sre', 'compliance', 'auditor', 'viewer'],
+    navGroup: 'Get Started',
+    navTitle: 'Tune',
     navIcon: Zap,
-    navOrder: 2,
+    navOrder: 4,
     skeletonVariant: 'table',
     breadcrumb: 'Training',
     cluster: 'Build',
-    roleVisibility: ['admin', 'operator'],
-    modes: [UiMode.Builder],
+    roleVisibility: ['admin', 'operator', 'sre', 'compliance', 'auditor', 'viewer'],
+    modes: [UiMode.User],
   },
   {
     path: '/training/jobs',
@@ -803,15 +817,15 @@ export const routes: RouteConfig[] = [
     path: '/chat',
     component: ChatPage,
     requiresAuth: true,
-    requiredRoles: ['admin', 'operator'],
-    navGroup: 'Run',
+    requiredRoles: ['admin', 'operator', 'sre', 'compliance', 'auditor', 'viewer'],
+    navGroup: 'Get Started',
     navTitle: 'Chat',
     navIcon: MessageSquare,
-    navOrder: 2,
+    navOrder: 5,
     skeletonVariant: 'form',
     breadcrumb: 'Chat',
     cluster: 'Run',
-    roleVisibility: ['admin', 'operator'],
+    roleVisibility: ['admin', 'operator', 'sre', 'compliance', 'auditor', 'viewer'],
     modes: [UiMode.User],
   },
   {
@@ -829,15 +843,15 @@ export const routes: RouteConfig[] = [
     path: '/documents',
     component: DocumentLibraryPage,
     requiresAuth: true,
-    requiredRoles: ['admin', 'operator'],
-    navGroup: 'Run',
-    navTitle: 'Documents',
+    requiredRoles: ['admin', 'operator', 'sre', 'compliance', 'auditor', 'viewer'],
+    navGroup: 'Get Started',
+    navTitle: 'Upload Data',
     navIcon: FileText,
     navOrder: 3,
     skeletonVariant: 'table',
-    breadcrumb: 'Documents',
+    breadcrumb: 'Upload Data',
     cluster: 'Run',
-    roleVisibility: ['admin', 'operator'],
+    roleVisibility: ['admin', 'operator', 'sre', 'compliance', 'auditor', 'viewer'],
     modes: [UiMode.User],
   },
   {
@@ -1066,10 +1080,6 @@ export const routes: RouteConfig[] = [
     path: '/security',
     component: redirectTo('/security/policies', 'Guardrails'),
     requiresAuth: true,
-    navGroup: 'Verify',
-    navTitle: 'Security',
-    navIcon: Shield,
-    navOrder: 6,
     skeletonVariant: 'table',
     breadcrumb: 'Security',
     cluster: 'Verify',
@@ -1155,15 +1165,11 @@ export const routes: RouteConfig[] = [
   },
   {
     path: '/admin/tenants',
-    component: TenantsPage,
+    component: redirectTo('/workspaces', 'Workspaces'),
     requiresAuth: true,
     requiredRoles: ['admin'],
-    navGroup: 'Build',
-    navTitle: 'Organizations',
-    navIcon: Building,
-    navOrder: 2,
     skeletonVariant: 'table',
-    breadcrumb: 'Organizations',
+    breadcrumb: 'Workspaces',
     parentPath: '/admin',
     cluster: 'Build',
     roleVisibility: ['admin'],
@@ -1171,11 +1177,11 @@ export const routes: RouteConfig[] = [
   },
   {
     path: '/admin/tenants/:tenantId',
-    component: TenantDetailRoutePage,
+    component: redirectTo('/workspaces', 'Workspaces'),
     requiresAuth: true,
     requiredRoles: ['admin'],
     skeletonVariant: 'default',
-    breadcrumb: 'Organization Detail',
+    breadcrumb: 'Workspace Detail',
     parentPath: '/admin/tenants',
     cluster: 'Build',
     roleVisibility: ['admin'],
@@ -1253,15 +1259,16 @@ export const routes: RouteConfig[] = [
     path: '/base-models',
     component: BaseModelsPage,
     requiresAuth: true,
-    navGroup: 'Build',
+    requiredRoles: ['admin', 'operator', 'sre', 'compliance', 'auditor', 'viewer'],
+    navGroup: 'Get Started',
     navTitle: 'Base Models',
     navIcon: Database,
-    navOrder: 4,
+    navOrder: 2,
     skeletonVariant: 'table',
     breadcrumb: 'Base Models',
     cluster: 'Build',
-    roleVisibility: ['admin'],
-    modes: [UiMode.Builder],
+    roleVisibility: ['admin', 'operator', 'sre', 'compliance', 'auditor', 'viewer'],
+    modes: [UiMode.User],
   },
   {
     path: '/code-intelligence',

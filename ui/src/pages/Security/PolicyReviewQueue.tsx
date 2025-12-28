@@ -172,7 +172,7 @@ export default function PolicyReviewQueue() {
                   <div className="grid grid-cols-3 gap-4 text-sm">
                     <div className="flex items-center gap-2">
                       <User className="h-4 w-4 text-muted-foreground" />
-                      <span className="text-muted-foreground">Tenant:</span>
+                      <span className="text-muted-foreground">Workspace:</span>
                       <span className="font-medium">{customization.tenant_id}</span>
                     </div>
                     <div className="flex items-center gap-2">
@@ -248,7 +248,7 @@ export default function PolicyReviewQueue() {
                       {getPolicyPack(reviewingCustomization.base_policy_type)?.name || reviewingCustomization.base_policy_type}
                     </p>
                     <p className="text-sm">
-                      Tenant: {reviewingCustomization.tenant_id}
+                      Workspace: {reviewingCustomization.tenant_id}
                     </p>
                     <p className="text-sm">
                       Created by: {reviewingCustomization.created_by}
@@ -309,4 +309,3 @@ export default function PolicyReviewQueue() {
     </div>
   );
 }
-

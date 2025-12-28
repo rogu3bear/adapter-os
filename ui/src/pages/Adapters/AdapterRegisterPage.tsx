@@ -50,7 +50,7 @@ import { buildAdaptersListLink, buildAdapterDetailLink } from '@/utils/navLinks'
 
 // Form schema for adapter registration
 const formSchema = z.object({
-  tenant: z.string().min(1, 'Organization is required').max(50),
+  tenant: z.string().min(1, 'Workspace is required').max(50),
   domain: z.string().min(1, 'Domain is required').max(50).regex(/^[a-z0-9_-]+$/, 'Domain must contain only lowercase letters, numbers, underscores, and hyphens'),
   purpose: z.string().min(1, 'Purpose is required').max(50).regex(/^[a-z0-9_-]+$/, 'Purpose must contain only lowercase letters, numbers, underscores, and hyphens'),
   revision: adapterRevisionSchema,
@@ -238,7 +238,7 @@ export function AdapterRegisterPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="tenant">
-                    Organization <span className="text-destructive">*</span>
+                    Workspace <span className="text-destructive">*</span>
                   </Label>
                   <Input
                     id="tenant"
@@ -468,7 +468,7 @@ export function AdapterRegisterPage() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="global">Global</SelectItem>
-                      <SelectItem value="tenant">Organization</SelectItem>
+                      <SelectItem value="tenant">Workspace</SelectItem>
                       <SelectItem value="repo">Repository</SelectItem>
                       <SelectItem value="commit">Commit</SelectItem>
                     </SelectContent>

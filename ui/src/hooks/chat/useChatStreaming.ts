@@ -4,7 +4,7 @@ import { apiClient } from '@/api/services';
 import { logger, toError } from '@/utils/logger';
 import type { ChatMessage, ThroughputStats } from '@/components/chat/ChatMessage';
 import type { StreamingInferRequest } from '@/api/streaming-types';
-import type { UseChatStreamingOptions, UseChatStreamingReturn } from '@/types/hooks';
+import type { RunMetadataPayload, UseChatStreamingOptions, UseChatStreamingReturn } from '@/types/hooks';
 
 type StreamTokenChunk = {
   token: string;
@@ -13,6 +13,144 @@ type StreamTokenChunk = {
   index: number;
   logprob?: number | null;
   routerScore?: number | null;
+};
+
+const pickScalar = (source: Record<string, unknown>, keys: string[]): string | number | boolean | undefined => {
+  for (const key of keys) {
+    if (!(key in source)) continue;
+    const value = source[key];
+    if (value === undefined || value === null) continue;
+    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+      return value;
+    }
+  }
+  return undefined;
+};
+
+const toStringValue = (value: string | number | boolean | undefined): string | undefined => {
+  if (value === undefined) return undefined;
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  return undefined;
+};
+
+const asRecord = (value: unknown): Record<string, unknown> | null => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+};
+
+const parseJsonRecord = (value: unknown): Record<string, unknown> | null => {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed.startsWith('{')) return null;
+  try {
+    return asRecord(JSON.parse(trimmed));
+  } catch {
+    return null;
+  }
+};
+
+const unwrapRunEnvelope = (raw: Record<string, unknown>): Record<string, unknown> | null => {
+  const direct = asRecord(raw.run_envelope) ?? asRecord(raw.runEnvelope);
+  if (direct) return direct;
+
+  const eventName =
+    typeof raw.event === 'string'
+      ? raw.event
+      : typeof raw.event_type === 'string'
+        ? raw.event_type
+        : typeof raw.type === 'string'
+          ? raw.type
+          : null;
+
+  if (eventName === 'aos.run_envelope') {
+    return asRecord(raw.data) ?? parseJsonRecord(raw.data);
+  }
+
+  return null;
+};
+
+const extractRunMetadata = (payload: unknown): RunMetadataPayload | null => {
+  const raw = asRecord(payload) ?? parseJsonRecord(payload);
+  if (!raw) return null;
+  const envelope = unwrapRunEnvelope(raw);
+  const nested = asRecord(raw.metadata);
+  const nestedEnvelope = nested ? unwrapRunEnvelope(nested) : null;
+  const sources = [envelope, nestedEnvelope, raw, nested].filter(Boolean) as Array<Record<string, unknown>>;
+
+  const lookupScalar = (keys: string[]) => {
+    for (const source of sources) {
+      const value = pickScalar(source, keys);
+      if (value !== undefined) return value;
+    }
+    return undefined;
+  };
+  const lookup = (keys: string[]) => toStringValue(lookupScalar(keys));
+
+  const runId = lookup(['run_id', 'runId']);
+  const requestId = lookup(['request_id', 'requestId', 'id']);
+  const traceId = lookup(['trace_id', 'traceId']);
+  const workspaceId = lookup(['workspace_id', 'workspaceId', 'tenant_id', 'tenantId']);
+  const manifestHashB3 = lookup(['manifest_hash_b3', 'manifestHashB3']);
+  const policyMaskDigestB3 = lookup(['policy_mask_digest_b3', 'policyMaskDigestB3', 'policy_mask_digest', 'policyMaskDigest']);
+  const planId = lookup(['plan_id', 'planId']);
+  const routerSeed = lookup(['router_seed', 'routerSeed']);
+  const tickRaw = lookupScalar(['tick']);
+  const tick = typeof tickRaw === 'number' || typeof tickRaw === 'string' ? tickRaw : undefined;
+  const workerId = lookup(['worker_id', 'workerId']);
+  const reasoningMode = lookup(['reasoning_mode', 'reasoningMode']);
+  const determinismVersion = lookup(['determinism_version', 'determinismVersion']);
+  const bootTraceId = lookup(['boot_trace_id', 'bootTraceId']);
+  const createdAt = lookup(['created_at', 'createdAt']);
+  const rawSeed = lookupScalar(['seed_material', 'seedMaterial', 'seed']);
+  const seedMaterial = typeof rawSeed === 'boolean' ? String(rawSeed) : rawSeed;
+  const seededFlag = lookupScalar(['seeded_via_hkdf', 'seededViaHkdf', 'hkdf_seeded']);
+  const seededViaHkdf =
+    seededFlag === undefined
+      ? seedMaterial !== undefined
+      : Boolean(seededFlag === true || seededFlag === 'true' || seededFlag === '1');
+
+  if (
+    !runId &&
+    !requestId &&
+    !traceId &&
+    !workspaceId &&
+    !manifestHashB3 &&
+    !policyMaskDigestB3 &&
+    !planId &&
+    !routerSeed &&
+    tick === undefined &&
+    !workerId &&
+    !reasoningMode &&
+    !determinismVersion &&
+    !bootTraceId &&
+    !createdAt &&
+    seedMaterial === undefined
+  ) {
+    return null;
+  }
+
+  const metadata: RunMetadataPayload = {
+    runId,
+    requestId,
+    traceId,
+    manifestHashB3,
+    policyMaskDigestB3,
+    planId,
+    workerId,
+    reasoningMode,
+    seedMaterial,
+    seededViaHkdf,
+  };
+
+  return Object.assign(metadata, {
+    workspaceId,
+    routerSeed,
+    tick,
+    determinismVersion,
+    bootTraceId,
+    createdAt,
+  });
 };
 
 /**
@@ -64,7 +202,8 @@ export function useChatStreaming(options: UseChatStreamingOptions): UseChatStrea
     documentId,
     onMessageSent,
     onStreamComplete,
-    onError
+    onError,
+    onRunMetadata,
   } = options;
 
   // State
@@ -79,6 +218,21 @@ export function useChatStreaming(options: UseChatStreamingOptions): UseChatStrea
   const abortControllerRef = useRef<AbortController | null>(null);
   const streamStartTimeRef = useRef<number | null>(null);
   const tokenMetaRef = useRef<StreamTokenChunk[]>([]);
+
+  const emitRunMetadata = useCallback(
+    (payload: unknown, requestHint?: string, traceHint?: string) => {
+      if (!onRunMetadata) return;
+      const metadata = extractRunMetadata(payload);
+      if (!metadata) return;
+
+      onRunMetadata({
+        ...metadata,
+        requestId: metadata.requestId ?? metadata.runId ?? requestHint ?? currentRequestId ?? undefined,
+        traceId: metadata.traceId ?? metadata.runId ?? traceHint ?? metadata.requestId ?? currentRequestId ?? undefined,
+      });
+    },
+    [currentRequestId, onRunMetadata]
+  );
 
   /**
    * Reset streaming state to initial values
@@ -205,6 +359,7 @@ export function useChatStreaming(options: UseChatStreamingOptions): UseChatStrea
               traceId = chunk.id;
               setCurrentRequestId(chunk.id);
             }
+            emitRunMetadata(chunk, typeof (chunk as { id?: string }).id === 'string' ? (chunk as { id: string }).id : undefined, traceId ?? undefined);
             tokenCount++;
             fullText += token;
             setStreamedText(fullText);
@@ -255,6 +410,7 @@ export function useChatStreaming(options: UseChatStreamingOptions): UseChatStrea
             if (resolvedTraceId) {
               setCurrentRequestId(resolvedTraceId);
             }
+            emitRunMetadata(metadata, resolvedTraceId ?? traceId ?? undefined, resolvedTraceId ?? traceId ?? undefined);
 
             // Calculate throughput stats from local variables (guaranteed accurate)
             const throughputStats: ThroughputStats | undefined =
@@ -265,6 +421,8 @@ export function useChatStreaming(options: UseChatStreamingOptions): UseChatStrea
                     tokensPerSecond: tokenCount / (duration / 1000),
                   }
                 : undefined;
+
+            const runMetadata = extractRunMetadata(metadata);
 
             // Create completed assistant message
             const assistantMessage: ChatMessage = {
@@ -282,6 +440,13 @@ export function useChatStreaming(options: UseChatStreamingOptions): UseChatStrea
                   ? metadata.pinned_routing_fallback
                   : undefined,
               tokenStream: tokenMetaRef.current,
+              runMetadata: runMetadata
+                ? {
+                    ...runMetadata,
+                    requestId: runMetadata.requestId ?? resolvedTraceId ?? traceId ?? undefined,
+                    traceId: runMetadata.traceId ?? resolvedTraceId ?? traceId ?? undefined,
+                  }
+                : undefined,
             };
 
             logger.info('Stream completed', {

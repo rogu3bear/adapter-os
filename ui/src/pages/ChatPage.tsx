@@ -44,9 +44,10 @@ import { useKernelTelemetry } from '@/contexts/KernelTelemetryContext';
 import { useAuth } from '@/providers/CoreProviders';
 import { useUiMode } from '@/hooks/ui/useUiMode';
 import { UiMode } from '@/config/ui-mode';
+import { toast } from 'sonner';
 
 export default function ChatPage() {
-  const { selectedTenant } = useTenant();
+  const { selectedTenant, setSelectedTenant } = useTenant();
   const { can } = useRBAC();
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -104,6 +105,7 @@ export default function ChatPage() {
           <DatasetChatProvider sessionId={sessionId}>
             <WorkbenchContent
               selectedTenant={selectedTenant}
+              setTenant={setSelectedTenant}
               initialStackId={initialStackId}
               sessionId={sessionId}
               streamMode={streamMode}
@@ -121,6 +123,7 @@ export default function ChatPage() {
 
 interface WorkbenchContentProps {
   selectedTenant: string;
+  setTenant: (tenantId: string) => Promise<boolean>;
   initialStackId?: string;
   sessionId?: string;
   streamMode: 'tokens' | 'chunks';
@@ -132,6 +135,7 @@ interface WorkbenchContentProps {
 
 function WorkbenchContent({
   selectedTenant,
+  setTenant,
   initialStackId,
   sessionId,
   streamMode,
@@ -174,6 +178,10 @@ function WorkbenchContent({
   } = loadState;
 
   const previousTenantRef = useRef<string | null>(null);
+  const selectedSession = useMemo(() => {
+    if (!sessionId) return undefined;
+    return sessions.find((s) => s.id === sessionId);
+  }, [sessionId, sessions]);
 
   useEffect(() => {
     const previousTenant = previousTenantRef.current;
@@ -181,6 +189,17 @@ function WorkbenchContent({
 
     if (!previousTenant || !previousTenant.trim()) return;
     if (previousTenant === selectedTenant) return;
+
+    const hasActiveSession = Boolean(sessionId || selectedSession);
+    const shouldReset =
+      !hasActiveSession ||
+      window.confirm('Switching workspace will reset the current chat session. Continue?');
+
+    if (!shouldReset) {
+      void setTenant(previousTenant);
+      previousTenantRef.current = previousTenant;
+      return;
+    }
 
     setSelectedTraceId(null);
     pinMessage(null);
@@ -192,18 +211,14 @@ function WorkbenchContent({
       next.delete('stack');
       return next;
     });
-  }, [pinMessage, selectMessage, selectedTenant, setSearchParams, setStrengthOverrides]);
+    toast.warning('Workspace changed — chat context was reset.');
+  }, [pinMessage, selectMessage, selectedTenant, selectedSession, sessionId, setSearchParams, setStrengthOverrides, setTenant]);
 
   useEffect(() => {
     if (effectiveDeveloperMode) {
       setRightRailCollapsed(false);
     }
   }, [effectiveDeveloperMode, setRightRailCollapsed]);
-
-  const selectedSession = useMemo(() => {
-    if (!sessionId) return undefined;
-    return sessions.find((s) => s.id === sessionId);
-  }, [sessionId, sessions]);
 
   const sessionStackId = useMemo(() => {
     if (!sessionId) return undefined;

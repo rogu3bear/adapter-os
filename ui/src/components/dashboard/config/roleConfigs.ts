@@ -61,13 +61,13 @@ export const adminConfig: RoleDashboardConfig = {
     },
     {
       id: 'tenant-summary',
-      title: 'Tenant Summary',
-      description: 'Multi-tenant operations and policies',
+      title: 'Workspace Summary',
+      description: 'Multi-workspace operations and policies',
       component: 'TenantSummaryWidget',
       defaultSize: 'medium',
       position: { row: 0, col: 2 },
       permissions: ['TenantManage'],
-      ariaLabel: 'Tenant summary widget showing multi-tenant operations and policies',
+      ariaLabel: 'Workspace summary widget showing multi-workspace operations and policies',
     },
     {
       id: 'adapter-stats',
@@ -137,12 +137,12 @@ export const adminConfig: RoleDashboardConfig = {
   quickActions: [
     {
       id: 'create-tenant',
-      label: 'Create Tenant',
+      label: 'Create Workspace',
       icon: 'Building',
       variant: 'secondary',
       action: 'navigate:/admin/tenants',
       permissions: ['TenantManage'],
-      description: 'Create a new tenant with isolation policies',
+      description: 'Create a new workspace with isolation policies',
     },
     {
       id: 'register-adapter',

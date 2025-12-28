@@ -415,7 +415,7 @@ function AuditPageInner() {
     },
     {
       id: 'tenantId',
-      label: 'Organization ID',
+      label: 'Workspace ID',
       type: 'text',
       placeholder: 'Filter by organization ID...',
     },

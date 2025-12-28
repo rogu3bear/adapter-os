@@ -480,7 +480,7 @@ describe('OwnerHomePage', () => {
 
       await waitFor(() => {
         // Tenants card renders when multiple tenants exist
-        expect(screen.getByText('Organizations')).toBeTruthy();
+        expect(screen.getByText('Workspaces')).toBeTruthy();
       }, { timeout: 3000 });
     });
 
@@ -904,7 +904,7 @@ describe('OwnerHomePage', () => {
       );
 
       await waitFor(() => {
-        expect(screen.queryByText('Organizations')).toBeNull();
+        expect(screen.queryByText('Workspaces')).toBeNull();
       });
     });
 

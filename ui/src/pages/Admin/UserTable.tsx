@@ -138,7 +138,7 @@ export function UserTable({ users }: UserTableProps) {
     },
     {
       id: 'tenant_id',
-      header: 'Organization',
+      header: 'Workspace',
       accessorKey: 'tenant_id',
       cell: (context) => {
         const tenantId = context.getValue() as string | undefined;

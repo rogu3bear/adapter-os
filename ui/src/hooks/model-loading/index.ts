@@ -54,7 +54,9 @@ export {
 // Model status monitoring
 export {
   useModelStatus,
+  MODEL_STATUS_EVENT,
   type ModelStatusState,
+  type ModelStatusEventDetail,
   type UseModelStatusReturn,
 } from './useModelStatus';
 

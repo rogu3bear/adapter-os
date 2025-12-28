@@ -51,7 +51,8 @@ import {
   AlertCircle,
   Play,
 } from 'lucide-react';
-import type { Dataset, DatasetSourceType, DatasetValidationStatus, ValidationStatus, TrustState } from '@/api/training-types';
+import { toast } from 'sonner';
+import type { Dataset, DatasetResponse, DatasetSourceType, DatasetValidationStatus, ValidationStatus, TrustState } from '@/api/training-types';
 import { formatTimestamp, formatNumber, formatBytes } from '@/lib/formatters';
 import { TrustBadge as TrustPill } from '@/components/shared/TrustHealthBadge';
 import { LoadingState } from '@/components/ui/loading-state';
@@ -346,7 +347,7 @@ const UploadDatasetDialog = ({
 }: {
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
-  onSuccess: () => void;
+  onSuccess: (dataset: DatasetResponse) => void;
   onCancel: () => void;
 }) => (
   <Dialog open={isOpen} onOpenChange={onOpenChange}>
@@ -490,6 +491,7 @@ const TrainingWizardDialogWrapper = ({
 
 export function DatasetsTab() {
   const { can } = useRBAC();
+  const canStartTraining = can('training:start');
   const { errors, addError, clearError } = usePageErrors();
   const location = useLocation();
   const navigate = useNavigate();
@@ -671,7 +673,7 @@ export function DatasetsTab() {
       <DatasetsCard
         datasets={filteredDatasets}
         isLoading={isLoading}
-        canStartTraining={can('training:start')}
+        canStartTraining={canStartTraining}
         canValidate={can('dataset:validate')}
         canDelete={can('dataset:delete')}
         onView={(id) => navigate(buildDatasetDetailLink(id))}
@@ -685,9 +687,25 @@ export function DatasetsTab() {
       <UploadDatasetDialog
         isOpen={isUploadDialogOpen}
         onOpenChange={setIsUploadDialogOpen}
-        onSuccess={() => {
+        onSuccess={(dataset) => {
           setIsUploadDialogOpen(false);
           refetch();
+          if (canStartTraining && dataset?.dataset_id) {
+            toast.success('Dataset ready', {
+              description: `Uploaded ${dataset.name || 'dataset'} successfully.`,
+              action: {
+                label: 'Train on this dataset',
+                onClick: () => {
+                  setInitialDatasetId(dataset.dataset_id);
+                  setIsTrainingWizardOpen(true);
+                },
+              },
+            });
+          } else {
+            toast.success('Dataset ready', {
+              description: `Uploaded ${dataset.name || 'dataset'} successfully.`,
+            });
+          }
         }}
         onCancel={() => setIsUploadDialogOpen(false)}
       />
@@ -723,7 +741,7 @@ function UploadDatasetForm({
   onSuccess,
   onCancel,
 }: {
-  onSuccess: () => void;
+  onSuccess: (dataset: DatasetResponse) => void;
   onCancel: () => void;
 }) {
   const [name, setName] = useState('');
@@ -732,20 +750,20 @@ function UploadDatasetForm({
   const [framework, setFramework] = useState('');
   const [files, setFiles] = useState<FileList | null>(null);
 
-  const { mutateAsync: createDataset, isPending } = useTraining.useCreateDataset({
-    onSuccess,
-  });
+  const { mutateAsync: createDataset, isPending } = useTraining.useCreateDataset();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    await createDataset({
+    const created = await createDataset({
       name,
       source_type: sourceType,
       language: language || undefined,
       framework: framework || undefined,
       files: files ? Array.from(files) : undefined,
     });
+
+    onSuccess(created);
   };
 
   return (

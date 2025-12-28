@@ -44,7 +44,7 @@ export function Settings({ user, selectedTenant }: SettingsProps) {
 
   // Citation: docs/architecture/MasterPlan.md L8-L11
   const settingsTabs = [
-    { id: 'tenants', label: 'Organizations', icon: Users, description: 'Multi-tenant management' },
+    { id: 'tenants', label: 'Workspaces', icon: Users, description: 'Workspace management' },
     { id: 'nodes', label: 'Nodes', icon: Server, description: 'Compute infrastructure' },
     { id: 'git', label: 'Git Integration', icon: GitBranch, description: 'Repository management' },
     { id: 'system', label: 'System Config', icon: SettingsIcon, description: 'System configuration' }
@@ -62,7 +62,7 @@ export function Settings({ user, selectedTenant }: SettingsProps) {
         </div>
         <div className="flex items-center gap-2">
           <Badge variant="outline" className="text-sm">
-            Tenant: {selectedTenant}
+            Workspace: {selectedTenant}
           </Badge>
           <Badge variant="secondary" className="text-sm">
             {user.role}
