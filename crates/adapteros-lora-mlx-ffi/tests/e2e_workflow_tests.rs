@@ -868,6 +868,8 @@ mod e2e_workflow_tests {
             token_id: 42,
             delta_us: 1000,
             elapsed_us: 5000,
+            confidence: None,
+            alternatives: None,
         };
 
         let sse = SSEFormatter::format(&token_event);

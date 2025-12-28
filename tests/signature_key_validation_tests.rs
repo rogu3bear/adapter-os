@@ -102,7 +102,11 @@ fn test_key_id_computation_deterministic() {
     let key_id_2 = B3Hash::hash(&pubkey_bytes).to_hex()[..16].to_string();
 
     assert_eq!(key_id_1, key_id_2, "Key ID must be deterministic");
-    assert_eq!(key_id_1.len(), 16, "Key ID should be 8 bytes = 16 hex chars");
+    assert_eq!(
+        key_id_1.len(),
+        16,
+        "Key ID should be 8 bytes = 16 hex chars"
+    );
 }
 
 /// Test that different public keys produce different key IDs.

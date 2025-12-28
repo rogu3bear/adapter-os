@@ -31,10 +31,8 @@
 
 use adapteros_core::{derive_seed, derive_seed_full, derive_seed_indexed, hash_adapter_dir};
 use adapteros_core::{AosError, B3Hash, Result};
-use hkdf::Hkdf;
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
-use sha2::Sha256;
 use std::path::Path;
 
 /// Domain labels for HKDF seed derivation
@@ -229,18 +227,8 @@ pub fn seed_rng_hkdf(seed: &[u8]) -> Result<HkdfSeedExpander> {
 /// # Returns
 /// A 32-byte deterministic seed
 pub fn derive_domain_seed(global_seed: &[u8; 32], domain: SeedDomain) -> Result<[u8; 32]> {
-    let hk = Hkdf::<Sha256>::new(None, global_seed);
-    let mut okm = [0u8; 32];
     let label = domain.as_label();
-
-    hk.expand(label.as_bytes(), &mut okm).map_err(|e| {
-        AosError::Crypto(format!(
-            "HKDF expansion failed for domain '{}': {}",
-            label, e
-        ))
-    })?;
-
-    Ok(okm)
+    Ok(derive_seed(&B3Hash::new(*global_seed), &label))
 }
 
 /// Derive multiple domain seeds at once

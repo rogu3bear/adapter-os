@@ -1,10 +1,9 @@
 use adapteros_types::adapters::metadata::RoutingDeterminismMode;
-use blake3::Hasher;
 use hkdf::Hkdf;
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 
-use crate::{B3Hash, SeedMode};
+use crate::{derive_seed, B3Hash, SeedMode};
 
 /// Origin of the determinism seed material.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -132,23 +131,26 @@ impl DeterminismContext {
 }
 
 /// Derive router seed from request seed and optional manifest hash.
+///
+/// Uses HKDF-SHA256 seeded from the request seed (itself derived from the
+/// BLAKE3 global seed).
 pub fn derive_router_seed(request_seed: &[u8; 32], manifest_hash: Option<&B3Hash>) -> String {
-    let mut hasher = Hasher::new();
-    hasher.update(b"router");
-    hasher.update(request_seed);
-    if let Some(hash) = manifest_hash {
-        hasher.update(hash.as_bytes());
-    }
-    hasher.finalize().to_hex().to_string()
+    let global = B3Hash::new(*request_seed);
+    let label = match manifest_hash {
+        Some(hash) => format!("router:{}", hash.to_hex()),
+        None => "router".to_string(),
+    };
+    let seed = derive_seed(&global, &label);
+    hex::encode(seed)
 }
 
 /// Derive sampler seed for a generation step.
+///
+/// Uses HKDF-SHA256 with label `sample:<step>` seeded from the request seed.
 pub fn derive_sampler_seed(request_seed: &[u8; 32], step: u64) -> [u8; 32] {
-    let mut hasher = Hasher::new();
-    hasher.update(b"sample");
-    hasher.update(request_seed);
-    hasher.update(&step.to_le_bytes());
-    hasher.finalize().as_bytes().to_owned()
+    let global = B3Hash::new(*request_seed);
+    let label = format!("sample:{}", step);
+    derive_seed(&global, &label)
 }
 
 /// Expand a legacy u64 seed into 32 bytes using HKDF.
@@ -163,8 +165,7 @@ pub fn expand_u64_seed(seed: u64) -> [u8; 32] {
 
 /// Derive a deterministic seed for router tie-breaking.
 pub fn derive_router_tiebreak_seed(router_seed_hex: &str) -> [u8; 32] {
-    let mut hasher = Hasher::new();
-    hasher.update(b"router-tie");
-    hasher.update(router_seed_hex.as_bytes());
-    hasher.finalize().as_bytes().to_owned()
+    let router_seed = B3Hash::from_hex(router_seed_hex)
+        .unwrap_or_else(|_| B3Hash::hash(router_seed_hex.as_bytes()));
+    derive_seed(&router_seed, "router-tie")
 }

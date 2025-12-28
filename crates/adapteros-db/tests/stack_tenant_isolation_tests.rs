@@ -75,7 +75,10 @@ async fn test_list_stacks_isolated_by_tenant() {
     let stacks_a = backend.list_stacks_for_tenant("tenant-a").await.unwrap();
     assert_eq!(stacks_a.len(), 2, "Tenant A should only see their 2 stacks");
     for stack in &stacks_a {
-        assert_eq!(stack.tenant_id, "tenant-a", "All stacks should belong to tenant-a");
+        assert_eq!(
+            stack.tenant_id, "tenant-a",
+            "All stacks should belong to tenant-a"
+        );
         assert!(
             stack.name.contains("tenant-a"),
             "Stack names should contain tenant-a"
@@ -86,7 +89,10 @@ async fn test_list_stacks_isolated_by_tenant() {
     let stacks_b = backend.list_stacks_for_tenant("tenant-b").await.unwrap();
     assert_eq!(stacks_b.len(), 3, "Tenant B should only see their 3 stacks");
     for stack in &stacks_b {
-        assert_eq!(stack.tenant_id, "tenant-b", "All stacks should belong to tenant-b");
+        assert_eq!(
+            stack.tenant_id, "tenant-b",
+            "All stacks should belong to tenant-b"
+        );
         assert!(
             stack.name.contains("tenant-b"),
             "Stack names should contain tenant-b"
@@ -95,7 +101,10 @@ async fn test_list_stacks_isolated_by_tenant() {
 
     // List for non-existent tenant should return empty
     let stacks_c = backend.list_stacks_for_tenant("tenant-c").await.unwrap();
-    assert!(stacks_c.is_empty(), "Non-existent tenant should have no stacks");
+    assert!(
+        stacks_c.is_empty(),
+        "Non-existent tenant should have no stacks"
+    );
 }
 
 /// Test that get_stack with wrong tenant returns None.
@@ -167,15 +176,18 @@ async fn test_update_stack_cross_tenant_fails() {
 
     // Either it returns an error or silently does nothing
     // Either way, the original stack should be unchanged
-    let original = backend.get_stack("tenant-a", &stack_id).await.unwrap().unwrap();
+    let original = backend
+        .get_stack("tenant-a", &stack_id)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(
         original.description.as_deref(),
         Some("Original"),
         "Stack should not be modified by other tenant"
     );
     assert_eq!(
-        original.adapter_ids_json,
-        r#"["adapter1"]"#,
+        original.adapter_ids_json, r#"["adapter1"]"#,
         "Adapter IDs should be unchanged"
     );
 }
@@ -252,14 +264,19 @@ async fn test_same_stack_name_different_tenants() {
 
     // They should have different IDs
     let stack_id_b = stack_id_b.unwrap();
-    assert_ne!(
-        stack_id_a, stack_id_b,
-        "Stacks should have different IDs"
-    );
+    assert_ne!(stack_id_a, stack_id_b, "Stacks should have different IDs");
 
     // Each tenant should see their own version
-    let stack_a = backend.get_stack("tenant-a", &stack_id_a).await.unwrap().unwrap();
-    let stack_b = backend.get_stack("tenant-b", &stack_id_b).await.unwrap().unwrap();
+    let stack_a = backend
+        .get_stack("tenant-a", &stack_id_a)
+        .await
+        .unwrap()
+        .unwrap();
+    let stack_b = backend
+        .get_stack("tenant-b", &stack_id_b)
+        .await
+        .unwrap()
+        .unwrap();
 
     assert_eq!(stack_a.description.as_deref(), Some("Tenant A's stack"));
     assert_eq!(stack_b.description.as_deref(), Some("Tenant B's stack"));

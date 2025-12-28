@@ -46,7 +46,8 @@ pub struct DeterminismPolicy {
     pub default_mode: String,
 
     /// Whether seed is required in strict mode.
-    /// When true and mode is "strict", inference requests without seed will be rejected.
+    /// When true and mode is "strict", inference requests without a valid seed
+    /// will be rejected as determinism violations (no partial result).
     #[serde(default)]
     pub require_seed: bool,
 

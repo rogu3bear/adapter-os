@@ -967,6 +967,8 @@ pub struct CoreMLBackend {
     /// Whether MLTensor API is available (macOS 15+)
     /// When true, the backend will use MLTensor operations for better performance
     use_mltensor: bool,
+    /// MLTensor API version (macOS 15+; Tahoe required for deterministic policies)
+    mltensor_api_version: MltensorApiVersion,
     /// Which tensor bridge implementation is being used
     tensor_bridge: TensorBridgeType,
     /// Model-specific parameters (optional override from config.json)
@@ -1045,6 +1047,7 @@ impl CoreMLBackend {
             memory_baselines: RwLock::new(HashMap::new()),
             production_mode: false,
             use_mltensor: false,
+            mltensor_api_version: MltensorApiVersion::NotAvailable,
             tensor_bridge: TensorBridgeType::ObjCpp,
             model_params: None,
             base_model_path: None,
@@ -1133,7 +1136,17 @@ impl CoreMLBackend {
             };
 
             // Check if MLTensor API is available (macOS 15+)
-            let use_mltensor = unsafe { ffi::coreml_supports_mltensor() };
+            let mltensor_api_version = get_mltensor_api_version();
+            let mut use_mltensor = unsafe { ffi::coreml_supports_mltensor() };
+
+            if production_mode && use_mltensor && mltensor_api_version != MltensorApiVersion::Tahoe
+            {
+                use_mltensor = false;
+                tracing::warn!(
+                    mltensor_api_version = ?mltensor_api_version,
+                    "Disabling MLTensor in production mode; deterministic ANE scheduling requires macOS 26+"
+                );
+            }
 
             // Determine which bridge to use
             let tensor_bridge = if swift_bridge_available() {
@@ -1148,6 +1161,7 @@ impl CoreMLBackend {
                 compute_units = ?effective_compute_units,
                 production_mode = production_mode,
                 use_mltensor = use_mltensor,
+                mltensor_api_version = ?mltensor_api_version,
                 tensor_bridge = ?tensor_bridge,
                 "Initialized CoreML backend"
             );
@@ -1164,6 +1178,7 @@ impl CoreMLBackend {
                 memory_baselines: RwLock::new(HashMap::new()),
                 production_mode,
                 use_mltensor,
+                mltensor_api_version,
                 tensor_bridge,
                 model_params: None,
                 base_model_path: None,
@@ -2234,14 +2249,23 @@ impl FusedKernels for CoreMLBackend {
         // Determinism requires:
         // 1. ANE to be available and used
         // 2. ANE-only compute units (CpuAndNeuralEngine or CpuOnly)
-        // In production mode, we enforce ANE-only, so we just need to check ANE availability
+        // 3. MLTensor adapter fusion only when deterministic compute policy is available
+        // In production mode, we enforce ANE-only compute units.
         let using_ane_only = matches!(
             self.compute_units,
             ComputeUnits::CpuAndNeuralEngine | ComputeUnits::CpuOnly
         );
 
-        let deterministic =
-            self.ane_status.available && self.ane_status.deterministic && using_ane_only;
+        let mltensor_deterministic = if !self.use_mltensor {
+            true
+        } else {
+            self.production_mode && self.mltensor_api_version == MltensorApiVersion::Tahoe
+        };
+
+        let deterministic = self.ane_status.available
+            && self.ane_status.deterministic
+            && using_ane_only
+            && mltensor_deterministic;
 
         let rng_seed_method = if deterministic {
             attestation::RngSeedingMethod::HkdfSeeded
@@ -2261,6 +2285,9 @@ impl FusedKernels for CoreMLBackend {
                 ane_available = self.ane_status.available,
                 ane_deterministic = self.ane_status.deterministic,
                 using_ane_only = using_ane_only,
+                use_mltensor = self.use_mltensor,
+                mltensor_api_version = ?self.mltensor_api_version,
+                mltensor_deterministic = mltensor_deterministic,
                 "Production mode backend is not deterministic - this should not happen"
             );
         }

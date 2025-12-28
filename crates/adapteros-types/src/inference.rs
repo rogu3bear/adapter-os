@@ -96,6 +96,10 @@ pub struct InferRequest<Backend = String, Interval = FusionInterval, StopPolicy 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub top_p: Option<f32>,
     /// Random seed for deterministic sampling.
+    ///
+    /// Required when the effective determinism mode is strict and tenant policy
+    /// sets `determinism.require_seed=true`. Missing or invalid seeds are rejected
+    /// as determinism violations (no partial result).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub seed: Option<u64>,
     /// Explicit backend preference (auto|coreml|mlx|metal|cpu)

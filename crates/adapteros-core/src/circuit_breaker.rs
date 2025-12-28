@@ -165,6 +165,10 @@ pub struct StandardCircuitBreaker {
     name: String,
     config: CircuitBreakerConfig,
     state: Mutex<CircuitState>,
+    /// Atomic cache for non-blocking sync state access.
+    /// Encoding: bits 0-1 = state (0=Closed, 1=Open, 2=HalfOpen)
+    ///           bits 2-63 = deadline seconds for Open state
+    cached_state: AtomicU64,
     consecutive_failures: AtomicUsize,
     consecutive_successes: AtomicUsize,
     half_open_requests: AtomicUsize,
@@ -191,6 +195,7 @@ impl Clone for StandardCircuitBreaker {
             name: self.name.clone(),
             config: self.config.clone(),
             state: Mutex::new(current_state),
+            cached_state: AtomicU64::new(self.cached_state.load(Ordering::Acquire)),
             consecutive_failures: AtomicUsize::new(
                 self.consecutive_failures.load(Ordering::Relaxed),
             ),
@@ -221,6 +226,7 @@ impl StandardCircuitBreaker {
             name,
             config,
             state: Mutex::new(CircuitState::Closed),
+            cached_state: AtomicU64::new(0), // 0 = Closed
             consecutive_failures: AtomicUsize::new(0),
             consecutive_successes: AtomicUsize::new(0),
             half_open_requests: AtomicUsize::new(0),
@@ -231,6 +237,51 @@ impl StandardCircuitBreaker {
             closes_total: AtomicU64::new(0),
             half_opens_total: AtomicU64::new(0),
             last_state_change: AtomicU64::new(now),
+        }
+    }
+
+    /// Encode a circuit state into an atomic u64 for cache storage.
+    /// Bits 0-1: state (0=Closed, 1=Open, 2=HalfOpen)
+    /// Bits 2-63: deadline seconds since UNIX epoch for Open state
+    fn encode_state_for_cache(state: CircuitState) -> u64 {
+        match state {
+            CircuitState::Closed => 0,
+            CircuitState::Open { until } => {
+                // Store deadline as seconds from now (approximate)
+                let deadline_secs = until
+                    .checked_duration_since(Instant::now())
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+                1 | (deadline_secs << 2)
+            }
+            CircuitState::HalfOpen => 2,
+        }
+    }
+
+    /// Update the cached state atomically for non-blocking sync access.
+    fn update_state_cache(&self, state: CircuitState) {
+        let encoded = Self::encode_state_for_cache(state);
+        self.cached_state.store(encoded, Ordering::Release);
+    }
+
+    /// Decode cached state into a CircuitState.
+    fn decode_cached_state(&self) -> CircuitState {
+        let cached = self.cached_state.load(Ordering::Acquire);
+        let state_bits = (cached & 0x3) as u8;
+        match state_bits {
+            0 => CircuitState::Closed,
+            1 => {
+                let deadline_secs = cached >> 2;
+                if deadline_secs == 0 {
+                    // Timeout expired or no deadline stored
+                    CircuitState::HalfOpen
+                } else {
+                    CircuitState::Open {
+                        until: Instant::now() + Duration::from_secs(deadline_secs),
+                    }
+                }
+            }
+            _ => CircuitState::HalfOpen,
         }
     }
 
@@ -250,6 +301,7 @@ impl StandardCircuitBreaker {
         *state = new_state;
         drop(state); // Release lock before updating timestamp
         self.update_state_change_time();
+        self.update_state_cache(new_state);
 
         // Emit telemetry events for state transitions
         match new_state {
@@ -384,6 +436,8 @@ impl StandardCircuitBreaker {
                 *state = CircuitState::HalfOpen;
                 drop(state);
                 self.update_state_change_time();
+                self.update_state_cache(CircuitState::HalfOpen);
+                // Note: half_opens_total is incremented in transition_to() to avoid duplicates
                 self.half_opens_total.fetch_add(1, Ordering::Relaxed);
                 return CircuitState::HalfOpen;
             }
@@ -459,8 +513,7 @@ impl CircuitBreaker for StandardCircuitBreaker {
     }
 
     fn state(&self) -> CircuitState {
-        // For sync access, we need to check without async transition
-        // This is a best-effort snapshot with safe fallback
+        // For sync access, try to get fresh state from lock first
         if let Ok(state_guard) = self.state.try_lock() {
             let current_state = *state_guard;
 
@@ -476,9 +529,10 @@ impl CircuitBreaker for StandardCircuitBreaker {
                 state => state,
             }
         } else {
-            // Lock is contended - return safe default for monitoring
-            // This prevents panics while allowing operations to continue
-            CircuitState::Closed
+            // Lock is contended - use cached state instead of defaulting to Closed.
+            // This ensures we don't bypass protection when circuit is actually Open.
+            // Cache is updated by transition_to() and state_async() atomically.
+            self.decode_cached_state()
         }
     }
 
@@ -761,7 +815,8 @@ mod tests {
         // Spawn a task that tries to get state while lock is held
         let breaker_clone = breaker.clone();
         let handle = tokio::spawn(async move {
-            // state() should return Closed as safe fallback when lock is contended
+            // state() should return cached state when lock is contended
+            // Since circuit was initialized as Closed, cached state is also Closed
             let state = breaker_clone.state();
             assert_eq!(state, CircuitState::Closed);
 
@@ -782,13 +837,13 @@ mod tests {
         let config = CircuitBreakerConfig::default();
         let breaker = Arc::new(StandardCircuitBreaker::new("test".to_string(), config));
 
-        // Test contended lock - state() should return Closed as safe fallback
+        // Test contended lock - state() should return cached state (not hardcoded Closed)
         let lock_guard = breaker.state.lock().await;
 
         let breaker_clone = breaker.clone();
         let handle = tokio::spawn(async move {
             let state = breaker_clone.state();
-            // Should return Closed as safe fallback when lock is contended
+            // Returns cached state (Closed, since that's the initial state)
             assert_eq!(state, CircuitState::Closed);
         });
 
@@ -798,5 +853,48 @@ mod tests {
         // Verify we can get real state after lock is released
         let final_state = breaker.state();
         assert_eq!(final_state, CircuitState::Closed);
+    }
+
+    #[tokio::test]
+    async fn test_circuit_breaker_cached_state_preserves_open() {
+        let config = CircuitBreakerConfig {
+            failure_threshold: 2,
+            success_threshold: 2,
+            timeout_ms: 60000, // Long timeout to stay Open
+            half_open_max_requests: 5,
+        };
+
+        let breaker = Arc::new(StandardCircuitBreaker::new("test".to_string(), config));
+
+        // Open the circuit
+        for _ in 0..2 {
+            let _result: Result<()> = breaker
+                .call(async { Err(AosError::Unavailable("test failure".to_string())) })
+                .await;
+        }
+
+        // Verify it's Open
+        match breaker.state() {
+            CircuitState::Open { .. } => {}
+            state => panic!("Expected Open, got {:?}", state),
+        }
+
+        // Hold the lock to force contention
+        let lock_guard = breaker.state.lock().await;
+
+        // Check that cached state still returns Open (not Closed!)
+        let breaker_clone = breaker.clone();
+        let handle = tokio::spawn(async move {
+            let state = breaker_clone.state();
+            // Critical: should return Open from cache, not Closed!
+            // This ensures we don't bypass protection when lock is contended
+            match state {
+                CircuitState::Open { .. } => {} // Expected
+                state => panic!("Expected cached Open state, got {:?}", state),
+            }
+        });
+
+        handle.await.unwrap();
+        drop(lock_guard);
     }
 }

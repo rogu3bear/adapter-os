@@ -86,7 +86,10 @@ fn test_header_read_incomplete() {
     let result = AosWriter::read_header(&path);
     assert!(result.is_err());
     assert!(
-        result.unwrap_err().to_string().contains("Failed to read header"),
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("Failed to read header"),
         "Should indicate incomplete header"
     );
 }
@@ -105,7 +108,11 @@ fn test_write_to_valid_path_succeeds() {
 
     let mut writer = AosWriter::new();
     writer
-        .add_segment(BackendTag::Canonical, Some("test/scope".to_string()), &weights)
+        .add_segment(
+            BackendTag::Canonical,
+            Some("test/scope".to_string()),
+            &weights,
+        )
         .unwrap();
 
     let result = writer.write_archive(&path, &manifest);
@@ -175,7 +182,11 @@ fn test_write_to_directory_fails() {
 
     let mut writer = AosWriter::new();
     writer
-        .add_segment(BackendTag::Canonical, Some("test/scope".to_string()), &weights)
+        .add_segment(
+            BackendTag::Canonical,
+            Some("test/scope".to_string()),
+            &weights,
+        )
         .unwrap();
 
     let result = writer.write_archive(&path, &manifest);

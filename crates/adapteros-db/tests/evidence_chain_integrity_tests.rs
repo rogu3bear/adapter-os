@@ -100,7 +100,10 @@ async fn test_chain_rejects_envelope_with_different_bundle_hash() -> anyhow::Res
     );
 
     let result = db.store_evidence_envelope(&env3_bad).await;
-    assert!(result.is_err(), "Should reject envelope with wrong previous_root");
+    assert!(
+        result.is_err(),
+        "Should reject envelope with wrong previous_root"
+    );
     let err_msg = result.unwrap_err().to_string();
     assert!(
         err_msg.contains("EVIDENCE_CHAIN_DIVERGED"),
@@ -132,10 +135,7 @@ async fn test_scope_isolation_prevents_cross_chain_linkage() -> anyhow::Result<(
     );
 
     let result = db.store_evidence_envelope(&policy_env).await;
-    assert!(
-        result.is_err(),
-        "Should reject cross-scope chain linkage"
-    );
+    assert!(result.is_err(), "Should reject cross-scope chain linkage");
     let err_msg = result.unwrap_err().to_string();
     assert!(
         err_msg.contains("EVIDENCE_CHAIN_DIVERGED"),
@@ -179,7 +179,11 @@ async fn test_chain_continues_after_divergence_rejection() -> anyhow::Result<()>
         .get_evidence_chain_tail("tenant-1", EvidenceScope::Telemetry)
         .await?;
     assert!(tail_before.is_some());
-    assert_eq!(tail_before.unwrap().1, 2, "Chain should still be at sequence 2");
+    assert_eq!(
+        tail_before.unwrap().1,
+        2,
+        "Chain should still be at sequence 2"
+    );
 
     // Now insert correctly linked envelope - should succeed
     let env3 = create_telemetry_envelope(

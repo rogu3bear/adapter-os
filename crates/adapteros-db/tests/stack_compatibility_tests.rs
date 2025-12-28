@@ -189,7 +189,11 @@ async fn test_stack_workflow_types_accepted() {
         };
 
         let result = backend.insert_stack(&req).await;
-        assert!(result.is_ok(), "Workflow type '{}' should be accepted", workflow);
+        assert!(
+            result.is_ok(),
+            "Workflow type '{}' should be accepted",
+            workflow
+        );
     }
 }
 

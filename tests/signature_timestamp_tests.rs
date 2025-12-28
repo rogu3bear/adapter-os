@@ -54,11 +54,11 @@ fn test_microsecond_precision() {
 fn test_timestamp_u64_serialization() {
     // Test various timestamp values
     let timestamps: Vec<u64> = vec![
-        0,                      // Unix epoch
-        1577836800_000_000,     // Year 2020
-        1704067200_000_000,     // Year 2024
-        u64::MAX / 2,           // Large but safe value
-        u64::MAX - 1,           // Near max
+        0,                  // Unix epoch
+        1577836800_000_000, // Year 2020
+        1704067200_000_000, // Year 2024
+        u64::MAX / 2,       // Large but safe value
+        u64::MAX - 1,       // Near max
     ];
 
     for ts in timestamps {

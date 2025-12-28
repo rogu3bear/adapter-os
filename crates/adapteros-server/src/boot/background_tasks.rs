@@ -1,7 +1,7 @@
 //! Background task spawning for AdapterOS control plane.
 //!
 //! This module contains the background task spawning logic for the boot sequence.
-//! It spawns 8 different background tasks that run throughout the server lifecycle:
+//! It spawns 11 different background tasks that run throughout the server lifecycle:
 //!
 //! 1. Status writer task (5s interval)
 //! 2. KV isolation scanner task (configurable interval, default 900s)
@@ -11,6 +11,9 @@
 //! 6. WAL checkpoint task (5m interval)
 //! 7. DB index health monitor task
 //! 8. Heartbeat recovery task (5m interval with circuit breaker)
+//! 9. Upload session cleanup task (1h interval)
+//! 10. Security cleanup task (1h interval)
+//! 11. Telemetry bundle GC task (24h interval)
 //!
 //! Each task uses the `BackgroundTaskSpawner` to integrate with the shutdown coordinator
 //! and task tracking system.
@@ -24,6 +27,9 @@ use adapteros_db::kv_metrics;
 use adapteros_db::Db;
 use adapteros_server_api::boot_state::{BootStateManager, FailureReason};
 use adapteros_server_api::kv_isolation;
+use adapteros_server_api::security::{
+    cleanup_expired_ip_rules, cleanup_expired_revocations, cleanup_expired_sessions,
+};
 use adapteros_server_api::state::BackgroundTaskTracker;
 use adapteros_server_api::telemetry::MetricsRegistry;
 use adapteros_server_api::AppState;
@@ -36,7 +42,7 @@ use tracing::{debug, error, info, warn};
 
 /// Spawns all background tasks for the AdapterOS control plane.
 ///
-/// This function spawns 8 background tasks that run throughout the server lifecycle.
+/// This function spawns 11 background tasks that run throughout the server lifecycle.
 /// Tasks are spawned using the `BackgroundTaskSpawner` which integrates with the
 /// shutdown coordinator and task tracking system.
 ///
@@ -466,6 +472,207 @@ pub async fn spawn_all_background_tasks(
             info!("TTL cleanup task started (5 minute interval, circuit breaker enabled)");
         }
         shutdown_coordinator = spawner.into_coordinator();
+    }
+
+    // Spawn upload session cleanup background task
+    {
+        let upload_manager = Arc::clone(&state.upload_session_manager);
+        let interval_secs = std::env::var("AOS_UPLOAD_SESSION_CLEANUP_SECS")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(3600);
+
+        if interval_secs > 0 {
+            let mut spawner = BackgroundTaskSpawner::new(shutdown_coordinator)
+                .with_task_tracker(Arc::clone(&background_tasks));
+            let mut shutdown_rx = spawner.coordinator().subscribe_shutdown();
+            if spawner
+                .spawn_optional(
+                    "Upload session cleanup",
+                    async move {
+                        let mut interval =
+                            tokio::time::interval(Duration::from_secs(interval_secs));
+                        interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
+                        loop {
+                            tokio::select! {
+                                biased;
+                                _ = shutdown_rx.recv() => {
+                                    info!("Upload session cleanup received shutdown signal, exiting gracefully");
+                                    break;
+                                }
+                                _ = interval.tick() => {
+                                    match upload_manager.cleanup_expired().await {
+                                        Ok(count) => {
+                                            if count > 0 {
+                                                info!(count, "Cleaned up expired upload sessions");
+                                            }
+                                        }
+                                        Err(e) => {
+                                            warn!(error = %e, "Failed to cleanup expired upload sessions");
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "Expired upload sessions may accumulate",
+                )
+                .is_ok()
+            {
+                info!("Upload session cleanup task started ({}s interval)", interval_secs);
+            }
+            shutdown_coordinator = spawner.into_coordinator();
+        } else {
+            info!("Upload session cleanup disabled via AOS_UPLOAD_SESSION_CLEANUP_SECS=0");
+        }
+    }
+
+    // Spawn security cleanup background task
+    {
+        let db_clone = db.clone();
+        let interval_secs = std::env::var("AOS_SECURITY_CLEANUP_SECS")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(3600);
+
+        if interval_secs > 0 {
+            let mut spawner = BackgroundTaskSpawner::new(shutdown_coordinator)
+                .with_task_tracker(Arc::clone(&background_tasks));
+            let mut shutdown_rx = spawner.coordinator().subscribe_shutdown();
+            if spawner
+                .spawn_optional(
+                    "Security cleanup",
+                    async move {
+                        let mut interval =
+                            tokio::time::interval(Duration::from_secs(interval_secs));
+                        interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
+                        loop {
+                            tokio::select! {
+                                biased;
+                                _ = shutdown_rx.recv() => {
+                                    info!("Security cleanup received shutdown signal, exiting gracefully");
+                                    break;
+                                }
+                                _ = interval.tick() => {
+                                    let mut total_cleaned = 0usize;
+
+                                    match cleanup_expired_sessions(&db_clone).await {
+                                        Ok(count) => {
+                                            total_cleaned += count;
+                                        }
+                                        Err(e) => {
+                                            warn!(error = %e, "Failed to cleanup expired auth sessions");
+                                        }
+                                    }
+
+                                    match cleanup_expired_revocations(&db_clone).await {
+                                        Ok(count) => {
+                                            total_cleaned += count;
+                                        }
+                                        Err(e) => {
+                                            warn!(error = %e, "Failed to cleanup expired token revocations");
+                                        }
+                                    }
+
+                                    match cleanup_expired_ip_rules(&db_clone).await {
+                                        Ok(count) => {
+                                            total_cleaned += count;
+                                        }
+                                        Err(e) => {
+                                            warn!(error = %e, "Failed to cleanup expired IP access rules");
+                                        }
+                                    }
+
+                                    if total_cleaned > 0 {
+                                        info!(total_cleaned, "Cleaned up expired security records");
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "Expired security records may accumulate",
+                )
+                .is_ok()
+            {
+                info!("Security cleanup task started ({}s interval)", interval_secs);
+            }
+            shutdown_coordinator = spawner.into_coordinator();
+        } else {
+            info!("Security cleanup disabled via AOS_SECURITY_CLEANUP_SECS=0");
+        }
+    }
+
+    // Spawn telemetry bundle GC background task
+    {
+        let telemetry_store = Arc::clone(&state.telemetry_bundle_store);
+        let interval_secs = std::env::var("AOS_TELEMETRY_BUNDLE_GC_SECS")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(86400);
+
+        if interval_secs > 0 {
+            let mut spawner = BackgroundTaskSpawner::new(shutdown_coordinator)
+                .with_task_tracker(Arc::clone(&background_tasks));
+            let mut shutdown_rx = spawner.coordinator().subscribe_shutdown();
+            if spawner
+                .spawn_optional(
+                    "Telemetry bundle GC",
+                    async move {
+                        let mut interval =
+                            tokio::time::interval(Duration::from_secs(interval_secs));
+                        interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
+                        loop {
+                            tokio::select! {
+                                biased;
+                                _ = shutdown_rx.recv() => {
+                                    info!("Telemetry bundle GC received shutdown signal, exiting gracefully");
+                                    break;
+                                }
+                                _ = interval.tick() => {
+                                    let store = Arc::clone(&telemetry_store);
+                                    match tokio::task::spawn_blocking(move || {
+                                        let mut store = store.write().unwrap_or_else(|e| {
+                                            warn!(error = %e, "Telemetry bundle store lock poisoned, recovering");
+                                            e.into_inner()
+                                        });
+                                        store.run_gc()
+                                    })
+                                    .await
+                                    {
+                                        Ok(Ok(report)) => {
+                                            if !report.evicted_bundles.is_empty() {
+                                                info!(
+                                                    evicted = report.evicted_bundles.len(),
+                                                    bytes_freed = report.bytes_freed,
+                                                    retained = report.retained_bundles,
+                                                    "Telemetry bundle GC completed"
+                                                );
+                                            }
+                                        }
+                                        Ok(Err(e)) => {
+                                            warn!(error = %e, "Telemetry bundle GC failed");
+                                        }
+                                        Err(e) => {
+                                            warn!(error = %e, "Telemetry bundle GC task failed");
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "Telemetry bundle GC is disabled",
+                )
+                .is_ok()
+            {
+                info!("Telemetry bundle GC task started ({}s interval)", interval_secs);
+            }
+            shutdown_coordinator = spawner.into_coordinator();
+        } else {
+            info!("Telemetry bundle GC disabled via AOS_TELEMETRY_BUNDLE_GC_SECS=0");
+        }
     }
 
     // Spawn WAL checkpoint background task

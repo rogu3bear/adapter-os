@@ -29,6 +29,7 @@ pub mod adapter_repo_paths;
 pub mod adapter_store;
 pub mod backend;
 pub mod circuit_breaker;
+pub mod circuit_breaker_registry;
 pub mod constants;
 pub mod context_hash;
 pub mod context_manifest;
@@ -86,6 +87,7 @@ pub use circuit_breaker::{
     CircuitBreaker, CircuitBreakerConfig, CircuitBreakerMetrics, CircuitState,
     SharedCircuitBreaker, StandardCircuitBreaker,
 };
+pub use circuit_breaker_registry::CircuitBreakerRegistry;
 pub use constants::{
     bytes_to_gb, bytes_to_mb, gb_to_bytes, kb_to_bytes, mb_to_bytes, BYTES_PER_GB, BYTES_PER_KB,
     BYTES_PER_MB, DEFAULT_TIMEOUT_SECS, SLOW_TIMEOUT_SECS,

@@ -63,6 +63,11 @@ impl PolicyBindingKvRepository {
     pub async fn put_binding(&self, _binding: TenantPolicyBindingKv) -> Result<()> {
         Ok(())
     }
+
+    /// Delete all policy bindings for a tenant (used for rollback in atomic dual-write)
+    pub async fn delete_all_bindings(&self, _tenant_id: &str) -> Result<()> {
+        Ok(())
+    }
 }
 
 pub fn kv_to_binding(

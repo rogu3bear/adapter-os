@@ -58,7 +58,11 @@ fn test_production_mode_env_var_parsing() {
         let result = std::env::var("AOS_SERVER_PRODUCTION_MODE")
             .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
             .unwrap_or(false);
-        assert!(!result, "Value '{}' should not enable production mode", false_val);
+        assert!(
+            !result,
+            "Value '{}' should not enable production mode",
+            false_val
+        );
         restore_env("AOS_SERVER_PRODUCTION_MODE", prev);
     }
 
@@ -114,16 +118,16 @@ fn test_debug_mode_allows_warnings() {
         .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
         .unwrap_or(false);
 
-    assert!(
-        !production_mode,
-        "Production mode should be disabled"
-    );
+    assert!(!production_mode, "Production mode should be disabled");
 
     // In debug mode, missing signatures generate warnings but don't fail
     // This is the expected behavior - we can continue without signatures
     let missing_signature = true;
     let should_warn_not_fail = !production_mode && missing_signature;
-    assert!(should_warn_not_fail, "Debug mode should warn but not fail on missing signature");
+    assert!(
+        should_warn_not_fail,
+        "Debug mode should warn but not fail on missing signature"
+    );
 
     restore_env("AOS_SERVER_PRODUCTION_MODE", prev);
 }
@@ -187,8 +191,8 @@ fn test_production_constraints_enforced_together() {
     }
 
     let constraints = ProductionConstraints {
-        has_signature: false,  // Missing signature
-        skip_flags_used: true, // Skip flags attempted
+        has_signature: false,          // Missing signature
+        skip_flags_used: true,         // Skip flags attempted
         jwt_mode: "hs256".to_string(), // Wrong JWT mode
     };
 
@@ -208,7 +212,10 @@ fn test_production_constraints_enforced_together() {
             .filter(|&&v| v)
             .count();
 
-        assert_eq!(violation_count, 3, "All three constraints should be violated");
+        assert_eq!(
+            violation_count, 3,
+            "All three constraints should be violated"
+        );
     }
 
     restore_env("AOS_SERVER_PRODUCTION_MODE", prev_prod);

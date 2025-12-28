@@ -92,7 +92,11 @@ pub struct StreamingInferRequest {
     /// Specific adapters to use
     #[serde(skip_serializing_if = "Option::is_none")]
     pub adapters: Option<Vec<String>>,
-    /// Random seed for reproducibility
+    /// Random seed for reproducibility.
+    ///
+    /// Required when the effective determinism mode is strict and tenant policy
+    /// sets `determinism.require_seed=true`. Missing or invalid seeds are rejected
+    /// as determinism violations (no partial result).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub seed: Option<u64>,
     /// Per-adapter strength overrides (session scoped)

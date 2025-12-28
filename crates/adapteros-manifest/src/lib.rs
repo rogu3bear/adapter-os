@@ -632,29 +632,41 @@ impl ManifestV3 {
             )));
         }
 
-        if self.router.entropy_floor < 0.0 || self.router.entropy_floor > 1.0 {
+        if !self.router.entropy_floor.is_finite()
+            || self.router.entropy_floor < 0.0
+            || self.router.entropy_floor > 1.0
+        {
             return Err(AosError::InvalidManifest(
-                "entropy_floor must be between 0 and 1".into(),
+                "entropy_floor must be a finite number between 0 and 1".into(),
             ));
         }
 
         // DIR validation
         // Reference: https://openreview.net/pdf?id=jqz6Msm3AF
-        if self.router.orthogonal_penalty < 0.0 || self.router.orthogonal_penalty > 1.0 {
+        if !self.router.orthogonal_penalty.is_finite()
+            || self.router.orthogonal_penalty < 0.0
+            || self.router.orthogonal_penalty > 1.0
+        {
             return Err(AosError::InvalidManifest(
-                "orthogonal_penalty must be between 0 and 1".into(),
+                "orthogonal_penalty must be a finite number between 0 and 1".into(),
             ));
         }
 
-        if self.router.compression_ratio <= 0.0 || self.router.compression_ratio > 1.0 {
+        if !self.router.compression_ratio.is_finite()
+            || self.router.compression_ratio <= 0.0
+            || self.router.compression_ratio > 1.0
+        {
             return Err(AosError::InvalidManifest(
-                "compression_ratio must be between 0 and 1".into(),
+                "compression_ratio must be a finite number between 0 and 1".into(),
             ));
         }
 
-        if self.router.diversity_threshold < 0.0 || self.router.diversity_threshold > 1.0 {
+        if !self.router.diversity_threshold.is_finite()
+            || self.router.diversity_threshold < 0.0
+            || self.router.diversity_threshold > 1.0
+        {
             return Err(AosError::InvalidManifest(
-                "diversity_threshold must be between 0 and 1".into(),
+                "diversity_threshold must be a finite number between 0 and 1".into(),
             ));
         }
 

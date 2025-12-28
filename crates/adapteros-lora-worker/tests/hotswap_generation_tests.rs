@@ -40,15 +40,15 @@ async fn test_generation_monotonically_increases() {
     // First swap: generation 0 -> 1
     table.swap(&["adapter0".to_string()], &[]).await.unwrap();
     let stack1 = table.get_current_stack_handle();
-    assert_eq!(stack1.generation, 1, "After first swap, generation should be 1");
+    assert_eq!(
+        stack1.generation, 1,
+        "After first swap, generation should be 1"
+    );
 
     // Multiple swaps should increment generation
     for i in 1..10 {
         table
-            .swap(
-                &[format!("adapter{}", i)],
-                &[format!("adapter{}", i - 1)],
-            )
+            .swap(&[format!("adapter{}", i)], &[format!("adapter{}", i - 1)])
             .await
             .expect("Swap should succeed");
 
@@ -85,7 +85,10 @@ async fn test_generation_unchanged_on_failed_swap() {
 
     // Attempt to swap in adapter1 (not preloaded) - should fail
     let result = table.swap(&["adapter1".to_string()], &[]).await;
-    assert!(result.is_err(), "Swap with non-preloaded adapter should fail");
+    assert!(
+        result.is_err(),
+        "Swap with non-preloaded adapter should fail"
+    );
 
     // Generation should remain unchanged
     let after_failed = table.get_current_stack_handle().generation;
@@ -181,7 +184,10 @@ async fn test_stack_hash_deterministic_across_generations() {
         .unwrap();
 
     // Swap in adapter1
-    table.swap(&["deterministic_adapter1".to_string()], &[]).await.unwrap();
+    table
+        .swap(&["deterministic_adapter1".to_string()], &[])
+        .await
+        .unwrap();
     let hash_v1 = table.compute_stack_hash();
 
     // Swap to adapter2

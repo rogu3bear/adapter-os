@@ -43,7 +43,11 @@ fn test_aos2_magic_bytes_correct() {
 
     let mut writer = AosWriter::new();
     writer
-        .add_segment(BackendTag::Canonical, Some("test/scope".to_string()), &weights)
+        .add_segment(
+            BackendTag::Canonical,
+            Some("test/scope".to_string()),
+            &weights,
+        )
         .unwrap();
 
     writer.write_archive(&path, &manifest).unwrap();
@@ -102,7 +106,11 @@ fn test_header_flags_format() {
 
     let mut writer = AosWriter::new();
     writer
-        .add_segment(BackendTag::Canonical, Some("test/scope".to_string()), &weights)
+        .add_segment(
+            BackendTag::Canonical,
+            Some("test/scope".to_string()),
+            &weights,
+        )
         .unwrap();
 
     writer.write_archive(&path, &manifest).unwrap();
@@ -128,7 +136,11 @@ fn test_reserved_header_bytes_zero() {
 
     let mut writer = AosWriter::new();
     writer
-        .add_segment(BackendTag::Canonical, Some("test/scope".to_string()), &weights)
+        .add_segment(
+            BackendTag::Canonical,
+            Some("test/scope".to_string()),
+            &weights,
+        )
         .unwrap();
 
     writer.write_archive(&path, &manifest).unwrap();
@@ -168,11 +180,18 @@ fn test_manifest_with_schema_version() {
 
     let mut writer = AosWriter::new();
     writer
-        .add_segment(BackendTag::Canonical, Some("test/scope".to_string()), &weights)
+        .add_segment(
+            BackendTag::Canonical,
+            Some("test/scope".to_string()),
+            &weights,
+        )
         .unwrap();
 
     let result = writer.write_archive(&path, &manifest);
-    assert!(result.is_ok(), "Manifest with schema version should be accepted");
+    assert!(
+        result.is_ok(),
+        "Manifest with schema version should be accepted"
+    );
 
     // Verify we can read manifest back
     let data = fs::read(&path).unwrap();

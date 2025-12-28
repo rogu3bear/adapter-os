@@ -363,13 +363,14 @@ pub enum FloatingPointMode {
 
 ### Determinism Conditions
 
-The backend reports `deterministic = true` when **all three conditions are met:**
+The backend reports `deterministic = true` when **all conditions are met:**
 
 | Condition | Check | Purpose |
 |-----------|-------|---------|
 | ANE Available | `ane_status.available` | Hardware has Neural Engine |
 | ANE Capable | `ane_status.deterministic` | Hardware supports deterministic execution |
 | ANE Enabled | `using_ane_only` | No GPU fallback allowed |
+| MLTensor Deterministic | `mltensor_deterministic` | Avoid GPU ops in adapter fusion (macOS 26+ compute policy or MLTensor disabled) |
 
 **Implementation:**
 ```rust
@@ -380,9 +381,16 @@ impl FusedKernels for CoreMLBackend {
             ComputeUnits::CpuAndNeuralEngine | ComputeUnits::CpuOnly
         );
 
+        let mltensor_deterministic = if !self.use_mltensor {
+            true
+        } else {
+            self.production_mode && self.mltensor_api_version == MltensorApiVersion::Tahoe
+        };
+
         let deterministic = self.ane_status.available
             && self.ane_status.deterministic
-            && using_ane_only;
+            && using_ane_only
+            && mltensor_deterministic;
 
         let rng_seed_method = if deterministic {
             attestation::RngSeedingMethod::HkdfSeeded
@@ -404,6 +412,8 @@ impl FusedKernels for CoreMLBackend {
     }
 }
 ```
+
+**Note:** Production mode disables MLTensor on macOS 15-25 to avoid GPU fallback. On macOS 26+ (Tahoe), the MLTensor compute policy pins adapter fusion to ANE for determinism.
 
 ### Production Mode Enforcement
 
@@ -438,6 +448,7 @@ if config.production_mode {
 - ⚠️ May be non-deterministic (depends on Metal implementation)
 - ⚠️ Attestation reports `deterministic: false`
 - ⚠️ Production mode should reject GPU fallback
+- MLTensor adapter fusion on macOS 15-25 can schedule GPU ops by default; production mode disables MLTensor unless macOS 26+ compute policy is available
 
 **Production Guard:**
 ```rust

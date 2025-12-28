@@ -73,8 +73,8 @@ fn test_scope_hash_computation() {
 #[test]
 fn test_scope_hash_mismatch_with_manifest() -> Result<()> {
     let temp_root = new_test_tempdir();
-    let temp_file = NamedTempFile::new_in(&temp_root)
-        .map_err(|e| AosError::Io(format!("temp file: {}", e)))?;
+    let temp_file =
+        NamedTempFile::new_in(&temp_root).map_err(|e| AosError::Io(format!("temp file: {}", e)))?;
 
     let manifest = TestManifest {
         adapter_id: "scope-test".to_string(),
@@ -118,8 +118,8 @@ fn test_scope_hash_mismatch_with_manifest() -> Result<()> {
 #[test]
 fn test_weights_hash_mismatch_detection() -> Result<()> {
     let temp_root = new_test_tempdir();
-    let temp_file = NamedTempFile::new_in(&temp_root)
-        .map_err(|e| AosError::Io(format!("temp file: {}", e)))?;
+    let temp_file =
+        NamedTempFile::new_in(&temp_root).map_err(|e| AosError::Io(format!("temp file: {}", e)))?;
 
     let manifest = TestManifest {
         adapter_id: "hash-test".to_string(),
@@ -131,7 +131,11 @@ fn test_weights_hash_mismatch_detection() -> Result<()> {
     let expected_hash = B3Hash::hash(&weights);
 
     let mut writer = AosWriter::new();
-    writer.add_segment(BackendTag::Canonical, Some("test/scope".to_string()), &weights)?;
+    writer.add_segment(
+        BackendTag::Canonical,
+        Some("test/scope".to_string()),
+        &weights,
+    )?;
     writer.write_archive(temp_file.path(), &manifest)?;
 
     // Read and verify
@@ -181,8 +185,8 @@ fn test_zero_length_segment_hash() {
 #[test]
 fn test_multi_segment_independent_hash_verification() -> Result<()> {
     let temp_root = new_test_tempdir();
-    let temp_file = NamedTempFile::new_in(&temp_root)
-        .map_err(|e| AosError::Io(format!("temp file: {}", e)))?;
+    let temp_file =
+        NamedTempFile::new_in(&temp_root).map_err(|e| AosError::Io(format!("temp file: {}", e)))?;
 
     let manifest = TestManifest {
         adapter_id: "multi-segment".to_string(),
@@ -199,7 +203,11 @@ fn test_multi_segment_independent_hash_verification() -> Result<()> {
     let coreml_hash = B3Hash::hash(&coreml_weights);
 
     let mut writer = AosWriter::new();
-    writer.add_segment(BackendTag::Canonical, Some("test/scope".to_string()), &canonical_weights)?;
+    writer.add_segment(
+        BackendTag::Canonical,
+        Some("test/scope".to_string()),
+        &canonical_weights,
+    )?;
     writer.add_segment(BackendTag::Mlx, None, &mlx_weights)?;
     writer.add_segment(BackendTag::Coreml, None, &coreml_weights)?;
 

@@ -62,20 +62,47 @@ impl RecoveryEngine {
         }
     }
 
-    /// Recreate a file
+    /// Recreate a file with backup preservation.
+    /// Attempts to backup the corrupted file before recreation so data can potentially be recovered.
     pub async fn recreate_file(&self, path: &Path) -> Result<RecoveryResult> {
-        // Remove the corrupted file
+        // Try to backup existing corrupted file first (preserves data for potential recovery)
         if path.exists() {
+            match self.backup_manager.create_backup(path).await {
+                Ok(backup_path) => {
+                    info!(
+                        "Backed up corrupted file to {} before recreation",
+                        backup_path.display()
+                    );
+                }
+                Err(e) => {
+                    warn!(
+                        "Could not backup corrupted file {} before recreation: {}",
+                        path.display(),
+                        e
+                    );
+                }
+            }
+
             if let Err(e) = fs::remove_file(path).await {
                 warn!("Failed to remove corrupted file {}: {}", path.display(), e);
             }
         }
 
+        // Create parent directory if needed
+        if let Some(parent) = path.parent() {
+            let _ = fs::create_dir_all(parent).await;
+        }
+
         // Create a new empty file
-        match fs::write(path, b"").await {
+        // Note: Caller is responsible for repopulating content
+        match fs::File::create(path).await {
             Ok(_) => {
-                info!("Successfully recreated file {}", path.display());
-                Ok(RecoveryResult::Success)
+                info!(
+                    "Recreated file {} (backup available for data recovery if needed)",
+                    path.display()
+                );
+                // Return PartialSuccess since original data was lost (even if backed up)
+                Ok(RecoveryResult::PartialSuccess)
             }
             Err(e) => {
                 error!("Failed to recreate file {}: {}", path.display(), e);
