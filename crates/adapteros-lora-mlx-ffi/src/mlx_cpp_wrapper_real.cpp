@@ -937,6 +937,9 @@ extern "C" mlx_model_t* mlx_model_load(const char* path) {
     } catch (const std::exception& e) {
         g_last_error = e.what();
         return nullptr;
+    } catch (...) {
+        g_last_error = "Failed to load MLX model: unknown exception";
+        return nullptr;
     }
 }
 
@@ -1029,6 +1032,9 @@ extern "C" mlx_model_t* mlx_model_load_from_buffer(const uint8_t* buffer, size_t
         return reinterpret_cast<mlx_model_t*>(model);
     } catch (const std::exception& e) {
         g_last_error = std::string("Failed to load model from buffer: ") + e.what();
+        return nullptr;
+    } catch (...) {
+        g_last_error = "Failed to load model from buffer: unknown exception";
         return nullptr;
     }
 }
