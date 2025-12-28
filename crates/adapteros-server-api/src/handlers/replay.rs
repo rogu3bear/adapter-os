@@ -581,7 +581,7 @@ pub async fn execute_replay_session(
         stop_policy: None, // Replay uses original generation's stop behavior
         created_at: std::time::Instant::now(),
         worker_auth_token: None,
-        policy_mask_digest: None, // Not tracked for session-based replay
+        policy_mask_digest_b3: None, // Not tracked for session-based replay
         utf8_healing: Some(true),
     };
 

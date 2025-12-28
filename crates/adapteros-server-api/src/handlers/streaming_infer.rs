@@ -164,7 +164,7 @@ impl From<(&StreamingInferRequest, &Claims)> for InferenceRequestInternal {
             created_at: std::time::Instant::now(),
             router_seed: None, // Use default router behavior for streaming
             worker_auth_token: None,
-            policy_mask_digest: None, // Streaming requests don't use policy hooks
+            policy_mask_digest_b3: None, // Streaming requests don't use policy hooks
             utf8_healing: None,
         }
     }
@@ -761,6 +761,7 @@ pub async fn streaming_infer(
                         &request_id,
                         req.session_id.as_deref(),
                         None, // TODO: Pass message_id when chat flow creates it before inference
+                        None, // model_context not available in streaming flow
                     )
                     .await;
 
@@ -1696,7 +1697,7 @@ impl StreamState {
             stop_policy: None, // StreamState doesn't carry stop_policy yet
             created_at: std::time::Instant::now(),
             worker_auth_token: None,
-            policy_mask_digest: None, // Streaming doesn't use policy enforcement hooks
+            policy_mask_digest_b3: None, // Streaming doesn't use policy enforcement hooks
             utf8_healing: None,
         };
 

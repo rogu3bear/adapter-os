@@ -86,7 +86,7 @@ async fn evidence_bundle_contains_required_files() -> anyhow::Result<()> {
         token_index: 0,
         adapter_ids: vec!["adapter-a".to_string()],
         gates_q15: vec![123],
-        policy_mask_digest: None,
+        policy_mask_digest_b3: None,
         allowed_mask: None,
         policy_overrides_applied: None,
         backend_id: None,

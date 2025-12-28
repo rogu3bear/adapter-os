@@ -735,7 +735,7 @@ pub async fn execute_replay(
         stop_policy, // Restored from original inference for deterministic replay
         created_at: std::time::Instant::now(),
         worker_auth_token: None,
-        policy_mask_digest: stored_policy_mask_digest, // Restored from metadata for audit trail
+        policy_mask_digest_b3: stored_policy_mask_digest, // Restored from metadata for audit trail
         utf8_healing: None,
     };
 

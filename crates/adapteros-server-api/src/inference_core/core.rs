@@ -656,7 +656,7 @@ impl<'a> InferenceCore<'a> {
 
         // Compute policy mask digest for the worker call
         let policy_mask_digest = compute_policy_mask_digest(&all_policy_decisions);
-        request.policy_mask_digest = Some(policy_mask_digest);
+        request.policy_mask_digest_b3 = Some(policy_mask_digest);
         if let Some(ref mut envelope) = request.run_envelope {
             set_policy_mask(envelope, Some(&policy_mask_digest));
             set_worker_context(
@@ -698,7 +698,7 @@ impl<'a> InferenceCore<'a> {
             placement: None,
             adapter_strength_overrides: request.adapter_strength_overrides.clone(),
             stop_policy: request.stop_policy.clone(),
-            policy_mask_digest: Some(policy_mask_digest),
+            policy_mask_digest_b3: Some(policy_mask_digest),
             utf8_healing: request.utf8_healing.unwrap_or(true),
         };
 
@@ -1165,7 +1165,7 @@ impl<'a> InferenceCore<'a> {
 
         if let Some(router_events) = worker_response.trace.router_decisions.clone() {
             let mapped_decisions =
-                map_router_decisions(&router_events, request.policy_mask_digest);
+                map_router_decisions(&router_events, request.policy_mask_digest_b3);
             let mapped_chain =
                 map_router_decision_chain(worker_response.trace.router_decision_chain.clone());
             let routing_payload = RoutingTelemetryEvent {
@@ -2507,7 +2507,7 @@ impl<'a> InferenceCore<'a> {
             execution_policy_id: None,
             execution_policy_version: None,
             stop_policy_json,
-            policy_mask_digest_b3: request.policy_mask_digest.as_ref().map(hex::encode),
+            policy_mask_digest_b3: request.policy_mask_digest_b3.as_ref().map(hex::encode),
         }
     }
 
@@ -2806,7 +2806,7 @@ impl<'a> InferenceCore<'a> {
             execution_policy_id: execution_policy_id.map(|s| s.to_string()),
             execution_policy_version: execution_policy_version.map(|v| v as i32),
             stop_policy_json,
-            policy_mask_digest_b3: request.policy_mask_digest.as_ref().map(hex::encode),
+            policy_mask_digest_b3: request.policy_mask_digest_b3.as_ref().map(hex::encode),
         };
 
         // Store to database (best effort - don't fail inference on capture error)

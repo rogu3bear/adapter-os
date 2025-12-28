@@ -2760,6 +2760,10 @@ pub struct TrainingMetricsQuery {
 }
 
 /// Get training logs for a job
+///
+/// Note: Training stdout/stderr logs are not currently persisted in the database.
+/// This endpoint returns job status information. For training metrics (loss, accuracy, etc.),
+/// use the `/v1/training/jobs/{job_id}/metrics` endpoint instead.
 #[utoipa::path(
     tag = "training",
     get,
@@ -2768,7 +2772,8 @@ pub struct TrainingMetricsQuery {
         ("job_id" = String, Path, description = "Training job ID")
     ),
     responses(
-        (status = 200, description = "Training logs", body = Vec<String>)
+        (status = 200, description = "Training job status (logs not persisted)", body = Vec<String>),
+        (status = 404, description = "Training job not found", body = ErrorResponse)
     )
 )]
 pub async fn get_training_logs(
@@ -2776,8 +2781,6 @@ pub async fn get_training_logs(
     Extension(claims): Extension<Claims>,
     Path(job_id): Path<String>,
 ) -> Result<Json<Vec<String>>, (StatusCode, Json<ErrorResponse>)> {
-    // Training logs are not persisted in DB - return job info as fallback
-    let _ = &claims.tenant_id;
     let job = state
         .db
         .get_training_job(&job_id)
@@ -2793,18 +2796,56 @@ pub async fn get_training_logs(
             )
         })?;
 
-    // Return basic job info as log entries
-    match job {
-        Some(j) => Ok(Json(vec![
-            format!("Job ID: {}", j.id),
-            format!("Status: {}", j.status),
-            format!("Created: {}", j.created_at.unwrap_or_default()),
-        ])),
-        None => Err((
+    let job = job.ok_or_else(|| {
+        (
             StatusCode::NOT_FOUND,
             Json(ErrorResponse::new("Training job not found").with_code("NOT_FOUND")),
-        )),
+        )
+    })?;
+
+    // Validate tenant isolation: job must belong to caller's tenant
+    if job.tenant_id.as_deref() != Some(&claims.tenant_id) {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse::new("Access denied to training job").with_code("FORBIDDEN")),
+        ));
     }
+
+    // Build informative status response (logs are not persisted in DB)
+    let mut logs = vec![
+        "=== Training Job Status ===".to_string(),
+        format!("Job ID: {}", job.id),
+        format!("Status: {}", job.status),
+    ];
+
+    if let Some(created) = &job.created_at {
+        logs.push(format!("Created: {}", created));
+    }
+    if !job.started_at.is_empty() {
+        logs.push(format!("Started: {}", job.started_at));
+    }
+    if let Some(completed) = &job.completed_at {
+        logs.push(format!("Completed: {}", completed));
+    }
+
+    // Parse and include progress if available
+    if !job.progress_json.is_empty() {
+        if let Ok(progress) = serde_json::from_str::<serde_json::Value>(&job.progress_json) {
+            if let Some(pct) = progress.get("percent").and_then(|v| v.as_f64()) {
+                logs.push(format!("Progress: {:.1}%", pct));
+            }
+            if let Some(step) = progress.get("current_step").and_then(|v| v.as_i64()) {
+                if let Some(total) = progress.get("total_steps").and_then(|v| v.as_i64()) {
+                    logs.push(format!("Step: {} / {}", step, total));
+                }
+            }
+        }
+    }
+
+    logs.push("".to_string());
+    logs.push("Note: Stdout/stderr logs are not persisted. Use GET /v1/training/jobs/{job_id}/metrics for training metrics.".to_string());
+
+    Ok(Json(logs))
 }
 
 /// Get training metrics for a job
@@ -2817,7 +2858,9 @@ pub async fn get_training_logs(
         TrainingMetricsQuery
     ),
     responses(
-        (status = 200, description = "Training metrics", body = Vec<adapteros_db::training_jobs::TrainingMetricRow>)
+        (status = 200, description = "Training metrics (loss, accuracy, etc.)", body = serde_json::Value),
+        (status = 403, description = "Access denied", body = ErrorResponse),
+        (status = 404, description = "Training job not found", body = ErrorResponse)
     )
 )]
 pub async fn get_training_metrics(
@@ -2827,7 +2870,36 @@ pub async fn get_training_metrics(
     Query(params): Query<TrainingMetricsQuery>,
 ) -> Result<Json<Vec<adapteros_db::training_jobs::TrainingMetricRow>>, (StatusCode, Json<ErrorResponse>)>
 {
-    let _ = &claims.tenant_id;
+    // First verify the job exists and belongs to the caller's tenant
+    let job = state
+        .db
+        .get_training_job(&job_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to get training job")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse::new("Training job not found").with_code("NOT_FOUND")),
+            )
+        })?;
+
+    // Validate tenant isolation
+    if job.tenant_id.as_deref() != Some(&claims.tenant_id) {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse::new("Access denied to training job").with_code("FORBIDDEN")),
+        ));
+    }
+
     let metrics = state
         .db
         .get_training_metrics(&job_id, params.metric_name.as_deref(), params.limit)
