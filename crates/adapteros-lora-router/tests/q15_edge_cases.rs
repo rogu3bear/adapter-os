@@ -451,7 +451,7 @@ fn test_decision_gates_f32_method() {
         entropy: 0.5,
         candidates: vec![],
         decision_hash: None,
-        policy_mask_digest: None,
+        policy_mask_digest_b3: None,
         policy_overrides_applied: None,
     };
 

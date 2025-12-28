@@ -410,9 +410,13 @@ pub struct RouterDecisionChainEntry {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub previous_hash: Option<String>,
     pub entry_hash: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        alias = "policy_mask_digest"
+    )]
     #[schema(value_type = String)]
-    pub policy_mask_digest: Option<B3Hash>,
+    pub policy_mask_digest_b3: Option<B3Hash>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub policy_overrides_applied: Option<PolicyOverrideFlags>,
 }
@@ -432,9 +436,13 @@ pub struct RouterDecision {
     pub interval_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub allowed_mask: Option<Vec<bool>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        alias = "policy_mask_digest"
+    )]
     #[schema(value_type = String)]
-    pub policy_mask_digest: Option<B3Hash>,
+    pub policy_mask_digest_b3: Option<B3Hash>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub policy_overrides_applied: Option<PolicyOverrideFlags>,
     /// Model type for this decision (dense vs MoE)

@@ -67,4 +67,4 @@ export function TenantsTab() {
   );
 }
 
-export default withErrorBoundary(TenantsTab, 'Failed to load tenants tab');
+export default withErrorBoundary(TenantsTab, 'Failed to load workspaces tab');

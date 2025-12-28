@@ -322,7 +322,11 @@ export const routes: RouteConfig[] = [
   {
     // LEGACY: management panel retained for compatibility; hidden from nav
     path: '/management',
-    component: redirectTo('/dashboard', 'Dashboard'),
+    component: redirectTo(
+      '/dashboard',
+      'Dashboard',
+      'The management panel has been replaced by role-based dashboards with personalized views.',
+    ),
     requiresAuth: true,
     skeletonVariant: 'dashboard',
     breadcrumb: 'Management',
@@ -347,7 +351,11 @@ export const routes: RouteConfig[] = [
   {
     // LEGACY: personas tour retained; hidden from nav
     path: '/personas',
-    component: redirectTo('/dashboard', 'Dashboard'),
+    component: redirectTo(
+      '/dashboard',
+      'Dashboard',
+      'The personas tour has been integrated into the dashboard onboarding flow.',
+    ),
     requiresAuth: false,
     skeletonVariant: 'default',
     breadcrumb: 'Personas',
@@ -358,7 +366,11 @@ export const routes: RouteConfig[] = [
   {
     // LEGACY: guided flow retained; hidden from nav
     path: '/flow/lora',
-    component: redirectTo('/training', 'Training'),
+    component: redirectTo(
+      '/training',
+      'Training',
+      'The guided LoRA flow has been merged into the Training hub with improved step-by-step guidance.',
+    ),
     requiresAuth: true,
     skeletonVariant: 'default',
     breadcrumb: 'Guided Setup',
@@ -404,7 +416,11 @@ export const routes: RouteConfig[] = [
   {
     // LEGACY: quick training retained; hidden from nav
     path: '/trainer',
-    component: redirectTo('/training', 'Training'),
+    component: redirectTo(
+      '/training',
+      'Training',
+      'The quick trainer has been folded into the Training hub for a unified training experience.',
+    ),
     requiresAuth: true,
     skeletonVariant: 'form',
     breadcrumb: 'Trainer',
@@ -414,7 +430,11 @@ export const routes: RouteConfig[] = [
   },
   {
     path: '/create-adapter',
-    component: redirectTo('/adapters#register', 'Adapters'),
+    component: redirectTo(
+      '/adapters#register',
+      'Adapters',
+      'Adapter creation now lives in the Adapters shell for better discoverability.',
+    ),
     requiresAuth: true,
     requiredPermissions: ['adapter:register', 'training:start'],
     skeletonVariant: 'form',
@@ -568,7 +588,11 @@ export const routes: RouteConfig[] = [
   {
     // LEGACY: promotion flow retained; hidden from nav
     path: '/promotion',
-    component: redirectTo('/adapters', 'Adapters'),
+    component: redirectTo(
+      '/adapters',
+      'Adapters',
+      'Promotion workflows now live with adapter management for streamlined operations.',
+    ),
     requiresAuth: true,
     skeletonVariant: 'default',
     breadcrumb: 'Promotion',
@@ -678,7 +702,11 @@ export const routes: RouteConfig[] = [
   },
   {
     path: '/monitoring',
-    component: redirectTo('/metrics', 'Metrics'),
+    component: redirectTo(
+      '/metrics',
+      'Metrics',
+      'System monitoring has been consolidated into the Metrics page for a unified observability experience.',
+    ),
     requiresAuth: true,
     skeletonVariant: 'dashboard',
     breadcrumb: 'System Health',
@@ -1079,7 +1107,11 @@ export const routes: RouteConfig[] = [
   },
   {
     path: '/security',
-    component: redirectTo('/security/policies', 'Guardrails'),
+    component: redirectTo(
+      '/security/policies',
+      'Guardrails',
+      'The security landing page now redirects to Guardrails where you can manage policies and compliance settings.',
+    ),
     requiresAuth: true,
     skeletonVariant: 'table',
     breadcrumb: 'Security',
@@ -1256,7 +1288,11 @@ export const routes: RouteConfig[] = [
   },
   {
     path: '/reports',
-    component: redirectTo('/metrics', 'Metrics'),
+    component: redirectTo(
+      '/metrics',
+      'Metrics',
+      'Reports have been merged into the Metrics page where you can view and export data.',
+    ),
     requiresAuth: true,
     skeletonVariant: 'dashboard',
     breadcrumb: 'Reports',
@@ -1281,7 +1317,11 @@ export const routes: RouteConfig[] = [
   },
   {
     path: '/code-intelligence',
-    component: redirectTo(buildTelemetryViewerLink({ sourceType: 'code_intelligence' }), 'Telemetry'),
+    component: redirectTo(
+      buildTelemetryViewerLink({ sourceType: 'code_intelligence' }),
+      'Telemetry',
+      'Code intelligence has been integrated into the Telemetry viewer with the code_intelligence source filter.',
+    ),
     requiresAuth: true,
     skeletonVariant: 'table',
     breadcrumb: 'Code Intelligence',
@@ -1291,7 +1331,11 @@ export const routes: RouteConfig[] = [
   },
   {
     path: '/metrics/advanced',
-    component: redirectTo('/metrics', 'Metrics'),
+    component: redirectTo(
+      '/metrics',
+      'Metrics',
+      'Advanced metrics have been consolidated into the main Metrics view.',
+    ),
     requiresAuth: true,
     skeletonVariant: 'dashboard',
     breadcrumb: 'Advanced Metrics',
@@ -1301,7 +1345,11 @@ export const routes: RouteConfig[] = [
   },
   {
     path: '/help',
-    component: redirectTo('/dashboard', 'Dashboard'),
+    component: redirectTo(
+      '/dashboard',
+      'Dashboard',
+      'Help content is now integrated into the Dashboard and available via the help menu.',
+    ),
     requiresAuth: false,
     skeletonVariant: 'default',
     breadcrumb: 'Help Center',

@@ -7,7 +7,11 @@ use crate::constants::{
     LORA_TIER_MAX_BOOST, LORA_TIER_MICRO_BOOST, LORA_TIER_STANDARD_BOOST, TIER_0_BOOST,
     TIER_1_BOOST, TIER_2_BOOST,
 };
+use crate::policy_mask::PolicyOverrideFlags;
+use crate::quantization::ROUTER_GATE_Q15_DENOM;
+use adapteros_core::{AosError, B3Hash, Result};
 use serde::{Deserialize, Serialize};
+use smallvec::SmallVec;
 use std::str::FromStr;
 
 // =============================================================================
@@ -92,7 +96,7 @@ impl FeatureVector {
     /// # Errors
     /// Returns `FeatureVectorError::InvalidLength` if the slice length is not 21, 22, or 25.
     #[must_use = "this returns a Result that should be checked"]
-    pub fn from_slice(slice: &[f32]) -> Result<Self, FeatureVectorError> {
+    pub fn from_slice(slice: &[f32]) -> std::result::Result<Self, FeatureVectorError> {
         match slice.len() {
             21 | 22 | 25 => Ok(Self {
                 data: slice.to_vec(),
@@ -216,7 +220,7 @@ impl FeatureVector {
 /// Adapter tier classification
 ///
 /// Replaces stringly-typed tier matching with exhaustive enum.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum AdapterTier {
     /// Highest priority tier
@@ -226,6 +230,7 @@ pub enum AdapterTier {
     /// Lower priority tier
     Tier2,
     /// Default/unspecified tier
+    #[default]
     Default,
 }
 
@@ -255,19 +260,13 @@ impl FromStr for AdapterTier {
     type Err = std::convert::Infallible;
 
     /// Parse tier from string. Unknown values default to `AdapterTier::Default`.
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         Ok(match s {
             "tier_0" => Self::Tier0,
             "tier_1" => Self::Tier1,
             "tier_2" => Self::Tier2,
             _ => Self::Default,
         })
-    }
-}
-
-impl Default for AdapterTier {
-    fn default() -> Self {
-        Self::Default
     }
 }
 
@@ -341,7 +340,7 @@ impl FromStr for LoraTier {
     ///
     /// # Errors
     /// Returns `ParseLoraTierError` if the string is not "max", "standard", or "micro".
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         match s {
             "max" => Ok(Self::Max),
             "standard" => Ok(Self::Standard),
@@ -356,6 +355,342 @@ impl FromStr for LoraTier {
 impl std::fmt::Display for LoraTier {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.as_str())
+    }
+}
+
+// =============================================================================
+// Router Types
+// =============================================================================
+
+/// Router determinism configuration
+///
+/// Controls deterministic floating-point behavior and decision hashing
+/// to ensure reproducible routing decisions.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RouterDeterminismConfig {
+    /// Use IEEE 754 deterministic softmax with f64 intermediate precision and Kahan summation
+    pub ieee754_deterministic: bool,
+    /// Enable decision hashing with BLAKE3 for audit trail
+    pub enable_decision_hashing: bool,
+}
+
+impl Default for RouterDeterminismConfig {
+    fn default() -> Self {
+        Self {
+            ieee754_deterministic: true,   // Enabled by default for reproducibility
+            enable_decision_hashing: true, // Enabled by default for audit trail
+        }
+    }
+}
+
+/// Decision hash for audit and reproducibility verification
+///
+/// Contains BLAKE3 hash of routing inputs and outputs, along with metadata
+/// to enable determinism proofs.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DecisionHash {
+    /// BLAKE3 hash of input features and priors
+    pub input_hash: String,
+    /// BLAKE3 hash of output indices and gates
+    pub output_hash: String,
+    /// Optional hash of reasoning buffer used for dynamic routing
+    pub reasoning_hash: Option<String>,
+    /// Combined hash of input + output for compact verification
+    pub combined_hash: String,
+    /// Tau (temperature) used in this decision
+    pub tau: f32,
+    /// Epsilon (entropy floor) used in this decision
+    pub eps: f32,
+    /// K (number of selected adapters)
+    pub k: usize,
+}
+
+/// Router weights for feature importance
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RouterWeights {
+    /// Weight for language detection (0.3 - strong signal)
+    pub language_weight: f32,
+    /// Weight for framework detection (0.25 - strong signal)
+    pub framework_weight: f32,
+    /// Weight for symbol hits (0.2 - moderate signal)
+    pub symbol_hits_weight: f32,
+    /// Weight for path tokens (0.15 - moderate signal)
+    pub path_tokens_weight: f32,
+    /// Weight for prompt verb (0.1 - weak signal)
+    pub prompt_verb_weight: f32,
+
+    // DIR (Deterministic Inference Runtime) additions
+    // Reference: https://openreview.net/pdf?id=jqz6Msm3AF
+    /// Weight for orthogonal constraints (0.05 - weak signal)
+    pub orthogonal_weight: f32,
+    /// Weight for adapter diversity (0.03 - weak signal)
+    pub diversity_weight: f32,
+    /// Weight for similarity penalty (0.02 - weak signal)
+    pub similarity_penalty: f32,
+}
+
+impl Default for RouterWeights {
+    fn default() -> Self {
+        Self {
+            language_weight: 0.27272728,
+            framework_weight: 0.22727273,
+            symbol_hits_weight: 0.18181819,
+            path_tokens_weight: 0.13636364,
+            prompt_verb_weight: 0.09090909,
+            orthogonal_weight: 0.04545455,
+            diversity_weight: 0.02727273,
+            similarity_penalty: 0.01818182,
+        }
+    }
+}
+
+impl RouterWeights {
+    /// Create custom weights
+    pub fn new(language: f32, framework: f32, symbols: f32, paths: f32, verb: f32) -> Self {
+        Self {
+            language_weight: language,
+            framework_weight: framework,
+            symbol_hits_weight: symbols,
+            path_tokens_weight: paths,
+            prompt_verb_weight: verb,
+            orthogonal_weight: 0.04545455,
+            diversity_weight: 0.02727273,
+            similarity_penalty: 0.01818182,
+        }
+    }
+
+    /// Create custom weights with DIR (Deterministic Inference Runtime) parameters
+    pub fn new_with_dir_weights(
+        language: f32,
+        framework: f32,
+        symbols: f32,
+        paths: f32,
+        verb: f32,
+        orthogonal: f32,
+        diversity: f32,
+        similarity: f32,
+    ) -> Self {
+        Self {
+            language_weight: language,
+            framework_weight: framework,
+            symbol_hits_weight: symbols,
+            path_tokens_weight: paths,
+            prompt_verb_weight: verb,
+            orthogonal_weight: orthogonal,
+            diversity_weight: diversity,
+            similarity_penalty: similarity,
+        }
+    }
+
+    /// Get total weight (for normalization check)
+    pub fn total_weight(&self) -> f32 {
+        self.language_weight
+            + self.framework_weight
+            + self.symbol_hits_weight
+            + self.path_tokens_weight
+            + self.prompt_verb_weight
+            + self.orthogonal_weight
+            + self.diversity_weight
+            + self.similarity_penalty
+    }
+
+    /// Load weights from JSON file
+    pub fn load(path: impl AsRef<std::path::Path>) -> Result<Self> {
+        let content =
+            std::fs::read_to_string(path.as_ref()).map_err(|e| AosError::Io(e.to_string()))?;
+        serde_json::from_str(&content).map_err(|e| AosError::Io(e.to_string()))
+    }
+
+    /// Load weights from TOML file
+    pub fn load_toml(path: impl AsRef<std::path::Path>) -> Result<Self> {
+        let content =
+            std::fs::read_to_string(path.as_ref()).map_err(|e| AosError::Io(e.to_string()))?;
+        toml::from_str(&content).map_err(|e| AosError::Io(e.to_string()))
+    }
+
+    /// Save weights to JSON file
+    pub fn save(&self, path: impl AsRef<std::path::Path>) -> Result<()> {
+        let content =
+            serde_json::to_string_pretty(&self).map_err(|e| AosError::Io(e.to_string()))?;
+        std::fs::write(path.as_ref(), content).map_err(|e| AosError::Io(e.to_string()))
+    }
+
+    /// Save weights to TOML file
+    pub fn save_toml(&self, path: impl AsRef<std::path::Path>) -> Result<()> {
+        let content = toml::to_string_pretty(&self).map_err(|e| AosError::Io(e.to_string()))?;
+        std::fs::write(path.as_ref(), content).map_err(|e| AosError::Io(e.to_string()))
+    }
+}
+
+/// Scoring explanation for debugging and audit
+#[derive(Debug, Clone)]
+pub struct ScoringExplanation {
+    pub language_score: f32,
+    pub framework_score: f32,
+    pub symbol_hits_score: f32,
+    pub path_tokens_score: f32,
+    pub prompt_verb_score: f32,
+    pub total_score: f32,
+}
+
+impl ScoringExplanation {
+    /// Format as human-readable string
+    pub fn format(&self) -> String {
+        format!(
+            "Scoring Breakdown:\n\
+             - Language:     {:.3} (weight: 0.30)\n\
+             - Framework:    {:.3} (weight: 0.25)\n\
+             - Symbol Hits:  {:.3} (weight: 0.20)\n\
+             - Path Tokens:  {:.3} (weight: 0.15)\n\
+             - Prompt Verb:  {:.3} (weight: 0.10)\n\
+             = Total Score:  {:.3}",
+            self.language_score,
+            self.framework_score,
+            self.symbol_hits_score,
+            self.path_tokens_score,
+            self.prompt_verb_score,
+            self.total_score,
+        )
+    }
+}
+
+/// Adapter information for routing
+#[derive(Debug, Clone)]
+pub struct AdapterInfo {
+    pub id: String,
+    pub framework: Option<String>,
+    pub languages: Vec<usize>, // Language indices
+    pub tier: String,
+    pub scope_path: Option<String>,
+    pub lora_tier: Option<String>,
+    pub base_model: Option<String>,
+    pub recommended_for_moe: bool,
+    /// Optional reasoning specialties (e.g., math, logic) for dynamic routing
+    pub reasoning_specialties: Vec<String>,
+}
+
+impl AdapterInfo {
+    /// Check if adapter supports a language
+    pub fn supports_language(&self, lang_idx: usize) -> bool {
+        self.languages.contains(&lang_idx)
+    }
+}
+
+impl Default for AdapterInfo {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            framework: None,
+            languages: Vec::new(),
+            tier: "default".to_string(),
+            scope_path: None,
+            lora_tier: None,
+            base_model: None,
+            recommended_for_moe: true,
+            reasoning_specialties: Vec::new(),
+        }
+    }
+}
+
+/// Candidate adapter selected by the router with raw score and gate
+#[derive(Debug, Clone)]
+pub struct DecisionCandidate {
+    pub adapter_idx: u16,
+    pub raw_score: f32,
+    pub gate_q15: i16,
+}
+
+/// Router decision with indices and quantized gates
+#[derive(Debug, Clone)]
+pub struct Decision {
+    pub indices: SmallVec<[u16; 8]>,
+    pub gates_q15: SmallVec<[i16; 8]>,
+    pub entropy: f32,
+    pub candidates: Vec<DecisionCandidate>,
+    /// Optional decision hash for audit and reproducibility verification
+    pub decision_hash: Option<DecisionHash>,
+    /// Digest binding routing policy context to the applied mask (if any).
+    pub policy_mask_digest_b3: Option<B3Hash>,
+    /// Flags indicating which policy overrides were applied for this decision.
+    pub policy_overrides_applied: Option<PolicyOverrideFlags>,
+}
+
+impl Decision {
+    /// Convert Q15 gates back to float
+    pub fn gates_f32(&self) -> Vec<f32> {
+        self.gates_q15
+            .iter()
+            .map(|&q| q as f32 / ROUTER_GATE_Q15_DENOM)
+            .collect()
+    }
+
+    /// Convert to canonical RouterRing for kernel execution
+    pub fn to_router_ring(&self) -> adapteros_lora_kernel_api::RouterRing {
+        let k = self.indices.len();
+        assert!(k <= 8, "Decision has too many adapters (k={}), max is 8", k);
+
+        let mut ring = adapteros_lora_kernel_api::RouterRing::new(k);
+        ring.set(&self.indices[..], &self.gates_q15[..]);
+        ring
+    }
+}
+
+/// Convert Decision to canonical RouterRing for kernel interface
+impl From<Decision> for adapteros_lora_kernel_api::RouterRing {
+    fn from(decision: Decision) -> Self {
+        decision.to_router_ring()
+    }
+}
+
+/// Convert Decision reference to canonical RouterRing
+impl From<&Decision> for adapteros_lora_kernel_api::RouterRing {
+    fn from(decision: &Decision) -> Self {
+        decision.to_router_ring()
+    }
+}
+
+/// Router decision that can represent either a concrete selection or an abstain outcome.
+#[allow(clippy::large_enum_variant)]
+#[derive(Debug, Clone)]
+pub enum RoutingDecision {
+    /// The router selected one or more adapters.
+    Selected(Decision),
+    /// The router abstained from making a selection.
+    Abstain(RouterAbstainReason),
+}
+
+/// Reasons the router can abstain from routing.
+#[derive(Debug, Clone)]
+pub enum RouterAbstainReason {
+    /// No adapters are configured or available.
+    EmptyRouterConfig,
+    /// All computed scores fall below the abstention threshold.
+    ScoresBelowThreshold { threshold: f32, max_score: f32 },
+    /// Input validation failed (NaN/Inf detected).
+    InvalidNumerics(String),
+}
+
+impl RoutingDecision {
+    /// Access the selected decision if routing succeeded.
+    pub fn as_selected(&self) -> Option<&Decision> {
+        match self {
+            RoutingDecision::Selected(decision) => Some(decision),
+            RoutingDecision::Abstain(_) => None,
+        }
+    }
+
+    /// Consume the routing decision and return the selected decision if present.
+    pub fn into_selected(self) -> Option<Decision> {
+        match self {
+            RoutingDecision::Selected(decision) => Some(decision),
+            RoutingDecision::Abstain(_) => None,
+        }
+    }
+}
+
+impl From<Decision> for RoutingDecision {
+    fn from(decision: Decision) -> Self {
+        RoutingDecision::Selected(decision)
     }
 }
 

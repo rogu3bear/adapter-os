@@ -175,7 +175,7 @@ impl ScoringFunction for EntropyFloorScorer {
             entropy,
             candidates,
             decision_hash: None, // Scoring functions don't use decision hashing
-            policy_mask_digest: None,
+            policy_mask_digest_b3: None,
             policy_overrides_applied: None,
         })
     }
@@ -306,7 +306,7 @@ impl ScoringFunction for AdapterAwareScorer {
             entropy,
             candidates,
             decision_hash: None, // Scoring functions don't use decision hashing
-            policy_mask_digest: None,
+            policy_mask_digest_b3: None,
             policy_overrides_applied: None,
         })
     }

@@ -79,7 +79,7 @@ pub async fn run_migrations(
             warn!(error = %e, "Failed to seed development data");
         }
 
-        if let Err(e) = seed_models_from_cache_if_empty(&db).await {
+        if let Err(e) = seed_models_from_cache_if_empty(db).await {
             warn!(error = %e, "Failed to seed cached base models");
         }
     } else {

@@ -22,9 +22,9 @@ use crate::inference_core::InferenceCore;
 use crate::middleware::policy_enforcement::{
     compute_policy_mask_digest, create_hook_context, enforce_at_hook,
 };
-use crate::types::run_envelope::set_policy_mask;
 use crate::security::check_tenant_access;
 use crate::state::AppState;
+use crate::types::run_envelope::set_policy_mask;
 use crate::types::*;
 use crate::uds_client::UdsClient;
 use adapteros_core::identity::IdentityEnvelope;
@@ -409,16 +409,17 @@ pub async fn streaming_infer_with_progress(
         "inference",
         None, // No adapter selected yet
     );
-    let routing_decisions = enforce_at_hook(&state, &routing_hook_ctx)
-        .await
-        .map_err(|violation| {
-            ApiError::new(
-                StatusCode::FORBIDDEN,
-                "POLICY_HOOK_VIOLATION",
-                "Policy hook violation (pre-routing)",
-            )
-            .with_details(violation.message)
-        })?;
+    let routing_decisions =
+        enforce_at_hook(&state, &routing_hook_ctx)
+            .await
+            .map_err(|violation| {
+                ApiError::new(
+                    StatusCode::FORBIDDEN,
+                    "POLICY_HOOK_VIOLATION",
+                    "Policy hook violation (pre-routing)",
+                )
+                .with_details(violation.message)
+            })?;
     all_policy_decisions.extend(routing_decisions);
 
     // Enforce policies at OnBeforeInference hook
@@ -601,16 +602,17 @@ pub async fn streaming_infer(
         "inference",
         None, // No adapter selected yet
     );
-    let routing_decisions = enforce_at_hook(&state, &routing_hook_ctx)
-        .await
-        .map_err(|violation| {
-            ApiError::new(
-                StatusCode::FORBIDDEN,
-                "POLICY_HOOK_VIOLATION",
-                "Policy hook violation (pre-routing)",
-            )
-            .with_details(violation.message)
-        })?;
+    let routing_decisions =
+        enforce_at_hook(&state, &routing_hook_ctx)
+            .await
+            .map_err(|violation| {
+                ApiError::new(
+                    StatusCode::FORBIDDEN,
+                    "POLICY_HOOK_VIOLATION",
+                    "Policy hook violation (pre-routing)",
+                )
+                .with_details(violation.message)
+            })?;
     all_policy_decisions.extend(routing_decisions);
 
     // Enforce policies at OnBeforeInference hook

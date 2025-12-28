@@ -9,12 +9,7 @@ use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
 use crate::types::{AdapterSwapRequest, AdapterSwapResponse, ErrorResponse};
-use axum::{
-    extract::State,
-    http::StatusCode,
-    response::Json,
-    Extension,
-};
+use axum::{extract::State, http::StatusCode, response::Json, Extension};
 use tracing::{error, info, warn};
 
 // ============================================================================

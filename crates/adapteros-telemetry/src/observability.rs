@@ -443,7 +443,7 @@ mod tests {
                 stack_hash: None,
                 allowed_mask: Some(vec![true]),
                 interval_id: None,
-                policy_mask_digest: Some(*B3Hash::hash(b"mask").as_bytes()),
+                policy_mask_digest_b3: Some(*B3Hash::hash(b"mask").as_bytes()),
                 policy_overrides_applied: Some(adapteros_types::routing::PolicyOverrideFlags {
                     allow_list: true,
                     deny_list: false,

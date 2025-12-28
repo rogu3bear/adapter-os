@@ -21,7 +21,7 @@ fn make_decision(indices: &[u16], gates: &[i16], entropy: f32) -> Decision {
         entropy,
         candidates: vec![],
         decision_hash: None,
-        policy_mask_digest: None,
+        policy_mask_digest_b3: None,
         policy_overrides_applied: None,
     }
 }
@@ -39,7 +39,7 @@ fn make_decision_with_candidates(
         entropy,
         candidates,
         decision_hash: None,
-        policy_mask_digest: None,
+        policy_mask_digest_b3: None,
         policy_overrides_applied: None,
     }
 }

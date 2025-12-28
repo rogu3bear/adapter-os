@@ -206,6 +206,7 @@ fn generate_session_id() -> String {
 }
 
 /// Get configuration hash
+#[allow(clippy::result_large_err)]
 fn get_config_hash(state: &AppState) -> Result<String, ApiError> {
     // Try to get effective config snapshot
     if let Some(cfg) = adapteros_config::try_effective_config() {
@@ -246,6 +247,7 @@ fn calculate_uptime(state: &AppState) -> u64 {
 }
 
 /// Check for configuration drift
+#[allow(clippy::result_large_err)]
 fn check_config_drift(_state: &AppState) -> Result<(bool, Option<DriftSummaryResponse>), ApiError> {
     // Try to detect configuration drift using adapteros-config
     if let Some(cfg) = adapteros_config::try_effective_config() {

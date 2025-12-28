@@ -65,10 +65,7 @@ async fn test_duplicate_lookup_same_workspace_returns_existing() {
         found.id, first_dataset_id,
         "Should return the original dataset_id"
     );
-    assert_eq!(
-        found.dataset_hash_b3, dataset_hash,
-        "Hash should match"
-    );
+    assert_eq!(found.dataset_hash_b3, dataset_hash, "Hash should match");
     assert_eq!(
         found.workspace_id.as_deref(),
         Some(workspace_id.as_str()),

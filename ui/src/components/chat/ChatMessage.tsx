@@ -182,6 +182,17 @@ export const ChatMessageComponent = memo(function ChatMessageComponent({
     return [];
   }, [developerMode, kernelMode, message.content, message.tokenStream, routerScore, isUser]);
 
+  // Check if the message has an exportable run ID
+  const hasExportableRunId = useMemo(() => {
+    const runMeta = message.runMetadata;
+    return !!(
+      runMeta?.runId ||
+      runMeta?.requestId ||
+      message.traceId ||
+      message.requestId
+    );
+  }, [message.runMetadata, message.traceId, message.requestId]);
+
   const showKernelTokens = kernelMode && baseTokenStream.length > 0 && !isUser;
   const showDeveloperTokens = !showKernelTokens && (developerMode || kernelMode) && !isUser;
 
@@ -464,8 +475,8 @@ export const ChatMessageComponent = memo(function ChatMessageComponent({
             onReplayComplete={handleReplayComplete}
           />
         )}
-        {/* Export dropdown for assistant messages */}
-        {!isUser && !message.isStreaming && (
+        {/* Export dropdown for assistant messages with exportable run ID */}
+        {!isUser && !message.isStreaming && hasExportableRunId && (
           <DropdownMenu>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -504,6 +515,17 @@ export const ChatMessageComponent = memo(function ChatMessageComponent({
               )}
             </DropdownMenuContent>
           </DropdownMenu>
+        )}
+        {/* Disabled export button when no exportable run ID */}
+        {!isUser && !message.isStreaming && !hasExportableRunId && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="sm" className="h-7 px-2" disabled>
+                <Download className="h-4 w-4 opacity-50" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Evidence not available for this message</TooltipContent>
+          </Tooltip>
         )}
       </div>
 

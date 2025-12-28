@@ -46,11 +46,10 @@ impl<K: FusedKernels + crate::StrictnessControl + Send + Sync + 'static> Worker<
             .adapters
             .iter()
             .map(|a| {
-                a.intent.clone().filter(|s| !s.is_empty()).or_else(|| {
-                    a.id.split(['-', '_', '.'])
-                        .next()
-                        .map(|s| s.to_string())
-                })
+                a.intent
+                    .clone()
+                    .filter(|s| !s.is_empty())
+                    .or_else(|| a.id.split(['-', '_', '.']).next().map(|s| s.to_string()))
             })
             .collect();
 

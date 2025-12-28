@@ -386,6 +386,7 @@ pub fn has_permission(role: &Role, permission: Permission) -> bool {
 ///     Ok(Json(response))
 /// }
 /// ```
+#[allow(clippy::result_large_err)]
 pub fn require_permission(claims: &Claims, permission: Permission) -> Result<(), ApiError> {
     let role = Role::from_str(&claims.role).map_err(|_| {
         warn!(
@@ -437,6 +438,7 @@ pub fn permissions_for_role(role: &Role) -> Vec<Permission> {
 /// Require any of the specified permissions
 ///
 /// Returns `Ok(())` if the user has at least one of the permissions
+#[allow(clippy::result_large_err)]
 pub fn require_any_permission(claims: &Claims, permissions: &[Permission]) -> Result<(), ApiError> {
     let role = Role::from_str(&claims.role).map_err(|_| {
         warn!(
@@ -467,6 +469,7 @@ pub fn require_any_permission(claims: &Claims, permissions: &[Permission]) -> Re
 /// Require any of the specified roles
 ///
 /// Returns `Ok(())` if the user has any of the required roles (Admin always passes)
+#[allow(clippy::result_large_err)]
 pub fn require_any_role(claims: &Claims, roles: &[Role]) -> Result<(), ApiError> {
     let user_role = Role::from_str(&claims.role).map_err(|_| {
         warn!(

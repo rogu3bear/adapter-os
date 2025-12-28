@@ -67,13 +67,14 @@ pub async fn export_adapter(
     })?;
 
     // Reject exports during shutdown to prevent race conditions with cleanup
-    if state.boot_state.as_ref().is_some_and(|b| b.is_draining() || b.is_shutting_down()) {
+    if state
+        .boot_state
+        .as_ref()
+        .is_some_and(|b| b.is_draining() || b.is_shutting_down())
+    {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(
-                ErrorResponse::new("Service shutting down")
-                    .with_code("DRAINING"),
-            ),
+            Json(ErrorResponse::new("Service shutting down").with_code("DRAINING")),
         ));
     }
 

@@ -666,9 +666,9 @@ pub async fn enhanced_system_metrics_stream(
         });
 
         Some((
-            Ok(Event::default()
-                .event("enhanced_metrics")
-                .data(serde_json::to_string(&enhanced_metrics).unwrap_or_else(|_| "{}".to_string()))),
+            Ok(Event::default().event("enhanced_metrics").data(
+                serde_json::to_string(&enhanced_metrics).unwrap_or_else(|_| "{}".to_string()),
+            )),
             state,
         ))
     });

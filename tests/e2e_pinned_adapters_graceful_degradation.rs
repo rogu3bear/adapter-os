@@ -208,6 +208,7 @@ fn test_inference_result_has_pinned_adapter_fields() {
         citations: vec![],
         latency_ms: 500,
         request_id: "test-request-123".to_string(),
+        run_envelope: None,
         unavailable_pinned_adapters: Some(vec![
             "missing-pin-1".to_string(),
             "missing-pin-2".to_string(),
@@ -265,6 +266,7 @@ fn test_inference_result_omits_none_pinned_fields() {
         citations: vec![],
         latency_ms: 250,
         request_id: "test-request-456".to_string(),
+        run_envelope: None,
         unavailable_pinned_adapters: None,
         pinned_routing_fallback: None,
         effective_adapter_ids: None,
@@ -382,6 +384,7 @@ fn test_graceful_degradation_http_200_behavior() {
         citations: vec![],
         latency_ms: 1000,
         request_id: "graceful-degradation-test".to_string(),
+        run_envelope: None,
         unavailable_pinned_adapters: Some(vec!["requested-pin".to_string()]),
         pinned_routing_fallback: Some("stack_only".to_string()),
         effective_adapter_ids: None,

@@ -65,7 +65,7 @@ mod strict_mode_guard_tests {
             decision_hash: None,
             previous_hash: None,
             entry_hash: "h".into(),
-            policy_mask_digest: None,
+            policy_mask_digest_b3: None,
             policy_overrides_applied: None,
         };
 

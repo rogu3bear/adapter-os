@@ -756,7 +756,7 @@ async fn test_prefix_kv_receipt_fields_persistence() {
         token_index: 0,
         adapter_ids: vec!["adapter-a".into()],
         gates_q15: vec![100],
-        policy_mask_digest: None,
+        policy_mask_digest_b3: None,
         allowed_mask: None,
         policy_overrides_applied: None,
         backend_id: Some("coreml".into()),

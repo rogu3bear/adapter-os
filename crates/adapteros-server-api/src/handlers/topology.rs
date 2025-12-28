@@ -73,7 +73,7 @@ pub async fn get_topology(
         .filter_map(|adapter| {
             adapter
                 .cluster_ids
-                .get(0)
+                .first()
                 .cloned()
                 .map(|cluster| (adapter.adapter_id.clone(), cluster))
         })

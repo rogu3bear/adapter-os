@@ -337,7 +337,9 @@ async fn run_reasoning_trace(
         let adapter_id = adapter_info[adapter_idx as usize].id.clone();
         adapter_choices.push(adapter_id.clone());
 
-        let policy_mask_digest = decision.policy_mask_digest.map(|digest| digest.to_bytes());
+        let policy_mask_digest_b3 = decision
+            .policy_mask_digest_b3
+            .map(|digest| digest.to_bytes());
         let policy_overrides_applied =
             decision
                 .policy_overrides_applied
@@ -352,7 +354,7 @@ async fn run_reasoning_trace(
             token_index: idx as u32,
             adapter_ids: vec![adapter_id],
             gates_q15: decision.gates_q15.iter().copied().collect(),
-            policy_mask_digest,
+            policy_mask_digest_b3,
             allowed_mask: Some(policy_mask.allowed.clone()),
             policy_overrides_applied,
             backend_id: Some("determinism-backend".to_string()),

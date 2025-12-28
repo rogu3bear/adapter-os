@@ -52,7 +52,7 @@ impl From<(&InferRequest, &Claims)> for super::context::InferenceRequestInternal
             pinned_adapter_ids: None, // Populated by InferenceCore from session
             chat_context_hash: None,
             claims: Some(claims.clone()),
-            policy_mask_digest: None, // Computed by handler from enforce_at_hook
+            policy_mask_digest_b3: None, // Computed by handler from enforce_at_hook
             model: req.model.clone(),
             stop_policy: req.stop_policy.clone(),
             created_at: std::time::Instant::now(),
@@ -115,7 +115,7 @@ impl From<InferenceResult> for InferResponse {
                         stack_hash: None,
                         interval_id: rd.interval_id.clone(),
                         allowed_mask: None,
-                        policy_mask_digest: None,
+                        policy_mask_digest_b3: None,
                         policy_overrides_applied: None,
                         model_type: adapteros_api_types::inference::RouterModelType::Dense,
                         active_experts: None,

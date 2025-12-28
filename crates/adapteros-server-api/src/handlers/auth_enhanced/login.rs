@@ -8,7 +8,9 @@ use crate::auth::{
     issue_refresh_token_hmac_with_kv, validate_refresh_token_ed25519, validate_refresh_token_hmac,
     verify_password,
 };
-use crate::auth_common::{attach_auth_cookie, attach_csrf_cookie, attach_refresh_cookie, AuthConfig};
+use crate::auth_common::{
+    attach_auth_cookie, attach_csrf_cookie, attach_refresh_cookie, AuthConfig,
+};
 use crate::ip_extraction::ClientIp;
 use crate::mfa::{
     decrypt_mfa_secret, derive_mfa_key, verify_and_mark_backup_code, verify_totp, BackupCode,

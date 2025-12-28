@@ -968,7 +968,7 @@ impl Router {
             entropy,
             candidates: candidate_entries,
             decision_hash: None, // Deprecated method doesn't use decision hashing
-            policy_mask_digest: None,
+            policy_mask_digest_b3: None,
             policy_overrides_applied: None,
         };
 
@@ -1501,7 +1501,7 @@ impl Router {
             entropy,
             candidates: candidate_entries,
             decision_hash,
-            policy_mask_digest: Some(policy_mask.digest),
+            policy_mask_digest_b3: Some(policy_mask.digest),
             policy_overrides_applied: Some(policy_mask.overrides_applied.clone()),
         };
 
@@ -1558,7 +1558,7 @@ impl Router {
             entropy: 0.0,
             candidates: Vec::new(),
             decision_hash: None,
-            policy_mask_digest: Some(policy_mask.digest),
+            policy_mask_digest_b3: Some(policy_mask.digest),
             policy_overrides_applied: Some(policy_mask.overrides_applied.clone()),
         }
     }
@@ -1592,7 +1592,7 @@ impl Router {
                 entropy: 0.0,
                 candidates: Vec::new(),
                 decision_hash: None,
-                policy_mask_digest: None,
+                policy_mask_digest_b3: None,
                 policy_overrides_applied: None,
             };
         }
@@ -1605,7 +1605,7 @@ impl Router {
                 entropy: 0.0,
                 candidates: Vec::new(),
                 decision_hash: None,
-                policy_mask_digest: None,
+                policy_mask_digest_b3: None,
                 policy_overrides_applied: None,
             };
         }
@@ -1635,7 +1635,7 @@ impl Router {
                 entropy: 0.0,
                 candidates: Vec::new(),
                 decision_hash: None,
-                policy_mask_digest: None,
+                policy_mask_digest_b3: None,
                 policy_overrides_applied: None,
             };
         }
@@ -1699,7 +1699,7 @@ impl Router {
             entropy,
             candidates: candidate_entries,
             decision_hash: None, // Deprecated method doesn't use decision hashing
-            policy_mask_digest: None,
+            policy_mask_digest_b3: None,
             policy_overrides_applied: None,
         };
 

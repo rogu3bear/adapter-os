@@ -889,7 +889,7 @@ impl MetricsExporter {
         let mut request_count: u64 = 0;
 
         for family in metrics {
-            match family.get_name() {
+            match family.name() {
                 "mplora_http_requests_total" => {
                     for metric in family.get_metric() {
                         if let Some(counter) = metric.get_counter().as_ref() {

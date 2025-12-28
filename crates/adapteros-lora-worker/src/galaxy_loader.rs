@@ -303,8 +303,7 @@ impl GalaxyLoader {
             if let Ok(read_dir) = std::fs::read_dir(parent) {
                 for entry in read_dir.flatten() {
                     let path = entry.path();
-                    if path.extension().is_some_and(|ext| ext == "galaxy")
-                        && !paths.contains(&path)
+                    if path.extension().is_some_and(|ext| ext == "galaxy") && !paths.contains(&path)
                     {
                         paths.push(path);
                     }

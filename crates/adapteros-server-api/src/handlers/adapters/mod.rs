@@ -51,8 +51,8 @@ mod version_archive;
 
 // Lifecycle handlers
 pub use lifecycle::{
-    activate_adapter, demote_adapter_lifecycle, promote_adapter_lifecycle,
-    AdapterActivateRequest, LifecycleTransitionRequest, LifecycleTransitionResponse,
+    activate_adapter, demote_adapter_lifecycle, promote_adapter_lifecycle, AdapterActivateRequest,
+    LifecycleTransitionRequest, LifecycleTransitionResponse,
 };
 
 // Lineage handlers

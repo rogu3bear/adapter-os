@@ -76,7 +76,7 @@ fn test_all_adapters_denied_by_policy() {
 
     // Verify policy mask digest is preserved
     assert_eq!(
-        decision.policy_mask_digest,
+        decision.policy_mask_digest_b3,
         Some(deny_mask.digest),
         "Policy mask digest should be preserved in decision"
     );

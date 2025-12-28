@@ -1,5 +1,7 @@
 //! Job alert watcher and notification system
 
+#![allow(dead_code)] // AlertWatcher is prepared for future use
+
 use adapteros_db::{Db, Job};
 use adapteros_deterministic_exec::{spawn_deterministic, DeterministicJoinHandle};
 use adapteros_server_api::config::AlertingConfig;

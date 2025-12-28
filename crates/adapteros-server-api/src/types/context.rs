@@ -145,7 +145,7 @@ pub struct InferenceRequestInternal {
     ///
     /// This captures the policy enforcement state for deterministic replay.
     /// Computed from the sorted policy_pack_ids, hooks, and decisions.
-    pub policy_mask_digest: Option<[u8; 32]>,
+    pub policy_mask_digest_b3: Option<[u8; 32]>,
 
     // === Model Selection ===
     /// Model identifier (if specific model requested)
@@ -208,7 +208,7 @@ impl InferenceRequestInternal {
             pinned_adapter_ids: None,
             chat_context_hash: None,
             claims: None,
-            policy_mask_digest: None,
+            policy_mask_digest_b3: None,
             model: None,
             stop_policy: None,
             created_at: std::time::Instant::now(),

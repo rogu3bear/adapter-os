@@ -182,7 +182,7 @@ fn gates_f32_uses_q15_denominator_constant() {
         entropy: 0.0,
         candidates: Vec::new(),
         decision_hash: None,
-        policy_mask_digest: None,
+        policy_mask_digest_b3: None,
         policy_overrides_applied: None,
     };
 

@@ -232,7 +232,7 @@ pub async fn infer(
     internal.request_id = request_id_str.clone();
     internal.prompt = base_prompt;
     internal.chat_context_hash = chat_context_hash;
-    internal.policy_mask_digest = policy_mask_digest;
+    internal.policy_mask_digest_b3 = policy_mask_digest;
     internal.run_envelope = Some(new_run_envelope(
         &state,
         &claims,

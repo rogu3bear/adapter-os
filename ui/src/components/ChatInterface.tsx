@@ -982,6 +982,20 @@ function ChatInterfaceInner({
     : baseModelStatus === 'loading' || isCheckingAdapters;
   const modelGateActive = !baseModelReady && !(canBypassModelGate && modelGateBypass);
 
+  const gateMessage = useMemo(() => {
+    const errorMsg = newModelLoadingState.error?.message;
+    switch (baseModelStatus) {
+      case 'error':
+        return { title: 'Model failed to load', detail: errorMsg || 'An error occurred', action: 'Try refreshing' };
+      case 'loading':
+        return { title: 'Model loading...', detail: 'Loading model', action: 'Please wait' };
+      case 'no-model':
+        return { title: 'No model configured', detail: 'A base model must be configured', action: 'Go to Settings' };
+      default:
+        return { title: 'Base model required', detail: `Status: ${baseModelStatus}`, action: 'Load model' };
+    }
+  }, [baseModelStatus, newModelLoadingState.error?.message]);
+
   const { metrics: systemMetrics } = useSystemMetrics('fast', autoLoadEnabled && isLoadingModels);
   const { workers: workerList } = useWorkers(selectedTenant, undefined, 'slow', autoLoadEnabled && isLoadingModels);
   const [backendSummary, setBackendSummary] = useState<{ name: string; mode?: string | null } | null>(null);
@@ -1388,12 +1402,12 @@ function ChatInterfaceInner({
   }, [autoLoadEnabled, newModelLoader, selectedStackId]);
 
   const handleSend = useCallback(async () => {
-    if (!input.trim() || isStreaming) return;
-
+    // Hard guard first - cannot send when model gate is active
     if (modelGateActive) {
-      toast.error('Base model is not ready. Please load it first.');
+      toast.error('Cannot send: base model not loaded');
       return;
     }
+    if (!input.trim() || isStreaming) return;
 
     // Determine if we're in effective base-only mode (explicit or no stack selected)
     const effectiveBaseOnlyMode = isBaseOnlyMode || !selectedStackId;
@@ -1841,9 +1855,9 @@ function ChatInterfaceInner({
           <Card className="border-amber-500/70 bg-amber-50/40 dark:bg-amber-950/20">
             <CardHeader className="pb-2 flex items-start justify-between">
               <div>
-                <CardTitle className="text-base">Base model required</CardTitle>
+                <CardTitle className="text-base">{gateMessage.title}</CardTitle>
                 <p className="text-xs text-muted-foreground">
-                  Load an active base model before running chat. Workspace guard prevents accidental runs.
+                  {gateMessage.detail}
                 </p>
               </div>
               {workspaceStateLoading ? (
@@ -1857,7 +1871,7 @@ function ChatInterfaceInner({
             <CardContent className="flex flex-col gap-2">
               <div className="flex flex-wrap items-center gap-2">
                 <Button size="sm" onClick={handleInlineLoadModel} disabled={isLoadingModels}>
-                  Load base model
+                  {gateMessage.action}
                 </Button>
                 <Button
                   size="sm"
@@ -2588,7 +2602,11 @@ function ChatInterfaceInner({
           magnetColor={magnetDetails.color ?? undefined}
         />
         <form
-          onSubmit={(e) => { e.preventDefault(); handleSend(); }}
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (modelGateActive) return;
+            handleSend();
+          }}
           className="flex gap-2 items-start"
           aria-label="Chat message input"
         >

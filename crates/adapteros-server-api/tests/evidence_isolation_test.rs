@@ -310,11 +310,7 @@ async fn test_evidence_multi_tenant_no_leakage() -> Result<()> {
     }
 
     // Each tenant should only see their own 5 evidence records for a given inference_id
-    for (tenant_id, expected_count) in [
-        (&tenant_a, 1),
-        (&tenant_b, 1),
-        (&tenant_c, 1),
-    ] {
+    for (tenant_id, expected_count) in [(&tenant_a, 1), (&tenant_b, 1), (&tenant_c, 1)] {
         let evidence = db
             .get_evidence_by_inference(tenant_id, "inf-shared-pattern-0")
             .await?;

@@ -360,7 +360,7 @@ pub async fn initialize_runtime(
             }
 
             // Create API config with actual values for runtime mode validation
-            let api_cfg = Config {
+            Config {
                 server: adapteros_server_api::config::ServerConfig {
                     port: cfg.server.port,
                     bind: cfg.server.bind.clone(),
@@ -438,9 +438,7 @@ pub async fn initialize_runtime(
                 logging: Default::default(),
                 otel: Default::default(),
                 invariants: Default::default(),
-            };
-
-            api_cfg
+            }
         }; // Close the scope, dropping cfg
 
         RuntimeModeResolver::validate(runtime_mode, &api_cfg, db)

@@ -1699,7 +1699,9 @@ pub async fn reconcile_active_models(state: &AppState) {
 /// This is the tenant-scoped version that should be used for on-demand
 /// reconciliation to maintain workspace isolation.
 pub async fn reconcile_active_models_for_tenant(state: &AppState, tenant_id: &str) {
-    let active_states = match state.db.list_workspace_active_states_for_tenant(tenant_id).await {
+    // Fetch all active states and filter by tenant in memory
+    // (tenant-scoped query not available at DB layer)
+    let all_states = match state.db.list_workspace_active_states().await {
         Ok(states) => states,
         Err(e) => {
             error!(
@@ -1710,6 +1712,12 @@ pub async fn reconcile_active_models_for_tenant(state: &AppState, tenant_id: &st
             return;
         }
     };
+
+    // Filter to only the tenant we care about
+    let active_states: Vec<_> = all_states
+        .into_iter()
+        .filter(|s| s.tenant_id == tenant_id)
+        .collect();
 
     if active_states.is_empty() {
         return;

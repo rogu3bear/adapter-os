@@ -13,7 +13,7 @@ struct TraceRow {
     selected_adapter_ids: Vec<u8>,
     gates_blob: Vec<u8>,
     decision_hash: Vec<u8>,
-    policy_mask_digest: Option<Vec<u8>>,
+    policy_mask_digest_b3: Option<Vec<u8>>,
     allowed_mask: Option<Vec<u8>>,
     policy_overrides_json: Option<String>,
     backend_id: Option<String>,
@@ -132,8 +132,8 @@ async fn run_reasoning_loop(trace_id: &str, context_digest: [u8; 32]) -> LoopRun
         }
         last_adapter = Some(adapter_ids_for_trace[0].clone());
 
-        let policy_mask_digest = decision
-            .policy_mask_digest
+        let policy_mask_digest_b3 = decision
+            .policy_mask_digest_b3
             .as_ref()
             .map(|digest| digest.to_bytes());
         let policy_overrides: Option<ApiPolicyOverrides> = decision
@@ -149,7 +149,7 @@ async fn run_reasoning_loop(trace_id: &str, context_digest: [u8; 32]) -> LoopRun
             token_index: idx as u32,
             adapter_ids: adapter_ids_for_trace,
             gates_q15: decision.gates_q15.iter().copied().collect(),
-            policy_mask_digest,
+            policy_mask_digest_b3,
             allowed_mask: Some(policy_mask.allowed.clone()),
             policy_overrides_applied: policy_overrides,
             backend_id: Some("deterministic-backend".to_string()),
@@ -209,7 +209,7 @@ async fn load_trace_rows(db: &Db, trace_id: &str) -> Vec<TraceRow> {
             selected_adapter_ids: row.get("selected_adapter_ids"),
             gates_blob: row.get("gates_q15"),
             decision_hash: row.get("decision_hash"),
-            policy_mask_digest: row.get::<Option<Vec<u8>>, _>("policy_mask_digest"),
+            policy_mask_digest_b3: row.get::<Option<Vec<u8>>, _>("policy_mask_digest"),
             allowed_mask: row.get::<Option<Vec<u8>>, _>("allowed_mask"),
             policy_overrides_json: row.get::<Option<String>, _>("policy_overrides_json"),
             backend_id: row.get::<Option<String>, _>("backend_id"),

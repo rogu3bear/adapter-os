@@ -185,10 +185,7 @@ pub(crate) async fn package_and_register_adapter(
         "data_lineage_mode".to_string(),
         data_lineage_mode.as_str().to_string(),
     );
-    package_metadata.insert(
-        "synthetic_mode".to_string(),
-        synthetic_mode.to_string(),
-    );
+    package_metadata.insert("synthetic_mode".to_string(), synthetic_mode.to_string());
     if let Some(base_model) = base_model_id {
         package_metadata.insert("base_model_id".to_string(), base_model.to_string());
     }
@@ -270,35 +267,34 @@ pub(crate) async fn package_and_register_adapter(
 
     let base_model_for_manifest = base_model_id.unwrap_or("unknown-base-model");
 
-    let dataset_hash_for_metadata = if let (Some(database), Some(versions)) =
-        (db, dataset_version_ids_for_training)
-    {
-        let mut combined: Vec<(String, String, f32)> = Vec::new();
-        for sel in versions.iter() {
-            if let Ok(Some(ver)) = database
-                .get_training_dataset_version(&sel.dataset_version_id)
-                .await
-            {
-                combined.push((
-                    sel.dataset_version_id.clone(),
-                    ver.hash_b3.clone(),
-                    sel.weight,
-                ));
+    let dataset_hash_for_metadata =
+        if let (Some(database), Some(versions)) = (db, dataset_version_ids_for_training) {
+            let mut combined: Vec<(String, String, f32)> = Vec::new();
+            for sel in versions.iter() {
+                if let Ok(Some(ver)) = database
+                    .get_training_dataset_version(&sel.dataset_version_id)
+                    .await
+                {
+                    combined.push((
+                        sel.dataset_version_id.clone(),
+                        ver.hash_b3.clone(),
+                        sel.weight,
+                    ));
+                }
             }
-        }
-        if combined.is_empty() {
-            None
+            if combined.is_empty() {
+                None
+            } else {
+                Some(compute_combined_data_spec_hash(&combined))
+            }
+        } else if let (Some(database), Some(ds_id)) = (db, dataset_id) {
+            match database.get_training_dataset(ds_id).await {
+                Ok(Some(ds)) => Some(ds.hash_b3),
+                _ => data_spec_hash_for_training.map(|s| s.to_string()),
+            }
         } else {
-            Some(compute_combined_data_spec_hash(&combined))
-        }
-    } else if let (Some(database), Some(ds_id)) = (db, dataset_id) {
-        match database.get_training_dataset(ds_id).await {
-            Ok(Some(ds)) => Some(ds.hash_b3),
-            _ => data_spec_hash_for_training.map(|s| s.to_string()),
-        }
-    } else {
-        data_spec_hash_for_training.map(|s| s.to_string())
-    };
+            data_spec_hash_for_training.map(|s| s.to_string())
+        };
 
     let seed_inputs_json = serde_json::to_string(&serde_json::json!({
         "dataset_version_ids": dataset_version_ids_for_training,
@@ -424,7 +420,12 @@ pub(crate) async fn package_and_register_adapter(
 
         let (hash, size_bytes) = tokio::fs::read(&target)
             .await
-            .map(|bytes| (blake3::hash(&bytes).to_hex().to_string(), bytes.len() as i64))
+            .map(|bytes| {
+                (
+                    blake3::hash(&bytes).to_hex().to_string(),
+                    bytes.len() as i64,
+                )
+            })
             .unwrap_or_else(|_| (packaged.hash_b3.clone(), 0));
 
         (target, hash, size_bytes)
@@ -442,10 +443,7 @@ pub(crate) async fn package_and_register_adapter(
         "artifact_path".to_string(),
         serde_json::json!(final_aos_path_str.clone()),
     );
-    artifact_metadata.insert(
-        "training_seed".to_string(),
-        serde_json::json!(trainer_seed),
-    );
+    artifact_metadata.insert("training_seed".to_string(), serde_json::json!(trainer_seed));
 
     if let Some(database) = db {
         let signature_b64 = match tokio::fs::read(final_aos_path.with_extension("aos.sig")).await {
@@ -531,8 +529,7 @@ pub(crate) async fn package_and_register_adapter(
                 );
             }
 
-            if let Some(version_id) =
-                versioning_snapshot.and_then(|v| v.adapter_version_id.clone())
+            if let Some(version_id) = versioning_snapshot.and_then(|v| v.adapter_version_id.clone())
             {
                 let backend_lower = training_result
                     .backend

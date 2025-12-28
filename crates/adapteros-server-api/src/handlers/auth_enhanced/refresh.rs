@@ -4,11 +4,15 @@
 
 use crate::auth::{
     issue_access_token_ed25519, issue_access_token_hmac, issue_refresh_token_ed25519,
-    issue_refresh_token_ed25519_with_kv, issue_refresh_token_hmac, issue_refresh_token_hmac_with_kv,
-    validate_refresh_token_ed25519, validate_refresh_token_hmac,
+    issue_refresh_token_ed25519_with_kv, issue_refresh_token_hmac,
+    issue_refresh_token_hmac_with_kv, validate_refresh_token_ed25519, validate_refresh_token_hmac,
 };
-use crate::auth_common::{attach_auth_cookie, attach_csrf_cookie, attach_refresh_cookie, AuthConfig};
-use crate::security::{get_session_by_id, get_tenant_token_baseline, is_token_revoked, upsert_user_session};
+use crate::auth_common::{
+    attach_auth_cookie, attach_csrf_cookie, attach_refresh_cookie, AuthConfig,
+};
+use crate::security::{
+    get_session_by_id, get_tenant_token_baseline, is_token_revoked, upsert_user_session,
+};
 use crate::state::AppState;
 use crate::types::ErrorResponse;
 use adapteros_db::auth_sessions_kv::AuthSessionKvRepository;
@@ -22,7 +26,10 @@ use chrono::{Duration, TimeZone, Utc};
 use tracing::{info, warn};
 use uuid::Uuid;
 
-use super::helpers::{emit_auth_event, emit_refresh_failure, extract_cookie_token, log_auth_event, log_refresh_failure};
+use super::helpers::{
+    emit_auth_event, emit_refresh_failure, extract_cookie_token, log_auth_event,
+    log_refresh_failure,
+};
 use super::types::RefreshResponse;
 
 /// Token refresh handler

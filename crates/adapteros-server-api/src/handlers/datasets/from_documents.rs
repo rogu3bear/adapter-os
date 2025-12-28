@@ -10,12 +10,7 @@ use crate::services::{
 };
 use crate::state::AppState;
 use crate::types::{DatasetResponse, ErrorResponse};
-use axum::{
-    extract::State,
-    http::StatusCode,
-    response::IntoResponse,
-    Extension, Json,
-};
+use axum::{extract::State, http::StatusCode, response::IntoResponse, Extension, Json};
 use std::sync::Arc;
 
 /// Create a training dataset from existing documents or a document collection

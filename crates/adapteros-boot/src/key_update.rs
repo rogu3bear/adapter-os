@@ -143,7 +143,10 @@ impl KeyUpdateRequest {
     /// # Arguments
     ///
     /// * `old_verifying_key` - The old public key to verify against
-    pub fn verify_signature(&self, old_verifying_key: &VerifyingKey) -> Result<(), WorkerAuthError> {
+    pub fn verify_signature(
+        &self,
+        old_verifying_key: &VerifyingKey,
+    ) -> Result<(), WorkerAuthError> {
         // Reconstruct the signed message
         let message = serde_json::json!({
             "version": self.version,
@@ -242,7 +245,9 @@ mod tests {
         .unwrap();
 
         // Verify signature
-        assert!(request.verify_signature(&old_signing_key.verifying_key()).is_ok());
+        assert!(request
+            .verify_signature(&old_signing_key.verifying_key())
+            .is_ok());
 
         // Verify time is valid
         assert!(request.is_valid_time());
@@ -271,7 +276,9 @@ mod tests {
         .unwrap();
 
         // Verification with wrong key should fail
-        assert!(request.verify_signature(&wrong_key.verifying_key()).is_err());
+        assert!(request
+            .verify_signature(&wrong_key.verifying_key())
+            .is_err());
     }
 
     #[test]

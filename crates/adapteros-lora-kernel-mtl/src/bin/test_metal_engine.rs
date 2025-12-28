@@ -58,6 +58,7 @@ mod harness {
     }
 
     /// Create a minimal SafeTensors plan with small, deterministic weights.
+    #[allow(clippy::vec_init_then_push)]
     fn create_dummy_plan() -> Result<Vec<u8>> {
         let mut rng = StdRng::seed_from_u64(42);
 

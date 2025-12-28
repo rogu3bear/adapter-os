@@ -39,8 +39,8 @@ pub struct ContextManifest {
     pub allow_cross_worker: bool,
     pub base_model: ModelHash,
     pub adapters: Vec<AdapterHash>,
-    #[serde(default)]
-    pub policy_mask_digest: Option<String>,
+    #[serde(default, alias = "policy_mask_digest")]
+    pub policy_mask_digest_b3: Option<String>,
     #[serde(default)]
     pub backend_used: Option<String>,
     #[serde(default)]
@@ -135,7 +135,7 @@ pub fn compute_context_digest(manifest: &ContextManifest) -> Result<B3Hash> {
             .iter()
             .map(|a| serde_json::json!({"id": a.id, "hash": a.hash}))
             .collect::<Vec<_>>(),
-        "policy_mask_digest": manifest.policy_mask_digest.as_deref().unwrap_or(""),
+        "policy_mask_digest_b3": manifest.policy_mask_digest_b3.as_deref().unwrap_or(""),
         "worker_id_included": worker_id_included,
         "worker_id": worker_component,
         "backend_used": manifest.backend_used.as_deref().unwrap_or(""),
@@ -314,7 +314,7 @@ mod tests {
                 id: "adapter-a".to_string(),
                 hash: "adapter-hash".to_string(),
             }],
-            policy_mask_digest: None,
+            policy_mask_digest_b3: None,
             backend_used: Some("coreml".to_string()),
             kernel_version_id: Some("kernel-v1".to_string()),
         }

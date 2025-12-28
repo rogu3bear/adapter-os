@@ -340,9 +340,7 @@ impl TrainingService {
             };
             if let Some(ref provided) = data_spec_hash {
                 if provided != &combined_hash {
-                    return Err(
-                        AosError::Validation("DATA_SPEC_HASH_MISMATCH".to_string()).into(),
-                    );
+                    return Err(AosError::Validation("DATA_SPEC_HASH_MISMATCH".to_string()).into());
                 }
             }
             data_spec_hash = Some(combined_hash);
@@ -905,7 +903,12 @@ impl TrainingService {
 
                 if let Some(adapter_id) = adapter_id {
                     if let Err(e) = database
-                        .transition_adapter_lifecycle(&adapter_id, "failed", "training_failed", "system")
+                        .transition_adapter_lifecycle(
+                            &adapter_id,
+                            "failed",
+                            "training_failed",
+                            "system",
+                        )
                         .await
                     {
                         warn!(

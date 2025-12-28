@@ -148,7 +148,10 @@ use adapteros_db::workers::WorkerWithBinding;
 use adapteros_db::{chat_sessions::ChatSession, CreateReplayMetadataParams};
 use adapteros_policy::hooks::{HookContext, PolicyHook};
 use adapteros_telemetry::unified_events::{EventType, LogLevel, TelemetryEventBuilder};
-use adapteros_telemetry::{build_inference_metrics_event, build_routing_event, InferenceMetricsEvent, RoutingTelemetryEvent};
+use adapteros_telemetry::{
+    build_inference_metrics_event, build_routing_event, InferenceMetricsEvent,
+    RoutingTelemetryEvent,
+};
 use adapteros_types::adapters::metadata::RoutingDeterminismMode;
 use hex;
 use std::collections::HashSet;
@@ -1861,7 +1864,10 @@ impl<'a> InferenceCore<'a> {
     /// 3. Falls back to env override or default socket for dev mode
     ///
     /// This ensures workers only serve requests they're compatible with.
-    pub(crate) async fn resolve_worker_path(&self, tenant_id: &str) -> Result<PathBuf, InferenceError> {
+    pub(crate) async fn resolve_worker_path(
+        &self,
+        tenant_id: &str,
+    ) -> Result<PathBuf, InferenceError> {
         let worker = self.select_worker_for_tenant(tenant_id).await?;
         Ok(PathBuf::from(&worker.uds_path))
     }
@@ -1998,9 +2004,9 @@ impl<'a> InferenceCore<'a> {
                     {
                         Ok(Some(ws)) => Some(EvidenceModelContext {
                             base_model_id: ws.active_base_model_id,
-                            adapter_ids: ws.active_adapter_ids.and_then(|s| {
-                                serde_json::from_str::<Vec<String>>(&s).ok()
-                            }),
+                            adapter_ids: ws
+                                .active_adapter_ids
+                                .and_then(|s| serde_json::from_str::<Vec<String>>(&s).ok()),
                             manifest_hash: ws.manifest_hash_b3,
                         }),
                         _ => None,

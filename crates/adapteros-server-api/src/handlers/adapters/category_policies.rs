@@ -9,7 +9,9 @@ use crate::audit_helper::{log_success_or_warn, resources};
 use crate::auth::Claims;
 use crate::permissions::{require_permission, Permission};
 use crate::state::AppState;
-use crate::types::{CategoryPoliciesResponse, CategoryPolicyRequest, CategoryPolicyResponse, ErrorResponse};
+use crate::types::{
+    CategoryPoliciesResponse, CategoryPolicyRequest, CategoryPolicyResponse, ErrorResponse,
+};
 use axum::{
     extract::{Path, State},
     http::StatusCode,

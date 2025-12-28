@@ -15,6 +15,12 @@ import type { SearchSessionsQuery } from '@/api/types';
 export interface RunMetadataPayload extends RunMetadata {
   /** Optional trace identifier from the stream envelope */
   traceId?: string;
+
+  /** Indicates the stream was interrupted mid-flight (e.g., network error) */
+  streamInterrupted?: boolean;
+
+  /** Reason for stream interruption, if applicable */
+  interruptReason?: string;
 }
 
 export interface UseChatStreamingOptions {

@@ -164,16 +164,7 @@ fn test_backend_comparison_case_insensitive() {
 #[test]
 fn test_replay_guarantee_variants() {
     // Verify ReplayGuarantee enum values
-    assert_eq!(
-        format!("{:?}", ReplayGuarantee::Exact),
-        "Exact"
-    );
-    assert_eq!(
-        format!("{:?}", ReplayGuarantee::Approximate),
-        "Approximate"
-    );
-    assert_eq!(
-        format!("{:?}", ReplayGuarantee::None),
-        "None"
-    );
+    assert_eq!(format!("{:?}", ReplayGuarantee::Exact), "Exact");
+    assert_eq!(format!("{:?}", ReplayGuarantee::Approximate), "Approximate");
+    assert_eq!(format!("{:?}", ReplayGuarantee::None), "None");
 }

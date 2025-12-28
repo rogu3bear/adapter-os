@@ -1,7 +1,9 @@
 //! Adapter resolution and validation tests for inference_core.
 
 use crate::config::PathsConfig;
-use crate::inference_core::{parse_pinned_adapter_ids, validate_pinned_within_effective_set, InferenceCore};
+use crate::inference_core::{
+    parse_pinned_adapter_ids, validate_pinned_within_effective_set, InferenceCore,
+};
 use crate::state::{ApiConfig, AppState, GeneralConfig, MetricsConfig};
 use crate::telemetry::MetricsRegistry;
 use crate::types::{InferenceError, InferenceRequestInternal};
@@ -474,11 +476,9 @@ async fn test_pinned_not_in_effective_set_rejected_in_core() {
         .await
         .unwrap();
 
-    let err = validate_pinned_within_effective_set(
-        &req.effective_adapter_ids,
-        &req.pinned_adapter_ids,
-    )
-    .expect_err("pinned adapter not in effective set should be rejected");
+    let err =
+        validate_pinned_within_effective_set(&req.effective_adapter_ids, &req.pinned_adapter_ids)
+            .expect_err("pinned adapter not in effective set should be rejected");
 
     match err {
         InferenceError::ValidationError(msg) => {
