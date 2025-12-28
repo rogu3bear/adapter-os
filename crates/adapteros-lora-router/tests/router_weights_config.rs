@@ -694,7 +694,7 @@ fn test_weights_do_not_require_normalization() {
 
     // Gates should still sum to approximately 1.0 (in Q15)
     let gate_sum: i32 = decision.gates_q15.iter().map(|&g| g as i32).sum();
-    let gate_sum_f32 = gate_sum as f32 / 32768.0;
+    let gate_sum_f32 = gate_sum as f32 / 32767.0;
     assert!(
         (gate_sum_f32 - 1.0).abs() < 0.01,
         "Gates should still sum to 1.0, got {}",

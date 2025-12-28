@@ -77,7 +77,7 @@ impl KernelDebugger {
     /// Log adapter activation
     pub fn log_adapter_activation(&self, adapter_id: u32, gate_q15: u16) {
         if self.enabled {
-            let gate_f32 = gate_q15 as f32 / 32768.0;
+            let gate_f32 = gate_q15 as f32 / 32767.0;
             tracing::debug!(
                 adapter_id = adapter_id,
                 gate_f32 = gate_f32,
