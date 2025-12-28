@@ -580,6 +580,9 @@ mod tests {
             rag_doc_ids: Some(vec!["doc-rag-001".to_string(), "doc-rag-002".to_string()]),
             rag_scores: Some(vec![0.92, 0.85]),
             rag_collection_id: Some("col-001".to_string()),
+            base_model_id: Some("llama-3-8b".to_string()),
+            adapter_ids: Some(vec!["adapter-001".to_string()]),
+            manifest_hash: Some("manifest-hash-001".to_string()),
         };
 
         db.create_inference_evidence(params).await.unwrap();
