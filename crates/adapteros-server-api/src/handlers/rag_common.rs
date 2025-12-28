@@ -412,6 +412,18 @@ pub struct FailedEvidence {
     pub error: String,
 }
 
+/// Model context captured at inference time for evidence audit trail.
+/// This ensures evidence remains accurate even if workspace state changes later.
+#[derive(Debug, Clone)]
+pub struct EvidenceModelContext {
+    /// The base model ID active at inference time
+    pub base_model_id: Option<String>,
+    /// Adapter IDs active at inference time
+    pub adapter_ids: Option<Vec<String>>,
+    /// Manifest hash for the workspace state
+    pub manifest_hash: Option<String>,
+}
+
 impl EvidenceStorageResult {
     pub fn success_rate(&self) -> f32 {
         if self.total_attempted == 0 {
@@ -495,6 +507,9 @@ pub async fn store_rag_evidence_resilient(
             rag_doc_ids: Some(rag_result.doc_ids.clone()),
             rag_scores: Some(rag_result.scores.clone()),
             rag_collection_id: Some(rag_result.collection_id.clone()),
+            base_model_id: None,
+            adapter_ids: None,
+            manifest_hash: None,
         };
 
         // Insert individual evidence entry
@@ -553,6 +568,8 @@ pub async fn store_rag_evidence(
     rag_result: &RagContextResult,
     request_id: &str,
     session_id: Option<&str>,
+    message_id: Option<&str>,
+    model_context: Option<&EvidenceModelContext>,
 ) -> Vec<String> {
     let mut evidence_params_list = Vec::new();
 
@@ -575,7 +592,7 @@ pub async fn store_rag_evidence(
                     tenant_id: rag_result.tenant_id.clone(),
                     inference_id: request_id.to_string(),
                     session_id: session_id.map(|s| s.to_string()),
-                    message_id: None,
+                    message_id: message_id.map(|s| s.to_string()),
                     document_id: doc_id.clone(),
                     chunk_id: chunk.id.clone(),
                     page_number: chunk.page_number,
@@ -587,6 +604,9 @@ pub async fn store_rag_evidence(
                     rag_doc_ids: Some(rag_result.doc_ids.clone()),
                     rag_scores: Some(rag_result.scores.clone()),
                     rag_collection_id: Some(rag_result.collection_id.clone()),
+                    base_model_id: model_context.and_then(|mc| mc.base_model_id.clone()),
+                    adapter_ids: model_context.and_then(|mc| mc.adapter_ids.clone()),
+                    manifest_hash: model_context.and_then(|mc| mc.manifest_hash.clone()),
                 });
             }
             Ok(None) => {

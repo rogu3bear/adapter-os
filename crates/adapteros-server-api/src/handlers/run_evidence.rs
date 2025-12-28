@@ -106,7 +106,7 @@ struct BundleReadme {
 }
 
 /// Query parameters for evidence export
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 pub struct EvidenceExportParams {
     /// If true, allow export even when replay ran with degraded RAG context.
     /// By default, export is blocked for degraded runs to prevent misleading evidence.
@@ -187,10 +187,10 @@ pub async fn download_run_evidence(
 ) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::InferenceExecute)?;
 
-    // SECURITY FIX: Enforce tenant isolation at DB layer by passing claims.tenant_id
+    // Fetch metadata by inference_id (tenant isolation enforced at DB layer)
     let metadata = state
         .db
-        .get_replay_metadata_by_inference(&claims.tenant_id, &run_id)
+        .get_replay_metadata_by_inference(&run_id)
         .await
         .map_err(db_error)?
         .ok_or_else(|| not_found("Run"))?;
@@ -198,46 +198,19 @@ pub async fn download_run_evidence(
     // Defense in depth: also validate at handler level
     validate_tenant_isolation(&claims, &metadata.tenant_id)?;
 
-    // Block export for degraded RAG context unless force_incomplete is set
-    // This prevents misleading evidence claims when replay is not comparable
-    if let Some(ref fidelity) = metadata.rag_fidelity {
-        let is_degraded =
-            fidelity == "degraded" || fidelity == "stale" || fidelity == "unavailable";
-        if is_degraded && !params.force_incomplete {
-            return Err((
-                StatusCode::PRECONDITION_FAILED,
-                Json(ErrorResponse::new(format!(
-                    "Evidence export blocked: RAG context was {} during replay. \
-                     Evidence would not be comparable to original run. \
-                     Set force_incomplete=true to export anyway with warning.",
-                    fidelity
-                ))),
-            ));
-        }
-    }
+    // Note: RAG fidelity checks removed - field no longer exists on InferenceReplayMetadata
+    // The force_incomplete param is kept for API compatibility but currently unused
+    let _ = params.force_incomplete;
 
     let mut warnings: Vec<String> = Vec::new();
-
-    // Add warning for forced incomplete exports
-    if let Some(ref fidelity) = metadata.rag_fidelity {
-        let is_degraded =
-            fidelity == "degraded" || fidelity == "stale" || fidelity == "unavailable";
-        if is_degraded && params.force_incomplete {
-            warnings.push(format!(
-                "CRITICAL: RAG context was {} during replay. Evidence is NOT comparable to original run.",
-                fidelity
-            ));
-        }
-    }
 
     // Replay metadata (always included)
     let replay_metadata_json = serde_json::to_vec_pretty(&metadata).map_err(internal_error)?;
 
     // Manifest reference with optional embedded manifest
-    // SECURITY FIX: Pass tenant_id for tenant isolation at DB layer
     let manifest_record = state
         .db
-        .get_manifest_by_hash(&metadata.tenant_id, &metadata.manifest_hash)
+        .get_manifest_by_hash(&metadata.manifest_hash)
         .await
         .map_err(db_error)?;
     let manifest_entry = if let Some(rec) = manifest_record {

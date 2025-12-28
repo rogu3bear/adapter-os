@@ -114,6 +114,14 @@ pub enum WorkerAuthError {
     #[error("Key error: {0}")]
     KeyError(String),
 
+    /// Serialization error
+    #[error("Serialization error: {0}")]
+    Serialization(String),
+
+    /// Invalid key format
+    #[error("Invalid key format: {0}")]
+    InvalidKeyFormat(String),
+
     /// Keypair file is corrupted (wrong size or invalid data)
     #[error("Corrupted keypair file at '{path}': {reason}. In non-strict mode, the key will be regenerated. In strict mode, delete the file and restart, or use --regenerate-keys to force regeneration.")]
     CorruptedKeypair {
