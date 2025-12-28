@@ -20,6 +20,18 @@ export { DashboardProvider, useDashboard } from './DashboardProvider';
 // Re-export config
 export { roleConfigs } from './config/roleConfigs';
 
+// Re-export dashboard sub-components
+export { DashboardOverviewTab, type DashboardOverviewTabProps } from './DashboardOverviewTab';
+export { DashboardKpiCards, type DashboardKpiCardsProps } from './DashboardKpiCards';
+export { DashboardSystemResources, type DashboardSystemResourcesProps } from './DashboardSystemResources';
+export { DashboardWorkflowSection, type DashboardWorkflowSectionProps } from './DashboardWorkflowSection';
+export { DashboardDatasetCard, type DashboardDatasetCardProps } from './DashboardDatasetCard';
+export { DashboardTrainingCard, type DashboardTrainingCardProps } from './DashboardTrainingCard';
+export { DashboardTrainingWizardCard } from './DashboardTrainingWizardCard';
+export { DashboardAdaptersCard, type DashboardAdaptersCardProps } from './DashboardAdaptersCard';
+export { DashboardChatCard, type DashboardChatCardProps } from './DashboardChatCard';
+export { DashboardHealthDialog, type DashboardHealthDialogProps } from './DashboardHealthDialog';
+
 export default function Dashboard() {
   const { user } = useAuth();
   const role = (user?.role || 'viewer').toLowerCase();
