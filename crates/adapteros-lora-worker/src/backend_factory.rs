@@ -29,8 +29,12 @@ use adapteros_core::{constants::BYTES_PER_MB, AosError, B3Hash, Result};
 use adapteros_lora_kernel_api::attestation::BackendType;
 use adapteros_lora_kernel_api::FusedKernels;
 use model_io::load_model_bytes_atomic_verified;
+#[cfg(feature = "multi-backend")]
+use model_io::verify_model_integrity;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+#[cfg(feature = "multi-backend")]
+use tracing::debug;
 use tracing::{info, warn};
 
 #[cfg(any(target_os = "macos", feature = "multi-backend"))]
