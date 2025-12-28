@@ -2024,10 +2024,9 @@ mod tests {
         use adapteros_lora_kernel_coreml::export::CoreMLFusionMetadata;
         use adapteros_manifest::{
             Adapter, AdapterCategory, AdapterScope, AdapterTier, AssuranceTier, Base, BundleCfg,
-            CoreMLFusion,
-            DeterminismPolicy, EgressPolicy, EvidencePolicy, IsolationPolicy, ManifestV3,
-            MemoryPolicy, NumericPolicy, PerformancePolicy, Policies, RagPolicy, RefusalPolicy,
-            RouterCfg, Sampling, Seeds, TelemetryCfg,
+            CoreMLFusion, DeterminismPolicy, EgressPolicy, EvidencePolicy, IsolationPolicy,
+            ManifestV3, MemoryPolicy, NumericPolicy, PerformancePolicy, Policies, RagPolicy,
+            RefusalPolicy, RouterCfg, Sampling, Seeds, TelemetryCfg,
         };
         use std::collections::{BTreeMap, HashMap};
         use tempfile::tempdir;

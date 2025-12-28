@@ -8,7 +8,7 @@
 //! - PlacementReplay: Placement decision replay structure
 //! - Helper functions for request validation and strict mode enforcement
 
-use adapteros_api_types::RouterDecisionChainEntry;
+use adapteros_api_types::{RouterDecisionChainEntry, RunEnvelope};
 use adapteros_config::PlacementWeights;
 use adapteros_core::{
     determinism::DeterminismContext, AosError, BackendKind, FusionInterval, Result, SeedMode,
@@ -26,6 +26,9 @@ pub struct InferenceRequest {
     /// Optional request identifier for tracing
     #[serde(default)]
     pub request_id: Option<String>,
+    /// Canonical run envelope propagated from control plane
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run_envelope: Option<RunEnvelope>,
     #[serde(default)]
     pub require_evidence: bool,
     /// Enable reasoning-aware routing (pauses at reasoning spans to hot-swap adapters)
@@ -213,4 +216,45 @@ pub struct CancelTrainingResponse {
     pub final_loss: Option<f32>,
     /// Epoch at which training was stopped
     pub stopped_at_epoch: Option<u32>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::InferenceRequest;
+    use adapteros_api_types::API_SCHEMA_VERSION;
+
+    #[test]
+    fn inference_request_accepts_run_envelope_with_unknown_fields() {
+        let json = format!(
+            r#"{{
+  "cpid": "tenant-1",
+  "prompt": "hello",
+  "max_tokens": 4,
+  "run_envelope": {{
+    "run_id": "run-1",
+    "schema_version": "{schema_version}",
+    "workspace_id": "tenant-1",
+    "actor": {{
+      "subject": "user-1",
+      "roles": ["user"],
+      "principal_type": "user",
+      "auth_mode": "bearer"
+    }},
+    "reasoning_mode": false,
+    "determinism_version": "v1",
+    "created_at": "2024-01-01T00:00:00Z",
+    "unknown_field": "ignore-me"
+  }},
+  "unknown_top_level": "ignored"
+}}"#,
+            schema_version = API_SCHEMA_VERSION
+        );
+
+        let request: InferenceRequest =
+            serde_json::from_str(&json).expect("request should deserialize");
+        let envelope = request.run_envelope.expect("run_envelope should be present");
+        assert_eq!(envelope.run_id, "run-1");
+        assert_eq!(envelope.schema_version, API_SCHEMA_VERSION);
+        assert_eq!(envelope.workspace_id, "tenant-1");
+    }
 }

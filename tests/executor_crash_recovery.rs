@@ -798,11 +798,12 @@ async fn test_crash_with_concurrent_operations() {
 
             let recovery_state = Arc::new(MockWorkerState::new());
             let recovery_counter = Arc::new(AtomicU64::new(0));
+            let recovery_counter_clone = Arc::clone(&recovery_counter);
 
             // Rollback all in-progress loads
             recovered
                 .spawn_deterministic("recovery-cleanup".to_string(), async move {
-                    recovery_counter.fetch_add(1, Ordering::SeqCst);
+                    recovery_counter_clone.fetch_add(1, Ordering::SeqCst);
                 })
                 .expect("recovery");
 

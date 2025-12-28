@@ -99,6 +99,7 @@ use adapteros_lora_worker::training::{
 };
 use adapteros_lora_worker::{ComputeUnits, CoreMLExportJob, CoreMLExportRecord};
 use anyhow::Result;
+use base64::Engine as _;
 use blake3;
 use chrono::Utc;
 use std::collections::HashMap;
@@ -2228,18 +2229,84 @@ async fn run_training_job(
 
             let base_model_for_manifest = base_model_id.as_deref().unwrap_or("unknown-base-model");
 
-            let artifact_metadata = serde_json::json!({
-                "backend": training_result.backend,
-                "backend_device": training_result.backend_device,
-                "requested_backend": worker_cfg.preferred_backend.map(|b| b.tag().to_string()),
-                "coreml_training_fallback": worker_cfg
+            let dataset_hash_for_metadata = if let (Some(database), Some(versions)) =
+                (&db_for_packaging, dataset_version_ids_for_training.clone())
+            {
+                let mut combined: Vec<(String, String, f32)> = Vec::new();
+                for sel in versions.iter() {
+                    if let Ok(Some(ver)) =
+                        database.get_training_dataset_version(&sel.dataset_version_id).await
+                    {
+                        combined.push((
+                            sel.dataset_version_id.clone(),
+                            ver.hash_b3.clone(),
+                            sel.weight,
+                        ));
+                    }
+                }
+                if combined.is_empty() {
+                    None
+                } else {
+                    Some(compute_combined_data_spec_hash(&combined))
+                }
+            } else if let (Some(database), Some(ds_id)) = (&db_for_packaging, dataset_id.clone()) {
+                match database.get_training_dataset(&ds_id).await {
+                    Ok(Some(ds)) => Some(ds.hash_b3),
+                    _ => data_spec_hash_for_training.clone(),
+                }
+            } else {
+                data_spec_hash_for_training.clone()
+            };
+
+            let seed_inputs_json = serde_json::to_string(&serde_json::json!({
+                "dataset_version_ids": dataset_version_ids_for_training.clone(),
+                "dataset_hash_b3": dataset_hash_for_metadata.clone(),
+                "base_model_id": base_model_id,
+                "job_id": job_id,
+                "scope": scope_value,
+            }))
+            .unwrap_or_else(|_| "{}".to_string());
+
+            let mut artifact_metadata = serde_json::Map::new();
+            artifact_metadata.insert("backend".to_string(), serde_json::json!(training_result.backend));
+            artifact_metadata.insert(
+                "backend_device".to_string(),
+                serde_json::json!(training_result.backend_device),
+            );
+            artifact_metadata.insert(
+                "requested_backend".to_string(),
+                serde_json::json!(worker_cfg.preferred_backend.map(|b| b.tag().to_string())),
+            );
+            artifact_metadata.insert(
+                "coreml_training_fallback".to_string(),
+                serde_json::json!(worker_cfg
                     .coreml_fallback_backend
-                    .map(|b| b.tag().to_string()),
-                "data_spec_hash": data_spec_hash_for_training,
-                "dataset_version_ids": dataset_version_ids_for_training,
-                "synthetic_mode": synthetic_mode,
-                "data_lineage_mode": data_lineage_mode.as_str(),
-            });
+                    .map(|b| b.tag().to_string())),
+            );
+            artifact_metadata.insert(
+                "data_spec_hash".to_string(),
+                serde_json::json!(data_spec_hash_for_training.clone()),
+            );
+            artifact_metadata.insert(
+                "dataset_version_ids".to_string(),
+                serde_json::json!(dataset_version_ids_for_training.clone()),
+            );
+            artifact_metadata.insert(
+                "dataset_hash_b3".to_string(),
+                serde_json::json!(dataset_hash_for_metadata.clone()),
+            );
+            artifact_metadata.insert(
+                "synthetic_mode".to_string(),
+                serde_json::json!(synthetic_mode),
+            );
+            artifact_metadata.insert(
+                "data_lineage_mode".to_string(),
+                serde_json::json!(data_lineage_mode.as_str()),
+            );
+            artifact_metadata.insert(
+                "seed_inputs".to_string(),
+                serde_json::from_str(&seed_inputs_json).unwrap_or(serde_json::Value::Null),
+            );
 
             let packaged = match packager
                 .package_aos_with_metadata(
@@ -2284,7 +2351,7 @@ async fn run_training_job(
                 "Adapter packaged successfully"
             );
 
-            let (final_aos_path, final_aos_hash) = {
+            let (final_aos_path, final_aos_hash, final_aos_size_bytes) = {
                 let target = if let (Some(ref repo_name), Some(ref version_label)) = (
                     versioning_snapshot
                         .as_ref()
@@ -2317,14 +2384,65 @@ async fn run_training_job(
                     packaged.weights_path.clone()
                 };
 
-                let hash = tokio::fs::read(&target)
+                let (hash, size_bytes) = tokio::fs::read(&target)
                     .await
-                    .map(|bytes| blake3::hash(&bytes).to_hex().to_string())
-                    .unwrap_or_else(|_| packaged.hash_b3.clone());
+                    .map(|bytes| (blake3::hash(&bytes).to_hex().to_string(), bytes.len() as i64))
+                    .unwrap_or_else(|_| (packaged.hash_b3.clone(), 0));
 
-                (target, hash)
+                (target, hash, size_bytes)
             };
             let final_aos_path_str = final_aos_path.to_string_lossy().to_string();
+            artifact_metadata.insert(
+                "manifest_hash_b3".to_string(),
+                serde_json::json!(final_aos_hash.clone()),
+            );
+            artifact_metadata.insert(
+                "adapter_hash_b3".to_string(),
+                serde_json::json!(packaged.hash_b3.clone()),
+            );
+            artifact_metadata.insert(
+                "artifact_path".to_string(),
+                serde_json::json!(final_aos_path_str.clone()),
+            );
+            artifact_metadata.insert(
+                "training_seed".to_string(),
+                serde_json::json!(trainer.training_seed()),
+            );
+
+            if let Some(database) = &db_for_packaging {
+                let signature_b64 = match tokio::fs::read(final_aos_path.with_extension("aos.sig"))
+                    .await
+                {
+                    Ok(sig) => base64::engine::general_purpose::STANDARD.encode(sig),
+                    Err(e) => {
+                        warn!(
+                            job_id = %job_id,
+                            error = %e,
+                            "Failed to read adapter signature; recording placeholder"
+                        );
+                        "unsigned".to_string()
+                    }
+                };
+
+                if let Err(e) = database
+                    .create_artifact(
+                        &packaged.hash_b3,
+                        "adapter",
+                        &signature_b64,
+                        None,
+                        final_aos_size_bytes,
+                        final_aos_path_str.as_str(),
+                    )
+                    .await
+                {
+                    warn!(
+                        job_id = %job_id,
+                        adapter_id = %packaged.adapter_id,
+                        error = %e,
+                        "Failed to create adapter artifact record (non-fatal)"
+                    );
+                }
+            }
 
             // Step 3: Register adapter in database (if db available and register is enabled)
             if let Some(database) = &db_for_packaging {
@@ -2345,6 +2463,9 @@ async fn run_training_job(
                         job.weights_hash_b3 = Some(packaged.hash_b3.clone());
                         job.aos_path = Some(final_aos_path_str.clone());
                         job.package_hash_b3 = Some(final_aos_hash.clone());
+                        job.manifest_hash_b3 = Some(final_aos_hash.clone());
+                        job.dataset_hash_b3 = dataset_hash_for_metadata.clone();
+                        job.seed_inputs_json = Some(seed_inputs_json.clone());
                         job.manifest_rank = Some(packaged.manifest.rank as u32);
                         job.manifest_base_model = Some(packaged.manifest.base_model.clone());
                         job.manifest_per_layer_hashes =
@@ -2365,7 +2486,7 @@ async fn run_training_job(
                             final_aos_path_str.as_str(),
                             &packaged.adapter_id,
                             &final_aos_hash,
-                            Some(artifact_metadata.clone()),
+                            Some(serde_json::Value::Object(artifact_metadata.clone())),
                         )
                         .await
                     {
@@ -2511,7 +2632,7 @@ async fn run_training_job(
                                 final_aos_path_str.as_str(),
                                 &packaged.adapter_id,
                                 &final_aos_hash,
-                                Some(artifact_metadata.clone()),
+                                Some(serde_json::Value::Object(artifact_metadata.clone())),
                             )
                             .await
                         {
@@ -2699,6 +2820,9 @@ async fn run_training_job(
                     job.weights_hash_b3 = Some(packaged.hash_b3.clone());
                     job.aos_path = Some(final_aos_path_str.clone());
                     job.package_hash_b3 = Some(final_aos_hash.clone());
+                    job.manifest_hash_b3 = Some(final_aos_hash.clone());
+                    job.dataset_hash_b3 = dataset_hash_for_metadata.clone();
+                    job.seed_inputs_json = Some(seed_inputs_json.clone());
                     job.manifest_rank = Some(packaged.manifest.rank as u32);
                     job.manifest_base_model = Some(packaged.manifest.base_model.clone());
                     job.manifest_per_layer_hashes =

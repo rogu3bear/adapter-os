@@ -1822,6 +1822,7 @@ mod tests {
             prompt: "What is 2+2?".to_string(),
             max_tokens: 100,
             request_id: None,
+            run_envelope: None,
             request_type: RequestType::default(),
             reasoning_mode: false,
             cpid: "test-cp-001".to_string(),

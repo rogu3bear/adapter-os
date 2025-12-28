@@ -141,7 +141,8 @@ async fn test_evict_adapter_updates_state_and_memory() {
     // Set initial memory
     fixture
         .db()
-        .update_adapter_memory(&adapter_id, 1024 * 1024)
+        .write_guard()
+        .update_adapter_memory("default-tenant", &adapter_id, 1024 * 1024)
         .await
         .expect("Failed to set initial memory");
 

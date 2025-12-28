@@ -268,6 +268,9 @@ impl TrainingDatasetManager {
                     .to_str()
                     .ok_or_else(|| AosError::Internal("Invalid storage path".to_string()))?,
                 request.created_by.as_deref(),
+                None,
+                Some("ready"),
+                Some(&hash_b3),
             )
             .await?;
 

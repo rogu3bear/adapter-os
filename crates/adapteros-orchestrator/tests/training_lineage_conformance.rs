@@ -23,6 +23,9 @@ async fn seed_dataset_version(
             hash_b3,
             "var/orch-dataset",
             Some("tester"),
+            None,
+            Some("ready"),
+            Some(hash_b3),
         )
         .await
         .unwrap();

@@ -224,7 +224,7 @@ pub mod fixtures {
     }
 
     /// Single hot adapter
-    pub async fn single_hot(db: &Db) -> String {
+    pub async fn single_hot(db: &ProtectedDb) -> String {
         let id = TestAdapterBuilder::new("test-hot")
             .with_state("hot")
             .with_memory(1024 * 300) // 300 KB
@@ -236,7 +236,7 @@ pub mod fixtures {
     }
 
     /// Single resident (pinned) adapter
-    pub async fn single_resident(db: &Db) -> String {
+    pub async fn single_resident(db: &ProtectedDb) -> String {
         let id = TestAdapterBuilder::new("test-resident")
             .with_state("resident")
             .with_memory(1024 * 400) // 400 KB
@@ -245,21 +245,22 @@ pub mod fixtures {
 
         // Pin the adapter
         let tenant_id = ensure_fixture_tenant(db).await;
-        db.pin_adapter(
-            &tenant_id,
-            &id,
-            Some("2099-12-31 23:59:59"),
-            "test_reason",
-            Some("test_user"),
-        )
-        .await
-        .expect("Failed to pin adapter");
+        db.write_guard()
+            .pin_adapter(
+                &tenant_id,
+                &id,
+                Some("2099-12-31 23:59:59"),
+                "test_reason",
+                Some("test_user"),
+            )
+            .await
+            .expect("Failed to pin adapter");
 
         id
     }
 
     /// Multi-state lifecycle (3 adapters in different states)
-    pub async fn multi_state_lifecycle(db: &Db) -> (String, String, String) {
+    pub async fn multi_state_lifecycle(db: &ProtectedDb) -> (String, String, String) {
         let cold = TestAdapterBuilder::new("test-cold-lifecycle")
             .with_state("cold")
             .with_memory(1024 * 100)
@@ -285,7 +286,7 @@ pub mod fixtures {
     }
 
     /// High memory pressure scenario (many large adapters)
-    pub async fn high_memory_pressure(db: &Db) -> Vec<String> {
+    pub async fn high_memory_pressure(db: &ProtectedDb) -> Vec<String> {
         let mut ids = Vec::new();
 
         for i in 0..5 {
@@ -303,7 +304,7 @@ pub mod fixtures {
     }
 
     /// Category-based adapters (code, framework, codebase)
-    pub async fn category_adapters(db: &Db) -> (String, String, String) {
+    pub async fn category_adapters(db: &ProtectedDb) -> (String, String, String) {
         let code = TestAdapterBuilder::new("test-code-category")
             .with_category("code")
             .with_state("warm")
@@ -329,7 +330,7 @@ pub mod fixtures {
     }
 
     /// Pinned and unpinned adapters mixed
-    pub async fn pinned_and_unpinned(db: &Db) -> (String, String) {
+    pub async fn pinned_and_unpinned(db: &ProtectedDb) -> (String, String) {
         let pinned = TestAdapterBuilder::new("test-pinned-fixture")
             .with_state("resident")
             .with_memory(1024 * 200)
@@ -344,7 +345,8 @@ pub mod fixtures {
 
         // Pin the first adapter
         let tenant_id = ensure_fixture_tenant(db).await;
-        db.pin_adapter(&tenant_id, &pinned, None, "test_pinned", Some("test_user"))
+        db.write_guard()
+            .pin_adapter(&tenant_id, &pinned, None, "test_pinned", Some("test_user"))
             .await
             .expect("Failed to pin adapter");
 
@@ -352,7 +354,7 @@ pub mod fixtures {
     }
 
     /// TTL/expiring adapters (with expires_at timestamp)
-    pub async fn ttl_adapters(db: &Db) -> (String, String) {
+    pub async fn ttl_adapters(db: &ProtectedDb) -> (String, String) {
         // One that's already expired
         let expired = TestAdapterBuilder::new("test-expired-adapter")
             .with_state("warm")
@@ -369,7 +371,7 @@ pub mod fixtures {
     }
 
     /// High activation scenario (frequently used adapters)
-    pub async fn high_activation(db: &Db) -> String {
+    pub async fn high_activation(db: &ProtectedDb) -> String {
         let id = TestAdapterBuilder::new("test-high-activation")
             .with_state("hot")
             .with_activation_count(100)
@@ -380,7 +382,7 @@ pub mod fixtures {
     }
 
     /// Low activation scenario (rarely used adapters)
-    pub async fn low_activation(db: &Db) -> String {
+    pub async fn low_activation(db: &ProtectedDb) -> String {
         let id = TestAdapterBuilder::new("test-low-activation")
             .with_state("cold")
             .with_activation_count(0)

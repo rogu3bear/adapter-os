@@ -18,6 +18,7 @@
 //!     prompt: "Hello, world!".to_string(),
 //!     max_tokens: 100,
 //!     request_id: None,
+//!     run_envelope: None,
 //!     require_evidence: false,
 //!     request_type: RequestType::Normal,
 //!     stack_id: None,
@@ -56,6 +57,7 @@ use crate::routing_policy_filter::filter_decision_by_policy;
 use adapteros_api_types::inference::{
     FusionIntervalTrace, RouterDecisionChainEntry, RouterDecisionHash, RouterModelType, RunReceipt,
 };
+use adapteros_api_types::RunEnvelope;
 use adapteros_config::{
     resolve_index_root, ModelConfig, PlacementConfig, PlacementMode, PlacementWeights,
 };
@@ -816,6 +818,9 @@ pub struct InferenceRequest {
     /// Optional request identifier for tracing across stages
     #[serde(default)]
     pub request_id: Option<String>,
+    /// Canonical run envelope propagated from control plane
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run_envelope: Option<RunEnvelope>,
     #[serde(default)]
     pub require_evidence: bool,
     /// Enable reasoning-aware routing (pauses at reasoning spans to hot-swap adapters)
