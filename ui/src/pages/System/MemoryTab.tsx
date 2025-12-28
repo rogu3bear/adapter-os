@@ -71,13 +71,16 @@ export default function MemoryTab() {
     }
   }, [evictAdapter, toast, refetch]);
 
-  const memoryUsagePercent = useMemo(() => {
+  const memoryUsagePercent = useMemo((): number | null => {
     // Use live SSE data if available and connected
     if (useSSE && sseConnected && liveMemoryPercent !== null) {
       return liveMemoryPercent;
     }
     // Otherwise calculate from memoryData
-    if (!memoryData) return 0;
+    // IMPORTANT: Return null (not 0) when data is unavailable to prevent
+    // operators from making decisions based on false "0% usage" data
+    if (!memoryData) return null;
+    if (memoryData.total_memory_mb <= 0) return null;
     const used = memoryData.total_memory_mb - memoryData.available_memory_mb;
     return (used / memoryData.total_memory_mb) * 100;
   }, [memoryData, useSSE, sseConnected, liveMemoryPercent]);
@@ -328,11 +331,13 @@ export default function MemoryTab() {
         <CardHeader>
           <CardTitle>Memory Usage</CardTitle>
           <CardDescription>
-            {memoryUsagePercent.toFixed(1)}% of total memory in use
+            {memoryUsagePercent !== null
+              ? `${memoryUsagePercent.toFixed(1)}% of total memory in use`
+              : 'Memory data unavailable'}
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <Progress value={memoryUsagePercent} className="h-4" />
+          <Progress value={memoryUsagePercent ?? 0} className="h-4" />
           <div className="mt-4 grid grid-cols-2 gap-4 text-sm">
             <div>
               <span className="text-muted-foreground">Used:</span>{' '}
