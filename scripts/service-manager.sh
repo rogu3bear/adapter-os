@@ -197,13 +197,28 @@ check_memory() {
     local available_gb
 
     if [[ "$OSTYPE" == "darwin"* ]]; then
-        # macOS: Use vm_stat to get free memory
-        local page_size=4096
-        local pages_free=$(vm_stat 2>/dev/null | grep "Pages free" | awk '{print $3}' | tr -d '.')
-        local pages_inactive=$(vm_stat 2>/dev/null | grep "Pages inactive" | awk '{print $3}' | tr -d '.')
+        # macOS: Use vm_stat to get available memory (free + inactive + speculative + purgeable)
+        local vm_stats
+        vm_stats=$(vm_stat 2>/dev/null)
+        local page_size
+        page_size=$(printf '%s\n' "$vm_stats" | awk -F'page size of ' 'NR==1 {split($2,a," "); print a[1]}')
+        if [ -z "$page_size" ]; then
+            page_size=4096
+        fi
+
+        local pages_free
+        local pages_inactive
+        local pages_speculative
+        local pages_purgeable
+        pages_free=$(printf '%s\n' "$vm_stats" | awk '/Pages free/ {gsub("\\.","",$3); print $3}')
+        pages_inactive=$(printf '%s\n' "$vm_stats" | awk '/Pages inactive/ {gsub("\\.","",$3); print $3}')
+        pages_speculative=$(printf '%s\n' "$vm_stats" | awk '/Pages speculative/ {gsub("\\.","",$3); print $3}')
+        pages_purgeable=$(printf '%s\n' "$vm_stats" | awk '/Pages purgeable/ {gsub("\\.","",$3); print $3}')
 
         if [ -n "$pages_free" ] && [ -n "$pages_inactive" ]; then
-            local total_available=$((pages_free + pages_inactive))
+            pages_speculative=${pages_speculative:-0}
+            pages_purgeable=${pages_purgeable:-0}
+            local total_available=$((pages_free + pages_inactive + pages_speculative + pages_purgeable))
             available_gb=$((total_available * page_size / 1024 / 1024 / 1024))
         fi
     else
