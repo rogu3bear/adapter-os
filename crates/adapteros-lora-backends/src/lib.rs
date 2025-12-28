@@ -47,7 +47,7 @@ pub use adapteros_lora_mlx_ffi as mlx;
 pub use adapteros_lora_kernel_prof as profiler;
 
 /// Backend selection hint
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum BackendHint {
     /// Use Metal GPU backend
     Metal,
@@ -56,13 +56,8 @@ pub enum BackendHint {
     /// Use MLX backend
     Mlx,
     /// Auto-select best available backend
+    #[default]
     Auto,
-}
-
-impl Default for BackendHint {
-    fn default() -> Self {
-        Self::Auto
-    }
 }
 
 /// Check if a backend is available at compile time
@@ -78,6 +73,7 @@ pub fn is_backend_available(hint: BackendHint) -> bool {
 }
 
 /// List all available backends based on compile-time features
+#[allow(clippy::vec_init_then_push)] // cfg attributes require push pattern
 pub fn available_backends() -> Vec<BackendHint> {
     let mut backends = Vec::new();
 

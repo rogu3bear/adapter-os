@@ -11,6 +11,8 @@
 //! Signal streaming: docs/llm-interface-specification.md §5.1
 
 use adapteros_boot::jti_cache::JtiCacheStore;
+use adapteros_boot::key_ring::WorkerKeyRing;
+use adapteros_boot::{KeyUpdateRequest, KeyUpdateResponse, KEY_UPDATE_MAX_AGE_SECS};
 use adapteros_config::prepare_socket_path;
 use adapteros_core::{AosError, Result};
 use blake3::Hasher;
@@ -21,7 +23,7 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
-    Arc,
+    Arc, RwLock,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{UnixListener, UnixStream};
@@ -91,7 +93,7 @@ pub struct UdsServer<K: adapteros_lora_kernel_api::FusedKernels + StrictnessCont
     api_key_db: Option<std::sync::Arc<Db>>,
     drain_flag: Arc<AtomicBool>,
     backpressure: Arc<BackpressureGate>,
-    /// Ed25519 public key for validating worker tokens from control plane
+    /// Ed25519 public key for validating worker tokens from control plane (legacy)
     worker_verifying_key: Option<Arc<VerifyingKey>>,
     /// Worker ID for token validation (must match expected wid claim)
     worker_id: String,
@@ -99,6 +101,9 @@ pub struct UdsServer<K: adapteros_lora_kernel_api::FusedKernels + StrictnessCont
     /// This is a persistent cache that survives worker restarts.
     /// Only allocated when worker_verifying_key is Some (auth enabled).
     jti_cache: Option<Arc<Mutex<JtiCacheStore>>>,
+    /// Key ring for multi-key validation with rotation support.
+    /// When present, this takes precedence over worker_verifying_key.
+    worker_key_ring: Option<Arc<RwLock<WorkerKeyRing>>>,
 }
 
 impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> UdsServer<K> {
@@ -118,14 +123,17 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
             worker_verifying_key: None,
             worker_id: "unknown".to_string(),
             jti_cache: None, // Not needed when auth is disabled
+            worker_key_ring: None,
         }
     }
 
-    /// Create a new UDS server with worker token validation
+    /// Create a new UDS server with worker token validation (legacy single-key mode)
     ///
     /// The verifying key is used to validate Ed25519-signed JWTs from the control plane.
     /// The worker_id must match the expected `wid` claim in the token.
     /// The jti_cache is a persistent cache for replay defense that survives restarts.
+    ///
+    /// NOTE: For key rotation support, use `new_with_key_ring` instead.
     pub fn new_with_worker_auth(
         socket_path: PathBuf,
         worker: Arc<Mutex<Worker<K>>>,
@@ -149,6 +157,50 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
             worker_verifying_key: Some(Arc::new(worker_verifying_key)),
             worker_id,
             jti_cache: Some(jti_cache),
+            worker_key_ring: None,
+        }
+    }
+
+    /// Create a new UDS server with key ring support for rotation.
+    ///
+    /// The key ring holds multiple verifying keys to support seamless key rotation.
+    /// During rotation, both old and new keys are valid for the grace period.
+    ///
+    /// # Arguments
+    ///
+    /// * `socket_path` - Path to the Unix domain socket
+    /// * `worker` - Worker instance
+    /// * `api_key_db` - Optional API key database for legacy auth
+    /// * `drain_flag` - Flag to signal server drain
+    /// * `worker_key_ring` - Key ring with rotation support
+    /// * `worker_id` - Worker ID for token validation
+    pub fn new_with_key_ring(
+        socket_path: PathBuf,
+        worker: Arc<Mutex<Worker<K>>>,
+        api_key_db: Option<std::sync::Arc<Db>>,
+        drain_flag: Arc<AtomicBool>,
+        worker_key_ring: Arc<RwLock<WorkerKeyRing>>,
+        worker_id: String,
+    ) -> Self {
+        let key_count = {
+            let ring = worker_key_ring.read().unwrap();
+            ring.key_count()
+        };
+        info!(
+            worker_id = %worker_id,
+            key_count = key_count,
+            "UDS server configured with key ring for rotation support"
+        );
+        Self {
+            socket_path,
+            worker,
+            api_key_db,
+            drain_flag,
+            backpressure: Arc::new(BackpressureGate::from_env()),
+            worker_verifying_key: None,
+            worker_id,
+            jti_cache: None, // Key ring has its own JTI cache
+            worker_key_ring: Some(worker_key_ring),
         }
     }
 
@@ -250,6 +302,7 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
                     let worker_verifying_key = self.worker_verifying_key.clone();
                     let worker_id = self.worker_id.clone();
                     let jti_cache = self.jti_cache.clone();
+                    let worker_key_ring = self.worker_key_ring.clone();
                     tokio::spawn(async move {
                         if let Err(e) = Self::handle_connection(
                             stream,
@@ -259,6 +312,7 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
                             worker_verifying_key,
                             worker_id,
                             jti_cache,
+                            worker_key_ring,
                         )
                         .await
                         {
@@ -395,7 +449,40 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
         Ok(())
     }
 
+    /// Validate worker token using the key ring (supports rotation).
+    ///
+    /// This method uses the key ring to validate tokens signed with any
+    /// of the keys in the ring (current or grace period keys).
+    fn validate_worker_token_with_ring(
+        headers: &std::collections::HashMap<String, String>,
+        key_ring: &RwLock<WorkerKeyRing>,
+        expected_worker_id: &str,
+    ) -> Result<()> {
+        let auth_header = headers
+            .get("Authorization")
+            .or_else(|| headers.get("authorization"))
+            .ok_or_else(|| AosError::Worker("Missing Authorization header".to_string()))?;
+
+        let token = auth_header.strip_prefix("Bearer ").ok_or_else(|| {
+            AosError::Worker("Invalid Authorization scheme (expected Bearer)".to_string())
+        })?;
+
+        // Validate the token using the key ring
+        let ring = key_ring.read().unwrap();
+        ring.validate_token(token, Some(expected_worker_id))
+            .map_err(|e| AosError::Worker(format!("Worker token validation failed: {}", e)))?;
+
+        debug!(
+            worker_id = %expected_worker_id,
+            key_count = ring.key_count(),
+            "Worker token validated via key ring"
+        );
+
+        Ok(())
+    }
+
     /// Handle individual UDS connection
+    #[allow(clippy::too_many_arguments)]
     async fn handle_connection(
         mut stream: UnixStream,
         worker: Arc<Mutex<Worker<K>>>,
@@ -404,6 +491,7 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
         worker_verifying_key: Option<Arc<VerifyingKey>>,
         worker_id: String,
         jti_cache: Option<Arc<Mutex<JtiCacheStore>>>,
+        worker_key_ring: Option<Arc<RwLock<WorkerKeyRing>>>,
     ) -> Result<()> {
         let start = std::time::Instant::now();
 
@@ -471,15 +559,18 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
                         AosError::Worker(format!("Failed to parse inference request: {}", e))
                     })?;
 
-                // Authentication: Try worker token (Bearer) first, fall back to API key
-                let auth_result = if let (Some(ref verifying_key), Some(ref cache)) =
+                // Authentication: Try key ring first, then single key, fall back to API key
+                let auth_result = if let Some(ref key_ring) = worker_key_ring {
+                    // Preferred: Use key ring for multi-key validation with rotation support
+                    Self::validate_worker_token_with_ring(&request.headers, key_ring, &worker_id)
+                } else if let (Some(ref verifying_key), Some(ref cache)) =
                     (&worker_verifying_key, &jti_cache)
                 {
-                    // New path: validate Ed25519-signed JWT from control plane
+                    // Legacy: validate Ed25519-signed JWT with single key
                     Self::validate_worker_token(&request.headers, verifying_key, &worker_id, cache)
                         .await
                 } else if let Some(db) = api_key_db.clone() {
-                    // Legacy path: validate API key from database
+                    // Fallback: validate API key from database
                     Self::validate_api_key(&request.headers, &db, Some(inference_req.cpid.as_str()))
                         .await
                 } else {
@@ -587,6 +678,139 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
                     }
                 });
                 Self::send_json_response(&mut stream, health_response).await?;
+            }
+            "/key/update" => {
+                // Key rotation update from control plane
+                // Requires key ring to be configured
+                let Some(ref key_ring) = worker_key_ring else {
+                    warn!("Key update received but key ring not configured");
+                    Self::send_error(&mut stream, 501, "Key ring not configured").await?;
+                    return Ok(());
+                };
+
+                // Parse the key update request
+                let update_req: KeyUpdateRequest = match serde_json::from_str(&request.body) {
+                    Ok(req) => req,
+                    Err(e) => {
+                        error!(error = %e, "Failed to parse key update request");
+                        let response = KeyUpdateResponse::error(
+                            format!("Invalid request: {}", e),
+                            key_ring.read().unwrap().key_count(),
+                        );
+                        let json_value = serde_json::to_value(&response).map_err(|e| {
+                            AosError::Worker(format!("Failed to serialize response: {}", e))
+                        })?;
+                        Self::send_json_response(&mut stream, json_value).await?;
+                        return Ok(());
+                    }
+                };
+
+                info!(
+                    new_kid = %update_req.new_kid,
+                    old_kid = %update_req.old_kid,
+                    grace_period_secs = update_req.grace_period_secs,
+                    "Processing key update request"
+                );
+
+                // Validate the request and prepare response (all sync operations)
+                // Lock must be dropped before any async operations
+                enum KeyUpdateOutcome {
+                    Error(String, usize),          // error_msg, key_count
+                    Success(String, usize),        // new_kid, key_count
+                }
+
+                let outcome = {
+                    let mut ring = key_ring.write().unwrap();
+
+                    // Check for replay (nonce already seen)
+                    if ring.has_seen_nonce(&update_req.nonce) {
+                        warn!(nonce = %update_req.nonce, "Replay detected - nonce already seen");
+                        KeyUpdateOutcome::Error("Replay detected".to_string(), ring.key_count())
+                    } else if !update_req.is_valid_time() {
+                        // Check time validity
+                        warn!(
+                            issued_at = update_req.issued_at,
+                            max_age = KEY_UPDATE_MAX_AGE_SECS,
+                            "Key update request too old"
+                        );
+                        KeyUpdateOutcome::Error("Request expired".to_string(), ring.key_count())
+                    } else {
+                        // Verify signature using the current (old) key
+                        match ring.get_verifying_key(&update_req.old_kid) {
+                            None => {
+                                warn!(old_kid = %update_req.old_kid, "Old key not found in ring");
+                                KeyUpdateOutcome::Error(
+                                    format!("Unknown old key ID: {}", update_req.old_kid),
+                                    ring.key_count(),
+                                )
+                            }
+                            Some(old_verifying_key) => {
+                                if let Err(e) = update_req.verify_signature(&old_verifying_key) {
+                                    warn!(error = %e, "Key update signature verification failed");
+                                    KeyUpdateOutcome::Error(
+                                        "Signature verification failed".to_string(),
+                                        ring.key_count(),
+                                    )
+                                } else {
+                                    // Decode the new public key
+                                    match update_req.decode_new_public_key() {
+                                        Err(e) => {
+                                            error!(error = %e, "Failed to decode new public key");
+                                            KeyUpdateOutcome::Error(
+                                                format!("Invalid new key: {}", e),
+                                                ring.key_count(),
+                                            )
+                                        }
+                                        Ok(new_verifying_key) => {
+                                            // Add the new key with grace period for old key
+                                            let new_kid = ring.add_verifying_key_with_grace(
+                                                new_verifying_key,
+                                                update_req.grace_period_secs,
+                                            );
+
+                                            // Record the nonce to prevent replay
+                                            let expiry = chrono::Utc::now().timestamp()
+                                                + KEY_UPDATE_MAX_AGE_SECS;
+                                            ring.record_nonce(&update_req.nonce, expiry);
+
+                                            // Clean up expired keys
+                                            let removed = ring.cleanup_expired_keys();
+                                            if removed > 0 {
+                                                info!(
+                                                    removed_count = removed,
+                                                    "Cleaned up expired keys"
+                                                );
+                                            }
+
+                                            info!(
+                                                new_kid = %new_kid,
+                                                key_count = ring.key_count(),
+                                                "Key update applied successfully"
+                                            );
+
+                                            KeyUpdateOutcome::Success(new_kid, ring.key_count())
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    // Lock is dropped here at end of block
+                };
+
+                // Now safe to do async operation - lock has been dropped
+                let response = match outcome {
+                    KeyUpdateOutcome::Error(msg, key_count) => {
+                        KeyUpdateResponse::error(msg, key_count)
+                    }
+                    KeyUpdateOutcome::Success(new_kid, key_count) => {
+                        KeyUpdateResponse::success(new_kid, key_count)
+                    }
+                };
+                let json_value = serde_json::to_value(&response).map_err(|e| {
+                    AosError::Worker(format!("Failed to serialize response: {}", e))
+                })?;
+                Self::send_json_response(&mut stream, json_value).await?;
             }
             "/debug/coreml_verification" => {
                 let worker_guard = worker.lock().await;

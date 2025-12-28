@@ -54,6 +54,7 @@ pub(crate) struct PlacementState {
     lanes: Vec<LaneDescriptor>,
 }
 
+#[allow(dead_code)]
 impl PlacementState {
     pub fn new(
         engine: PlacementEngine,

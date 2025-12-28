@@ -1,5 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::str::FromStr;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Status {
@@ -81,14 +82,18 @@ impl LogLevel {
             LogLevel::Debug => "DEBUG",
         }
     }
+}
 
-    pub fn from_str(level: &str) -> Self {
-        match level.to_lowercase().as_str() {
+impl FromStr for LogLevel {
+    type Err = std::convert::Infallible;
+
+    fn from_str(level: &str) -> Result<Self, Self::Err> {
+        Ok(match level.to_lowercase().as_str() {
             "warn" | "warning" => LogLevel::Warn,
             "error" | "err" => LogLevel::Error,
             "debug" => LogLevel::Debug,
             _ => LogLevel::Info,
-        }
+        })
     }
 }
 

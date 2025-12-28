@@ -39,7 +39,7 @@ use std::sync::{
 };
 use std::{
     fs,
-    path::{Path, PathBuf},
+    path::PathBuf,
     str::FromStr,
 };
 use tokio::signal;
@@ -1240,6 +1240,7 @@ async fn run_worker() -> Result<()> {
     };
     #[cfg(not(all(target_os = "macos", feature = "coreml-backend")))]
     let coreml_primary_runtime: Option<CoremlRuntimeTelemetry> = None;
+    #[allow(unused_mut)]
     let mut fallback_coreml_runtime: Option<CoremlRuntimeTelemetry> = None;
 
     // NOTE: Model cache budget validation moved to startup (line ~952) for fail-fast behavior.

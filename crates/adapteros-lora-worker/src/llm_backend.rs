@@ -356,14 +356,14 @@ pub fn create_llm_backend(backend_type: LlmBackendType) -> Result<Box<dyn LlmBac
             #[cfg(not(feature = "remote-llm"))]
             {
                 let _ = (endpoint, api_key);
-                return Err(AosError::FeatureDisabled {
+                Err(AosError::FeatureDisabled {
                     feature: "Remote LLM backend".to_string(),
                     reason: "Zero-egress mode: remote-llm feature is disabled".to_string(),
                     alternative: Some(
                         "Use local backend or enable 'remote-llm' feature if egress is permitted"
                             .to_string(),
                     ),
-                });
+                })
             }
         }
         LlmBackendType::Mock => {
@@ -416,14 +416,14 @@ pub fn create_llm_backend_with_config(
             #[cfg(not(feature = "remote-llm"))]
             {
                 let _ = (endpoint, api_key);
-                return Err(AosError::FeatureDisabled {
+                Err(AosError::FeatureDisabled {
                     feature: "Remote LLM backend".to_string(),
                     reason: "Zero-egress mode: remote-llm feature is disabled".to_string(),
                     alternative: Some(
                         "Use local backend or enable 'remote-llm' feature if egress is permitted"
                             .to_string(),
                     ),
-                });
+                })
             }
         }
         LlmBackendType::Mock => {
