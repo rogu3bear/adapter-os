@@ -34,6 +34,7 @@ adapteros-boot = { path = "../adapteros-boot" }
 adapteros-config = { path = "../adapteros-config" }
 adapteros-config-types = { path = "../adapteros-config-types" }
 adapteros-core = { path = "../adapteros-core" }
+adapteros-types = { path = "../adapteros-types" }
 adapteros-server-api = { path = "../adapteros-server-api" }
 adapteros-db = { path = "../adapteros-db" }
 adapteros-git = { path = "../adapteros-git" }

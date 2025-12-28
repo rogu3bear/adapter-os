@@ -9,6 +9,7 @@ clap = ["dep:clap"]
 [dependencies]
 clap = { workspace = true, optional = true }
 adapteros-core = { path = "../adapteros-core" }
+adapteros-types = { path = "../adapteros-types" }
 adapteros-crypto = { path = "../adapteros-crypto" }
 adapteros-telemetry = { path = "../adapteros-telemetry" }
 adapteros-numerics = { path = "../adapteros-numerics" }
