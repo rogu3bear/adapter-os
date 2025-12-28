@@ -156,6 +156,7 @@ ui/src/components/ui/empty-state.tsx.backup
 
 # Archive directories (local development only)
 archive/
+!archive/README.md
 
 # Training datasets (local development only - can be large)
 # Allow structure (README.md, .gitkeep) but ignore data files

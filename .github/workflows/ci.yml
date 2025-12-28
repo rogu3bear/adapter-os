@@ -197,6 +197,31 @@ jobs:
           fi
           echo "✓ No -ffast-math flags detected in build artifacts"
 
+  sqlx-offline:
+    name: SQLx Offline Cache Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install sqlx-cli
+        run: cargo install sqlx-cli --version 0.8.2 --no-default-features --features sqlite --locked
+      - name: Prepare SQLite path
+        run: mkdir -p var
+      - name: Run migrations (SQLite)
+        env:
+          DATABASE_URL: sqlite://./var/sqlx-ci.sqlite3
+        run: cargo sqlx migrate run
+      - name: Verify committed SQLx cache
+        env:
+          DATABASE_URL: sqlite://./var/sqlx-ci.sqlite3
+          SQLX_OFFLINE_DIR: crates/adapteros-db/.sqlx
+        run: cargo sqlx prepare --workspace --check
+      - name: Verify offline build
+        env:
+          SQLX_OFFLINE: "1"
+          SQLX_OFFLINE_DIR: crates/adapteros-db/.sqlx
+        run: cargo check -p adapteros-server-api
+
   cli-models-seed:
     name: CLI Models Seed
     runs-on: ubuntu-latest
