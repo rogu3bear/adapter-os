@@ -112,9 +112,16 @@ impl KernelParams {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Mutex, OnceLock};
+
+    fn env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
 
     #[test]
     fn test_debugger_disabled_by_default() {
+        let _guard = env_lock().lock().expect("env lock");
         // Ensure the environment variable is cleared before testing
         std::env::remove_var("AOS_DETERMINISTIC_DEBUG");
 
@@ -127,6 +134,7 @@ mod tests {
 
     #[test]
     fn test_debugger_enabled_from_env() {
+        let _guard = env_lock().lock().expect("env lock");
         std::env::set_var("AOS_DETERMINISTIC_DEBUG", "1");
         let debugger = KernelDebugger::from_env();
         assert!(debugger.is_enabled());
