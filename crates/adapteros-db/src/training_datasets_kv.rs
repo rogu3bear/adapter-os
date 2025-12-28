@@ -78,6 +78,9 @@ pub fn dataset_record_from_kv(kv: &TrainingDatasetKv) -> TrainingDataset {
         ownership: kv.ownership.clone(),
         tenant_id: Some(kv.tenant_id.clone()),
         workspace_id: kv.workspace_id.clone(),
+        // Hash repair tracking (default: no recompute needed, current algorithm version)
+        hash_needs_recompute: 0,
+        hash_algorithm_version: 2,
     }
 }
 
