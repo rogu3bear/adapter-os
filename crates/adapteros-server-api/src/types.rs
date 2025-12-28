@@ -3762,7 +3762,7 @@ pub struct DivergenceDetails {
 pub struct ReplayStats {
     /// Estimated token count (~4 chars/token heuristic).
     /// Note: This is an approximation since the worker doesn't report actual token counts.
-    /// Do not use for billing or precise token accounting.
+    /// Do not use for chargeback or precise token accounting.
     pub estimated_tokens: usize,
     /// Replay latency in milliseconds
     pub latency_ms: u64,

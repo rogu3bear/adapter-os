@@ -301,10 +301,10 @@ const productManagerStage3: Stage = {
   title: 'Configuration Management Portal',
   content: {
     whatAppears: 'Workspaces page where you can create workspaces, configure resource limits, and assign policies',
-    why: 'Define service tiers (free, pro, enterprise) by configuring workspace resource limits and policies',
-    context: 'Product tier management and workspace provisioning',
+    why: 'Define workspace profiles for the offline system by configuring resource limits and policies',
+    context: 'Workspace profile management and local provisioning',
     route: '/admin/tenants',
-    mentalModelExplanation: '**Workspaces** are the isolation boundary. Configure memory limits, adapter quotas, and policy packs per workspace to create service tiers (e.g., free tier = 1GB, 5 adapters; pro tier = 10GB, unlimited adapters).'
+    mentalModelExplanation: '**Workspaces** are the isolation boundary. Operators configure memory limits, adapter quotas, and policy packs per workspace to create local deployment profiles (e.g., lab = 1GB, 5 adapters; production = 10GB, unlimited adapters).'
   }
 };
 

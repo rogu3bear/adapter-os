@@ -139,6 +139,7 @@ installer/*.xcodeproj/*.perspectivev3
 .cursor/
 
 # SQLx
+/.sqlx
 .sqlx/
 !crates/adapteros-cli/.sqlx/
 !crates/adapteros-cli/.sqlx/**

@@ -192,6 +192,9 @@ run_endpoint() {
     ok "$label ($code)"
     printf -v "$result_var" "%s" "ok"
   else
+    if [[ "$code" == "000" ]]; then
+      err "backend not running - connection refused at $url"
+    fi
     err "$label ($code)"
     printf -v "$result_var" "%s" "fail"
     FAILED=$((FAILED + 1))

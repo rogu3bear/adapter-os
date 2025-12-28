@@ -1329,7 +1329,8 @@ export type paths = {
         /** List all datasets */
         get: operations["list_datasets"];
         put?: never;
-        post?: never;
+        /** Upload files to create a new dataset */
+        post: operations["upload_dataset"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1634,23 +1635,6 @@ export type paths = {
         put?: never;
         /** Initiate a chunked upload for files > 10MB */
         post: operations["initiate_chunked_upload"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/datasets/upload": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Upload files to create a new dataset */
-        post: operations["upload_dataset"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2037,6 +2021,23 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
+    "/v1/evidence/runs/{run_id}/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @deprecated */
+        get: operations["download_run_evidence_alias"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/federation/quarantine": {
         parameters: {
             query?: never;
@@ -2395,7 +2396,7 @@ export type paths = {
          *     curl -X POST http://localhost:3000/v1/infer/stream \
          *       -H "Content-Type: application/json" \
          *       -H "Authorization: Bearer <token>" \
-         *       -d '{"prompt": "What is the pricing model?", "max_tokens": 200, "collection_id": "marketing-docs"}'
+         *       -d '{"prompt": "What is the licensing model?", "max_tokens": 200, "collection_id": "marketing-docs"}'
          *     ```
          */
         post: operations["streaming_infer"];
@@ -3224,6 +3225,23 @@ export type paths = {
         patch: operations["update_repo"];
         trace?: never;
     };
+    "/v1/repositories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @deprecated */
+        get: operations["list_repositories_legacy"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/routing/chain": {
         parameters: {
             query?: never;
@@ -3318,6 +3336,22 @@ export type paths = {
         };
         /** GET /v1/routing/sessions/:request_id - Get router decisions for a chat session */
         get: operations["get_session_router_view"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/runs/{run_id}/evidence": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["download_run_evidence"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3791,6 +3825,23 @@ export type paths = {
          * @description Returns hierarchical view of system state: Node -> Tenant -> Stack -> Adapter
          */
         get: operations["get_system_state"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/system/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /v1/system/status */
+        get: operations["get_system_status"];
         put?: never;
         post?: never;
         delete?: never;
@@ -4443,6 +4494,41 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
+    "/v1/workspaces/{workspace_id}/active": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get the active state for a workspace (model/plan/adapters). */
+        get: operations["get_workspace_active_state"];
+        put?: never;
+        /** Set the active state for a workspace. */
+        post: operations["set_workspace_active_state"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/workspaces/{workspace_id}/active-state": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @deprecated */
+        get: operations["get_workspace_active_state_alias"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/workspaces/{workspace_id}/members": {
         parameters: {
             query?: never;
@@ -4574,6 +4660,13 @@ export type components = {
             /** Format: float */
             gate_value: number;
             selected: boolean;
+        };
+        /** @description Adapter inventory across the cluster. */
+        AdapterInventory: {
+            /** Format: int64 */
+            loaded?: number | null;
+            /** Format: int64 */
+            total_active?: number | null;
         };
         /**
          * @description Adapter lifecycle state
@@ -5012,6 +5105,38 @@ export type components = {
              */
             used_mb: number;
         };
+        AneMemoryStatus: {
+            /** Format: int64 */
+            allocated_mb: number;
+            /** Format: int64 */
+            available_mb: number;
+            /** Format: float */
+            usage_pct: number;
+            /** Format: int64 */
+            used_mb: number;
+        };
+        /** @description Apple Neural Engine memory stats. */
+        AneMemorySummary: {
+            /** Format: int64 */
+            allocated_mb: number;
+            /** Format: int64 */
+            available_mb: number;
+            /** Format: float */
+            usage_pct: number;
+            /** Format: int64 */
+            used_mb: number;
+        };
+        /** @description Apple Neural Engine usage (when available) */
+        AneUsage: {
+            /** Format: int64 */
+            allocated_mb: number;
+            /** Format: int64 */
+            available_mb: number;
+            /** Format: float */
+            usage_pct: number;
+            /** Format: int64 */
+            used_mb: number;
+        };
         /** @description Standard error envelope returned by the API for all 4xx/5xx responses. */
         ApiErrorBody: {
             /** @description Machine-readable error code (e.g., "ADAPTER_NOT_FOUND") */
@@ -5288,10 +5413,29 @@ export type components = {
              */
             total_items: number;
         };
+        /** @description Boot failure information. */
+        BootFailure: {
+            code: string;
+            message?: string | null;
+        };
         BootPhaseDuration: {
             /** Format: int64 */
             elapsed_ms: number;
             state: string;
+        };
+        /** @description Individual boot phase timing. */
+        BootPhaseTiming: {
+            /** Format: int64 */
+            elapsed_ms: number;
+            phase: string;
+        };
+        /** @description Boot lifecycle summary. */
+        BootStatus: {
+            boot_trace_id?: string | null;
+            degraded?: components["schemas"]["DegradedReason"][];
+            failure?: null | components["schemas"]["BootFailure"];
+            phase: string;
+            timings?: components["schemas"]["BootPhaseTiming"][];
         };
         BootstrapRequest: {
             display_name: string;
@@ -5780,6 +5924,14 @@ export type components = {
              */
             total_size_bytes: number;
         };
+        /** @description Component readiness with optional metadata. */
+        ComponentCheck: {
+            critical?: boolean | null;
+            /** Format: int64 */
+            latency_ms?: number | null;
+            reason?: string | null;
+            status: components["schemas"]["StatusIndicator"];
+        };
         /** @description Individual component health check result */
         ComponentHealth: {
             component: string;
@@ -6119,6 +6271,7 @@ export type components = {
         DatasetResponse: {
             created_at: string;
             created_by: string;
+            dataset_hash_b3?: string | null;
             dataset_id: string;
             /** @description Latest trusted dataset version (effective trust applied; may be None if no trusted versions) */
             dataset_version_id?: string | null;
@@ -6129,6 +6282,7 @@ export type components = {
             hash: string;
             name: string;
             schema_version?: string;
+            status: string;
             storage_path: string;
             /** Format: int64 */
             total_size_bytes: number;
@@ -6137,6 +6291,7 @@ export type components = {
             updated_at: string;
             validation_errors?: string[] | null;
             validation_status: components["schemas"]["DatasetValidationStatus"];
+            workspace_id?: string | null;
         };
         /**
          * @description Dataset source type
@@ -6205,6 +6360,11 @@ export type components = {
             schema_version?: string;
             stack_id: string;
             tenant_id: string;
+        };
+        /** @description Degraded component reason. */
+        DegradedReason: {
+            component: string;
+            reason: string;
         };
         /** @description Delta containing new content */
         Delta: {
@@ -6393,6 +6553,16 @@ export type components = {
             old_value: string;
             /** @description Drift severity (info, warning, critical) */
             severity: string;
+        };
+        /**
+         * @description Drift severity indicator.
+         * @enum {string}
+         */
+        DriftLevel: DriftLevel;
+        /** @description Drift severity and optional summary. */
+        DriftStatus: {
+            level: components["schemas"]["DriftLevel"];
+            summary?: string | null;
         };
         /** @description Configuration drift summary */
         DriftSummaryResponse: {
@@ -6712,6 +6882,11 @@ export type components = {
             progress?: number | null;
             status: string;
         };
+        /**
+         * @description Blockers preventing inference from running.
+         * @enum {string}
+         */
+        InferenceBlocker: InferenceBlocker;
         /** @description Inference evidence record */
         InferenceEvidence: {
             chunk_hash: string;
@@ -6737,6 +6912,11 @@ export type components = {
             relevance_score: number;
             session_id?: string | null;
         };
+        /**
+         * @description Inference readiness tri-state for operators.
+         * @enum {string}
+         */
+        InferenceReadyState: InferenceReadyState;
         /** @description Inference trace for observability */
         InferenceTrace: {
             /** @description Flattened expert IDs per token for quick visualization */
@@ -6866,6 +7046,7 @@ export type components = {
             /** @description Number of prompt tokens */
             prompt_tokens?: number | null;
             replay_guarantee?: null | components["schemas"]["ReplayGuarantee"];
+            run_envelope?: null | components["schemas"]["RunEnvelope"];
             run_receipt?: null | components["schemas"]["RunReceipt"];
             schema_version?: string;
             /** @description BLAKE3 digest of the StopPolicySpec used (hex encoded) */
@@ -6935,6 +7116,14 @@ export type components = {
             /** @description Unique session identifier */
             session_id: string;
         };
+        /** @description Integrity posture for the control plane. */
+        IntegrityStatus: {
+            drift: components["schemas"]["DriftStatus"];
+            is_federated: boolean;
+            mode: string;
+            pf_deny_ok: boolean;
+            strict_mode: boolean;
+        };
         JourneyResponse: {
             completed: boolean;
             created_at: string;
@@ -6956,6 +7145,19 @@ export type components = {
             metadata?: unknown;
             name: string;
             status: string;
+        };
+        /** @description Memory summary for UMA and ANE where available. */
+        KernelMemorySummary: {
+            ane?: null | components["schemas"]["AneMemorySummary"];
+            pressure?: string | null;
+            uma?: null | components["schemas"]["UmaMemorySummary"];
+        };
+        /** @description Kernel/model summary. */
+        KernelStatus: {
+            adapters?: null | components["schemas"]["AdapterInventory"];
+            memory?: null | components["schemas"]["KernelMemorySummary"];
+            model?: null | components["schemas"]["ModelStatusSummary"];
+            plan?: null | components["schemas"]["PlanStatusSummary"];
         };
         /** @description Record counts for KV namespaces */
         KvCounts: {
@@ -7384,6 +7586,7 @@ export type components = {
             model_id: string;
         };
         ModelStatusResponse: {
+            ane_memory?: null | components["schemas"]["AneMemoryStatus"];
             error_message?: string | null;
             is_loaded: boolean;
             loaded_at?: string | null;
@@ -7393,6 +7596,13 @@ export type components = {
             model_name: string;
             model_path?: string | null;
             status: components["schemas"]["ModelLoadStatus"];
+            uma_pressure_level?: string | null;
+        };
+        /** @description Current model status (aggregated across tenants). */
+        ModelStatusSummary: {
+            model_id?: string | null;
+            status: string;
+            updated_at?: string | null;
         };
         ModelValidationResponse: {
             can_load: boolean;
@@ -7672,6 +7882,12 @@ export type components = {
             started_at: string;
             status: string;
         };
+        /** @description Latest plan pointer (best effort). */
+        PlanStatusSummary: {
+            created_at?: string | null;
+            plan_id: string;
+            tenant_id: string;
+        };
         /** @description Policy assignment response (PRD-RBAC-01) */
         PolicyAssignmentResponse: {
             assigned_at: string;
@@ -7883,6 +8099,18 @@ export type components = {
             reason: string;
             /** @enum {string} */
             status: RagStatusStatus;
+        };
+        /** @description Individual readiness checks. */
+        ReadinessChecks: {
+            db: components["schemas"]["ComponentCheck"];
+            migrations: components["schemas"]["ComponentCheck"];
+            models: components["schemas"]["ComponentCheck"];
+            workers: components["schemas"]["ComponentCheck"];
+        };
+        /** @description Readiness snapshot across critical dependencies. */
+        ReadinessStatus: {
+            checks: components["schemas"]["ReadinessChecks"];
+            overall: components["schemas"]["StatusIndicator"];
         };
         ReadyMetrics: {
             boot_phases_ms?: components["schemas"]["BootPhaseDuration"][];
@@ -8397,6 +8625,51 @@ export type components = {
              */
             require_stack?: boolean;
         };
+        /** @description Initiating actor for a run envelope. */
+        RunActor: {
+            /** @description Auth mode used for the request (bearer, api_key, dev_bypass, unauthenticated). */
+            auth_mode?: string | null;
+            /** @description Principal type (user, api_key, dev_bypass, internal_service, anonymous). */
+            principal_type?: string | null;
+            /** @description Roles attached to the subject. */
+            roles?: string[];
+            /** @description Subject identifier (user id, dev-bypass, or anonymous). */
+            subject: string;
+        };
+        /** @description Canonical execution context threaded through a run. */
+        RunEnvelope: {
+            /** @description Actor initiating the run. */
+            actor: components["schemas"]["RunActor"];
+            /** @description Boot trace identifier for the serving process. */
+            boot_trace_id?: string | null;
+            /** @description Envelope creation timestamp (RFC3339). */
+            created_at: string;
+            /** @description Determinism version marker (legacy; use schema_version for schema compatibility). */
+            determinism_version: string;
+            /** @description BLAKE3 hash of the manifest used for this run. */
+            manifest_hash_b3?: string | null;
+            /** @description Plan identifier if resolved. */
+            plan_id?: string | null;
+            /** @description Policy mask digest applied at the edge (BLAKE3 hex). */
+            policy_mask_digest_b3?: string | null;
+            /** @description Whether reasoning-aware routing was enabled. */
+            reasoning_mode: boolean;
+            /** @description Router seed reference for routing determinism. */
+            router_seed?: string | null;
+            /** @description Stable run identifier (UUID/ULID/string). */
+            run_id: string;
+            /** @description Schema version marker for envelope compatibility. */
+            schema_version?: string;
+            /**
+             * Format: int64
+             * @description Global tick assigned to this run (if available).
+             */
+            tick?: number | null;
+            /** @description Worker identifier selected for execution. */
+            worker_id?: string | null;
+            /** @description Workspace/tenant identifier. */
+            workspace_id: string;
+        };
         /** @description Verifiable run receipt (hash chain over per-token decisions) */
         RunReceipt: {
             /** @description Optional attestation payload. */
@@ -8804,6 +9077,11 @@ export type components = {
             node_id: string;
         };
         /**
+         * @description Canonical status indicator for checks and overall readiness.
+         * @enum {string}
+         */
+        StatusIndicator: StatusIndicator;
+        /**
          * @description Stop policy specification for deterministic stopping behavior.
          *
          *     Configures thresholds and parameters for the stop controller.
@@ -9101,6 +9379,22 @@ export type components = {
             /** @description Tenant states with nested stacks and adapters */
             tenants: components["schemas"]["TenantState"][];
             /** @description RFC3339 timestamp when this response was generated */
+            timestamp: string;
+        };
+        /** @description Combined system status response for `/v1/system/status`. */
+        SystemStatusResponse: {
+            boot?: null | components["schemas"]["BootStatus"];
+            /** @description Reasons inference is blocked (empty when ready or unknown). */
+            inference_blockers?: components["schemas"]["InferenceBlocker"][];
+            /** @description Inference readiness tri-state (true/false/unknown). */
+            inference_ready?: components["schemas"]["InferenceReadyState"];
+            /** @description Integrity posture (mode, federation, drift signals). */
+            integrity: components["schemas"]["IntegrityStatus"];
+            kernel?: null | components["schemas"]["KernelStatus"];
+            /** @description Readiness checks (db, migrations, workers, models). */
+            readiness: components["schemas"]["ReadinessStatus"];
+            schema_version?: string;
+            /** @description RFC3339 timestamp when this snapshot was produced. */
             timestamp: string;
         };
         /** @description Record counts for SQL tables */
@@ -9406,6 +9700,8 @@ export type components = {
             data_lineage_mode?: null | components["schemas"]["DataLineageMode"];
             data_spec?: string | null;
             data_spec_hash?: string | null;
+            /** @description Dataset manifest hash captured at job creation (combined when multi-dataset). */
+            dataset_hash_b3?: string | null;
             dataset_id?: string | null;
             /** @description Dataset versions used for this job (order preserved) */
             dataset_version_ids?: components["schemas"]["DatasetVersionSelection"][] | null;
@@ -9434,6 +9730,7 @@ export type components = {
             /** @description Marketing/operational tier for routing and UI badges (micro/standard/max) */
             lora_tier?: string;
             manifest_base_model?: string | null;
+            manifest_hash_b3?: string | null;
             manifest_per_layer_hashes?: boolean | null;
             /** Format: int32 */
             manifest_rank?: number | null;
@@ -9453,6 +9750,7 @@ export type components = {
             schema_version?: string;
             /** @description Logical scope for adapter visibility (e.g., project, tenant) */
             scope?: string | null;
+            seed_inputs_json?: string | null;
             signature_status?: string | null;
             started_at?: string | null;
             status: string;
@@ -9594,6 +9892,7 @@ export type components = {
             total_mb: number;
         };
         UmaMemoryResponse: {
+            ane?: null | components["schemas"]["AneUsage"];
             /** Format: int64 */
             available_mb: number;
             eviction_candidates: string[];
@@ -9601,6 +9900,17 @@ export type components = {
             headroom_pct: number;
             pressure_level: string;
             timestamp: string;
+            /** Format: int64 */
+            total_mb: number;
+            /** Format: int64 */
+            used_mb: number;
+        };
+        /** @description UMA headroom summary. */
+        UmaMemorySummary: {
+            /** Format: int64 */
+            available_mb: number;
+            /** Format: float */
+            headroom_pct: number;
             /** Format: int64 */
             total_mb: number;
             /** Format: int64 */
@@ -9677,6 +9987,7 @@ export type components = {
         /** @description Upload dataset response */
         UploadDatasetResponse: {
             created_at: string;
+            dataset_hash_b3?: string | null;
             dataset_id: string;
             description?: string | null;
             /** Format: int32 */
@@ -9684,9 +9995,12 @@ export type components = {
             format: string;
             hash: string;
             name: string;
+            reused?: boolean;
             schema_version?: string;
+            status?: string | null;
             /** Format: int64 */
             total_size_bytes: number;
+            workspace_id?: string | null;
         };
         /** @description Response for getting upload session status */
         UploadSessionStatusResponse: {
@@ -9833,6 +10147,26 @@ export type components = {
          * @enum {string}
          */
         WorkflowType: WorkflowType;
+        WorkspaceActiveStateRequest: {
+            /** @description Adapters to keep active for this workspace (optional). */
+            active_adapter_ids?: string[];
+            /** @description Base model to mark as active for this workspace (optional). */
+            active_base_model_id?: string | null;
+            /** @description Plan to mark as active for this workspace (optional). */
+            active_plan_id?: string | null;
+            /** @description Manifest hash associated with the active plan/model. */
+            manifest_hash_b3?: string | null;
+        };
+        WorkspaceActiveStateResponse: {
+            active_adapter_ids?: string[];
+            active_base_model_id?: string | null;
+            active_plan_id?: string | null;
+            manifest_hash_b3?: string | null;
+            model_loaded?: boolean | null;
+            model_mismatch?: boolean;
+            updated_at?: string | null;
+            workspace_id: string;
+        };
         WorkspaceResponse: {
             created_at: string;
             created_by: string;
@@ -12926,6 +13260,7 @@ export interface operations {
                 limit?: number | null;
                 offset?: number | null;
                 validation_status?: string | null;
+                workspace_id?: string | null;
             };
             header?: never;
             path?: never;
@@ -12941,6 +13276,47 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["DatasetResponse"][];
                 };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    upload_dataset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Dataset created successfully */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadDatasetResponse"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description File too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Internal server error */
             500: {
@@ -13724,47 +14100,6 @@ export interface operations {
             };
             /** @description Invalid request */
             400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Internal server error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    upload_dataset: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Dataset created successfully */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["UploadDatasetResponse"];
-                };
-            };
-            /** @description Invalid request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description File too large */
-            413: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -14628,6 +14963,54 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    download_run_evidence_alias: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Inference run identifier (request_id) */
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Evidence bundle zip for the run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Run not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
             };
         };
     };
@@ -16507,6 +16890,40 @@ export interface operations {
             };
         };
     };
+    list_repositories_legacy: {
+        parameters: {
+            query?: {
+                archived?: boolean | null;
+                base_model_id?: string | null;
+                limit?: number | null;
+                offset?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description List of adapter repositories */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdapterRepositoryResponse"][];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     get_routing_decision_chain: {
         parameters: {
             query: {
@@ -16715,6 +17132,54 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    download_run_evidence: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Inference run identifier (request_id) */
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Evidence bundle zip for the run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Run not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
             };
         };
     };
@@ -17395,6 +17860,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SystemStateResponse"];
+                };
+            };
+        };
+    };
+    get_system_status: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Aggregated system status */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemStatusResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };
@@ -18943,6 +19437,156 @@ export interface operations {
             };
         };
     };
+    get_workspace_active_state: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Workspace/tenant ID */
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Active workspace state */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceActiveStateResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Access denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    set_workspace_active_state: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Workspace/tenant ID */
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkspaceActiveStateRequest"];
+            };
+        };
+        responses: {
+            /** @description Active workspace state updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceActiveStateResponse"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Access denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Resource not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    get_workspace_active_state_alias: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Workspace/tenant ID */
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Active workspace state */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceActiveStateResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Access denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     list_workspace_members: {
         parameters: {
             query?: never;
@@ -19404,6 +20048,11 @@ export enum DatasetValidationStatus {
     invalid = "invalid",
     skipped = "skipped"
 }
+export enum DriftLevel {
+    ok = "ok",
+    warn = "warn",
+    critical = "critical"
+}
 export enum FailureCode {
     MIGRATION_INVALID = "MIGRATION_INVALID",
     MODEL_LOAD_FAILED = "MODEL_LOAD_FAILED",
@@ -19423,6 +20072,17 @@ export enum FailureCode {
     BOOT_DEPENDENCY_TIMEOUT = "BOOT_DEPENDENCY_TIMEOUT",
     BOOT_BACKGROUND_TASK_FAILED = "BOOT_BACKGROUND_TASK_FAILED",
     BOOT_CONFIG_INVALID = "BOOT_CONFIG_INVALID"
+}
+export enum InferenceBlocker {
+    database_unavailable = "database_unavailable",
+    worker_missing = "worker_missing",
+    no_model_loaded = "no_model_loaded",
+    active_model_mismatch = "active_model_mismatch"
+}
+export enum InferenceReadyState {
+    true = "true",
+    false = "false",
+    unknown = "unknown"
 }
 export enum KvIsolationIssueKind {
     cross_tenant_mismatch = "cross_tenant_mismatch"
@@ -19516,6 +20176,11 @@ export enum SessionAction {
 export enum ShutdownMode {
     drain = "drain",
     immediate = "immediate"
+}
+export enum StatusIndicator {
+    ready = "ready",
+    not_ready = "not_ready",
+    unknown = "unknown"
 }
 export enum StopReasonCode {
     LENGTH = "LENGTH",

@@ -8,6 +8,21 @@ use axum::{
     Extension,
 };
 
+#[deprecated(note = "Use /v1/workspaces/{workspace_id}/active instead.")]
+#[utoipa::path(
+    get,
+    path = "/v1/workspaces/{workspace_id}/active-state",
+    params(
+        ("workspace_id" = String, Path, description = "Workspace/tenant ID")
+    ),
+    responses(
+        (status = 200, description = "Active workspace state", body = workspaces::WorkspaceActiveStateResponse),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Access denied"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "workspaces"
+)]
 pub async fn get_workspace_active_state_alias(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,

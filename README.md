@@ -9,7 +9,7 @@
 
 **Deterministic ML Inference Platform** — High-performance inference with K-sparse LoRA routing, Metal-optimized kernels, and comprehensive policy enforcement for production environments.
 
-AdapterOS (alpha-v0.11-unstable-pre-release) is a Rust-based ML inference platform optimized for Apple Silicon. Features deterministic execution across multiple backends (CoreML, MLX, Metal), modular Metal kernels, centralized policy enforcement, and memory-efficient adapter management with zero network egress during serving.
+AdapterOS (alpha-v0.11-unstable-pre-release) is a Rust-based ML inference platform optimized for Apple Silicon, delivered as licensed local software for on-prem or air-gapped deployments. Features deterministic execution across multiple backends (CoreML, MLX, Metal), modular Metal kernels, centralized policy enforcement, and memory-efficient adapter management with zero network egress during serving.
 
 ---
 

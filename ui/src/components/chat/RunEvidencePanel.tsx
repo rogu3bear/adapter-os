@@ -40,14 +40,25 @@ export function RunEvidencePanel({
     return undefined;
   };
 
-  const runId = lookup(['runId', 'run_id']) || evidence?.requestId || evidence?.traceId || traceId || undefined;
-  const workspaceId = lookup(['workspaceId', 'workspace_id', 'tenantId', 'tenant_id']) || workspaceIdFallback || undefined;
-  const manifestHashB3 = lookup(['manifestHashB3', 'manifest_hash_b3']) || manifestFallback || undefined;
-  const policyMaskDigestB3 =
-    lookup(['policyMaskDigestB3', 'policy_mask_digest_b3', 'policy_mask_digest']) ||
-    fallbackPolicyMask ||
-    undefined;
-  const planId = lookup(['planId', 'plan_id']) || fallbackPlanId || undefined;
+  const runIdPrimary = lookup(['runId', 'run_id']);
+  const runId = runIdPrimary || evidence?.requestId || evidence?.traceId || traceId || undefined;
+  const runIdFallback = !runIdPrimary && Boolean(runId);
+
+  const workspaceIdPrimary = lookup(['workspaceId', 'workspace_id', 'tenantId', 'tenant_id']);
+  const workspaceId = workspaceIdPrimary || workspaceIdFallback || undefined;
+  const workspaceFallback = !workspaceIdPrimary && Boolean(workspaceIdFallback);
+
+  const manifestPrimary = lookup(['manifestHashB3', 'manifest_hash_b3']);
+  const manifestHashB3 = manifestPrimary || manifestFallback || undefined;
+  const manifestFallbackUsed = !manifestPrimary && Boolean(manifestFallback);
+
+  const policyMaskPrimary = lookup(['policyMaskDigestB3', 'policy_mask_digest_b3', 'policy_mask_digest']);
+  const policyMaskDigestB3 = policyMaskPrimary || fallbackPolicyMask || undefined;
+  const policyMaskFallbackUsed = !policyMaskPrimary && Boolean(fallbackPolicyMask);
+
+  const planPrimary = lookup(['planId', 'plan_id']);
+  const planId = planPrimary || fallbackPlanId || undefined;
+  const planFallbackUsed = !planPrimary && Boolean(fallbackPlanId);
   const routerSeed = lookup(['routerSeed', 'router_seed']);
   const tick = lookup(['tick']);
   const workerId = lookup(['workerId', 'worker_id']);
@@ -65,11 +76,11 @@ export function RunEvidencePanel({
         : 'Not set';
 
   const rows = [
-    { label: 'run_id', value: runId ?? notSetLabel },
-    { label: 'workspace_id', value: workspaceId ?? notSetLabel },
-    { label: 'manifest_hash_b3', value: manifestHashB3 ?? notSetLabel },
-    { label: 'plan_id', value: planId ?? notSetLabel },
-    { label: 'policy_mask_digest_b3', value: policyMaskDigestB3 ?? notSetLabel },
+    { label: 'run_id', value: runId ?? notSetLabel, fallback: runIdFallback },
+    { label: 'workspace_id', value: workspaceId ?? notSetLabel, fallback: workspaceFallback },
+    { label: 'manifest_hash_b3', value: manifestHashB3 ?? notSetLabel, fallback: manifestFallbackUsed },
+    { label: 'plan_id', value: planId ?? notSetLabel, fallback: planFallbackUsed },
+    { label: 'policy_mask_digest_b3', value: policyMaskDigestB3 ?? notSetLabel, fallback: policyMaskFallbackUsed },
     { label: 'router_seed', value: routerSeedLabel },
     { label: 'tick', value: tick ?? notSetLabel },
     { label: 'worker_id', value: workerId ?? notSetLabel },
@@ -103,7 +114,10 @@ export function RunEvidencePanel({
         {rows.map((row) => (
           <div key={row.label} className="flex items-center justify-between gap-2">
             <span className="text-muted-foreground">{row.label}</span>
-            <span className="font-mono text-[11px] break-all text-foreground">{row.value ?? '—'}</span>
+            <span className="font-mono text-[11px] break-all text-foreground">
+              {row.value ?? '—'}
+              {row.fallback ? ' (fallback)' : ''}
+            </span>
           </div>
         ))}
       </div>

@@ -365,7 +365,7 @@ Authorization: Bearer <admin_token>
 
 **Use Cases:**
 - Temporarily suspend operations for maintenance
-- Stop billing while preserving tenant data
+- Pause usage accounting while preserving tenant data
 - Enforce policy violations
 
 #### Archive Tenant
@@ -377,7 +377,7 @@ Authorization: Bearer <admin_token>
 
 **Use Cases:**
 - Long-term deactivation
-- Customer cancellation
+- Workspace retirement
 - Compliance retention
 
 #### Get Tenant Usage

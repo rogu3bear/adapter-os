@@ -4264,6 +4264,3 @@ pub use super::{
     get_commit, get_commit_diff, get_quality_metrics, get_system_metrics,
     list_adapter_repositories, list_adapters, list_commits,
 };
-
-// Create an alias for list_adapter_repositories as list_repositories_legacy for backwards compatibility
-pub use super::list_adapter_repositories as list_repositories_legacy;

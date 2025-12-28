@@ -181,7 +181,7 @@ const CostSummaryCard = ({ usage }: { usage: NonNullable<TenantUsage> }) => (
         Cost Summary
       </CardTitle>
       <CardDescription>
-        Estimated usage costs for current period (placeholder for future billing integration)
+        Estimated usage costs for current period (placeholder for future cost accounting integration)
       </CardDescription>
     </CardHeader>
     <CardContent className="space-y-4">
@@ -230,12 +230,12 @@ const CostSummaryCard = ({ usage }: { usage: NonNullable<TenantUsage> }) => (
 const BillingNotesCard = () => (
   <Card>
     <CardHeader>
-      <CardTitle>Billing Notes</CardTitle>
-      <CardDescription>Future cost calculation integration</CardDescription>
+      <CardTitle>Usage Accounting Notes</CardTitle>
+      <CardDescription>Future cost accounting integration</CardDescription>
     </CardHeader>
     <CardContent>
       <div className="space-y-2 text-sm text-muted-foreground">
-        <p>Cost calculation and billing features will be added in a future release.</p>
+        <p>Cost calculation and usage accounting features will be added in a future release.</p>
         <p>Current usage metrics are tracked and available for review.</p>
         <ul className="mt-4 list-inside list-disc space-y-1">
           <li>Inference request counting</li>
@@ -252,7 +252,7 @@ const BillingNotesCard = () => (
 const BillingTab = ({ usage, isLoading, error, onRetry }: { usage?: TenantUsage; isLoading: boolean; error: unknown; onRetry: () => void }) => {
   return (
     <TabsContent value="billing" className="space-y-4">
-      {isLoading && <LoadingState message="Loading billing data..." />}
+      {isLoading && <LoadingState message="Loading cost accounting data..." />}
       {!isLoading && !!error && (
         <ErrorRecovery
           error={error instanceof Error ? error.message : String(error)}
@@ -345,11 +345,11 @@ export function TenantDetailPage({ tenant, open, onClose }: TenantDetailPageProp
 
         <Tabs defaultValue="overview" className="w-full">
           <TabsList className="grid w-full grid-cols-4">
-            <TabsTrigger value="overview">Overview</TabsTrigger>
-            <TabsTrigger value="usage">Usage Stats</TabsTrigger>
-            <TabsTrigger value="billing">Cost & Billing</TabsTrigger>
-            <TabsTrigger value="permissions">Permissions</TabsTrigger>
-          </TabsList>
+          <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="usage">Usage Stats</TabsTrigger>
+          <TabsTrigger value="billing">Usage & Cost</TabsTrigger>
+          <TabsTrigger value="permissions">Permissions</TabsTrigger>
+        </TabsList>
 
           <TabsContent value="overview" className="space-y-4">
             <OverviewCard tenant={tenant} />

@@ -701,6 +701,25 @@ pub async fn list_adapter_repositories(
     Ok(Json(responses))
 }
 
+#[deprecated(note = "Use /v1/adapter-repositories instead.")]
+#[utoipa::path(
+    tag = "system",
+    get,
+    path = "/v1/repositories",
+    params(ListAdapterRepositoriesParams),
+    responses(
+        (status = 200, description = "List of adapter repositories", body = Vec<AdapterRepositoryResponse>),
+        (status = 401, description = "Unauthorized", body = ErrorResponse)
+    )
+)]
+pub async fn list_repositories_legacy(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Query(params): Query<ListAdapterRepositoriesParams>,
+) -> Result<Json<Vec<AdapterRepositoryResponse>>, (StatusCode, Json<ErrorResponse>)> {
+    list_adapter_repositories(State(state), Extension(claims), Query(params)).await
+}
+
 /// Extract manifest lineage fields from a packaged .aos artifact.
 async fn manifest_lineage_from_aos(
     aos_path: Option<&str>,

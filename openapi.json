@@ -3985,6 +3985,17 @@
                 "null"
               ]
             }
+          },
+          {
+            "name": "workspace_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
           }
         ],
         "responses": {
@@ -4000,6 +4011,34 @@
                 }
               }
             }
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "datasets"
+        ],
+        "summary": "Upload files to create a new dataset",
+        "operationId": "upload_dataset",
+        "responses": {
+          "200": {
+            "description": "Dataset created successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadDatasetResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "413": {
+            "description": "File too large"
           },
           "500": {
             "description": "Internal server error"
@@ -4233,36 +4272,6 @@
           },
           "404": {
             "description": "Session not found or expired"
-          },
-          "500": {
-            "description": "Internal server error"
-          }
-        }
-      }
-    },
-    "/v1/datasets/upload": {
-      "post": {
-        "tags": [
-          "datasets"
-        ],
-        "summary": "Upload files to create a new dataset",
-        "operationId": "upload_dataset",
-        "responses": {
-          "200": {
-            "description": "Dataset created successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/UploadDatasetResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid request"
-          },
-          "413": {
-            "description": "File too large"
           },
           "500": {
             "description": "Internal server error"
@@ -5808,6 +5817,61 @@
         ]
       }
     },
+    "/v1/evidence/runs/{run_id}/export": {
+      "get": {
+        "tags": [
+          "replay"
+        ],
+        "operationId": "download_run_evidence_alias",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Inference run identifier (request_id)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Evidence bundle zip for the run"
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Run not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "deprecated": true
+      }
+    },
     "/v1/evidence/{id}": {
       "get": {
         "tags": [
@@ -6665,7 +6729,7 @@
           "inference"
         ],
         "summary": "Streaming inference handler",
-        "description": "Accepts inference requests and returns a stream of Server-Sent Events (SSE)\nwith tokens as they are generated. Compatible with OpenAI's streaming API.\n\n# SSE Event Format\n```text\ndata: {\"id\":\"chatcmpl-xxx\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"delta\":{\"content\":\"token\"}}]}\ndata: [DONE]\n```\n\n# Collection-Scoped RAG\nWhen `collection_id` is provided, the inference will be scoped to documents\nwithin that collection, enabling targeted RAG retrieval for domain-specific queries.\n\n# Example\n```bash\ncurl -X POST http://localhost:3000/v1/infer/stream \\\n  -H \"Content-Type: application/json\" \\\n  -H \"Authorization: Bearer <token>\" \\\n  -d '{\"prompt\": \"Hello, world!\", \"max_tokens\": 100}'\n```\n\n# Example with Collection-Scoped RAG\n```bash\ncurl -X POST http://localhost:3000/v1/infer/stream \\\n  -H \"Content-Type: application/json\" \\\n  -H \"Authorization: Bearer <token>\" \\\n  -d '{\"prompt\": \"What is the pricing model?\", \"max_tokens\": 200, \"collection_id\": \"marketing-docs\"}'\n```",
+        "description": "Accepts inference requests and returns a stream of Server-Sent Events (SSE)\nwith tokens as they are generated. Compatible with OpenAI's streaming API.\n\n# SSE Event Format\n```text\ndata: {\"id\":\"chatcmpl-xxx\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"delta\":{\"content\":\"token\"}}]}\ndata: [DONE]\n```\n\n# Collection-Scoped RAG\nWhen `collection_id` is provided, the inference will be scoped to documents\nwithin that collection, enabling targeted RAG retrieval for domain-specific queries.\n\n# Example\n```bash\ncurl -X POST http://localhost:3000/v1/infer/stream \\\n  -H \"Content-Type: application/json\" \\\n  -H \"Authorization: Bearer <token>\" \\\n  -d '{\"prompt\": \"Hello, world!\", \"max_tokens\": 100}'\n```\n\n# Example with Collection-Scoped RAG\n```bash\ncurl -X POST http://localhost:3000/v1/infer/stream \\\n  -H \"Content-Type: application/json\" \\\n  -H \"Authorization: Bearer <token>\" \\\n  -d '{\"prompt\": \"What is the licensing model?\", \"max_tokens\": 200, \"collection_id\": \"marketing-docs\"}'\n```",
         "operationId": "streaming_infer",
         "requestBody": {
           "content": {
@@ -8085,6 +8149,88 @@
         }
       }
     },
+    "/v1/repositories": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "operationId": "list_repositories_legacy",
+        "parameters": [
+          {
+            "name": "base_model_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "archived",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of adapter repositories",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AdapterRepositoryResponse"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "deprecated": true
+      }
+    },
     "/v1/routing/chain": {
       "get": {
         "tags": [
@@ -8418,6 +8564,60 @@
             "bearer_token": []
           }
         ]
+      }
+    },
+    "/v1/runs/{run_id}/evidence": {
+      "get": {
+        "tags": [
+          "replay"
+        ],
+        "operationId": "download_run_evidence",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Inference run identifier (request_id)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Evidence bundle zip for the run"
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Run not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/v1/runtime/session": {
@@ -9286,6 +9486,37 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SystemStateResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/system/status": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "summary": "GET /v1/system/status",
+        "operationId": "get_system_status",
+        "responses": {
+          "200": {
+            "description": "Aggregated system status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SystemStatusResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
             }
@@ -11238,6 +11469,143 @@
         }
       }
     },
+    "/v1/workspaces/{workspace_id}/active": {
+      "get": {
+        "tags": [
+          "workspaces"
+        ],
+        "summary": "Get the active state for a workspace (model/plan/adapters).",
+        "operationId": "get_workspace_active_state",
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "path",
+            "description": "Workspace/tenant ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Active workspace state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceActiveStateResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Access denied"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "workspaces"
+        ],
+        "summary": "Set the active state for a workspace.",
+        "operationId": "set_workspace_active_state",
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "path",
+            "description": "Workspace/tenant ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkspaceActiveStateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Active workspace state updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceActiveStateResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Access denied"
+          },
+          "404": {
+            "description": "Resource not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/v1/workspaces/{workspace_id}/active-state": {
+      "get": {
+        "tags": [
+          "workspaces"
+        ],
+        "operationId": "get_workspace_active_state_alias",
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "path",
+            "description": "Workspace/tenant ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Active workspace state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceActiveStateResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Access denied"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "deprecated": true
+      }
+    },
     "/v1/workspaces/{workspace_id}/members": {
       "get": {
         "tags": [
@@ -11685,6 +12053,26 @@
           },
           "selected": {
             "type": "boolean"
+          }
+        }
+      },
+      "AdapterInventory": {
+        "type": "object",
+        "description": "Adapter inventory across the cluster.",
+        "properties": {
+          "loaded": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "total_active": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
           }
         }
       },
@@ -12879,6 +13267,98 @@
           }
         }
       },
+      "AneMemoryStatus": {
+        "type": "object",
+        "required": [
+          "allocated_mb",
+          "used_mb",
+          "available_mb",
+          "usage_pct"
+        ],
+        "properties": {
+          "allocated_mb": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "available_mb": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "usage_pct": {
+            "type": "number",
+            "format": "float"
+          },
+          "used_mb": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "AneMemorySummary": {
+        "type": "object",
+        "description": "Apple Neural Engine memory stats.",
+        "required": [
+          "allocated_mb",
+          "used_mb",
+          "available_mb",
+          "usage_pct"
+        ],
+        "properties": {
+          "allocated_mb": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "available_mb": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "usage_pct": {
+            "type": "number",
+            "format": "float"
+          },
+          "used_mb": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "AneUsage": {
+        "type": "object",
+        "description": "Apple Neural Engine usage (when available)",
+        "required": [
+          "allocated_mb",
+          "used_mb",
+          "available_mb",
+          "usage_pct"
+        ],
+        "properties": {
+          "allocated_mb": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "available_mb": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "usage_pct": {
+            "type": "number",
+            "format": "float"
+          },
+          "used_mb": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
       "ApiErrorBody": {
         "type": "object",
         "description": "Standard error envelope returned by the API for all 4xx/5xx responses.",
@@ -13741,6 +14221,24 @@
           }
         }
       },
+      "BootFailure": {
+        "type": "object",
+        "description": "Boot failure information.",
+        "required": [
+          "code"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "BootPhaseDuration": {
         "type": "object",
         "required": [
@@ -13755,6 +14253,64 @@
           },
           "state": {
             "type": "string"
+          }
+        }
+      },
+      "BootPhaseTiming": {
+        "type": "object",
+        "description": "Individual boot phase timing.",
+        "required": [
+          "phase",
+          "elapsed_ms"
+        ],
+        "properties": {
+          "elapsed_ms": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "phase": {
+            "type": "string"
+          }
+        }
+      },
+      "BootStatus": {
+        "type": "object",
+        "description": "Boot lifecycle summary.",
+        "required": [
+          "phase"
+        ],
+        "properties": {
+          "boot_trace_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "degraded": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DegradedReason"
+            }
+          },
+          "failure": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/BootFailure"
+              }
+            ]
+          },
+          "phase": {
+            "type": "string"
+          },
+          "timings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BootPhaseTiming"
+            }
           }
         }
       },
@@ -15151,6 +15707,38 @@
           }
         }
       },
+      "ComponentCheck": {
+        "type": "object",
+        "description": "Component readiness with optional metadata.",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "critical": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "latency_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/StatusIndicator"
+          }
+        }
+      },
       "ComponentHealth": {
         "type": "object",
         "description": "Individual component health check result",
@@ -16333,6 +16921,7 @@
           "format",
           "hash",
           "storage_path",
+          "status",
           "validation_status",
           "created_by",
           "created_at",
@@ -16344,6 +16933,12 @@
           },
           "created_by": {
             "type": "string"
+          },
+          "dataset_hash_b3": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "dataset_id": {
             "type": "string"
@@ -16377,6 +16972,9 @@
           "schema_version": {
             "type": "string"
           },
+          "status": {
+            "type": "string"
+          },
           "storage_path": {
             "type": "string"
           },
@@ -16405,6 +17003,12 @@
           },
           "validation_status": {
             "$ref": "#/components/schemas/DatasetValidationStatus"
+          },
+          "workspace_id": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
@@ -16606,6 +17210,22 @@
             "type": "string"
           },
           "tenant_id": {
+            "type": "string"
+          }
+        }
+      },
+      "DegradedReason": {
+        "type": "object",
+        "description": "Degraded component reason.",
+        "required": [
+          "component",
+          "reason"
+        ],
+        "properties": {
+          "component": {
+            "type": "string"
+          },
+          "reason": {
             "type": "string"
           }
         }
@@ -17167,6 +17787,33 @@
           "severity": {
             "type": "string",
             "description": "Drift severity (info, warning, critical)"
+          }
+        }
+      },
+      "DriftLevel": {
+        "type": "string",
+        "description": "Drift severity indicator.",
+        "enum": [
+          "ok",
+          "warn",
+          "critical"
+        ]
+      },
+      "DriftStatus": {
+        "type": "object",
+        "description": "Drift severity and optional summary.",
+        "required": [
+          "level"
+        ],
+        "properties": {
+          "level": {
+            "$ref": "#/components/schemas/DriftLevel"
+          },
+          "summary": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
@@ -18138,7 +18785,7 @@
       },
       "InferRequest": {
         "type": "object",
-        "description": "Inference request",
+        "description": "Inference request (API surface)",
         "required": [
           "prompt"
         ],
@@ -18225,16 +18872,19 @@
               "integer",
               "null"
             ],
+            "description": "Maximum number of tokens to generate (fallbacks to manifest defaults).",
             "minimum": 0
           },
           "model": {
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "description": "Explicit model identifier to target (optional)."
           },
           "prompt": {
-            "type": "string"
+            "type": "string",
+            "description": "Raw prompt text or chat payload."
           },
           "rag_enabled": {
             "type": [
@@ -18254,7 +18904,8 @@
             "type": [
               "boolean",
               "null"
-            ]
+            ],
+            "description": "Require evidence payloads in receipts."
           },
           "routing_determinism_mode": {
             "type": "string",
@@ -18266,6 +18917,7 @@
               "null"
             ],
             "format": "int64",
+            "description": "Random seed for deterministic sampling.",
             "minimum": 0
           },
           "session_id": {
@@ -18297,14 +18949,16 @@
             "type": [
               "boolean",
               "null"
-            ]
+            ],
+            "description": "Enable server-sent event streaming."
           },
           "temperature": {
             "type": [
               "number",
               "null"
             ],
-            "format": "float"
+            "format": "float",
+            "description": "Sampling temperature override."
           },
           "tenant_id": {
             "type": [
@@ -18318,6 +18972,7 @@
               "integer",
               "null"
             ],
+            "description": "Top-K sampling cap.",
             "minimum": 0
           },
           "top_p": {
@@ -18325,7 +18980,8 @@
               "number",
               "null"
             ],
-            "format": "float"
+            "format": "float",
+            "description": "Top-P (nucleus) sampling cap."
           }
         },
         "additionalProperties": false
@@ -18468,6 +19124,17 @@
               }
             ]
           },
+          "run_envelope": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RunEnvelope",
+                "description": "Canonical run envelope describing the execution context."
+              }
+            ]
+          },
           "run_receipt": {
             "oneOf": [
               {
@@ -18539,6 +19206,16 @@
             "description": "Pinned adapters that were unavailable for this inference\n\nThese are adapters that were in the session's pinned set but were not\navailable in the candidate adapter set. Returned for UI warning display."
           }
         }
+      },
+      "InferenceBlocker": {
+        "type": "string",
+        "description": "Blockers preventing inference from running.",
+        "enum": [
+          "database_unavailable",
+          "worker_missing",
+          "no_model_loaded",
+          "active_model_mismatch"
+        ]
       },
       "InferenceEvidence": {
         "type": "object",
@@ -18629,6 +19306,15 @@
             ]
           }
         }
+      },
+      "InferenceReadyState": {
+        "type": "string",
+        "description": "Inference readiness tri-state for operators.",
+        "enum": [
+          "true",
+          "false",
+          "unknown"
+        ]
       },
       "InferenceTrace": {
         "type": "object",
@@ -18877,6 +19563,34 @@
           }
         }
       },
+      "IntegrityStatus": {
+        "type": "object",
+        "description": "Integrity posture for the control plane.",
+        "required": [
+          "mode",
+          "is_federated",
+          "strict_mode",
+          "pf_deny_ok",
+          "drift"
+        ],
+        "properties": {
+          "drift": {
+            "$ref": "#/components/schemas/DriftStatus"
+          },
+          "is_federated": {
+            "type": "boolean"
+          },
+          "mode": {
+            "type": "string"
+          },
+          "pf_deny_ok": {
+            "type": "boolean"
+          },
+          "strict_mode": {
+            "type": "boolean"
+          }
+        }
+      },
       "JourneyResponse": {
         "type": "object",
         "required": [
@@ -18961,6 +19675,84 @@
           },
           "status": {
             "type": "string"
+          }
+        }
+      },
+      "KernelMemorySummary": {
+        "type": "object",
+        "description": "Memory summary for UMA and ANE where available.",
+        "properties": {
+          "ane": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AneMemorySummary"
+              }
+            ]
+          },
+          "pressure": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "uma": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/UmaMemorySummary"
+              }
+            ]
+          }
+        }
+      },
+      "KernelStatus": {
+        "type": "object",
+        "description": "Kernel/model summary.",
+        "properties": {
+          "adapters": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AdapterInventory"
+              }
+            ]
+          },
+          "memory": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/KernelMemorySummary"
+              }
+            ]
+          },
+          "model": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ModelStatusSummary"
+              }
+            ]
+          },
+          "plan": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PlanStatusSummary"
+              }
+            ]
           }
         }
       },
@@ -20292,6 +21084,16 @@
           "is_loaded"
         ],
         "properties": {
+          "ane_memory": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AneMemoryStatus"
+              }
+            ]
+          },
           "error_message": {
             "type": [
               "string",
@@ -20328,6 +21130,36 @@
           },
           "status": {
             "$ref": "#/components/schemas/ModelLoadStatus"
+          },
+          "uma_pressure_level": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "ModelStatusSummary": {
+        "type": "object",
+        "description": "Current model status (aggregated across tenants).",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "model_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
@@ -21301,6 +22133,28 @@
           }
         }
       },
+      "PlanStatusSummary": {
+        "type": "object",
+        "description": "Latest plan pointer (best effort).",
+        "required": [
+          "plan_id",
+          "tenant_id"
+        ],
+        "properties": {
+          "created_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "plan_id": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "type": "string"
+          }
+        }
+      },
       "PolicyAssignmentResponse": {
         "type": "object",
         "description": "Policy assignment response (PRD-RBAC-01)",
@@ -22078,6 +22932,46 @@
           }
         ],
         "description": "RAG system status indicating whether embedding model is available"
+      },
+      "ReadinessChecks": {
+        "type": "object",
+        "description": "Individual readiness checks.",
+        "required": [
+          "db",
+          "migrations",
+          "workers",
+          "models"
+        ],
+        "properties": {
+          "db": {
+            "$ref": "#/components/schemas/ComponentCheck"
+          },
+          "migrations": {
+            "$ref": "#/components/schemas/ComponentCheck"
+          },
+          "models": {
+            "$ref": "#/components/schemas/ComponentCheck"
+          },
+          "workers": {
+            "$ref": "#/components/schemas/ComponentCheck"
+          }
+        }
+      },
+      "ReadinessStatus": {
+        "type": "object",
+        "description": "Readiness snapshot across critical dependencies.",
+        "required": [
+          "overall",
+          "checks"
+        ],
+        "properties": {
+          "checks": {
+            "$ref": "#/components/schemas/ReadinessChecks"
+          },
+          "overall": {
+            "$ref": "#/components/schemas/StatusIndicator"
+          }
+        }
       },
       "ReadyMetrics": {
         "type": "object",
@@ -23788,6 +24682,133 @@
           }
         }
       },
+      "RunActor": {
+        "type": "object",
+        "description": "Initiating actor for a run envelope.",
+        "required": [
+          "subject"
+        ],
+        "properties": {
+          "auth_mode": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Auth mode used for the request (bearer, api_key, dev_bypass, unauthenticated)."
+          },
+          "principal_type": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Principal type (user, api_key, dev_bypass, internal_service, anonymous)."
+          },
+          "roles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Roles attached to the subject."
+          },
+          "subject": {
+            "type": "string",
+            "description": "Subject identifier (user id, dev-bypass, or anonymous)."
+          }
+        }
+      },
+      "RunEnvelope": {
+        "type": "object",
+        "description": "Canonical execution context threaded through a run.",
+        "required": [
+          "run_id",
+          "workspace_id",
+          "actor",
+          "reasoning_mode",
+          "determinism_version",
+          "created_at"
+        ],
+        "properties": {
+          "actor": {
+            "$ref": "#/components/schemas/RunActor",
+            "description": "Actor initiating the run."
+          },
+          "boot_trace_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Boot trace identifier for the serving process."
+          },
+          "created_at": {
+            "type": "string",
+            "description": "Envelope creation timestamp (RFC3339)."
+          },
+          "determinism_version": {
+            "type": "string",
+            "description": "Determinism version marker (legacy; use schema_version for schema compatibility)."
+          },
+          "manifest_hash_b3": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "BLAKE3 hash of the manifest used for this run."
+          },
+          "plan_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Plan identifier if resolved."
+          },
+          "policy_mask_digest_b3": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Policy mask digest applied at the edge (BLAKE3 hex)."
+          },
+          "reasoning_mode": {
+            "type": "boolean",
+            "description": "Whether reasoning-aware routing was enabled."
+          },
+          "router_seed": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Router seed reference for routing determinism."
+          },
+          "run_id": {
+            "type": "string",
+            "description": "Stable run identifier (UUID/ULID/string)."
+          },
+          "schema_version": {
+            "type": "string",
+            "description": "Schema version marker for envelope compatibility."
+          },
+          "tick": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Global tick assigned to this run (if available).",
+            "minimum": 0
+          },
+          "worker_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Worker identifier selected for execution."
+          },
+          "workspace_id": {
+            "type": "string",
+            "description": "Workspace/tenant identifier."
+          }
+        }
+      },
       "RunReceipt": {
         "type": "object",
         "description": "Verifiable run receipt (hash chain over per-token decisions)",
@@ -23807,7 +24828,8 @@
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "description": "Optional attestation payload."
           },
           "billed_input_tokens": {
             "type": "integer",
@@ -23858,7 +24880,8 @@
             "description": "BLAKE3 digest of ModelCacheIdentityV2 canonical bytes.\nBinds the receipt to the exact kernel/quant/fusion/tokenizer/tenant/worker combination."
           },
           "output_digest": {
-            "type": "string"
+            "type": "string",
+            "description": "Digest over output tokens."
           },
           "prefix_cache_hit": {
             "type": "boolean",
@@ -23884,16 +24907,19 @@
             "description": "Cryptographic key for the prefix KV cache entry used"
           },
           "receipt_digest": {
-            "type": "string"
+            "type": "string",
+            "description": "Digest over receipt contents."
           },
           "run_head_hash": {
-            "type": "string"
+            "type": "string",
+            "description": "Head hash for the run's trace chain."
           },
           "signature": {
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "description": "Optional signature covering the receipt."
           },
           "stop_policy_digest_b3": {
             "type": [
@@ -23935,7 +24961,8 @@
             "minimum": 0
           },
           "trace_id": {
-            "type": "string"
+            "type": "string",
+            "description": "Unique trace identifier for this run."
           }
         }
       },
@@ -25057,6 +26084,15 @@
           }
         }
       },
+      "StatusIndicator": {
+        "type": "string",
+        "description": "Canonical status indicator for checks and overall readiness.",
+        "enum": [
+          "ready",
+          "not_ready",
+          "unknown"
+        ]
+      },
       "StopPolicySpec": {
         "type": "object",
         "description": "Stop policy specification for deterministic stopping behavior.\n\nConfigures thresholds and parameters for the stop controller.\nThe policy is hashed (BLAKE3) and committed to the receipt for audit.",
@@ -25100,7 +26136,7 @@
       },
       "StopReasonCode": {
         "type": "string",
-        "description": "Exhaustive stop reason codes for inference termination.\n\nEvery inference run MUST emit exactly one of these codes to explain\nwhy generation stopped. This enables deterministic behavior auditing\nand cost attribution.",
+        "description": "Exhaustive stop reason codes for inference termination.",
         "enum": [
           "LENGTH",
           "BUDGET_MAX",
@@ -25806,6 +26842,65 @@
           "timestamp": {
             "type": "string",
             "description": "RFC3339 timestamp when this response was generated"
+          }
+        }
+      },
+      "SystemStatusResponse": {
+        "type": "object",
+        "description": "Combined system status response for `/v1/system/status`.",
+        "required": [
+          "timestamp",
+          "integrity",
+          "readiness"
+        ],
+        "properties": {
+          "boot": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/BootStatus",
+                "description": "Boot lifecycle details when available."
+              }
+            ]
+          },
+          "inference_blockers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InferenceBlocker"
+            },
+            "description": "Reasons inference is blocked (empty when ready or unknown)."
+          },
+          "inference_ready": {
+            "$ref": "#/components/schemas/InferenceReadyState",
+            "description": "Inference readiness tri-state (true/false/unknown)."
+          },
+          "integrity": {
+            "$ref": "#/components/schemas/IntegrityStatus",
+            "description": "Integrity posture (mode, federation, drift signals)."
+          },
+          "kernel": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/KernelStatus",
+                "description": "Kernel/model summary and memory pressure."
+              }
+            ]
+          },
+          "readiness": {
+            "$ref": "#/components/schemas/ReadinessStatus",
+            "description": "Readiness checks (db, migrations, workers, models)."
+          },
+          "schema_version": {
+            "type": "string"
+          },
+          "timestamp": {
+            "type": "string",
+            "description": "RFC3339 timestamp when this snapshot was produced."
           }
         }
       },
@@ -26788,6 +27883,13 @@
               "null"
             ]
           },
+          "dataset_hash_b3": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Dataset manifest hash captured at job creation (combined when multi-dataset)."
+          },
           "dataset_id": {
             "type": [
               "string",
@@ -26904,6 +28006,12 @@
               "null"
             ]
           },
+          "manifest_hash_b3": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "manifest_per_layer_hashes": {
             "type": [
               "boolean",
@@ -26988,6 +28096,12 @@
               "null"
             ],
             "description": "Logical scope for adapter visibility (e.g., project, tenant)"
+          },
+          "seed_inputs_json": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "signature_status": {
             "type": [
@@ -27505,6 +28619,16 @@
           "timestamp"
         ],
         "properties": {
+          "ane": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AneUsage"
+              }
+            ]
+          },
           "available_mb": {
             "type": "integer",
             "format": "int64",
@@ -27525,6 +28649,37 @@
           },
           "timestamp": {
             "type": "string"
+          },
+          "total_mb": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "used_mb": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "UmaMemorySummary": {
+        "type": "object",
+        "description": "UMA headroom summary.",
+        "required": [
+          "total_mb",
+          "used_mb",
+          "available_mb",
+          "headroom_pct"
+        ],
+        "properties": {
+          "available_mb": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "headroom_pct": {
+            "type": "number",
+            "format": "float"
           },
           "total_mb": {
             "type": "integer",
@@ -27808,6 +28963,12 @@
           "created_at": {
             "type": "string"
           },
+          "dataset_hash_b3": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "dataset_id": {
             "type": "string"
           },
@@ -27830,12 +28991,27 @@
           "name": {
             "type": "string"
           },
+          "reused": {
+            "type": "boolean"
+          },
           "schema_version": {
             "type": "string"
+          },
+          "status": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "total_size_bytes": {
             "type": "integer",
             "format": "int64"
+          },
+          "workspace_id": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
@@ -28295,6 +29471,89 @@
           "upstream_downstream",
           "sequential"
         ]
+      },
+      "WorkspaceActiveStateRequest": {
+        "type": "object",
+        "properties": {
+          "active_adapter_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Adapters to keep active for this workspace (optional)."
+          },
+          "active_base_model_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Base model to mark as active for this workspace (optional)."
+          },
+          "active_plan_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Plan to mark as active for this workspace (optional)."
+          },
+          "manifest_hash_b3": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Manifest hash associated with the active plan/model."
+          }
+        }
+      },
+      "WorkspaceActiveStateResponse": {
+        "type": "object",
+        "required": [
+          "workspace_id"
+        ],
+        "properties": {
+          "active_adapter_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "active_base_model_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "active_plan_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "manifest_hash_b3": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "model_loaded": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "model_mismatch": {
+            "type": "boolean"
+          },
+          "updated_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "workspace_id": {
+            "type": "string"
+          }
+        }
       },
       "WorkspaceResponse": {
         "type": "object",

@@ -17,7 +17,7 @@ use tracing::{debug, error, info, warn};
 const OSV_API_ENDPOINT: &str = "https://api.osv.dev/v1/query";
 
 /// Fair-use rate limiting: max requests per second
-const DEFAULT_RATE_LIMIT: u32 = 4; // Conservative rate limit for free tier
+const DEFAULT_RATE_LIMIT: u32 = 4; // Conservative rate limit for public OSV API
 
 /// Request timeout in seconds
 const REQUEST_TIMEOUT_SECS: u64 = 30;

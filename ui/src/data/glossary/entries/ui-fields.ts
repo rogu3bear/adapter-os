@@ -718,7 +718,7 @@ export const uiFieldsEntries: GlossaryEntry[] = [
     category: 'ui-fields',
     content: {
       brief: 'Current operational state: Active (running), Paused (temporarily stopped), Suspended (admin action), Maintenance (upgrades), or Archived (decommissioned).',
-      detailed: 'Workspace lifecycle status:\n- **Active**: Normal operations, accepting requests\n- **Paused**: User-initiated pause (resumable)\n- **Suspended**: Admin action (policy violation, billing)\n- **Maintenance**: Upgrades in progress (read-only)\n- **Archived**: Decommissioned (read-only, compliance retention)\n\nOnly Active workspaces process inference.',
+      detailed: 'Workspace lifecycle status:\n- **Active**: Normal operations, accepting requests\n- **Paused**: User-initiated pause (resumable)\n- **Suspended**: Admin action (policy violation, administrative hold)\n- **Maintenance**: Upgrades in progress (read-only)\n- **Archived**: Decommissioned (read-only, compliance retention)\n\nOnly Active workspaces process inference.',
     },
     relatedTerms: ['tenant-actions', 'archive-tenant-action'],
     aliases: ['status', 'state'],
@@ -883,10 +883,10 @@ export const uiFieldsEntries: GlossaryEntry[] = [
     category: 'ui-fields',
     content: {
       brief: 'Download workspace usage metrics as a CSV file.',
-      detailed: 'Usage export:\n- CSV format with columns: workspace, inference_count, tokens, cost\n- Date range selection\n- Used for billing and usage analysis\n- Requires workspace view permission',
+      detailed: 'Usage export:\n- CSV format with columns: workspace, inference_count, tokens, cost\n- Date range selection\n- Used for usage accounting and capacity analysis\n- Requires workspace view permission',
     },
     relatedTerms: ['export-tenants', 'tenant-name'],
-    aliases: ['usage export', 'billing export'],
+    aliases: ['usage export', 'usage accounting export'],
   },
 
   // ===== Promotion and Golden Run Fields =====

@@ -120,6 +120,8 @@ pub use adapters_read::{
     create_adapter_repository, get_adapter_repository, get_adapter_repository_policy,
     list_adapter_repositories, upsert_adapter_repository_policy, ListAdapterRepositoriesParams,
 };
+#[allow(deprecated)]
+pub use adapters_read::list_repositories_legacy;
 pub use validation::{
     validate_adapter_name, validate_stack_name, NameViolationResponse, ParsedAdapterName,
     ParsedStackName, ValidateAdapterNameRequest, ValidateAdapterNameResponse,

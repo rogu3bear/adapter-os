@@ -2,12 +2,28 @@ use crate::auth::Claims;
 use crate::handlers::aliases::add_alias_headers;
 use crate::handlers::run_evidence;
 use crate::state::AppState;
+use crate::types::ErrorResponse;
 use axum::{
     extract::{Path, State},
     response::{IntoResponse, Response},
     Extension,
 };
 
+#[deprecated(note = "Use /v1/runs/{run_id}/evidence instead.")]
+#[utoipa::path(
+    get,
+    path = "/v1/evidence/runs/{run_id}/export",
+    params(
+        ("run_id" = String, Path, description = "Inference run identifier (request_id)")
+    ),
+    responses(
+        (status = 200, description = "Evidence bundle zip for the run"),
+        (status = 403, description = "Forbidden", body = ErrorResponse),
+        (status = 404, description = "Run not found", body = ErrorResponse),
+        (status = 500, description = "Internal error", body = ErrorResponse)
+    ),
+    tag = "replay"
+)]
 pub async fn download_run_evidence_alias(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,

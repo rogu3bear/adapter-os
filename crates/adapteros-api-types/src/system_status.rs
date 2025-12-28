@@ -24,6 +24,12 @@ pub struct SystemStatusResponse {
     pub integrity: IntegrityStatus,
     /// Readiness checks (db, migrations, workers, models).
     pub readiness: ReadinessStatus,
+    /// Inference readiness tri-state (true/false/unknown).
+    #[serde(default)]
+    pub inference_ready: InferenceReadyState,
+    /// Reasons inference is blocked (empty when ready or unknown).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub inference_blockers: Vec<InferenceBlocker>,
     /// Boot lifecycle details when available.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub boot: Option<BootStatus>,
@@ -99,6 +105,31 @@ pub enum StatusIndicator {
     Ready,
     NotReady,
     Unknown,
+}
+
+/// Inference readiness tri-state for operators.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, ToSchema, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum InferenceReadyState {
+    True,
+    False,
+    Unknown,
+}
+
+impl Default for InferenceReadyState {
+    fn default() -> Self {
+        Self::Unknown
+    }
+}
+
+/// Blockers preventing inference from running.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum InferenceBlocker {
+    DatabaseUnavailable,
+    WorkerMissing,
+    NoModelLoaded,
+    ActiveModelMismatch,
 }
 
 /// Boot lifecycle summary.

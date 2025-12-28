@@ -11,7 +11,7 @@ export const coreConceptsEntries: GlossaryEntry[] = [
 
 Workspaces enable multi-user deployments where different organizations or teams can share the same AdapterOS installation without interference. All resources (adapters, datasets, execution plans) are scoped to a workspace.
 
-Common workspace patterns include: production/staging environments, per-customer deployments in SaaS scenarios, or departmental isolation within an organization. Workspace IDs follow the format \`workspace/domain/purpose/revision\` for hierarchical organization.`,
+Common workspace patterns include: production/staging environments, per-site local deployments in offline or air-gapped systems, or departmental isolation within an organization. Workspace IDs follow the format \`workspace/domain/purpose/revision\` for hierarchical organization.`,
     },
     relatedTerms: ['adapter', 'stack', 'isolation', 'rbac'],
     aliases: ['workspace', 'workspace-id', 'workspace isolation'],
