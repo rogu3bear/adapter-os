@@ -407,8 +407,8 @@ During boot, health endpoints reflect current state:
 
 | Endpoint | During Boot | After Ready |
 |----------|-------------|-------------|
-| `/api/healthz` | 200 OK | 200 OK |
-| `/api/readyz` | 503 (state info) | 200 OK |
+| `/healthz` | 200 OK | 200 OK |
+| `/readyz` | 503 (state info) | 200 OK |
 
 **Example `/readyz` during boot:**
 ```json

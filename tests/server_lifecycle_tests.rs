@@ -171,7 +171,7 @@ rotate_size_mb = 10
 
     /// Get the health check URL
     fn health_url(&self) -> String {
-        format!("{}/api/healthz/all", self.base_url())
+        format!("{}/healthz/all", self.base_url())
     }
 }
 
@@ -643,7 +643,7 @@ async fn test_health_check_degradation() -> Result<()> {
     ];
 
     for component in component_names {
-        let component_url = format!("{}/api/healthz/{}", config.base_url(), component);
+        let component_url = format!("{}/healthz/{}", config.base_url(), component);
         let response = client.get(&component_url).send().await?;
 
         if response.status().is_success() {

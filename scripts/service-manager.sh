@@ -1360,7 +1360,7 @@ show_status() {
         echo -e "${GREEN}[RUNNING]${NC} Backend Server (PID: $pid, Port: $BACKEND_PORT)"
 
         # Check if HTTP endpoint responds
-        if curl -s "http://localhost:$BACKEND_PORT/api/healthz" > /dev/null 2>&1; then
+        if curl -s "http://localhost:$BACKEND_PORT/healthz" > /dev/null 2>&1; then
             echo -e "          ${GREEN}Health endpoint responding${NC}"
         else
             echo -e "          ${YELLOW}Health endpoint not responding${NC}"

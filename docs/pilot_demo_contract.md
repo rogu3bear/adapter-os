@@ -7,8 +7,8 @@
 
 ## Readiness
 
-- `GET http://localhost:8080/api/healthz` → `200 OK`
-- `GET http://localhost:8080/api/readyz` → `200 OK` when ready; `503` otherwise
+- `GET http://localhost:8080/healthz` → `200 OK`
+- `GET http://localhost:8080/readyz` → `200 OK` when ready; `503` otherwise
 
 ## Script Environment Variables
 

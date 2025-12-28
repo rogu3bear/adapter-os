@@ -518,7 +518,7 @@ chmod +x scripts/*.sh
 cargo run --release -p adapteros-server-api
 
 # Test connection
-curl http://localhost:8080/api/healthz
+curl http://localhost:8080/healthz
 
 # View logs
 RUST_LOG=debug cargo run --release -p adapteros-server-api

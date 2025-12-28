@@ -14,7 +14,7 @@ describe('Documents Page - Upload and List', () => {
   beforeEach(() => {
     // Wait for backend to be healthy before navigating
     cy.request({
-      url: '/api/healthz',
+      url: '/healthz',
       retryOnStatusCodeFailure: false,
       retryOnNetworkFailure: true,
       timeout: 30000,

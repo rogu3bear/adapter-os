@@ -28,7 +28,7 @@ export CYPRESS_API_URL="${CYPRESS_API_URL:-$API_URL_DEFAULT}"
 export CYPRESS_E2E_USER="${CYPRESS_E2E_USER:-dev@local}"
 export CYPRESS_E2E_PASS="${CYPRESS_E2E_PASS:-dev123}"
 
-API_HEALTH="${API_HEALTH:-${CYPRESS_API_URL}/api/readyz}"
+API_HEALTH="${API_HEALTH:-${CYPRESS_API_URL}/readyz}"
 UI_HEALTH="${UI_HEALTH:-${CYPRESS_baseUrl}}"
 HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-180}"
 HEALTH_INTERVAL="${HEALTH_INTERVAL:-5}"
@@ -114,7 +114,7 @@ echo "Waiting for API liveness..."
 api_liveness_timeout=60
 api_waited=0
 while (( api_waited < api_liveness_timeout )); do
-  if curl -fsS --max-time 2 "http://127.0.0.1:${API_PORT}/api/healthz" >/dev/null 2>&1; then
+  if curl -fsS --max-time 2 "http://127.0.0.1:${API_PORT}/healthz" >/dev/null 2>&1; then
     echo "✓ API is alive"
     break
   fi

@@ -10,7 +10,7 @@
  *   AOS_SERVER_HOST        - Backend host (default: 127.0.0.1)
  *   AOS_SERVER_PORT        - Backend port (default: 8080)
  *   AOS_UI_PORT            - Frontend port (default: 3200)
- *   AOS_BACKEND_HEALTH_PATH - Health endpoint (default: /api/healthz; use /api/readyz for worker tests)
+ *   AOS_BACKEND_HEALTH_PATH - Health endpoint (default: /healthz; use /readyz for worker tests)
  *   WAIT_ON_TIMEOUT        - Health check timeout in ms (default: 180000)
  *   WAIT_ON_INTERVAL       - Health check interval in ms (default: 1000)
  *   AOS_PID_FILE           - PID file path (default: var/aos-cp-e2e.pid)
@@ -28,7 +28,7 @@ const waitInterval = process.env.WAIT_ON_INTERVAL || '1000';
 const pidFile = process.env.AOS_PID_FILE || 'var/aos-cp-e2e.pid';
 
 // Construct health check URLs (use healthz for dev; readyz requires workers)
-const healthPath = process.env.AOS_BACKEND_HEALTH_PATH || '/api/healthz';
+const healthPath = process.env.AOS_BACKEND_HEALTH_PATH || '/healthz';
 const backendHealthUrl = `http-get://${backendHost}:${backendPort}${healthPath}`;
 const uiHealthUrl = `http://localhost:${uiPort}`;
 const healthUrls = `${backendHealthUrl},${uiHealthUrl}`;

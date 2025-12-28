@@ -68,7 +68,7 @@ Expected: a table of checks with passes (health, meta, auth responding).
 ## Browser walkthrough (exact URLs + what you should see)
 
 ### A) API sanity (optional, but good when demoing)
-- `http://127.0.0.1:8080/api/readyz`
+- `http://127.0.0.1:8080/readyz`
   - Expect HTTP `200` and JSON with `"status":"ready"` or `"status":"fully-ready"`.
 - `http://127.0.0.1:8080/api/swagger-ui`
   - Expect Swagger UI to load (interactive API docs).
@@ -155,8 +155,8 @@ Expected: JSON with `"text":"Echo: demo"` and a `run_receipt` block.
   ```
   Then rerun dev-up.
 
-4) **`/api/readyz` returns 503 (“booting…”, “maintenance”, or “draining”)**
-- Do: wait 10–30 seconds and refresh `http://127.0.0.1:8080/api/readyz`.
+4) **`/readyz` returns 503 ("booting…", "maintenance", or "draining")**
+- Do: wait 10–30 seconds and refresh `http://127.0.0.1:8080/readyz`.
 - If it stays 503: check the running server logs in the dev-up terminal.
 
 5) **Inference errors/timeouts**

@@ -154,7 +154,7 @@ check_command() {
     echo "=== HEALTH CHECKS ==="
     separator
 
-    echo "Testing /api/healthz endpoint:"
+    echo "Testing /healthz endpoint:"
     if curl -f -s -m 5 "$PROBE_BASE/healthz" >/dev/null 2>&1; then
         success "Health endpoint OK"
     else
@@ -162,7 +162,7 @@ check_command() {
     fi
     echo
 
-    echo "Testing /api/readyz endpoint:"
+    echo "Testing /readyz endpoint:"
     if readyz_response=$(curl -f -s -m 5 "$PROBE_BASE/readyz" 2>/dev/null); then
         success "Ready endpoint OK"
         if check_command jq; then
