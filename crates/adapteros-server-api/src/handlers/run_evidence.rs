@@ -6,14 +6,14 @@ use crate::state::AppState;
 use crate::types::ErrorResponse;
 use adapteros_core::evidence_envelope::{EvidenceEnvelope, InferenceReceiptRef};
 use adapteros_db::inference_trace::{recompute_receipt, TraceReceipt};
-use adapteros_lora_worker::memory::UmaStats;
+// UmaStats import removed - live runtime metrics excluded for deterministic exports
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::{header, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     Extension, Json,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::io::Write;
 use zip::{write::FileOptions, CompressionMethod, DateTime};
 
@@ -36,14 +36,46 @@ struct PolicyDigestEntry {
     warnings: Vec<String>,
 }
 
+/// Boot state snapshot for evidence bundles.
+///
+/// DETERMINISM: This struct intentionally excludes:
+/// - Phase timing fields (started_at_ms, finished_at_ms, duration_ms)
+/// - Live boot state (state, accepting_requests)
+///
+/// This ensures evidence bundles are fully deterministic - the same run
+/// will always produce the same ZIP hash regardless of when export occurs
+/// or whether the server has rebooted.
 #[derive(Debug, Serialize)]
-struct BootStateSnapshot {
-    boot_trace_id: String,
-    state: String,
-    accepting_requests: bool,
-    phases: Vec<crate::boot_state::PhaseStatus>,
+struct BootStateSnapshotDeterministic {
+    /// Boot session correlation ID (for debugging only).
+    /// NOTE: This is from the CURRENT boot session at export time, not the
+    /// boot session when the inference ran. Included for forensic reference
+    /// but should not be relied upon for determinism.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    boot_trace_id_current: Option<String>,
+    /// Phase outcomes only (no timing data)
+    phases: Vec<PhaseOutcomeDeterministic>,
 }
 
+/// Deterministic phase outcome for evidence bundles.
+///
+/// Contains only the phase name, outcome status, and optional error code.
+/// Excludes all timing fields (started_at_ms, finished_at_ms, duration_ms)
+/// to ensure reproducible evidence hashes.
+#[derive(Debug, Serialize)]
+struct PhaseOutcomeDeterministic {
+    name: String,
+    status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error_code: Option<String>,
+}
+
+/// Model status snapshot for evidence bundles.
+///
+/// DETERMINISM: This struct intentionally excludes live runtime metrics
+/// (ane_usage, uma_pressure_level) and mutable timestamps (updated_at)
+/// to ensure evidence bundles are fully deterministic - the same run
+/// will always produce the same ZIP hash.
 #[derive(Debug, Serialize)]
 struct ModelStatusSnapshot {
     status: adapteros_api_types::ModelLoadStatus,
@@ -53,12 +85,10 @@ struct ModelStatusSnapshot {
     model_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     memory_usage_mb: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    ane_usage: Option<crate::handlers::models::AneMemoryStatus>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    uma_pressure_level: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    updated_at: Option<String>,
+    // REMOVED for determinism:
+    // - ane_usage: live ANE memory captured at export time
+    // - uma_pressure_level: live UMA pressure captured at export time
+    // - updated_at: mutable DB timestamp
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     warnings: Vec<String>,
 }
@@ -73,6 +103,15 @@ struct BundleReadme {
     warnings: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     files: Vec<String>,
+}
+
+/// Query parameters for evidence export
+#[derive(Debug, Deserialize)]
+pub struct EvidenceExportParams {
+    /// If true, allow export even when replay ran with degraded RAG context.
+    /// By default, export is blocked for degraded runs to prevent misleading evidence.
+    #[serde(default)]
+    pub force_incomplete: bool,
 }
 
 fn trace_receipt_to_ref(receipt: &TraceReceipt) -> InferenceReceiptRef {
@@ -122,30 +161,20 @@ fn build_readme(summary: &BundleReadme) -> String {
     out
 }
 
-fn ane_usage_from_stats(stats: &UmaStats) -> Option<crate::handlers::models::AneMemoryStatus> {
-    let allocated_mb = stats.ane_allocated_mb?;
-    let used_mb = stats.ane_used_mb?;
-    let available_mb = stats.ane_available_mb?;
-    let usage_pct = stats.ane_usage_percent?;
-
-    Some(crate::handlers::models::AneMemoryStatus {
-        allocated_mb,
-        used_mb,
-        available_mb,
-        usage_pct,
-    })
-}
+// ane_usage_from_stats removed - live runtime metrics excluded for determinism
 
 #[utoipa::path(
     get,
     path = "/v1/runs/{run_id}/evidence",
     params(
-        ("run_id" = String, Path, description = "Inference run identifier (request_id)")
+        ("run_id" = String, Path, description = "Inference run identifier (request_id)"),
+        ("force_incomplete" = Option<bool>, Query, description = "Allow export even with degraded RAG context")
     ),
     responses(
         (status = 200, description = "Evidence bundle zip for the run"),
         (status = 403, description = "Forbidden", body = ErrorResponse),
         (status = 404, description = "Run not found", body = ErrorResponse),
+        (status = 412, description = "Precondition Failed - RAG context degraded", body = ErrorResponse),
         (status = 500, description = "Internal error", body = ErrorResponse)
     ),
     tag = "replay"
@@ -154,48 +183,71 @@ pub async fn download_run_evidence(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(run_id): Path<String>,
+    Query(params): Query<EvidenceExportParams>,
 ) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::InferenceExecute)?;
 
+    // SECURITY FIX: Enforce tenant isolation at DB layer by passing claims.tenant_id
     let metadata = state
         .db
-        .get_replay_metadata_by_inference(&run_id)
+        .get_replay_metadata_by_inference(&claims.tenant_id, &run_id)
         .await
         .map_err(db_error)?
         .ok_or_else(|| not_found("Run"))?;
 
+    // Defense in depth: also validate at handler level
     validate_tenant_isolation(&claims, &metadata.tenant_id)?;
 
+    // Block export for degraded RAG context unless force_incomplete is set
+    // This prevents misleading evidence claims when replay is not comparable
+    if let Some(ref fidelity) = metadata.rag_fidelity {
+        let is_degraded =
+            fidelity == "degraded" || fidelity == "stale" || fidelity == "unavailable";
+        if is_degraded && !params.force_incomplete {
+            return Err((
+                StatusCode::PRECONDITION_FAILED,
+                Json(ErrorResponse::new(format!(
+                    "Evidence export blocked: RAG context was {} during replay. \
+                     Evidence would not be comparable to original run. \
+                     Set force_incomplete=true to export anyway with warning.",
+                    fidelity
+                ))),
+            ));
+        }
+    }
+
     let mut warnings: Vec<String> = Vec::new();
+
+    // Add warning for forced incomplete exports
+    if let Some(ref fidelity) = metadata.rag_fidelity {
+        let is_degraded =
+            fidelity == "degraded" || fidelity == "stale" || fidelity == "unavailable";
+        if is_degraded && params.force_incomplete {
+            warnings.push(format!(
+                "CRITICAL: RAG context was {} during replay. Evidence is NOT comparable to original run.",
+                fidelity
+            ));
+        }
+    }
 
     // Replay metadata (always included)
     let replay_metadata_json = serde_json::to_vec_pretty(&metadata).map_err(internal_error)?;
 
     // Manifest reference with optional embedded manifest
+    // SECURITY FIX: Pass tenant_id for tenant isolation at DB layer
     let manifest_record = state
         .db
-        .get_manifest_by_hash(&metadata.manifest_hash)
+        .get_manifest_by_hash(&metadata.tenant_id, &metadata.manifest_hash)
         .await
         .map_err(db_error)?;
     let manifest_entry = if let Some(rec) = manifest_record {
-        if rec.tenant_id != metadata.tenant_id {
-            warnings.push(format!(
-                "manifest hash {} belongs to different tenant; embedding skipped",
-                metadata.manifest_hash
-            ));
-            ManifestRefEntry {
-                manifest_hash: metadata.manifest_hash.clone(),
-                manifest_json: None,
-                warnings: vec!["manifest record belongs to another tenant".to_string()],
-            }
-        } else {
-            let manifest_json: serde_json::Value =
-                serde_json::from_str(&rec.body_json).unwrap_or_else(|_| serde_json::json!({}));
-            ManifestRefEntry {
-                manifest_hash: metadata.manifest_hash.clone(),
-                manifest_json: Some(manifest_json),
-                warnings: Vec::new(),
-            }
+        // Manifest found and already tenant-scoped by the query
+        let manifest_json: serde_json::Value =
+            serde_json::from_str(&rec.body_json).unwrap_or_else(|_| serde_json::json!({}));
+        ManifestRefEntry {
+            manifest_hash: metadata.manifest_hash.clone(),
+            manifest_json: Some(manifest_json),
+            warnings: Vec::new(),
         }
     } else {
         warnings.push(format!(
@@ -222,12 +274,24 @@ pub async fn download_run_evidence(
     };
     let policy_digest_json = serde_json::to_vec_pretty(&policy_entry).map_err(internal_error)?;
 
-    // Boot state snapshot (best-effort)
-    let boot_snapshot = state.boot_state.as_ref().map(|bs| BootStateSnapshot {
-        boot_trace_id: bs.boot_trace_id(),
-        state: bs.current_state().as_str().to_string(),
-        accepting_requests: bs.is_accepting_requests(),
-        phases: bs.phase_statuses(),
+    // Boot state snapshot (deterministic - no timing fields)
+    // DETERMINISM: We exclude phase timing (started_at_ms, finished_at_ms, duration_ms)
+    // and live boot state (state, accepting_requests) to ensure evidence bundles
+    // produce identical hashes regardless of when export occurs or server reboots.
+    let boot_snapshot = state.boot_state.as_ref().map(|bs| {
+        let phases = bs
+            .phase_statuses()
+            .into_iter()
+            .map(|p| PhaseOutcomeDeterministic {
+                name: p.name,
+                status: format!("{:?}", p.status),
+                error_code: p.error_code,
+            })
+            .collect();
+        BootStateSnapshotDeterministic {
+            boot_trace_id_current: Some(bs.boot_trace_id()),
+            phases,
+        }
     });
     if boot_snapshot.is_none() {
         warnings.push(
@@ -240,6 +304,8 @@ pub async fn download_run_evidence(
         .transpose()?;
 
     // Model status snapshot (tenant scoped)
+    // DETERMINISM: We intentionally exclude live runtime metrics (ane_usage, uma_pressure_level)
+    // and mutable timestamps (updated_at) to ensure evidence bundles are fully deterministic.
     let mut model_warnings = Vec::new();
     let status_record = state
         .db
@@ -247,18 +313,12 @@ pub async fn download_run_evidence(
         .await
         .map_err(db_error)?;
     let model_snapshot = if let Some(status) = status_record {
-        let stats = state.uma_monitor.get_uma_stats().await;
-        let ane_usage = ane_usage_from_stats(&stats);
-        let uma_pressure = Some(state.uma_monitor.get_current_pressure().to_string());
         let model_name = status.model_id.clone();
         ModelStatusSnapshot {
             status: adapteros_api_types::ModelLoadStatus::parse_status(&status.status),
             model_id: Some(status.model_id),
             model_name: Some(model_name),
             memory_usage_mb: status.memory_usage_mb,
-            ane_usage,
-            uma_pressure_level: uma_pressure,
-            updated_at: Some(status.updated_at),
             warnings: Vec::new(),
         }
     } else {
@@ -269,9 +329,6 @@ pub async fn download_run_evidence(
             model_id: None,
             model_name: None,
             memory_usage_mb: None,
-            ane_usage: None,
-            uma_pressure_level: Some(state.uma_monitor.get_current_pressure().to_string()),
-            updated_at: None,
             warnings: model_warnings.clone(),
         }
     };
@@ -406,6 +463,37 @@ pub async fn download_run_evidence(
     let filename = format!("aos_evidence_{}_{}.zip", run_id, manifest_fragment);
     let disposition = HeaderValue::from_str(&format!("attachment; filename=\"{}\"", filename))
         .unwrap_or_else(|_| HeaderValue::from_static("attachment"));
+
+    // Emit audit event for evidence export
+    let export_metadata = serde_json::json!({
+        "run_id": run_id,
+        "manifest_hash": metadata.manifest_hash,
+        "bundle_size_bytes": buffer.len(),
+        "warnings_count": warnings.len(),
+        "has_envelope": run_envelope_bytes.is_some(),
+    });
+    if let Err(e) = state
+        .db
+        .log_audit(
+            &claims.sub,
+            &claims.role,
+            &claims.tenant_id,
+            "evidence.exported",
+            "inference_evidence",
+            Some(&run_id),
+            "success",
+            None,
+            None,
+            Some(&export_metadata.to_string()),
+        )
+        .await
+    {
+        tracing::warn!(
+            run_id = %run_id,
+            error = %e,
+            "Failed to log evidence export audit event"
+        );
+    }
 
     let response = (
         [
