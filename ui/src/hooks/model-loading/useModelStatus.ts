@@ -34,6 +34,12 @@ export interface UseModelStatusReturn {
   memoryUsageMb: number | null;
   errorMessage: string | null;
   isReady: boolean;
+  /** Timestamp of last successful status poll (null if never polled) */
+  lastPolledAt: number | null;
+  /** True when status is based on failed API fetch (not actual no-model state) */
+  isFetchError: boolean;
+  /** Error from last fetch attempt (null if fetch succeeded) */
+  fetchError: Error | null;
   refetch: () => Promise<void>;
 }
 
@@ -53,17 +59,31 @@ export function useModelStatus(
   const [modelPath, setModelPath] = useState<string | null>(null);
   const [memoryUsageMb, setMemoryUsageMb] = useState<number | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [lastPolledAt, setLastPolledAt] = useState<number | null>(null);
+  const [fetchError, setFetchError] = useState<Error | null>(null);
   const isMountedRef = useRef(true);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const { enabled: demoMode, activeModel, modelSwitching } = useDemoMode();
 
-  const fetchStatus = useCallback(async () => {
-    if (!isMountedRef.current) return;
+  // Exponential backoff state for error handling
+  const errorCountRef = useRef(0);
+  const currentIntervalRef = useRef(pollingInterval);
+  const MAX_BACKOFF_MULTIPLIER = 4; // Max 4x the base interval (e.g., 5s -> 20s max)
+
+  const fetchStatus = useCallback(async (): Promise<boolean> => {
+    if (!isMountedRef.current) return false;
 
     try {
       const response = await apiClient.getBaseModelStatus(tenantId);
-      
-      if (!isMountedRef.current) return;
+
+      if (!isMountedRef.current) return false;
+
+      // Clear fetch error on successful API call
+      setFetchError(null);
+
+      // Reset error count on success
+      errorCountRef.current = 0;
+      currentIntervalRef.current = pollingInterval;
 
       if (!response || !response.model_id || response.model_id === 'none') {
         setStatus('no-model');
@@ -72,7 +92,7 @@ export function useModelStatus(
         setModelPath(null);
         setMemoryUsageMb(null);
         setErrorMessage(null);
-        return;
+        return true;
       }
 
       // Map backend status to our state
@@ -105,22 +125,38 @@ export function useModelStatus(
       setMemoryUsageMb(response.memory_usage_mb || null);
       setErrorMessage(response.error_message || null);
 
+      // Mark successful poll completion for state source coordination
+      setLastPolledAt(Date.now());
+      return true;
+
     } catch (err) {
-      if (!isMountedRef.current) return;
+      if (!isMountedRef.current) return false;
+
+      const error = err instanceof Error ? err : new Error(String(err));
 
       // Check if this is a 401 Unauthorized error (user not logged in)
-      const is401 = err instanceof Error &&
-        (err.message.includes('401') ||
-         err.message.includes('Unauthorized') ||
-         err.message.includes('authentication'));
+      const is401 = error.message.includes('401') ||
+        error.message.includes('Unauthorized') ||
+        error.message.includes('authentication');
 
-      // API error likely means no model status available
-      setStatus('no-model');
+      // Track fetch error so components can distinguish API failure from actual no-model
+      setFetchError(error);
+
+      // Increment error count for backoff (cap at 3 to limit max backoff)
+      errorCountRef.current = Math.min(errorCountRef.current + 1, 3);
+      currentIntervalRef.current = Math.min(
+        pollingInterval * Math.pow(2, errorCountRef.current),
+        pollingInterval * MAX_BACKOFF_MULTIPLIER
+      );
+
+      // API error - keep status as 'checking' to indicate unknown state
+      // Only set 'no-model' if we're certain there's no model
+      setStatus('checking');
       setModelName(null);
       setModelId(null);
       setModelPath(null);
       setMemoryUsageMb(null);
-      setErrorMessage(null);
+      setErrorMessage(is401 ? 'Authentication required' : 'Unable to fetch model status');
 
       // Only log at debug level - this is expected when no model is configured or not authenticated
       // Don't log 401 errors at all - they're expected before login
@@ -129,23 +165,41 @@ export function useModelStatus(
           component: 'useModelStatus',
           operation: 'fetchStatus',
           tenantId,
+          errorCount: errorCountRef.current,
+          nextIntervalMs: currentIntervalRef.current,
         });
       }
+      return false;
     }
-  }, [tenantId]);
+  }, [tenantId, pollingInterval]);
 
-  // Initial fetch and polling setup
+  // Initial fetch and polling setup with dynamic backoff
   useEffect(() => {
     isMountedRef.current = true;
-    
-    // Initial fetch
-    fetchStatus();
+    let timeoutId: NodeJS.Timeout | null = null;
 
-    // Set up polling
-    intervalRef.current = setInterval(fetchStatus, pollingInterval);
+    const scheduleNextPoll = () => {
+      if (!isMountedRef.current) return;
+
+      timeoutId = setTimeout(async () => {
+        await fetchStatus();
+        // Schedule next poll with current interval (may have changed due to errors)
+        scheduleNextPoll();
+      }, currentIntervalRef.current);
+    };
+
+    // Initial fetch
+    fetchStatus().then(() => {
+      // Start polling after initial fetch
+      scheduleNextPoll();
+    });
 
     return () => {
       isMountedRef.current = false;
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+        timeoutId = null;
+      }
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
         intervalRef.current = null;
@@ -202,6 +256,9 @@ export function useModelStatus(
     memoryUsageMb: effectiveMemoryUsage,
     errorMessage: effectiveError,
     isReady: effectiveStatus === 'ready',
+    lastPolledAt,
+    isFetchError: fetchError !== null,
+    fetchError,
     refetch: fetchStatus,
   };
 }

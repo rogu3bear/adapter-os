@@ -260,7 +260,7 @@ export const systemEntries: GlossaryEntry[] = [
     category: 'system',
     content: {
       brief: 'Apple\'s Metal GPU API for graphics and compute.',
-      detailed: 'Metal is Apple\'s low-level GPU programming framework providing direct access to graphics and compute capabilities. AdapterOS uses Metal as the last-resort fallback backend when CoreML and MLX are unavailable. Note: Metal backend has incomplete model loading (LM head weights issue) and should only be used for legacy scenarios. When complete, it provides guaranteed determinism through controlled shader execution.'
+      detailed: 'Metal is Apple\'s low-level GPU programming framework providing direct access to graphics and compute capabilities. AdapterOS uses Metal as the last-resort fallback backend when CoreML and MLX are unavailable. Note: Metal backend has incomplete model loading (LM head weights issue) and should only be used for legacy scenarios. Determinism support is planned but not yet fully implemented for this backend.'
     },
     relatedTerms: ['metal-family', 'backend', 'gpu-usage'],
     aliases: ['metal api', 'metal framework', 'metal gpu']

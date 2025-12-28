@@ -92,6 +92,29 @@ function formatInferenceReady(value: StatusIndicator): string {
   return formatIndicator(value);
 }
 
+/** Blocker severity mapping - some blockers are warnings, not critical */
+const BLOCKER_SEVERITY: Record<string, Severity> = {
+  // Critical blockers - prevent inference
+  boot_failed: 'critical',
+  database_unavailable: 'critical',
+  worker_missing: 'critical',
+  no_model_loaded: 'critical',
+  system_booting: 'warn', // System is starting, not failed
+  // Warning blockers - degraded but not blocking
+  telemetry_degraded: 'warn',
+};
+
+function getBlockerSeverity(blocker: string): Severity {
+  return BLOCKER_SEVERITY[blocker] ?? 'critical'; // Default to critical for unknown blockers
+}
+
+function getBlockersSeverity(blockers: string[] | null | undefined): Severity {
+  if (blockers === null || blockers === undefined) return 'unknown';
+  if (blockers.length === 0) return 'ok';
+  // Return the highest severity among all blockers
+  return pickSeverity(blockers.map(getBlockerSeverity));
+}
+
 function formatBlockers(blockers: string[] | null | undefined): string {
   if (blockers === null || blockers === undefined) return 'Unknown';
   if (!blockers.length) return 'None';
@@ -196,13 +219,8 @@ export function SystemStatusDrawer({ open, onOpenChange, tenantId }: SystemStatu
 
   const inferenceSeverity = useMemo(() => {
     const readySeverity = resolveSeverity(data?.inferenceReady ?? null);
-    const blockerSeverity =
-      data?.inferenceBlockers === null || data?.inferenceBlockers === undefined
-        ? 'unknown'
-        : data.inferenceBlockers.length
-          ? 'critical'
-          : 'ok';
-    return pickSeverity([readySeverity, blockerSeverity as Severity]);
+    const blockerSeverity = getBlockersSeverity(data?.inferenceBlockers);
+    return pickSeverity([readySeverity, blockerSeverity]);
   }, [data?.inferenceBlockers, data?.inferenceReady]);
 
   const kernelSeverity = useMemo(
@@ -349,13 +367,7 @@ export function SystemStatusDrawer({ open, onOpenChange, tenantId }: SystemStatu
               <StatusRow
                 label="Blockers"
                 value={formatBlockers(data?.inferenceBlockers)}
-                severity={
-                  data?.inferenceBlockers === null || data?.inferenceBlockers === undefined
-                    ? 'unknown'
-                    : data.inferenceBlockers.length
-                      ? 'critical'
-                      : resolveSeverity(data?.inferenceReady ?? null)
-                }
+                severity={getBlockersSeverity(data?.inferenceBlockers)}
                 hint="Active model mismatch or missing dependencies"
               />
             </Section>
