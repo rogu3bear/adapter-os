@@ -31,6 +31,12 @@ pub struct InferenceEvidence {
     pub rag_scores: Option<String>,
     /// Collection ID used for scoped RAG retrieval
     pub rag_collection_id: Option<String>,
+    /// Base model ID used for inference (model context tracking)
+    pub base_model_id: Option<String>,
+    /// JSON array of adapter IDs used for inference
+    pub adapter_ids: Option<String>,
+    /// Manifest hash for deterministic provenance
+    pub manifest_hash: Option<String>,
 }
 
 /// Parameters for creating inference evidence
@@ -54,6 +60,12 @@ pub struct CreateEvidenceParams {
     pub rag_scores: Option<Vec<f64>>,
     /// Collection ID used for scoped RAG retrieval
     pub rag_collection_id: Option<String>,
+    /// Base model ID at time of inference (snapshot for audit)
+    pub base_model_id: Option<String>,
+    /// Adapter IDs at time of inference (snapshot for audit)
+    pub adapter_ids: Option<Vec<String>>,
+    /// Manifest hash at time of inference (determinism binding)
+    pub manifest_hash: Option<String>,
 }
 
 impl Db {
@@ -79,6 +91,11 @@ impl Db {
             .rag_scores
             .as_ref()
             .map(|scores| serde_json::to_string(scores).unwrap_or_default());
+        // Serialize adapter_ids to JSON
+        let adapter_ids_json = params
+            .adapter_ids
+            .as_ref()
+            .map(|ids| serde_json::to_string(ids).unwrap_or_default());
 
         // Use tenant_id from params (required field)
         let tenant_id = &params.tenant_id;
@@ -88,9 +105,10 @@ impl Db {
             INSERT INTO inference_evidence (
                 id, tenant_id, inference_id, session_id, message_id, document_id, chunk_id,
                 page_number, document_hash, chunk_hash, relevance_score, rank,
-                context_hash, created_at, rag_doc_ids, rag_scores, rag_collection_id
+                context_hash, created_at, rag_doc_ids, rag_scores, rag_collection_id,
+                base_model_id, adapter_ids, manifest_hash
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?, ?, ?, ?, ?, ?)
             "#,
         )
         .bind(&id)
@@ -109,9 +127,43 @@ impl Db {
         .bind(&rag_doc_ids_json)
         .bind(&rag_scores_json)
         .bind(&params.rag_collection_id)
+        .bind(&params.base_model_id)
+        .bind(&adapter_ids_json)
+        .bind(&params.manifest_hash)
         .execute(self.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to create inference evidence: {}", e)))?;
+
+        // Emit audit event for evidence creation
+        let metadata = serde_json::json!({
+            "inference_id": params.inference_id,
+            "document_id": params.document_id,
+            "chunk_id": params.chunk_id,
+            "session_id": params.session_id,
+            "message_id": params.message_id,
+            "rag_collection_id": params.rag_collection_id,
+        });
+        if let Err(e) = self
+            .log_audit(
+                "system",
+                "system",
+                &params.tenant_id,
+                "evidence.created",
+                "inference_evidence",
+                Some(&id),
+                "success",
+                None,
+                None,
+                Some(&metadata.to_string()),
+            )
+            .await
+        {
+            tracing::warn!(
+                evidence_id = %id,
+                error = %e,
+                "Failed to log evidence creation audit event"
+            );
+        }
 
         Ok(id)
     }
@@ -262,14 +314,44 @@ impl Db {
             .await
             .map_err(|e| AosError::Database(format!("Failed to insert evidence record: {}", e)))?;
 
-            ids.push(id);
+            ids.push((id, params.tenant_id.clone(), params.inference_id.clone()));
         }
 
         tx.commit()
             .await
             .map_err(|e| AosError::Database(format!("Failed to commit transaction: {}", e)))?;
 
-        Ok(ids)
+        // Emit audit events for batch evidence creation (after commit)
+        let result_ids: Vec<String> = ids.iter().map(|(id, _, _)| id.clone()).collect();
+        for (id, tenant_id, inference_id) in &ids {
+            let metadata = serde_json::json!({
+                "inference_id": inference_id,
+                "batch_size": result_ids.len(),
+            });
+            if let Err(e) = self
+                .log_audit(
+                    "system",
+                    "system",
+                    tenant_id,
+                    "evidence.created",
+                    "inference_evidence",
+                    Some(id),
+                    "success",
+                    None,
+                    None,
+                    Some(&metadata.to_string()),
+                )
+                .await
+            {
+                tracing::warn!(
+                    evidence_id = %id,
+                    error = %e,
+                    "Failed to log batch evidence creation audit event"
+                );
+            }
+        }
+
+        Ok(result_ids)
     }
 }
 
@@ -292,6 +374,9 @@ struct InferenceEvidenceRow {
     rag_doc_ids: Option<String>,
     rag_scores: Option<String>,
     rag_collection_id: Option<String>,
+    base_model_id: Option<String>,
+    adapter_ids: Option<String>,
+    manifest_hash: Option<String>,
 }
 
 impl From<InferenceEvidenceRow> for InferenceEvidence {
@@ -313,6 +398,9 @@ impl From<InferenceEvidenceRow> for InferenceEvidence {
             rag_doc_ids: row.rag_doc_ids,
             rag_scores: row.rag_scores,
             rag_collection_id: row.rag_collection_id,
+            base_model_id: row.base_model_id,
+            adapter_ids: row.adapter_ids,
+            manifest_hash: row.manifest_hash,
         }
     }
 }
@@ -387,6 +475,9 @@ mod tests {
             rag_doc_ids: None,
             rag_scores: None,
             rag_collection_id: None,
+            base_model_id: None,
+            adapter_ids: None,
+            manifest_hash: None,
         };
 
         let id = db.create_inference_evidence(params).await.unwrap();
@@ -437,6 +528,9 @@ mod tests {
                 rag_doc_ids: None,
                 rag_scores: None,
                 rag_collection_id: None,
+                base_model_id: None,
+                adapter_ids: None,
+                manifest_hash: None,
             };
 
             db.create_inference_evidence(params).await.unwrap();
