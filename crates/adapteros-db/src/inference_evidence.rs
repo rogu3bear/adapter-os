@@ -197,21 +197,28 @@ impl Db {
     /// Get evidence records for a chat message
     ///
     /// Retrieves all document chunks that contributed to a specific message
-    /// in a chat session, sorted by rank.
+    /// in a chat session, sorted by rank. Filters by tenant_id for workspace isolation.
+    ///
+    /// # Arguments
+    /// * `tenant_id` - The tenant ID for workspace isolation
+    /// * `message_id` - The message ID to retrieve evidence for
     pub async fn get_evidence_by_message(
         &self,
+        tenant_id: &str,
         message_id: &str,
     ) -> Result<Vec<InferenceEvidence>> {
         let records = sqlx::query_as::<_, InferenceEvidenceRow>(
             r#"
             SELECT id, inference_id, session_id, message_id, document_id, chunk_id,
                    page_number, document_hash, chunk_hash, relevance_score, rank,
-                   context_hash, created_at, rag_doc_ids, rag_scores, rag_collection_id
+                   context_hash, created_at, rag_doc_ids, rag_scores, rag_collection_id,
+                   base_model_id, adapter_ids, manifest_hash
             FROM inference_evidence
-            WHERE message_id = ?
+            WHERE tenant_id = ? AND message_id = ?
             ORDER BY rank ASC
             "#,
         )
+        .bind(tenant_id)
         .bind(message_id)
         .fetch_all(self.pool())
         .await
@@ -491,7 +498,7 @@ mod tests {
 
         // Retrieve by message
         let evidence = db
-            .get_evidence_by_message(message_id.as_ref().unwrap())
+            .get_evidence_by_message(&_tenant_id, message_id.as_ref().unwrap())
             .await
             .unwrap();
         assert_eq!(evidence.len(), 1);
