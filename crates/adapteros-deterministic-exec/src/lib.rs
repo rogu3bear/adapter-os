@@ -224,6 +224,16 @@ impl DeterministicJoinHandle {
     pub fn task_id(&self) -> TaskId {
         self.task_id
     }
+
+    /// Check if the task has finished
+    ///
+    /// For now, returns false since we don't track completion state.
+    /// In a real implementation, this would check the task's completion status.
+    pub fn is_finished(&self) -> bool {
+        // Stub: we don't currently track task completion state
+        // Return false to trigger abort behavior in shutdown
+        false
+    }
 }
 
 /// Event types logged by the executor
