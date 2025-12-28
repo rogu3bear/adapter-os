@@ -311,8 +311,7 @@ pub async fn get_message_evidence(
         )
     })?;
 
-    // Get evidence from database
-    // SECURITY: Pass tenant_id to enforce workspace isolation at DB layer
+    // Get evidence from database with tenant isolation
     let evidence = state
         .db
         .get_evidence_by_message(&claims.tenant_id, &message_id)
