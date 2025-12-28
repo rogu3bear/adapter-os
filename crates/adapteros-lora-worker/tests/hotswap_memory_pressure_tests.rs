@@ -52,17 +52,29 @@ async fn test_preload_succeeds_when_vram_available() {
     let hash = B3Hash::hash(b"adapter_with_vram");
 
     // Preload with positive VRAM should succeed
-    let result = table.preload("adapter_with_vram".to_string(), hash, 100).await;
+    let result = table
+        .preload("adapter_with_vram".to_string(), hash, 100)
+        .await;
 
-    assert!(result.is_ok(), "Preload with valid VRAM should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Preload with valid VRAM should succeed: {:?}",
+        result.err()
+    );
 
     // Verify adapter is in staged state
     let active = table.get_active();
-    assert!(active.is_empty(), "Preloaded adapter should not be active yet");
+    assert!(
+        active.is_empty(),
+        "Preloaded adapter should not be active yet"
+    );
 
     // Swap in the adapter to verify it was staged
     let swap_result = table.swap(&["adapter_with_vram".to_string()], &[]).await;
-    assert!(swap_result.is_ok(), "Swap should succeed for preloaded adapter");
+    assert!(
+        swap_result.is_ok(),
+        "Swap should succeed for preloaded adapter"
+    );
 
     // Now the adapter should be active
     let active = table.get_active();
@@ -95,12 +107,20 @@ fn test_uma_pressure_monitor_test_override() {
 
     // Default should be Low
     let initial = monitor.get_current_pressure();
-    assert_eq!(initial, MemoryPressureLevel::Low, "Initial pressure should be Low");
+    assert_eq!(
+        initial,
+        MemoryPressureLevel::Low,
+        "Initial pressure should be Low"
+    );
 
     // Override to Critical for testing
     monitor.set_pressure_for_test(MemoryPressureLevel::Critical);
     let critical = monitor.get_current_pressure();
-    assert_eq!(critical, MemoryPressureLevel::Critical, "Override should take effect");
+    assert_eq!(
+        critical,
+        MemoryPressureLevel::Critical,
+        "Override should take effect"
+    );
 
     // Override to High
     monitor.set_pressure_for_test(MemoryPressureLevel::High);
@@ -136,10 +156,7 @@ async fn test_force_cleanup_triggered_on_high_pressure() {
     // Perform several swaps to accumulate retired stacks
     for i in 1..5 {
         table
-            .swap(
-                &[format!("adapter{}", i)],
-                &[format!("adapter{}", i - 1)],
-            )
+            .swap(&[format!("adapter{}", i)], &[format!("adapter{}", i - 1)])
             .await
             .expect("Swap should succeed");
     }
@@ -147,7 +164,10 @@ async fn test_force_cleanup_triggered_on_high_pressure() {
     // Verify final state
     let active = table.get_active();
     assert_eq!(active.len(), 1, "Should have one active adapter");
-    assert_eq!(active[0].id, "adapter4", "Last swapped adapter should be active");
+    assert_eq!(
+        active[0].id, "adapter4",
+        "Last swapped adapter should be active"
+    );
 
     // Total VRAM should be tracked for the active adapter
     let total_vram = table.total_vram_mb();
@@ -183,7 +203,10 @@ async fn test_concurrent_preloads_succeed() {
         }
     }
 
-    assert_eq!(success_count, 10, "All 10 concurrent preloads should succeed");
+    assert_eq!(
+        success_count, 10,
+        "All 10 concurrent preloads should succeed"
+    );
 
     // Verify all adapters can be swapped in
     let mut all_adapter_ids: Vec<String> = (0..10)
@@ -191,7 +214,10 @@ async fn test_concurrent_preloads_succeed() {
         .collect();
 
     // Swap in all adapters
-    table.swap(&all_adapter_ids, &[]).await.expect("Swap all should succeed");
+    table
+        .swap(&all_adapter_ids, &[])
+        .await
+        .expect("Swap all should succeed");
 
     let active = table.get_active();
     assert_eq!(active.len(), 10, "All 10 adapters should be active");

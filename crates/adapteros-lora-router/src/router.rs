@@ -32,6 +32,49 @@ fn determinism_debug_enabled() -> bool {
     })
 }
 
+/// Ensure k-sparse is within valid bounds.
+/// Clamps to 1-MAX_K range and warns if out of bounds.
+fn sanitize_k(k: usize) -> usize {
+    if k == 0 {
+        tracing::warn!(k = k, "k_sparse must be at least 1; clamping to 1");
+        1
+    } else if k > MAX_K {
+        tracing::warn!(
+            k = k,
+            max_k = MAX_K,
+            "k_sparse exceeds maximum; clamping to {}",
+            MAX_K
+        );
+        MAX_K
+    } else {
+        k
+    }
+}
+
+/// Ensure entropy floor is valid for gate calculation.
+/// Falls back to default when eps is non-finite or out of range.
+fn sanitize_eps(eps: f32) -> f32 {
+    use adapteros_core::defaults::DEFAULT_ENTROPY_FLOOR;
+
+    if !eps.is_finite() {
+        tracing::warn!(
+            eps = eps,
+            "entropy_floor must be finite; falling back to {}",
+            DEFAULT_ENTROPY_FLOOR
+        );
+        DEFAULT_ENTROPY_FLOOR
+    } else if !(0.0..=1.0).contains(&eps) {
+        tracing::warn!(
+            eps = eps,
+            "entropy_floor must be between 0 and 1; falling back to {}",
+            DEFAULT_ENTROPY_FLOOR
+        );
+        DEFAULT_ENTROPY_FLOOR
+    } else {
+        eps
+    }
+}
+
 /// Ensure temperature is usable for deterministic softmax.
 /// Falls back to 1.0 when tau is non-positive or non-finite to avoid
 /// degenerate routing.
@@ -134,7 +177,9 @@ pub struct AbstainContext {
 impl Router {
     /// Create a new router with custom feature weights
     pub fn new_with_weights(feature_weights: RouterWeights, k: usize, tau: f32, eps: f32) -> Self {
+        let k = sanitize_k(k);
         let tau = sanitize_tau(tau);
+        let eps = sanitize_eps(eps);
         Self {
             feature_weights,
             k,
@@ -182,8 +227,13 @@ impl Router {
         tau: f32,
         policy_config: &RouterConfig,
     ) -> Self {
-        // Validate K against policy
-        if k > policy_config.k_sparse {
+        // Sanitize both k and policy k_sparse, then take minimum
+        let sanitized_k = sanitize_k(k);
+        let policy_k = sanitize_k(policy_config.k_sparse);
+        let final_k = sanitized_k.min(policy_k);
+
+        // Warn if original k exceeded policy limit (but was within absolute bounds)
+        if k <= MAX_K && k > policy_config.k_sparse {
             tracing::warn!(
                 "Requested k={} exceeds policy maximum k_sparse={}, clamping to policy maximum",
                 k,
@@ -193,9 +243,9 @@ impl Router {
 
         Self {
             feature_weights,
-            k: k.min(policy_config.k_sparse),
+            k: final_k,
             tau: sanitize_tau(tau),
-            eps: policy_config.entropy_floor,
+            eps: sanitize_eps(policy_config.entropy_floor),
             _token_count: 0,
             full_log_tokens: policy_config.sample_tokens_full,
             orthogonal_constraints: None,

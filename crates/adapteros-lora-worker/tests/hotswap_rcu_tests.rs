@@ -42,14 +42,22 @@ async fn test_rcu_retirement_multiple_adapters() {
 
     // Retire adapters one by one
     for i in 0..10 {
-        let keep: Vec<String> = ((i + 1)..10).map(|j| format!("rcu-adapter-{}", j)).collect();
+        let keep: Vec<String> = ((i + 1)..10)
+            .map(|j| format!("rcu-adapter-{}", j))
+            .collect();
         let retire = vec![format!("rcu-adapter-{}", i)];
 
         if keep.is_empty() {
             // Preload a new adapter to swap to when retiring the last one
             let hash = B3Hash::hash(b"final-adapter");
-            table.preload("final-adapter".to_string(), hash, 10).await.unwrap();
-            table.swap(&["final-adapter".to_string()], &retire).await.unwrap();
+            table
+                .preload("final-adapter".to_string(), hash, 10)
+                .await
+                .unwrap();
+            table
+                .swap(&["final-adapter".to_string()], &retire)
+                .await
+                .unwrap();
         } else {
             table.swap(&keep, &retire).await.unwrap();
         }
@@ -69,9 +77,18 @@ async fn test_retire_list_consistency() {
     let hash2 = B3Hash::hash(b"retire-test-2");
     let hash3 = B3Hash::hash(b"retire-test-3");
 
-    table.preload("retire-test-1".to_string(), hash1, 50).await.unwrap();
-    table.preload("retire-test-2".to_string(), hash2, 50).await.unwrap();
-    table.preload("retire-test-3".to_string(), hash3, 50).await.unwrap();
+    table
+        .preload("retire-test-1".to_string(), hash1, 50)
+        .await
+        .unwrap();
+    table
+        .preload("retire-test-2".to_string(), hash2, 50)
+        .await
+        .unwrap();
+    table
+        .preload("retire-test-3".to_string(), hash3, 50)
+        .await
+        .unwrap();
 
     // Activate 1 and 2
     table
@@ -112,8 +129,14 @@ async fn test_prevent_unload_active_adapter() {
     let table = Arc::new(AdapterTable::new());
 
     let hash = B3Hash::hash(b"still-active");
-    table.preload("still-active".to_string(), hash, 50).await.unwrap();
-    table.swap(&["still-active".to_string()], &[]).await.unwrap();
+    table
+        .preload("still-active".to_string(), hash, 50)
+        .await
+        .unwrap();
+    table
+        .swap(&["still-active".to_string()], &[])
+        .await
+        .unwrap();
 
     // Increment refs to make it active
     table.inc_ref("still-active").await;
@@ -121,7 +144,10 @@ async fn test_prevent_unload_active_adapter() {
 
     // Even if we try to swap out, it should remain tracked until refs released
     let hash2 = B3Hash::hash(b"replacement");
-    table.preload("replacement".to_string(), hash2, 50).await.unwrap();
+    table
+        .preload("replacement".to_string(), hash2, 50)
+        .await
+        .unwrap();
     table
         .swap(&["replacement".to_string()], &["still-active".to_string()])
         .await
@@ -144,17 +170,17 @@ async fn test_swap_atomicity_all_or_nothing() {
     let table = Arc::new(AdapterTable::new());
 
     let hash1 = B3Hash::hash(b"atom-1");
-    table.preload("atom-1".to_string(), hash1, 50).await.unwrap();
+    table
+        .preload("atom-1".to_string(), hash1, 50)
+        .await
+        .unwrap();
 
     // Swap in atom-1
     table.swap(&["atom-1".to_string()], &[]).await.unwrap();
 
     // Try to swap in non-existent adapter (should fail validation)
     let result = table
-        .swap(
-            &["atom-1".to_string(), "non-existent".to_string()],
-            &[],
-        )
+        .swap(&["atom-1".to_string(), "non-existent".to_string()], &[])
         .await;
 
     // Should fail because non-existent was not preloaded
@@ -172,9 +198,7 @@ async fn test_staged_not_found_validation_failure() {
     let table = Arc::new(AdapterTable::new());
 
     // Try to swap in an adapter that was never preloaded
-    let result = table
-        .swap(&["never-preloaded".to_string()], &[])
-        .await;
+    let result = table.swap(&["never-preloaded".to_string()], &[]).await;
 
     assert!(result.is_err());
     let err = result.unwrap_err();
@@ -200,7 +224,10 @@ async fn test_concurrent_swap_consistency() {
     }
 
     // Initial swap
-    table.swap(&["concurrent-0".to_string()], &[]).await.unwrap();
+    table
+        .swap(&["concurrent-0".to_string()], &[])
+        .await
+        .unwrap();
 
     let mut handles = vec![];
 
@@ -222,7 +249,10 @@ async fn test_concurrent_swap_consistency() {
 
     // After all swaps, should have exactly one active adapter
     let active = table.get_active();
-    assert!(!active.is_empty(), "Should have at least one active adapter");
+    assert!(
+        !active.is_empty(),
+        "Should have at least one active adapter"
+    );
 }
 
 /// Test generation counter doesn't regress during rollback.
@@ -231,8 +261,14 @@ async fn test_generation_no_regression_after_failed_swap() {
     let table = Arc::new(AdapterTable::new());
 
     let hash1 = B3Hash::hash(b"gen-noregress-1");
-    table.preload("gen-noregress-1".to_string(), hash1, 50).await.unwrap();
-    table.swap(&["gen-noregress-1".to_string()], &[]).await.unwrap();
+    table
+        .preload("gen-noregress-1".to_string(), hash1, 50)
+        .await
+        .unwrap();
+    table
+        .swap(&["gen-noregress-1".to_string()], &[])
+        .await
+        .unwrap();
 
     let handle1 = table.get_current_stack_handle();
     let gen1 = handle1.generation;
@@ -319,8 +355,14 @@ async fn test_swap_retire_only() {
 
     let hash1 = B3Hash::hash(b"retire-only-1");
     let hash2 = B3Hash::hash(b"retire-only-2");
-    table.preload("retire-only-1".to_string(), hash1, 50).await.unwrap();
-    table.preload("retire-only-2".to_string(), hash2, 50).await.unwrap();
+    table
+        .preload("retire-only-1".to_string(), hash1, 50)
+        .await
+        .unwrap();
+    table
+        .preload("retire-only-2".to_string(), hash2, 50)
+        .await
+        .unwrap();
 
     // Activate both
     table
@@ -380,10 +422,19 @@ async fn test_stack_handle_validity_after_swap() {
 
     let hash1 = B3Hash::hash(b"handle-valid-1");
     let hash2 = B3Hash::hash(b"handle-valid-2");
-    table.preload("handle-valid-1".to_string(), hash1, 50).await.unwrap();
-    table.preload("handle-valid-2".to_string(), hash2, 50).await.unwrap();
+    table
+        .preload("handle-valid-1".to_string(), hash1, 50)
+        .await
+        .unwrap();
+    table
+        .preload("handle-valid-2".to_string(), hash2, 50)
+        .await
+        .unwrap();
 
-    table.swap(&["handle-valid-1".to_string()], &[]).await.unwrap();
+    table
+        .swap(&["handle-valid-1".to_string()], &[])
+        .await
+        .unwrap();
 
     // Get handle before swap
     let handle_before = table.get_current_stack_handle();
@@ -391,7 +442,10 @@ async fn test_stack_handle_validity_after_swap() {
 
     // Swap to new adapter
     table
-        .swap(&["handle-valid-2".to_string()], &["handle-valid-1".to_string()])
+        .swap(
+            &["handle-valid-2".to_string()],
+            &["handle-valid-1".to_string()],
+        )
         .await
         .unwrap();
 

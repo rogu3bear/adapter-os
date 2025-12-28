@@ -23,7 +23,10 @@ async fn test_refcount_starts_at_zero() {
     let table = Arc::new(AdapterTable::new());
 
     let hash = B3Hash::hash(b"new-adapter");
-    table.preload("new-adapter".to_string(), hash, 50).await.unwrap();
+    table
+        .preload("new-adapter".to_string(), hash, 50)
+        .await
+        .unwrap();
 
     // Swap in the adapter
     table.swap(&["new-adapter".to_string()], &[]).await.unwrap();
@@ -41,8 +44,14 @@ async fn test_concurrent_inc_dec_ref_operations() {
     let table = Arc::new(AdapterTable::new());
 
     let hash = B3Hash::hash(b"concurrent-test");
-    table.preload("concurrent-test".to_string(), hash, 50).await.unwrap();
-    table.swap(&["concurrent-test".to_string()], &[]).await.unwrap();
+    table
+        .preload("concurrent-test".to_string(), hash, 50)
+        .await
+        .unwrap();
+    table
+        .swap(&["concurrent-test".to_string()], &[])
+        .await
+        .unwrap();
 
     let mut handles = vec![];
 
@@ -76,8 +85,14 @@ async fn test_drain_completes_when_all_refs_released() {
     // Preload two adapters
     let hash1 = B3Hash::hash(b"adapter1");
     let hash2 = B3Hash::hash(b"adapter2");
-    table.preload("adapter1".to_string(), hash1, 50).await.unwrap();
-    table.preload("adapter2".to_string(), hash2, 50).await.unwrap();
+    table
+        .preload("adapter1".to_string(), hash1, 50)
+        .await
+        .unwrap();
+    table
+        .preload("adapter2".to_string(), hash2, 50)
+        .await
+        .unwrap();
 
     // Activate adapter1
     table.swap(&["adapter1".to_string()], &[]).await.unwrap();
@@ -88,7 +103,10 @@ async fn test_drain_completes_when_all_refs_released() {
     }
 
     // Now swap to adapter2 (adapter1 goes to retired)
-    table.swap(&["adapter2".to_string()], &["adapter1".to_string()]).await.unwrap();
+    table
+        .swap(&["adapter2".to_string()], &["adapter1".to_string()])
+        .await
+        .unwrap();
 
     // Release all refs to adapter1
     for _ in 0..10 {
@@ -110,7 +128,10 @@ async fn test_independent_adapter_refcounts() {
     // Preload multiple adapters
     for i in 0..5 {
         let hash = B3Hash::hash(format!("adapter{}", i).as_bytes());
-        table.preload(format!("adapter{}", i), hash, 20).await.unwrap();
+        table
+            .preload(format!("adapter{}", i), hash, 20)
+            .await
+            .unwrap();
     }
 
     // Activate all adapters
@@ -146,8 +167,14 @@ async fn test_stack_handle_pins_generation() {
 
     let hash1 = B3Hash::hash(b"gen-test-1");
     let hash2 = B3Hash::hash(b"gen-test-2");
-    table.preload("gen-test-1".to_string(), hash1, 50).await.unwrap();
-    table.preload("gen-test-2".to_string(), hash2, 50).await.unwrap();
+    table
+        .preload("gen-test-1".to_string(), hash1, 50)
+        .await
+        .unwrap();
+    table
+        .preload("gen-test-2".to_string(), hash2, 50)
+        .await
+        .unwrap();
 
     // Initial swap
     table.swap(&["gen-test-1".to_string()], &[]).await.unwrap();
@@ -155,7 +182,10 @@ async fn test_stack_handle_pins_generation() {
     let gen1 = handle1.generation;
 
     // Another swap
-    table.swap(&["gen-test-2".to_string()], &["gen-test-1".to_string()]).await.unwrap();
+    table
+        .swap(&["gen-test-2".to_string()], &["gen-test-1".to_string()])
+        .await
+        .unwrap();
     let handle2 = table.get_current_stack_handle();
     let gen2 = handle2.generation;
 

@@ -147,6 +147,12 @@ impl Db {
     /// - All other policies = disabled
     ///
     /// This is called automatically when a new tenant is created.
+    ///
+    /// # Atomic Dual-Write Behavior
+    ///
+    /// In strict atomic mode (`AOS_ATOMIC_DUAL_WRITE_STRICT=1`), if SQL commit
+    /// fails after KV writes succeeded, KV bindings are rolled back to maintain
+    /// consistency between backends.
     pub async fn initialize_tenant_policy_bindings(
         &self,
         tenant_id: &str,
@@ -181,6 +187,7 @@ impl Db {
         ];
 
         let now = Utc::now().to_rfc3339();
+        let mut kv_succeeded = false;
 
         // KV path (supports kv_only / kv_primary)
         if self.storage_mode().write_to_kv() {
@@ -200,6 +207,7 @@ impl Db {
                     };
                     repo.upsert_binding(binding).await?;
                 }
+                kv_succeeded = true;
             }
         }
 
@@ -212,7 +220,7 @@ impl Db {
                     let id = Uuid::new_v4().to_string();
                     let enabled = CORE_POLICIES.contains(&policy_id);
 
-                    sqlx::query(
+                    if let Err(e) = sqlx::query(
                         r#"
                         INSERT INTO tenant_policy_bindings
                         (id, tenant_id, policy_pack_id, scope, enabled, created_at, created_by, updated_at)
@@ -228,17 +236,46 @@ impl Db {
                     .bind(&now)
                     .execute(&mut *tx)
                     .await
-                    .map_err(|e| {
-                        AosError::Database(format!(
+                    {
+                        // Rollback KV if strict atomic and KV succeeded
+                        if kv_succeeded && self.dual_write_requires_strict() {
+                            if let Some(repo) = self.get_policy_binding_kv_repo() {
+                                if let Err(rollback_err) =
+                                    repo.delete_all_bindings(tenant_id).await
+                                {
+                                    warn!(
+                                        error = %rollback_err,
+                                        tenant_id = %tenant_id,
+                                        "Failed to rollback KV bindings after SQL failure"
+                                    );
+                                }
+                            }
+                        }
+                        return Err(AosError::Database(format!(
                             "Failed to initialize policy binding for {}: {}",
                             policy_id, e
-                        ))
-                    })?;
+                        )));
+                    }
                 }
 
-                tx.commit().await.map_err(|e| {
-                    AosError::Database(format!("Failed to commit transaction: {}", e))
-                })?;
+                if let Err(e) = tx.commit().await {
+                    // Rollback KV if strict atomic and KV succeeded
+                    if kv_succeeded && self.dual_write_requires_strict() {
+                        if let Some(repo) = self.get_policy_binding_kv_repo() {
+                            if let Err(rollback_err) = repo.delete_all_bindings(tenant_id).await {
+                                warn!(
+                                    error = %rollback_err,
+                                    tenant_id = %tenant_id,
+                                    "Failed to rollback KV bindings after SQL commit failure"
+                                );
+                            }
+                        }
+                    }
+                    return Err(AosError::Database(format!(
+                        "Failed to commit transaction: {}",
+                        e
+                    )));
+                }
             } else if !self.storage_mode().write_to_kv() {
                 return Err(AosError::Database(
                     "Policy binding init failed: SQL unavailable and KV disabled".to_string(),
@@ -402,11 +439,42 @@ impl Db {
         Ok((tenants, total))
     }
 
-    /// Ensure the system tenant exists across storage backends.
+    /// Ensure the system tenant exists across storage backends with core policies.
+    ///
+    /// This function is idempotent and performs the following checks:
+    /// 1. Verifies the system tenant exists (creates if missing)
+    /// 2. Verifies core policies are enabled (re-seeds if incomplete)
+    ///
+    /// This is critical for fresh installs and for repairing bootstrap state
+    /// when KV and SQL stores may be out of sync.
     pub async fn ensure_system_tenant(&self) -> Result<()> {
-        if self.get_tenant("system").await?.is_some() {
-            return Ok(());
+        let tenant_exists = self.get_tenant("system").await?.is_some();
+
+        if tenant_exists {
+            // Tenant exists - verify core policies are seeded
+            let policies = self.get_active_policies_for_tenant("system").await?;
+            let core_policies_present = CORE_POLICIES
+                .iter()
+                .all(|p| policies.contains(&p.to_string()));
+
+            if core_policies_present {
+                debug!("System tenant bootstrap validated: tenant and core policies present");
+                return Ok(());
+            }
+
+            // Core policies missing - re-initialize
+            warn!(
+                active_policies = ?policies,
+                expected = ?CORE_POLICIES,
+                "System tenant exists but core policies incomplete, re-seeding"
+            );
+            return self
+                .initialize_tenant_policy_bindings("system", "system")
+                .await;
         }
+
+        // Tenant doesn't exist - create it
+        info!("Creating system tenant for first-time bootstrap");
 
         // KV creation when allowed
         if self.storage_mode().write_to_kv() {

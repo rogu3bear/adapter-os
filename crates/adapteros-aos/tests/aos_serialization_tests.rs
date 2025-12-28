@@ -11,7 +11,7 @@
 //! - Unicode in manifest fields
 //! - Maximum size manifest handling
 
-use adapteros_aos::writer::{AosWriter, BackendTag, HEADER_SIZE, HAS_INDEX_FLAG, AOS_MAGIC};
+use adapteros_aos::writer::{AosWriter, BackendTag, AOS_MAGIC, HAS_INDEX_FLAG, HEADER_SIZE};
 use adapteros_core::AosError;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -52,7 +52,11 @@ fn test_manifest_with_unicode() {
 
     let mut writer = AosWriter::new();
     writer
-        .add_segment(BackendTag::Canonical, Some("test/scope".to_string()), &weights)
+        .add_segment(
+            BackendTag::Canonical,
+            Some("test/scope".to_string()),
+            &weights,
+        )
         .unwrap();
 
     let result = writer.write_archive(&path, &manifest);
@@ -93,7 +97,11 @@ fn test_manifest_with_long_strings() {
 
     let mut writer = AosWriter::new();
     writer
-        .add_segment(BackendTag::Canonical, Some("test/scope".to_string()), &weights)
+        .add_segment(
+            BackendTag::Canonical,
+            Some("test/scope".to_string()),
+            &weights,
+        )
         .unwrap();
 
     let result = writer.write_archive(&path, &manifest);
@@ -121,7 +129,11 @@ fn test_manifest_with_special_json_chars() {
 
     let mut writer = AosWriter::new();
     writer
-        .add_segment(BackendTag::Canonical, Some("test/scope".to_string()), &weights)
+        .add_segment(
+            BackendTag::Canonical,
+            Some("test/scope".to_string()),
+            &weights,
+        )
         .unwrap();
 
     let result = writer.write_archive(&path, &manifest);
@@ -155,7 +167,11 @@ fn test_manifest_with_numeric_edge_values() {
 
     let mut writer = AosWriter::new();
     writer
-        .add_segment(BackendTag::Canonical, Some("test/scope".to_string()), &weights)
+        .add_segment(
+            BackendTag::Canonical,
+            Some("test/scope".to_string()),
+            &weights,
+        )
         .unwrap();
 
     let result = writer.write_archive(&path, &manifest);
@@ -179,7 +195,11 @@ fn test_manifest_with_empty_metadata() {
 
     let mut writer = AosWriter::new();
     writer
-        .add_segment(BackendTag::Canonical, Some("test/scope".to_string()), &weights)
+        .add_segment(
+            BackendTag::Canonical,
+            Some("test/scope".to_string()),
+            &weights,
+        )
         .unwrap();
 
     let result = writer.write_archive(&path, &manifest);
@@ -205,7 +225,11 @@ fn test_manifest_with_empty_values() {
 
     let mut writer = AosWriter::new();
     writer
-        .add_segment(BackendTag::Canonical, Some("test/scope".to_string()), &weights)
+        .add_segment(
+            BackendTag::Canonical,
+            Some("test/scope".to_string()),
+            &weights,
+        )
         .unwrap();
 
     let result = writer.write_archive(&path, &manifest);

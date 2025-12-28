@@ -453,11 +453,21 @@ impl MemoryWatchdog {
         }
     }
 
-    /// Get memory pressure level
+    /// Get memory pressure level based on actual heap observer stats
     fn get_memory_pressure_level(&self) -> MemoryPressureLevel {
-        // In a real implementation, this would query system memory stats
-        // For now, we simulate based on configuration thresholds
-        let pressure = 0.75; // Simulate 75% memory usage
+        // Get actual memory stats from heap observer if available
+        let pressure = if let Some(ref observer) = self.heap_observer {
+            let stats = observer.get_memory_stats();
+            if stats.total_heap_size > 0 {
+                stats.total_heap_used as f32 / stats.total_heap_size as f32
+            } else {
+                // No heaps tracked yet - assume low pressure
+                0.5
+            }
+        } else {
+            // Heap observation disabled or not available - use default low pressure
+            0.5
+        };
 
         if pressure >= self.config.pressure_critical_threshold {
             MemoryPressureLevel::Critical

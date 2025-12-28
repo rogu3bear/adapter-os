@@ -1,8 +1,7 @@
 //! Token generation loop with sampling strategies
 
-use adapteros_core::{AosError, Result};
+use adapteros_core::{derive_seed, derive_seed_indexed, expand_u64_seed, AosError, B3Hash, Result};
 use adapteros_lora_router::{policy_mask::PolicyMask, AdapterInfo};
-use blake3::Hasher;
 use rand::Rng;
 use rand::SeedableRng;
 
@@ -44,13 +43,14 @@ impl Generator {
     /// # Returns
     /// Generator with deterministically derived seed
     pub fn new_deterministic(seed_global: &[u8], context: &str) -> Self {
-        use hkdf::Hkdf;
-        use sha2::Sha256;
-
-        let hk = Hkdf::<Sha256>::new(None, seed_global);
-        let mut seed = [0u8; 32];
-        hk.expand(context.as_bytes(), &mut seed)
-            .expect("HKDF expand failed");
+        let global = if seed_global.len() == 32 {
+            let mut bytes = [0u8; 32];
+            bytes.copy_from_slice(seed_global);
+            B3Hash::new(bytes)
+        } else {
+            B3Hash::hash(seed_global)
+        };
+        let seed = derive_seed(&global, context);
 
         Self {
             rng: rand::rngs::StdRng::from_seed(seed),
@@ -63,15 +63,9 @@ impl Generator {
         }
     }
 
-    /// Derive a step-specific seed using the canonical sampling rule.
-    ///
-    /// H("sample" || request_seed || step)
+    /// Derive a step-specific seed using HKDF-SHA256 with label `sample:<step>`.
     fn derive_step_seed(&self, step: usize) -> [u8; 32] {
-        let mut hasher = Hasher::new();
-        hasher.update(b"sample");
-        hasher.update(&self.base_seed);
-        hasher.update(&(step as u64).to_le_bytes());
-        *hasher.finalize().as_bytes()
+        derive_seed_indexed(&B3Hash::new(self.base_seed), "sample", step)
     }
 
     /// Re-seed the RNG for a specific generation step
@@ -153,15 +147,8 @@ impl Generator {
     /// # Arguments
     /// * `seed` - 64-bit seed value (will be expanded to 32 bytes)
     pub fn set_seed(&mut self, seed: u64) {
-        // Expand u64 seed to [u8; 32] deterministically
-        let mut seed_bytes = [0u8; 32];
-        seed_bytes[..8].copy_from_slice(&seed.to_le_bytes());
-        // Fill remaining bytes with HKDF expansion for entropy
-        use hkdf::Hkdf;
-        use sha2::Sha256;
-        let hk = Hkdf::<Sha256>::new(None, &seed_bytes[..8]);
-        hk.expand(b"replay-seed-expand", &mut seed_bytes)
-            .expect("HKDF expand failed");
+        // Expand u64 seed to [u8; 32] deterministically (legacy replay compatibility).
+        let seed_bytes = expand_u64_seed(seed);
 
         self.base_seed = seed_bytes;
         self.rng = rand::rngs::StdRng::from_seed(seed_bytes);

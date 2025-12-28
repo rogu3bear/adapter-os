@@ -271,11 +271,19 @@ impl BufferRelocationDetector {
         original_addr + offset
     }
 
-    /// Get memory pressure level
+    /// Get memory pressure level based on tracked buffer sizes.
+    /// Returns an estimate (0.0-1.0) based on total tracked buffer size.
     fn get_memory_pressure_level(&self) -> f32 {
-        // Simulate memory pressure level
-        // In real implementation, would query system memory stats
-        0.85 // 85% memory usage
+        let active = self.active_buffers.read();
+        let total_tracked_bytes: u64 = active.values().map(|s| s.size_bytes).sum();
+
+        // Estimate pressure based on tracked buffer size
+        // Assume ~16GB as reference for high memory system
+        const REFERENCE_MEMORY_BYTES: u64 = 16 * 1024 * 1024 * 1024;
+        let pressure = (total_tracked_bytes as f64 / REFERENCE_MEMORY_BYTES as f64) as f32;
+
+        // Clamp to 0.0-1.0 range
+        pressure.clamp(0.0, 1.0)
     }
 
     /// Unregister a buffer

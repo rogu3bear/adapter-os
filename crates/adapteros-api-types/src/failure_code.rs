@@ -35,6 +35,8 @@ pub enum FailureCode {
     BootBackgroundTaskFailed,
     /// Configuration invalid during boot
     BootConfigInvalid,
+    /// System tenant or core policy bootstrap failed during boot
+    BootBootstrapFailed,
 }
 
 impl FailureCode {
@@ -58,6 +60,7 @@ impl FailureCode {
             FailureCode::BootDependencyTimeout => "BOOT_DEPENDENCY_TIMEOUT",
             FailureCode::BootBackgroundTaskFailed => "BOOT_BACKGROUND_TASK_FAILED",
             FailureCode::BootConfigInvalid => "BOOT_CONFIG_INVALID",
+            FailureCode::BootBootstrapFailed => "BOOT_BOOTSTRAP_FAILED",
         }
     }
 
@@ -81,6 +84,7 @@ impl FailureCode {
             "BOOT_DEPENDENCY_TIMEOUT" => Some(FailureCode::BootDependencyTimeout),
             "BOOT_BACKGROUND_TASK_FAILED" => Some(FailureCode::BootBackgroundTaskFailed),
             "BOOT_CONFIG_INVALID" => Some(FailureCode::BootConfigInvalid),
+            "BOOT_BOOTSTRAP_FAILED" => Some(FailureCode::BootBootstrapFailed),
             _ => None,
         }
     }

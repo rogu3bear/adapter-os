@@ -25,10 +25,7 @@ async fn test_rollback_without_prior_swap_fails() {
     let result = table.rollback().await;
 
     // Should fail - no rollback state available
-    assert!(
-        result.is_err(),
-        "Rollback without prior swap should fail"
-    );
+    assert!(result.is_err(), "Rollback without prior swap should fail");
 }
 
 /// Test that rollback restores the previous adapter configuration.
@@ -39,8 +36,14 @@ async fn test_rollback_restores_previous_state() {
     // Preload adapters
     let hash1 = B3Hash::hash(b"adapter1");
     let hash2 = B3Hash::hash(b"adapter2");
-    table.preload("adapter1".to_string(), hash1, 50).await.unwrap();
-    table.preload("adapter2".to_string(), hash2, 50).await.unwrap();
+    table
+        .preload("adapter1".to_string(), hash1, 50)
+        .await
+        .unwrap();
+    table
+        .preload("adapter2".to_string(), hash2, 50)
+        .await
+        .unwrap();
 
     // First swap - activate adapter1
     table.swap(&["adapter1".to_string()], &[]).await.unwrap();
@@ -76,11 +79,20 @@ async fn test_rollback_generation_behavior() {
 
     let hash1 = B3Hash::hash(b"gen-adapter1");
     let hash2 = B3Hash::hash(b"gen-adapter2");
-    table.preload("gen-adapter1".to_string(), hash1, 50).await.unwrap();
-    table.preload("gen-adapter2".to_string(), hash2, 50).await.unwrap();
+    table
+        .preload("gen-adapter1".to_string(), hash1, 50)
+        .await
+        .unwrap();
+    table
+        .preload("gen-adapter2".to_string(), hash2, 50)
+        .await
+        .unwrap();
 
     // Swap 1: generation 0 -> 1
-    table.swap(&["gen-adapter1".to_string()], &[]).await.unwrap();
+    table
+        .swap(&["gen-adapter1".to_string()], &[])
+        .await
+        .unwrap();
     let gen1 = table.get_current_stack_handle().generation;
     assert_eq!(gen1, 1);
 
@@ -111,7 +123,10 @@ async fn test_multiple_swaps_then_rollback() {
     // Preload several adapters
     for i in 0..5 {
         let hash = B3Hash::hash(format!("multi-{}", i).as_bytes());
-        table.preload(format!("multi-{}", i), hash, 20).await.unwrap();
+        table
+            .preload(format!("multi-{}", i), hash, 20)
+            .await
+            .unwrap();
     }
 
     // Chain of swaps
@@ -149,16 +164,28 @@ async fn test_rollback_preserves_vram_tracking() {
 
     let hash1 = B3Hash::hash(b"vram-adapter1");
     let hash2 = B3Hash::hash(b"vram-adapter2");
-    table.preload("vram-adapter1".to_string(), hash1, 100).await.unwrap();
-    table.preload("vram-adapter2".to_string(), hash2, 200).await.unwrap();
+    table
+        .preload("vram-adapter1".to_string(), hash1, 100)
+        .await
+        .unwrap();
+    table
+        .preload("vram-adapter2".to_string(), hash2, 200)
+        .await
+        .unwrap();
 
     // Swap in adapter1 (100MB VRAM)
-    table.swap(&["vram-adapter1".to_string()], &[]).await.unwrap();
+    table
+        .swap(&["vram-adapter1".to_string()], &[])
+        .await
+        .unwrap();
     assert_eq!(table.total_vram_mb(), 100);
 
     // Swap to adapter2 (200MB VRAM)
     table
-        .swap(&["vram-adapter2".to_string()], &["vram-adapter1".to_string()])
+        .swap(
+            &["vram-adapter2".to_string()],
+            &["vram-adapter1".to_string()],
+        )
         .await
         .unwrap();
     assert_eq!(table.total_vram_mb(), 200);
@@ -182,7 +209,10 @@ async fn test_rollback_with_multiple_active_adapters() {
     // Preload adapters
     for i in 0..4 {
         let hash = B3Hash::hash(format!("multi-active-{}", i).as_bytes());
-        table.preload(format!("multi-active-{}", i), hash, 25).await.unwrap();
+        table
+            .preload(format!("multi-active-{}", i), hash, 25)
+            .await
+            .unwrap();
     }
 
     // First state: adapter 0 and 1

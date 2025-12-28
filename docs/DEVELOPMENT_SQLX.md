@@ -23,7 +23,11 @@ cargo sqlx migrate run
 
 3) Prepare cache:
 ```bash
-SQLX_OFFLINE_DIR=crates/adapteros-db/.sqlx cargo sqlx prepare --workspace
+SQLX_OFFLINE_DIR=crates/adapteros-db/.sqlx \
+  cargo sqlx prepare --workspace -- \
+  --package adapteros-db \
+  --package adapteros-server-api \
+  --package adapteros-server
 ```
 
 4) Verify offline build:

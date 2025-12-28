@@ -5,6 +5,7 @@
 //! - Crash recovery from orphaned adapters and stale state
 //! - Seeding development data
 //! - Seeding base models from cache
+//! - Ensuring system tenant and core policies exist
 //! - Handling the --migrate-only CLI flag for early exit
 
 use adapteros_api_types::FailureCode;
@@ -85,6 +86,22 @@ pub async fn run_migrations(
     } else {
         info!("SQL backend disabled; skipping migrations, crash recovery, and SQL seed steps");
     }
+
+    // Ensure system tenant and core policies exist (works for both SQL and KV modes)
+    // This is critical for fresh installs where bootstrap admin hasn't run yet
+    info!("Ensuring system tenant and core policies...");
+    if let Err(e) = db.ensure_system_tenant().await {
+        error!(
+            target: "boot",
+            code = %FailureCode::BootBootstrapFailed.as_str(),
+            request_id = "-",
+            tenant_id = "system",
+            error = %e,
+            "Failed to ensure system tenant during boot"
+        );
+        return Err(anyhow::anyhow!("System tenant bootstrap failed: {}", e));
+    }
+    info!("System tenant bootstrap complete");
 
     // Transition boot state: Migrating → Seeding (seeding complete)
     boot_state.seeding().await;

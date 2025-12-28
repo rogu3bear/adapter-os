@@ -367,6 +367,16 @@ impl WorkerHealthMonitor {
     fn calculate_health_status(&self, metrics: &WorkerMetrics) -> WorkerHealthStatus {
         // Crashed: 3+ consecutive failures
         if metrics.consecutive_failures >= 3 {
+            // Allow recovery after a time window (60 seconds)
+            // This enables re-probing of crashed workers that may have restarted
+            if let Some(last_response) = metrics.last_response_at {
+                let recovery_window = Duration::from_secs(60);
+                if last_response.elapsed() > recovery_window {
+                    // After recovery window, demote to Unknown to allow re-probing
+                    // Next successful response will transition to Healthy
+                    return WorkerHealthStatus::Unknown;
+                }
+            }
             return WorkerHealthStatus::Crashed;
         }
 
@@ -570,7 +580,7 @@ impl WorkerHealthMonitor {
         Ok(())
     }
 
-    /// Create an incident asynchronously (fire-and-forget)
+    /// Create an incident asynchronously with retry logic
     fn create_incident_async(
         &self,
         worker_id: &str,
@@ -583,20 +593,71 @@ impl WorkerHealthMonitor {
         let reason = reason.to_string();
 
         tokio::spawn(async move {
-            // Get tenant_id from worker
-            if let Ok(Some(worker)) = db.get_worker(&worker_id).await {
-                if let Err(e) = db
-                    .insert_worker_incident(
-                        &worker_id,
-                        &worker.tenant_id,
-                        incident_type,
-                        &reason,
-                        None, // backtrace
-                        latency_ms,
-                    )
-                    .await
-                {
-                    warn!(error = %e, "Failed to insert worker incident");
+            const MAX_ATTEMPTS: u32 = 3;
+            let mut attempts = 0u32;
+
+            while attempts < MAX_ATTEMPTS {
+                attempts += 1;
+
+                // Get tenant_id from worker
+                match db.get_worker(&worker_id).await {
+                    Ok(Some(worker)) => {
+                        match db
+                            .insert_worker_incident(
+                                &worker_id,
+                                &worker.tenant_id,
+                                incident_type,
+                                &reason,
+                                None, // backtrace
+                                latency_ms,
+                            )
+                            .await
+                        {
+                            Ok(_) => return, // Success
+                            Err(e) => {
+                                if attempts < MAX_ATTEMPTS {
+                                    warn!(
+                                        attempt = attempts,
+                                        error = %e,
+                                        worker_id = %worker_id,
+                                        "Failed to insert worker incident, retrying"
+                                    );
+                                    tokio::time::sleep(Duration::from_millis(
+                                        100 * 2u64.pow(attempts),
+                                    ))
+                                    .await;
+                                } else {
+                                    error!(
+                                        error = %e,
+                                        worker_id = %worker_id,
+                                        "Exhausted retries for incident creation"
+                                    );
+                                }
+                            }
+                        }
+                    }
+                    Ok(None) => {
+                        warn!(worker_id = %worker_id, "Worker not found for incident creation");
+                        return;
+                    }
+                    Err(e) => {
+                        if attempts < MAX_ATTEMPTS {
+                            debug!(
+                                attempt = attempts,
+                                error = %e,
+                                worker_id = %worker_id,
+                                "Failed to get worker for incident, retrying"
+                            );
+                            tokio::time::sleep(Duration::from_millis(100 * 2u64.pow(attempts)))
+                                .await;
+                        } else {
+                            error!(
+                                error = %e,
+                                worker_id = %worker_id,
+                                "Exhausted retries getting worker for incident"
+                            );
+                        }
+                    }
                 }
             }
         });

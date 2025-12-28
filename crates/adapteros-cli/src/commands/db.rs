@@ -146,6 +146,40 @@ WARNING: This command DELETES the database file and recreates it with all migrat
         #[arg(long, default_value = "tenant-test")]
         tenant_id: String,
     },
+
+    /// Validate and repair system bootstrap state
+    #[command(after_help = r#"Examples:
+  # Check bootstrap state (dry-run)
+  aosctl db repair-bootstrap --dry-run
+
+  # Repair bootstrap state if needed
+  aosctl db repair-bootstrap
+
+  # Check/repair custom database
+  aosctl db repair-bootstrap --db-path ./var/custom.db
+
+This command validates that the system tenant and core policies are properly
+seeded. This is important for fresh installs or when KV and SQL stores may
+be out of sync.
+
+Issues detected:
+- Missing system tenant
+- Missing core policies (egress, determinism, isolation, evidence)
+- KV/SQL inconsistency for system tenant
+"#)]
+    RepairBootstrap {
+        /// Database path (defaults to DATABASE_URL or ./var/aos-cp.sqlite3)
+        #[arg(long)]
+        db_path: Option<PathBuf>,
+
+        /// Check only, don't repair
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Output JSON instead of human-readable
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 /// Handle database commands
@@ -166,6 +200,11 @@ pub async fn handle_db_command(cmd: DbCommand, output: &OutputWriter) -> Result<
         DbCommand::VerifySeed { db_path, tenant_id } => {
             run_verify_seed(db_path, &tenant_id, output).await
         }
+        DbCommand::RepairBootstrap {
+            db_path,
+            dry_run,
+            json,
+        } => run_repair_bootstrap(db_path, dry_run, json, output).await,
     }
 }
 
@@ -1120,6 +1159,86 @@ async fn run_seed_fixtures(
     output.kv("User", E2E_USER_ID);
     if chat {
         output.kv("Chat session", CHAT_SESSION_ID);
+    }
+
+    Ok(())
+}
+
+/// Validate and optionally repair system bootstrap state
+async fn run_repair_bootstrap(
+    db_path: Option<PathBuf>,
+    dry_run: bool,
+    json_output: bool,
+    output: &OutputWriter,
+) -> Result<()> {
+    // Resolve DB URL
+    let db_url = if let Some(path) = db_path.clone() {
+        format!("sqlite://{}", path.display())
+    } else if let Ok(url) = std::env::var("DATABASE_URL") {
+        url
+    } else {
+        "sqlite://./var/aos-cp.sqlite3".to_string()
+    };
+
+    let db = Db::connect(&db_url).await?;
+
+    if !json_output {
+        output.info(format!("Validating bootstrap state for {}", db_url));
+    }
+
+    // Validate current state
+    let status = db.validate_bootstrap_state().await?;
+
+    if json_output {
+        let result = json!({
+            "healthy": status.healthy,
+            "issues": status.issues,
+            "dry_run": dry_run,
+            "repaired": !dry_run && !status.healthy,
+        });
+        println!("{}", serde_json::to_string_pretty(&result)?);
+
+        if !status.healthy && !dry_run {
+            // Repair
+            db.ensure_system_tenant().await?;
+        }
+
+        return Ok(());
+    }
+
+    if status.healthy {
+        output.success("Bootstrap state is healthy");
+        output.kv("System tenant", "present");
+        output.kv("Core policies", "all enabled");
+        return Ok(());
+    }
+
+    // Report issues
+    let _ = output.warn("Bootstrap state has issues:");
+    for issue in &status.issues {
+        output.info(format!("  - {}", issue));
+    }
+
+    if dry_run {
+        output.info("\nDry run - no changes made");
+        output.info("Run without --dry-run to repair");
+        return Ok(());
+    }
+
+    // Repair
+    output.info("\nRepairing bootstrap state...");
+    db.ensure_system_tenant().await?;
+
+    // Validate again
+    let status_after = db.validate_bootstrap_state().await?;
+    if status_after.healthy {
+        output.success("Bootstrap state repaired successfully");
+    } else {
+        output.error("Some issues remain after repair:");
+        for issue in &status_after.issues {
+            output.info(format!("  - {}", issue));
+        }
+        anyhow::bail!("Failed to fully repair bootstrap state");
     }
 
     Ok(())

@@ -72,7 +72,10 @@ fn test_manifest_offset_checked_add_overflow() {
         // The manifest_offset + manifest_size would overflow
         // so any safe implementation should detect this
         assert!(
-            parsed.manifest_offset.checked_add(parsed.manifest_size).is_none()
+            parsed
+                .manifest_offset
+                .checked_add(parsed.manifest_size)
+                .is_none()
                 || parsed.manifest_offset as usize > data.len(),
             "Overflow should be detected"
         );
@@ -128,7 +131,7 @@ fn test_segment_offset_overflow_protection() {
     let mut index_entry = vec![0u8; INDEX_ENTRY_SIZE];
     index_entry[0..4].copy_from_slice(&0u32.to_le_bytes()); // segment_id
     index_entry[4..6].copy_from_slice(&0u16.to_le_bytes()); // backend_tag (canonical)
-    // offset at bytes 8..16 - set to near max value
+                                                            // offset at bytes 8..16 - set to near max value
     index_entry[8..16].copy_from_slice(&(u64::MAX - 10).to_le_bytes());
     // length at bytes 16..24 - set to cause overflow
     index_entry[16..24].copy_from_slice(&100u64.to_le_bytes());
@@ -175,7 +178,11 @@ fn test_total_archive_size_overflow_protection() {
 
     // Add a canonical segment
     let weights = vec![0u8; 1024];
-    let result = writer.add_segment(BackendTag::Canonical, Some("test/scope".to_string()), &weights);
+    let result = writer.add_segment(
+        BackendTag::Canonical,
+        Some("test/scope".to_string()),
+        &weights,
+    );
     assert!(result.is_ok());
 
     // The writer should handle size calculations safely internally
@@ -193,7 +200,7 @@ fn test_index_size_not_aligned_rejected() {
 
     // Create header with misaligned index size
     let header = create_custom_header(
-        HEADER_SIZE as u64,        // index_offset
+        HEADER_SIZE as u64,          // index_offset
         INDEX_ENTRY_SIZE as u64 + 7, // Misaligned! Not divisible by 80
         (HEADER_SIZE + INDEX_ENTRY_SIZE + 7) as u64,
         10, // manifest_size

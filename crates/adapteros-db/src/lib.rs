@@ -544,6 +544,15 @@ impl StorageMode {
     }
 }
 
+/// Bootstrap health status for system initialization validation.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct BootstrapHealthStatus {
+    /// Whether the bootstrap state is healthy
+    pub healthy: bool,
+    /// List of issues found during validation
+    pub issues: Vec<String>,
+}
+
 /// Database connection pool and query methods (SQLite)
 ///
 /// For production deployments, use `PostgresDb` instead.
@@ -1929,6 +1938,11 @@ impl Db {
         ) || self.atomic_dual_write_config.is_strict()
     }
 
+    /// Alias for `dual_write_requires_strict()` for ergonomic use in rollback logic.
+    pub fn is_strict_atomic(&self) -> bool {
+        self.dual_write_requires_strict()
+    }
+
     /// Attach a KV backend to this database instance
     ///
     /// This enables dual-write or KV-primary modes. The KV backend will be used
@@ -2835,6 +2849,49 @@ impl Db {
             read_latency_ms,
             write_latency_ms,
             key_count,
+        })
+    }
+
+    /// Validate system bootstrap state
+    ///
+    /// Checks that the system tenant exists and core policies are properly seeded.
+    /// This is used during boot sequence to detect incomplete bootstrap state.
+    pub async fn validate_bootstrap_state(&self) -> Result<BootstrapHealthStatus> {
+        use crate::tenant_policy_bindings::CORE_POLICIES;
+
+        let mut issues = Vec::new();
+
+        // Check system tenant exists
+        match self.get_tenant("system").await {
+            Ok(Some(_)) => {}
+            Ok(None) => {
+                issues.push("System tenant missing".to_string());
+            }
+            Err(e) => {
+                issues.push(format!("Failed to check system tenant: {}", e));
+            }
+        }
+
+        // Check core policies are enabled for system tenant
+        match self.get_active_policies_for_tenant("system").await {
+            Ok(policies) => {
+                for core_policy in CORE_POLICIES {
+                    if !policies.contains(&core_policy.to_string()) {
+                        issues.push(format!(
+                            "Core policy '{}' not enabled for system tenant",
+                            core_policy
+                        ));
+                    }
+                }
+            }
+            Err(e) => {
+                issues.push(format!("Failed to check system tenant policies: {}", e));
+            }
+        }
+
+        Ok(BootstrapHealthStatus {
+            healthy: issues.is_empty(),
+            issues,
         })
     }
 

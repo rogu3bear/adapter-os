@@ -261,9 +261,10 @@ fn compute_framework_match(config: &crate::lora::LoRAConfig, input_features: &[f
     }
 }
 
-/// Select top-K adapters based on scores
+/// Select top-K adapters based on scores.
 ///
-/// Handles NaN values by treating them as lowest priority (sorted last).
+/// Ordering: score descending, index ascending for deterministic ties.
+/// NaN values are treated as lowest priority (sorted last).
 pub fn select_top_k_adapters(
     _adapters: &[&LoRAAdapter],
     scores: &[f32],
@@ -275,13 +276,14 @@ pub fn select_top_k_adapters(
         .map(|(i, &score)| (i, score))
         .collect();
 
-    // Sort by score (descending), NaN values go to end
+    // Sort by score (descending), then index ascending for deterministic ties.
+    // NaN values always go to the end.
     indexed_scores.sort_by(|a, b| {
         match (a.1.is_nan(), b.1.is_nan()) {
-            (true, true) => std::cmp::Ordering::Equal,
+            (true, true) => a.0.cmp(&b.0),
             (true, false) => std::cmp::Ordering::Greater, // NaN goes to end
             (false, true) => std::cmp::Ordering::Less,    // Non-NaN comes first
-            (false, false) => b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal),
+            (false, false) => b.1.total_cmp(&a.1).then_with(|| a.0.cmp(&b.0)),
         }
     });
 
@@ -526,6 +528,23 @@ mod tests {
         assert_eq!(top_k.len(), 2);
         assert_eq!(top_k[0].0, 1); // adapter2 (score 0.7)
         assert_eq!(top_k[1].0, 2); // adapter3 (score 0.5)
+    }
+
+    #[test]
+    fn test_select_top_k_adapters_tie_breaks_by_index() {
+        let adapter1 = create_test_adapter("adapter1", 2);
+        let adapter2 = create_test_adapter("adapter2", 4);
+        let adapter3 = create_test_adapter("adapter3", 6);
+
+        let adapters = vec![&adapter1, &adapter2, &adapter3];
+        let scores = vec![0.5, 0.5, 0.4];
+
+        let top_k = select_top_k_adapters(&adapters, &scores, 2);
+
+        assert_eq!(top_k.len(), 2);
+        // Tied scores should prefer lower indices.
+        assert_eq!(top_k[0].0, 0);
+        assert_eq!(top_k[1].0, 1);
     }
 
     #[test]

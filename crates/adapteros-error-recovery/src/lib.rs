@@ -200,10 +200,43 @@ impl ErrorRecoveryManager {
         }
     }
 
-    /// Classify an error type
+    /// Classify an error type with more granular IO error detection
     fn classify_error(&self, error: &AosError) -> ErrorType {
         match error {
-            AosError::Io(_) => ErrorType::FileCorruption,
+            AosError::Io(msg) => {
+                let msg_lower = msg.to_lowercase();
+                if msg_lower.contains("corrupt")
+                    || msg_lower.contains("invalid data")
+                    || msg_lower.contains("bad format")
+                {
+                    ErrorType::FileCorruption
+                } else if msg_lower.contains("permission")
+                    || msg_lower.contains("access denied")
+                    || msg_lower.contains("operation not permitted")
+                {
+                    ErrorType::PermissionError
+                } else if msg_lower.contains("no space")
+                    || msg_lower.contains("disk full")
+                    || msg_lower.contains("quota exceeded")
+                {
+                    ErrorType::DiskSpaceError
+                } else if msg_lower.contains("not found")
+                    || msg_lower.contains("no such file")
+                    || msg_lower.contains("does not exist")
+                {
+                    // Missing files are not corruption - likely a logic error or race condition
+                    ErrorType::Unknown
+                } else if msg_lower.contains("lock")
+                    || msg_lower.contains("busy")
+                    || msg_lower.contains("in use")
+                {
+                    ErrorType::LockError
+                } else {
+                    // Default IO errors that don't match specific patterns
+                    // could be corruption, hardware issues, etc.
+                    ErrorType::FileCorruption
+                }
+            }
             AosError::Timeout { duration: _ } => ErrorType::TimeoutError,
             AosError::Network(_) => ErrorType::NetworkError,
             AosError::Authz(_) => ErrorType::PermissionError,

@@ -5,12 +5,10 @@
 //! - MUST ensure identical inputs produce identical outputs
 //! - MUST record toolchain version strings and kernel hashes in Plan metadata
 
-use adapteros_core::{AosError, B3Hash, Result};
-use hkdf::Hkdf;
+use adapteros_core::{derive_seed, B3Hash, Result};
 use rand::{RngCore, SeedableRng};
 use rand_chacha::ChaCha20Rng;
 use serde::{Deserialize, Serialize};
-use sha2::Sha256;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use zeroize::Zeroize;
@@ -45,24 +43,8 @@ impl DeterministicRng {
     /// let rng = DeterministicRng::new(&global_seed, "router").unwrap();
     /// ```
     pub fn new(seed_global: &[u8; 32], label: &str) -> Result<Self> {
-        // Use HKDF to derive a domain-specific seed from the global seed
-        let hk = Hkdf::<Sha256>::new(None, seed_global);
-        let mut derived_seed = [0u8; 32];
-
-        hk.expand(label.as_bytes(), &mut derived_seed)
-            .map_err(|e| AosError::RngError {
-                seed_hash: hex::encode(&seed_global[..8]),
-                label: label.to_string(),
-                counter: 0,
-                message: format!("HKDF expansion failed: {}", e),
-            })?;
-
-        // Validate HKDF output is exactly 32 bytes
-        assert_eq!(
-            derived_seed.len(),
-            32,
-            "HKDF output must be exactly 32 bytes"
-        );
+        // Use canonical HKDF derivation from the global seed.
+        let derived_seed = derive_seed(&B3Hash::new(*seed_global), label);
 
         // Compute checksum for audit
         let checksum = B3Hash::hash(&derived_seed);

@@ -28,20 +28,32 @@ async fn test_vram_tracking_during_swap() {
     // Preload adapters with different VRAM sizes
     let hash1 = B3Hash::hash(b"small-adapter");
     let hash2 = B3Hash::hash(b"large-adapter");
-    table.preload("small-adapter".to_string(), hash1, 50).await.unwrap();
-    table.preload("large-adapter".to_string(), hash2, 200).await.unwrap();
+    table
+        .preload("small-adapter".to_string(), hash1, 50)
+        .await
+        .unwrap();
+    table
+        .preload("large-adapter".to_string(), hash2, 200)
+        .await
+        .unwrap();
 
     // Initial state: no VRAM used
     assert_eq!(table.total_vram_mb(), 0);
 
     // Swap in small adapter
-    table.swap(&["small-adapter".to_string()], &[]).await.unwrap();
+    table
+        .swap(&["small-adapter".to_string()], &[])
+        .await
+        .unwrap();
     assert_eq!(table.total_vram_mb(), 50);
 
     // During swap to large adapter, both might be temporarily active
     // After swap completes, only large should be counted
     table
-        .swap(&["large-adapter".to_string()], &["small-adapter".to_string()])
+        .swap(
+            &["large-adapter".to_string()],
+            &["small-adapter".to_string()],
+        )
         .await
         .unwrap();
     assert_eq!(table.total_vram_mb(), 200);
@@ -56,7 +68,10 @@ async fn test_multiple_adapters_vram_sum() {
     for i in 0..5 {
         let hash = B3Hash::hash(format!("sum-adapter-{}", i).as_bytes());
         let vram = (i + 1) * 20; // 20, 40, 60, 80, 100
-        table.preload(format!("sum-adapter-{}", i), hash, vram as u64).await.unwrap();
+        table
+            .preload(format!("sum-adapter-{}", i), hash, vram as u64)
+            .await
+            .unwrap();
     }
 
     // Activate all adapters
@@ -133,8 +148,14 @@ async fn test_vram_accuracy_after_many_swaps() {
     // Preload two adapters for ping-pong
     let hash_a = B3Hash::hash(b"ping-vram");
     let hash_b = B3Hash::hash(b"pong-vram");
-    table.preload("ping-vram".to_string(), hash_a, 100).await.unwrap();
-    table.preload("pong-vram".to_string(), hash_b, 150).await.unwrap();
+    table
+        .preload("ping-vram".to_string(), hash_a, 100)
+        .await
+        .unwrap();
+    table
+        .preload("pong-vram".to_string(), hash_b, 150)
+        .await
+        .unwrap();
 
     // Initial swap
     table.swap(&["ping-vram".to_string()], &[]).await.unwrap();

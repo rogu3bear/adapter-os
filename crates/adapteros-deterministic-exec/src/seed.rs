@@ -58,12 +58,10 @@ impl ThreadSeed {
 
     /// Create a child seed derived from parent
     pub fn derive_child(&self, label: &str) -> Self {
-        use hkdf::Hkdf;
-        use sha2::Sha256;
-
-        let hk = Hkdf::<Sha256>::new(Some(label.as_bytes()), &self.seed);
-        let mut derived = [0u8; 32];
-        hk.expand(&[], &mut derived).expect("HKDF expansion failed");
+        let derived = adapteros_core::derive_seed(
+            &adapteros_core::B3Hash::new(self.seed),
+            label,
+        );
 
         Self {
             seed: derived,

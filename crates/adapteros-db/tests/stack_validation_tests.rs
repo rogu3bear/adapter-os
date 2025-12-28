@@ -94,10 +94,7 @@ async fn test_duplicate_stack_name_fails() {
     };
 
     let result = backend.insert_stack(&req2).await;
-    assert!(
-        result.is_err(),
-        "Duplicate stack name should be rejected"
-    );
+    assert!(result.is_err(), "Duplicate stack name should be rejected");
 }
 
 /// Test that very long stack names are handled.
@@ -128,7 +125,11 @@ async fn test_very_long_stack_name_handling() {
     // No panic is the important thing
     if result.is_ok() {
         let stack_id = result.unwrap();
-        let stack = backend.get_stack("test-tenant", &stack_id).await.unwrap().unwrap();
+        let stack = backend
+            .get_stack("test-tenant", &stack_id)
+            .await
+            .unwrap()
+            .unwrap();
         assert!(!stack.name.is_empty());
     }
 }
@@ -166,7 +167,11 @@ async fn test_special_characters_in_stack_name() {
         // Key is no SQL injection possible
         if result.is_ok() {
             let stack_id = result.unwrap();
-            let stack = backend.get_stack("test-tenant", &stack_id).await.unwrap().unwrap();
+            let stack = backend
+                .get_stack("test-tenant", &stack_id)
+                .await
+                .unwrap()
+                .unwrap();
             // If stored, name should be safely handled
             assert!(!stack.name.is_empty());
         }
@@ -215,7 +220,11 @@ async fn test_workflow_type_stored_correctly() {
         };
 
         let stack_id = backend.insert_stack(&req).await.unwrap();
-        let stack = backend.get_stack("test-tenant", &stack_id).await.unwrap().unwrap();
+        let stack = backend
+            .get_stack("test-tenant", &stack_id)
+            .await
+            .unwrap()
+            .unwrap();
 
         assert_eq!(
             stack.workflow_type.as_deref(),
@@ -244,7 +253,11 @@ async fn test_null_workflow_type_handling() {
     assert!(result.is_ok(), "NULL workflow type should be allowed");
 
     let stack_id = result.unwrap();
-    let stack = backend.get_stack("test-tenant", &stack_id).await.unwrap().unwrap();
+    let stack = backend
+        .get_stack("test-tenant", &stack_id)
+        .await
+        .unwrap()
+        .unwrap();
     // NULL workflow_type should be stored as None
     assert!(stack.workflow_type.is_none() || !stack.workflow_type.as_ref().unwrap().is_empty());
 }

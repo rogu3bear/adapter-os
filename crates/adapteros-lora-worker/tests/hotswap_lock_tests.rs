@@ -23,7 +23,10 @@ async fn test_concurrent_reads_dont_block() {
     let table = Arc::new(AdapterTable::new());
 
     let hash = B3Hash::hash(b"read-test");
-    table.preload("read-test".to_string(), hash, 50).await.unwrap();
+    table
+        .preload("read-test".to_string(), hash, 50)
+        .await
+        .unwrap();
     table.swap(&["read-test".to_string()], &[]).await.unwrap();
 
     let mut handles = vec![];
@@ -94,8 +97,14 @@ async fn test_swap_during_heavy_read_load() {
     // Preload adapters
     let hash1 = B3Hash::hash(b"load-test-1");
     let hash2 = B3Hash::hash(b"load-test-2");
-    table.preload("load-test-1".to_string(), hash1, 50).await.unwrap();
-    table.preload("load-test-2".to_string(), hash2, 50).await.unwrap();
+    table
+        .preload("load-test-1".to_string(), hash1, 50)
+        .await
+        .unwrap();
+    table
+        .preload("load-test-2".to_string(), hash2, 50)
+        .await
+        .unwrap();
     table.swap(&["load-test-1".to_string()], &[]).await.unwrap();
 
     // Start heavy read load
@@ -171,15 +180,23 @@ async fn test_stack_handle_snapshot_no_lock_hold() {
     let table = Arc::new(AdapterTable::new());
 
     let hash = B3Hash::hash(b"snapshot-test");
-    table.preload("snapshot-test".to_string(), hash, 50).await.unwrap();
-    table.swap(&["snapshot-test".to_string()], &[]).await.unwrap();
+    table
+        .preload("snapshot-test".to_string(), hash, 50)
+        .await
+        .unwrap();
+    table
+        .swap(&["snapshot-test".to_string()], &[])
+        .await
+        .unwrap();
 
     // Get a snapshot handle
     let handle = table.get_current_stack_handle();
 
     // While holding the handle, we should still be able to do operations
     let hash2 = B3Hash::hash(b"snapshot-test-2");
-    let preload_result = table.preload("snapshot-test-2".to_string(), hash2, 50).await;
+    let preload_result = table
+        .preload("snapshot-test-2".to_string(), hash2, 50)
+        .await;
 
     assert!(
         preload_result.is_ok(),
@@ -197,8 +214,14 @@ async fn test_interleaved_read_write_operations() {
 
     // Preload initial adapter
     let hash = B3Hash::hash(b"interleave-base");
-    table.preload("interleave-base".to_string(), hash, 50).await.unwrap();
-    table.swap(&["interleave-base".to_string()], &[]).await.unwrap();
+    table
+        .preload("interleave-base".to_string(), hash, 50)
+        .await
+        .unwrap();
+    table
+        .swap(&["interleave-base".to_string()], &[])
+        .await
+        .unwrap();
 
     let mut handles = vec![];
 

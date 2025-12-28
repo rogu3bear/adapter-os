@@ -854,13 +854,8 @@ impl DeterministicExecutor {
 
     /// Derive seed from global seed using HKDF
     pub fn derive_seed(&self, label: &str) -> [u8; 32] {
-        use hkdf::Hkdf;
-        use sha2::Sha256;
-
-        let hk = Hkdf::<Sha256>::new(Some(label.as_bytes()), &self.config.global_seed);
-        let mut derived = [0u8; 32];
-        hk.expand(&[], &mut derived).expect("HKDF expansion failed");
-        derived
+        let global = adapteros_core::B3Hash::new(self.config.global_seed);
+        adapteros_core::derive_seed(&global, label)
     }
 
     /// Check if executor is running

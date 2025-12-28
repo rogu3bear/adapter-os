@@ -225,7 +225,7 @@ fn router_schema() -> HashMap<String, PolicyFieldSchema> {
             field_type: FieldType::Number,
             required: true,
             min_value: Some(1.0),
-            max_value: Some(16.0),
+            max_value: Some(8.0),
             allowed_values: None,
             safety_constraint: None,
         },

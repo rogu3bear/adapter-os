@@ -33,7 +33,7 @@ use axum::{
 #[cfg(all(feature = "dev-bypass", debug_assertions))]
 use blake3;
 #[cfg(all(feature = "dev-bypass", debug_assertions))]
-use chrono::{Duration, Utc};
+use chrono::{DateTime, Duration, Utc};
 #[cfg(all(feature = "dev-bypass", debug_assertions))]
 use tracing::{info, warn};
 #[cfg(all(feature = "dev-bypass", debug_assertions))]
@@ -319,9 +319,8 @@ pub async fn dev_bypass_handler(
     let response_expires_in = std::cmp::max(auth_cfg.access_ttl(), 60);
     let session_ttl = std::cmp::max(auth_cfg.effective_ttl(), response_expires_in);
     let session_expires_at = Utc::now() + Duration::seconds(session_ttl as i64);
-    let refresh_expires_at = Utc
-        .timestamp_opt(refresh_claims.exp, 0)
-        .single()
+    let refresh_expires_at = DateTime::from_timestamp(refresh_claims.exp, 0)
+        .map(|dt| dt.with_timezone(&Utc))
         .unwrap_or_else(Utc::now);
     let refresh_hash = blake3::hash(refresh_token.as_bytes()).to_hex().to_string();
     upsert_user_session(

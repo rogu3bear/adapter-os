@@ -19,7 +19,6 @@ use std::path::Path as StdPath;
 use std::time::{Duration, SystemTime};
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
-use tokio::task;
 use tracing::warn;
 use utoipa::ToSchema;
 
@@ -1037,7 +1036,7 @@ pub async fn gather_system_ready_components(
     components.push(router);
 
     // Workers (UDS)
-    components.push(worker_component_health(&state));
+    components.push(worker_component_health(&state).await);
 
     // UI health
     components.push(check_ui_health().await);
@@ -1053,10 +1052,10 @@ pub async fn gather_system_ready_components(
     (components, boot_elapsed_ms)
 }
 
-fn worker_component_health(state: &AppState) -> ComponentHealth {
+async fn worker_component_health(state: &AppState) -> ComponentHealth {
     if let Some(monitor) = &state.health_monitor {
         let summary = monitor.get_health_summary();
-        let serving = has_healthy_worker(state);
+        let serving = has_healthy_worker(state, &summary).await;
 
         if summary.is_empty() {
             return if serving {
@@ -1154,19 +1153,28 @@ fn reduce_worker_status(summary: &[WorkerHealthSummary], serving: bool) -> Compo
     }
 }
 
-fn has_healthy_worker(state: &AppState) -> bool {
-    let pool = state.db_pool.clone();
-    task::block_in_place(|| {
-        let handle = tokio::runtime::Handle::current();
-        handle.block_on(async {
-            query("SELECT 1 FROM workers WHERE status = 'healthy' LIMIT 1")
-                .fetch_optional(&pool)
-                .await
-                .ok()
-                .flatten()
-                .is_some()
-        })
-    })
+/// Check if there's at least one healthy worker.
+/// Fast path: checks in-memory monitor first, falls back to database query.
+async fn has_healthy_worker(state: &AppState, summary: &[WorkerHealthSummary]) -> bool {
+    // Fast path: check in-memory health monitor first (no database query needed)
+    if summary
+        .iter()
+        .any(|s| s.health_status == WorkerHealthStatus::Healthy)
+    {
+        return true;
+    }
+
+    // Fallback: query database for workers with 'healthy' status
+    // This handles cases where monitor hasn't polled yet or worker just registered
+    match state.db.pool().acquire().await {
+        Ok(mut conn) => query("SELECT 1 FROM workers WHERE status = 'healthy' LIMIT 1")
+            .fetch_optional(&mut *conn)
+            .await
+            .ok()
+            .flatten()
+            .is_some(),
+        Err(_) => false,
+    }
 }
 
 async fn check_ui_health() -> ComponentHealth {
