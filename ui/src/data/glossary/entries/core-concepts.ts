@@ -66,7 +66,7 @@ The router enables dynamic specialization: different parts of a request may acti
     term: 'Kernel',
     category: 'core-concepts',
     content: {
-      brief: 'Kernels are precompiled Metal compute shaders that execute LoRA operations on the GPU with deterministic, reproducible computation guaranteed by hardware.',
+      brief: 'Kernels are precompiled Metal compute shaders that execute LoRA operations on the GPU, designed for deterministic and reproducible computation.',
       detailed: `Metal kernels implement the low-level matrix operations for LoRA inference: matrix multiplication, addition, and activation functions. They are compiled ahead-of-time and cryptographically signed to ensure integrity.
 
 The kernel manifest (\`metallib_manifest.json\`) specifies entry points, memory layouts, and determinism guarantees. Kernels leverage Apple Neural Engine (ANE) when available, falling back gracefully to GPU or CPU.
@@ -246,8 +246,8 @@ CPID format: UUID v4 or deterministic hash of configuration. CPIDs appear in tel
     term: 'Determinism',
     category: 'core-concepts',
     content: {
-      brief: 'System behavior that produces bit-identical outputs for identical inputs, ensuring reproducible results across executions, hardware, and time.',
-      detailed: `AdapterOS guarantees determinism through: HKDF-seeded randomness (reproducible RNG), deterministic kernels (hardware-guaranteed computation), deterministic execution order (FIFO task queue), and controlled floating-point operations.
+      brief: 'System behavior that produces bit-identical outputs for identical inputs, enabling reproducible results across executions, hardware, and time.',
+      detailed: `AdapterOS supports determinism through: HKDF-seeded randomness (reproducible RNG), deterministic kernels (designed for reproducible computation), deterministic execution order (FIFO task queue), and controlled floating-point operations. Note: Actual determinism depends on backend availability and hardware configuration—check the System Status drawer to verify determinism is active.
 
 Determinism is critical for: compliance (prove outputs are reproducible), debugging (eliminate non-deterministic flakiness), and testing (golden runs must replay exactly).
 

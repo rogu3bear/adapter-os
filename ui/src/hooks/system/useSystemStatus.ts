@@ -23,7 +23,12 @@ export interface UseSystemStatusReturn {
   loading: boolean;
   error: Error | null;
   source: StatusSource | null;
+  /** True when data is from fallback endpoints, not native /v1/system/status */
+  isFallback: boolean;
+  /** Schema version: 'v1' for native, 'fallback' for constructed */
+  schemaVersion: string | null;
   lastUpdated: Date | null;
+  /** True when returning cached data due to fetch failure */
   stale: boolean;
   refetch: () => Promise<void>;
 }
@@ -75,6 +80,83 @@ function summarizeAdapters(state: SystemStateResponse | null) {
     hotAdapters,
     umaPressure: state.memory?.pressure_level ?? null,
     aneMemory,
+  };
+}
+
+/**
+ * Boot phases that indicate the system is still booting (not ready for inference).
+ * These match the backend BootState::is_booting() check.
+ */
+const BOOTING_PHASES = new Set([
+  'stopped',
+  'starting',
+  'db-connecting',
+  'migrating',
+  'seeding',
+  'loading-policies',
+  'starting-backend',
+  'loading-base-models',
+  'loading-adapters',
+  'worker-discovery',
+  // Legacy aliases
+  'booting',
+  'initializing-db',
+]);
+
+function isBootingPhase(phase: string | null | undefined): boolean {
+  if (!phase) return false;
+  return BOOTING_PHASES.has(phase.toLowerCase());
+}
+
+function isFailedPhase(phase: string | null | undefined): boolean {
+  if (!phase) return false;
+  const normalized = phase.toLowerCase();
+  return normalized === 'failed' || normalized.includes('fail') || normalized.includes('panic');
+}
+
+function buildInferenceStatus(
+  readyz: ReadyzResponse | null,
+  phase: string | null,
+  degraded: string[],
+): { inferenceReady: string | null; inferenceBlockers: string[] | null } {
+  const blockers: string[] = [];
+
+  // Check boot state first - block ALL boot phases until Ready
+  if (isBootingPhase(phase)) {
+    return {
+      inferenceReady: 'false',
+      inferenceBlockers: ['system_booting'],
+    };
+  }
+
+  if (isFailedPhase(phase)) {
+    return {
+      inferenceReady: 'false',
+      inferenceBlockers: ['boot_failed'],
+    };
+  }
+
+  // Check for degraded state - any degradation triggers TelemetryDegraded
+  if (degraded.length > 0) {
+    blockers.push('telemetry_degraded');
+  }
+
+  // Reconstruct blockers from legacy endpoints
+  if (readyz?.checks?.db?.ok === false) {
+    blockers.push('database_unavailable');
+  }
+  if (readyz?.checks?.worker?.ok === false) {
+    blockers.push('worker_missing');
+  }
+  if (readyz?.checks?.models_seeded?.ok === false) {
+    blockers.push('no_model_loaded');
+  }
+
+  const inferenceReady = blockers.length === 0 ? 'true' : 'false';
+
+  return {
+    inferenceReady,
+    inferenceBlockers: blockers.length > 0 ? blockers : null,
   };
 }
 
@@ -146,8 +228,7 @@ function buildFallbackStatus(
       bootTraceId: readyzExtras?.boot_trace_id ?? null,
       degraded,
     },
-    inferenceReady: null,
-    inferenceBlockers: null,
+    ...buildInferenceStatus(readyz, phase, degraded),
     kernel: {
       activeModel: baseModel?.model_name ?? baseModel?.model_id ?? null,
       activePlan: adapterSummary.activePlan,
@@ -245,12 +326,16 @@ export function useSystemStatus(options: UseSystemStatusOptions = {}): UseSystem
   }, [autoRefreshOnModelEvents, enabled, fetchStatus]);
 
   const stale = useMemo(() => Boolean(error && lastGoodRef.current), [error]);
+  const isFallback = source === 'fallback';
+  const schemaVersion = data?.schemaVersion ?? null;
 
   return {
     data,
     loading,
     error,
     source,
+    isFallback,
+    schemaVersion,
     lastUpdated,
     stale,
     refetch: fetchStatus,

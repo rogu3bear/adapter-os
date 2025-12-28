@@ -76,9 +76,10 @@ export function RulebookTab({ evidence, onViewDocument }: RulebookTabProps) {
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-      toast.success('Evidence exported as JSON');
+      // Note: a.click() is fire-and-forget; we can only confirm download was initiated
+      toast.success('JSON download started');
     } catch (error) {
-      toast.error('Failed to export evidence');
+      toast.error('Failed to initiate download');
       console.error('Export error:', error);
     }
   };
@@ -117,9 +118,10 @@ export function RulebookTab({ evidence, onViewDocument }: RulebookTabProps) {
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-      toast.success('Evidence exported as text');
+      // Note: a.click() is fire-and-forget; we can only confirm download was initiated
+      toast.success('Text download started');
     } catch (error) {
-      toast.error('Failed to export evidence');
+      toast.error('Failed to initiate download');
       console.error('Export error:', error);
     }
   };

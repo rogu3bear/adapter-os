@@ -58,7 +58,9 @@ export function useServiceStatus() {
     status,
     isLoading,
     lastUpdated,
-    error: null, // Suppress errors entirely for this polling hook
+    error, // Return actual error so components can distinguish failure modes
+    /** True when status is null due to fetch failure (not 404) */
+    isFetchError: error !== null && status === null,
     refetch, // Expose refetch for manual refresh triggers
   };
 }
