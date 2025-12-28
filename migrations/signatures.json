@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "signed_at": "2025-12-28T05:24:36Z",
+  "signed_at": "2025-12-28T10:38:51Z",
   "public_key": "LS0tLS1CRUdJTiBQVUJMSUMgS0VZLS0tLS0KTUNvd0JRWURLMlZ3QXlFQU9jY0RZb0trVXl0KytHc3ZsN1dxSExjaE5aRkRHUXhrS0hYY1ZaY0J2bGM9Ci0tLS0tRU5EIFBVQkxJQyBLRVktLS0tLQo=",
   "signatures": {
     "0001_init.sql": {"hash": "c892c5f22f9907547c7dab915c8e473bc2108bc5e7b40b120a7ef68ddd5facc4", "signature": "AiSiNLUW9xNgvyjSPaUxPDp4/YGe8xV2DGvAuL9djVEnNIjouaSXQk+iPICJMUZLk8EkuK20dFRmUvKYlOE2BA==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
@@ -238,6 +238,7 @@
     "0235_replay_rag_fidelity.sql": {"hash": "1fdf9cae6b1b81008993ac59588b2015e8d1d41c8ec8163f8d50fa79fe7a30a3", "signature": "0MuHx/k03eM7zjpElSqzxIB0QR4gY2SvlHENwu9+dpv+ThShyJlBzF0QaJYw31W8B0XSl1ZiQXUCbe7GEy6kAQ==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
     "0236_baseline_version_tracking.sql": {"hash": "3919c8a16991b271ef53a188e26e9caade3585e68e9753639455fb3fc65a0ceb", "signature": "zLjJaaHEhu70JAFJTyOhG2i8KXBYhvFgj9jgKtsCKx4nRzm/EWSuaVT3y3JmXqPQeH5BgVCWzWaw+++F/iIHCQ==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
     "0237_dataset_model_compatibility.sql": {"hash": "7f86c3229cc40e65e74da833a88169413aaf0e30cfcdc51ae7fc66593136a666", "signature": "L/+oMUi/6e2r5KariPFkXKsXRrRPqLstSkE8wwRwbcwTcGn1lwqwdAqMdPi1XMI01nJt5eK+3Vh8iP6+acTEBQ==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
-    "0238_evidence_model_context.sql": {"hash": "26b32bb44b8883ec47b88cffb61b05fa6f7efb8d80c97e691a2ad92a5c301788", "signature": "JOWwC4WTAF9xWA9liNObL56KYuiiQMJvSGz0ztNbVmrOToTs+FW5nIi7LiSMGBYWZrD4fxQMEu9A6E9z4rUeAg==", "algorithm": "ed25519", "hash_algorithm": "blake3"}
+    "0238_evidence_model_context.sql": {"hash": "26b32bb44b8883ec47b88cffb61b05fa6f7efb8d80c97e691a2ad92a5c301788", "signature": "JOWwC4WTAF9xWA9liNObL56KYuiiQMJvSGz0ztNbVmrOToTs+FW5nIi7LiSMGBYWZrD4fxQMEu9A6E9z4rUeAg==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
+    "0239_dataset_hash_recompute.sql": {"hash": "3dcd273f8d09a50b5c2bc430d6ac9c0581ace481d6222279dfeaa08c0cb220e5", "signature": "4A4U5UU/KEitM+WBtvZyHtbFoOeOZdvFn82wYeWkngZRUb0OfMv6YvgVNSDXvJefeuJOddvD15zxN34U9BOVAg==", "algorithm": "ed25519", "hash_algorithm": "blake3"}
   }
 }
