@@ -83,6 +83,7 @@ pub struct TrainingJobRecord {
 /// Evidence: migrations/0125_training_metrics_step_epoch.sql (step/epoch columns)
 /// Pattern: Time-series metrics for training jobs
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct TrainingMetricRow {
     pub id: String,
     pub training_job_id: String,

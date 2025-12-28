@@ -2750,8 +2750,164 @@ pub async fn update_training_priority(
     }))
 }
 
-// Re-export training handlers from parent module for routes.rs
-pub use super::{
-    create_training_session, get_training_logs, get_training_metrics, get_training_template,
-    list_training_templates,
-};
+// ========== Additional Training Handlers ==========
+
+/// Query parameters for training metrics
+#[derive(Debug, serde::Deserialize, utoipa::IntoParams)]
+pub struct TrainingMetricsQuery {
+    pub metric_name: Option<String>,
+    pub limit: Option<i64>,
+}
+
+/// Get training logs for a job
+#[utoipa::path(
+    tag = "training",
+    get,
+    path = "/v1/training/jobs/{job_id}/logs",
+    params(
+        ("job_id" = String, Path, description = "Training job ID")
+    ),
+    responses(
+        (status = 200, description = "Training logs", body = Vec<String>)
+    )
+)]
+pub async fn get_training_logs(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(job_id): Path<String>,
+) -> Result<Json<Vec<String>>, (StatusCode, Json<ErrorResponse>)> {
+    // Training logs are not persisted in DB - return job info as fallback
+    let _ = &claims.tenant_id;
+    let job = state
+        .db
+        .get_training_job(&job_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to get training job")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    // Return basic job info as log entries
+    match job {
+        Some(j) => Ok(Json(vec![
+            format!("Job ID: {}", j.id),
+            format!("Status: {}", j.status),
+            format!("Created: {}", j.created_at.unwrap_or_default()),
+        ])),
+        None => Err((
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse::new("Training job not found").with_code("NOT_FOUND")),
+        )),
+    }
+}
+
+/// Get training metrics for a job
+#[utoipa::path(
+    tag = "training",
+    get,
+    path = "/v1/training/jobs/{job_id}/metrics",
+    params(
+        ("job_id" = String, Path, description = "Training job ID"),
+        TrainingMetricsQuery
+    ),
+    responses(
+        (status = 200, description = "Training metrics", body = Vec<adapteros_db::training_jobs::TrainingMetricRow>)
+    )
+)]
+pub async fn get_training_metrics(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(job_id): Path<String>,
+    Query(params): Query<TrainingMetricsQuery>,
+) -> Result<Json<Vec<adapteros_db::training_jobs::TrainingMetricRow>>, (StatusCode, Json<ErrorResponse>)>
+{
+    let _ = &claims.tenant_id;
+    let metrics = state
+        .db
+        .get_training_metrics(&job_id, params.metric_name.as_deref(), params.limit)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to get training metrics")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    Ok(Json(metrics))
+}
+
+/// List training templates
+#[utoipa::path(
+    tag = "training",
+    get,
+    path = "/v1/training/templates",
+    responses(
+        (status = 200, description = "List of training templates", body = Vec<adapteros_api_types::TrainingTemplateResponse>)
+    )
+)]
+pub async fn list_training_templates(
+    State(_state): State<AppState>,
+    Extension(_claims): Extension<Claims>,
+) -> Result<Json<Vec<adapteros_api_types::TrainingTemplateResponse>>, (StatusCode, Json<ErrorResponse>)>
+{
+    // Stub - would return pre-configured training templates
+    Ok(Json(vec![]))
+}
+
+/// Get a specific training template
+#[utoipa::path(
+    tag = "training",
+    get,
+    path = "/v1/training/templates/{template_id}",
+    params(
+        ("template_id" = String, Path, description = "Template ID")
+    ),
+    responses(
+        (status = 200, description = "Training template details", body = adapteros_api_types::TrainingTemplateResponse),
+        (status = 404, description = "Template not found")
+    )
+)]
+pub async fn get_training_template(
+    State(_state): State<AppState>,
+    Extension(_claims): Extension<Claims>,
+    Path(template_id): Path<String>,
+) -> Result<Json<adapteros_api_types::TrainingTemplateResponse>, (StatusCode, Json<ErrorResponse>)>
+{
+    Err((
+        StatusCode::NOT_FOUND,
+        Json(
+            ErrorResponse::new("Template not found")
+                .with_code("NOT_FOUND")
+                .with_string_details(format!("Template {} not found", template_id)),
+        ),
+    ))
+}
+
+/// Create a training session
+#[utoipa::path(
+    tag = "training",
+    post,
+    path = "/v1/training/sessions",
+    request_body = CreateTrainingJobRequest,
+    responses(
+        (status = 200, description = "Training session created", body = TrainingJobResponse)
+    )
+)]
+pub async fn create_training_session(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Json(req): Json<CreateTrainingJobRequest>,
+) -> Result<Json<TrainingJobResponse>, (StatusCode, Json<ErrorResponse>)> {
+    // Delegate to create_training_job
+    create_training_job(State(state), Extension(claims), Json(req)).await
+}
