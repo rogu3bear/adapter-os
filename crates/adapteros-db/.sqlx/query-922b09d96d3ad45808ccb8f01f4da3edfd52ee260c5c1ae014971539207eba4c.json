@@ -1,0 +1,32 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT tenant_id, policy_pack_id, enabled FROM tenant_policy_bindings WHERE scope = 'global'",
+  "describe": {
+    "columns": [
+      {
+        "name": "tenant_id",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "policy_pack_id",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "enabled",
+        "ordinal": 2,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "922b09d96d3ad45808ccb8f01f4da3edfd52ee260c5c1ae014971539207eba4c"
+}
