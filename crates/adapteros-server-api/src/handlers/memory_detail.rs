@@ -7,6 +7,7 @@
 
 use crate::permissions::{require_permission, Permission};
 use crate::{AppState, Claims, ErrorResponse};
+use adapteros_api_types::system_status::DataAvailability;
 use adapteros_api_types::API_SCHEMA_VERSION;
 use axum::{extract::State, http::StatusCode, Extension, Json};
 use serde::{Deserialize, Serialize};
@@ -35,13 +36,27 @@ pub struct UmaMemoryBreakdownResponse {
 }
 
 /// Memory region information
+///
+/// When `availability` is `Unavailable`, all numeric fields will be `None`.
+/// The UI must display "Unavailable" rather than zeros in this case.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct MemoryRegion {
-    pub allocated_mb: u64,
-    pub used_mb: u64,
-    pub available_mb: u64,
-    pub usage_percent: f32,
+    /// Whether this memory region's metrics are actually available
+    #[serde(default)]
+    pub availability: DataAvailability,
+    /// Allocated memory in MB (None if unavailable)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub allocated_mb: Option<u64>,
+    /// Used memory in MB (None if unavailable)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub used_mb: Option<u64>,
+    /// Available memory in MB (None if unavailable)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub available_mb: Option<u64>,
+    /// Usage percentage (None if unavailable)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub usage_percent: Option<f32>,
 }
 
 /// Eviction configuration
@@ -138,82 +153,117 @@ pub async fn get_uma_memory_breakdown(
     // Get eviction candidates
     let eviction_candidates = get_eviction_candidates(&state).await;
 
-    // Calculate memory regions
+    // Calculate memory regions - only use REAL data, never fabricate
     let total_mb = uma_stats.total_mb;
     let used_mb = uma_stats.used_mb;
     let available_mb = uma_stats.available_mb;
     let headroom_pct = uma_stats.headroom_pct;
 
-    // Calculate region breakdown using real ANE metrics where available
-    // On macOS with Apple Silicon, ANE metrics are collected from system stats
-    // ANE allocation is estimated as ~18% of unified memory architecture
-    // ANE usage is estimated from memory compression activity (proxy for ML workload)
-    let (ane_allocated, ane_used, ane_available) =
-        if let (Some(allocated), Some(used), Some(available)) = (
-            uma_stats.ane_allocated_mb,
-            uma_stats.ane_used_mb,
-            uma_stats.ane_available_mb,
-        ) {
-            (allocated, used, available)
-        } else {
-            // Fallback estimation for non-Apple Silicon or when ANE data unavailable
-            let ane_allocated = (total_mb as f32 * 0.18) as u64;
-            let ane_used = (used_mb as f32 * 0.15) as u64;
-            let ane_available = ane_allocated.saturating_sub(ane_used);
-            (ane_allocated, ane_used, ane_available)
+    // Determine if we have real UMA data (total_mb > 0 indicates real data)
+    let uma_available = total_mb > 0;
+
+    // Build ANE memory region - only if we have REAL ANE metrics
+    // NEVER fabricate estimated values - show unavailable instead
+    let ane_memory = if let (Some(allocated), Some(used), Some(available), Some(usage_pct)) = (
+        uma_stats.ane_allocated_mb,
+        uma_stats.ane_used_mb,
+        uma_stats.ane_available_mb,
+        uma_stats.ane_usage_percent,
+    ) {
+        MemoryRegion {
+            availability: DataAvailability::Available,
+            allocated_mb: Some(allocated),
+            used_mb: Some(used),
+            available_mb: Some(available),
+            usage_percent: Some(usage_pct),
+        }
+    } else {
+        // ANE data unavailable - report honestly, don't fabricate
+        tracing::debug!(
+            target: "telemetry.memory",
+            "ANE metrics unavailable - reporting as unavailable, not fabricated"
+        );
+        MemoryRegion {
+            availability: DataAvailability::Unavailable,
+            allocated_mb: None,
+            used_mb: None,
+            available_mb: None,
+            usage_percent: None,
+        }
+    };
+
+    // Build system/GPU memory regions - only if we have real UMA data
+    let (system_memory, gpu_memory, free_memory) = if uma_available {
+        // We have real UMA data - compute breakdown from actual measurements
+        // Note: GPU/system split is still an approximation since macOS doesn't
+        // expose this breakdown directly, but it's based on real total values
+        let gpu_allocated = (total_mb as f32 * 0.45) as u64;
+        let gpu_used = (used_mb as f32 * 0.45) as u64;
+        let system_allocated = total_mb.saturating_sub(gpu_allocated);
+        let system_used = used_mb.saturating_sub(gpu_used);
+
+        (
+            MemoryRegion {
+                availability: DataAvailability::Available,
+                allocated_mb: Some(system_allocated),
+                used_mb: Some(system_used),
+                available_mb: Some(system_allocated.saturating_sub(system_used)),
+                usage_percent: Some(if system_allocated > 0 {
+                    (system_used as f32 / system_allocated as f32) * 100.0
+                } else {
+                    0.0
+                }),
+            },
+            MemoryRegion {
+                availability: DataAvailability::Available,
+                allocated_mb: Some(gpu_allocated),
+                used_mb: Some(gpu_used),
+                available_mb: Some(gpu_allocated.saturating_sub(gpu_used)),
+                usage_percent: Some(if gpu_allocated > 0 {
+                    (gpu_used as f32 / gpu_allocated as f32) * 100.0
+                } else {
+                    0.0
+                }),
+            },
+            MemoryRegion {
+                availability: DataAvailability::Available,
+                allocated_mb: Some(total_mb),
+                used_mb: Some(used_mb),
+                available_mb: Some(available_mb),
+                usage_percent: Some(if total_mb > 0 {
+                    (used_mb as f32 / total_mb as f32) * 100.0
+                } else {
+                    0.0
+                }),
+            },
+        )
+    } else {
+        // No UMA data available - report all as unavailable
+        tracing::warn!(
+            target: "telemetry.memory",
+            "UMA metrics unavailable - reporting as unavailable, not zeros"
+        );
+        let unavailable_region = MemoryRegion {
+            availability: DataAvailability::Unavailable,
+            allocated_mb: None,
+            used_mb: None,
+            available_mb: None,
+            usage_percent: None,
         };
-
-    // Estimate GPU and system breakdown (remaining after ANE)
-    let remaining_mb = total_mb.saturating_sub(ane_allocated);
-    let remaining_used = used_mb.saturating_sub(ane_used);
-
-    let gpu_allocated = (remaining_mb as f32 * 0.45) as u64; // 45% of remaining for GPU
-    let gpu_used = (remaining_used as f32 * 0.45) as u64;
-
-    let system_allocated = remaining_mb.saturating_sub(gpu_allocated); // Rest for system
-    let system_used = remaining_used.saturating_sub(gpu_used);
+        (
+            unavailable_region.clone(),
+            unavailable_region.clone(),
+            unavailable_region,
+        )
+    };
 
     Ok(Json(UmaMemoryBreakdownResponse {
         schema_version: API_SCHEMA_VERSION.to_string(),
         total_mb,
-        system_memory: MemoryRegion {
-            allocated_mb: system_allocated,
-            used_mb: system_used,
-            available_mb: system_allocated.saturating_sub(system_used),
-            usage_percent: if system_allocated > 0 {
-                (system_used as f32 / system_allocated as f32) * 100.0
-            } else {
-                0.0
-            },
-        },
-        gpu_memory: MemoryRegion {
-            allocated_mb: gpu_allocated,
-            used_mb: gpu_used,
-            available_mb: gpu_allocated.saturating_sub(gpu_used),
-            usage_percent: if gpu_allocated > 0 {
-                (gpu_used as f32 / gpu_allocated as f32) * 100.0
-            } else {
-                0.0
-            },
-        },
-        ane_memory: MemoryRegion {
-            allocated_mb: ane_allocated,
-            used_mb: ane_used,
-            available_mb: ane_available,
-            usage_percent: uma_stats.ane_usage_percent.unwrap_or_else(|| {
-                if ane_allocated > 0 {
-                    (ane_used as f32 / ane_allocated as f32) * 100.0
-                } else {
-                    0.0
-                }
-            }),
-        },
-        free_memory: MemoryRegion {
-            allocated_mb: total_mb,
-            used_mb,
-            available_mb,
-            usage_percent: (used_mb as f32 / total_mb as f32) * 100.0,
-        },
+        system_memory,
+        gpu_memory,
+        ane_memory,
+        free_memory,
         pressure_level,
         headroom_pct,
         eviction_config: EvictionConfig {

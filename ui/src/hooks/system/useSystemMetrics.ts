@@ -380,39 +380,53 @@ export function useMemoryOperations() {
 }
 
 // Computed metrics helpers
+//
+// IMPORTANT: Resource usage percentages (CPU, memory, disk, GPU) return null
+// when unavailable instead of 0 to prevent operators from interpreting
+// missing data as "0% usage" which could lead to bad capacity decisions.
+// Counts (node, worker, adapter) still default to 0 as this is safe.
 export function useComputedMetrics(metrics: SystemMetrics | null) {
   return useMemo(() => {
     if (!metrics) return null;
 
-    const cpuUsage = metrics.cpu_usage_percent ?? metrics.cpu_usage ?? 0;
-    const memoryUsage = metrics.memory_usage_percent ?? metrics.memory_usage_pct ?? metrics.memory_usage ?? 0;
-    const diskUsage = metrics.disk_usage_percent ?? metrics.disk_usage ?? 0;
-    const gpuUsage = metrics.gpu_utilization_percent ?? 0;
+    // Resource usage percentages: null means unavailable, not 0%
+    const cpuUsage = metrics.cpu_usage_percent ?? metrics.cpu_usage ?? null;
+    const memoryUsage = metrics.memory_usage_percent ?? metrics.memory_usage_pct ?? metrics.memory_usage ?? null;
+    const diskUsage = metrics.disk_usage_percent ?? metrics.disk_usage ?? null;
+    const gpuUsage = metrics.gpu_utilization_percent ?? null;
 
     return {
       cpuUsage,
       memoryUsage,
       diskUsage,
       gpuUsage,
+      // Counts are safe to default to 0
       nodeCount: metrics.node_count ?? 0,
       workerCount: metrics.worker_count ?? 0,
-      memoryUsedGb: metrics.memory_used_gb ?? 0,
-      memoryTotalGb: metrics.memory_total_gb ?? 0,
-      gpuMemoryUsedMb: metrics.gpu_memory_used_mb ?? 0,
-      gpuMemoryTotalMb: metrics.gpu_memory_total_mb ?? 0,
-      networkRx: metrics.network_rx_bytes ?? metrics.network_rx ?? 0,
-      networkTx: metrics.network_tx_bytes ?? metrics.network_tx ?? 0,
+      // Memory amounts: null means unavailable
+      memoryUsedGb: metrics.memory_used_gb ?? null,
+      memoryTotalGb: metrics.memory_total_gb ?? null,
+      gpuMemoryUsedMb: metrics.gpu_memory_used_mb ?? null,
+      gpuMemoryTotalMb: metrics.gpu_memory_total_mb ?? null,
+      // Network stats: null means unavailable
+      networkRx: metrics.network_rx_bytes ?? metrics.network_rx ?? null,
+      networkTx: metrics.network_tx_bytes ?? metrics.network_tx ?? null,
+      // Counts are safe to default to 0
       adapterCount: metrics.adapter_count ?? 0,
       activeSessions: metrics.active_sessions ?? 0,
-      tokensPerSecond: metrics.tokens_per_second ?? 0,
-      latencyP95Ms: metrics.latency_p95_ms ?? 0,
-      cpuTemp: metrics.cpu_temp_celsius ?? 0,
-      gpuTemp: metrics.gpu_temp_celsius ?? 0,
-      gpuPower: metrics.gpu_power_watts ?? 0,
-      diskReadMbps: metrics.disk_read_mbps ?? 0,
-      diskWriteMbps: metrics.disk_write_mbps ?? 0,
-      cacheHitRate: metrics.cache_hit_rate ?? 0,
-      errorRate: metrics.error_rate ?? 0,
+      // Performance metrics: null means unavailable
+      tokensPerSecond: metrics.tokens_per_second ?? null,
+      latencyP95Ms: metrics.latency_p95_ms ?? null,
+      // Temperature/power: null means unavailable
+      cpuTemp: metrics.cpu_temp_celsius ?? null,
+      gpuTemp: metrics.gpu_temp_celsius ?? null,
+      gpuPower: metrics.gpu_power_watts ?? null,
+      // Disk I/O: null means unavailable
+      diskReadMbps: metrics.disk_read_mbps ?? null,
+      diskWriteMbps: metrics.disk_write_mbps ?? null,
+      // Rates: null means unavailable
+      cacheHitRate: metrics.cache_hit_rate ?? null,
+      errorRate: metrics.error_rate ?? null,
     };
   }, [metrics]);
 }
@@ -420,7 +434,13 @@ export function useComputedMetrics(metrics: SystemMetrics | null) {
 // Health status helper
 export type HealthStatus = 'healthy' | 'warning' | 'critical' | 'unknown';
 
-export function getHealthStatus(value: number, warningThreshold: number, criticalThreshold: number): HealthStatus {
+export function getHealthStatus(
+  value: number | null,
+  warningThreshold: number,
+  criticalThreshold: number
+): HealthStatus {
+  // null means unavailable data - return unknown, not healthy
+  if (value === null) return 'unknown';
   if (value >= criticalThreshold) return 'critical';
   if (value >= warningThreshold) return 'warning';
   return 'healthy';
@@ -439,8 +459,12 @@ export function useSystemHealthStatus(metrics: SystemMetrics | null): HealthStat
 
     const statuses = [cpuStatus, memStatus, diskStatus, gpuStatus];
 
+    // If any critical, overall is critical
     if (statuses.some(s => s === 'critical')) return 'critical';
+    // If any warning, overall is warning
     if (statuses.some(s => s === 'warning')) return 'warning';
+    // If all unknown, overall is unknown (don't pretend we're healthy)
+    if (statuses.every(s => s === 'unknown')) return 'unknown';
     return 'healthy';
   }, [computed]);
 }

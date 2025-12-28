@@ -10,12 +10,12 @@ import { METRIC_COLORS } from '@/constants/chart-colors';
 
 interface MetricDataPoint {
   timestamp: string;
-  cpuUsage: number;
-  memoryUsage: number;
-  diskUsage: number;
-  gpuUsage: number;
-  tokensPerSecond: number;
-  latencyP95Ms: number;
+  cpuUsage: number | null;
+  memoryUsage: number | null;
+  diskUsage: number | null;
+  gpuUsage: number | null;
+  tokensPerSecond: number | null;
+  latencyP95Ms: number | null;
 }
 
 export default function MetricsTab() {
@@ -192,7 +192,9 @@ export default function MetricsTab() {
             <CardDescription>CPU Usage</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{computed?.cpuUsage.toFixed(1) ?? '--'}%</div>
+            <div className="text-2xl font-bold">
+              {computed?.cpuUsage !== null && computed?.cpuUsage !== undefined ? `${computed.cpuUsage.toFixed(1)}%` : '--'}
+            </div>
           </CardContent>
         </Card>
 
@@ -201,9 +203,11 @@ export default function MetricsTab() {
             <CardDescription>Memory Usage</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{computed?.memoryUsage.toFixed(1) ?? '--'}%</div>
+            <div className="text-2xl font-bold">
+              {computed?.memoryUsage !== null && computed?.memoryUsage !== undefined ? `${computed.memoryUsage.toFixed(1)}%` : '--'}
+            </div>
             <div className="text-xs text-muted-foreground">
-              {computed?.memoryUsedGb.toFixed(2) ?? '--'} / {computed?.memoryTotalGb.toFixed(2) ?? '--'} GB
+              {computed?.memoryUsedGb !== null && computed?.memoryUsedGb !== undefined ? computed.memoryUsedGb.toFixed(2) : '--'} / {computed?.memoryTotalGb !== null && computed?.memoryTotalGb !== undefined ? computed.memoryTotalGb.toFixed(2) : '--'} GB
             </div>
           </CardContent>
         </Card>
@@ -213,9 +217,11 @@ export default function MetricsTab() {
             <CardDescription>GPU Usage</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{computed?.gpuUsage.toFixed(1) ?? '--'}%</div>
+            <div className="text-2xl font-bold">
+              {computed?.gpuUsage !== null && computed?.gpuUsage !== undefined ? `${computed.gpuUsage.toFixed(1)}%` : '--'}
+            </div>
             <div className="text-xs text-muted-foreground">
-              {computed?.gpuMemoryUsedMb.toFixed(0) ?? '--'} / {computed?.gpuMemoryTotalMb.toFixed(0) ?? '--'} MB
+              {computed?.gpuMemoryUsedMb !== null && computed?.gpuMemoryUsedMb !== undefined ? computed.gpuMemoryUsedMb.toFixed(0) : '--'} / {computed?.gpuMemoryTotalMb !== null && computed?.gpuMemoryTotalMb !== undefined ? computed.gpuMemoryTotalMb.toFixed(0) : '--'} MB
             </div>
           </CardContent>
         </Card>
@@ -225,7 +231,9 @@ export default function MetricsTab() {
             <CardDescription>Disk Usage</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{computed?.diskUsage.toFixed(1) ?? '--'}%</div>
+            <div className="text-2xl font-bold">
+              {computed?.diskUsage !== null && computed?.diskUsage !== undefined ? `${computed.diskUsage.toFixed(1)}%` : '--'}
+            </div>
           </CardContent>
         </Card>
 
@@ -235,7 +243,7 @@ export default function MetricsTab() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {computed ? (computed.networkRx / 1024 / 1024).toFixed(2) : '--'}
+              {computed?.networkRx !== null && computed?.networkRx !== undefined ? (computed.networkRx / 1024 / 1024).toFixed(2) : '--'}
             </div>
             <div className="text-xs text-muted-foreground">MB received</div>
           </CardContent>
@@ -247,7 +255,7 @@ export default function MetricsTab() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {computed ? (computed.networkTx / 1024 / 1024).toFixed(2) : '--'}
+              {computed?.networkTx !== null && computed?.networkTx !== undefined ? (computed.networkTx / 1024 / 1024).toFixed(2) : '--'}
             </div>
             <div className="text-xs text-muted-foreground">MB transmitted</div>
           </CardContent>
@@ -258,7 +266,9 @@ export default function MetricsTab() {
             <CardDescription>Tokens/sec</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{computed?.tokensPerSecond.toFixed(1) ?? '--'}</div>
+            <div className="text-2xl font-bold">
+              {computed?.tokensPerSecond !== null && computed?.tokensPerSecond !== undefined ? computed.tokensPerSecond.toFixed(1) : '--'}
+            </div>
           </CardContent>
         </Card>
 
@@ -267,7 +277,9 @@ export default function MetricsTab() {
             <CardDescription>Latency (P95)</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{computed?.latencyP95Ms.toFixed(0) ?? '--'}</div>
+            <div className="text-2xl font-bold">
+              {computed?.latencyP95Ms !== null && computed?.latencyP95Ms !== undefined ? computed.latencyP95Ms.toFixed(0) : '--'}
+            </div>
             <div className="text-xs text-muted-foreground">milliseconds</div>
           </CardContent>
         </Card>
@@ -277,7 +289,9 @@ export default function MetricsTab() {
             <CardDescription>CPU Temperature</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{computed?.cpuTemp.toFixed(1) ?? '--'}°C</div>
+            <div className="text-2xl font-bold">
+              {computed?.cpuTemp !== null && computed?.cpuTemp !== undefined ? `${computed.cpuTemp.toFixed(1)}°C` : '--'}
+            </div>
           </CardContent>
         </Card>
 
@@ -286,7 +300,9 @@ export default function MetricsTab() {
             <CardDescription>GPU Temperature</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{computed?.gpuTemp.toFixed(1) ?? '--'}°C</div>
+            <div className="text-2xl font-bold">
+              {computed?.gpuTemp !== null && computed?.gpuTemp !== undefined ? `${computed.gpuTemp.toFixed(1)}°C` : '--'}
+            </div>
           </CardContent>
         </Card>
 
@@ -295,7 +311,9 @@ export default function MetricsTab() {
             <CardDescription>GPU Power</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{computed?.gpuPower.toFixed(1) ?? '--'}</div>
+            <div className="text-2xl font-bold">
+              {computed?.gpuPower !== null && computed?.gpuPower !== undefined ? computed.gpuPower.toFixed(1) : '--'}
+            </div>
             <div className="text-xs text-muted-foreground">watts</div>
           </CardContent>
         </Card>
@@ -306,7 +324,7 @@ export default function MetricsTab() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {computed ? (computed.cacheHitRate * 100).toFixed(1) : '--'}%
+              {computed?.cacheHitRate !== null && computed?.cacheHitRate !== undefined ? `${(computed.cacheHitRate * 100).toFixed(1)}%` : '--'}
             </div>
           </CardContent>
         </Card>
@@ -317,7 +335,7 @@ export default function MetricsTab() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {computed ? (computed.errorRate * 100).toFixed(2) : '--'}%
+              {computed?.errorRate !== null && computed?.errorRate !== undefined ? `${(computed.errorRate * 100).toFixed(2)}%` : '--'}
             </div>
           </CardContent>
         </Card>
@@ -345,7 +363,7 @@ export default function MetricsTab() {
             <CardDescription>Disk Read</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{computed?.diskReadMbps.toFixed(2) ?? '--'}</div>
+            <div className="text-2xl font-bold">{computed?.diskReadMbps !== null && computed?.diskReadMbps !== undefined ? computed.diskReadMbps.toFixed(2) : '--'}</div>
             <div className="text-xs text-muted-foreground">MB/s</div>
           </CardContent>
         </Card>

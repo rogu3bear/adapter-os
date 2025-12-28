@@ -108,18 +108,13 @@ pub enum StatusIndicator {
 }
 
 /// Inference readiness tri-state for operators.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, ToSchema, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, ToSchema, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum InferenceReadyState {
     True,
     False,
+    #[default]
     Unknown,
-}
-
-impl Default for InferenceReadyState {
-    fn default() -> Self {
-        Self::Unknown
-    }
 }
 
 /// Blockers preventing inference from running.
@@ -130,6 +125,28 @@ pub enum InferenceBlocker {
     WorkerMissing,
     NoModelLoaded,
     ActiveModelMismatch,
+    /// Critical telemetry (memory, ANE, UMA) is unavailable
+    TelemetryDegraded,
+    /// System is still booting (not yet reached Ready state)
+    SystemBooting,
+    /// Boot failed with a critical error
+    BootFailed,
+}
+
+/// Data availability indicator for telemetry metrics.
+///
+/// Used to distinguish between real measured data, unavailable data, and stale data.
+/// This prevents the UI from displaying zeros or fabricated estimates as if they were real.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, ToSchema, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum DataAvailability {
+    /// Real measured data from the system
+    #[default]
+    Available,
+    /// Data unavailable (API error, unsupported platform, collection failure)
+    Unavailable,
+    /// Data is stale (older than freshness threshold, typically 30s)
+    Stale,
 }
 
 /// Boot lifecycle summary.
@@ -230,21 +247,49 @@ pub struct KernelMemorySummary {
 }
 
 /// Apple Neural Engine memory stats.
+///
+/// When `availability` is `Unavailable`, all numeric fields will be `None`.
+/// The UI must display "Unavailable" rather than zeros in this case.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct AneMemorySummary {
-    pub allocated_mb: u64,
-    pub used_mb: u64,
-    pub available_mb: u64,
-    pub usage_pct: f32,
+    /// Whether ANE metrics are actually available
+    #[serde(default)]
+    pub availability: DataAvailability,
+    /// Allocated ANE memory in MB (None if unavailable)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub allocated_mb: Option<u64>,
+    /// Used ANE memory in MB (None if unavailable)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub used_mb: Option<u64>,
+    /// Available ANE memory in MB (None if unavailable)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub available_mb: Option<u64>,
+    /// ANE usage percentage (None if unavailable)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub usage_pct: Option<f32>,
 }
 
 /// UMA headroom summary.
+///
+/// When `availability` is `Unavailable`, all numeric fields will be `None`.
+/// The UI must display "Unavailable" rather than zeros in this case.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct UmaMemorySummary {
-    pub total_mb: u64,
-    pub used_mb: u64,
-    pub available_mb: u64,
-    pub headroom_pct: f32,
+    /// Whether UMA metrics are actually available
+    #[serde(default)]
+    pub availability: DataAvailability,
+    /// Total UMA memory in MB (None if unavailable)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total_mb: Option<u64>,
+    /// Used UMA memory in MB (None if unavailable)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub used_mb: Option<u64>,
+    /// Available UMA memory in MB (None if unavailable)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub available_mb: Option<u64>,
+    /// UMA headroom percentage (None if unavailable)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub headroom_pct: Option<f32>,
 }

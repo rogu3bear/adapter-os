@@ -8,9 +8,10 @@ use std::time::{Duration, Instant};
 
 use adapteros_api_types::system_status::{
     AdapterInventory, AneMemorySummary, BootFailure, BootPhaseTiming, BootStatus, ComponentCheck,
-    DegradedReason, DriftLevel, DriftStatus, InferenceBlocker, InferenceReadyState,
-    IntegrityStatus, KernelMemorySummary, KernelStatus, ModelStatusSummary, PlanStatusSummary,
-    ReadinessChecks, ReadinessStatus, StatusIndicator, SystemStatusResponse, UmaMemorySummary,
+    DataAvailability, DegradedReason, DriftLevel, DriftStatus, InferenceBlocker,
+    InferenceReadyState, IntegrityStatus, KernelMemorySummary, KernelStatus, ModelStatusSummary,
+    PlanStatusSummary, ReadinessChecks, ReadinessStatus, StatusIndicator, SystemStatusResponse,
+    UmaMemorySummary,
 };
 use adapteros_api_types::{ModelLoadStatus, API_SCHEMA_VERSION};
 use axum::{extract::State, Extension, Json};
@@ -45,13 +46,18 @@ pub async fn get_system_status(
 ) -> ApiResult<SystemStatusResponse> {
     require_permission(&claims, Permission::MetricsView)?;
 
+    // Scope status checks to the caller's tenant for workspace isolation
+    let tenant_id = Some(claims.tenant_id.as_str());
+
     let integrity = build_integrity_status(&state);
     let boot = collect_boot_status(&state);
     let readiness = collect_readiness(&state).await;
-    let (inference_ready, inference_blockers) = collect_inference_status(&state, &readiness).await;
+    let (inference_ready, inference_blockers) =
+        collect_inference_status(&state, &readiness, tenant_id).await;
     let kernel = collect_kernel_status(
         &state,
         matches!(readiness.checks.db.status, StatusIndicator::Ready),
+        tenant_id,
     )
     .await;
 
@@ -326,7 +332,24 @@ fn aggregate_readiness(statuses: impl IntoIterator<Item = StatusIndicator>) -> S
 async fn collect_inference_status(
     state: &AppState,
     readiness: &ReadinessStatus,
+    tenant_id: Option<&str>,
 ) -> (InferenceReadyState, Vec<InferenceBlocker>) {
+    // Check boot state first - block ALL boot phases until Ready
+    if let Some(boot_state) = state.boot_state.as_ref() {
+        if boot_state.is_booting() {
+            return (
+                InferenceReadyState::False,
+                vec![InferenceBlocker::SystemBooting],
+            );
+        }
+        if boot_state.is_failed() {
+            return (
+                InferenceReadyState::False,
+                vec![InferenceBlocker::BootFailed],
+            );
+        }
+    }
+
     if readiness.checks.db.status != StatusIndicator::Ready {
         return (
             InferenceReadyState::Unknown,
@@ -335,6 +358,16 @@ async fn collect_inference_status(
     }
 
     let mut blockers = Vec::new();
+
+    // Check for degraded state - any degradation triggers TelemetryDegraded
+    if let Some(boot_state) = state.boot_state.as_ref() {
+        if boot_state.is_degraded() {
+            let reasons = boot_state.get_degraded_reasons();
+            if !reasons.is_empty() {
+                push_blocker(&mut blockers, InferenceBlocker::TelemetryDegraded);
+            }
+        }
+    }
 
     let worker_count = match state.db.count_active_workers().await {
         Ok(count) => count,
@@ -368,7 +401,12 @@ async fn collect_inference_status(
         push_blocker(&mut blockers, InferenceBlocker::NoModelLoaded);
     }
 
-    let active_states = match state.db.list_workspace_active_states().await {
+    // Use tenant-scoped query when tenant_id is provided for workspace isolation
+    let active_states = match tenant_id {
+        Some(tid) => state.db.list_workspace_active_states_for_tenant(tid).await,
+        None => state.db.list_workspace_active_states().await,
+    };
+    let active_states = match active_states {
         Ok(states) => states,
         Err(e) => {
             warn!(error = %e, "Failed to load workspace active state for inference readiness");
@@ -405,7 +443,11 @@ async fn collect_inference_status(
     (ready, blockers)
 }
 
-async fn collect_kernel_status(state: &AppState, db_ready: bool) -> Option<KernelStatus> {
+async fn collect_kernel_status(
+    state: &AppState,
+    db_ready: bool,
+    tenant_id: Option<&str>,
+) -> Option<KernelStatus> {
     let mut model_summary = None;
     let mut plan_summary = None;
     let mut adapter_inventory = None;
@@ -428,7 +470,12 @@ async fn collect_kernel_status(state: &AppState, db_ready: bool) -> Option<Kerne
 
         let mut active_adapter_count: Option<i64> = None;
         let mut active_plan_summary: Option<PlanStatusSummary> = None;
-        let active_states = match state.db.list_workspace_active_states().await {
+        // Use tenant-scoped query when tenant_id is provided for workspace isolation
+        let active_states = match tenant_id {
+            Some(tid) => state.db.list_workspace_active_states_for_tenant(tid).await,
+            None => state.db.list_workspace_active_states().await,
+        };
+        let active_states = match active_states {
             Ok(states) => Some(states),
             Err(e) => {
                 warn!(error = %e, "Failed to load workspace active state for system status");
@@ -562,16 +609,33 @@ async fn build_memory_summary(state: &AppState) -> Option<KernelMemorySummary> {
         pressure: None,
     };
 
+    // Build UMA summary - only if we have real data (total_mb > 0)
     if uma_stats.total_mb > 0 {
         memory.uma = Some(UmaMemorySummary {
-            total_mb: uma_stats.total_mb,
-            used_mb: uma_stats.used_mb,
-            available_mb: uma_stats.available_mb,
-            headroom_pct: uma_stats.headroom_pct,
+            availability: DataAvailability::Available,
+            total_mb: Some(uma_stats.total_mb),
+            used_mb: Some(uma_stats.used_mb),
+            available_mb: Some(uma_stats.available_mb),
+            headroom_pct: Some(uma_stats.headroom_pct),
         });
         memory.pressure = Some(state.uma_monitor.get_current_pressure().to_string());
+    } else {
+        // UMA data unavailable - report honestly with Unavailable status
+        // instead of omitting entirely, so UI knows telemetry is degraded
+        tracing::debug!(
+            target: "telemetry.memory",
+            "UMA metrics unavailable in system status - reporting as unavailable"
+        );
+        memory.uma = Some(UmaMemorySummary {
+            availability: DataAvailability::Unavailable,
+            total_mb: None,
+            used_mb: None,
+            available_mb: None,
+            headroom_pct: None,
+        });
     }
 
+    // Build ANE summary - only if we have ALL real ANE metrics
     if let (Some(allocated), Some(used), Some(available), Some(usage_pct)) = (
         uma_stats.ane_allocated_mb,
         uma_stats.ane_used_mb,
@@ -579,18 +643,30 @@ async fn build_memory_summary(state: &AppState) -> Option<KernelMemorySummary> {
         uma_stats.ane_usage_percent,
     ) {
         memory.ane = Some(AneMemorySummary {
-            allocated_mb: allocated,
-            used_mb: used,
-            available_mb: available,
-            usage_pct,
+            availability: DataAvailability::Available,
+            allocated_mb: Some(allocated),
+            used_mb: Some(used),
+            available_mb: Some(available),
+            usage_pct: Some(usage_pct),
+        });
+    } else {
+        // ANE data unavailable - report honestly with Unavailable status
+        // NEVER fabricate estimated values
+        tracing::debug!(
+            target: "telemetry.memory",
+            "ANE metrics unavailable in system status - reporting as unavailable"
+        );
+        memory.ane = Some(AneMemorySummary {
+            availability: DataAvailability::Unavailable,
+            allocated_mb: None,
+            used_mb: None,
+            available_mb: None,
+            usage_pct: None,
         });
     }
 
-    if memory.ane.is_none() && memory.uma.is_none() && memory.pressure.is_none() {
-        None
-    } else {
-        Some(memory)
-    }
+    // Always return memory summary now that we report availability status
+    Some(memory)
 }
 
 fn timeout_from_ms(config_value: u64, fallback_ms: u64) -> Duration {

@@ -181,33 +181,33 @@ export default function SystemOverviewPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <MetricCard
               title="CPU Usage"
-              value={computed?.cpuUsage.toFixed(1) ?? '--'}
+              value={computed?.cpuUsage != null ? computed.cpuUsage.toFixed(1) : '--'}
               unit="%"
-              progress={computed?.cpuUsage}
+              progress={computed?.cpuUsage ?? undefined}
               status={computed ? getHealthStatus(computed.cpuUsage, 70, 90) : undefined}
               isLoading={metricsLoading}
             />
             <MetricCard
               title="Memory Usage"
-              value={computed?.memoryUsage.toFixed(1) ?? '--'}
+              value={computed?.memoryUsage != null ? computed.memoryUsage.toFixed(1) : '--'}
               unit="%"
-              progress={computed?.memoryUsage}
+              progress={computed?.memoryUsage ?? undefined}
               status={computed ? getHealthStatus(computed.memoryUsage, 75, 90) : undefined}
               isLoading={metricsLoading}
             />
             <MetricCard
               title="Disk Usage"
-              value={computed?.diskUsage.toFixed(1) ?? '--'}
+              value={computed?.diskUsage != null ? computed.diskUsage.toFixed(1) : '--'}
               unit="%"
-              progress={computed?.diskUsage}
+              progress={computed?.diskUsage ?? undefined}
               status={computed ? getHealthStatus(computed.diskUsage, 80, 95) : undefined}
               isLoading={metricsLoading}
             />
             <MetricCard
               title="GPU Usage"
-              value={computed?.gpuUsage.toFixed(1) ?? '--'}
+              value={computed?.gpuUsage != null ? computed.gpuUsage.toFixed(1) : '--'}
               unit="%"
-              progress={computed?.gpuUsage}
+              progress={computed?.gpuUsage ?? undefined}
               status={computed ? getHealthStatus(computed.gpuUsage, 80, 95) : undefined}
               isLoading={metricsLoading}
             />
@@ -230,12 +230,12 @@ export default function SystemOverviewPage() {
             />
             <MetricCard
               title="Tokens/sec"
-              value={computed?.tokensPerSecond.toFixed(1) ?? '--'}
+              value={computed?.tokensPerSecond != null ? computed.tokensPerSecond.toFixed(1) : '--'}
               isLoading={metricsLoading}
             />
             <MetricCard
               title="Latency (P95)"
-              value={computed?.latencyP95Ms.toFixed(0) ?? '--'}
+              value={computed?.latencyP95Ms != null ? computed.latencyP95Ms.toFixed(0) : '--'}
               unit="ms"
               isLoading={metricsLoading}
             />
