@@ -584,11 +584,12 @@ impl LoRAWeights {
 
         let rank = self.lora_a.len();
         let hidden_dim = self.lora_b.len();
-        let in_features = self.lora_a.get(0).map(|v| v.len()).unwrap_or(0);
+        let in_features = self.lora_a.first().map(|v| v.len()).unwrap_or(0);
 
         // delta = B @ A: (hidden_dim, in_features)
         let mut delta = vec![vec![0.0f32; in_features]; hidden_dim];
 
+        #[allow(clippy::needless_range_loop)]
         for out_idx in 0..hidden_dim {
             for in_idx in 0..in_features {
                 let mut sum = 0.0f32;
@@ -2916,7 +2917,7 @@ impl MicroLoRATrainer {
     /// Gradients are scaled by the routing weights for active experts.
     /// For routing-weighted shared LoRA:
     /// `grad_scale = sum(routing_weight[e]) for e in active_experts`
-    #[allow(dead_code)]
+    #[allow(dead_code, clippy::too_many_arguments)]
     fn backward_and_update_moe(
         &self,
         weights: &mut LoRAWeights,

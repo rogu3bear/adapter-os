@@ -38,7 +38,6 @@ use crate::generation::Generator;
 use crate::reasoning_router::{
     FastEmbedder, ReasoningRouterConfig, ReasoningScorer, StreamInspector, ThoughtTransition,
 };
-use crate::request_types::RequestType;
 use crate::router_bridge::decision_to_router_ring;
 use crate::routing_policy_filter::filter_decision_by_policy;
 use crate::stop_controller::StopController;
@@ -1680,7 +1679,7 @@ impl InferencePipeline {
 }
 
 fn derive_cluster_from_id(id: &str) -> Option<String> {
-    id.split(|c| c == '-' || c == '_' || c == '.')
+    id.split(['-', '_', '.'])
         .next()
         .map(|s| s.to_string())
         .filter(|s| !s.is_empty())

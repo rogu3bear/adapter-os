@@ -290,7 +290,7 @@ impl StreamInspector {
             }
         };
 
-        let cooldown_ready = self.last_swap_token.map_or(true, |last| {
+        let cooldown_ready = self.last_swap_token.is_none_or(|last| {
             token_index.saturating_sub(last) >= self.config.debounce_tokens
         });
 

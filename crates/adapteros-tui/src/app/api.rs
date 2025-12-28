@@ -4,7 +4,7 @@ use reqwest::Client;
 use serde_json::Value;
 use tracing::{debug, info};
 
-use super::types::{LogEntry, LogLevel, SystemMetrics};
+use super::types::{LogEntry, SystemMetrics};
 
 pub struct ApiClient {
     client: Client,
@@ -347,7 +347,7 @@ impl ApiClient {
 
         Some(LogEntry {
             timestamp,
-            level: LogLevel::from_str(level_str),
+            level: level_str.parse().unwrap(),
             component,
             message,
             trace_id,

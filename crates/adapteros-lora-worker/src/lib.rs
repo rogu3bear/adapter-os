@@ -923,6 +923,7 @@ fn strict_mode_enabled(strict_flag: bool, determinism_mode: &str) -> bool {
 }
 
 struct ValidatedPrompt {
+    #[allow(dead_code)]
     formatted_prompt: String,
     tokens: Vec<u32>,
 }
@@ -1564,6 +1565,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
 
         // Load MoE cache snapshot if exists
         let adapter_paths = resolve_worker_adapter_paths();
+        #[allow(unused_variables)]
         let adapters_path = adapter_paths.repo_root.join(tenant_id);
         #[cfg(feature = "mlx-bridge")]
         let moe_cache_path = adapters_path.join("moe_cache.json");
@@ -1725,7 +1727,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             lifecycle,
             hotswap,
             retirement_handle,
-            persistence_handle: persistence_handle,
+            persistence_handle,
             shutdown_tx,
             active_training_jobs,
             worker_id,
@@ -2311,10 +2313,14 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         let mut free_tokens: Vec<crate::moe_prefix_cache::FreeToken> = Vec::new();
         #[cfg(not(feature = "mlx-bridge"))]
         let free_tokens: Vec<()> = Vec::new();
+        #[allow(unused_mut)]
         let mut free_token_ids: Vec<u32> = Vec::new();
+        #[allow(unused_mut)]
         let mut free_token_text = String::new();
 
+        #[allow(unused_mut)]
         let mut prompt_tokens_with_free = prompt_tokens.clone();
+        #[allow(unused_mut)]
         let mut max_tokens_remaining = request.max_tokens;
         let is_moe = self.kernels.lock().await.is_moe();
         self.router.set_model_is_moe(is_moe);
@@ -2943,7 +2949,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 placement_trace: None, // No placement for text-gen mode
                 stop_reason_code,
                 stop_reason_token_index: stop_reason_token_index
-                    .or_else(|| Some(generation_result.tokens_generated as u32)),
+                    .or(Some(generation_result.tokens_generated as u32)),
                 stop_policy_digest_b3: Some(stop_policy_digest.to_hex()),
                 error_details: None,
             });
@@ -2987,7 +2993,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             // Run router to get active adapters
             // Extract features from the current prompt context for adaptive routing
             let mut decision_from_reasoning = pending_reasoning_decision.is_some();
-            let mut decision = if let Some(pending) = pending_reasoning_decision.take() {
+            let decision = if let Some(pending) = pending_reasoning_decision.take() {
                 pending
             } else {
                 decision_from_reasoning = false;
@@ -3625,7 +3631,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Drop for Worke
 
         // Try to flush cache on shutdown
         if let Ok(handle) = tokio::runtime::Handle::try_current() {
-            let _ = handle.block_on(async {
+            handle.block_on(async {
                 let _ = self.flush().await;
             });
         }

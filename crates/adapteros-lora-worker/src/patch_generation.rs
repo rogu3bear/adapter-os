@@ -47,7 +47,7 @@ impl<K: FusedKernels + crate::StrictnessControl + Send + Sync + 'static> Worker<
             .iter()
             .map(|a| {
                 a.intent.clone().filter(|s| !s.is_empty()).or_else(|| {
-                    a.id.split(|c| c == '-' || c == '_' || c == '.')
+                    a.id.split(['-', '_', '.'])
                         .next()
                         .map(|s| s.to_string())
                 })

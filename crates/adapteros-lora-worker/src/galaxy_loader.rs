@@ -54,11 +54,13 @@ pub enum AdapterSource {
 }
 
 #[derive(Debug, Clone)]
+#[allow(private_interfaces)]
 pub enum AdapterBacking {
     Galaxy(Arc<GalaxyMap>),
     Standalone(Arc<StandaloneMapping>),
 }
 
+#[allow(dead_code)]
 impl AdapterBacking {
     pub fn galaxy_id(&self) -> Option<String> {
         match self {
@@ -136,6 +138,12 @@ struct ParsedGalaxyHeader {
 struct GalaxyEntryWithId {
     entry: GalaxyEntry,
     adapter_id: String,
+}
+
+impl Default for GalaxyLoader {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl GalaxyLoader {
@@ -295,10 +303,10 @@ impl GalaxyLoader {
             if let Ok(read_dir) = std::fs::read_dir(parent) {
                 for entry in read_dir.flatten() {
                     let path = entry.path();
-                    if path.extension().is_some_and(|ext| ext == "galaxy") {
-                        if !paths.contains(&path) {
-                            paths.push(path);
-                        }
+                    if path.extension().is_some_and(|ext| ext == "galaxy")
+                        && !paths.contains(&path)
+                    {
+                        paths.push(path);
                     }
                 }
             }
@@ -482,7 +490,7 @@ fn parse_galaxy_header(bytes: &[u8], page_size: usize) -> Result<ParsedGalaxyHea
             .map_err(|e| AosError::Validation(format!("Galaxy adapter id not UTF-8: {e}")))?;
         cursor = id_end;
 
-        if offset % page_size != 0 {
+        if !offset.is_multiple_of(page_size) {
             return Err(AosError::Validation(format!(
                 "Adapter '{}' not page aligned (offset {}, page {})",
                 adapter_id, offset, page_size
