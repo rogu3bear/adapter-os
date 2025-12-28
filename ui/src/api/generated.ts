@@ -1415,6 +1415,7 @@ export type paths = {
         };
         get?: never;
         put?: never;
+        /** Update semantic/safety statuses for a dataset version (Tier 2). */
         post: operations["update_dataset_safety"];
         delete?: never;
         options?: never;
@@ -1448,6 +1449,7 @@ export type paths = {
         };
         get?: never;
         put?: never;
+        /** Admin override for dataset trust_state. */
         post: operations["override_dataset_trust"];
         delete?: never;
         options?: never;
@@ -3754,6 +3756,7 @@ export type paths = {
             path?: never;
             cookie?: never;
         };
+        /** Get UMA memory stats */
         get: operations["get_uma_memory"];
         put?: never;
         post?: never;
@@ -4087,6 +4090,7 @@ export type paths = {
         };
         get?: never;
         put?: never;
+        /** Hydrate tenant from bundle */
         post: operations["hydrate_tenant_from_bundle"];
         delete?: never;
         options?: never;
@@ -4222,7 +4226,12 @@ export type paths = {
             path?: never;
             cookie?: never;
         };
-        /** Get training logs */
+        /**
+         * Get training logs for a job
+         * @description Note: Training stdout/stderr logs are not currently persisted in the database.
+         *     This endpoint returns job status information. For training metrics (loss, accuracy, etc.),
+         *     use the `/v1/training/jobs/{job_id}/metrics` endpoint instead.
+         */
         get: operations["get_training_logs"];
         put?: never;
         post?: never;
@@ -4239,7 +4248,7 @@ export type paths = {
             path?: never;
             cookie?: never;
         };
-        /** Get training metrics */
+        /** Get training metrics for a job */
         get: operations["get_training_metrics"];
         put?: never;
         post?: never;
@@ -4296,7 +4305,7 @@ export type paths = {
         };
         get?: never;
         put?: never;
-        /** Start adapter training session */
+        /** Create a training session */
         post: operations["create_training_session"];
         delete?: never;
         options?: never;
@@ -5115,16 +5124,35 @@ export type components = {
             /** Format: int64 */
             used_mb: number;
         };
-        /** @description Apple Neural Engine memory stats. */
+        /**
+         * @description Apple Neural Engine memory stats.
+         *
+         *     When `availability` is `Unavailable`, all numeric fields will be `None`.
+         *     The UI must display "Unavailable" rather than zeros in this case.
+         */
         AneMemorySummary: {
-            /** Format: int64 */
-            allocated_mb: number;
-            /** Format: int64 */
-            available_mb: number;
-            /** Format: float */
-            usage_pct: number;
-            /** Format: int64 */
-            used_mb: number;
+            /**
+             * Format: int64
+             * @description Allocated ANE memory in MB (None if unavailable)
+             */
+            allocated_mb?: number | null;
+            /** @description Whether ANE metrics are actually available */
+            availability?: components["schemas"]["DataAvailability"];
+            /**
+             * Format: int64
+             * @description Available ANE memory in MB (None if unavailable)
+             */
+            available_mb?: number | null;
+            /**
+             * Format: float
+             * @description ANE usage percentage (None if unavailable)
+             */
+            usage_pct?: number | null;
+            /**
+             * Format: int64
+             * @description Used ANE memory in MB (None if unavailable)
+             */
+            used_mb?: number | null;
         };
         /** @description Apple Neural Engine usage (when available) */
         AneUsage: {
@@ -5437,11 +5465,13 @@ export type components = {
             phase: string;
             timings?: components["schemas"]["BootPhaseTiming"][];
         };
+        /** @description Request for bootstrapping initial admin user */
         BootstrapRequest: {
             display_name: string;
             email: string;
             password: string;
         };
+        /** @description Response from bootstrap endpoint */
         BootstrapResponse: {
             message: string;
             user_id: string;
@@ -6125,11 +6155,13 @@ export type components = {
             role?: string | null;
             tenant_id: string;
         };
+        /** @description Request to create a dataset version */
         CreateDatasetVersionRequest: {
             manifest_json?: unknown;
             manifest_path?: string | null;
             version_label?: string | null;
         };
+        /** @description Response from creating a dataset version */
         CreateDatasetVersionResponse: {
             created_at: string;
             dataset_id: string;
@@ -6220,6 +6252,23 @@ export type components = {
             itar_flag: boolean;
             name: string;
         };
+        /** @description Minimal training job creation request (workspace-scoped) */
+        CreateTrainingJobRequest: {
+            /** @description Optional explicit adapter name; autogenerated when omitted */
+            adapter_name?: string | null;
+            /** @description Base model to tune against */
+            base_model_id: string;
+            /** @description Dataset to train on (version will be resolved automatically) */
+            dataset_id: string;
+            /** @description Optional dataset version override (defaults to latest) */
+            dataset_version_id?: string | null;
+            /** @description Optional LoRA tier hint */
+            lora_tier?: string;
+            /** @description Training hyperparameters */
+            params: components["schemas"]["TrainingConfigRequest"];
+            /** @description Workspace identifier used for scoping and provenance */
+            workspace_id: string;
+        };
         CreateWorkspaceRequest: {
             description?: string | null;
             name: string;
@@ -6235,6 +6284,14 @@ export type components = {
             user_id: string;
             widget_id: string;
         };
+        /**
+         * @description Data availability indicator for telemetry metrics.
+         *
+         *     Used to distinguish between real measured data, unavailable data, and stale data.
+         *     This prevents the UI from displaying zeros or fabricated estimates as if they were real.
+         * @enum {string}
+         */
+        DataAvailability: DataAvailability;
         /**
          * @description Lineage quality for training data provenance.
          * @enum {string}
@@ -6410,7 +6467,8 @@ export type components = {
             replay_mode?: string;
             /**
              * @description Whether seed is required in strict mode.
-             *     When true and mode is "strict", inference requests without seed will be rejected.
+             *     When true and mode is "strict", inference requests without a valid seed
+             *     will be rejected as determinism violations (no partial result).
              */
             require_seed?: boolean;
         };
@@ -6889,6 +6947,10 @@ export type components = {
         InferenceBlocker: InferenceBlocker;
         /** @description Inference evidence record */
         InferenceEvidence: {
+            /** @description JSON array of adapter IDs used for inference */
+            adapter_ids?: string | null;
+            /** @description Base model ID used for inference (model context tracking) */
+            base_model_id?: string | null;
             chunk_hash: string;
             chunk_id: string;
             context_hash: string;
@@ -6897,6 +6959,8 @@ export type components = {
             document_id: string;
             id: string;
             inference_id: string;
+            /** @description Manifest hash for deterministic provenance */
+            manifest_hash?: string | null;
             message_id?: string | null;
             /** Format: int32 */
             page_number?: number | null;
@@ -6978,6 +7042,10 @@ export type components = {
             /**
              * Format: int64
              * @description Random seed for deterministic sampling.
+             *
+             *     Required when the effective determinism mode is strict and tenant policy
+             *     sets `determinism.require_seed=true`. Missing or invalid seeds are rejected
+             *     as determinism violations (no partial result).
              */
             seed?: number | null;
             /** @description Chat session ID for trace linkage */
@@ -7349,6 +7417,7 @@ export type components = {
             token: string;
             user_id: string;
         };
+        /** @description Response from logout endpoint */
         LogoutResponse: {
             message: string;
         };
@@ -7374,16 +7443,35 @@ export type components = {
          * @enum {string}
          */
         MemoryPressureLevel: MemoryPressureLevel;
-        /** @description Memory region information */
+        /**
+         * @description Memory region information
+         *
+         *     When `availability` is `Unavailable`, all numeric fields will be `None`.
+         *     The UI must display "Unavailable" rather than zeros in this case.
+         */
         MemoryRegion: {
-            /** Format: int64 */
-            allocated_mb: number;
-            /** Format: int64 */
-            available_mb: number;
-            /** Format: float */
-            usage_percent: number;
-            /** Format: int64 */
-            used_mb: number;
+            /**
+             * Format: int64
+             * @description Allocated memory in MB (None if unavailable)
+             */
+            allocated_mb?: number | null;
+            /** @description Whether this memory region's metrics are actually available */
+            availability?: components["schemas"]["DataAvailability"];
+            /**
+             * Format: int64
+             * @description Available memory in MB (None if unavailable)
+             */
+            available_mb?: number | null;
+            /**
+             * Format: float
+             * @description Usage percentage (None if unavailable)
+             */
+            usage_percent?: number | null;
+            /**
+             * Format: int64
+             * @description Used memory in MB (None if unavailable)
+             */
+            used_mb?: number | null;
         };
         /** @description GPU memory report response */
         MemoryReportResponse: {
@@ -8162,6 +8250,7 @@ export type components = {
              */
             top_p?: number | null;
         };
+        /** @description Response from token refresh endpoint */
         RefreshResponse: {
             /** Format: int64 */
             expires_at: number;
@@ -8403,7 +8492,7 @@ export type components = {
             interval_id?: string | null;
             /** @description Model type for this decision (dense vs MoE) */
             model_type?: components["schemas"]["RouterModelType"];
-            policy_mask_digest?: string;
+            policy_mask_digest_b3?: string;
             policy_overrides_applied?: null | components["schemas"]["PolicyOverrideFlags"];
             stack_hash?: string | null;
             step: number;
@@ -8421,7 +8510,7 @@ export type components = {
             gates_q15: number[];
             /** Format: int32 */
             input_token_id?: number | null;
-            policy_mask_digest?: string;
+            policy_mask_digest_b3?: string;
             policy_overrides_applied?: null | components["schemas"]["PolicyOverrideFlags"];
             previous_hash?: string | null;
             step: number;
@@ -8888,6 +8977,7 @@ export type components = {
          * @enum {string}
          */
         SessionAction: SessionAction;
+        /** @description Information about an active session */
         SessionInfo: {
             created_at: string;
             ip_address?: string | null;
@@ -8902,6 +8992,7 @@ export type components = {
             steps: components["schemas"]["SessionStep"][];
             total_steps: number;
         };
+        /** @description Response listing user's active sessions */
         SessionsResponse: {
             sessions: components["schemas"]["SessionInfo"][];
         };
@@ -9222,7 +9313,11 @@ export type components = {
             routing_determinism_mode?: string;
             /**
              * Format: int64
-             * @description Random seed for reproducibility
+             * @description Random seed for reproducibility.
+             *
+             *     Required when the effective determinism mode is strict and tenant policy
+             *     sets `determinism.require_seed=true`. Missing or invalid seeds are rejected
+             *     as determinism violations (no partial result).
              */
             seed?: number | null;
             /** @description Session ID for linking inference to chat sessions */
@@ -9836,6 +9931,7 @@ export type components = {
             reason?: string | null;
             trust_state: string;
         };
+        /** @description Response from trust override */
         TrustOverrideResponse: {
             dataset_id: string;
             dataset_version_id: string;
@@ -9905,16 +10001,35 @@ export type components = {
             /** Format: int64 */
             used_mb: number;
         };
-        /** @description UMA headroom summary. */
+        /**
+         * @description UMA headroom summary.
+         *
+         *     When `availability` is `Unavailable`, all numeric fields will be `None`.
+         *     The UI must display "Unavailable" rather than zeros in this case.
+         */
         UmaMemorySummary: {
-            /** Format: int64 */
-            available_mb: number;
-            /** Format: float */
-            headroom_pct: number;
-            /** Format: int64 */
-            total_mb: number;
-            /** Format: int64 */
-            used_mb: number;
+            /** @description Whether UMA metrics are actually available */
+            availability?: components["schemas"]["DataAvailability"];
+            /**
+             * Format: int64
+             * @description Available UMA memory in MB (None if unavailable)
+             */
+            available_mb?: number | null;
+            /**
+             * Format: float
+             * @description UMA headroom percentage (None if unavailable)
+             */
+            headroom_pct?: number | null;
+            /**
+             * Format: int64
+             * @description Total UMA memory in MB (None if unavailable)
+             */
+            total_mb?: number | null;
+            /**
+             * Format: int64
+             * @description Used UMA memory in MB (None if unavailable)
+             */
+            used_mb?: number | null;
         };
         /** @description Request to update collection binding for a session */
         UpdateCollectionRequest: {
@@ -9937,6 +10052,7 @@ export type components = {
             pii_status?: string | null;
             toxicity_status?: string | null;
         };
+        /** @description Response from updating dataset safety status */
         UpdateDatasetSafetyResponse: {
             dataset_id: string;
             dataset_version_id: string;
@@ -17137,7 +17253,10 @@ export interface operations {
     };
     download_run_evidence: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Allow export even with degraded RAG context */
+                force_incomplete?: boolean;
+            };
             header?: never;
             path: {
                 /** @description Inference run identifier (request_id) */
@@ -17165,6 +17284,15 @@ export interface operations {
             };
             /** @description Run not found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Precondition Failed - RAG context degraded */
+            412: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -18729,7 +18857,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Logs retrieved successfully */
+            /** @description Training job status (logs not persisted) */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -18738,11 +18866,23 @@ export interface operations {
                     "application/json": string[];
                 };
             };
+            /** @description Training job not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
         };
     };
     get_training_metrics: {
         parameters: {
-            query?: never;
+            query?: {
+                limit?: number | null;
+                metric_name?: string | null;
+            };
             header?: never;
             path: {
                 /** @description Training job ID */
@@ -18752,13 +18892,31 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Metrics retrieved successfully */
+            /** @description Training metrics (loss, accuracy, etc.) */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TrainingMetricsResponse"];
+                    "application/json": unknown;
+                };
+            };
+            /** @description Access denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Training job not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };
@@ -18866,12 +19024,12 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["StartTrainingRequest"];
+                "application/json": components["schemas"]["CreateTrainingJobRequest"];
             };
         };
         responses: {
-            /** @description Training session started successfully */
-            201: {
+            /** @description Training session created */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -18932,7 +19090,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Training templates retrieved successfully */
+            /** @description List of training templates */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -18948,14 +19106,14 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description Training template ID */
+                /** @description Template ID */
                 template_id: string;
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Training template retrieved successfully */
+            /** @description Training template details */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -18963,6 +19121,13 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["TrainingTemplateResponse"];
                 };
+            };
+            /** @description Template not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
@@ -20030,6 +20195,11 @@ export enum CoreMLMode {
     coreml_preferred = "coreml_preferred",
     backend_auto = "backend_auto"
 }
+export enum DataAvailability {
+    available = "available",
+    unavailable = "unavailable",
+    stale = "stale"
+}
 export enum DataLineageMode {
     versioned = "versioned",
     dataset_only = "dataset_only",
@@ -20077,7 +20247,10 @@ export enum InferenceBlocker {
     database_unavailable = "database_unavailable",
     worker_missing = "worker_missing",
     no_model_loaded = "no_model_loaded",
-    active_model_mismatch = "active_model_mismatch"
+    active_model_mismatch = "active_model_mismatch",
+    telemetry_degraded = "telemetry_degraded",
+    system_booting = "system_booting",
+    boot_failed = "boot_failed"
 }
 export enum InferenceReadyState {
     true = "true",

@@ -4516,6 +4516,7 @@
         "tags": [
           "datasets"
         ],
+        "summary": "Update semantic/safety statuses for a dataset version (Tier 2).",
         "operationId": "update_dataset_safety",
         "parameters": [
           {
@@ -4604,6 +4605,7 @@
         "tags": [
           "datasets"
         ],
+        "summary": "Admin override for dataset trust_state.",
         "operationId": "override_dataset_trust",
         "parameters": [
           {
@@ -8581,6 +8583,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "force_incomplete",
+            "in": "query",
+            "description": "Allow export even with degraded RAG context",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
           }
         ],
         "responses": {
@@ -8599,6 +8610,16 @@
           },
           "404": {
             "description": "Run not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "Precondition Failed - RAG context degraded",
             "content": {
               "application/json": {
                 "schema": {
@@ -9349,6 +9370,7 @@
         "tags": [
           "system"
         ],
+        "summary": "Get UMA memory stats",
         "operationId": "get_uma_memory",
         "responses": {
           "200": {
@@ -9656,6 +9678,7 @@
         "tags": [
           "tenants"
         ],
+        "summary": "Hydrate tenant from bundle",
         "operationId": "hydrate_tenant_from_bundle",
         "requestBody": {
           "content": {
@@ -10687,9 +10710,10 @@
     "/v1/training/jobs/{job_id}/logs": {
       "get": {
         "tags": [
-          "system"
+          "training"
         ],
-        "summary": "Get training logs",
+        "summary": "Get training logs for a job",
+        "description": "Note: Training stdout/stderr logs are not currently persisted in the database.\nThis endpoint returns job status information. For training metrics (loss, accuracy, etc.),\nuse the `/v1/training/jobs/{job_id}/metrics` endpoint instead.",
         "operationId": "get_training_logs",
         "parameters": [
           {
@@ -10704,7 +10728,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Logs retrieved successfully",
+            "description": "Training job status (logs not persisted)",
             "content": {
               "application/json": {
                 "schema": {
@@ -10715,6 +10739,16 @@
                 }
               }
             }
+          },
+          "404": {
+            "description": "Training job not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         }
       }
@@ -10722,9 +10756,9 @@
     "/v1/training/jobs/{job_id}/metrics": {
       "get": {
         "tags": [
-          "system"
+          "training"
         ],
-        "summary": "Get training metrics",
+        "summary": "Get training metrics for a job",
         "operationId": "get_training_metrics",
         "parameters": [
           {
@@ -10735,15 +10769,56 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "metric_name",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
           }
         ],
         "responses": {
           "200": {
-            "description": "Metrics retrieved successfully",
+            "description": "Training metrics (loss, accuracy, etc.)",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "403": {
+            "description": "Access denied",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TrainingMetricsResponse"
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Training job not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
             }
@@ -10885,21 +10960,21 @@
         "tags": [
           "training"
         ],
-        "summary": "Start adapter training session",
+        "summary": "Create a training session",
         "operationId": "create_training_session",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/StartTrainingRequest"
+                "$ref": "#/components/schemas/CreateTrainingJobRequest"
               }
             }
           },
           "required": true
         },
         "responses": {
-          "201": {
-            "description": "Training session started successfully",
+          "200": {
+            "description": "Training session created",
             "content": {
               "application/json": {
                 "schema": {
@@ -10965,13 +11040,13 @@
     "/v1/training/templates": {
       "get": {
         "tags": [
-          "system"
+          "training"
         ],
         "summary": "List training templates",
         "operationId": "list_training_templates",
         "responses": {
           "200": {
-            "description": "Training templates retrieved successfully",
+            "description": "List of training templates",
             "content": {
               "application/json": {
                 "schema": {
@@ -10989,7 +11064,7 @@
     "/v1/training/templates/{template_id}": {
       "get": {
         "tags": [
-          "system"
+          "training"
         ],
         "summary": "Get a specific training template",
         "operationId": "get_training_template",
@@ -10997,7 +11072,7 @@
           {
             "name": "template_id",
             "in": "path",
-            "description": "Training template ID",
+            "description": "Template ID",
             "required": true,
             "schema": {
               "type": "string"
@@ -11006,7 +11081,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Training template retrieved successfully",
+            "description": "Training template details",
             "content": {
               "application/json": {
                 "schema": {
@@ -11014,6 +11089,9 @@
                 }
               }
             }
+          },
+          "404": {
+            "description": "Template not found"
           }
         }
       }
@@ -13299,31 +13377,45 @@
       },
       "AneMemorySummary": {
         "type": "object",
-        "description": "Apple Neural Engine memory stats.",
-        "required": [
-          "allocated_mb",
-          "used_mb",
-          "available_mb",
-          "usage_pct"
-        ],
+        "description": "Apple Neural Engine memory stats.\n\nWhen `availability` is `Unavailable`, all numeric fields will be `None`.\nThe UI must display \"Unavailable\" rather than zeros in this case.",
         "properties": {
           "allocated_mb": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int64",
+            "description": "Allocated ANE memory in MB (None if unavailable)",
             "minimum": 0
           },
+          "availability": {
+            "$ref": "#/components/schemas/DataAvailability",
+            "description": "Whether ANE metrics are actually available"
+          },
           "available_mb": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int64",
+            "description": "Available ANE memory in MB (None if unavailable)",
             "minimum": 0
           },
           "usage_pct": {
-            "type": "number",
-            "format": "float"
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float",
+            "description": "ANE usage percentage (None if unavailable)"
           },
           "used_mb": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int64",
+            "description": "Used ANE memory in MB (None if unavailable)",
             "minimum": 0
           }
         }
@@ -14316,6 +14408,7 @@
       },
       "BootstrapRequest": {
         "type": "object",
+        "description": "Request for bootstrapping initial admin user",
         "required": [
           "email",
           "password",
@@ -14335,6 +14428,7 @@
       },
       "BootstrapResponse": {
         "type": "object",
+        "description": "Response from bootstrap endpoint",
         "required": [
           "user_id",
           "message"
@@ -16437,6 +16531,7 @@
       },
       "CreateDatasetVersionRequest": {
         "type": "object",
+        "description": "Request to create a dataset version",
         "properties": {
           "manifest_json": {},
           "manifest_path": {
@@ -16455,6 +16550,7 @@
       },
       "CreateDatasetVersionResponse": {
         "type": "object",
+        "description": "Response from creating a dataset version",
         "required": [
           "dataset_id",
           "dataset_version_id",
@@ -16750,6 +16846,52 @@
           }
         }
       },
+      "CreateTrainingJobRequest": {
+        "type": "object",
+        "description": "Minimal training job creation request (workspace-scoped)",
+        "required": [
+          "workspace_id",
+          "base_model_id",
+          "dataset_id",
+          "params"
+        ],
+        "properties": {
+          "adapter_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional explicit adapter name; autogenerated when omitted"
+          },
+          "base_model_id": {
+            "type": "string",
+            "description": "Base model to tune against"
+          },
+          "dataset_id": {
+            "type": "string",
+            "description": "Dataset to train on (version will be resolved automatically)"
+          },
+          "dataset_version_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional dataset version override (defaults to latest)"
+          },
+          "lora_tier": {
+            "type": "string",
+            "description": "Optional LoRA tier hint"
+          },
+          "params": {
+            "$ref": "#/components/schemas/TrainingConfigRequest",
+            "description": "Training hyperparameters"
+          },
+          "workspace_id": {
+            "type": "string",
+            "description": "Workspace identifier used for scoping and provenance"
+          }
+        }
+      },
       "CreateWorkspaceRequest": {
         "type": "object",
         "required": [
@@ -16803,6 +16945,15 @@
             "type": "string"
           }
         }
+      },
+      "DataAvailability": {
+        "type": "string",
+        "description": "Data availability indicator for telemetry metrics.\n\nUsed to distinguish between real measured data, unavailable data, and stale data.\nThis prevents the UI from displaying zeros or fabricated estimates as if they were real.",
+        "enum": [
+          "available",
+          "unavailable",
+          "stale"
+        ]
       },
       "DataLineageMode": {
         "type": "string",
@@ -17295,7 +17446,7 @@
           },
           "require_seed": {
             "type": "boolean",
-            "description": "Whether seed is required in strict mode.\nWhen true and mode is \"strict\", inference requests without seed will be rejected."
+            "description": "Whether seed is required in strict mode.\nWhen true and mode is \"strict\", inference requests without a valid seed\nwill be rejected as determinism violations (no partial result)."
           }
         }
       },
@@ -18917,7 +19068,7 @@
               "null"
             ],
             "format": "int64",
-            "description": "Random seed for deterministic sampling.",
+            "description": "Random seed for deterministic sampling.\n\nRequired when the effective determinism mode is strict and tenant policy\nsets `determinism.require_seed=true`. Missing or invalid seeds are rejected\nas determinism violations (no partial result).",
             "minimum": 0
           },
           "session_id": {
@@ -19214,7 +19365,10 @@
           "database_unavailable",
           "worker_missing",
           "no_model_loaded",
-          "active_model_mismatch"
+          "active_model_mismatch",
+          "telemetry_degraded",
+          "system_booting",
+          "boot_failed"
         ]
       },
       "InferenceEvidence": {
@@ -19233,6 +19387,20 @@
           "created_at"
         ],
         "properties": {
+          "adapter_ids": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "JSON array of adapter IDs used for inference"
+          },
+          "base_model_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Base model ID used for inference (model context tracking)"
+          },
           "chunk_hash": {
             "type": "string"
           },
@@ -19256,6 +19424,13 @@
           },
           "inference_id": {
             "type": "string"
+          },
+          "manifest_hash": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Manifest hash for deterministic provenance"
           },
           "message_id": {
             "type": [
@@ -20423,6 +20598,7 @@
       },
       "LogoutResponse": {
         "type": "object",
+        "description": "Response from logout endpoint",
         "required": [
           "message"
         ],
@@ -20496,31 +20672,45 @@
       },
       "MemoryRegion": {
         "type": "object",
-        "description": "Memory region information",
-        "required": [
-          "allocated_mb",
-          "used_mb",
-          "available_mb",
-          "usage_percent"
-        ],
+        "description": "Memory region information\n\nWhen `availability` is `Unavailable`, all numeric fields will be `None`.\nThe UI must display \"Unavailable\" rather than zeros in this case.",
         "properties": {
           "allocated_mb": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int64",
+            "description": "Allocated memory in MB (None if unavailable)",
             "minimum": 0
           },
+          "availability": {
+            "$ref": "#/components/schemas/DataAvailability",
+            "description": "Whether this memory region's metrics are actually available"
+          },
           "available_mb": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int64",
+            "description": "Available memory in MB (None if unavailable)",
             "minimum": 0
           },
           "usage_percent": {
-            "type": "number",
-            "format": "float"
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float",
+            "description": "Usage percentage (None if unavailable)"
           },
           "used_mb": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int64",
+            "description": "Used memory in MB (None if unavailable)",
             "minimum": 0
           }
         }
@@ -23140,6 +23330,7 @@
       },
       "RefreshResponse": {
         "type": "object",
+        "description": "Response from token refresh endpoint",
         "required": [
           "token",
           "expires_at"
@@ -23975,7 +24166,7 @@
             "$ref": "#/components/schemas/RouterModelType",
             "description": "Model type for this decision (dense vs MoE)"
           },
-          "policy_mask_digest": {
+          "policy_mask_digest_b3": {
             "type": "string"
           },
           "policy_overrides_applied": {
@@ -24062,7 +24253,7 @@
             "format": "int32",
             "minimum": 0
           },
-          "policy_mask_digest": {
+          "policy_mask_digest_b3": {
             "type": "string"
           },
           "policy_overrides_applied": {
@@ -25405,6 +25596,7 @@
       },
       "SessionInfo": {
         "type": "object",
+        "description": "Information about an active session",
         "required": [
           "jti",
           "created_at",
@@ -25552,6 +25744,7 @@
       },
       "SessionsResponse": {
         "type": "object",
+        "description": "Response listing user's active sessions",
         "required": [
           "sessions"
         ],
@@ -26438,7 +26631,7 @@
               "null"
             ],
             "format": "int64",
-            "description": "Random seed for reproducibility",
+            "description": "Random seed for reproducibility.\n\nRequired when the effective determinism mode is strict and tenant policy\nsets `determinism.require_seed=true`. Missing or invalid seeds are rejected\nas determinism violations (no partial result).",
             "minimum": 0
           },
           "session_id": {
@@ -28395,6 +28588,7 @@
       },
       "TrustOverrideResponse": {
         "type": "object",
+        "description": "Response from trust override",
         "required": [
           "dataset_id",
           "dataset_version_id",
@@ -28664,31 +28858,45 @@
       },
       "UmaMemorySummary": {
         "type": "object",
-        "description": "UMA headroom summary.",
-        "required": [
-          "total_mb",
-          "used_mb",
-          "available_mb",
-          "headroom_pct"
-        ],
+        "description": "UMA headroom summary.\n\nWhen `availability` is `Unavailable`, all numeric fields will be `None`.\nThe UI must display \"Unavailable\" rather than zeros in this case.",
         "properties": {
+          "availability": {
+            "$ref": "#/components/schemas/DataAvailability",
+            "description": "Whether UMA metrics are actually available"
+          },
           "available_mb": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int64",
+            "description": "Available UMA memory in MB (None if unavailable)",
             "minimum": 0
           },
           "headroom_pct": {
-            "type": "number",
-            "format": "float"
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float",
+            "description": "UMA headroom percentage (None if unavailable)"
           },
           "total_mb": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int64",
+            "description": "Total UMA memory in MB (None if unavailable)",
             "minimum": 0
           },
           "used_mb": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int64",
+            "description": "Used UMA memory in MB (None if unavailable)",
             "minimum": 0
           }
         }
@@ -28772,6 +28980,7 @@
       },
       "UpdateDatasetSafetyResponse": {
         "type": "object",
+        "description": "Response from updating dataset safety status",
         "required": [
           "dataset_id",
           "dataset_version_id",
