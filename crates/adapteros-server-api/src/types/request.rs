@@ -73,9 +73,6 @@ pub struct PromoteCPRequest {
     pub plan_id: String,
 }
 
-// SpawnWorkerRequest is defined in handlers/workers.rs with extra fields (uid, gid,
-// model_cache_max_mb, config_toml_path) not in the api-types version.
-// Don't re-export from here to avoid conflicts with adapteros_api_types::SpawnWorkerRequest.
 
 /// Rollback CP request
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
