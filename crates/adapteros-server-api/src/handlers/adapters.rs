@@ -186,9 +186,9 @@ pub async fn activate_adapter(
         .is_some();
 
     if !snapshot_exists {
-    if let Ok(Some(job)) = state
-        .db
-        .get_training_job_by_adapter(&adapter_id, &workspace_id)
+        if let Ok(Some(job)) = state
+            .db
+            .get_training_job_by_adapter(&adapter_id, &workspace_id)
             .await
         {
             let metadata: Option<serde_json::Value> = job

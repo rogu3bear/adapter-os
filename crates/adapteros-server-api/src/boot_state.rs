@@ -1028,17 +1028,30 @@ mod tests {
 
         // Verify ready state invariants
         assert!(manager.is_ready(), "After ready(), should be ready");
-        assert!(!manager.is_booting(), "After ready(), should not be booting");
+        assert!(
+            !manager.is_booting(),
+            "After ready(), should not be booting"
+        );
 
         // Shutdown sequence - verify monotonic progression
         let before_drain = manager.current_state();
         manager.drain().await;
-        assert!(manager.is_shutting_down(), "After drain(), should be shutting down");
-        assert_ne!(manager.current_state(), before_drain, "State should change on drain");
+        assert!(
+            manager.is_shutting_down(),
+            "After drain(), should be shutting down"
+        );
+        assert_ne!(
+            manager.current_state(),
+            before_drain,
+            "State should change on drain"
+        );
 
         manager.stop().await;
         assert_eq!(manager.current_state(), BootState::Stopping);
-        assert!(manager.current_state().is_terminal(), "Stopping should be terminal");
+        assert!(
+            manager.current_state().is_terminal(),
+            "Stopping should be terminal"
+        );
     }
 
     #[tokio::test]
@@ -1084,13 +1097,19 @@ mod tests {
 
         // Verify Ready state invariants
         assert!(manager.is_ready(), "Should be ready after boot");
-        assert!(manager.is_accepting_requests(), "Ready should accept requests");
+        assert!(
+            manager.is_accepting_requests(),
+            "Ready should accept requests"
+        );
         assert!(!manager.is_fully_ready(), "Ready is not FullyReady");
 
         // Transition to FullyReady
         manager.fully_ready().await;
         assert!(manager.is_fully_ready(), "Should be fully ready");
-        assert!(manager.is_accepting_requests(), "FullyReady should accept requests");
+        assert!(
+            manager.is_accepting_requests(),
+            "FullyReady should accept requests"
+        );
         // FullyReady implies is_ready() returns true
         assert!(manager.is_ready(), "FullyReady implies ready");
     }
@@ -1164,7 +1183,10 @@ mod tests {
         assert!(manager.is_ready(), "Should be ready after boot");
 
         // Maintenance flag defaults to false
-        assert!(!manager.is_maintenance(), "Maintenance should default to false");
+        assert!(
+            !manager.is_maintenance(),
+            "Maintenance should default to false"
+        );
 
         manager.maintenance("admin-maintenance").await;
         assert_eq!(manager.current_state(), BootState::Maintenance);
@@ -1181,7 +1203,11 @@ mod tests {
 
         // Invariant: Cannot skip ahead from Stopped to Ready
         manager.transition(BootState::Ready, "attempt-skip").await;
-        assert_eq!(manager.current_state(), BootState::Stopped, "Skipping ahead should be rejected");
+        assert_eq!(
+            manager.current_state(),
+            BootState::Stopped,
+            "Skipping ahead should be rejected"
+        );
 
         // Progress to Ready
         boot_to_ready(&manager).await;
@@ -1231,7 +1257,10 @@ mod tests {
 
         // Invariant: Both managers share state
         assert!(attached.is_ready(), "Attached manager should be ready");
-        assert!(manager.is_ready(), "Original manager should also be ready (shared state)");
+        assert!(
+            manager.is_ready(),
+            "Original manager should also be ready (shared state)"
+        );
         assert_eq!(
             attached.current_state(),
             manager.current_state(),
@@ -1325,7 +1354,10 @@ mod tests {
 
         // Test manager method defaults correctly
         let manager = BootStateManager::new();
-        assert!(!manager.is_maintenance(), "Maintenance should default to false");
+        assert!(
+            !manager.is_maintenance(),
+            "Maintenance should default to false"
+        );
 
         // Boot to Ready and enter maintenance
         boot_to_ready(&manager).await;
@@ -1366,7 +1398,10 @@ mod tests {
         manager.stop().await;
 
         assert_eq!(manager.current_state(), BootState::Stopping);
-        assert!(manager.current_state().is_terminal(), "Stopping should be terminal");
+        assert!(
+            manager.current_state().is_terminal(),
+            "Stopping should be terminal"
+        );
 
         // Invariant: No transitions allowed from terminal state
         let target_states = [
@@ -1404,7 +1439,10 @@ mod tests {
 
         // Initial state is Stopped
         assert_eq!(manager.current_state(), BootState::Stopped);
-        assert!(!manager.current_state().is_terminal(), "Stopped is not terminal");
+        assert!(
+            !manager.current_state().is_terminal(),
+            "Stopped is not terminal"
+        );
 
         // Stopped should allow transition to a booting state
         manager.start().await;
@@ -1492,7 +1530,10 @@ mod tests {
         manager.ready().await;
 
         // Invariant: Should be in a ready state
-        assert!(manager.is_ready(), "Should be ready after concurrent transitions");
+        assert!(
+            manager.is_ready(),
+            "Should be ready after concurrent transitions"
+        );
 
         // Invariant: Concurrent invalid transitions should all be rejected
         let state_before = manager.current_state();
@@ -1645,7 +1686,10 @@ mod tests {
         }
 
         // Invariant: Should have transitioned to Draining
-        assert!(manager.is_draining(), "Should be draining after concurrent drain calls");
+        assert!(
+            manager.is_draining(),
+            "Should be draining after concurrent drain calls"
+        );
         assert!(manager.is_shutting_down(), "Should be shutting down");
 
         // Now spawn concurrent tasks attempting to stop
@@ -1666,7 +1710,10 @@ mod tests {
         // Invariant: Should have transitioned to Stopping (terminal)
         assert_eq!(manager.current_state(), BootState::Stopping);
         assert!(manager.is_shutting_down(), "Should still be shutting down");
-        assert!(manager.current_state().is_terminal(), "Stopping is terminal");
+        assert!(
+            manager.current_state().is_terminal(),
+            "Stopping is terminal"
+        );
     }
 
     // ============ New state tests ============

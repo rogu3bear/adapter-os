@@ -3472,8 +3472,10 @@ mod tests {
         assert!(json.contains("\"top_p\":0.9"));
         assert!(json.contains("\"max_tokens\":100"));
         assert!(json.contains("\"run_id\":\"run-123\""));
-        let expected_schema =
-            format!("\"schema_version\":\"{}\"", adapteros_api_types::API_SCHEMA_VERSION);
+        let expected_schema = format!(
+            "\"schema_version\":\"{}\"",
+            adapteros_api_types::API_SCHEMA_VERSION
+        );
         assert!(
             json.contains(&expected_schema),
             "expected run_envelope schema_version in replay sampling params"

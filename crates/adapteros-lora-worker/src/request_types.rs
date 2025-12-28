@@ -252,7 +252,9 @@ mod tests {
 
         let request: InferenceRequest =
             serde_json::from_str(&json).expect("request should deserialize");
-        let envelope = request.run_envelope.expect("run_envelope should be present");
+        let envelope = request
+            .run_envelope
+            .expect("run_envelope should be present");
         assert_eq!(envelope.run_id, "run-1");
         assert_eq!(envelope.schema_version, API_SCHEMA_VERSION);
         assert_eq!(envelope.workspace_id, "tenant-1");

@@ -1,14 +1,14 @@
 use adapteros_core::B3Hash;
 use adapteros_db::replay_metadata::CreateReplayMetadataParams;
-use adapteros_db::{SqlTraceSink, TraceFinalization, TraceStart, TraceTokenInput, TraceSink};
+use adapteros_db::{SqlTraceSink, TraceFinalization, TraceSink, TraceStart, TraceTokenInput};
 use adapteros_server_api::handlers::run_evidence::download_run_evidence;
 use adapteros_server_api::types::SamplingParams;
+use axum::body::to_bytes;
 use axum::{
     extract::{Path, State},
     http::StatusCode,
     Extension,
 };
-use axum::body::to_bytes;
 use std::io::Read;
 use zip::ZipArchive;
 

@@ -7,9 +7,7 @@
 //! 4. Clock skew leeway in JWT validation
 //! 5. Constant-time password verification
 use adapteros_crypto::Keypair;
-use adapteros_server_api::auth::{
-    generate_token_ed25519, hash_password, verify_password,
-};
+use adapteros_server_api::auth::{generate_token_ed25519, hash_password, verify_password};
 use argon2::{password_hash::SaltString, Argon2, PasswordHasher};
 use bcrypt;
 use chrono::{Duration, Utc};

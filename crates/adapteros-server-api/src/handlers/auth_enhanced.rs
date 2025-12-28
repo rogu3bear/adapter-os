@@ -6,11 +6,11 @@ use crate::auth::{
     issue_refresh_token_hmac_with_kv, validate_refresh_token_ed25519, validate_refresh_token_hmac,
     verify_password, AuthMode, Claims, PrincipalType, JWT_ISSUER,
 };
+#[cfg(all(feature = "dev-bypass", debug_assertions))]
+use crate::auth_common::AuthContext;
 use crate::auth_common::{
     attach_auth_cookie, attach_csrf_cookie, attach_refresh_cookie, clear_auth_cookies, AuthConfig,
 };
-#[cfg(all(feature = "dev-bypass", debug_assertions))]
-use crate::auth_common::AuthContext;
 use crate::ip_extraction::ClientIp;
 use crate::mfa::{
     decrypt_mfa_secret, derive_mfa_key, encrypt_mfa_secret, generate_backup_codes,
