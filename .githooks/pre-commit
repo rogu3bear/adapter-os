@@ -16,6 +16,10 @@ fi
 # STANDARD CHECKS
 # =============================================================================
 
+# Migration numbering/collision check
+echo "🔍 Checking migration hygiene..."
+bash scripts/check_migrations.sh
+
 # Run cargo check (fast compilation check)
 echo "🔍 Running cargo check..."
 if ! cargo check --quiet 2>&1; then
