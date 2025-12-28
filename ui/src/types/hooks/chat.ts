@@ -5,12 +5,17 @@
  * messages, search, and router decisions.
  */
 
-import type { ChatMessage, ThroughputStats } from '@/components/chat/ChatMessage';
+import type { ChatMessage, RunMetadata, ThroughputStats } from '@/types/components/chat';
 import type { SearchSessionsQuery } from '@/api/types';
 
 // ============================================================================
 // useChatStreaming Types
 // ============================================================================
+
+export interface RunMetadataPayload extends RunMetadata {
+  /** Optional trace identifier from the stream envelope */
+  traceId?: string;
+}
 
 export interface UseChatStreamingOptions {
   /** Current chat session ID (required for message persistence) */
@@ -39,6 +44,9 @@ export interface UseChatStreamingOptions {
 
   /** Callback invoked when an error occurs during streaming */
   onError?: (error: Error) => void;
+
+  /** Callback invoked when run metadata envelopes arrive mid-stream */
+  onRunMetadata?: (metadata: RunMetadataPayload) => void;
 }
 
 export interface UseChatStreamingReturn {

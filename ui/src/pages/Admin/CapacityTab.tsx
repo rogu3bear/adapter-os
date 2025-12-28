@@ -241,7 +241,7 @@ export function CapacityTab() {
               <div className="text-lg">{data.limits.models_per_worker ?? 'Not configured'}</div>
             </div>
             <div>
-              <div className="text-sm font-medium">Models per Tenant</div>
+              <div className="text-sm font-medium">Models per Workspace</div>
               <div className="text-lg">{data.limits.models_per_tenant ?? 'Not configured'}</div>
             </div>
             <div>
@@ -254,4 +254,3 @@ export function CapacityTab() {
     </div>
   );
 }
-

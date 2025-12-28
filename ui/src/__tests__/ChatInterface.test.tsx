@@ -337,7 +337,7 @@ describe('ChatInterface - Stack State Handling', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText('Default stack for tenant')).toBeTruthy();
+      expect(screen.getByText('Default stack for this workspace')).toBeTruthy();
     });
   });
 
@@ -349,7 +349,7 @@ describe('ChatInterface - Stack State Handling', () => {
     );
 
     // Initially no default badge (stack-1 is not the default)
-    expect(screen.queryByText('Default stack for tenant')).toBeNull();
+    expect(screen.queryByText('Default stack for this workspace')).toBeNull();
 
     // Note: We can't easily test the race condition in a unit test without more complex mocking.
     // This test verifies that non-default stacks don't show the badge.

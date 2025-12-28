@@ -161,7 +161,7 @@ export default function AdapterOverview({ adapter, health, isLoading }: AdapterO
             />
             <InfoRow
               icon={<User className="h-4 w-4" />}
-              label="Tenant"
+              label="Workspace"
               value={tenantId || adapter.tenant_namespace || 'N/A'}
             />
             <InfoRow
@@ -273,13 +273,13 @@ export default function AdapterOverview({ adapter, health, isLoading }: AdapterO
             <CardTitle className="flex items-center gap-2">
               <User className="h-5 w-5" />
               Semantic Naming
-              <GlossaryTooltip brief="Semantic naming follows the pattern: tenant/domain/purpose/revision" />
+              <GlossaryTooltip brief="Semantic naming follows the pattern: workspace/domain/purpose/revision" />
             </CardTitle>
             <CardDescription>Naming taxonomy and versioning</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <InfoRow
-              label="Organization Namespace"
+              label="Workspace Namespace"
               value={adapterData?.tenant_namespace || adapter.tenant_namespace || 'N/A'}
             />
             <InfoRow

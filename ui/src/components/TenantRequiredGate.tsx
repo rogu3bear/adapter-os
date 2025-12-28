@@ -29,12 +29,12 @@ export function TenantRequiredGate({ children }: TenantRequiredGateProps) {
       <div className="p-4 space-y-4">
         <Alert variant="destructive">
           <AlertTitle>
-            {loadTimedOut ? 'Tenant loading timed out' : 'Failed to load tenants'}
+            {loadTimedOut ? 'Workspace loading timed out' : 'Failed to load workspaces'}
           </AlertTitle>
           <AlertDescription>
             {loadTimedOut
               ? 'The server took too long to respond. Please check your connection and try again.'
-              : `Unable to fetch tenant information: ${loadError?.message || 'Unknown error'}`}
+              : `Unable to fetch workspace information: ${loadError?.message || 'Unknown error'}`}
           </AlertDescription>
         </Alert>
         <div className="flex flex-wrap gap-2">
@@ -53,14 +53,14 @@ export function TenantRequiredGate({ children }: TenantRequiredGateProps) {
     return (
       <div className="p-4 space-y-4">
         <Alert variant="warning">
-          <AlertTitle>Tenant required</AlertTitle>
+          <AlertTitle>Workspace required</AlertTitle>
           <AlertDescription>
-            Select a tenant to continue. Use the header tenant switcher or reload tenants.
+            Select a workspace to continue. Use the header workspace switcher or reload workspaces.
           </AlertDescription>
         </Alert>
         <div className="flex flex-wrap gap-2">
           <Button size="sm" onClick={() => void refreshTenants()}>
-            Reload tenants
+            Reload workspaces
           </Button>
           <Button size="sm" variant="outline" onClick={() => navigate('/login')}>
             Back to login

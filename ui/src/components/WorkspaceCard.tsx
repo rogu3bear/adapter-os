@@ -36,9 +36,10 @@ interface WorkspaceCardProps {
   onSelect: (workspaceId: string) => void;
   onEdit: (workspaceId: string, data: { name?: string; description?: string }) => Promise<Workspace>;
   onDelete: (workspaceId: string) => Promise<void>;
+  canManage?: boolean;
 }
 
-export function WorkspaceCard({ workspace, onSelect, onEdit, onDelete }: WorkspaceCardProps) {
+export function WorkspaceCard({ workspace, onSelect, onEdit, onDelete, canManage = true }: WorkspaceCardProps) {
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [memberCount, setMemberCount] = useState<number | null>(null);
@@ -196,30 +197,32 @@ export function WorkspaceCard({ workspace, onSelect, onEdit, onDelete }: Workspa
               <Building className="h-5 w-5 text-primary" />
               <CardTitle className="text-lg truncate">{workspace.name}</CardTitle>
             </div>
-            <div className="flex items-center gap-1">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setShowEditDialog(true);
-                }}
-                aria-label="Edit workspace"
-              >
-                <Edit3 className="h-4 w-4" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setShowDeleteDialog(true);
-                }}
-                aria-label="Delete workspace"
-              >
-                <Trash2 className="h-4 w-4" />
-              </Button>
-            </div>
+            {canManage && (
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowEditDialog(true);
+                  }}
+                  aria-label="Edit workspace"
+                >
+                  <Edit3 className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowDeleteDialog(true);
+                  }}
+                  aria-label="Delete workspace"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
+            )}
           </div>
           {workspace.description && (
             <p className="text-sm text-muted-foreground line-clamp-2">

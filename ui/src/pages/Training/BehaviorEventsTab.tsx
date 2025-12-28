@@ -210,7 +210,7 @@ export function BehaviorEventsTab({ selectedTenant }: BehaviorEventsTabProps) {
                               <span className="font-semibold">Event ID:</span> {event.id}
                             </div>
                             <div>
-                              <span className="font-semibold">Tenant ID:</span> {event.tenant_id}
+                              <span className="font-semibold">Workspace ID:</span> {event.tenant_id}
                             </div>
                             {event.metadata && (
                               <div>

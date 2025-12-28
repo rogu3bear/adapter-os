@@ -62,7 +62,7 @@ function AdapterLoader() {
 
 1. **Adapter Loading** (`/adapters/:id`)
    - Validate policies before `POST /v1/adapters/:id/load`
-   - Enforce Egress, Determinism, Tenant Isolation policies
+   - Enforce Egress, Determinism, Workspace Isolation policies
 
 2. **Stack Activation** (`/stacks`)
    - Validate policies before `POST /v1/adapter-stacks/:id/activate`
@@ -108,7 +108,7 @@ The component enforces AdapterOS's policy framework:
 ### Core Policies (Critical)
 - **Egress:** Zero network egress in production (`can_override: false`)
 - **Determinism:** Reproducible execution via HKDF seeding (`can_override: false`)
-- **Tenant Isolation:** Strict tenant boundaries (`can_override: false`)
+- **Workspace Isolation:** Strict workspace boundaries (`can_override: false`)
 
 ### Secondary Policies (Overridable)
 - **Router:** K-sparse LoRA routing with Q15 quantization

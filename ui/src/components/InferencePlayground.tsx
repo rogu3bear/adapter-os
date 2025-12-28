@@ -529,7 +529,7 @@ function InferencePlaygroundContent({ selectedTenant }: InferencePlaygroundProps
             onStackChange={handleStackChange}
             onSetDefaultStack={async (id) => {
               if (!selectedTenant) {
-                toast.error('No tenant selected');
+                toast.error('No workspace selected');
                 return;
               }
               await setDefaultStack(id);

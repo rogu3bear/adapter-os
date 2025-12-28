@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/services';
 import type {
   Tenant,
+  Workspace,
   CreateTenantRequest,
   TenantUsageResponse,
   AssignPoliciesResponse,
@@ -16,14 +17,22 @@ import type {
 } from '@/api/types';
 import { toast } from 'sonner';
 import { logger } from '@/utils/logger';
+import { useWorkspaces } from '@/hooks/workspace/useWorkspaces';
+
+// Workspace-backed view of tenant data to keep UI terminology consistent.
+type WorkspaceTenant = Workspace & Partial<Tenant>;
 
 // Tenants
 export function useTenants() {
-  return useQuery({
-    queryKey: ['tenants'],
-    queryFn: () => apiClient.listTenants(),
-    staleTime: 30000,
-  });
+  const { workspaces, isLoading, error, refetch } = useWorkspaces();
+
+  return {
+    data: workspaces as WorkspaceTenant[],
+    isLoading,
+    isFetching: isLoading,
+    error,
+    refetch,
+  };
 }
 
 export function useCreateTenant() {
@@ -33,7 +42,7 @@ export function useCreateTenant() {
     mutationFn: (data: CreateTenantRequest) => apiClient.createTenant(data),
     onSuccess: (newTenant) => {
       queryClient.invalidateQueries({ queryKey: ['tenants'] });
-      toast.success(`Organization "${newTenant.name}" created successfully`);
+      toast.success(`Workspace "${newTenant.name}" created successfully`);
       logger.info('Tenant created', {
         component: 'useAdmin',
         operation: 'createTenant',
@@ -41,7 +50,7 @@ export function useCreateTenant() {
       });
     },
     onError: (error: Error) => {
-      toast.error(`Failed to create organization: ${error.message}`);
+      toast.error(`Failed to create workspace: ${error.message}`);
       logger.error('Failed to create tenant', {
         component: 'useAdmin',
         operation: 'createTenant',
@@ -58,7 +67,7 @@ export function useUpdateTenant() {
       apiClient.updateTenant(tenantId, name),
     onSuccess: (updatedTenant) => {
       queryClient.invalidateQueries({ queryKey: ['tenants'] });
-      toast.success(`Organization "${updatedTenant.name}" updated successfully`);
+      toast.success(`Workspace "${updatedTenant.name}" updated successfully`);
       logger.info('Tenant updated', {
         component: 'useAdmin',
         operation: 'updateTenant',
@@ -66,7 +75,7 @@ export function useUpdateTenant() {
       });
     },
     onError: (error: Error) => {
-      toast.error(`Failed to update organization: ${error.message}`);
+      toast.error(`Failed to update workspace: ${error.message}`);
       logger.error('Failed to update tenant', {
         component: 'useAdmin',
         operation: 'updateTenant',
@@ -82,7 +91,7 @@ export function usePauseTenant() {
     mutationFn: (tenantId: string) => apiClient.pauseTenant(tenantId),
     onSuccess: (_, tenantId) => {
       queryClient.invalidateQueries({ queryKey: ['tenants'] });
-      toast.success('Organization paused successfully');
+      toast.success('Workspace paused successfully');
       logger.info('Tenant paused', {
         component: 'useAdmin',
         operation: 'pauseTenant',
@@ -90,7 +99,7 @@ export function usePauseTenant() {
       });
     },
     onError: (error: Error) => {
-      toast.error(`Failed to pause organization: ${error.message}`);
+      toast.error(`Failed to pause workspace: ${error.message}`);
       logger.error('Failed to pause tenant', {
         component: 'useAdmin',
         operation: 'pauseTenant',
@@ -106,7 +115,7 @@ export function useArchiveTenant() {
     mutationFn: (tenantId: string) => apiClient.archiveTenant(tenantId),
     onSuccess: (_, tenantId) => {
       queryClient.invalidateQueries({ queryKey: ['tenants'] });
-      toast.success('Organization archived successfully');
+      toast.success('Workspace archived successfully');
       logger.info('Tenant archived', {
         component: 'useAdmin',
         operation: 'archiveTenant',
@@ -114,7 +123,7 @@ export function useArchiveTenant() {
       });
     },
     onError: (error: Error) => {
-      toast.error(`Failed to archive organization: ${error.message}`);
+      toast.error(`Failed to archive workspace: ${error.message}`);
       logger.error('Failed to archive tenant', {
         component: 'useAdmin',
         operation: 'archiveTenant',

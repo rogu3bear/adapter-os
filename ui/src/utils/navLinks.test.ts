@@ -17,6 +17,7 @@ import {
   buildRoutingLink,
   buildSecurityAuditLink,
   buildSecurityPoliciesLink,
+  buildWorkspacesLink,
   buildTelemetryAlertsLink,
   buildTelemetryEventStreamLink,
   buildTelemetryExportsLink,
@@ -85,8 +86,9 @@ describe('navLinks helpers', () => {
   it('builds security and admin links', () => {
     expect(buildSecurityPoliciesLink()).toBe('/security/policies');
     expect(buildSecurityAuditLink()).toBe('/security/audit');
-    expect(buildAdminTenantsLink()).toBe('/admin/tenants');
-    expect(buildAdminTenantsLink({ action: 'create' })).toBe('/admin/tenants?action=create');
+    expect(buildWorkspacesLink()).toBe('/workspaces');
+    expect(buildWorkspacesLink({ action: 'create' })).toBe('/workspaces?action=create');
+    expect(buildAdminTenantsLink()).toBe('/workspaces');
+    expect(buildAdminTenantsLink({ action: 'create' })).toBe('/workspaces?action=create');
   });
 });
-

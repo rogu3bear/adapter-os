@@ -46,9 +46,11 @@ import { UiMode } from '@/config/ui-mode';
 import { FetchErrorPanel } from '@/components/ui/fetch-error-panel';
 import { useBackendReachability } from '@/stores/backendReachability';
 import { isDemoMvpMode } from '@/config/demo';
+import { useWorkspaces } from '@/hooks/workspace/useWorkspaces';
 import { KernelTelemetryProvider } from '@/contexts/KernelTelemetryContext';
 import { KernelStatusBar } from '@/components/header/KernelStatusBar';
 import { SystemBoot } from '@/components/system/SystemBoot';
+import { SystemStatusDrawer } from '@/components/system/SystemStatusDrawer';
 import ScenarioController from '@/components/demo/ScenarioController';
 import DemoWatermark from '@/components/demo/Watermark';
 import { KernelTerminal } from '@/components/dev/KernelTerminal';
@@ -112,6 +114,8 @@ interface RootLayoutContentProps {
   uiMode: UiMode;
   onChangeUiMode: (mode: UiMode) => void;
   isKernelMode: boolean;
+  workspaceNames: Record<string, string>;
+  tenantId: string | null;
 }
 
 function RootLayoutContent({
@@ -121,6 +125,8 @@ function RootLayoutContent({
   uiMode,
   onChangeUiMode,
   isKernelMode,
+  workspaceNames,
+  tenantId,
 }: RootLayoutContentProps) {
   const { theme, toggleTheme } = useTheme();
   const { user, logout, sessionMode } = useAuth();
@@ -133,6 +139,7 @@ function RootLayoutContent({
 
   const [helpCenterOpen, setHelpCenterOpen] = useState(false);
   const [notificationCenterOpen, setNotificationCenterOpen] = useState(false);
+  const [systemStatusOpen, setSystemStatusOpen] = useState(false);
 
   // Wire up keyboard shortcuts
   useKeyboardShortcuts({
@@ -328,6 +335,7 @@ function RootLayoutContent({
               className="flex-1 static top-auto z-auto border-0 bg-transparent"
               uiMode={uiMode}
               onChangeUiMode={onChangeUiMode}
+              workspaceNames={workspaceNames}
             />
             {/* Global connection status indicator */}
             {isKernelMode && (
@@ -344,7 +352,7 @@ function RootLayoutContent({
               </div>
             )}
             <div className="px-3">
-              <ConnectionStatusIndicator />
+              <ConnectionStatusIndicator onOpenStatusDrawer={() => setSystemStatusOpen(true)} />
             </div>
           </div>
           {isKernelMode && <KernelStatusBar showEmergencyStop={isKernelMode} />}
@@ -382,9 +390,9 @@ function RootLayoutContent({
               {tenantAccessDenied && (
                 <Alert variant="destructive" className="mb-4 flex items-start gap-3">
                   <div className="flex-1">
-                    <AlertTitle>TENANT_ACCESS_DENIED</AlertTitle>
+                    <AlertTitle>WORKSPACE_ACCESS_DENIED</AlertTitle>
                     <AlertDescription>
-                      Your session lacks access to this tenant. Switch tenants and retry the action.
+                      Your session lacks access to this workspace. Switch workspaces and retry the action.
                     </AlertDescription>
                   </div>
                   <Button size="sm" variant="outline" onClick={clearTenantAccessDenied}>
@@ -404,6 +412,7 @@ function RootLayoutContent({
       </SidebarInset>
 
       <CopilotDrawer />
+      <SystemStatusDrawer open={systemStatusOpen} onOpenChange={setSystemStatusOpen} tenantId={tenantId} />
 
       {/* Toaster stays above global overlays */}
       <Toaster position="top-right" className="z-[60]" />
@@ -425,12 +434,20 @@ function RootLayoutContent({
 export default function RootLayout() {
   const { user, isLoading, logout, sessionMode } = useAuth();
   const { selectedTenant, tenants, setSelectedTenant, isLoading: tenantsLoading, refreshTenants } = useTenant();
+  const { userWorkspaces, workspaces } = useWorkspaces({ enabled: Boolean(user) });
   const location = useLocation();
   const [tenantError, setTenantError] = useState<string | null>(null);
   const [isSwitchingTenant, setIsSwitchingTenant] = useState(false);
   const [tenantAccessDenied, setTenantAccessDenied] = useState(false);
   const { uiMode, setUiMode } = useUiMode();
   const kernelModeEnabled = uiMode === UiMode.Kernel && user?.role?.toLowerCase() === 'developer';
+  const workspaceNames = useMemo(() => {
+    const map: Record<string, string> = {};
+    [...workspaces, ...userWorkspaces].forEach(ws => {
+      map[ws.id] = ws.name;
+    });
+    return map;
+  }, [userWorkspaces, workspaces]);
 
   useSessionExpiryHandler();
 
@@ -551,7 +568,7 @@ export default function RootLayout() {
     setTenantError(null);
     const ok = await setSelectedTenant(tenantId);
     if (!ok) {
-      setTenantError('Unable to switch tenant. You may not have access.');
+      setTenantError('Unable to switch workspace. You may not have access.');
     } else {
       try {
         sessionStorage.removeItem(TENANT_SELECTION_REQUIRED_KEY);
@@ -625,9 +642,9 @@ if (!user && location.pathname !== '/login') {
         <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-background via-background to-muted/30 px-4 py-10">
           <Card className="w-full max-w-3xl border-border/70 shadow-2xl">
             <CardHeader className="space-y-2">
-              <CardTitle className="text-2xl">Select a tenant</CardTitle>
+              <CardTitle className="text-2xl">Select a workspace</CardTitle>
               <CardDescription className="text-base">
-                Pick one tenant for this session. You can switch later from the header.
+                Pick one workspace for this session. You can switch later from the header.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -636,6 +653,7 @@ if (!user && location.pathname !== '/login') {
                 <div className="grid gap-3 sm:grid-cols-2">
                   {tenants.map((tenant) => {
                     const isActive = tenant.id === selectedTenant;
+                    const displayName = workspaceNames[tenant.id] ?? tenant.id;
                     return (
                       <Button
                         key={tenant.id}
@@ -648,7 +666,7 @@ if (!user && location.pathname !== '/login') {
                         onClick={() => void handleTenantChoice(tenant.id)}
                       >
                         <div className="flex flex-col gap-1 overflow-hidden">
-                          <span className="font-semibold truncate">{tenant.name}</span>
+                          <span className="font-semibold truncate">{displayName}</span>
                           <span className="text-xs text-muted-foreground truncate">{tenant.id}</span>
                         </div>
                         <Badge variant={isActive ? 'secondary' : 'outline'} className="flex items-center gap-1">
@@ -661,13 +679,13 @@ if (!user && location.pathname !== '/login') {
                 </div>
               ) : (
                 <div className="rounded-md border border-border/80 bg-muted/30 p-3 text-sm text-muted-foreground">
-                  You’re signed in but have no tenant access. Ask an admin to grant access or sign out.
+                  You’re signed in but have no workspace access. Ask an admin to grant access or sign out.
                 </div>
               )}
             </CardContent>
             <CardFooter className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="text-sm text-muted-foreground">
-                Session is paused until you pick a tenant.
+                Session is paused until you pick a workspace.
               </div>
               <div className="flex w-full gap-2 sm:w-auto">
                 <Button
@@ -677,7 +695,7 @@ if (!user && location.pathname !== '/login') {
                   className="flex-1 sm:flex-none"
                 >
                   <RefreshCw className="mr-2 h-4 w-4" />
-                  Reload tenants
+                  Reload workspaces
                 </Button>
                 <Button
                   variant="ghost"
@@ -710,6 +728,8 @@ if (!user && location.pathname !== '/login') {
               uiMode={uiMode}
               onChangeUiMode={setUiMode}
               isKernelMode={kernelModeEnabled}
+              workspaceNames={workspaceNames}
+              tenantId={selectedTenant ?? null}
             />
           </SidebarProvider>
         </CommandPaletteProvider>

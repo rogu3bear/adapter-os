@@ -4,7 +4,7 @@ import type { LucideIcon } from 'lucide-react';
 import type { UserRole } from '@/api/types';
 import { UiMode } from '@/config/ui-mode';
 
-const DEMO_PRIMARY_SPINE = ['/chat', '/adapters', '/training'] as const;
+const DEMO_PRIMARY_SPINE = ['/dashboard', '/workspaces', '/base-models', '/documents', '/training', '/chat'] as const;
 
 export interface NavItem {
   to: string;

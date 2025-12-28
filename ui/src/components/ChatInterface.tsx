@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ChatMessageComponent } from './chat/ChatMessage';
-import type { ChatMessage, EvidenceItem, ChatInterfaceProps } from '@/types/components';
+import type { ChatMessage, EvidenceItem, ChatInterfaceProps, RunMetadata } from '@/types/components';
 import { logger, toError } from '@/utils/logger';
 import { toast } from 'sonner';
 import { SectionErrorBoundary } from '@/components/ui/section-error-boundary';
@@ -62,11 +62,22 @@ import { AdapterSuggestion } from './chat/AdapterSuggestion';
 import { classifyMagnet, colorWithAlpha, playMagnetSnapFeedback } from '@/utils/adapterMagnet';
 import { useDemoMode } from '@/hooks/demo/DemoProvider';
 import { useDemoScriptRunner } from '@/hooks/demo/useDemoScriptRunner';
+import { Switch } from '@/components/ui/switch';
+import { RunEvidencePanel } from '@/components/chat/RunEvidencePanel';
 
 // LocalStorage key for chat auto-load preference
 const CHAT_AUTO_LOAD_KEY = 'aos-chat-auto-load-model';
 const AUTO_ATTACH_KEY = 'aos-chat-auto-attach';
 const MAGNET_CONFIDENCE_THRESHOLD = 0.85;
+
+interface WorkspaceActiveState {
+  activeBaseModelId?: string | null;
+  activePlanId?: string | null;
+  activeAdapterIds?: string[] | null;
+  manifestHashB3?: string | null;
+  policyMaskDigestB3?: string | null;
+  updatedAt?: string | null;
+}
 
 function ChatInterfaceInner({
   selectedTenant,
@@ -383,6 +394,7 @@ function ChatInterfaceInner({
   const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null);
   const [isBaseOnlyMode, setIsBaseOnlyMode] = useState(false);
   const [latestTraceId, setLatestTraceId] = useState<string | null>(null);
+  const [modelGateBypass, setModelGateBypass] = useState(false);
 
   // Compute effective collection ID (reacts to documentContext or datasetContext changes)
   const effectiveCollectionId = useMemo(
@@ -433,6 +445,213 @@ function ChatInterfaceInner({
     }
   }, [verificationReports]);
 
+  const mergeRunMetadataIntoMessages = useCallback(
+    (metadata: RunMetadata) => {
+      setMessages((prev) =>
+        prev.map((message) => {
+          const key = message.traceId || message.requestId || message.id;
+          const matches =
+            (metadata.traceId && metadata.traceId === key) ||
+            (metadata.requestId && metadata.requestId === key) ||
+            (streamingMessageId && message.id === streamingMessageId);
+
+          if (!matches) {
+            return message;
+          }
+
+          const existing = message.runMetadata ?? {};
+          const nextRunMetadata: RunMetadata = {
+            ...existing,
+            ...metadata,
+            requestId: metadata.requestId ?? existing.requestId ?? message.requestId,
+            traceId: metadata.traceId ?? existing.traceId ?? message.traceId,
+            planId: metadata.planId ?? existing.planId ?? workspaceActiveState?.activePlanId ?? undefined,
+            manifestHashB3:
+              metadata.manifestHashB3 ?? existing.manifestHashB3 ?? workspaceActiveState?.manifestHashB3 ?? undefined,
+            policyMaskDigestB3:
+              metadata.policyMaskDigestB3 ?? existing.policyMaskDigestB3 ?? workspaceActiveState?.policyMaskDigestB3 ?? undefined,
+            seededViaHkdf:
+              metadata.seededViaHkdf ??
+              existing.seededViaHkdf ??
+              (metadata.seedMaterial || existing.seedMaterial ? true : undefined),
+            seedMaterial: metadata.seedMaterial ?? existing.seedMaterial,
+          };
+
+          return { ...message, runMetadata: nextRunMetadata };
+        })
+      );
+    },
+    [
+      streamingMessageId,
+      workspaceActiveState?.activePlanId,
+      workspaceActiveState?.manifestHashB3,
+      workspaceActiveState?.policyMaskDigestB3,
+    ]
+  );
+
+  const handleRunMetadata = useCallback(
+    (metadata: RunMetadata) => {
+      if (metadata.traceId && !latestTraceId) {
+        setLatestTraceId(metadata.traceId);
+      }
+      mergeRunMetadataIntoMessages(metadata);
+    },
+    [latestTraceId, mergeRunMetadataIntoMessages]
+  );
+
+  // Smoke check: stream a prompt, confirm `aos.run_envelope` SSE populates run_id, then export via /v1/runs/{run_id}/evidence.
+  const handleExportRunEvidence = useCallback(
+    async (message: ChatMessage) => {
+      const runMeta = message.runMetadata;
+      const runMetaRecord = runMeta as Record<string, unknown> | undefined;
+      const readMetaScalar = (keys: string[]): string | number | boolean | undefined => {
+        for (const key of keys) {
+          const value = runMetaRecord?.[key];
+          if (value === undefined || value === null) continue;
+          if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+            return value;
+          }
+        }
+        return undefined;
+      };
+
+      const rawRunId =
+        (runMeta?.runId || runMeta?.requestId || readMetaScalar(['run_id', 'request_id'])) ??
+        message.traceId ??
+        message.requestId ??
+        undefined;
+      const runId = rawRunId === undefined ? undefined : String(rawRunId);
+      const traceId = message.traceId || runMeta?.traceId || runId || undefined;
+      const baseName = runId || traceId || message.id;
+      const apiFilename = `run-evidence-${baseName}.zip`;
+      const localFilename = `run-evidence-${baseName}-unverified-local-bundle.json`;
+
+      if (!runId && !traceId) {
+        toast.error('Evidence is still loading for this run.');
+        return;
+      }
+
+      const downloadBundle = async (path: string, filename: string, label: 'canonical' | 'legacy'): Promise<boolean> => {
+        try {
+          const url = apiClient.buildUrl(path);
+          const token = apiClient.getToken();
+          const response = await fetch(url, {
+            method: 'GET',
+            headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+          });
+
+          if (!response.ok) {
+            throw new Error(`Export failed (${response.status})`);
+          }
+
+          const blob = await response.blob();
+          const blobUrl = window.URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = blobUrl;
+          link.download = filename;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          window.URL.revokeObjectURL(blobUrl);
+          return true;
+        } catch (err) {
+          logger.warn(
+            'Evidence export via API failed, falling back',
+            {
+              component: 'ChatInterface',
+              endpoint: label,
+              path,
+              messageId: message.id,
+              traceId,
+              runId,
+            },
+            toError(err)
+          );
+          return false;
+        }
+      };
+
+      const fallbackExport = () => {
+        const toStringOrNull = (value: string | number | boolean | undefined | null): string | null =>
+          value === undefined || value === null ? null : String(value);
+        const workspaceId = toStringOrNull(readMetaScalar(['workspaceId', 'workspace_id', 'tenantId', 'tenant_id']) ?? tenantId);
+        const routerSeed = toStringOrNull(readMetaScalar(['routerSeed', 'router_seed']));
+        const tick = readMetaScalar(['tick']);
+        const determinismVersion = toStringOrNull(readMetaScalar(['determinismVersion', 'determinism_version']));
+        const bootTraceId = toStringOrNull(readMetaScalar(['bootTraceId', 'boot_trace_id']));
+        const createdAt = toStringOrNull(readMetaScalar(['createdAt', 'created_at']));
+        const rawReasoningMode = runMeta?.reasoningMode ?? readMetaScalar(['reasoningMode', 'reasoning_mode']);
+        const reasoningMode =
+          typeof rawReasoningMode === 'boolean'
+            ? rawReasoningMode
+            : typeof rawReasoningMode === 'string'
+              ? rawReasoningMode.toLowerCase() === 'true'
+                ? true
+                : rawReasoningMode.toLowerCase() === 'false'
+                  ? false
+                  : null
+              : null;
+
+        const bundle = {
+          bundle_label: 'unverified local bundle',
+          run_id: runId ?? null,
+          workspace_id: workspaceId ?? null,
+          manifest_hash_b3: runMeta?.manifestHashB3 ?? workspaceActiveState?.manifestHashB3 ?? null,
+          policy_mask_digest_b3:
+            runMeta?.policyMaskDigestB3 ??
+            workspaceActiveState?.policyMaskDigestB3 ??
+            message.routerDecision?.policy_mask_digest ??
+            null,
+          plan_id: runMeta?.planId ?? workspaceActiveState?.activePlanId ?? null,
+          router_seed: routerSeed ?? null,
+          tick: typeof tick === 'number' || typeof tick === 'string' ? tick : null,
+          worker_id: runMeta?.workerId ?? null,
+          reasoning_mode: reasoningMode,
+          determinism_version: determinismVersion,
+          boot_trace_id: bootTraceId,
+          created_at: createdAt,
+          message_id: message.id,
+        };
+
+        const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' });
+        const url = window.URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = localFilename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        window.URL.revokeObjectURL(url);
+      };
+
+      const targetId = runId || traceId;
+      if (!targetId) return;
+      const canonicalPath = `/v1/runs/${encodeURIComponent(String(targetId))}/evidence`;
+      const legacyPath = `/v1/evidence/runs/${encodeURIComponent(String(targetId))}/export`;
+      const exportedCanonical = await downloadBundle(canonicalPath, apiFilename, 'canonical');
+
+      if (exportedCanonical) {
+        toast.success('Exported evidence bundle');
+        return;
+      }
+
+      const exportedLegacy = await downloadBundle(legacyPath, apiFilename, 'legacy');
+      if (exportedLegacy) {
+        toast.warning('Exported evidence bundle via legacy endpoint');
+        return;
+      }
+
+      fallbackExport();
+      toast.warning('API export failed; downloaded unverified local bundle.');
+    },
+    [
+      tenantId,
+      workspaceActiveState?.activePlanId,
+      workspaceActiveState?.manifestHashB3,
+      workspaceActiveState?.policyMaskDigestB3,
+    ]
+  );
+
   // Chat streaming hook
   const {
     isStreaming,
@@ -448,6 +667,7 @@ function ChatInterfaceInner({
     stackId: selectedStackId,
     collectionId: effectiveCollectionId,
     documentId: documentContext?.documentId,
+    onRunMetadata: handleRunMetadata,
     onMessageSent: (message) => {
       // Add user message to messages
       setMessages(prev => [...prev, message]);
@@ -464,6 +684,12 @@ function ChatInterfaceInner({
         content: '',
         timestamp: new Date(),
         isStreaming: true,
+        runMetadata: {
+          requestId: currentRequestId ?? undefined,
+          traceId: currentRequestId ?? undefined,
+          planId: workspaceActiveState?.activePlanId ?? undefined,
+          manifestHashB3: workspaceActiveState?.manifestHashB3 ?? undefined,
+        },
       }]);
     },
 	    onStreamComplete: async (response) => {
@@ -477,6 +703,14 @@ function ChatInterfaceInner({
 	        const decision = await fetchDecision(completedMessageId, traceId);
 	        routerDecision = decision;
 	      }
+
+      if (routerDecision?.policy_mask_digest) {
+        handleRunMetadata({
+          policyMaskDigestB3: routerDecision.policy_mask_digest,
+          traceId: traceId ?? response.traceId ?? undefined,
+          requestId: response.requestId ?? undefined,
+        });
+      }
 
 	      // Fetch evidence
 	      const evidence = await fetchMessageEvidence(completedMessageId);
@@ -535,7 +769,26 @@ function ChatInterfaceInner({
       logger.error('Chat streaming error', { component: 'ChatInterface' }, error);
       // Remove streaming message on error
       if (streamingMessageId) {
-        setMessages(prev => prev.filter(m => m.id !== streamingMessageId));
+        setMessages(prev =>
+          prev.map((m) =>
+            m.id === streamingMessageId
+              ? {
+                  ...m,
+                  content: streamedText || m.content || 'Stream interrupted',
+                  isStreaming: false,
+                  streamError: error.message,
+                  runMetadata: {
+                    ...(m.runMetadata ?? {}),
+                    requestId: m.runMetadata?.requestId ?? currentRequestId ?? undefined,
+                    traceId: m.runMetadata?.traceId ?? currentRequestId ?? undefined,
+                    planId: m.runMetadata?.planId ?? workspaceActiveState?.activePlanId ?? undefined,
+                    manifestHashB3:
+                      m.runMetadata?.manifestHashB3 ?? workspaceActiveState?.manifestHashB3 ?? undefined,
+                  },
+                }
+              : m
+          )
+        );
         setStreamingMessageId(null);
       }
     },
@@ -569,6 +822,57 @@ function ChatInterfaceInner({
     tenantId,
     enabled: autoLoadEnabled,
   });
+
+  const [workspaceActiveState, setWorkspaceActiveState] = useState<WorkspaceActiveState | null>(null);
+  const [workspaceStateLoading, setWorkspaceStateLoading] = useState(false);
+
+  const fetchWorkspaceActiveState = useCallback(async () => {
+    setWorkspaceStateLoading(true);
+    let resolved = false;
+
+    try {
+      const canonicalPath = `/v1/workspaces/${encodeURIComponent(tenantId)}/active`;
+      const response = await apiClient.request<WorkspaceActiveState>(canonicalPath);
+      setWorkspaceActiveState(response);
+      resolved = true;
+    } catch (err) {
+      logger.warn(
+        'Failed to fetch workspace active state via canonical endpoint',
+        { component: 'ChatInterface', tenantId, hint: 'workspace_active_state' },
+        toError(err)
+      );
+    }
+
+    if (!resolved) {
+      try {
+        const query = tenantId ? `?tenant_id=${encodeURIComponent(tenantId)}` : '';
+        const response = await apiClient.request<WorkspaceActiveState>(`/v1/workspaces/active-state${query}`);
+        setWorkspaceActiveState(response);
+        resolved = true;
+        logger.warn('Workspace active state loaded via legacy endpoint', {
+          component: 'ChatInterface',
+          tenantId,
+          hint: 'workspace_active_state',
+        });
+      } catch (err) {
+        logger.warn(
+          'Failed to fetch workspace active state via legacy endpoint',
+          { component: 'ChatInterface', tenantId, hint: 'workspace_active_state' },
+          toError(err)
+        );
+      }
+    }
+
+    if (!resolved) {
+      setWorkspaceActiveState(null);
+    }
+
+    setWorkspaceStateLoading(false);
+  }, [tenantId]);
+
+  useEffect(() => {
+    void fetchWorkspaceActiveState();
+  }, [fetchWorkspaceActiveState]);
 
   const newModelLoader = useModelLoader();
 
@@ -639,17 +943,18 @@ function ChatInterfaceInner({
   const allReady = autoLoadEnabled ? newModelLoadingState.overallReady : allAdaptersReady;
   const adapterStateMap = autoLoadEnabled ? newModelLoadingState.adapterStates : adapterStates;
   const hasAdapters = adapterStateMap.size > 0;
-  const baseModelReady = autoLoadEnabled ? newModelLoadingState.baseModelReady : true;
-  const canSend = autoLoadEnabled
-    ? (isBaseOnlyMode || !hasAdapters ? baseModelReady : allReady)
-    : allAdaptersReady;
+  const baseModelReady = newModelLoadingState.baseModelReady;
+  const baseModelStatus = newModelLoadingState.baseModelStatus;
+  const baseModelName = newModelLoadingState.baseModelName;
+  const canBypassModelGate = developerMode || kernelMode;
   // Guard against an overlay lingering after readiness or error: only treat as loading when not ready and no error.
   const isLoadingModels = autoLoadEnabled
     ? newModelLoadingState.isLoading
       && !newModelLoadingState.error
       && !(isBaseOnlyMode && baseModelReady)
       && !newModelLoadingState.overallReady
-    : isCheckingAdapters;
+    : baseModelStatus === 'loading' || isCheckingAdapters;
+  const modelGateActive = !baseModelReady && !(canBypassModelGate && modelGateBypass);
 
   const { metrics: systemMetrics } = useSystemMetrics('fast', autoLoadEnabled && isLoadingModels);
   const { workers: workerList } = useWorkers(selectedTenant, undefined, 'slow', autoLoadEnabled && isLoadingModels);
@@ -760,6 +1065,18 @@ function ChatInterfaceInner({
   }, [baseModelReady]);
 
   const developerModeEnabled = developerMode || kernelMode;
+
+  useEffect(() => {
+    if (baseModelReady && modelGateBypass) {
+      setModelGateBypass(false);
+    }
+  }, [baseModelReady, modelGateBypass]);
+
+  useEffect(() => {
+    if (!developerModeEnabled && modelGateBypass) {
+      setModelGateBypass(false);
+    }
+  }, [developerModeEnabled, modelGateBypass]);
 
   useEffect(() => {
     if (developerModeEnabled) {
@@ -1047,7 +1364,7 @@ function ChatInterfaceInner({
   const handleSend = useCallback(async () => {
     if (!input.trim() || isStreaming) return;
 
-    if (autoLoadEnabled && !baseModelReady) {
+    if (modelGateActive) {
       toast.error('Base model is not ready. Please load it first.');
       return;
     }
@@ -1094,12 +1411,12 @@ function ChatInterfaceInner({
     await sendMessage(messageContent, mergedAdapterIds);
   }, [
     allReady,
-    autoLoadEnabled,
     baseModelReady,
     currentSessionId,
     hasAdapters,
     input,
     isBaseOnlyMode,
+    modelGateActive,
     isStreaming,
     attachedAdapters,
     selectedStack,
@@ -1214,13 +1531,12 @@ function ChatInterfaceInner({
     defaultStack?.id && selectedStack?.id && selectedStack.id === defaultStack.id
   );
   const stackDetails = selectedStack?.lifecycle_state ?? selectedStack?.description ?? null;
-  const baseModelLabel = autoLoadEnabled
-    ? newModelLoadingState.baseModelStatus === 'loading'
+  const baseModelDescriptor = baseModelName || workspaceActiveState?.activeBaseModelId || 'Base model';
+  const baseModelLabel = baseModelReady
+    ? `${baseModelDescriptor}${isBaseOnlyMode || !hasAdapters ? ' ready (no adapters)' : ' ready'}`
+    : baseModelStatus === 'loading'
       ? 'Loading base model...'
-      : baseModelReady
-        ? (isBaseOnlyMode || !hasAdapters ? 'Model ready (no adapters)' : 'Model ready')
-        : 'Base model not ready'
-    : 'Not provided';
+      : 'Base model not ready';
   const rightPanelsOpen = isRouterActivityOpen || isDebuggerOpen;
   const activeTraceId = currentRequestId || latestTraceId;
   const activeVerification = activeTraceId ? verificationReports[activeTraceId] : undefined;
@@ -1478,6 +1794,75 @@ function ChatInterfaceInner({
         isModelLoading={autoLoadEnabled ? newModelLoadingState.baseModelStatus === 'loading' : undefined}
         onLoadAndChat={autoLoadEnabled ? handleLoadBaseModelOnly : undefined}
       />
+
+      <div className={`px-4 pt-2 transition-all ${isHistoryOpen ? 'ml-80' : ''} ${rightPanelsOpen ? 'mr-96' : ''}`}>
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <Badge variant="secondary">Workspace: {tenantId}</Badge>
+          <Badge variant={baseModelReady ? 'outline' : 'destructive'}>
+            Base: {baseModelDescriptor}
+            {!baseModelReady ? ' (not loaded)' : ''}
+          </Badge>
+          <Badge variant="outline">Adapters: {adapterCount || 0}</Badge>
+          <Badge variant="outline">Plan: {workspaceActiveState?.activePlanId || 'none'}</Badge>
+          {workspaceActiveState?.manifestHashB3 && (
+            <Badge variant="outline">Manifest {workspaceActiveState.manifestHashB3}</Badge>
+          )}
+        </div>
+      </div>
+
+      {modelGateActive && (
+        <div className={`px-4 pt-2 transition-all ${isHistoryOpen ? 'ml-80' : ''} ${rightPanelsOpen ? 'mr-96' : ''}`}>
+          <Card className="border-amber-500/70 bg-amber-50/40 dark:bg-amber-950/20">
+            <CardHeader className="pb-2 flex items-start justify-between">
+              <div>
+                <CardTitle className="text-base">Base model required</CardTitle>
+                <p className="text-xs text-muted-foreground">
+                  Load an active base model before running chat. Workspace guard prevents accidental runs.
+                </p>
+              </div>
+              {workspaceStateLoading ? (
+                <Loader2 className="h-4 w-4 animate-spin text-amber-600" />
+              ) : workspaceActiveState?.activeBaseModelId ? (
+                <Badge variant="outline" className="text-xs">
+                  Target: {workspaceActiveState.activeBaseModelId}
+                </Badge>
+              ) : null}
+            </CardHeader>
+            <CardContent className="flex flex-col gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <Button size="sm" onClick={handleInlineLoadModel} disabled={isLoadingModels}>
+                  Load base model
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => void fetchWorkspaceActiveState()}
+                  disabled={workspaceStateLoading}
+                  className="gap-2"
+                >
+                  <RefreshCw className={`h-4 w-4 ${workspaceStateLoading ? 'animate-spin' : ''}`} />
+                  Refresh
+                </Button>
+                {canBypassModelGate && (
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      id="developer-bypass"
+                      checked={modelGateBypass}
+                      onCheckedChange={setModelGateBypass}
+                    />
+                    <label htmlFor="developer-bypass" className="text-xs text-muted-foreground">
+                      Dev bypass
+                    </label>
+                  </div>
+                )}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                Status: {baseModelLabel}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {/* Chat Loading Overlay (when feature flag is enabled) */}
       {autoLoadEnabled && isLoadingModels && (
@@ -1743,8 +2128,12 @@ function ChatInterfaceInner({
                 Stack context for this chat session.
               </p>
               {isDefaultStack && (
-                <Badge variant="secondary" className="w-fit" aria-label="This is the default adapter stack for your tenant">
-                  Default stack for tenant
+                <Badge
+                  variant="secondary"
+                  className="w-fit"
+                  aria-label="This is the default adapter stack for your workspace"
+                >
+                  Default stack for this workspace
                 </Badge>
               )}
             </div>
@@ -2089,29 +2478,44 @@ function ChatInterfaceInner({
                         transform: `translateY(${virtualItem.start}px)`,
                       }}
                     >
-                      <ChatMessageComponent
-                        message={
-                          // Update streaming message with current streamed text
-                          message.id === streamingMessageId
-                            ? {
-                                ...message,
-                                content: streamingContent,
-                                tokenStream: chunks.map((chunk) => ({
-                                  token: chunk.token,
-                                  logprob: chunk.logprob,
-                                  routerScore: chunk.routerScore,
-                                  index: chunk.index,
-                                  timestamp: chunk.timestamp,
-                                })),
-                              }
-                            : message
-                        }
-                        onViewDocument={handleViewDocumentClick}
-                        onSelect={handleSelectMessageWithVerification}
-                        isSelected={selectedMessageId === message.id}
-                        developerMode={developerModeEnabled}
-                        kernelMode={kernelMode}
-                      />
+                      <div className="space-y-2">
+                        <ChatMessageComponent
+                          message={
+                            // Update streaming message with current streamed text
+                            message.id === streamingMessageId
+                              ? {
+                                  ...message,
+                                  content: streamingContent,
+                                  tokenStream: chunks.map((chunk) => ({
+                                    token: chunk.token,
+                                    logprob: chunk.logprob,
+                                    routerScore: chunk.routerScore,
+                                    index: chunk.index,
+                                    timestamp: chunk.timestamp,
+                                  })),
+                                }
+                              : message
+                          }
+                          onViewDocument={handleViewDocumentClick}
+                          onSelect={handleSelectMessageWithVerification}
+                          isSelected={selectedMessageId === message.id}
+                          developerMode={developerModeEnabled}
+                          kernelMode={kernelMode}
+                        />
+                        {message.role === 'assistant' && (
+                          <RunEvidencePanel
+                            evidence={message.runMetadata}
+                            traceId={message.traceId}
+                            fallbackPolicyMask={message.routerDecision?.policy_mask_digest}
+                            fallbackPlanId={workspaceActiveState?.activePlanId ?? undefined}
+                            manifestFallback={workspaceActiveState?.manifestHashB3 ?? undefined}
+                            workspaceIdFallback={tenantId}
+                            showSeedValue={developerModeEnabled}
+                            onExport={() => handleExportRunEvidence(message)}
+                            pending={message.isStreaming}
+                          />
+                        )}
+                      </div>
                     </div>
                   );
                 })}
@@ -2131,10 +2535,10 @@ function ChatInterfaceInner({
       {/* Input area */}
       <div className={`border-t px-4 py-3 transition-all ${isHistoryOpen ? 'ml-80' : ''} ${rightPanelsOpen ? 'mr-96' : ''}`}>
         {/* Inline model loading block - shown when model is not ready */}
-        {autoLoadEnabled && !baseModelReady && (
+        {!baseModelReady && (
           <InlineModelLoadingBlock
             modelStatus={newModelLoadingState.baseModelStatus}
-            modelName={newModelLoadingState.baseModelName}
+            modelName={baseModelName}
             backendInfo={undefined}
             errorMessage={newModelLoadingState.error?.message ?? null}
             isLoading={newModelLoadingState.isLoading}
@@ -2213,7 +2617,7 @@ function ChatInterfaceInner({
                   'min-h-[calc(var(--base-unit)*15)] resize-none flex-1 pr-28 transition-shadow relative z-[1]',
                   showMagnetField ? 'magnet-textarea' : ''
                 )}
-                disabled={isStreaming || !baseModelReady}
+                disabled={isStreaming || modelGateActive}
                 aria-label="Message input"
                 data-testid="chat-input"
               />
@@ -2280,7 +2684,7 @@ function ChatInterfaceInner({
           )}
           <Button
             type="submit"
-            disabled={isStreaming || !input.trim() || !baseModelReady}
+            disabled={isStreaming || !input.trim() || modelGateActive}
             size="lg"
             aria-label={isStreaming ? "Sending message..." : "Send message"}
           >

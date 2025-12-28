@@ -483,7 +483,7 @@ describe('AdminDashboard', () => {
       </DashboardProvider>
     );
     expect(screen.getByText('System Overview')).toBeInTheDocument();
-    expect(screen.getByText('Tenant Summary')).toBeInTheDocument();
+    expect(screen.getByText('Workspace Summary')).toBeInTheDocument();
     expect(screen.getByText('Policy Compliance')).toBeInTheDocument();
   });
 

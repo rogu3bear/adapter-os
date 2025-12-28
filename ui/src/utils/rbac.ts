@@ -481,7 +481,7 @@ export function getPermissionDescription(permission: string): string {
     'promotion:view': 'View promotions',
     'audit:view': 'View audit logs',
     'compliance:view': 'View compliance information',
-    'tenant:manage': 'Manage tenants',
+    'tenant:manage': 'Manage workspaces',
     'node:manage': 'Manage nodes',
     'node:view': 'View nodes',
     'worker:manage': 'Manage workers',
@@ -625,7 +625,7 @@ export function getRoleName(role: UserRole): string {
 export function getRoleDescription(role: UserRole): string {
   const descriptions: Record<string, string> = {
     developer: 'Full system access to all features, pages, and UI modes regardless of restrictions',
-    admin: 'Full system access including tenant management and CPID promotion',
+    admin: 'Full system access including workspace management and CPID promotion',
     operator: 'Can manage adapters, workers, and perform inference operations',
     sre: 'Can view system information, debug, and manage infrastructure',
     compliance: 'Can view audit logs, telemetry bundles, and compliance reports',

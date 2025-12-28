@@ -289,7 +289,7 @@ export const POLICY_PACKS: PolicyPackDefinition[] = [
   {
     id: 'rag',
     name: 'RAG Index Ruleset',
-    description: 'Tenant isolation and retrieval configuration',
+    description: 'Workspace isolation and retrieval configuration',
     fields: [
       {
         name: 'index_scope',
@@ -339,7 +339,7 @@ export const POLICY_PACKS: PolicyPackDefinition[] = [
   {
     id: 'isolation',
     name: 'Isolation Ruleset',
-    description: 'Multi-tenant process boundaries',
+    description: 'Multi-workspace process boundaries',
     fields: [
       {
         name: 'process_model',
@@ -362,7 +362,7 @@ export const POLICY_PACKS: PolicyPackDefinition[] = [
         name: 'forbid_shm',
         type: 'boolean',
         label: 'Forbid Shared Memory',
-        description: 'Forbid shared memory across tenants',
+        description: 'Forbid shared memory across workspaces',
         required: true,
         default: true,
       },

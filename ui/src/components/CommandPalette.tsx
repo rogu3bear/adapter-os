@@ -87,7 +87,7 @@ function groupResults(results: CmdItem[]): Map<string, CmdItem[]> {
   return grouped;
 }
 
-const groupOrder = ['Quick Actions', 'Pages', 'Favorites', 'Recent', 'Adapters', 'Organizations', 'Policies', 'Nodes', 'Workers'];
+const groupOrder = ['Quick Actions', 'Pages', 'Favorites', 'Recent', 'Adapters', 'Workspaces', 'Policies', 'Nodes', 'Workers'];
 
 export function CommandPalette() {
   const {

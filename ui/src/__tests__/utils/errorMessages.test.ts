@@ -192,7 +192,7 @@ describe('errorMessages', () => {
     it('maps TENANT_ACCESS_DENIED to tenant guidance', () => {
       const error = getUserFriendlyError('TENANT_ACCESS_DENIED');
 
-      expect(error.title).toBe('Tenant Access Denied');
+      expect(error.title).toBe('Workspace Access Denied');
       expect(error.variant).toBe('warning');
       expect(error.message).toContain('do not have access to this tenant');
       expect(error.actionText).toBe('Select tenant');

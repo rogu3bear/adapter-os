@@ -77,16 +77,25 @@ export interface RouteManifestEntry {
  */
 const STATUS_OVERRIDES: Record<string, RouteStatus> = {
   // Example: '/old-page': 'deprecated',
-  '/workflow': 'deprecated',      // Legacy onboarding flow, redirects to training
-  '/management': 'deprecated',    // Legacy management shell
-  '/flow/lora': 'deprecated',     // Guided flow superseded by training shell
-  '/trainer': 'deprecated',       // Quick trainer folded into training hub
-  '/promotion': 'deprecated',     // Promotion merged into adapters/activation flows
-  '/monitoring': 'deprecated',    // Folded into metrics
-  '/reports': 'deprecated',       // Folded into metrics
-  '/help': 'deprecated',          // Help surface moved into dashboard
-  '/owner': 'deprecated',         // Owner home replaced by admin hub
-  '/code-intelligence': 'deprecated', // Redirect to telemetry viewer
+  '/owner': 'deprecated',                   // Owner home replaced by admin hub
+  '/management': 'deprecated',              // Legacy management shell
+  '/workflow': 'deprecated',                // Legacy onboarding flow, redirects to training
+  '/personas': 'deprecated',                // Legacy personas tour
+  '/flow/lora': 'deprecated',               // Guided flow superseded by training shell
+  '/trainer': 'deprecated',                 // Quick trainer folded into training hub
+  '/create-adapter': 'deprecated',          // Legacy adapter creation flow
+  '/promotion': 'deprecated',               // Promotion merged into adapters/activation flows
+  '/monitoring': 'deprecated',              // Folded into metrics
+  '/reports': 'deprecated',                 // Folded into metrics
+  '/code-intelligence': 'deprecated',       // Redirect to telemetry viewer
+  '/metrics/advanced': 'deprecated',        // Consolidated into main metrics
+  '/help': 'deprecated',                    // Help surface moved into dashboard
+  '/admin/tenants': 'deprecated',           // Workspace hub canonical
+  '/admin/tenants/:tenantId': 'deprecated', // Workspace hub canonical
+  '/telemetry/traces': 'deprecated',        // Legacy trace deep links
+  '/telemetry/traces/:traceId': 'deprecated', // Legacy trace deep links
+  '/chat/sessions/:sessionId': 'deprecated',  // Legacy chat session deep link
+  '/security': 'deprecated',                // Guardrails canonical at /security/policies
 };
 
 /**
@@ -206,52 +215,95 @@ function determineReachability(
 function inferComponentFile(route: RouteConfig): string {
   const path = route.path;
 
-  // Map paths to component files based on conventions
+  // Map paths to component files based on route reality (shells + redirects)
   const pathToFile: Record<string, string> = {
-    '/owner': 'pages/OwnerHome/index.tsx',
+    '/owner': 'components/LegacyRedirectNotice.tsx',
     '/dashboard': 'pages/DashboardPage.tsx',
+    '/workspaces': 'pages/WorkspacesPage.tsx',
+    '/management': 'components/LegacyRedirectNotice.tsx',
+    '/workflow': 'components/LegacyRedirectNotice.tsx',
+    '/personas': 'components/LegacyRedirectNotice.tsx',
+    '/flow/lora': 'components/LegacyRedirectNotice.tsx',
     '/repos': 'pages/Repositories/RepositoriesShell.tsx',
-    '/adapters': 'pages/AdaptersPage.tsx',
-    '/training': 'pages/Training/TrainingPage.tsx',
-    '/training/jobs': 'pages/Training/TrainingJobsPage.tsx',
-    '/training/datasets': 'pages/Training/DatasetsTab.tsx',
-    '/training/templates': 'pages/Training/TemplatesTab.tsx',
+    '/repos/:repoId': 'pages/Repositories/RepositoriesShell.tsx',
+    '/repos/:repoId/versions/:versionId': 'pages/Repositories/RepositoriesShell.tsx',
+    '/trainer': 'components/LegacyRedirectNotice.tsx',
+    '/create-adapter': 'components/LegacyRedirectNotice.tsx',
+    '/training': 'pages/Training/TrainingShell.tsx',
+    '/training/jobs': 'pages/Training/TrainingShell.tsx',
+    '/training/jobs/:jobId': 'pages/Training/TrainingShell.tsx',
+    '/training/jobs/:jobId/chat': 'pages/Training/ResultChatPage.tsx',
+    '/training/datasets': 'pages/Training/TrainingShell.tsx',
+    '/training/datasets/:datasetId': 'pages/Training/TrainingShell.tsx',
+    '/training/datasets/:datasetId/chat': 'pages/Training/DatasetChatPage.tsx',
+    '/training/templates': 'pages/Training/TrainingShell.tsx',
+    '/training/artifacts': 'pages/Training/TrainingShell.tsx',
+    '/training/settings': 'pages/Training/TrainingShell.tsx',
+    '/testing': 'pages/TestingPage.tsx',
+    '/golden': 'pages/GoldenPage.tsx',
+    '/promotion': 'components/LegacyRedirectNotice.tsx',
+    '/adapters': 'pages/Adapters/AdaptersShell.tsx',
+    '/adapters/new': 'pages/Adapters/AdaptersShell.tsx',
+    '/adapters/:adapterId': 'pages/Adapters/AdaptersShell.tsx',
+    '/adapters/:adapterId/activations': 'pages/Adapters/AdaptersShell.tsx',
+    '/adapters/:adapterId/usage': 'pages/Adapters/AdaptersShell.tsx',
+    '/adapters/:adapterId/lineage': 'pages/Adapters/AdaptersShell.tsx',
+    '/adapters/:adapterId/manifest': 'pages/Adapters/AdaptersShell.tsx',
+    '/adapters/:adapterId/policies': 'pages/Adapters/AdaptersShell.tsx',
+    '/metrics': 'pages/MetricsPage.tsx',
+    '/monitoring': 'components/LegacyRedirectNotice.tsx',
+    '/routing': 'pages/RoutingPage.tsx',
     '/system': 'pages/System/SystemOverviewPage.tsx',
     '/system/nodes': 'pages/System/NodesTab.tsx',
+    '/system/nodes/:nodeId': 'pages/System/NodeDetailModal.tsx',
     '/system/workers': 'pages/System/WorkersTab.tsx',
     '/system/memory': 'pages/System/MemoryTab.tsx',
     '/system/metrics': 'pages/System/MetricsTab.tsx',
-    '/admin': 'pages/AdminPage.tsx',
-    '/admin/tenants': 'pages/TenantsPage.tsx',
-    '/admin/stacks': 'pages/Admin/AdapterStacksTab.tsx',
-    '/admin/plugins': 'pages/Admin/PluginsPage.tsx',
-    '/admin/settings': 'pages/Admin/SettingsPage.tsx',
-    '/chat': 'pages/ChatPage.tsx',
+    '/system/pilot-status': 'pages/System/PilotStatusPage.tsx',
     '/inference': 'pages/InferencePage.tsx',
+    '/chat': 'pages/ChatPage.tsx',
+    '/chat/sessions/:sessionId': 'components/LegacyRedirectNotice.tsx',
     '/documents': 'pages/DocumentLibrary/index.tsx',
-    '/metrics': 'pages/MetricsPage.tsx',
-    '/monitoring': 'pages/ObservabilityPage.tsx',
-    '/routing': 'pages/RoutingPage.tsx',
-    '/replay': 'pages/Replay/ReplayShell.tsx',
+    '/documents/:documentId/chat': 'pages/DocumentLibrary/DocumentChatPage.tsx',
     '/telemetry': 'pages/TelemetryPage.tsx',
+    '/telemetry/viewer': 'pages/TelemetryPage.tsx',
+    '/telemetry/viewer/:traceId': 'pages/TelemetryPage.tsx',
+    '/telemetry/traces': 'components/LegacyRedirectNotice.tsx',
+    '/telemetry/traces/:traceId': 'components/LegacyRedirectNotice.tsx',
+    '/telemetry/alerts': 'pages/TelemetryPage.tsx',
+    '/telemetry/exports': 'pages/TelemetryPage.tsx',
+    '/telemetry/filters': 'pages/TelemetryPage.tsx',
+    '/replay': 'pages/Replay/ReplayShell.tsx',
+    '/replay/:sessionId': 'pages/Replay/ReplayShell.tsx',
+    '/replay/decision-trace': 'pages/Replay/ReplayShell.tsx',
+    '/replay/:sessionId/decision-trace': 'pages/Replay/ReplayShell.tsx',
+    '/replay/evidence': 'pages/Replay/ReplayShell.tsx',
+    '/replay/:sessionId/evidence': 'pages/Replay/ReplayShell.tsx',
+    '/replay/compare': 'pages/Replay/ReplayShell.tsx',
+    '/replay/:sessionId/compare': 'pages/Replay/ReplayShell.tsx',
+    '/replay/export': 'pages/Replay/ReplayShell.tsx',
+    '/replay/:sessionId/export': 'pages/Replay/ReplayShell.tsx',
+    '/security': 'components/LegacyRedirectNotice.tsx',
     '/security/policies': 'pages/PoliciesPage.tsx',
     '/security/audit': 'pages/AuditPage.tsx',
     '/security/compliance': 'pages/Security/ComplianceTab.tsx',
-    '/testing': 'pages/TestingPage.tsx',
-    '/golden': 'pages/GoldenPage.tsx',
-    '/promotion': 'pages/PromotionPage.tsx',
-    '/trainer': 'pages/TrainerPage.tsx',
-    '/create-adapter': 'pages/CreateAdapterPage.tsx',
-    '/adapters/new': 'pages/Adapters/AdapterRegisterPage.tsx',
+    '/security/evidence': 'pages/EvidencePage.tsx',
+    '/admin': 'pages/Admin/AdminPage.tsx',
+    '/admin/tenants': 'components/LegacyRedirectNotice.tsx',
+    '/admin/tenants/:tenantId': 'components/LegacyRedirectNotice.tsx',
+    '/admin/stacks': 'pages/Admin/AdapterStacksTab.tsx',
+    '/admin/stacks/:stackId': 'pages/Admin/StackDetailModal.tsx',
+    '/admin/plugins': 'pages/Admin/PluginsPage.tsx',
+    '/admin/settings': 'pages/Admin/SettingsPage.tsx',
+    '/reports': 'components/LegacyRedirectNotice.tsx',
     '/base-models': 'pages/BaseModelsPage.tsx',
+    '/code-intelligence': 'components/LegacyRedirectNotice.tsx',
+    '/metrics/advanced': 'components/LegacyRedirectNotice.tsx',
+    '/help': 'components/LegacyRedirectNotice.tsx',
     '/router-config': 'pages/RouterConfigPage.tsx',
     '/federation': 'pages/FederationPage.tsx',
-    // legacy/redirected routes intentionally omitted
-    '/workflow': 'pages/WorkflowPage.tsx',
-    '/management': 'pages/ManagementPage.tsx',
-    '/personas': 'pages/PersonasPage.tsx',
-    '/flow/lora': 'pages/GuidedFlowPage.tsx',
     '/dev/api-errors': 'pages/DevErrorsPage.tsx',
+    '/dev/contracts': 'pages/Dev/ContractsPage.tsx',
     '/_dev/routes': 'pages/Dev/RoutesDebugPage.tsx',
   };
 
@@ -259,20 +311,13 @@ function inferComponentFile(route: RouteConfig): string {
   if (pathToFile[path]) return pathToFile[path];
 
   // Dynamic routes - infer from path structure
-  if (path.includes('/repos/')) {
-    return 'pages/Repositories/RepositoriesShell.tsx';
-  }
-  if (path.includes(':adapterId')) {
-    if (path.endsWith('/activations')) return 'pages/Adapters/AdapterActivations.tsx';
-    if (path.endsWith('/lineage')) return 'pages/Adapters/AdapterLineage.tsx';
-    if (path.endsWith('/manifest')) return 'pages/Adapters/AdapterManifest.tsx';
-    if (path.endsWith('/usage')) return 'pages/Adapters/AdapterUsage.tsx';
-    return 'pages/Adapters/AdapterDetailPage.tsx';
-  }
-  if (path.includes(':jobId')) return 'pages/Training/TrainingJobDetail.tsx';
-  if (path.includes(':datasetId')) return 'pages/Training/DatasetDetailPage.tsx';
-  if (path.includes(':tenantId')) return 'pages/Admin/TenantDetailPage.tsx';
-  if (path.includes(':documentId')) return 'pages/DocumentLibrary/DocumentChatPage.tsx';
+  if (path.startsWith('/admin/tenants')) return 'components/LegacyRedirectNotice.tsx';
+  if (path.startsWith('/repos')) return 'pages/Repositories/RepositoriesShell.tsx';
+  if (path.startsWith('/adapters')) return 'pages/Adapters/AdaptersShell.tsx';
+  if (path.startsWith('/training')) return 'pages/Training/TrainingShell.tsx';
+  if (path.startsWith('/replay')) return 'pages/Replay/ReplayShell.tsx';
+  if (path.startsWith('/telemetry')) return 'pages/TelemetryPage.tsx';
+  if (path.startsWith('/documents/')) return 'pages/DocumentLibrary/DocumentChatPage.tsx';
 
   return 'unknown';
 }
@@ -382,18 +427,13 @@ export const HUB_DEFINITIONS: Record<string, {
   },
   '/telemetry': {
     section: 'Monitor',
-    expectedTabs: ['/telemetry/viewer', '/telemetry/traces', '/telemetry/alerts', '/telemetry/exports', '/telemetry/filters'],
+    expectedTabs: ['/telemetry/viewer', '/telemetry/alerts', '/telemetry/exports', '/telemetry/filters'],
     description: 'Telemetry hub (path-based tabs)',
   },
   '/admin': {
     section: 'Admin',
-    expectedTabs: ['/admin/tenants', '/admin/stacks', '/admin/plugins', '/admin/settings'],
+    expectedTabs: ['/admin/stacks', '/admin/plugins', '/admin/settings'],
     description: 'Administration and configuration',
-  },
-  '/monitoring': {
-    section: 'Monitor',
-    expectedTabs: [],
-    description: 'System health and observability',
   },
   '/documents': {
     section: 'Inference',
@@ -408,49 +448,46 @@ export const HUB_DEFINITIONS: Record<string, {
 };
 
 /**
- * Primary spine - the main navigation pages
+ * Primary spine - MVP spine plus essential ops views
  */
 export const PRIMARY_SPINE = [
   '/dashboard',
-  '/inference',
-  '/chat',
+  '/workspaces',
+  '/base-models',
   '/documents',
+  '/training',
+  '/chat',
   '/metrics',
   '/routing',
   '/system',
   '/telemetry',
   '/replay',
   '/security/policies',
-  '/security/audit',
-  '/security/compliance',
-  '/security/evidence',
-  '/repos',
-  '/adapters',
-  '/training',
-  '/router-config',
-  '/base-models',
-  '/admin',
-  '/testing',
-  '/golden',
-  '/dev/api-errors',
-  '/_dev/routes',
 ] as const;
 
 /**
  * Legacy Routes - track redirects for cleanup and observability
  */
 export const LEGACY_ROUTES: Array<{ from: string; to: string; note?: string }> = [
+  { from: '/owner', to: '/admin', note: 'owner home replaced by admin hub' },
+  { from: '/management', to: '/dashboard', note: 'legacy management panel' },
   { from: '/workflow', to: '/training', note: 'training hub canonical' },
+  { from: '/personas', to: '/dashboard', note: 'legacy personas tour' },
   { from: '/flow/lora', to: '/training', note: 'guided flow merged into training' },
   { from: '/trainer', to: '/training', note: 'legacy trainer folded into training hub' },
+  { from: '/create-adapter', to: '/adapters#register', note: 'adapter registration lives in adapters shell' },
   { from: '/promotion', to: '/adapters', note: 'promotion flows live with adapters' },
   { from: '/monitoring', to: '/metrics', note: 'metrics/monitoring consolidation' },
   { from: '/reports', to: '/metrics', note: 'reports merged into metrics' },
-  { from: '/telemetry/traces', to: '/telemetry/viewer', note: 'telemetry trace viewer consolidated' },
-  { from: '/telemetry/traces/:traceId', to: '/telemetry/viewer/{traceId}', note: 'trace deep links preserved' },
   { from: '/code-intelligence', to: '/telemetry/viewer?source_type=code_intelligence', note: 'code intel rolls into telemetry' },
-  { from: '/owner', to: '/admin', note: 'owner home replaced by admin hub' },
+  { from: '/metrics/advanced', to: '/metrics', note: 'advanced metrics merged into main view' },
   { from: '/help', to: '/dashboard', note: 'help now within dashboard' },
+  { from: '/admin/tenants', to: '/workspaces', note: 'workspace hub canonical' },
+  { from: '/admin/tenants/:tenantId', to: '/workspaces', note: 'tenant details live in workspaces' },
+  { from: '/telemetry/traces', to: '/telemetry/viewer', note: 'telemetry trace viewer consolidated' },
+  { from: '/telemetry/traces/:traceId', to: '/telemetry/viewer/:traceId', note: 'trace deep links preserved' },
+  { from: '/chat/sessions/:sessionId', to: '/chat?session=:sessionId', note: 'chat sessions now use query param' },
+  { from: '/security', to: '/security/policies', note: 'guardrails canonical route' },
 ] as const;
 
 /**

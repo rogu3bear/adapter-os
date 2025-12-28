@@ -255,7 +255,7 @@ export function SystemKpiGrid({
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-slate-600 flex items-center gap-2">
               <Users className="h-4 w-4" />
-              Organizations
+              Workspaces
             </CardTitle>
           </CardHeader>
           <CardContent>

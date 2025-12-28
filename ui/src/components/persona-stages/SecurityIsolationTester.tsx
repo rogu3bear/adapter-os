@@ -35,26 +35,26 @@ interface SecurityIsolationTesterProps {
 const testScenarios: IsolationTestScenario[] = [
   {
     id: 'tenant-boundary',
-    name: 'Organization Boundary Test',
-    description: 'Verify that organization data and resources are properly isolated',
+    name: 'Workspace Boundary Test',
+    description: 'Verify that workspace data and resources are properly isolated',
     category: 'tenant',
   },
   {
     id: 'cross-tenant-access',
-    name: 'Cross-Tenant Access Test',
-    description: 'Attempt to access another tenant\'s adapters and data',
+    name: 'Cross-Workspace Access Test',
+    description: 'Attempt to access another workspace\'s adapters and data',
     category: 'tenant',
   },
   {
     id: 'memory-isolation',
     name: 'Memory Isolation Test',
-    description: 'Verify GPU memory isolation between tenants',
+    description: 'Verify GPU memory isolation between workspaces',
     category: 'memory',
   },
   {
     id: 'memory-overflow',
     name: 'Memory Overflow Test',
-    description: 'Test that memory overflow does not affect other tenants',
+    description: 'Test that memory overflow does not affect other workspaces',
     category: 'memory',
   },
   {
@@ -72,7 +72,7 @@ const testScenarios: IsolationTestScenario[] = [
   {
     id: 'filesystem-isolation',
     name: 'Filesystem Isolation Test',
-    description: 'Verify tenant filesystem boundaries are enforced',
+    description: 'Verify workspace filesystem boundaries are enforced',
     category: 'filesystem',
   },
   {
@@ -240,9 +240,9 @@ export default function SecurityIsolationTester({ tenantId = 'default' }: Securi
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold tracking-tight">Organization Isolation Tester</h2>
+          <h2 className="text-2xl font-bold tracking-tight">Workspace Isolation Tester</h2>
           <p className="text-muted-foreground">
-            Test and verify organization isolation boundaries
+            Test and verify workspace isolation boundaries
           </p>
         </div>
         <Button onClick={runAllTests} disabled={isRunning} variant="outline">
@@ -296,7 +296,7 @@ export default function SecurityIsolationTester({ tenantId = 'default' }: Securi
                 <XCircle className="w-5 h-5 text-red-600" />
               )}
               <div>
-                <p className="font-medium">Organization Isolation</p>
+                <p className="font-medium">Workspace Isolation</p>
                 <p className="text-sm text-muted-foreground">
                   {policyCompliance.isolation ? 'Compliant' : 'Violation Detected'}
                 </p>

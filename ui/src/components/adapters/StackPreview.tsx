@@ -177,7 +177,7 @@ const validationRules = {
           level: 'error',
           category: 'Semantic Naming',
           message: `Stack name uses reserved tenant: "${nameParts[0]}"`,
-          suggestion: `Use a valid tenant name instead of: ${reservedTenants.join(', ')}`,
+          suggestion: `Use a valid workspace name instead of: ${reservedTenants.join(', ')}`,
         });
       }
 
@@ -203,7 +203,7 @@ const validationRules = {
             message: `Adapter "${item.adapter.name}" doesn't follow semantic naming format`,
             adapter: item.adapter.name,
             suggestion:
-              'Use format: {tenant}/{domain}/{purpose}/{revision} e.g., tenant-a/engineering/code-review/r001',
+              'Use format: {workspace}/{domain}/{purpose}/{revision} e.g., workspace-a/engineering/code-review/r001',
           });
         }
       });

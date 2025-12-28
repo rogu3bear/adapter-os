@@ -277,7 +277,7 @@ export default function ComplianceDashboard({ selectedTenant = 'default' }: Comp
       {/* Header */}
       <PageHeader
         title="Compliance Dashboard"
-        description={`Compliance monitoring and audit tracking for tenant: ${selectedTenant}`}
+        description={`Compliance monitoring and audit tracking for workspace: ${selectedTenant}`}
         badges={[
           {
             label: `Score: ${complianceScore}%`,

@@ -56,7 +56,7 @@ describe('renderExtendedChatSessionMarkdown', () => {
     const markdown = renderExtendedChatSessionMarkdown('Test', [], metadata);
 
     expect(markdown).toContain('- **Dataset Version ID**: dataset-v1');
-    expect(markdown).toContain('- **Tenant ID**: tenant-123');
+    expect(markdown).toContain('- **Workspace ID**: tenant-123');
     expect(markdown).toContain('- **Collection ID**: collection-456');
   });
 

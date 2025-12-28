@@ -433,7 +433,7 @@ describe('Route Configuration Tests', () => {
     });
 
     it('should have valid navGroup when defined', () => {
-      const validNavGroups = ['Build', 'Run', 'Observe', 'Verify'];
+      const validNavGroups = ['Build', 'Run', 'Observe', 'Verify', 'Get Started'];
 
       routes.forEach(route => {
         if (route.navGroup) {

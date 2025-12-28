@@ -392,10 +392,10 @@ export const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
     requiredInputs: [
       {
         id: 'tenantId',
-        label: 'Tenant ID',
+        label: 'Workspace ID',
         type: 'select',
         required: false,
-        helpText: 'Filter by tenant (optional)',
+        helpText: 'Filter by workspace (optional)',
       },
     ],
     steps: [

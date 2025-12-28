@@ -449,11 +449,11 @@ export default function ProductManagerUsageAnalytics() {
         </CardContent>
       </Card>
 
-      {/* Usage by Tenant */}
+      {/* Usage by Workspace */}
       <Card>
         <CardHeader>
-          <CardTitle>Usage by Tenant</CardTitle>
-          <CardDescription>Request distribution across tenants</CardDescription>
+          <CardTitle>Usage by Workspace</CardTitle>
+          <CardDescription>Request distribution across workspaces</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="space-y-4">

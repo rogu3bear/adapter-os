@@ -25,9 +25,10 @@ import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { Separator } from '@/components/ui/separator';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Loader2 } from 'lucide-react';
+import { Code, Loader2 } from 'lucide-react';
 import { DetailPageLoadingState } from '@/components/ui/loading-patterns';
-import { buildTrainingJobsLink } from '@/utils/navLinks';
+import { buildTrainingJobsLink, buildTrainingOverviewLink } from '@/utils/navLinks';
+import { useRBAC } from '@/hooks/security/useRBAC';
 
 export default function AdaptersShell() {
   const { adapterId } = useParams<{ adapterId: string }>();
@@ -35,6 +36,7 @@ export default function AdaptersShell() {
   const navigate = useNavigate();
   const { sessionMode } = useAuth();
   const demoMode = isDemoMvpMode(sessionMode);
+  const { can } = useRBAC();
   const [postRegisterBanner, setPostRegisterBanner] = useState<{ adapterName?: string } | null>(null);
 
   const { activeTab, setActiveTab, availableTabs, getTabPath } = useAdapterTabRouter();
@@ -67,7 +69,15 @@ export default function AdaptersShell() {
   return (
     <FeatureLayout
       title="Adapters"
-      description="Adapter details and controls"
+      description="Manage and monitor adapters"
+      brief="Train an adapter to learn patterns from your documents for consistent responses"
+      primaryAction={{
+        label: 'Train New Adapter',
+        icon: Code,
+        onClick: () => navigate(buildTrainingOverviewLink()),
+        disabled: !can('TrainingStart'),
+        size: 'sm',
+      }}
       customHeader={null}
       maxWidth="xl"
     >

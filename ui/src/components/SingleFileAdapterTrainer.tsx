@@ -47,11 +47,11 @@ import { useRBAC } from '@/hooks/security/useRBAC';
 const TrainerConfigSchema = z.object({
   // Semantic naming components
   tenant: z.string()
-    .min(1, 'Tenant is required')
-    .max(50, 'Tenant must not exceed 50 characters')
+    .min(1, 'Workspace is required')
+    .max(50, 'Workspace must not exceed 50 characters')
     .regex(
       /^[a-z0-9_-]+$/,
-      'Tenant must contain only lowercase letters, numbers, underscores, and hyphens'
+      'Workspace must contain only lowercase letters, numbers, underscores, and hyphens'
     ),
   domain: z.string()
     .min(1, 'Domain is required')
@@ -525,7 +525,7 @@ export function SingleFileAdapterTrainer() {
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">
                     <Label htmlFor="tenant" className="text-xs text-muted-foreground">
-                      Organization
+                      Workspace
                     </Label>
                     <Input
                       id="tenant"
@@ -777,7 +777,7 @@ export function SingleFileAdapterTrainer() {
             title="Training Complete!"
             description={`Your adapter "${
               fullAdapterName || `${formValues.tenant}/${formValues.domain}/${formValues.purpose}/${formValues.revision}`
-            }" has been trained${trainingJob?.stack_id ? ' and a stack was created (activation requested for this tenant).' : '.'}`}
+            }" has been trained${trainingJob?.stack_id ? ' and a stack was created (activation requested for this workspace).' : '.'}`}
             variant="milestone"
             nextSteps={
               [

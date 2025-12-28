@@ -122,7 +122,7 @@ export function ITAdminDashboard({ tenantId, onToolbarChange }: ITAdminDashboard
     return (
       <LoadingState
         title="Loading admin insights"
-        description="Collecting system health, tenant status, and alerts."
+        description="Collecting system health, workspace status, and alerts."
         skeletonLines={3}
       />
     );
@@ -171,10 +171,10 @@ export function ITAdminDashboard({ tenantId, onToolbarChange }: ITAdminDashboard
           </CardContent>
         </Card>
 
-        {/* Active Tenants */}
+        {/* Active Workspaces */}
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Active Tenants</CardTitle>
+            <CardTitle className="text-sm font-medium">Active Workspaces</CardTitle>
             <Users className="w-4 h-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -285,12 +285,12 @@ export function ITAdminDashboard({ tenantId, onToolbarChange }: ITAdminDashboard
       </Card>
 
       <ContentGrid>
-        {/* Tenant Management */}
+        {/* Workspace Management */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Users className="w-5 h-5" />
-              Tenant Management
+              Workspace Management
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -315,7 +315,7 @@ export function ITAdminDashboard({ tenantId, onToolbarChange }: ITAdminDashboard
                 </p>
               )}
               <Button variant="outline" className="w-full">
-                View All Tenants
+                View All Workspaces
               </Button>
             </div>
           </CardContent>

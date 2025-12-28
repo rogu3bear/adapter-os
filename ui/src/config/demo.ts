@@ -11,18 +11,18 @@ export interface DemoModelState {
 }
 
 const DEMO_SYSTEM_TOASTS = [
-  'Tenant A mounted Adapter X',
+  'Workspace A mounted Adapter X',
   'Auto-scaling worker node...',
-  'Router promoting MoE experts for Finance tenant',
+  'Router promoting MoE experts for Finance workspace',
   'Draining legacy 7B workers…',
   'Batching high-priority eval traffic',
   'Rolling restart of telemetry agent',
-  'Tenant B shipped a new adapter revision',
+  'Workspace B shipped a new adapter revision',
 ];
 
-const DEMO_SCRIPT_PROMPT = `You are running an AdapterOS chaos drill for a multi-tenant MoE stack.
-- Switch routing to the 30B MoE (rank-64) backend for high-TPS tenants.
-- Keep Tenant A on the finance adapters; Tenant B on multilingual safety adapters.
+const DEMO_SCRIPT_PROMPT = `You are running an AdapterOS chaos drill for a multi-workspace MoE stack.
+- Switch routing to the 30B MoE (rank-64) backend for high-TPS workspaces.
+- Keep Workspace A on the finance adapters; Workspace B on multilingual safety adapters.
 - Run a 2-minute synthetic load test at 1.2k RPM and capture latency P95 + tail token stats.
 - Generate an audit note summarizing model swaps, adapter mounts, and scaling decisions.`;
 
@@ -62,18 +62,18 @@ export function getDemoActivitySeed(): RecentActivityEvent[] {
   return [
     {
       id: 'demo-act-1',
-      actor: 'Tenant A',
+      actor: 'Workspace A',
       action: 'mounted adapter',
       target: 'Finance Guard v5',
       event_type: 'adapter_mounted',
-      message: 'Tenant A mounted Finance Guard v5 on AOS-7B',
+      message: 'Workspace A mounted Finance Guard v5 on AOS-7B',
       timestamp: minutes(2),
       level: 'info',
       component: 'adapter',
     },
     {
       id: 'demo-act-2',
-      actor: 'Tenant B',
+      actor: 'Workspace B',
       action: 'started training job',
       target: 'Safety-Multilingual v3',
       event_type: 'training_started',
@@ -95,7 +95,7 @@ export function getDemoActivitySeed(): RecentActivityEvent[] {
     },
     {
       id: 'demo-act-4',
-      actor: 'Tenant A',
+      actor: 'Workspace A',
       action: 'published',
       target: 'Audit log',
       event_type: 'audit',
@@ -106,7 +106,7 @@ export function getDemoActivitySeed(): RecentActivityEvent[] {
     },
     {
       id: 'demo-act-5',
-      actor: 'Tenant B',
+      actor: 'Workspace B',
       action: 'completed training job',
       target: 'Adapter X v2',
       event_type: 'training_complete',

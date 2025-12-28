@@ -74,7 +74,7 @@ export default function TelemetryTraceViewerPage() {
                 </Button>
                 {activeTraceId && (
                   <div className="text-xs text-muted-foreground">
-                    Tenant: <span className="font-mono">{tenantId ?? 'default'}</span>
+                    Workspace: <span className="font-mono">{tenantId ?? 'default'}</span>
                   </div>
                 )}
               </CardContent>

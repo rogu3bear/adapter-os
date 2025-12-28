@@ -2,7 +2,8 @@ import {
   PeerInfo,
   PeerSyncInfo,
   PeerSyncStatus,
-  PeerHealthStatus
+  PeerHealthStatus,
+  PeerSyncSummary
 } from '@/api/federation-types';
 
 /**
@@ -48,4 +49,29 @@ export function derivePeerSyncInfo(peer: PeerInfo): PeerSyncInfo {
  */
 export function derivePeerSyncInfoList(peers: PeerInfo[]): PeerSyncInfo[] {
   return peers.map(derivePeerSyncInfo);
+}
+
+/**
+ * Converts PeerSyncSummary from sync-status endpoint to PeerSyncInfo
+ */
+export function derivePeerSyncInfoFromSummary(summary: PeerSyncSummary): PeerSyncInfo {
+  const sync_status: PeerSyncStatus = summary.in_sync ? 'synced' : 'syncing';
+  const health_status: PeerHealthStatus = summary.in_sync ? 'healthy' : 'degraded';
+  const lastSync = summary.last_sync_at;
+  const sync_lag_ms = lastSync ? Date.now() - new Date(lastSync).getTime() : undefined;
+
+  return {
+    host_id: summary.peer_id,
+    hostname: summary.host,
+    sync_status,
+    last_sync_at: summary.last_sync_at,
+    sync_lag_ms,
+    health_status,
+    failed_heartbeats: summary.in_sync ? 0 : 1,
+    active: true,
+  };
+}
+
+export function derivePeerSyncInfoListFromSummaries(peers: PeerSyncSummary[]): PeerSyncInfo[] {
+  return peers.map(derivePeerSyncInfoFromSummary);
 }

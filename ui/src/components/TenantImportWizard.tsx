@@ -60,7 +60,7 @@ export function TenantImportWizard({ onComplete, onCancel }: TenantImportWizardP
             <FileText className="h-8 w-8 mb-2 text-gray-400" />
             <div className="font-medium">Manual Entry</div>
             <div className="text-sm text-muted-foreground">
-              Enter organization details manually
+              Enter workspace details manually
             </div>
           </button>
           <button
@@ -87,7 +87,7 @@ export function TenantImportWizard({ onComplete, onCancel }: TenantImportWizardP
   const FileUploadStep = () => (
     <div className="space-y-4">
       <div>
-        <Label htmlFor="tenantFile">Organization Configuration File (JSON)</Label>
+        <Label htmlFor="tenantFile">Workspace Configuration File (JSON)</Label>
         <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center">
           <input
             type="file"
@@ -113,7 +113,7 @@ export function TenantImportWizard({ onComplete, onCancel }: TenantImportWizardP
                         },
                       });
                     } else {
-                      setValidationError('Invalid organization configuration file');
+                      setValidationError('Invalid workspace configuration file');
                     }
                   } catch (err) {
                     setValidationError('Failed to parse JSON file');
@@ -132,7 +132,7 @@ export function TenantImportWizard({ onComplete, onCancel }: TenantImportWizardP
               {state.file ? state.file.name : 'Click to select JSON file'}
             </div>
             <div className="text-xs text-gray-500">
-              JSON format with organization configuration
+              JSON format with workspace configuration
             </div>
           </label>
         </div>
@@ -145,7 +145,7 @@ export function TenantImportWizard({ onComplete, onCancel }: TenantImportWizardP
       </div>
       <Alert>
         <AlertDescription>
-          The JSON file should contain organization configuration with at least a "name" field.
+          The JSON file should contain workspace configuration with at least a "name" field.
         </AlertDescription>
       </Alert>
     </div>
@@ -155,7 +155,7 @@ export function TenantImportWizard({ onComplete, onCancel }: TenantImportWizardP
   const ManualEntryStep = () => (
     <div className="space-y-4">
       <div>
-        <Label htmlFor="tenantName">Organization Name *</Label>
+        <Label htmlFor="tenantName">Workspace Name *</Label>
         <Input
           id="tenantName"
           placeholder="e.g., Engineering Team"
@@ -172,7 +172,7 @@ export function TenantImportWizard({ onComplete, onCancel }: TenantImportWizardP
         <Label htmlFor="tenantDescription">Description</Label>
         <Textarea
           id="tenantDescription"
-          placeholder="Describe the organization's purpose..."
+          placeholder="Describe the workspace's purpose..."
           value={state.tenantData.description}
           onChange={(e) =>
             setState({
@@ -208,7 +208,7 @@ export function TenantImportWizard({ onComplete, onCancel }: TenantImportWizardP
         <div>
           <Label htmlFor="itarCompliant">ITAR Compliant</Label>
           <p className="text-sm text-muted-foreground">
-            This organization handles ITAR-restricted data
+            This workspace handles ITAR-restricted data
           </p>
         </div>
         <input
@@ -230,7 +230,7 @@ export function TenantImportWizard({ onComplete, onCancel }: TenantImportWizardP
   // Step 3: Review
   const ReviewStep = () => (
     <div className="space-y-4">
-      <h3 className="font-semibold">Review Organization Configuration</h3>
+      <h3 className="font-semibold">Review Workspace Configuration</h3>
       <div className="bg-gray-50 p-4 rounded-md space-y-2">
         <div><strong>Name:</strong> {state.tenantData.name}</div>
         {state.tenantData.description && (
@@ -242,7 +242,7 @@ export function TenantImportWizard({ onComplete, onCancel }: TenantImportWizardP
       <Alert>
         <CheckCircle className="h-4 w-4" />
         <AlertDescription>
-          Click "Create Organization" to complete the import.
+          Click "Create Workspace" to complete the import.
         </AlertDescription>
       </Alert>
     </div>
@@ -255,10 +255,10 @@ export function TenantImportWizard({ onComplete, onCancel }: TenantImportWizardP
     } else if (currentStep === 1) {
       // File upload or manual entry validation
       if (state.importMethod === 'file' && !state.file) {
-        setValidationError('Please select an organization configuration file');
+        setValidationError('Please select an workspace configuration file');
         return;
       } else if (state.importMethod === 'manual' && !state.tenantData.name.trim()) {
-        setValidationError('Organization name is required');
+        setValidationError('Workspace name is required');
         return;
       }
       setValidationError(null);
@@ -272,7 +272,7 @@ export function TenantImportWizard({ onComplete, onCancel }: TenantImportWizardP
 
   const handleComplete = async () => {
     if (!state.tenantData.name.trim()) {
-      setValidationError('Organization name is required');
+      setValidationError('Workspace name is required');
       return;
     }
 
@@ -285,12 +285,12 @@ export function TenantImportWizard({ onComplete, onCancel }: TenantImportWizardP
         isolation_level: 'standard',
       });
 
-      toast.success(`Organization "${tenant.name}" created successfully`);
+      toast.success(`Workspace "${tenant.name}" created successfully`);
       onComplete(tenant);
     } catch (err) {
       const error = err instanceof Error ? err : new Error('Import failed');
       setWizardError(error);
-      toast.error(`Failed to create organization: ${error.message}`);
+      toast.error(`Failed to create workspace: ${error.message}`);
     } finally {
       setIsLoading(false);
     }
@@ -300,7 +300,7 @@ export function TenantImportWizard({ onComplete, onCancel }: TenantImportWizardP
     { id: 'method', title: 'Import Method', component: <ImportMethodStep /> },
     {
       id: 'config',
-      title: state.importMethod === 'file' ? 'Upload File' : 'Organization Details',
+      title: state.importMethod === 'file' ? 'Upload File' : 'Workspace Details',
       component: state.importMethod === 'file' ? <FileUploadStep /> : <ManualEntryStep />,
     },
     { id: 'review', title: 'Review', component: <ReviewStep /> },
@@ -378,7 +378,7 @@ export function TenantImportWizard({ onComplete, onCancel }: TenantImportWizardP
           </Button>
         ) : (
           <Button onClick={handleComplete} disabled={isLoading || !state.tenantData.name.trim()}>
-            {isLoading ? 'Creating...' : 'Create Organization'}
+            {isLoading ? 'Creating...' : 'Create Workspace'}
           </Button>
         )}
       </div>

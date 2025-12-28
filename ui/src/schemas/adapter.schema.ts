@@ -53,15 +53,15 @@ export const adapterTierSchema = z.enum(['persistent', 'warm', 'ephemeral'])
  * Adapter name component validators
  */
 const tenantValidator = z.string()
-  .min(1, 'Tenant cannot be empty')
-  .max(50, 'Tenant must not exceed 50 characters')
+  .min(1, 'Workspace cannot be empty')
+  .max(50, 'Workspace must not exceed 50 characters')
   .regex(
     /^[a-z0-9_-]+$/,
-    'Tenant must contain only lowercase letters, numbers, underscores, and hyphens'
+    'Workspace must contain only lowercase letters, numbers, underscores, and hyphens'
   )
   .refine(
     (val) => !ReservedTenants.includes(val as typeof ReservedTenants[number]),
-    'This tenant name is reserved'
+    'This workspace name is reserved'
   );
 
 const domainValidator = z.string()
@@ -99,7 +99,7 @@ export const adapterNameSchema = z.string()
   .max(200, 'Adapter name must not exceed 200 characters')
   .regex(
     /^[a-z0-9_-]+\/[a-z0-9_-]+\/[a-z0-9_-]+\/r\d{3,}$/,
-    'Use format: tenant/domain/purpose/rXXX (e.g., tenant-a/engineering/code-review/r001)'
+    'Use format: workspace/domain/purpose/rXXX (e.g., workspace-a/engineering/code-review/r001)'
   )
   .refine(
     (val) => {
@@ -186,9 +186,9 @@ export const adapterNameValidationSchema = z.object({
 
   // Tenant requesting validation
   tenant_id: z.string()
-    .min(1, 'Tenant ID is required')
-    .max(50, 'Tenant ID too long')
-    .describe('Requesting tenant'),
+    .min(1, 'Workspace ID is required')
+    .max(50, 'Workspace ID too long')
+    .describe('Requesting workspace'),
 
   // Optional: Parent adapter name (if forking)
   parent_name: adapterNameSchema.optional()

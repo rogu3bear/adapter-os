@@ -50,9 +50,9 @@ const mockWarningChecks: PolicyPreflightCheck[] = [
     policy_name: 'Semantic Naming',
     passed: false,
     severity: 'warning',
-    message: 'Adapter name should follow {tenant}/{domain}/{purpose}/{revision} format',
+    message: 'Adapter name should follow {workspace}/{domain}/{purpose}/{revision} format',
     can_override: true,
-    details: 'Expected: tenant-a/engineering/code-review/r001, Got: my-adapter',
+    details: 'Expected: workspace-a/engineering/code-review/r001, Got: my-adapter',
   },
 ];
 

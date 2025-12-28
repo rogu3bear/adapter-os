@@ -160,7 +160,7 @@ export function BaseModelWidget() {
     }
 
     if (!selectedTenant) {
-      showStatus('No tenant selected.', 'warning');
+      showStatus('No workspace selected.', 'warning');
       return;
     }
 
@@ -199,7 +199,7 @@ export function BaseModelWidget() {
     }
 
     if (!selectedTenant) {
-      showStatus('No tenant selected.', 'warning');
+      showStatus('No workspace selected.', 'warning');
       return;
     }
 

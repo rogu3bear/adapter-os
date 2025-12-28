@@ -42,6 +42,7 @@ interface AppHeaderProps {
   className?: string;
   uiMode: UiMode;
   onChangeUiMode: (mode: UiMode) => void;
+  workspaceNames?: Record<string, string>;
 }
 
 export function AppHeader({
@@ -56,6 +57,7 @@ export function AppHeader({
   className,
   uiMode,
   onChangeUiMode,
+  workspaceNames,
 }: AppHeaderProps) {
   const isDemo = sessionMode === 'dev_bypass';
   const demoMode = isDemo || isDemoEnvEnabled();
@@ -78,8 +80,10 @@ export function AppHeader({
   const buildShaShort = buildSha ? buildSha.slice(0, 8) : null;
   const { selectedTenant, tenants, setSelectedTenant } = useTenant();
   const [isSwitching, setIsSwitching] = useState(false);
-  const activeTenant = tenants.find(t => t.id === selectedTenant);
-  const tenantLabel = activeTenant?.name || selectedTenant || 'No tenant';
+  const tenantLabel =
+    (selectedTenant && workspaceNames?.[selectedTenant]) ||
+    selectedTenant ||
+    'No workspace';
   const modeLabel: Record<UiMode, string> = {
     [UiMode.User]: 'User',
     [UiMode.Builder]: 'Builder',
@@ -148,7 +152,7 @@ export function AppHeader({
                 className="inline-flex items-center gap-2 rounded-md border px-2 py-1 text-xs font-medium hover:bg-muted transition-colors"
                 data-cy="tenant-switcher"
                 data-testid="tenant-switcher"
-                aria-label="Tenant switcher"
+                aria-label="Workspace switcher"
               >
                 <Building2 className="h-4 w-4 text-muted-foreground" />
                 <span className="truncate max-w-[140px]">{tenantLabel}</span>
@@ -156,12 +160,12 @@ export function AppHeader({
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-64">
               <DropdownMenuLabel className="flex items-center justify-between">
-                <span>Tenant</span>
+                <span>Workspace</span>
                 {isSwitching && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
               {tenants.map(t => (
-                <DropdownMenuItem
+              <DropdownMenuItem
                   key={t.id}
                   onSelect={async () => {
                     if (t.id === selectedTenant || isSwitching) return;
@@ -177,13 +181,13 @@ export function AppHeader({
                   data-tenant-id={t.id}
                   data-testid={`tenant-option-${t.id}`}
                 >
-                  <span className="truncate">{t.name}</span>
+                  <span className="truncate">{workspaceNames?.[t.id] ?? t.id}</span>
                   {t.id === selectedTenant && <Check className="h-3 w-3 text-primary" />}
                 </DropdownMenuItem>
               ))}
               {tenants.length === 0 && (
                 <DropdownMenuItem disabled>
-                  No tenant access
+                  No workspace access
                 </DropdownMenuItem>
               )}
             </DropdownMenuContent>

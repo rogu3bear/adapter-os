@@ -875,7 +875,7 @@ export function Telemetry({ user: userProp, selectedTenant: tenantProp }: Teleme
                   </GlossaryTooltip>
                 </TableHead>
                 <TableHead role="columnheader" scope="col">Time Window</TableHead>
-                <TableHead role="columnheader" scope="col">Tenant</TableHead>
+                <TableHead role="columnheader" scope="col">Workspace</TableHead>
                 <TableHead role="columnheader" scope="col">Size</TableHead>
                 <TableHead role="columnheader" scope="col">
                   <GlossaryTooltip termId="merkle-root">

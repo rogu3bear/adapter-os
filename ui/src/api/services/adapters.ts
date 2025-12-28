@@ -72,6 +72,24 @@ export class AdaptersService {
   }
 
   /**
+   * Activate an adapter for a workspace
+   *
+   * POST /v1/adapters/:adapterId/activate
+   *
+   * @param adapterId - The adapter ID
+   * @param workspace_id - Optional workspace scope
+   */
+  async activateAdapter(
+    adapterId: string,
+    payload?: { workspace_id?: string }
+  ): Promise<unknown> {
+    return this.client.request<unknown>(`/v1/adapters/${encodeURIComponent(adapterId)}/activate`, {
+      method: 'POST',
+      body: JSON.stringify({ workspace_id: payload?.workspace_id }),
+    });
+  }
+
+  /**
    * Update adapter strength
    *
    * PATCH /v1/adapters/:adapterId/strength

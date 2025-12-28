@@ -115,7 +115,7 @@ export function Operations({ user, selectedTenant }: OperationsProps) {
         </div>
         <div className="flex items-center gap-2">
           <Badge variant="outline" className="text-sm">
-            Tenant: {selectedTenant}
+            Workspace: {selectedTenant}
           </Badge>
           <Badge variant="secondary" className="text-sm">
             {user.role}

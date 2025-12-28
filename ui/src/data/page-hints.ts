@@ -44,7 +44,7 @@ export const pageHints: Record<string, ProgressiveHint[]> = {
     {
       id: 'create-policy',
       title: 'Create Policy Pack',
-      content: 'Click "New Policy" to create a custom policy pack. Configure rules for your tenant\'s specific security and compliance requirements.',
+      content: 'Click "New Policy" to create a custom policy pack. Configure rules for your workspace\'s specific security and compliance requirements.',
       trigger: 'custom',
       placement: 'top'
     }
@@ -86,4 +86,3 @@ export const pageHints: Record<string, ProgressiveHint[]> = {
 export function getPageHints(pageKey: string): ProgressiveHint[] {
   return pageHints[pageKey] ?? [];
 }
-

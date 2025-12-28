@@ -310,20 +310,20 @@ const PermissionsTab = ({ tenant }: { tenant: Tenant }) => (
   <TabsContent value="permissions" className="space-y-4">
     <PillsCard
       title="Assigned Policies"
-      description="Policies applied to this organization"
+      description="Policies applied to this workspace"
       values={tenant.policies}
       icon={<Shield className="h-5 w-5" />}
       variant="secondary"
     />
     <PillsCard
       title="Assigned Adapters"
-      description="Adapters accessible to this organization"
+      description="Adapters accessible to this workspace"
       values={tenant.adapters}
       icon={<Layers className="h-5 w-5" />}
     />
     <PillsCard
       title="Users"
-      description="Users with access to this organization"
+      description="Users with access to this workspace"
       values={tenant.users}
       icon={<Users className="h-5 w-5" />}
     />
@@ -337,9 +337,9 @@ export function TenantDetailPage({ tenant, open, onClose }: TenantDetailPageProp
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Organization Details: {tenant.name}</DialogTitle>
+          <DialogTitle>Workspace Details: {tenant.name}</DialogTitle>
           <DialogDescription>
-            Organization ID: <span className="font-mono">{tenant.id}</span>
+            Workspace ID: <span className="font-mono">{tenant.id}</span>
           </DialogDescription>
         </DialogHeader>
 
@@ -388,7 +388,7 @@ export default function TenantDetailRoutePage() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
-        <LoadingState message="Loading organization details..." />
+        <LoadingState message="Loading workspace details..." />
       </div>
     );
   }
@@ -414,14 +414,14 @@ export default function TenantDetailRoutePage() {
       <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
         <Card className="max-w-md">
           <CardHeader>
-            <CardTitle>Organization Not Found</CardTitle>
+            <CardTitle>Workspace Not Found</CardTitle>
             <CardDescription>
-              The organization with ID <span className="font-mono">{tenantId}</span> could not be found.
+              The workspace with ID <span className="font-mono">{tenantId}</span> could not be found.
             </CardDescription>
           </CardHeader>
           <CardContent>
             <Button onClick={handleClose} variant="outline">
-              Back to Organizations
+              Back to Workspaces
             </Button>
           </CardContent>
         </Card>

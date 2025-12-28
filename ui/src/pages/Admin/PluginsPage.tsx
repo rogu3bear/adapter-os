@@ -59,9 +59,22 @@ import {
   Save,
 } from 'lucide-react';
 
+const ComingSoonNotice = () => (
+  <Alert variant="default" className="mb-4">
+    <AlertTitle className="flex items-center gap-2">
+      <Badge variant="outline">Coming soon</Badge>
+      Plugin management preview
+    </AlertTitle>
+    <AlertDescription>
+      Plugins are not part of the primary navigation yet. This page remains reachable by deep link while the surface ships.
+    </AlertDescription>
+  </Alert>
+);
+
 const PermissionDeniedView = () => (
   <DensityProvider pageKey="plugins">
     <FeatureLayout title="Plugin Management" description="Manage system plugins">
+      <ComingSoonNotice />
       <PermissionDenied
         requiredPermission="tenant:manage"
         requiredRoles={['admin', 'developer']}
@@ -73,6 +86,7 @@ const PermissionDeniedView = () => (
 const LoadingView = () => (
   <DensityProvider pageKey="plugins">
     <FeatureLayout title="Plugin Management" description="Enable, disable, and configure system plugins">
+      <ComingSoonNotice />
       <LoadingState message="Loading plugins..." />
     </FeatureLayout>
   </DensityProvider>
@@ -81,6 +95,7 @@ const LoadingView = () => (
 const ErrorView = ({ message, onRetry }: { message: string; onRetry: () => void }) => (
   <DensityProvider pageKey="plugins">
     <FeatureLayout title="Plugin Management" description="Enable, disable, and configure system plugins">
+      <ComingSoonNotice />
       <ErrorRecovery error={message} onRetry={onRetry} />
     </FeatureLayout>
   </DensityProvider>
@@ -249,7 +264,7 @@ const PluginsTableCard = ({
               <TableHead>Version</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Author</TableHead>
-              <TableHead>Organizations</TableHead>
+              <TableHead>Workspaces</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
@@ -461,6 +476,7 @@ export function PluginsPage() {
           title="Plugin Management"
           description="Manage system plugins"
         >
+          <ComingSoonNotice />
           <Alert variant="destructive">
             <AlertCircle className="h-4 w-4" />
             <AlertTitle>Permission Denied</AlertTitle>
@@ -662,6 +678,7 @@ export function PluginsPage() {
           title="Plugin Management"
           description="Enable, disable, and configure system plugins"
         >
+          <ComingSoonNotice />
           <LoadingState message="Loading plugins..." />
         </FeatureLayout>
       </DensityProvider>
@@ -689,6 +706,7 @@ export function PluginsPage() {
           },
         ]}
       >
+        <ComingSoonNotice />
         <StatsGrid
           total={pluginsResponse?.total || 0}
           enabled={pluginsResponse?.enabled_count || 0}

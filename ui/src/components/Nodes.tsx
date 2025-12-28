@@ -831,7 +831,7 @@ export function Nodes({ user, selectedTenant }: NodesProps) {
                                 <div className="status-indicator status-neutral">{worker.status}</div>
                               </div>
                               <p className="text-muted-foreground text-xs">
-                                Tenant: {worker.tenant_id} | Plan: {worker.plan_id}
+                                Workspace: {worker.tenant_id} | Plan: {worker.plan_id}
                               </p>
                             </div>
                           ))}

@@ -113,10 +113,10 @@ export function AdapterFilters({
             }
           >
             <SelectTrigger className="w-[160px]">
-              <SelectValue placeholder="All Tenants" />
+              <SelectValue placeholder="All Workspaces" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All Tenants</SelectItem>
+              <SelectItem value="all">All Workspaces</SelectItem>
               {tenants.map(tenant => (
                 <SelectItem key={tenant} value={tenant}>
                   {tenant}
@@ -270,7 +270,7 @@ export function AdapterFilters({
 
           {filters.tenant && (
             <Badge variant="secondary" className="gap-1">
-              Tenant: {filters.tenant}
+              Workspace: {filters.tenant}
               <button
                 onClick={() => updateFilter('tenant', undefined)}
                 className="ml-1 hover:text-destructive"

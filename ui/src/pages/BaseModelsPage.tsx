@@ -1,9 +1,9 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useCallback } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Database, Info, Loader2, Play, Square } from 'lucide-react';
 import { toast } from 'sonner';
 
-import { apiClient } from '@/api/services';
+import { models as modelsService } from '@/api/services';
 import { useTenant } from '@/providers/FeatureProviders';
 import PageWrapper from '@/layout/PageWrapper';
 import { ErrorRecovery } from '@/components/ui/error-recovery';
@@ -15,7 +15,8 @@ import { Button } from '@/components/ui/button';
 import { formatBytes } from '@/lib/formatters';
 import PageTable from '@/components/ui/PageTable';
 
-import type { BaseModelStatus, ModelWithStatsResponse } from '@/api/types';
+import { MODEL_STATUS_EVENT, type ModelStatusEventDetail } from '@/hooks/model-loading';
+import type { BaseModelStatus, ModelLoadStatus, ModelStatusResponse, ModelWithStatsResponse } from '@/api/types';
 
 type BaseModelRowItem = { model: ModelWithStatsResponse; status?: BaseModelStatus };
 
@@ -208,7 +209,7 @@ function BaseModelsTable({
             <th className="px-3 py-2">Quantization</th>
             <th className="px-3 py-2">Size</th>
             <th className="px-3 py-2">Frozen</th>
-            <th className="px-3 py-2">Tenant</th>
+            <th className="px-3 py-2">Workspace</th>
             <th className="px-3 py-2">Status</th>
             <th className="px-3 py-2">Memory</th>
             <th className="px-3 py-2">Actions</th>
@@ -257,7 +258,7 @@ function BaseModelsCard({
           <Database className="h-5 w-5 text-primary" />
           <CardTitle>Base Models</CardTitle>
         </div>
-        {selectedTenant && <Badge variant="outline">Tenant: {selectedTenant}</Badge>}
+        {selectedTenant && <Badge variant="outline">Workspace: {selectedTenant}</Badge>}
       </CardHeader>
       <CardContent>
         {isLoading && !hasRows && <SkeletonRows />}
@@ -282,6 +283,19 @@ export default function BaseModelsPage() {
   const { selectedTenant } = useTenant();
   const [activeModelId, setActiveModelId] = useState<string | null>(null);
   const [activeAction, setActiveAction] = useState<'load' | 'unload' | null>(null);
+  const notifyKernelStatus = useCallback(
+    (detail: Partial<ModelStatusEventDetail>) => {
+      window.dispatchEvent(
+        new CustomEvent(MODEL_STATUS_EVENT, {
+          detail: {
+            tenantId: selectedTenant || 'default',
+            ...detail,
+          },
+        })
+      );
+    },
+    [selectedTenant],
+  );
 
   const {
     data: models = [],
@@ -290,7 +304,7 @@ export default function BaseModelsPage() {
     refetch,
   } = useQuery<Array<ModelWithStatsResponse & { status?: BaseModelStatus }>>({
     queryKey: ['base-models', selectedTenant],
-    queryFn: () => apiClient.listModelsWithStatus(selectedTenant || undefined),
+    queryFn: () => modelsService.listModelsWithStatus(selectedTenant || undefined),
   });
 
   const rows = useMemo(
@@ -302,14 +316,24 @@ export default function BaseModelsPage() {
     [models],
   );
 
-  const loadMutation = useMutation({
-    mutationFn: (modelId: string) => apiClient.loadBaseModel(modelId),
+  const loadMutation = useMutation<ModelStatusResponse, unknown, string>({
+    mutationFn: (modelId: string) => modelsService.loadBaseModel(modelId),
     onMutate: (modelId) => {
       setActiveModelId(modelId);
       setActiveAction('load');
+      const modelMeta = models.find((m) => m.id === modelId);
+      notifyKernelStatus({ status: 'loading' as ModelLoadStatus, modelId, modelName: modelMeta?.name ?? null });
     },
-    onSuccess: (_, modelId) => {
+    onSuccess: (response, modelId) => {
       toast.success(`Loading model "${modelId}"...`);
+      notifyKernelStatus({
+        status: (response?.status ?? 'loading') as ModelLoadStatus,
+        modelId: response?.model_id ?? modelId,
+        modelName: response?.model_name ?? models.find((m) => m.id === modelId)?.name ?? null,
+        modelPath: response?.model_path ?? null,
+        memoryUsageMb: response?.memory_usage_mb ?? null,
+        errorMessage: response?.error_message ?? null,
+      });
       void refetch();
     },
     onError: (err, modelId) => {
@@ -323,13 +347,22 @@ export default function BaseModelsPage() {
   });
 
   const unloadMutation = useMutation({
-    mutationFn: (modelId: string) => apiClient.unloadBaseModel(modelId),
+    mutationFn: (modelId: string) => modelsService.unloadBaseModel(modelId),
     onMutate: (modelId) => {
       setActiveModelId(modelId);
       setActiveAction('unload');
+      const modelMeta = models.find((m) => m.id === modelId);
+      notifyKernelStatus({ status: 'unloading' as ModelLoadStatus, modelId, modelName: modelMeta?.name ?? null });
     },
     onSuccess: (_, modelId) => {
       toast.success(`Unloaded model "${modelId}"`);
+      notifyKernelStatus({
+        status: 'no-model' as ModelLoadStatus,
+        modelId: null,
+        modelName: null,
+        memoryUsageMb: null,
+        modelPath: null,
+      });
       void refetch();
     },
     onError: (err, modelId) => {

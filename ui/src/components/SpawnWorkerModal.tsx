@@ -119,7 +119,7 @@ export function SpawnWorkerModal({
     setModalError(null);
 
     if (!selectedNode || !selectedPlan || !tenantId) {
-      setValidationMessage('Please select node, plan, and tenant.');
+      setValidationMessage('Please select node, plan, and workspace.');
       return;
     }
 
@@ -180,7 +180,7 @@ export function SpawnWorkerModal({
           )}
 
           <div className="space-y-2">
-            <Label htmlFor="tenant">Organization ID</Label>
+            <Label htmlFor="tenant">Workspace ID</Label>
             <div className="p-2 bg-muted rounded border text-sm font-mono">
               {tenantId}
             </div>
@@ -243,7 +243,5 @@ export function SpawnWorkerModal({
     </FormModal>
   );
 }
-
-
 
 

@@ -44,7 +44,7 @@ const mlEngineerStage2: Stage = {
   content: {
     whatAppears: 'Adapters page showing lifecycle states (Unloaded, Cold, Warm, Hot, Resident), memory usage, and activation percentages',
     why: 'Register trained adapters in the system and manage their lifecycle',
-    context: 'After training completes, adapters must be registered with a semantic name (tenant/domain/purpose/revision)',
+    context: 'After training completes, adapters must be registered with a semantic name (workspace/domain/purpose/revision)',
     route: '/adapters',
     mentalModelExplanation: 'This page shows **Adapters** (entity #2) and their **Lifecycle** states. You can see which adapters are loaded in memory, their activation %, and pin critical adapters to prevent eviction.'
   }
@@ -59,7 +59,7 @@ const mlEngineerStage3: Stage = {
     why: 'Combine multiple adapters into reusable execution sets with workflow rules',
     context: 'After adapters are registered, combine them into stacks for specific use cases',
     route: '/stacks',
-    mentalModelExplanation: 'This page creates **Stacks** (entity #3). A stack is a tenant-scoped set of adapters + workflow rules. For example, [syntax-analyzer, style-checker] in Sequential mode.'
+    mentalModelExplanation: 'This page creates **Stacks** (entity #3). A stack is a workspace-scoped set of adapters + workflow rules. For example, [syntax-analyzer, style-checker] in Sequential mode.'
   }
 };
 
@@ -85,7 +85,7 @@ const devOpsStage1: Stage = {
     why: 'Configure system-wide settings and deployment profiles (dev/staging/prod)',
     context: 'Infrastructure provisioning and configuration',
     route: '/settings',
-    mentalModelExplanation: 'Settings control system-wide behavior like production mode (zero egress), policy enforcement, and **Tenant** resource limits.'
+    mentalModelExplanation: 'Settings control system-wide behavior like production mode (zero egress), policy enforcement, and **Workspace** resource limits.'
   }
 };
 
@@ -94,7 +94,7 @@ const devOpsStage2: Stage = {
   title: 'Resource Management Dashboard',
   content: {
     whatAppears: 'Dashboard showing UMA memory stats, adapter memory usage, eviction metrics, and lifecycle tier distribution',
-    why: 'Monitor memory pressure, adapter evictions, and resource utilization across tenants',
+    why: 'Monitor memory pressure, adapter evictions, and resource utilization across workspaces',
     context: 'Ongoing operations and memory management',
     route: '/dashboard',
     mentalModelExplanation: 'The dashboard shows **Lifecycle** tier distribution (Unloaded → Hot), memory pressure levels, and which adapters are consuming resources. Memory management automatically evicts Cold adapters when pressure exceeds 85%.'
@@ -109,7 +109,7 @@ const devOpsStage3: Stage = {
     why: 'Deploy new adapter versions safely with semantic naming and version control',
     context: 'Release management and continuous deployment',
     route: '/adapters',
-    mentalModelExplanation: 'Deploying new **Adapters** follows semantic naming (tenant/domain/purpose/revision). Adapters start in Unloaded state and are promoted through lifecycle tiers based on activation %.'
+    mentalModelExplanation: 'Deploying new **Adapters** follows semantic naming (workspace/domain/purpose/revision). Adapters start in Unloaded state and are promoted through lifecycle tiers based on activation %.'
   }
 };
 
@@ -134,7 +134,7 @@ const appDevStage1: Stage = {
     why: 'Learn how to integrate AdapterOS into your application via REST API',
     context: 'Initial integration planning and API exploration',
     route: '/dashboard',
-    mentalModelExplanation: 'The API exposes all core entities: create **Tenants**, register **Adapters**, build **Stacks**, run inference, and query **Telemetry**.'
+    mentalModelExplanation: 'The API exposes all core entities: create **Workspaces**, register **Adapters**, build **Stacks**, run inference, and query **Telemetry**.'
   }
 };
 
@@ -146,7 +146,7 @@ const appDevStage2: Stage = {
     why: 'Get started with API integration using your preferred language',
     context: 'Development environment setup and first API call',
     route: '/dashboard',
-    mentalModelExplanation: 'Client SDKs wrap the REST API to create **Tenants**, manage **Adapters**, and run inference requests. The API uses JWT auth with role-based permissions.'
+    mentalModelExplanation: 'Client SDKs wrap the REST API to create **Workspaces**, manage **Adapters**, and run inference requests. The API uses JWT auth with role-based permissions.'
   }
 };
 
@@ -180,10 +180,10 @@ const securityStage1: Stage = {
   title: 'Policy Configuration',
   content: {
     whatAppears: 'Policies page showing 23 canonical policy packs (Egress, Determinism, Router, Evidence, etc.) with enforcement status',
-    why: 'Define and enforce security policies across tenants, adapters, and execution',
+    why: 'Define and enforce security policies across workspaces, adapters, and execution',
     context: 'Policy packs enforce rules at all layers of the mental model',
     route: '/security/policies',
-    mentalModelExplanation: 'Policies enforce rules across all entities: **Tenants** (isolation), **Stacks** (composition), **Router** (selection), **Kernel** (execution). Example: Egress Policy ensures zero network egress in production.'
+    mentalModelExplanation: 'Policies enforce rules across all entities: **Workspaces** (isolation), **Stacks** (composition), **Router** (selection), **Kernel** (execution). Example: Egress Policy ensures zero network egress in production.'
   }
 };
 
@@ -203,8 +203,8 @@ const securityStage3: Stage = {
   id: 'isolation-testing',
   title: 'Isolation Testing Interface',
   content: {
-    whatAppears: 'Tenant sandbox controls and isolation verification tools',
-    why: 'Test and validate tenant separation mechanisms',
+    whatAppears: 'Workspace sandbox controls and isolation verification tools',
+    why: 'Test and validate workspace separation mechanisms',
     context: 'Security validation',
     mockComponent: 'SecurityIsolationTester'
   }
@@ -267,7 +267,7 @@ const dataScientistStage4: Stage = {
     why: 'Share research findings, fork adapters, and collaborate on model improvements',
     context: 'Team collaboration and knowledge sharing',
     route: '/adapters',
-    mentalModelExplanation: '**Adapters** use semantic naming (tenant/domain/purpose/revision). Teams can fork adapters (create variants), track lineage (parent_id), and share across **Tenants** with ACLs.'
+    mentalModelExplanation: '**Adapters** use semantic naming (workspace/domain/purpose/revision). Teams can fork adapters (create variants), track lineage (parent_id), and share across **Workspaces** with ACLs.'
   }
 };
 
@@ -276,11 +276,11 @@ const productManagerStage1: Stage = {
   id: 'feature-analytics',
   title: 'Feature Usage Analytics',
   content: {
-    whatAppears: 'Monitoring page with usage metrics: which adapters are active, request volume, activation %, and tenant distribution',
-    why: 'Understand which adapters are used most, by which tenants, and how often',
+    whatAppears: 'Monitoring page with usage metrics: which adapters are active, request volume, activation %, and workspace distribution',
+    why: 'Understand which adapters are used most, by which workspaces, and how often',
     context: 'Product analytics and feature adoption tracking',
     route: '/monitoring',
-    mentalModelExplanation: '**Telemetry** tracks every inference request, router decision, and adapter activation. Aggregate metrics show which **Adapters** are valuable and which **Tenants** are active users.'
+    mentalModelExplanation: '**Telemetry** tracks every inference request, router decision, and adapter activation. Aggregate metrics show which **Adapters** are valuable and which **Workspaces** are active users.'
   }
 };
 
@@ -300,11 +300,11 @@ const productManagerStage3: Stage = {
   id: 'config-management',
   title: 'Configuration Management Portal',
   content: {
-    whatAppears: 'Tenants page where you can create tenants, configure resource limits, and assign policies',
-    why: 'Define service tiers (free, pro, enterprise) by configuring tenant resource limits and policies',
-    context: 'Product tier management and tenant provisioning',
+    whatAppears: 'Workspaces page where you can create workspaces, configure resource limits, and assign policies',
+    why: 'Define service tiers (free, pro, enterprise) by configuring workspace resource limits and policies',
+    context: 'Product tier management and workspace provisioning',
     route: '/admin/tenants',
-    mentalModelExplanation: '**Tenants** are the isolation boundary. Configure memory limits, adapter quotas, and policy packs per tenant to create service tiers (e.g., free tier = 1GB, 5 adapters; pro tier = 10GB, unlimited adapters).'
+    mentalModelExplanation: '**Workspaces** are the isolation boundary. Configure memory limits, adapter quotas, and policy packs per workspace to create service tiers (e.g., free tier = 1GB, 5 adapters; pro tier = 10GB, unlimited adapters).'
   }
 };
 

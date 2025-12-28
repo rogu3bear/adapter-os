@@ -29,6 +29,14 @@ export class FederationService {
   }
 
   /**
+   * Get federation synchronization status and peer summaries
+   * GET /v1/federation/sync-status
+   */
+  async getSyncStatus(): Promise<federationTypes.FederationSyncStatusResponse> {
+    return this.client.request<federationTypes.FederationSyncStatusResponse>('/v1/federation/sync-status');
+  }
+
+  /**
    * Release a node from quarantine
    * POST /v1/federation/release-quarantine
    *
@@ -36,7 +44,7 @@ export class FederationService {
    * @returns Release quarantine response with success status
    */
   async releaseQuarantine(
-    request: federationTypes.ReleaseQuarantineRequest
+    request: federationTypes.ReleaseQuarantineRequest = {}
   ): Promise<federationTypes.ReleaseQuarantineResponse> {
     return this.client.request<federationTypes.ReleaseQuarantineResponse>(
       '/v1/federation/release-quarantine',

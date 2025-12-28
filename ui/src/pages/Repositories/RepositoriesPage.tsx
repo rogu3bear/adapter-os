@@ -294,7 +294,7 @@ export default function RepositoriesPage() {
               </Select>
               <Select value={tenantFilter} onValueChange={setTenantFilter}>
                 <SelectTrigger className="w-[160px]">
-                  <SelectValue placeholder="Tenant" />
+                  <SelectValue placeholder="Workspace" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All tenants</SelectItem>

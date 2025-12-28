@@ -348,12 +348,12 @@ export const Dashboard = memo(function Dashboard({ user, selectedTenant, onNavig
     (stacksError as Error | undefined) ||
     (defaultStackError as Error | undefined);
   const headerDescription = defaultStackLoading
-    ? `Tenant ${effectiveTenant} • Resolving default stack...`
+    ? `Workspace ${effectiveTenant} • Resolving default stack...`
     : defaultStackError
-      ? `Tenant ${effectiveTenant} • Default stack unavailable • System status: Operational`
+      ? `Workspace ${effectiveTenant} • Default stack unavailable • System status: Operational`
       : defaultStack
-        ? `Tenant ${effectiveTenant} • Default stack ${defaultStack.name} • System status: Operational`
-        : `Tenant ${effectiveTenant} • No default stack configured • System status: Operational`;
+        ? `Workspace ${effectiveTenant} • Default stack ${defaultStack.name} • System status: Operational`
+        : `Workspace ${effectiveTenant} • No default stack configured • System status: Operational`;
   const deployModalOpen = dialogs.isOpen('deployAdapter');
 
   // Fetch dashboard data
@@ -389,7 +389,7 @@ export const Dashboard = memo(function Dashboard({ user, selectedTenant, onNavig
 
   const handleCreateTenant = async () => {
     if (!newTenantName.trim()) {
-      setCreateTenantError('Organization name is required');
+      setCreateTenantError('Workspace name is required');
       return;
     }
 
@@ -401,14 +401,14 @@ export const Dashboard = memo(function Dashboard({ user, selectedTenant, onNavig
         gid: 1000, // Default GID - should be configurable in production
         isolation_level: newTenantIsolation,
       });
-      toast.success(`Tenant "${newTenantName}" created successfully`);
+      toast.success(`Workspace "${newTenantName}" created successfully`);
       dialogs.closeDialog('createTenant');
       setNewTenantName('');
       setNewTenantIsolation('standard');
       setCreateTenantError(null);
       await fetchData();
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Failed to create tenant';
+      const errorMsg = err instanceof Error ? err.message : 'Failed to create workspace';
       setCreateTenantError(errorMsg);
       toast.error(errorMsg);
     }
@@ -423,7 +423,7 @@ export const Dashboard = memo(function Dashboard({ user, selectedTenant, onNavig
     try {
       // For now, we'll just show a success message
       // In a full implementation, this would call an adapter deployment endpoint
-      toast.success(`Adapter deployed to tenant "${deployTargetTenant}"`);
+      toast.success(`Adapter deployed to workspace "${deployTargetTenant}"`);
       dialogs.closeDialog('deployAdapter');
       setSelectedAdapter('');
       setDeployAdapterError(null);
@@ -511,12 +511,12 @@ export const Dashboard = memo(function Dashboard({ user, selectedTenant, onNavig
       onClick: () => dialogs.openDialog('health')
     },
     {
-      label: 'Create Tenant',
+      label: 'Create Workspace',
       icon: Users,
       color: 'text-blue-600',
       helpId: 'quick-action-create-tenant',
       disabled: !can('tenant:manage'),
-      disabledTitle: 'Requires tenant:manage permission',
+      disabledTitle: 'Requires workspace management permission',
       onClick: () => dialogs.openDialog('createTenant')
     },
     {
@@ -557,7 +557,7 @@ export const Dashboard = memo(function Dashboard({ user, selectedTenant, onNavig
         title="Dashboard"
         description={headerDescription}
         badges={[
-          { label: `Tenant: ${effectiveTenant}`, variant: 'outline' },
+          { label: `Workspace: ${effectiveTenant}`, variant: 'outline' },
           { label: defaultStackLabel, variant: 'secondary' },
           { label: effectiveUser.role, variant: 'secondary' }
         ]}
@@ -631,7 +631,7 @@ export const Dashboard = memo(function Dashboard({ user, selectedTenant, onNavig
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <Badge variant="outline">Organization: {effectiveTenant}</Badge>
+                <Badge variant="outline">Workspace: {effectiveTenant}</Badge>
                 <Badge variant="secondary">{defaultStackLabel}</Badge>
               </div>
             </div>
@@ -807,7 +807,7 @@ export const Dashboard = memo(function Dashboard({ user, selectedTenant, onNavig
                           {stackTotal === 0
                             ? 'No adapters or stacks yet. Complete a training job to register an adapter and auto-create a stack.'
                             : defaultStack
-                              ? `Default stack for this tenant: ${defaultStack.name}`
+                              ? `Default stack for this workspace: ${defaultStack.name}`
                               : 'No default stack configured. Training will auto-create one; you can also set it under Stacks.'}
                         </p>
                         <div className="flex flex-wrap gap-2">
@@ -903,7 +903,7 @@ export const Dashboard = memo(function Dashboard({ user, selectedTenant, onNavig
             <Card className="card-standard">
               <CardHeader className="flex-between pb-2">
                 <GlossaryTooltip termId="active-tenants">
-                  <CardTitle className="text-sm font-medium cursor-help">Active Tenants</CardTitle>
+                  <CardTitle className="text-sm font-medium cursor-help">Active Workspaces</CardTitle>
                 </GlossaryTooltip>
                 <Users className="icon-standard text-muted-foreground" />
               </CardHeader>
@@ -912,7 +912,7 @@ export const Dashboard = memo(function Dashboard({ user, selectedTenant, onNavig
                   {loading ? <Skeleton className="h-6 w-16" /> : tenantCount}
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  {loading ? 'Loading tenants...' : 'All tenants operational'}
+                  {loading ? 'Loading workspaces...' : 'All workspaces operational'}
                 </p>
               </CardContent>
             </Card>
@@ -1154,7 +1154,7 @@ export const Dashboard = memo(function Dashboard({ user, selectedTenant, onNavig
             </DialogContent>
           </Dialog>
 
-          {/* Create Tenant Modal */}
+          {/* Create Workspace Modal */}
           <Dialog open={dialogs.isOpen('createTenant')} onOpenChange={(open) => {
             if (!open) {
               dialogs.closeDialog('createTenant');
@@ -1163,7 +1163,7 @@ export const Dashboard = memo(function Dashboard({ user, selectedTenant, onNavig
           }}>
             <DialogContent>
               <DialogHeader>
-                <DialogTitle>Create New Tenant</DialogTitle>
+                <DialogTitle>Create New Workspace</DialogTitle>
               </DialogHeader>
               {createTenantError && errorRecoveryTemplates.genericError(createTenantError, () => {
                 setCreateTenantError(null);
@@ -1171,11 +1171,11 @@ export const Dashboard = memo(function Dashboard({ user, selectedTenant, onNavig
               <div className="space-y-4">
                 <div className="space-y-2">
                   <GlossaryTooltip termId="tenant-name-field">
-                    <Label htmlFor="tenant-name" className="cursor-help">Organization Name</Label>
+                    <Label htmlFor="tenant-name" className="cursor-help">Workspace Name</Label>
                   </GlossaryTooltip>
                   <Input
                     id="tenant-name"
-                    placeholder="Enter organization name"
+                    placeholder="Enter workspace name"
                     value={newTenantName}
                     onChange={(e) => setNewTenantName(e.target.value)}
                   />
@@ -1201,7 +1201,7 @@ export const Dashboard = memo(function Dashboard({ user, selectedTenant, onNavig
                   dialogs.closeDialog('createTenant');
                   setCreateTenantError(null);
                 }}>Cancel</Button>
-                <Button onClick={handleCreateTenant}>Create Tenant</Button>
+                <Button onClick={handleCreateTenant}>Create Workspace</Button>
               </DialogFooter>
             </DialogContent>
           </Dialog>
@@ -1240,7 +1240,7 @@ export const Dashboard = memo(function Dashboard({ user, selectedTenant, onNavig
                 </div>
                 <div className="space-y-2">
                   <GlossaryTooltip termId="target-tenant-field">
-                    <Label htmlFor="target-tenant" className="cursor-help">Target Tenant</Label>
+                    <Label htmlFor="target-tenant" className="cursor-help">Target Workspace</Label>
                   </GlossaryTooltip>
                   <Input
                     id="target-tenant"

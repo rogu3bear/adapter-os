@@ -33,6 +33,9 @@ export interface ConnectionStatusIndicatorProps {
 
   /** Show detailed dropdown on click */
   showDetails?: boolean;
+
+  /** Open the system status drawer */
+  onOpenStatusDrawer?: () => void;
 }
 
 // ============================================================================
@@ -128,6 +131,7 @@ const MODEL_STATUS_CONFIG: Record<
 export function ConnectionStatusIndicator({
   className,
   showDetails = true,
+  onOpenStatusDrawer,
 }: ConnectionStatusIndicatorProps) {
   const { selectedTenant } = useTenant();
   const { overall, streams, connectedCount, totalStreams, reconnectAll } = useLiveDataStatus();
@@ -155,6 +159,39 @@ export function ConnectionStatusIndicator({
   const config = prioritizeModelVisual ? modelConfig : connectionConfig;
   const Icon = prioritizeModelVisual ? modelConfig.icon : connectionConfig.icon;
   const statusLabel = `${connectionConfig.label} | Model: ${modelConfig.label}`;
+
+  if (onOpenStatusDrawer) {
+    return (
+      <Badge
+        variant="outline"
+        asChild
+        className={cn(
+          'gap-1.5 text-xs font-normal cursor-pointer select-none px-2.5 py-1.5',
+          config.badgeClass,
+          className
+        )}
+      >
+        <button
+          type="button"
+          onClick={onOpenStatusDrawer}
+          aria-label="Open system status drawer"
+          className="inline-flex items-center gap-1.5"
+          data-testid="system-status-trigger"
+        >
+          <span className={cn('h-1.5 w-1.5 rounded-full', config.dotClass)} />
+          <Icon className={cn('h-3 w-3', modelStatus === 'loading' && 'animate-spin')} />
+          <span className="truncate">{statusLabel}</span>
+          <span className="text-[10px] uppercase text-muted-foreground">Details</span>
+          {hasBackgroundErrors && (
+            <span className="ml-0.5 flex items-center gap-0.5 text-amber-600">
+              <AlertCircle className="h-3 w-3" />
+              <span className="text-[10px]">{backgroundErrorCount}</span>
+            </span>
+          )}
+        </button>
+      </Badge>
+    );
+  }
 
   // Simple badge without dropdown
   if (!showDetails || (totalStreams === 0 && !prioritizeModelVisual && !hasBackgroundErrors)) {

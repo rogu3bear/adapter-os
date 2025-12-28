@@ -86,11 +86,11 @@ export const AUTH_ERROR_MESSAGES: Record<AuthErrorCode, string> = {
     'Multi-factor authentication required. Enter your TOTP code.',
   [AUTH_ERROR_CODES.SESSION_EXPIRED]: 'Session expired. Please log in again.',
   [AUTH_ERROR_CODES.TENANT_ACCESS_DENIED]:
-    'You have no role in this tenant. Request access from an admin.',
+    'You have no role in this workspace. Request access from an admin.',
   [AUTH_ERROR_CODES.TENANT_ISOLATION_ERROR]:
-    'You have no role in this tenant. Request access from an admin.',
+    'You have no role in this workspace. Request access from an admin.',
   [AUTH_ERROR_CODES.NO_TENANT_ACCESS]:
-    "You're signed in but have no tenant access. Ask an admin to grant access.",
+    "You're signed in but have no workspace access. Ask an admin to grant access.",
 };
 
 /**

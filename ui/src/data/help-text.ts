@@ -91,8 +91,8 @@ export const helpTextDatabase: HelpTextItem[] = [
   },
   {
     id: 'tenant',
-    title: 'Tenant',
-    content: 'Isolated workspace with dedicated resources, policies, and data boundaries for multi-tenant operation.',
+    title: 'Workspace',
+    content: 'Isolated workspace with dedicated resources, policies, and data boundaries for multi-workspace operation.',
     category: 'technical'
   },
   {

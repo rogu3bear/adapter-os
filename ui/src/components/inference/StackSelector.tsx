@@ -68,7 +68,7 @@ export function StackSelector({
               size="sm"
               onClick={() => onSetDefault(selectedStackId)}
               className="h-6 text-xs"
-              title="Set as default stack for this tenant"
+              title="Set as default stack for this workspace"
             >
               Set Default
             </Button>

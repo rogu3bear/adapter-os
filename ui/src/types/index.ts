@@ -19,6 +19,7 @@
 export * from './chat';
 export * from './session-scope';
 export * from './utilities';
+export * from './workspace';
 
 // Export from history with conflict resolution
 export type {

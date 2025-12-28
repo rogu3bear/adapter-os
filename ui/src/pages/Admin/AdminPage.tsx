@@ -1,10 +1,5 @@
 /**
- * @deprecated DUPLICATE PAGE - Naming conflict with pages/AdminPage.tsx
- * Routes use pages/AdminPage.tsx, not this file.
- * This appears to be an alternative tabbed admin interface.
- *
- * TODO: Rename to AdminTabsPage.tsx or merge with pages/AdminPage.tsx
- * Audit date: 2025-12-19
+ * Canonical admin shell with tabbed experience for organizations, users, capacity, stacks, and policies.
  */
 import { useState } from 'react';
 import { useTenant } from '@/providers/FeatureProviders';
@@ -19,7 +14,8 @@ import { AdapterStacksTab } from './AdapterStacksTab';
 import { UsersTab } from './UsersTab';
 import { CapacityTab } from './CapacityTab';
 import { AdminBanner } from '@/components/AdminBanner';
-import { Users, Layers, UserCog, HardDrive } from 'lucide-react';
+import { Users, Layers, UserCog, HardDrive, Shield } from 'lucide-react';
+import AdminPolicyConsole from './AdminPolicyConsole';
 
 export default function AdminPage() {
   const { selectedTenant } = useTenant();
@@ -56,7 +52,7 @@ export default function AdminPage() {
           <TabsList>
             <TabsTrigger value="tenants" className="flex items-center gap-2">
               <Users className="h-4 w-4" />
-              Organizations
+              Workspaces
             </TabsTrigger>
             <TabsTrigger value="users" className="flex items-center gap-2">
               <UserCog className="h-4 w-4" />
@@ -70,10 +66,14 @@ export default function AdminPage() {
               <HardDrive className="h-4 w-4" />
               Capacity
             </TabsTrigger>
+            <TabsTrigger value="policies" className="flex items-center gap-2">
+              <Shield className="h-4 w-4" />
+              Policies
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="tenants" className="space-y-4">
-            <SectionErrorBoundary sectionName="Organizations">
+            <SectionErrorBoundary sectionName="Workspaces">
               <TenantsTab />
             </SectionErrorBoundary>
           </TabsContent>
@@ -93,6 +93,12 @@ export default function AdminPage() {
           <TabsContent value="capacity" className="space-y-4">
             <SectionErrorBoundary sectionName="Capacity">
               <CapacityTab />
+            </SectionErrorBoundary>
+          </TabsContent>
+
+          <TabsContent value="policies" className="space-y-4">
+            <SectionErrorBoundary sectionName="Policies">
+              <AdminPolicyConsole />
             </SectionErrorBoundary>
           </TabsContent>
         </Tabs>

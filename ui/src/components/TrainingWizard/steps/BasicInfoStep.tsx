@@ -42,7 +42,7 @@ export function BasicInfoStep() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="global">Global - Available to all organizations</SelectItem>
-            <SelectItem value="tenant">Organization - Isolated to this organization</SelectItem>
+            <SelectItem value="tenant">Workspace - Isolated to this workspace</SelectItem>
             <SelectItem value="repo">Repository - Scoped to a specific repository</SelectItem>
             <SelectItem value="commit">Commit - Scoped to a specific commit</SelectItem>
           </SelectContent>

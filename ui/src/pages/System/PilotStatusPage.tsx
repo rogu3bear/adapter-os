@@ -121,7 +121,7 @@ export default function PilotStatusPage() {
         <CardHeader>
           <CardTitle>Checks</CardTitle>
           <CardDescription>
-            Tenant: {data?.tenant_id ?? '—'}{data?.timestamp ? ` · ${new Date(data.timestamp * 1000).toLocaleString()}` : ''}
+            Workspace: {data?.tenant_id ?? '—'}{data?.timestamp ? ` · ${new Date(data.timestamp * 1000).toLocaleString()}` : ''}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -163,4 +163,3 @@ export default function PilotStatusPage() {
     </FeatureLayout>
   );
 }
-

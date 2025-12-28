@@ -273,7 +273,7 @@ evidenceKeys.byAdapter(id)      // ['evidence', 'adapter', id]
 
 ### useSettings
 
-Tenant settings management with optimistic updates.
+Workspace settings management with optimistic updates.
 
 ```typescript
 import { useSettings } from '@/hooks/useSettings';
@@ -284,7 +284,7 @@ function SettingsPage() {
     updateSettings,   // (updates) => Promise<Settings>
     isUpdating,
     updateError,
-  } = useSettings('tenant-id');
+  } = useSettings('workspace-id');
 
   const handleUpdate = async () => {
     await updateSettings({
@@ -360,7 +360,7 @@ const addDocumentMutation = useMutation({
 
 ### useAdmin
 
-Admin operations for tenant, node, and system management.
+Admin operations for workspace, node, and system management.
 
 ```typescript
 import { useAdmin } from '@/hooks/useAdmin';
@@ -379,7 +379,7 @@ function AdminPanel() {
 
   return (
     <div>
-      <h2>Tenants: {tenants.data?.length}</h2>
+      <h2>Workspaces: {tenants.data?.length}</h2>
       <h2>Nodes: {nodes.data?.length}</h2>
     </div>
   );

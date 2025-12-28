@@ -16,11 +16,11 @@ export default function TenantsPage() {
   return (
     <DensityProvider pageKey="tenants">
       <FeatureLayout
-        title="Organizations"
-        description="Manage organization configurations and settings"
-        brief="Configure and manage organization settings and isolation"
+        title="Workspaces"
+        description="Manage workspace configurations and settings"
+        brief="Configure and manage workspace settings and isolation"
       >
-        <SectionErrorBoundary sectionName="Tenants">
+        <SectionErrorBoundary sectionName="Workspaces">
           <Tenants user={user} selectedTenant={selectedTenant} />
         </SectionErrorBoundary>
       </FeatureLayout>

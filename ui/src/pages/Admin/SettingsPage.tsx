@@ -3,7 +3,7 @@
 //! System-wide configuration and settings management.
 //! Provides controls for system behavior, security, and integrations.
 //!
-//! Citation: Settings patterns from ui/src/pages/AdminPage.tsx
+//! Citation: Settings patterns from ui/src/pages/Admin/AdminPage.tsx
 //! - FeatureLayout with sections
 //! - Card-based settings groups
 

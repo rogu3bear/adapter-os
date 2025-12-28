@@ -667,7 +667,7 @@ describe('AdminDashboard', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText('Organization Summary')).toBeTruthy();
+      expect(screen.getByText('Workspace Summary')).toBeTruthy();
     });
   });
 
@@ -720,7 +720,7 @@ describe('AdminDashboard', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText('Create Tenant')).toBeTruthy();
+      expect(screen.getByText('Create Workspace')).toBeTruthy();
       expect(screen.getByText('Manage Users')).toBeTruthy();
       expect(screen.getByText('System Settings')).toBeTruthy();
       expect(screen.getByText('Security Audit')).toBeTruthy();
@@ -924,7 +924,7 @@ describe('ViewerDashboard', () => {
     );
 
     await waitFor(() => {
-      expect(screen.queryByText('Create Tenant')).toBeNull();
+      expect(screen.queryByText('Create Workspace')).toBeNull();
       expect(screen.queryByText('Upload Dataset')).toBeNull();
       expect(screen.queryByText(/Start Training/i)).toBeNull();
     });
@@ -949,7 +949,7 @@ describe('Dashboard Router', () => {
 
     await waitFor(() => {
       expect(screen.getByText('Admin Dashboard')).toBeTruthy();
-      expect(screen.getByText('Organization Summary')).toBeTruthy();
+      expect(screen.getByText('Workspace Summary')).toBeTruthy();
     });
   });
 
@@ -1017,7 +1017,7 @@ describe('Permission-Based Widget Filtering', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText('Organization Summary')).toBeTruthy();
+      expect(screen.getByText('Workspace Summary')).toBeTruthy();
       expect(screen.getByText('User Activity')).toBeTruthy();
       expect(screen.getByText('Security Overview')).toBeTruthy();
       expect(screen.getByText('System Resource Usage')).toBeTruthy();
@@ -1045,7 +1045,7 @@ describe('Permission-Based Widget Filtering', () => {
     });
 
     // Should NOT see admin-only widgets
-    expect(screen.queryByText('Organization Summary')).toBeNull();
+    expect(screen.queryByText('Workspace Summary')).toBeNull();
     expect(screen.queryByText('User Activity')).toBeNull();
   });
 
@@ -1065,7 +1065,7 @@ describe('Permission-Based Widget Filtering', () => {
 
     // Should NOT see operational widgets
     expect(screen.queryByText('Training Progress')).toBeNull();
-    expect(screen.queryByText('Organization Summary')).toBeNull();
+    expect(screen.queryByText('Workspace Summary')).toBeNull();
   });
 });
 
@@ -1086,7 +1086,7 @@ describe('Quick Actions Role Filtering', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText('Create Tenant')).toBeTruthy();
+      expect(screen.getByText('Create Workspace')).toBeTruthy();
       expect(screen.getByText('Manage Users')).toBeTruthy();
       expect(screen.getByText('System Settings')).toBeTruthy();
       expect(screen.getByText('Security Audit')).toBeTruthy();
@@ -1115,7 +1115,7 @@ describe('Quick Actions Role Filtering', () => {
     });
 
     // Should NOT see admin actions
-    expect(screen.queryByText('Create Tenant')).toBeNull();
+    expect(screen.queryByText('Create Workspace')).toBeNull();
     expect(screen.queryByText('Manage Users')).toBeNull();
   });
 
@@ -1134,7 +1134,7 @@ describe('Quick Actions Role Filtering', () => {
 
       // Should NOT see write actions
       expect(screen.queryByText(/Upload Dataset/i)).toBeNull();
-      expect(screen.queryByText(/Create Tenant/i)).toBeNull();
+      expect(screen.queryByText(/Create Workspace/i)).toBeNull();
       expect(screen.queryByText(/Manage Users/i)).toBeNull();
     });
   });

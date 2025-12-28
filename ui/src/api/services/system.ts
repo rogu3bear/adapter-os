@@ -9,6 +9,7 @@ import * as ownerTypes from '@/api/owner-types';
 import * as pilotStatusTypes from '@/api/pilot-status-types';
 import * as systemStateTypes from '@/api/system-state-types';
 import * as documentTypes from '@/api/document-types';
+import * as systemStatusTypes from '@/api/system-status-types';
 
 export class SystemService {
   constructor(private client: ApiClient) {}
@@ -100,6 +101,10 @@ export class SystemService {
     }
     const query = queryParams.toString() ? `?${queryParams.toString()}` : '';
     return this.client.request<systemStateTypes.SystemStateResponse>(`/v1/system/state${query}`);
+  }
+
+  async getSystemStatus(): Promise<systemStatusTypes.SystemStatusResponse> {
+    return this.client.request<systemStatusTypes.SystemStatusResponse>('/v1/system/status');
   }
 
   // Capacity and diagnostics

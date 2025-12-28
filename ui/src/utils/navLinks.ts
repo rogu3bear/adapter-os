@@ -5,6 +5,7 @@
 
 export const ROUTE_PATHS = {
   dashboard: '/dashboard',
+  workspaces: '/workspaces',
   inference: '/inference',
   metrics: '/metrics',
   routing: '/routing',
@@ -66,7 +67,7 @@ export const ROUTE_PATHS = {
   },
   admin: {
     root: '/admin',
-    tenants: '/admin/tenants',
+    tenants: '/workspaces',
     stacks: '/admin/stacks',
     users: '/admin/users',
     settings: '/admin/settings',
@@ -282,8 +283,12 @@ export function buildSecurityAuditLink(): string {
   return ROUTE_PATHS.security.audit;
 }
 
+export function buildWorkspacesLink(options: { action?: string } = {}): string {
+  return `${ROUTE_PATHS.workspaces}${buildQuery({ action: options.action })}`;
+}
+
 export function buildAdminTenantsLink(options: { action?: string } = {}): string {
-  return `${ROUTE_PATHS.admin.tenants}${buildQuery({ action: options.action })}`;
+  return buildWorkspacesLink(options);
 }
 
 export function buildAdminStacksLink(): string {

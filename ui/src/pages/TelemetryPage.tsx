@@ -238,7 +238,7 @@ function TraceTabContent({ traceId, tenantId, trace, loading, error, onTraceIdCh
           </Button>
           {traceId && (
             <div className="text-xs text-muted-foreground">
-              Tenant: <span className="font-mono">{tenantId ?? 'default'}</span>
+              Workspace: <span className="font-mono">{tenantId ?? 'default'}</span>
             </div>
           )}
         </CardContent>

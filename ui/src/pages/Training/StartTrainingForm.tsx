@@ -325,7 +325,7 @@ export function StartTrainingForm({
     if (datasetVersionMissing) {
       setError(
         isHighAssuranceTenant
-          ? 'This high-assurance tenant requires dataset versions. Please create a dataset version before training.'
+          ? 'This high-assurance workspace requires dataset versions. Please create a dataset version before training.'
           : 'This dataset has no version bound. Please create a dataset version before training.',
       );
       return;
@@ -355,6 +355,7 @@ export function StartTrainingForm({
 
       const request: StartTrainingRequest = {
         adapter_name: adapterName,
+        base_model_id: baseModelStatus?.model_id ?? undefined,
         config: configWithTargets,
         template_id: templateId || undefined,
         dataset_id: datasetId || undefined,
@@ -489,7 +490,7 @@ export function StartTrainingForm({
             <Input
               id="adapter-name"
               data-cy="adapter-name-input"
-              placeholder="organization/domain/purpose/r001"
+              placeholder="workspace/domain/purpose/r001"
               value={adapterName}
               onChange={(e) => {
                 setAdapterName(e.target.value);
@@ -505,7 +506,7 @@ export function StartTrainingForm({
               <p className="text-sm text-destructive">{nameError}</p>
             )}
             <p className="text-xs text-muted-foreground">
-              Semantic naming format: organization/domain/purpose/revision
+              Semantic naming format: workspace/domain/purpose/revision
             </p>
           </div>
 
@@ -565,7 +566,7 @@ export function StartTrainingForm({
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="project">Project</SelectItem>
-                  <SelectItem value="tenant">Tenant</SelectItem>
+                  <SelectItem value="tenant">Workspace</SelectItem>
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">

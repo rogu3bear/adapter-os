@@ -194,14 +194,14 @@ describe('TenantRequiredGate', () => {
 
         expect(screen.getByTestId('alert')).toBeTruthy();
         expect(screen.getByTestId('alert').getAttribute('data-variant')).toBe('warning');
-        expect(screen.getByTestId('alert-title')).toHaveTextContent('Tenant required');
+        expect(screen.getByTestId('alert-title')).toHaveTextContent('Workspace required');
         expect(screen.getByTestId('alert-description')).toHaveTextContent(
-          'Select a tenant to continue'
+          'Select a workspace to continue'
         );
         expect(screen.queryByTestId('protected-content')).toBeNull();
       });
 
-      it('should render "Reload tenants" button', () => {
+      it('should render "Reload workspaces" button', () => {
         mockUseAuth.mockReturnValue({
           user: mockUser,
           isLoading: false,
@@ -224,7 +224,7 @@ describe('TenantRequiredGate', () => {
         );
 
         const buttons = screen.getAllByTestId('button');
-        const reloadButton = buttons.find(btn => btn.textContent === 'Reload tenants');
+        const reloadButton = buttons.find(btn => btn.textContent === 'Reload workspaces');
 
         expect(reloadButton).toBeTruthy();
         expect(reloadButton?.getAttribute('data-size')).toBe('sm');
@@ -260,7 +260,7 @@ describe('TenantRequiredGate', () => {
         expect(loginButton?.getAttribute('data-variant')).toBe('outline');
       });
 
-      it('should call refreshTenants when "Reload tenants" button is clicked', async () => {
+      it('should call refreshTenants when "Reload workspaces" button is clicked', async () => {
         const mockRefreshTenants = vi.fn().mockResolvedValue(undefined);
         const user = userEvent.setup();
 
@@ -286,7 +286,7 @@ describe('TenantRequiredGate', () => {
         );
 
         const buttons = screen.getAllByTestId('button');
-        const reloadButton = buttons.find(btn => btn.textContent === 'Reload tenants');
+        const reloadButton = buttons.find(btn => btn.textContent === 'Reload workspaces');
 
         expect(reloadButton).toBeTruthy();
         await user.click(reloadButton!);
@@ -473,7 +473,7 @@ describe('TenantRequiredGate', () => {
         );
 
         const buttons = screen.getAllByTestId('button');
-        const reloadButton = buttons.find(btn => btn.textContent === 'Reload tenants');
+        const reloadButton = buttons.find(btn => btn.textContent === 'Reload workspaces');
 
         expect(reloadButton).toBeTruthy();
 

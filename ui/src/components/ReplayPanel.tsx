@@ -462,7 +462,7 @@ export function ReplayPanel({ tenantId: tenantProp, onSessionSelect, initialSess
           </DialogHeader>
           <div className="space-y-3">
             <div>
-              <label className="font-medium text-sm mb-1">Organization</label>
+              <label className="font-medium text-sm mb-1">Workspace</label>
               <Input value={tenantId} readOnly />
             </div>
             <div>

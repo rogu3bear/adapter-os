@@ -95,7 +95,7 @@ export default function WorkerLogsModal({ workerId, open, onClose }: WorkerLogsM
                       <div className="font-mono">{workerDetails.node_id}</div>
                     </div>
                     <div>
-                      <div className="text-sm font-medium text-muted-foreground">Organization ID</div>
+                      <div className="text-sm font-medium text-muted-foreground">Workspace ID</div>
                       <div>{workerDetails.tenant_id ?? '--'}</div>
                     </div>
                     <div>

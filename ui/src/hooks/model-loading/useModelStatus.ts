@@ -12,6 +12,18 @@ import { logger } from '@/utils/logger';
 import type { ModelStatusState as ModelStatusStateType } from './types';
 import { useDemoMode } from '@/hooks/demo/DemoProvider';
 
+export const MODEL_STATUS_EVENT = 'aos:model-status:refresh';
+
+export interface ModelStatusEventDetail {
+  tenantId?: string;
+  status?: ModelStatusState;
+  modelName?: string | null;
+  modelId?: string | null;
+  modelPath?: string | null;
+  memoryUsageMb?: number | null;
+  errorMessage?: string | null;
+}
+
 export type ModelStatusState = ModelStatusStateType;
 
 export interface UseModelStatusReturn {
@@ -152,6 +164,28 @@ export function useModelStatus(
       errorMessage: null,
     };
   }, [activeModel, demoMode, memoryUsageMb, modelSwitching]);
+
+  // Allow external triggers (e.g., model management UI) to push status updates immediately
+  useEffect(() => {
+    const handleModelStatusEvent = (event: Event) => {
+      const detail = (event as CustomEvent<ModelStatusEventDetail>).detail || {};
+      if (detail.tenantId && detail.tenantId !== tenantId) {
+        return;
+      }
+
+      if (detail.status) setStatus(detail.status);
+      if ('modelName' in detail) setModelName(detail.modelName ?? null);
+      if ('modelId' in detail) setModelId(detail.modelId ?? null);
+      if ('modelPath' in detail) setModelPath(detail.modelPath ?? null);
+      if ('memoryUsageMb' in detail) setMemoryUsageMb(detail.memoryUsageMb ?? null);
+      if ('errorMessage' in detail) setErrorMessage(detail.errorMessage ?? null);
+
+      void fetchStatus();
+    };
+
+    window.addEventListener(MODEL_STATUS_EVENT, handleModelStatusEvent as EventListener);
+    return () => window.removeEventListener(MODEL_STATUS_EVENT, handleModelStatusEvent as EventListener);
+  }, [fetchStatus, tenantId]);
 
   const effectiveStatus = demoOverride?.status ?? status;
   const effectiveModelName = demoOverride?.modelName ?? modelName;

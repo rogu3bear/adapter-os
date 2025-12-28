@@ -120,7 +120,7 @@ export function NodeDetailModal({ nodeId, open, onClose }: NodeDetailModalProps)
                         <div className="space-y-1">
                           <div className="font-mono text-sm">{worker.id}</div>
                           <div className="text-xs text-muted-foreground">
-                            Tenant: {worker.tenant_id} | Plan: {worker.plan_id}
+                            Workspace: {worker.tenant_id} | Plan: {worker.plan_id}
                           </div>
                         </div>
                         <Badge

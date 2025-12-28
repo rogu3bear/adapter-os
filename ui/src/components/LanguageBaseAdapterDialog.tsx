@@ -247,7 +247,7 @@ export function LanguageBaseAdapterDialog({
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="tenantId">Organization ID (optional)</Label>
+            <Label htmlFor="tenantId">Workspace ID (optional)</Label>
             <Input id="tenantId" placeholder="default" value={tenantId} onChange={(e) => setTenantId(e.target.value)} />
           </div>
 
