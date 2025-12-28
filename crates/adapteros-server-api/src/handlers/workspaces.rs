@@ -1433,7 +1433,31 @@ pub async fn get_workspace_active_state(
     Path(workspace_id): Path<String>,
 ) -> Result<Json<WorkspaceActiveStateResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::WorkspaceView)?;
-    ensure_workspace_access(&claims, &workspace_id)?;
+
+    // TENANT ISOLATION: Check workspace access (validates user's tenant is a workspace member)
+    // Workspaces don't have a single tenant_id - they're cross-tenant by design.
+    // Isolation is enforced through workspace_members table membership validation.
+    let role = state
+        .db
+        .check_workspace_access(&workspace_id, &claims.sub, &claims.tenant_id)
+        .await
+        .map_err(|e| {
+            error!("Failed to check workspace access: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to check workspace access")
+                        .with_code("INTERNAL_ERROR"),
+                ),
+            )
+        })?;
+
+    if role.is_none() {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse::new("Access denied to workspace").with_code("FORBIDDEN")),
+        ));
+    }
 
     let record = state
         .db
@@ -1470,7 +1494,31 @@ pub async fn set_workspace_active_state(
     Json(req): Json<WorkspaceActiveStateRequest>,
 ) -> Result<Json<WorkspaceActiveStateResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::WorkspaceManage)?;
-    ensure_workspace_access(&claims, &workspace_id)?;
+
+    // TENANT ISOLATION: Check workspace access (validates user's tenant is a workspace member)
+    // Workspaces don't have a single tenant_id - they're cross-tenant by design.
+    // Isolation is enforced through workspace_members table membership validation.
+    let role = state
+        .db
+        .check_workspace_access(&workspace_id, &claims.sub, &claims.tenant_id)
+        .await
+        .map_err(|e| {
+            error!("Failed to check workspace access: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to check workspace access")
+                        .with_code("INTERNAL_ERROR"),
+                ),
+            )
+        })?;
+
+    if role.is_none() {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse::new("Access denied to workspace").with_code("FORBIDDEN")),
+        ));
+    }
 
     if let Some(ref model_id) = req.active_base_model_id {
         let model = state
@@ -1618,6 +1666,11 @@ async fn is_model_ready_internal(
 /// If an active model is recorded but the worker reports nothing loaded or the
 /// model status is not ready, mark the base model status as an error so the
 /// mismatch surfaces in readiness probes.
+///
+/// # Warning
+/// This function iterates ALL workspaces globally. Use only for internal
+/// background reconciliation tasks. For tenant-specific reconciliation,
+/// use [`reconcile_active_models_for_tenant`] instead.
 pub async fn reconcile_active_models(state: &AppState) {
     let active_states = match state.db.list_workspace_active_states().await {
         Ok(states) => states,
@@ -1637,48 +1690,85 @@ pub async fn reconcile_active_models(state: &AppState) {
     let worker_loaded = worker_reports_loaded(state).await;
 
     for record in active_states {
-        let Some(model_id) = record.active_base_model_id.as_deref() else {
-            continue;
-        };
+        reconcile_single_workspace(state, &record, worker_loaded).await;
+    }
+}
 
-        match is_model_ready_internal(state, &record.tenant_id, model_id).await {
-            Ok(Some(true)) if worker_loaded => {
-                // Active and ready
-            }
-            Ok(_) => {
-                let message = if !worker_loaded {
-                    "Active model not loaded on worker"
-                } else {
-                    "Active model marked active but not ready"
-                };
+/// Reconcile active workspace state for a specific tenant.
+///
+/// This is the tenant-scoped version that should be used for on-demand
+/// reconciliation to maintain workspace isolation.
+pub async fn reconcile_active_models_for_tenant(state: &AppState, tenant_id: &str) {
+    let active_states = match state.db.list_workspace_active_states_for_tenant(tenant_id).await {
+        Ok(states) => states,
+        Err(e) => {
+            error!(
+                error = %e,
+                tenant_id = %tenant_id,
+                "Failed to load active workspace state for tenant reconciliation"
+            );
+            return;
+        }
+    };
 
-                if let Err(e) = state
-                    .db
-                    .update_base_model_status(
-                        &record.tenant_id,
-                        model_id,
-                        ModelLoadStatus::Error.as_str(),
-                        Some(message),
-                        None,
-                    )
-                    .await
-                {
-                    error!(
-                        error = %e,
-                        tenant_id = %record.tenant_id,
-                        model_id = %model_id,
-                        "Failed to mark active model mismatch"
-                    );
-                }
-            }
-            Err(e) => {
+    if active_states.is_empty() {
+        return;
+    }
+
+    let worker_loaded = worker_reports_loaded(state).await;
+
+    for record in active_states {
+        reconcile_single_workspace(state, &record, worker_loaded).await;
+    }
+}
+
+/// Internal helper to reconcile a single workspace record.
+async fn reconcile_single_workspace(
+    state: &AppState,
+    record: &adapteros_db::workspace_active_state::WorkspaceActiveState,
+    worker_loaded: bool,
+) {
+    let Some(model_id) = record.active_base_model_id.as_deref() else {
+        return;
+    };
+
+    match is_model_ready_internal(state, &record.tenant_id, model_id).await {
+        Ok(Some(true)) if worker_loaded => {
+            // Active and ready
+        }
+        Ok(_) => {
+            let message = if !worker_loaded {
+                "Active model not loaded on worker"
+            } else {
+                "Active model marked active but not ready"
+            };
+
+            if let Err(e) = state
+                .db
+                .update_base_model_status(
+                    &record.tenant_id,
+                    model_id,
+                    ModelLoadStatus::Error.as_str(),
+                    Some(message),
+                    None,
+                )
+                .await
+            {
                 error!(
                     error = %e,
                     tenant_id = %record.tenant_id,
                     model_id = %model_id,
-                    "Failed to reconcile active model status"
+                    "Failed to mark active model mismatch"
                 );
             }
+        }
+        Err(e) => {
+            error!(
+                error = %e,
+                tenant_id = %record.tenant_id,
+                model_id = %model_id,
+                "Failed to reconcile active model status"
+            );
         }
     }
 }
@@ -1734,22 +1824,10 @@ async fn resolve_worker_socket_path(state: &AppState) -> Option<PathBuf> {
     None
 }
 
-fn ensure_workspace_access(
-    claims: &Claims,
-    workspace_id: &str,
-) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
-    let tenant_match =
-        workspace_id == claims.tenant_id || claims.admin_tenants.iter().any(|t| t == workspace_id);
-
-    if tenant_match {
-        Ok(())
-    } else {
-        Err((
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse::new("Access denied to workspace").with_code("FORBIDDEN")),
-        ))
-    }
-}
+// NOTE: The previous `ensure_workspace_access` function was removed because it used a weak check
+// (workspace_id == claims.tenant_id) that conflated tenant ownership with workspace membership.
+// Workspaces are cross-tenant by design, so all access checks must use the database-backed
+// `check_workspace_access` function which validates membership via the workspace_members table.
 
 fn not_found_response(entity: &str, id: &str) -> (StatusCode, Json<ErrorResponse>) {
     (
