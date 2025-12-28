@@ -32,10 +32,10 @@ pub const ADAPTER_COLUMNS: &str =
 ///
 /// Used in get_training_dataset, list_training_datasets, and related operations.
 pub const TRAINING_DATASET_COLUMNS: &str =
-    "id, name, description, file_count, total_size_bytes, format, hash_b3, \
-     storage_path, validation_status, validation_errors, metadata_json, \
+    "id, name, description, file_count, total_size_bytes, format, hash_b3, dataset_hash_b3, \
+     storage_path, status, validation_status, validation_errors, metadata_json, \
      created_by, created_at, updated_at, dataset_type, purpose, \
-     source_location, collection_method, ownership, tenant_id";
+     source_location, collection_method, ownership, tenant_id, workspace_id";
 
 /// Dataset file table columns for SELECT queries
 pub const DATASET_FILE_COLUMNS: &str =

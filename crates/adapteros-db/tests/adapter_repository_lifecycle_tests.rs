@@ -90,6 +90,9 @@ async fn create_promotable_version(
             &format!("hash-{}", version),
             &format!("var/ds/{}", version),
             None,
+            None,
+            Some("ready"),
+            Some(&format!("hash-{}", version)),
         )
         .await
         .expect("dataset created");
@@ -587,7 +590,17 @@ async fn coreml_promotion_requires_dataset_and_device() -> Result<()> {
     let repo_id = create_repo(&db, &tenant_id, "coreml-repo", None).await;
 
     let dataset_id = db
-        .create_training_dataset("ds", None, "jsonl", "hash-ds", "var/ds", None)
+        .create_training_dataset(
+            "ds",
+            None,
+            "jsonl",
+            "hash-ds",
+            "var/ds",
+            None,
+            None,
+            Some("ready"),
+            Some("hash-ds"),
+        )
         .await?;
     let ds_version_id = db
         .create_training_dataset_version(
@@ -696,7 +709,17 @@ async fn create_version_persists_dataset_links() -> Result<()> {
     let repo_id = create_repo(&db, &tenant_id, "dataset-link-repo", None).await;
 
     let dataset_id = db
-        .create_training_dataset("ds", None, "jsonl", "hash-ds", "var/ds", None)
+        .create_training_dataset(
+            "ds",
+            None,
+            "jsonl",
+            "hash-ds",
+            "var/ds",
+            None,
+            None,
+            Some("ready"),
+            Some("hash-ds"),
+        )
         .await?;
     let ds_version_id = db
         .create_training_dataset_version(
@@ -753,7 +776,17 @@ async fn adapter_version_captures_trust_snapshot() -> Result<()> {
     let repo_id = create_repo(&db, &tenant_id, "trust-repo", None).await;
 
     let dataset_id = db
-        .create_training_dataset("ds", None, "jsonl", "hash-ds", "var/ds", None)
+        .create_training_dataset(
+            "ds",
+            None,
+            "jsonl",
+            "hash-ds",
+            "var/ds",
+            None,
+            None,
+            Some("ready"),
+            Some("hash-ds"),
+        )
         .await?;
     let ds_version_id = db
         .create_training_dataset_version_with_id(

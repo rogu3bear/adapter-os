@@ -18,7 +18,10 @@ pub struct TrainingDatasetKv {
     pub description: Option<String>,
     pub format: String,
     pub hash_b3: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dataset_hash_b3: Option<String>,
     pub storage_path: String,
+    pub status: String,
     pub validation_status: String,
     pub validation_errors: Option<String>,
     pub file_count: i32,
@@ -34,6 +37,7 @@ pub struct TrainingDatasetKv {
     pub source_location: Option<String>,
     pub collection_method: Option<String>,
     pub ownership: Option<String>,
+    pub workspace_id: Option<String>,
 }
 
 impl TrainingDatasetKv {
@@ -49,7 +53,8 @@ impl TrainingDatasetKv {
 
     /// Get hash-based lookup key
     pub fn hash_key(&self) -> String {
-        format!("dataset:hash:{}", self.hash_b3)
+        let hash = self.dataset_hash_b3.as_deref().unwrap_or(&self.hash_b3);
+        format!("dataset:hash:{}", hash)
     }
 }
 

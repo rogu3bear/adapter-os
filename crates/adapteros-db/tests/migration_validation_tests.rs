@@ -1738,10 +1738,7 @@ async fn test_migration_0210_adapter_hash_lookup_query_plan() -> Result<()> {
 
     // Test query: SELECT * FROM adapters WHERE tenant_id = ? AND hash_b3 = ? AND active = 1
     let query = "SELECT * FROM adapters WHERE tenant_id = ? AND hash_b3 = ? AND active = 1";
-    let params = vec![
-        tenant_id.to_string(),
-        format!("b3:hash_{}_0", tenant_id),
-    ];
+    let params = vec![tenant_id.to_string(), format!("b3:hash_{}_0", tenant_id)];
 
     validate_query_plan(&db, query, params, true).await?;
 
@@ -1794,10 +1791,7 @@ async fn test_migration_0210_training_jobs_query_plan() -> Result<()> {
 
     // Test query: SELECT * FROM repository_training_jobs WHERE tenant_id = ? AND status = ? ORDER BY created_at DESC
     let query = "SELECT * FROM repository_training_jobs WHERE tenant_id = ? AND status = ? ORDER BY created_at DESC";
-    let params = vec![
-        tenant_id.to_string(),
-        "running".to_string(),
-    ];
+    let params = vec![tenant_id.to_string(), "running".to_string()];
 
     validate_query_plan(&db, query, params, true).await?;
 

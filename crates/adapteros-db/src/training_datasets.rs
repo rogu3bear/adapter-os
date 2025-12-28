@@ -102,7 +102,9 @@ pub struct TrainingDataset {
     pub total_size_bytes: i64,
     pub format: String,
     pub hash_b3: String,
+    pub dataset_hash_b3: String,
     pub storage_path: String,
+    pub status: String,
     pub validation_status: String,
     pub validation_errors: Option<String>,
     pub metadata_json: Option<String>,
@@ -116,6 +118,7 @@ pub struct TrainingDataset {
     pub collection_method: Option<String>,
     pub ownership: Option<String>,
     pub tenant_id: Option<String>,
+    pub workspace_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -250,21 +253,29 @@ impl Db {
         hash_b3: &str,
         storage_path: &str,
         created_by: Option<&str>,
+        workspace_id: Option<&str>,
+        status: Option<&str>,
+        dataset_hash_b3: Option<&str>,
     ) -> Result<String> {
         let id = Uuid::now_v7().to_string();
+        let final_status = status.unwrap_or("uploaded");
+        let final_dataset_hash = dataset_hash_b3.unwrap_or(hash_b3);
         sqlx::query(
             "INSERT INTO training_datasets (
-                id, name, description, format, hash_b3, storage_path,
-                validation_status, created_by
-            ) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)",
+                id, name, description, format, hash_b3, dataset_hash_b3, storage_path,
+                status, validation_status, created_by, workspace_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)",
         )
         .bind(&id)
         .bind(name)
         .bind(description)
         .bind(format)
         .bind(hash_b3)
+        .bind(final_dataset_hash)
         .bind(storage_path)
+        .bind(final_status)
         .bind(created_by)
+        .bind(workspace_id)
         .execute(self.pool())
         .await
         .map_err(db_err("create training dataset"))?;
@@ -281,20 +292,28 @@ impl Db {
         hash_b3: &str,
         storage_path: &str,
         created_by: Option<&str>,
+        workspace_id: Option<&str>,
+        status: Option<&str>,
+        dataset_hash_b3: Option<&str>,
     ) -> Result<String> {
+        let final_status = status.unwrap_or("uploaded");
+        let final_dataset_hash = dataset_hash_b3.unwrap_or(hash_b3);
         sqlx::query(
             "INSERT INTO training_datasets (
-                id, name, description, format, hash_b3, storage_path,
-                validation_status, created_by
-            ) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)",
+                id, name, description, format, hash_b3, dataset_hash_b3, storage_path,
+                status, validation_status, created_by, workspace_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)",
         )
         .bind(dataset_id)
         .bind(name)
         .bind(description)
         .bind(format)
         .bind(hash_b3)
+        .bind(final_dataset_hash)
         .bind(storage_path)
+        .bind(final_status)
         .bind(created_by)
+        .bind(workspace_id)
         .execute(self.pool())
         .await
         .map_err(db_err("create training dataset"))?;
@@ -603,6 +622,24 @@ impl Db {
         Ok(dataset)
     }
 
+    /// Find a dataset by hash within a workspace (helps deduplicate uploads).
+    pub async fn get_dataset_by_hash_and_workspace(
+        &self,
+        dataset_hash_b3: &str,
+        workspace_id: &str,
+    ) -> Result<Option<TrainingDataset>> {
+        let dataset = sqlx::query_as::<_, TrainingDataset>(&format!(
+            "SELECT {} FROM training_datasets WHERE dataset_hash_b3 = ? AND workspace_id = ? LIMIT 1",
+            TRAINING_DATASET_COLUMNS
+        ))
+        .bind(dataset_hash_b3)
+        .bind(workspace_id)
+        .fetch_optional(self.pool())
+        .await
+        .map_err(db_err("get dataset by hash+workspace"))?;
+        Ok(dataset)
+    }
+
     /// List all training datasets (DEPRECATED - use list_training_datasets_for_tenant instead)
     ///
     /// WARNING: This method returns ALL datasets across ALL tenants without filtering.
@@ -653,6 +690,32 @@ impl Db {
         .map_err(|e| {
             AosError::Database(format!(
                 "Failed to list training datasets for tenant: {}",
+                e
+            ))
+        })?;
+        Ok(datasets)
+    }
+
+    /// List datasets scoped to a workspace and tenant.
+    pub async fn list_training_datasets_for_workspace(
+        &self,
+        tenant_id: &str,
+        workspace_id: &str,
+        limit: i64,
+    ) -> Result<Vec<TrainingDataset>> {
+        let datasets = sqlx::query_as::<_, TrainingDataset>(&format!(
+            "SELECT {} FROM training_datasets WHERE tenant_id = ? AND workspace_id = ? \
+             ORDER BY created_at DESC LIMIT ?",
+            TRAINING_DATASET_COLUMNS
+        ))
+        .bind(tenant_id)
+        .bind(workspace_id)
+        .bind(limit)
+        .fetch_all(self.pool())
+        .await
+        .map_err(|e| {
+            AosError::Database(format!(
+                "Failed to list training datasets for workspace: {}",
                 e
             ))
         })?;
@@ -741,6 +804,19 @@ impl Db {
         .map_err(db_err("update dataset file count"))?;
 
         Ok(id)
+    }
+
+    /// Update dataset lifecycle status (uploaded|processing|ready|failed)
+    pub async fn update_dataset_status(&self, dataset_id: &str, status: &str) -> Result<()> {
+        sqlx::query(
+            "UPDATE training_datasets SET status = ?, updated_at = datetime('now') WHERE id = ?",
+        )
+        .bind(status)
+        .bind(dataset_id)
+        .execute(self.pool())
+        .await
+        .map_err(db_err("update dataset status"))?;
+        Ok(())
     }
 
     /// Get files in dataset

@@ -10,7 +10,17 @@ async fn manifest_helpers_round_trip_and_enforce_tenant() -> Result<()> {
     let tenant_b = db.create_tenant("Tenant B", false).await?;
 
     let dataset_id = db
-        .create_training_dataset("ds", None, "jsonl", "hash", "var/ds", None)
+        .create_training_dataset(
+            "ds",
+            None,
+            "jsonl",
+            "hash",
+            "var/ds",
+            None,
+            None,
+            Some("ready"),
+            Some("hash"),
+        )
         .await?;
 
     // Attach dataset to tenant for FK guards used by downstream writes

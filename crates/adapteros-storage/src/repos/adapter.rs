@@ -751,6 +751,7 @@ mod tests {
             purged_at: None,
             // Base model and artifact hardening
             base_model_id: None,
+            recommended_for_moe: Some(true),
             manifest_schema_version: None,
             content_hash_b3: None,
             provenance_json: None,

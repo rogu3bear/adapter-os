@@ -853,7 +853,7 @@ mod tests {
             execution_policy_id: None,
             execution_policy_version: None,
             stop_policy_json: None,
-            policy_mask_digest_b3: None,
+            policy_mask_digest_b3: Some("policy-mask-123".to_string()),
         };
 
         let id = db.create_replay_metadata(params).await.unwrap();
@@ -886,6 +886,10 @@ mod tests {
         );
         assert_eq!(metadata.coreml_gpu_used, Some(false));
         assert_eq!(metadata.fallback_backend, None);
+        assert_eq!(
+            metadata.policy_mask_digest_b3.as_deref(),
+            Some("policy-mask-123")
+        );
 
         // Verify JSON fields
         let adapter_ids: Vec<String> =
