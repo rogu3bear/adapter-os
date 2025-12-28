@@ -18,6 +18,9 @@ import { logger, toError } from '@/utils/logger';
 import { apiClient } from '@/api/services';
 import { Notification, NotificationSummary } from '@/api/types';
 import { useSSEWithPollingFallback } from '@/hooks/realtime';
+import { getWorkspaceScopedKey } from '@/utils/storage';
+
+const NOTIFICATIONS_BASE_KEY = 'aos_notifications';
 
 export interface UseNotificationsOptions {
   enabled?: boolean;
@@ -205,12 +208,13 @@ export function useNotifications(options: UseNotificationsOptions = {}): UseNoti
       // Update summary
       setSummary(prev => prev ? { ...prev, unread_count: Math.max(0, prev.unread_count - 1) } : null);
 
-      // Dispatch storage event for cross-tab sync
+      // Dispatch storage event for cross-tab sync (workspace-scoped)
       const payload = { refresh: true, timestamp: new Date().toISOString() };
+      const scopedKey = getWorkspaceScopedKey(workspaceIdRef.current || 'default', NOTIFICATIONS_BASE_KEY);
       try {
-        localStorage.setItem('aos_notifications', JSON.stringify(payload));
+        localStorage.setItem(scopedKey, JSON.stringify(payload));
         window.dispatchEvent(new StorageEvent('storage', {
-          key: 'aos_notifications',
+          key: scopedKey,
           newValue: JSON.stringify(payload),
         }));
       } catch (storageErr) {
@@ -244,19 +248,20 @@ export function useNotifications(options: UseNotificationsOptions = {}): UseNoti
       setNotifications(prev => prev.map(n => ({ ...n, read_at: new Date().toISOString() })));
       setSummary(prev => prev ? { ...prev, unread_count: 0 } : null);
 
-      // Dispatch storage event for cross-tab sync
+      // Dispatch storage event for cross-tab sync (workspace-scoped)
       const payload = { refresh: true, timestamp: new Date().toISOString() };
+      const scopedKey = getWorkspaceScopedKey(workspaceIdRef.current || 'default', NOTIFICATIONS_BASE_KEY);
       try {
-        localStorage.setItem('aos_notifications', JSON.stringify(payload));
+        localStorage.setItem(scopedKey, JSON.stringify(payload));
         window.dispatchEvent(new StorageEvent('storage', {
-          key: 'aos_notifications',
+          key: scopedKey,
           newValue: JSON.stringify(payload),
         }));
       } catch (storageErr) {
         logger.error('Failed to emit notification storage event', {
           component: 'useNotifications',
           operation: 'markAllRead',
-          workspaceId,
+          workspaceId: workspaceIdRef.current,
         }, toError(storageErr));
       }
 
@@ -280,9 +285,13 @@ export function useNotifications(options: UseNotificationsOptions = {}): UseNoti
   // Cross-Tab Sync via Storage Events
   // ============================================================================
 
+  // Compute the workspace-scoped key for storage events
+  const storageKey = getWorkspaceScopedKey(workspaceId || 'default', NOTIFICATIONS_BASE_KEY);
+
   useEffect(() => {
     const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === 'aos_notifications' && e.newValue) {
+      // Only respond to events for our workspace-scoped key
+      if (e.key === storageKey && e.newValue) {
         try {
           // Trigger refresh when storage event is received from another tab
           refetch();
@@ -299,7 +308,7 @@ export function useNotifications(options: UseNotificationsOptions = {}): UseNoti
     return () => {
       window.removeEventListener('storage', handleStorageChange);
     };
-  }, [refetch]);
+  }, [refetch, storageKey]);
 
   return {
     notifications,

@@ -3,8 +3,49 @@ import type { TutorialConfig } from '@/components/ContextualTutorial';
 import { Tutorial } from '@/api/types';
 import { apiClient } from '@/api/services';
 import { logger, toError } from '@/utils/logger';
+import { getWorkspaceScopedKey } from '@/utils/storage';
 
-const STORAGE_KEY = 'aos_tutorials';
+const BASE_STORAGE_KEY = 'aos_tutorials';
+const LEGACY_STORAGE_KEY = 'aos_tutorials'; // For migration from global key
+
+/**
+ * Migrate data from legacy global key to workspace-scoped key
+ */
+function migrateFromLegacyStorage(workspaceScopedKey: string): TutorialStoragePayload | null {
+  try {
+    // Don't migrate if the scoped key is the same as legacy (default workspace)
+    if (workspaceScopedKey === LEGACY_STORAGE_KEY) {
+      return null;
+    }
+
+    const legacyData = localStorage.getItem(LEGACY_STORAGE_KEY);
+    if (!legacyData) {
+      return null;
+    }
+
+    const parsed = JSON.parse(legacyData) as TutorialStoragePayload;
+
+    // Write to new workspace-scoped key
+    localStorage.setItem(workspaceScopedKey, legacyData);
+
+    // Remove legacy key
+    localStorage.removeItem(LEGACY_STORAGE_KEY);
+
+    logger.info('Migrated tutorial state from legacy to workspace-scoped storage', {
+      component: 'useContextualTutorial',
+      operation: 'migrate',
+    });
+
+    return parsed;
+  } catch (err) {
+    logger.error(
+      'Failed to migrate legacy tutorial state',
+      { component: 'useContextualTutorial', operation: 'migrate' },
+      toError(err)
+    );
+    return null;
+  }
+}
 
 // Map numeric position to string position
 function mapPositionToString(position: number | undefined): 'top' | 'bottom' | 'left' | 'right' | 'center' | undefined {
@@ -48,13 +89,16 @@ interface TutorialStoragePayload {
   };
 }
 
-export function useContextualTutorial(pagePath: string) {
+export function useContextualTutorial(pagePath: string, workspaceId?: string) {
   const [activeTutorial, setActiveTutorial] = useState<TutorialConfig | null>(null);
   const [isOpen, setIsOpen] = useState(false);
   const [tutorials, setTutorials] = useState<Tutorial[]>([]);
   const [statusCache, setStatusCache] = useState<Record<string, { completed: boolean; dismissed: boolean }>>({});
   const [loading, setLoading] = useState(true);
   const storageListenerRef = useRef<((e: StorageEvent) => void) | null>(null);
+
+  // Get workspace-scoped storage key
+  const storageKey = getWorkspaceScopedKey(workspaceId || 'default', BASE_STORAGE_KEY);
 
   // Fetch tutorials from API
   const fetchTutorials = useCallback(async () => {
@@ -85,10 +129,10 @@ export function useContextualTutorial(pagePath: string) {
         };
       }
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+        localStorage.setItem(storageKey, JSON.stringify(payload));
         // Dispatch storage event for immediate cross-tab sync
         window.dispatchEvent(new StorageEvent('storage', {
-          key: STORAGE_KEY,
+          key: storageKey,
           newValue: JSON.stringify(payload),
         }));
       } catch (err) {
@@ -103,9 +147,18 @@ export function useContextualTutorial(pagePath: string) {
         operation: 'fetchTutorials',
       }, toError(err));
 
-      // Fallback: try to load from localStorage
+      // Fallback: try to load from localStorage (with migration)
       try {
-        const saved = localStorage.getItem(STORAGE_KEY);
+        let saved = localStorage.getItem(storageKey);
+
+        // If not found, try migrating from legacy key
+        if (!saved) {
+          const migrated = migrateFromLegacyStorage(storageKey);
+          if (migrated) {
+            saved = JSON.stringify(migrated);
+          }
+        }
+
         if (saved) {
           const payload: TutorialStoragePayload = JSON.parse(saved);
           const cache: Record<string, { completed: boolean; dismissed: boolean }> = {};
@@ -126,7 +179,7 @@ export function useContextualTutorial(pagePath: string) {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [storageKey]);
 
   // Load tutorials on mount
   useEffect(() => {
@@ -136,7 +189,7 @@ export function useContextualTutorial(pagePath: string) {
   // Listen for storage events from other tabs
   useEffect(() => {
     const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === STORAGE_KEY && e.newValue) {
+      if (e.key === storageKey && e.newValue) {
         try {
           const payload: TutorialStoragePayload = JSON.parse(e.newValue);
           const cache: Record<string, { completed: boolean; dismissed: boolean }> = {};
@@ -165,7 +218,7 @@ export function useContextualTutorial(pagePath: string) {
         window.removeEventListener('storage', storageListenerRef.current);
       }
     };
-  }, [fetchTutorials]);
+  }, [fetchTutorials, storageKey]);
 
   // Get available tutorials for current page
   const getAvailableTutorials = useCallback((): TutorialConfig[] => {
@@ -217,9 +270,9 @@ export function useContextualTutorial(pagePath: string) {
         };
       }
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+        localStorage.setItem(storageKey, JSON.stringify(payload));
         window.dispatchEvent(new StorageEvent('storage', {
-          key: STORAGE_KEY,
+          key: storageKey,
           newValue: JSON.stringify(payload),
         }));
       } catch (err) {
@@ -232,7 +285,7 @@ export function useContextualTutorial(pagePath: string) {
 
       return updated;
     });
-  }, []);
+  }, [storageKey]);
 
   // Start a tutorial
   const startTutorial = useCallback((tutorialId?: string) => {

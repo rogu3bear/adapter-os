@@ -221,7 +221,7 @@ export function useMessages(options: UseMessagesOptions): UseMessagesReturn {
         baselineIntervalRef.current = null;
       }
       if (fallbackIntervalRef.current) {
-        clearInterval(fallbackIntervalRef.current);
+        clearTimeout(fallbackIntervalRef.current);
         fallbackIntervalRef.current = null;
       }
       if (sseRef.current) {
@@ -232,14 +232,14 @@ export function useMessages(options: UseMessagesOptions): UseMessagesReturn {
     }
 
     isMountedRef.current = true;
-    
+
     // Clean up any existing resources first
     if (baselineIntervalRef.current) {
       clearInterval(baselineIntervalRef.current);
       baselineIntervalRef.current = null;
     }
     if (fallbackIntervalRef.current) {
-      clearInterval(fallbackIntervalRef.current);
+      clearTimeout(fallbackIntervalRef.current);
       fallbackIntervalRef.current = null;
     }
     if (sseRef.current) {
@@ -263,19 +263,46 @@ export function useMessages(options: UseMessagesOptions): UseMessagesReturn {
 
     function clearFallback() {
       if (fallbackIntervalRef.current) {
-        clearInterval(fallbackIntervalRef.current);
+        clearTimeout(fallbackIntervalRef.current);
         fallbackIntervalRef.current = null;
       }
     }
 
+    // Exponential backoff for fallback polling (avoid hammering API when SSE fails)
+    let fallbackErrorCount = 0;
+    const FALLBACK_INITIAL_INTERVAL_MS = 2000; // Start at 2s, not 500ms
+    const FALLBACK_MAX_INTERVAL_MS = 30000; // Cap at 30s
+
     function startFallbackPolling() {
       clearFallback();
-      // quick polling while disconnected
-      fallbackIntervalRef.current = setInterval(() => {
-        if (isMountedRef.current && enabledRef.current) {
-          fetchMessages();
-        }
-      }, 500);
+
+      const scheduleNextPoll = () => {
+        if (!isMountedRef.current || !enabledRef.current) return;
+
+        const backoffInterval = Math.min(
+          FALLBACK_INITIAL_INTERVAL_MS * Math.pow(2, fallbackErrorCount),
+          FALLBACK_MAX_INTERVAL_MS
+        );
+
+        fallbackIntervalRef.current = setTimeout(async () => {
+          if (!isMountedRef.current || !enabledRef.current) return;
+
+          try {
+            await fetchMessages();
+            // Reset error count on success
+            fallbackErrorCount = 0;
+          } catch {
+            // Increment error count for backoff (cap at 4 to limit max backoff)
+            fallbackErrorCount = Math.min(fallbackErrorCount + 1, 4);
+          }
+
+          // Schedule next poll
+          scheduleNextPoll();
+        }, backoffInterval) as unknown as NodeJS.Timeout;
+      };
+
+      // Start the polling loop
+      scheduleNextPoll();
     }
 
     function stopSSE() {

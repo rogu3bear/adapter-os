@@ -59,6 +59,10 @@ export function useHealthPolling(): UseHealthPollingReturn {
   const abortControllerRef = useRef<AbortController | null>(null);
   const hasFetchedRef = useRef(false);
 
+  // Exponential backoff state for error handling
+  const errorCountRef = useRef(0);
+  const MAX_ERROR_BACKOFF_MULTIPLIER = 4; // Max 4x the degraded interval
+
   const fetchHealth = useCallback(async () => {
     // Abort any in-flight request
     abortControllerRef.current?.abort();
@@ -86,6 +90,9 @@ export function useHealthPolling(): UseHealthPollingReturn {
       setHealth(healthRes);
       setHealthError(null);
 
+      // Reset error count on successful fetch
+      errorCountRef.current = 0;
+
       // Try to fetch detailed system health (may not be available)
       try {
         const systemRes = await apiClient.request<SystemHealthResponse>(
@@ -107,6 +114,9 @@ export function useHealthPolling(): UseHealthPollingReturn {
       if (controller.signal.aborted || !isMountedRef.current) {
         return;
       }
+
+      // Increment error count for backoff (cap at 3 to limit max backoff)
+      errorCountRef.current = Math.min(errorCountRef.current + 1, 3);
 
       setBackendStatus('issue');
       if (err instanceof Error && err.name === 'AbortError') {
@@ -130,25 +140,47 @@ export function useHealthPolling(): UseHealthPollingReturn {
     };
   }, []);
 
-  // Initial fetch and polling
+  // Calculate polling interval with exponential backoff on errors
+  const getPollingInterval = useCallback((): number => {
+    if (backendStatus === 'ready') {
+      return AUTH_DEFAULTS.HEALTH_POLL_INTERVAL_READY;
+    }
+
+    // Apply exponential backoff when there are errors
+    const baseInterval = AUTH_DEFAULTS.HEALTH_POLL_INTERVAL_DEGRADED;
+    const backoffMultiplier = Math.pow(2, errorCountRef.current);
+    return Math.min(
+      baseInterval * backoffMultiplier,
+      baseInterval * MAX_ERROR_BACKOFF_MULTIPLIER
+    );
+  }, [backendStatus]);
+
+  // Initial fetch and polling with dynamic intervals
   useEffect(() => {
     if (!hasFetchedRef.current) {
       hasFetchedRef.current = true;
       fetchHealth();
     }
 
-    const interval = setInterval(
-      fetchHealth,
-      backendStatus === 'ready'
-        ? AUTH_DEFAULTS.HEALTH_POLL_INTERVAL_READY
-        : AUTH_DEFAULTS.HEALTH_POLL_INTERVAL_DEGRADED
-    );
+    let timeoutId: NodeJS.Timeout | null = null;
+
+    const scheduleNextPoll = () => {
+      const interval = getPollingInterval();
+      timeoutId = setTimeout(async () => {
+        await fetchHealth();
+        scheduleNextPoll();
+      }, interval);
+    };
+
+    scheduleNextPoll();
 
     return () => {
-      clearInterval(interval);
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
       abortControllerRef.current?.abort();
     };
-  }, [fetchHealth, backendStatus]);
+  }, [fetchHealth, getPollingInterval]);
 
   // Compute derived state
   // Convert SystemHealthResponse.components (array) to Record for easier access
