@@ -524,7 +524,7 @@ impl FusedKernels for HybridCoreMLBackend {
             // FixedSeed(0) indicates no randomness used in inference
             rng_seed_method: RngSeedingMethod::FixedSeed(0),
             floating_point_mode: FloatingPointMode::Deterministic,
-            compiler_flags: vec!["-O3".to_string(), "-ffast-math=off".to_string()],
+            compiler_flags: vec!["-O3".to_string(), "-fno-fast-math".to_string()],
             deterministic: true,
         })
     }
