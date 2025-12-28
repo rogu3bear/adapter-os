@@ -24,7 +24,7 @@ bincode = { workspace = true }
 blake3 = { workspace = true }
 streaming-iterator = "0.1"
 clap = { version = "4.0", features = ["derive"] }
-env_logger = "0.10"
+env_logger = "0.11"
 regex = "1.10"
 toml = "0.8"
 git2 = "0.18"
@@ -36,4 +36,4 @@ path = "src/bin/codegraph.rs"
 [dev-dependencies]
 tempfile = { workspace = true }
 tokio-test = "0.4"
-env_logger = "0.10"
+env_logger = "0.11"

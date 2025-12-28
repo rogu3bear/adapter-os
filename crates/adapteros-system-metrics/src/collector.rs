@@ -76,7 +76,7 @@ impl SystemMetricsCollector {
 
     /// Calculate CPU usage percentage
     fn calculate_cpu_usage(&mut self) -> f64 {
-        self.sys.refresh_cpu();
+        self.sys.refresh_cpu_all();
 
         // Calculate average CPU usage across all cores
         let cpus = self.sys.cpus();

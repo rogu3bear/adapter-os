@@ -227,7 +227,7 @@ fn sha256_tokens(tokens: &[u32]) -> String {
 
 fn write_report(output_sha: &str) -> Result<()> {
     let mut sys = System::new_all();
-    sys.refresh_cpu();
+    sys.refresh_cpu_all();
     sys.refresh_memory();
 
     let hardware = HardwareSnapshot {
