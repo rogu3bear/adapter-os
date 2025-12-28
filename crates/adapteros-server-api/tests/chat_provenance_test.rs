@@ -13,7 +13,7 @@ use adapteros_db::chat_sessions::CreateChatSessionParams;
 use adapteros_db::traits::CreateStackRequest;
 use adapteros_db::Db;
 use adapteros_server_api::{
-    auth::{AuthMode, PrincipalType},
+    auth::PrincipalType,
     handlers::chat_sessions::{
         add_chat_message, create_chat_session, get_chat_provenance, AddChatMessageRequest,
         CreateChatSessionRequest,

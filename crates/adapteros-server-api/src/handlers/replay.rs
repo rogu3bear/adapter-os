@@ -26,7 +26,7 @@ use crate::inference_core::InferenceCore;
 use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
-use crate::types::{ErrorResponse, InferenceRequestInternal};
+use crate::types::{new_run_envelope, ErrorResponse, InferenceRequestInternal};
 
 /// Replay verification response
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -536,10 +536,14 @@ pub async fn execute_replay_session(
         };
 
     // Create inference request with deterministic parameters from session
+    let run_id = uuid::Uuid::new_v4().to_string();
+    let run_envelope = new_run_envelope(&state, &claims, run_id.clone(), false);
+
     let inference_request = InferenceRequestInternal {
-        request_id: uuid::Uuid::new_v4().to_string(),
+        request_id: run_id,
         cpid: session.cpid.clone(),
         prompt: final_prompt,
+        run_envelope: Some(run_envelope),
         reasoning_mode: false,
         admin_override: false,
         stream: false,
@@ -572,6 +576,7 @@ pub async fn execute_replay_session(
         session_id: None,
         pinned_adapter_ids: None, // Not used in replay
         chat_context_hash: None,
+        claims: None,
         model: None,
         stop_policy: None, // Replay uses original generation's stop behavior
         created_at: std::time::Instant::now(),

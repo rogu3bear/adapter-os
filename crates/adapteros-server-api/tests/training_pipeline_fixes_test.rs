@@ -7,13 +7,10 @@
 //! 4. MEDIUM: Dataset validation status cleanup on error
 //! 5. MEDIUM: Checkpoint corruption prevention with atomic writes
 
-use adapteros_core::AosError;
 use adapteros_lora_worker::training::checkpoint::{CheckpointManager, TrainingCheckpoint};
 use adapteros_lora_worker::training::trainer::{LoRAWeights, TrainingConfig};
-use std::io::Write;
 use std::path::PathBuf;
 use tempfile::TempDir;
-use tokio::io::AsyncWriteExt;
 
 fn new_test_tempdir() -> TempDir {
     let root = PathBuf::from("var").join("tmp");

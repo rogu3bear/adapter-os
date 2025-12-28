@@ -12,8 +12,7 @@ use axum::Extension;
 
 mod common;
 use common::{
-    delete_test_training_job, insert_training_job, setup_state, test_admin_claims,
-    test_viewer_claims,
+    delete_test_training_job, setup_state, test_admin_claims, test_viewer_claims,
 };
 
 /// Test listing training jobs returns tenant-scoped results

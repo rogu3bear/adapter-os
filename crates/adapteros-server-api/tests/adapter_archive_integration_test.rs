@@ -79,7 +79,7 @@ async fn test_archived_adapter_not_loadable() -> Result<()> {
 
     // Verify adapter is marked as archived
     let adapter = db
-        .get_adapter("adapter-to-archive")
+        .get_adapter_for_tenant("tenant-archive-test", "adapter-to-archive")
         .await?
         .expect("Adapter should exist");
     assert!(
@@ -139,7 +139,7 @@ async fn test_unarchived_adapter_becomes_loadable() -> Result<()> {
 
     // Verify archive fields are cleared
     let adapter = db
-        .get_adapter("adapter-to-unarchive")
+        .get_adapter_for_tenant("tenant-unarchive-test", "adapter-to-unarchive")
         .await?
         .expect("Adapter should exist");
     assert!(
@@ -184,7 +184,7 @@ async fn test_purged_adapter_not_loadable() -> Result<()> {
 
     // Verify purged_at is set
     let adapter = db
-        .get_adapter("adapter-to-purge")
+        .get_adapter_for_tenant("tenant-purge-test", "adapter-to-purge")
         .await?
         .expect("Adapter should exist");
     assert!(

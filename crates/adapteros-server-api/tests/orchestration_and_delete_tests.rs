@@ -94,6 +94,9 @@ async fn delete_endpoints_succeed_and_404() {
             "hash",
             "var/test-datasets/aos-test-dataset",
             None,
+            None,
+            Some("ready"),
+            Some("hash"),
         )
         .await
         .expect("create dataset");

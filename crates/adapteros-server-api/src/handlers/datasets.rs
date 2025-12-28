@@ -13,7 +13,7 @@ pub use self::tenant::bind_dataset_to_tenant;
 
 use self::chunked::{assemble_chunks, expected_chunks, persist_chunk, prepare_session};
 use self::fs_utils::clean_temp;
-use self::hashing::hash_multi;
+use self::hashing::{hash_dataset_manifest, DatasetHashInput};
 use self::progress::emit_progress;
 use super::chunked_upload::{
     CompressionFormat, FileValidator, DEFAULT_CHUNK_SIZE, MAX_CHUNK_SIZE, MIN_CHUNK_SIZE,
@@ -121,6 +121,7 @@ pub struct ListDatasetsQuery {
     pub offset: Option<i64>,
     pub format: Option<String>,
     pub validation_status: Option<String>,
+    pub workspace_id: Option<String>,
 }
 
 /// Request to initiate a chunked upload
@@ -249,7 +250,7 @@ pub struct UploadSessionStatusResponse {
 /// Upload files to create a new dataset
 #[utoipa::path(
     post,
-    path = "/v1/datasets/upload",
+    path = "/v1/datasets",
     responses(
         (status = 200, description = "Dataset created successfully", body = UploadDatasetResponse),
         (status = 400, description = "Invalid request"),
@@ -299,11 +300,6 @@ pub async fn upload_dataset(
     };
     let storage = FsByteStorage::new(paths.files.clone(), adapters_root.into());
 
-    let dataset_path = paths.dataset_dir(&dataset_id);
-    let temp_path = paths.dataset_temp_dir(&dataset_id);
-
-    ensure_dirs([dataset_path.as_path(), temp_path.as_path()]).await?;
-
     let (soft_quota, hard_quota) = dataset_quota_limits();
     let usage = compute_tenant_storage_usage(&state, &claims.tenant_id)
         .await
@@ -321,12 +317,20 @@ pub async fn upload_dataset(
         Some(0),
     );
 
-    let mut uploaded_files = Vec::new();
+    struct PendingFile {
+        file_name: String,
+        mime_type: Option<String>,
+        data: bytes::Bytes,
+        file_hash: String,
+    }
+
+    let mut pending_files: Vec<PendingFile> = Vec::new();
     let mut total_size = 0usize;
     let mut dataset_name = String::new();
     let mut dataset_description = String::new();
     let mut dataset_format = "jsonl".to_string();
     let mut file_count = 0;
+    let mut workspace_id: Option<String> = None;
 
     // Process multipart form
     while let Some(field) = multipart
@@ -355,6 +359,12 @@ pub async fn upload_dataset(
                     .await
                     .map_err(|e| bad_request(format!("Failed to read format field: {}", e)))?;
             }
+            "workspace_id" => {
+                let ws = field.text().await.map_err(|e| {
+                    bad_request(format!("Failed to read workspace_id field: {}", e))
+                })?;
+                workspace_id = Some(ws);
+            }
             "file" | "files" => {
                 let file_name = field
                     .file_name()
@@ -373,9 +383,22 @@ pub async fn upload_dataset(
 
                 let file_size = data.len();
 
+                if file_size == 0 {
+                    return Err(bad_request(format!(
+                        "Unsupported file {}: empty uploads are not allowed",
+                        file_name
+                    )));
+                }
+
+                if file_name.contains('/') || file_name.contains('\\') || file_name.contains("..") {
+                    return Err(bad_request(format!(
+                        "Unsupported file name '{}': path separators are not allowed",
+                        file_name
+                    )));
+                }
+
                 // Check file size limits
                 if file_size > MAX_FILE_SIZE {
-                    clean_temp(&temp_path).await;
                     return Err(payload_too_large(&format!(
                         "File {} exceeds maximum size of {}MB",
                         file_name,
@@ -385,7 +408,6 @@ pub async fn upload_dataset(
 
                 total_size += file_size;
                 if total_size > MAX_TOTAL_SIZE {
-                    clean_temp(&temp_path).await;
                     return Err(payload_too_large(&format!(
                         "Total upload size exceeds maximum of {}MB",
                         MAX_TOTAL_SIZE / 1024 / 1024
@@ -394,7 +416,6 @@ pub async fn upload_dataset(
 
                 let predicted_usage = current_usage + total_size as u64;
                 if predicted_usage > hard_quota {
-                    clean_temp(&temp_path).await;
                     return Err(quota_error(format!(
                         "Dataset storage quota exceeded: {} > {} bytes",
                         predicted_usage, hard_quota
@@ -412,46 +433,13 @@ pub async fn upload_dataset(
                 // Compute hash using B3Hash
                 let file_hash = hash_file(&data);
 
-                let key = StorageKey {
-                    tenant_id: Some(claims.tenant_id.clone()),
-                    object_id: dataset_id.clone(),
-                    version_id: None,
-                    file_name: file_name.clone(),
-                    kind: StorageKind::DatasetFile,
-                };
-                let location = storage
-                    .store_bytes(&key, &data)
-                    .await
-                    .map_err(|e| internal_error(format!("Failed to store dataset file: {}", e)))?;
-                let permanent_path = location.path;
-
                 file_count += 1;
 
-                // Send progress event for this file
-                emit_progress(
-                    state.dataset_progress_tx.as_ref(),
-                    &dataset_id,
-                    "upload",
-                    Some(file_name.clone()),
-                    if file_count > 0 {
-                        (file_count as f32 / 10.0).min(100.0)
-                    } else {
-                        0.0
-                    },
-                    format!("Uploaded {} ({} bytes)", file_name, file_size),
-                    None,
-                    Some(file_count),
-                );
-
-                uploaded_files.push(DatasetFile {
-                    id: Uuid::now_v7().to_string(),
-                    dataset_id: dataset_id.clone(),
+                pending_files.push(PendingFile {
                     file_name: file_name.clone(),
-                    file_path: permanent_path.to_string_lossy().to_string(),
-                    size_bytes: file_size as i64,
-                    hash_b3: file_hash,
                     mime_type: Some(content_type),
-                    created_at: chrono::Utc::now().to_rfc3339(),
+                    data,
+                    file_hash,
                 });
                 current_usage += file_size as u64;
 
@@ -467,11 +455,7 @@ pub async fn upload_dataset(
         }
     }
 
-    // Clean up temp directory
-    clean_temp(&temp_path).await;
-
-    if uploaded_files.is_empty() {
-        clean_dataset_dir(&dataset_path).await;
+    if pending_files.is_empty() {
         return Err(bad_request("No files uploaded"));
     }
 
@@ -479,9 +463,138 @@ pub async fn upload_dataset(
         dataset_name = format!("Dataset {}", &dataset_id[0..8]);
     }
 
-    // Compute dataset hash from all file hashes using B3Hash
-    let file_hashes: Vec<String> = uploaded_files.iter().map(|f| f.hash_b3.clone()).collect();
-    let dataset_hash = hash_multi(&file_hashes);
+    let workspace_id_opt = workspace_id;
+    // Ensure caller can access the workspace when provided
+    if let Some(ref ws_id) = workspace_id_opt {
+        let access = state
+            .db
+            .check_workspace_access(ws_id, &claims.sub, &claims.tenant_id)
+            .await
+            .map_err(|e| db_error(format!("Failed to check workspace access: {}", e)))?;
+        if access.is_none() {
+            return Err(forbidden(
+                "Access denied: you are not a member of this workspace",
+            ));
+        }
+    }
+
+    let storage_workspace = workspace_id_opt
+        .clone()
+        .unwrap_or_else(|| claims.tenant_id.clone());
+    let resolved_workspace_id = Some(storage_workspace.clone());
+
+    let dataset_path = paths.dataset_dir(&storage_workspace, &dataset_id);
+    let temp_path = paths.dataset_temp_dir(&storage_workspace, &dataset_id);
+    ensure_dirs([dataset_path.as_path(), temp_path.as_path()]).await?;
+
+    // Deterministic dataset hash based on manifest
+    let manifest: Vec<DatasetHashInput> = pending_files
+        .iter()
+        .map(|f| DatasetHashInput {
+            file_name: f.file_name.clone(),
+            size_bytes: f.data.len() as u64,
+            file_hash_b3: f.file_hash.clone(),
+        })
+        .collect();
+    let dataset_hash = hash_dataset_manifest(&manifest);
+
+    // Deduplicate by dataset hash within workspace (same tenant or admin only)
+    if let Some(ref ws_id) = workspace_id_opt {
+        if let Some(existing) = state
+            .db
+            .get_dataset_by_hash_and_workspace(&dataset_hash, ws_id)
+            .await
+            .map_err(|e| db_error(format!("Failed to check existing datasets: {}", e)))?
+        {
+            if existing
+                .tenant_id
+                .as_deref()
+                .map(|t| t == claims.tenant_id)
+                .unwrap_or(false)
+                || claims.role == "admin"
+            {
+                info!(
+                    dataset_id = %existing.id,
+                    workspace_id = %ws_id,
+                    "Reusing existing dataset with identical hash"
+                );
+                return Ok(Json(UploadDatasetResponse {
+                    schema_version: "1.0".to_string(),
+                    dataset_id: existing.id,
+                    name: existing.name,
+                    description: existing.description,
+                    file_count: existing.file_count,
+                    total_size_bytes: existing.total_size_bytes,
+                    format: existing.format,
+                    hash: existing.hash_b3.clone(),
+                    dataset_hash_b3: Some(existing.dataset_hash_b3.clone()),
+                    status: Some(existing.status.clone()),
+                    workspace_id: existing
+                        .workspace_id
+                        .clone()
+                        .or_else(|| resolved_workspace_id.clone()),
+                    reused: true,
+                    created_at: existing.created_at,
+                }));
+            }
+        }
+    }
+
+    // Persist files now that deduplication is done
+    let total_files = file_count.max(1);
+    let mut uploaded_files = Vec::new();
+    for (idx, pending) in pending_files.into_iter().enumerate() {
+        let key = StorageKey {
+            tenant_id: Some(claims.tenant_id.clone()),
+            object_id: format!("{}/{}", storage_workspace, dataset_id),
+            version_id: None,
+            file_name: pending.file_name.clone(),
+            kind: StorageKind::DatasetFile,
+        };
+        let location = storage
+            .store_bytes(&key, &pending.data)
+            .await
+            .map_err(|e| {
+                let msg = e.to_string();
+                if msg.to_ascii_lowercase().contains("insufficient disk space") {
+                    (
+                        StatusCode::INSUFFICIENT_STORAGE,
+                        Json(
+                            ErrorResponse::new(msg.clone())
+                                .with_code("INSUFFICIENT_STORAGE"),
+                        ),
+                    )
+                } else {
+                    internal_error(format!("Failed to store dataset file: {}", msg))
+                }
+            })?;
+
+        emit_progress(
+            state.dataset_progress_tx.as_ref(),
+            &dataset_id,
+            "upload",
+            Some(pending.file_name.clone()),
+            ((idx + 1) as f32 / total_files as f32) * 100.0,
+            format!(
+                "Stored {} ({} bytes)",
+                pending.file_name,
+                pending.data.len()
+            ),
+            None,
+            Some(total_files),
+        );
+
+        uploaded_files.push(DatasetFile {
+            id: Uuid::now_v7().to_string(),
+            dataset_id: dataset_id.clone(),
+            file_name: pending.file_name.clone(),
+            file_path: location.path.to_string_lossy().to_string(),
+            size_bytes: pending.data.len() as i64,
+            hash_b3: pending.file_hash.clone(),
+            mime_type: pending.mime_type,
+            created_at: chrono::Utc::now().to_rfc3339(),
+        });
+    }
 
     // Store in database - associate dataset with the user's tenant
     state
@@ -498,6 +611,9 @@ pub async fn upload_dataset(
             &dataset_hash,
             &dataset_path.to_string_lossy(),
             Some(&claims.sub),
+            resolved_workspace_id.as_deref(),
+            Some("ready"),
+            Some(&dataset_hash),
         )
         .await
         .map_err(|e| db_error(format!("Failed to create dataset record: {}", e)))?;
@@ -565,7 +681,11 @@ pub async fn upload_dataset(
         file_count: uploaded_files.len() as i32,
         total_size_bytes: total_size as i64,
         format: dataset_format,
-        hash: dataset_hash,
+        hash: dataset_hash.clone(),
+        dataset_hash_b3: Some(dataset_hash),
+        status: Some("ready".to_string()),
+        workspace_id: resolved_workspace_id,
+        reused: false,
         created_at: chrono::Utc::now().to_rfc3339(),
     }))
 }
@@ -663,12 +783,32 @@ pub async fn list_datasets(
 
     let limit = params.limit.unwrap_or(50).min(100);
     let _offset = params.offset.unwrap_or(0);
+    let workspace_id = params.workspace_id.clone();
 
-    let datasets = state
-        .db
-        .list_training_datasets_for_tenant(&claims.tenant_id, limit)
-        .await
-        .map_err(|e| db_error(format!("Failed to list datasets: {}", e)))?;
+    let datasets = if let Some(ref ws_id) = workspace_id {
+        let workspace_access = state
+            .db
+            .check_workspace_access(ws_id, &claims.sub, &claims.tenant_id)
+            .await
+            .map_err(|e| db_error(format!("Failed to check workspace access: {}", e)))?;
+        if workspace_access.is_none() {
+            return Err(forbidden(
+                "Access denied: you are not a member of this workspace",
+            ));
+        }
+
+        state
+            .db
+            .list_training_datasets_for_workspace(&claims.tenant_id, ws_id, limit)
+            .await
+            .map_err(|e| db_error(format!("Failed to list datasets: {}", e)))?
+    } else {
+        state
+            .db
+            .list_training_datasets_for_tenant(&claims.tenant_id, limit)
+            .await
+            .map_err(|e| db_error(format!("Failed to list datasets: {}", e)))?
+    };
 
     // Tenant isolation enforced at database level via list_training_datasets_for_tenant
     let is_admin = claims.role == "admin";
@@ -704,7 +844,10 @@ pub async fn list_datasets(
             total_size_bytes: d.total_size_bytes,
             format: d.format,
             hash: d.hash_b3,
+            dataset_hash_b3: Some(d.dataset_hash_b3),
             storage_path: d.storage_path,
+            status: d.status,
+            workspace_id: d.workspace_id,
             validation_status: map_validation_status(&d.validation_status),
             validation_errors: map_validation_errors(d.validation_errors),
             trust_state,
@@ -746,6 +889,19 @@ pub async fn get_dataset(
         .map_err(|e| db_error(format!("Failed to get dataset: {}", e)))?
         .ok_or_else(|| not_found("Dataset"))?;
 
+    if let Some(ref ws_id) = dataset.workspace_id {
+        let access = state
+            .db
+            .check_workspace_access(ws_id, &claims.sub, &claims.tenant_id)
+            .await
+            .map_err(|e| db_error(format!("Failed to check workspace access: {}", e)))?;
+        if access.is_none() {
+            return Err(forbidden(
+                "Access denied: you are not a member of this workspace",
+            ));
+        }
+    }
+
     // CRITICAL: Validate tenant isolation - non-admin users can only access their own tenant's datasets
     if let Some(ref dataset_tenant_id) = dataset.tenant_id {
         validate_tenant_isolation(&claims, dataset_tenant_id)?;
@@ -776,7 +932,10 @@ pub async fn get_dataset(
         total_size_bytes: dataset.total_size_bytes,
         format: dataset.format,
         hash: dataset.hash_b3,
+        dataset_hash_b3: Some(dataset.dataset_hash_b3),
         storage_path: dataset.storage_path,
+        status: dataset.status,
+        workspace_id: dataset.workspace_id,
         validation_status: map_validation_status(&dataset.validation_status),
         validation_errors: map_validation_errors(dataset.validation_errors),
         trust_state,
@@ -2777,7 +2936,7 @@ pub async fn complete_chunked_upload(
     let dataset_path = output_path
         .parent()
         .map(|p| p.to_path_buf())
-        .unwrap_or_else(|| paths.dataset_dir(&dataset_id));
+        .unwrap_or_else(|| paths.dataset_dir(&claims.tenant_id, &dataset_id));
     ensure_dirs([dataset_path.as_path()]).await?;
 
     // Assemble chunks
@@ -2862,6 +3021,9 @@ pub async fn complete_chunked_upload(
             &file_hash,
             &dataset_path.to_string_lossy(),
             Some(&claims.sub),
+            None,
+            Some("ready"),
+            Some(&file_hash),
         )
         .await
         .map_err(|e| {

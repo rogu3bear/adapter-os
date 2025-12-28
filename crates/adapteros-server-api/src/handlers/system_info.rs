@@ -5,6 +5,7 @@ use crate::auth::Claims;
 use crate::permissions::{require_permission, Permission};
 use crate::state::AppState;
 use crate::types::*;
+use adapteros_lora_worker::memory::UmaStats;
 use axum::extract::{Extension, State};
 use axum::Json;
 use serde::Serialize;
@@ -44,6 +45,18 @@ pub struct MemoryUsage {
     pub used_mb: u64,
     pub available_mb: u64,
     pub headroom_pct: f32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ane: Option<AneUsage>,
+}
+
+/// Apple Neural Engine usage (when available)
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct AneUsage {
+    pub allocated_mb: u64,
+    pub used_mb: u64,
+    pub available_mb: u64,
+    pub usage_pct: f32,
 }
 
 /// Compute usage metrics
@@ -99,6 +112,7 @@ pub async fn get_resource_usage(
     // Get UMA memory stats
     let uma_stats = state.uma_monitor.get_uma_stats().await;
     let pressure = state.uma_monitor.get_current_pressure();
+    let ane_usage = ane_usage_from_stats(&uma_stats);
 
     // Get workers
     let workers = state.db.list_all_workers().await.map_err(|e| {
@@ -142,6 +156,7 @@ pub async fn get_resource_usage(
             used_mb: uma_stats.used_mb,
             available_mb: uma_stats.available_mb,
             headroom_pct: uma_stats.headroom_pct,
+            ane: ane_usage,
         },
         compute: ComputeUsage {
             pressure_level: pressure.to_string(),
@@ -152,6 +167,20 @@ pub async fn get_resource_usage(
         total_adapters_loaded: loaded_adapters,
         timestamp: chrono::Utc::now().to_rfc3339(),
     }))
+}
+
+fn ane_usage_from_stats(stats: &UmaStats) -> Option<AneUsage> {
+    let allocated_mb = stats.ane_allocated_mb?;
+    let used_mb = stats.ane_used_mb?;
+    let available_mb = stats.ane_available_mb?;
+    let usage_pct = stats.ane_usage_percent?;
+
+    Some(AneUsage {
+        allocated_mb,
+        used_mb,
+        available_mb,
+        usage_pct,
+    })
 }
 
 // Re-export system info handlers from parent module for routes.rs

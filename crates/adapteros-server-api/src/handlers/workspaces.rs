@@ -6,15 +6,22 @@
 use crate::audit_helper::{actions, log_success_or_warn, resources};
 use crate::handlers::{AppState, Claims, ErrorResponse};
 use crate::permissions::{require_permission, Permission};
+use crate::uds_client::UdsClient;
 use crate::PaginatedResponse;
+use adapteros_api_types::ModelLoadStatus;
+use adapteros_config::resolve_worker_socket_for_cp;
+use adapteros_core::AosError;
 use adapteros_db::workspaces::{ResourceType, WorkspaceRole};
+use adapteros_db::WorkspaceActiveState;
 use axum::{
     extract::{Extension, Path, Query, State},
     http::StatusCode,
     response::Json,
 };
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 use std::str::FromStr;
+use std::time::Duration;
 use tracing::{error, info};
 use utoipa::ToSchema;
 
@@ -57,6 +64,38 @@ pub struct UpdateWorkspaceMemberRequest {
 pub struct ShareResourceRequest {
     pub resource_type: String,
     pub resource_id: String,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct WorkspaceActiveStateRequest {
+    /// Base model to mark as active for this workspace (optional).
+    pub active_base_model_id: Option<String>,
+    /// Plan to mark as active for this workspace (optional).
+    pub active_plan_id: Option<String>,
+    /// Adapters to keep active for this workspace (optional).
+    #[serde(default)]
+    pub active_adapter_ids: Vec<String>,
+    /// Manifest hash associated with the active plan/model.
+    pub manifest_hash_b3: Option<String>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct WorkspaceActiveStateResponse {
+    pub workspace_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub active_base_model_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub active_plan_id: Option<String>,
+    #[serde(default)]
+    pub active_adapter_ids: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub manifest_hash_b3: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_loaded: Option<bool>,
+    #[serde(default)]
+    pub model_mismatch: bool,
 }
 
 /// List all workspaces with pagination
@@ -1371,4 +1410,365 @@ pub async fn unshare_workspace_resource(
     .await;
 
     Ok(Json(serde_json::json!({"status": "unshared"})))
+}
+
+/// Get the active state for a workspace (model/plan/adapters).
+#[utoipa::path(
+    get,
+    path = "/v1/workspaces/{workspace_id}/active",
+    params(
+        ("workspace_id" = String, Path, description = "Workspace/tenant ID")
+    ),
+    responses(
+        (status = 200, description = "Active workspace state", body = WorkspaceActiveStateResponse),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Access denied"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "workspaces"
+)]
+pub async fn get_workspace_active_state(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(workspace_id): Path<String>,
+) -> Result<Json<WorkspaceActiveStateResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::WorkspaceView)?;
+    ensure_workspace_access(&claims, &workspace_id)?;
+
+    let record = state
+        .db
+        .get_workspace_active_state(&workspace_id)
+        .await
+        .map_err(|e| internal_error("Failed to fetch workspace active state", e))?;
+
+    let response = build_active_state_response(&state, workspace_id, record).await?;
+    Ok(Json(response))
+}
+
+/// Set the active state for a workspace.
+#[utoipa::path(
+    post,
+    path = "/v1/workspaces/{workspace_id}/active",
+    params(
+        ("workspace_id" = String, Path, description = "Workspace/tenant ID")
+    ),
+    request_body = WorkspaceActiveStateRequest,
+    responses(
+        (status = 200, description = "Active workspace state updated", body = WorkspaceActiveStateResponse),
+        (status = 400, description = "Invalid request"),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Access denied"),
+        (status = 404, description = "Resource not found"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "workspaces"
+)]
+pub async fn set_workspace_active_state(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(workspace_id): Path<String>,
+    Json(req): Json<WorkspaceActiveStateRequest>,
+) -> Result<Json<WorkspaceActiveStateResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::WorkspaceManage)?;
+    ensure_workspace_access(&claims, &workspace_id)?;
+
+    if let Some(ref model_id) = req.active_base_model_id {
+        let model = state
+            .db
+            .get_model_for_tenant(&workspace_id, model_id)
+            .await
+            .map_err(|e| internal_error("Failed to validate base model", e))?;
+
+        if model.is_none() {
+            return Err(not_found_response("Model", model_id));
+        }
+    }
+
+    let mut plan_manifest_hash: Option<String> = None;
+    if let Some(ref plan_id) = req.active_plan_id {
+        let plan = state
+            .db
+            .get_plan(plan_id)
+            .await
+            .map_err(|e| internal_error("Failed to validate plan", e))?;
+
+        let Some(plan) = plan else {
+            return Err(not_found_response("Plan", plan_id));
+        };
+
+        if plan.tenant_id != workspace_id {
+            return Err((
+                StatusCode::FORBIDDEN,
+                Json(
+                    ErrorResponse::new("Plan does not belong to workspace").with_code("FORBIDDEN"),
+                ),
+            ));
+        }
+
+        plan_manifest_hash = Some(plan.manifest_hash_b3);
+    }
+
+    for adapter_id in &req.active_adapter_ids {
+        let adapter = state
+            .db
+            .get_adapter_for_tenant(&workspace_id, adapter_id)
+            .await
+            .map_err(|e| internal_error("Failed to validate adapter", e))?;
+
+        if adapter.is_none() {
+            return Err(not_found_response("Adapter", adapter_id));
+        }
+    }
+
+    let manifest_hash = req
+        .manifest_hash_b3
+        .clone()
+        .or(plan_manifest_hash)
+        .or_else(|| state.manifest_hash.clone());
+
+    let stored = state
+        .db
+        .upsert_workspace_active_state(
+            &workspace_id,
+            req.active_base_model_id.as_deref(),
+            req.active_plan_id.as_deref(),
+            Some(req.active_adapter_ids.as_slice()),
+            manifest_hash.as_deref(),
+        )
+        .await
+        .map_err(|e| internal_error("Failed to store workspace active state", e))?;
+
+    let response = build_active_state_response(&state, workspace_id, Some(stored)).await?;
+    Ok(Json(response))
+}
+
+pub(crate) async fn build_active_state_response(
+    state: &AppState,
+    workspace_id: String,
+    record: Option<WorkspaceActiveState>,
+) -> Result<WorkspaceActiveStateResponse, (StatusCode, Json<ErrorResponse>)> {
+    let mut active_adapter_ids: Vec<String> = Vec::new();
+    let mut active_base_model_id = None;
+    let mut active_plan_id = None;
+    let mut manifest_hash_b3 = None;
+    let mut updated_at = None;
+
+    if let Some(state_record) = record {
+        active_base_model_id = state_record.active_base_model_id.clone();
+        active_plan_id = state_record.active_plan_id.clone();
+        manifest_hash_b3 = state_record.manifest_hash_b3.clone();
+        updated_at = Some(state_record.updated_at.clone());
+
+        if let Some(raw) = state_record.active_adapter_ids.as_deref() {
+            if !raw.is_empty() {
+                active_adapter_ids = serde_json::from_str(raw).map_err(|e| {
+                    internal_error("Failed to parse stored adapter ids", e.to_string())
+                })?;
+            }
+        }
+    }
+
+    let (model_loaded, model_mismatch) = if let Some(model_id) = active_base_model_id.as_deref() {
+        match is_model_ready(state, &workspace_id, model_id).await? {
+            Some(true) => (Some(true), false),
+            Some(false) | None => (Some(false), true),
+        }
+    } else {
+        (None, false)
+    };
+
+    Ok(WorkspaceActiveStateResponse {
+        workspace_id,
+        active_base_model_id,
+        active_plan_id,
+        active_adapter_ids,
+        manifest_hash_b3,
+        updated_at,
+        model_loaded,
+        model_mismatch,
+    })
+}
+
+async fn is_model_ready(
+    state: &AppState,
+    tenant_id: &str,
+    model_id: &str,
+) -> Result<Option<bool>, (StatusCode, Json<ErrorResponse>)> {
+    is_model_ready_internal(state, tenant_id, model_id)
+        .await
+        .map_err(|e| internal_error("Failed to read model status", e))
+}
+
+async fn is_model_ready_internal(
+    state: &AppState,
+    tenant_id: &str,
+    model_id: &str,
+) -> Result<Option<bool>, AosError> {
+    let statuses = state.db.list_base_model_statuses().await?;
+
+    let status = statuses
+        .into_iter()
+        .find(|s| s.tenant_id == tenant_id && s.model_id == model_id);
+
+    Ok(status.map(|s| ModelLoadStatus::parse_status(&s.status).is_ready()))
+}
+
+/// Reconcile active workspace state against worker/model status.
+///
+/// If an active model is recorded but the worker reports nothing loaded or the
+/// model status is not ready, mark the base model status as an error so the
+/// mismatch surfaces in readiness probes.
+pub async fn reconcile_active_models(state: &AppState) {
+    let active_states = match state.db.list_workspace_active_states().await {
+        Ok(states) => states,
+        Err(e) => {
+            error!(
+                error = %e,
+                "Failed to load active workspace state for reconciliation"
+            );
+            return;
+        }
+    };
+
+    if active_states.is_empty() {
+        return;
+    }
+
+    let worker_loaded = worker_reports_loaded(state).await;
+
+    for record in active_states {
+        let Some(model_id) = record.active_base_model_id.as_deref() else {
+            continue;
+        };
+
+        match is_model_ready_internal(state, &record.tenant_id, model_id).await {
+            Ok(Some(true)) if worker_loaded => {
+                // Active and ready
+            }
+            Ok(_) => {
+                let message = if !worker_loaded {
+                    "Active model not loaded on worker"
+                } else {
+                    "Active model marked active but not ready"
+                };
+
+                if let Err(e) = state
+                    .db
+                    .update_base_model_status(
+                        &record.tenant_id,
+                        model_id,
+                        ModelLoadStatus::Error.as_str(),
+                        Some(message),
+                        None,
+                    )
+                    .await
+                {
+                    error!(
+                        error = %e,
+                        tenant_id = %record.tenant_id,
+                        model_id = %model_id,
+                        "Failed to mark active model mismatch"
+                    );
+                }
+            }
+            Err(e) => {
+                error!(
+                    error = %e,
+                    tenant_id = %record.tenant_id,
+                    model_id = %model_id,
+                    "Failed to reconcile active model status"
+                );
+            }
+        }
+    }
+}
+
+async fn worker_reports_loaded(state: &AppState) -> bool {
+    let Some(uds_path) = resolve_worker_socket_path(state).await else {
+        return false;
+    };
+
+    let client = UdsClient::new(Duration::from_secs(5));
+    match client.get_model_status(&uds_path).await {
+        Ok(status) => {
+            status
+                .get("adapter_count")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0)
+                > 0
+        }
+        Err(e) => {
+            info!(
+                error = %e,
+                path = %uds_path.display(),
+                "Worker status probe failed during reconciliation"
+            );
+            false
+        }
+    }
+}
+
+async fn resolve_worker_socket_path(state: &AppState) -> Option<PathBuf> {
+    if let Ok(workers) = state.db.list_all_workers().await {
+        if let Some(worker) = workers.first() {
+            return Some(PathBuf::from(&worker.uds_path));
+        }
+    }
+
+    match resolve_worker_socket_for_cp() {
+        Ok(resolved) => {
+            if resolved.path.exists() {
+                return Some(resolved.path);
+            }
+            info!(
+                path = %resolved.path.display(),
+                source = %resolved.source,
+                "Resolved worker socket path does not exist during reconciliation"
+            );
+        }
+        Err(e) => {
+            error!(error = %e, "Failed to resolve worker socket for reconciliation");
+        }
+    }
+
+    None
+}
+
+fn ensure_workspace_access(
+    claims: &Claims,
+    workspace_id: &str,
+) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
+    let tenant_match =
+        workspace_id == claims.tenant_id || claims.admin_tenants.iter().any(|t| t == workspace_id);
+
+    if tenant_match {
+        Ok(())
+    } else {
+        Err((
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse::new("Access denied to workspace").with_code("FORBIDDEN")),
+        ))
+    }
+}
+
+fn not_found_response(entity: &str, id: &str) -> (StatusCode, Json<ErrorResponse>) {
+    (
+        StatusCode::NOT_FOUND,
+        Json(
+            ErrorResponse::new(format!("{entity} not found"))
+                .with_code("NOT_FOUND")
+                .with_string_details(format!("{entity} '{id}' does not exist")),
+        ),
+    )
+}
+
+fn internal_error<E: ToString>(message: &str, err: E) -> (StatusCode, Json<ErrorResponse>) {
+    (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(
+            ErrorResponse::new(message)
+                .with_code("INTERNAL_ERROR")
+                .with_string_details(err.to_string()),
+        ),
+    )
 }

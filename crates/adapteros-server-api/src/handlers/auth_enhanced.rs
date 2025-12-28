@@ -8,8 +8,9 @@ use crate::auth::{
 };
 use crate::auth_common::{
     attach_auth_cookie, attach_csrf_cookie, attach_refresh_cookie, clear_auth_cookies, AuthConfig,
-    AuthContext,
 };
+#[cfg(all(feature = "dev-bypass", debug_assertions))]
+use crate::auth_common::AuthContext;
 use crate::ip_extraction::ClientIp;
 use crate::mfa::{
     decrypt_mfa_secret, derive_mfa_key, encrypt_mfa_secret, generate_backup_codes,

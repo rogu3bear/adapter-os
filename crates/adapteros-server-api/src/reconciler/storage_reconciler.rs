@@ -275,7 +275,18 @@ mod tests {
 
         // Dataset with a present file
         let ds1 = db
-            .create_training_dataset_with_id("ds1", "present", None, "jsonl", "hash", "", None)
+            .create_training_dataset_with_id(
+                "ds1",
+                "present",
+                None,
+                "jsonl",
+                "hash",
+                "",
+                None,
+                None,
+                Some("ready"),
+                Some("hash"),
+            )
             .await
             .unwrap();
         // Set tenant_id on dataset (required by dataset_files trigger)
@@ -305,7 +316,18 @@ mod tests {
 
         // Dataset with missing file
         let ds2 = db
-            .create_training_dataset_with_id("ds2", "missing", None, "jsonl", "hash", "", None)
+            .create_training_dataset_with_id(
+                "ds2",
+                "missing",
+                None,
+                "jsonl",
+                "hash",
+                "",
+                None,
+                None,
+                Some("ready"),
+                Some("hash"),
+            )
             .await
             .unwrap();
         // Set tenant_id on dataset (required by dataset_files trigger)

@@ -311,6 +311,67 @@ fn map_inference_error(id: String, err: crate::types::InferenceError) -> BatchIn
                     )),
             ),
         },
+        InferenceError::AdapterNotFound(msg) => BatchInferItemResponse {
+            id,
+            response: None,
+            error: Some(
+                ErrorResponse::new("adapter not found")
+                    .with_code("NOT_FOUND")
+                    .with_string_details(msg),
+            ),
+        },
+        InferenceError::WorkerIdUnavailable { tenant_id, reason } => BatchInferItemResponse {
+            id,
+            response: None,
+            error: Some(
+                ErrorResponse::new("worker ID unavailable")
+                    .with_code("SERVICE_UNAVAILABLE")
+                    .with_string_details(format!(
+                        "Worker ID for tenant {} unavailable: {}",
+                        tenant_id, reason
+                    )),
+            ),
+        },
+        InferenceError::CacheBudgetExceeded {
+            needed_mb,
+            freed_mb,
+            pinned_count,
+            active_count,
+            max_mb,
+            model_key,
+        } => BatchInferItemResponse {
+            id,
+            response: None,
+            error: Some(
+                ErrorResponse::new("cache budget exceeded")
+                    .with_code("SERVICE_UNAVAILABLE")
+                    .with_string_details(format!(
+                        "Model {} needs {}MB, freed {}MB ({} pinned, {} active), max {}MB",
+                        model_key.unwrap_or_default(),
+                        needed_mb,
+                        freed_mb,
+                        pinned_count,
+                        active_count,
+                        max_mb
+                    )),
+            ),
+        },
+        InferenceError::PolicyViolation {
+            tenant_id,
+            policy_id,
+            reason,
+        } => BatchInferItemResponse {
+            id,
+            response: None,
+            error: Some(
+                ErrorResponse::new("policy violation")
+                    .with_code("FORBIDDEN")
+                    .with_string_details(format!(
+                        "Policy {} for tenant {} violated: {}",
+                        policy_id, tenant_id, reason
+                    )),
+            ),
+        },
         InferenceError::RagError(msg) | InferenceError::WorkerError(msg) => {
             BatchInferItemResponse {
                 id,
@@ -330,51 +391,6 @@ fn map_inference_error(id: String, err: crate::types::InferenceError) -> BatchIn
                     .with_code("WORKER_DEGRADED")
                     .with_string_details(format!(
                         "Worker degraded for tenant {}: {}",
-                        tenant_id, reason
-                    )),
-            ),
-        },
-        InferenceError::AdapterNotFound(msg) => BatchInferItemResponse {
-            id,
-            response: None,
-            error: Some(
-                ErrorResponse::new("adapter not found")
-                    .with_code("NOT_FOUND")
-                    .with_string_details(msg),
-            ),
-        },
-        InferenceError::CacheBudgetExceeded {
-            needed_mb,
-            freed_mb,
-            pinned_count,
-            active_count,
-            max_mb,
-            model_key,
-        } => BatchInferItemResponse {
-            id,
-            response: None,
-            error: Some(
-                ErrorResponse::new("model cache budget exceeded")
-                    .with_code("CACHE_BUDGET_EXCEEDED")
-                    .with_details(serde_json::json!({
-                        "needed_mb": needed_mb,
-                        "freed_mb": freed_mb,
-                        "pinned_count": pinned_count,
-                        "active_count": active_count,
-                        "max_mb": max_mb,
-                        "model_key": model_key,
-                        "hint": "Consider increasing AOS_MODEL_CACHE_MAX_MB or reducing pinned models"
-                    })),
-            ),
-        },
-        InferenceError::WorkerIdUnavailable { tenant_id, reason } => BatchInferItemResponse {
-            id,
-            response: None,
-            error: Some(
-                ErrorResponse::new("worker ID unavailable")
-                    .with_code("SERVICE_UNAVAILABLE")
-                    .with_string_details(format!(
-                        "Worker ID unavailable for tenant {}: {}",
                         tenant_id, reason
                     )),
             ),
@@ -825,6 +841,7 @@ async fn process_batch_job(
                             crate::types::InferenceError::CacheBudgetExceeded { .. } => {
                                 "CACHE_BUDGET_EXCEEDED"
                             }
+                            crate::types::InferenceError::PolicyViolation { .. } => "FORBIDDEN",
                         };
 
                         let _ = state

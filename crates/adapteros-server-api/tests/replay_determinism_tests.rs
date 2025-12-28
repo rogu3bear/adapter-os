@@ -341,7 +341,7 @@ async fn test_failed_inference_records_minimal_replay_metadata() {
     request.stack_id = Some("missing-stack".to_string());
 
     let err = core
-        .route_and_infer(request, None)
+        .route_and_infer(request, None, None)
         .await
         .expect_err("inference should fail for missing stack");
 
@@ -374,7 +374,7 @@ async fn test_failed_capture_marks_replay_status() {
     request.request_id = inference_id.to_string();
     request.stack_id = Some("missing-stack".to_string());
 
-    core.route_and_infer(request, None)
+    core.route_and_infer(request, None, None)
         .await
         .expect_err("inference should fail for missing stack");
 
@@ -410,6 +410,9 @@ fn test_replay_key_includes_all_required_fields() {
             backend_profile: None,
             request_seed_hex: None,
             placement: None,
+            run_envelope: None,
+            adapter_hashes_b3: None,
+            dataset_hash_b3: None,
         },
         backend: "CoreML".to_string(),
         sampling_algorithm_version: "v1.0.0".to_string(),
@@ -451,6 +454,9 @@ fn test_sampling_params_serialization() {
         backend_profile: None,
         request_seed_hex: None,
         placement: None,
+        run_envelope: None,
+        adapter_hashes_b3: None,
+        dataset_hash_b3: None,
     };
 
     let json = serde_json::to_string(&params).unwrap();
@@ -1159,6 +1165,9 @@ async fn test_replay_with_golden_policy_enforcement() {
         backend_profile: None,
         request_seed_hex: None,
         placement: None,
+        run_envelope: None,
+        adapter_hashes_b3: None,
+        dataset_hash_b3: None,
     };
 
     let metadata_params = CreateReplayMetadataParams {
@@ -1333,6 +1342,9 @@ async fn test_replay_metadata_supports_drift_detection() {
         backend_profile: None,
         request_seed_hex: None,
         placement: None,
+        run_envelope: None,
+        adapter_hashes_b3: None,
+        dataset_hash_b3: None,
     };
 
     let metadata_params = CreateReplayMetadataParams {

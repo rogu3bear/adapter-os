@@ -149,7 +149,7 @@ async fn test_batch_throughput_simulation() {
 
     // Simulate processing batch sequentially
     let mut processed = 0;
-    for i in 0..BATCH_SIZE {
+    for _i in 0..BATCH_SIZE {
         // Simulate inference (50ms per request)
         tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
         processed += 1;
@@ -184,7 +184,7 @@ async fn test_batch_timeout_handling() {
 
     // Simulate batch processing with timeout
     let result = timeout(BATCH_TIMEOUT, async {
-        for i in 0..5 {
+        for _i in 0..5 {
             // Simulate inference
             tokio::time::sleep(Duration::from_millis(100)).await;
 

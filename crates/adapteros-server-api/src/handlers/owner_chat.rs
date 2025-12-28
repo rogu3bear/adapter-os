@@ -498,6 +498,7 @@ async fn try_adapter_response(state: &AppState, user_message: &str) -> Option<St
         prompt,
         max_tokens: 512,
         request_id: Some(uuid::Uuid::new_v4().to_string()),
+        run_envelope: None,
         require_evidence: false,
         admin_override: false,
         reasoning_mode: false,
@@ -523,6 +524,7 @@ async fn try_adapter_response(state: &AppState, user_message: &str) -> Option<St
         routing_policy: None,
         adapter_strength_overrides: None,
         stop_policy: None,
+        policy_mask_digest: None,
         utf8_healing: true,
     };
 

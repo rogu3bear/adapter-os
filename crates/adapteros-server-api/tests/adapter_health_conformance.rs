@@ -96,6 +96,9 @@ async fn blocked_trust_emits_unsafe_metric() {
             "hash-unsafe",
             "var/ds",
             Some(&claims.sub),
+            None,
+            Some("ready"),
+            Some("hash-unsafe"),
         )
         .await
         .expect("dataset");

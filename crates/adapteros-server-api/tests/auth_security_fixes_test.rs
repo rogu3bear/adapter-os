@@ -8,7 +8,7 @@
 //! 5. Constant-time password verification
 use adapteros_crypto::Keypair;
 use adapteros_server_api::auth::{
-    generate_token_ed25519, hash_password, validate_token_ed25519, verify_password,
+    generate_token_ed25519, hash_password, verify_password,
 };
 use argon2::{password_hash::SaltString, Argon2, PasswordHasher};
 use bcrypt;
@@ -175,8 +175,8 @@ fn test_jwt_validation_with_nbf() {
 
     // Create a token with nbf in the future (but within leeway)
     let now = Utc::now();
-    let nbf = (now + Duration::seconds(30)).timestamp(); // 30 seconds in future
-    let exp = (now + Duration::hours(1)).timestamp();
+    let _nbf = (now + Duration::seconds(30)).timestamp(); // 30 seconds in future
+    let _exp = (now + Duration::hours(1)).timestamp();
 
     // Generate token manually to set custom nbf
     let token = generate_token_ed25519(

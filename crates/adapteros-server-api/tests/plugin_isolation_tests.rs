@@ -14,7 +14,7 @@ use adapteros_core::{
 use adapteros_server_api::event_bus::EventBus;
 use async_trait::async_trait;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;

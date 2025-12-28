@@ -21,7 +21,8 @@ use crate::middleware::ApiKeyToken;
 use crate::permissions::Permission;
 use crate::state::AppState;
 use crate::types::{
-    ErrorResponse, InferRequest, InferResponse, InferenceError, InferenceRequestInternal,
+    new_run_envelope, set_policy_mask, ErrorResponse, InferRequest, InferResponse, InferenceError,
+    InferenceRequestInternal,
 };
 use adapteros_api_types::FailureCode;
 use adapteros_core::identity::IdentityEnvelope;
@@ -228,10 +229,20 @@ pub async fn infer(
 
     // Convert to internal format with the (possibly multi-turn) prompt
     let mut internal = InferenceRequestInternal::from((&req, &claims));
+    internal.request_id = request_id_str.clone();
     internal.prompt = base_prompt;
     internal.chat_context_hash = chat_context_hash;
     internal.policy_mask_digest = policy_mask_digest;
-    internal.claims = Some(claims.clone());
+    internal.run_envelope = Some(new_run_envelope(
+        &state,
+        &claims,
+        request_id_str.clone(),
+        internal.reasoning_mode,
+    ));
+    if let (Some(ref mut envelope), Some(digest)) = (&mut internal.run_envelope, policy_mask_digest)
+    {
+        set_policy_mask(envelope, Some(&digest));
+    }
     if let Some(token) = api_key {
         internal.worker_auth_token = Some(token.0 .0.clone());
     }

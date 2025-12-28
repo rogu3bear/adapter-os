@@ -214,6 +214,7 @@ pub async fn list_training_jobs(
                     dataset_id: record.dataset_id,
                     dataset_version_ids,
                     dataset_version_trust: None,
+                    dataset_hash_b3: None,
                     synthetic_mode: record.synthetic_mode.map(|v| v != 0).unwrap_or(false),
                     data_lineage_mode,
                     base_model_id: record.base_model_id,
@@ -271,6 +272,7 @@ pub async fn list_training_jobs(
                     coreml_adapter_hash_b3: None,
                     determinism_mode: None,
                     training_seed: None,
+                    seed_inputs_json: None,
                     require_gpu: None,
                     max_gpu_memory_mb: None,
                     examples_processed: None,
@@ -281,6 +283,7 @@ pub async fn list_training_jobs(
                     peak_gpu_memory_mb: None,
                     aos_path: None,
                     package_hash_b3: None,
+                    manifest_hash_b3: None,
                     manifest_rank: None,
                     manifest_base_model: None,
                     manifest_per_layer_hashes: None,
@@ -343,6 +346,140 @@ pub async fn list_training_jobs(
         page,
         page_size,
     }))
+}
+
+/// Create a minimal training job (workspace-scoped)
+#[utoipa::path(
+    post,
+    path = "/v1/training/jobs",
+    request_body = CreateTrainingJobRequest,
+    responses(
+        (status = 201, description = "Training job created", body = TrainingJobResponse),
+        (status = 400, description = "Invalid request", body = ErrorResponse),
+        (status = 403, description = "Workspace access denied", body = ErrorResponse)
+    ),
+    tag = "training"
+)]
+pub async fn create_training_job(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Json(req): Json<CreateTrainingJobRequest>,
+) -> Result<Json<TrainingJobResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::TrainingStart)?;
+
+    let workspace_id = if req.workspace_id.is_empty() {
+        claims.tenant_id.clone()
+    } else {
+        req.workspace_id.clone()
+    };
+
+    // Enforce workspace access (owner/member/viewer permitted for now)
+    let workspace_role = if workspace_id == claims.tenant_id {
+        Some(adapteros_db::workspaces::WorkspaceRole::Owner)
+    } else {
+        state
+            .db
+            .check_workspace_access(&workspace_id, &claims.sub, &claims.tenant_id)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("failed to check workspace access")
+                            .with_code("INTERNAL_ERROR")
+                            .with_string_details(e.to_string()),
+                    ),
+                )
+            })?
+    };
+
+    if workspace_role.is_none() {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(
+                ErrorResponse::new("workspace access denied")
+                    .with_code("TENANT_ISOLATION_ERROR")
+                    .with_string_details("user is not a member of the workspace"),
+            ),
+        ));
+    }
+
+    // Resolve dataset version (default to latest)
+    let dataset_version_id = match req.dataset_version_id {
+        Some(id) => id,
+        None => state
+            .db
+            .ensure_dataset_version_exists(&req.dataset_id)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    Json(
+                        ErrorResponse::new("failed to resolve dataset version")
+                            .with_code("DATASET_ERROR")
+                            .with_string_details(e.to_string()),
+                    ),
+                )
+            })?,
+    };
+
+    let adapter_name = req
+        .adapter_name
+        .clone()
+        .unwrap_or_else(|| format!("ws-{}-{}", workspace_id, Uuid::now_v7().to_string()));
+
+    let config = training_config_from_request(req.params.clone());
+    let dataset_version_ids = vec![CoreDatasetVersionSelection {
+        dataset_version_id,
+        weight: 1.0,
+    }];
+
+    let job = state
+        .training_service
+        .start_training(
+            adapter_name,
+            config,
+            None,                            // template_id
+            None,                            // repo_id
+            None,                            // target_branch
+            None,                            // base_version_id
+            Some(req.dataset_id.clone()),    // dataset_id
+            Some(dataset_version_ids),       // dataset_version_ids
+            false,                           // synthetic_mode
+            DataLineageMode::DatasetOnly,    // lineage
+            Some(claims.tenant_id.clone()),  // tenant_id
+            Some(claims.sub.clone()),        // initiated_by
+            Some(claims.role.clone()),       // initiated_by_role
+            Some(req.base_model_id.clone()), // base_model_id
+            None,                            // collection_id
+            Some(workspace_id.clone()),      // scope
+            req.lora_tier,                   // lora tier
+            None,                            // category
+            None,                            // description
+            None,                            // language
+            None,                            // framework_id
+            None,                            // framework_version
+            None,                            // post_actions_json
+            None,                            // retry_of_job_id
+            None,                            // versioning
+            None,                            // code_commit_sha
+            None,                            // data_spec_json
+            None,                            // data_spec_hash
+        )
+        .await
+        .map_err(|e| {
+            error!(error = %e, "Failed to create training job");
+            (
+                StatusCode::BAD_REQUEST,
+                Json(
+                    ErrorResponse::new("failed to create training job")
+                        .with_code("TRAINING_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    Ok(Json(training_job_to_response(job)))
 }
 
 /// Get specific training job details

@@ -38,7 +38,7 @@ fn mock_failing_tokenizer(_text: &str) -> adapteros_core::Result<Vec<u32>> {
 #[tokio::test]
 async fn test_resolve_prefix_no_template() {
     let state = setup_state(None).await.expect("setup_state");
-    let db = Arc::new(state.db);
+    let db = state.db.as_db_arc();
     let resolver = PrefixResolver::new(Arc::clone(&db));
 
     // Try to resolve prefix for tenant with no templates
@@ -56,7 +56,7 @@ async fn test_resolve_prefix_no_template() {
 #[tokio::test]
 async fn test_resolve_prefix_with_template() {
     let state = setup_state(None).await.expect("setup_state");
-    let db = Arc::new(state.db);
+    let db = state.db.as_db_arc();
     let resolver = PrefixResolver::new(Arc::clone(&db));
 
     // Create a template
@@ -97,7 +97,7 @@ async fn test_resolve_prefix_with_template() {
 #[tokio::test]
 async fn test_resolve_prefix_mode_fallback_to_system() {
     let state = setup_state(None).await.expect("setup_state");
-    let db = Arc::new(state.db);
+    let db = state.db.as_db_arc();
     let resolver = PrefixResolver::new(Arc::clone(&db));
 
     // Create only a System mode template
@@ -126,7 +126,7 @@ async fn test_resolve_prefix_mode_fallback_to_system() {
 #[tokio::test]
 async fn test_resolve_prefix_no_fallback_for_system_mode() {
     let state = setup_state(None).await.expect("setup_state");
-    let db = Arc::new(state.db);
+    let db = state.db.as_db_arc();
     let resolver = PrefixResolver::new(Arc::clone(&db));
 
     // Create only a User mode template
@@ -155,7 +155,7 @@ async fn test_resolve_prefix_no_fallback_for_system_mode() {
 #[tokio::test]
 async fn test_resolve_prefix_priority_selection() {
     let state = setup_state(None).await.expect("setup_state");
-    let db = Arc::new(state.db);
+    let db = state.db.as_db_arc();
     let resolver = PrefixResolver::new(Arc::clone(&db));
 
     // Create multiple templates for the same mode with different priorities
@@ -207,7 +207,7 @@ async fn test_resolve_prefix_priority_selection() {
 #[tokio::test]
 async fn test_resolve_prefix_disabled_template_skipped() {
     let state = setup_state(None).await.expect("setup_state");
-    let db = Arc::new(state.db);
+    let db = state.db.as_db_arc();
     let resolver = PrefixResolver::new(Arc::clone(&db));
 
     // Create a disabled high-priority template
@@ -249,7 +249,7 @@ async fn test_resolve_prefix_disabled_template_skipped() {
 #[tokio::test]
 async fn test_resolve_prefix_empty_tokenization() {
     let state = setup_state(None).await.expect("setup_state");
-    let db = Arc::new(state.db);
+    let db = state.db.as_db_arc();
     let resolver = PrefixResolver::new(Arc::clone(&db));
 
     // Create a template
@@ -278,7 +278,7 @@ async fn test_resolve_prefix_empty_tokenization() {
 #[tokio::test]
 async fn test_resolve_prefix_tokenization_error() {
     let state = setup_state(None).await.expect("setup_state");
-    let db = Arc::new(state.db);
+    let db = state.db.as_db_arc();
     let resolver = PrefixResolver::new(Arc::clone(&db));
 
     // Create a template
@@ -303,7 +303,7 @@ async fn test_resolve_prefix_tokenization_error() {
 #[tokio::test]
 async fn test_resolve_prefix_custom_mode() {
     let state = setup_state(None).await.expect("setup_state");
-    let db = Arc::new(state.db);
+    let db = state.db.as_db_arc();
     let resolver = PrefixResolver::new(Arc::clone(&db));
 
     // Create a custom mode template
@@ -333,7 +333,7 @@ async fn test_resolve_prefix_custom_mode() {
 #[tokio::test]
 async fn test_resolve_prefix_tenant_isolation() {
     let state = setup_state(None).await.expect("setup_state");
-    let db = Arc::new(state.db);
+    let db = state.db.as_db_arc();
     let resolver = PrefixResolver::new(Arc::clone(&db));
 
     // Create template for tenant-1
@@ -362,7 +362,7 @@ async fn test_resolve_prefix_tenant_isolation() {
 #[tokio::test]
 async fn test_resolve_prefix_deterministic_hash() {
     let state = setup_state(None).await.expect("setup_state");
-    let db = Arc::new(state.db);
+    let db = state.db.as_db_arc();
     let resolver = PrefixResolver::new(Arc::clone(&db));
 
     // Create a template
@@ -398,7 +398,7 @@ async fn test_resolve_prefix_deterministic_hash() {
 #[tokio::test]
 async fn test_resolve_template_without_tokenization() {
     let state = setup_state(None).await.expect("setup_state");
-    let db = Arc::new(state.db);
+    let db = state.db.as_db_arc();
     let resolver = PrefixResolver::new(Arc::clone(&db));
 
     // Create a template
@@ -428,7 +428,7 @@ async fn test_resolve_template_without_tokenization() {
 #[tokio::test]
 async fn test_has_prefix_templates() {
     let state = setup_state(None).await.expect("setup_state");
-    let db = Arc::new(state.db);
+    let db = state.db.as_db_arc();
     let resolver = PrefixResolver::new(Arc::clone(&db));
 
     // Initially no templates
@@ -467,7 +467,7 @@ async fn test_has_prefix_templates() {
 #[tokio::test]
 async fn test_list_templates() {
     let state = setup_state(None).await.expect("setup_state");
-    let db = Arc::new(state.db);
+    let db = state.db.as_db_arc();
     let resolver = PrefixResolver::new(Arc::clone(&db));
 
     // Initially empty
@@ -551,7 +551,7 @@ async fn test_resolved_prefix_builder_defaults() {
 #[tokio::test]
 async fn test_resolve_prefix_mode_precedence() {
     let state = setup_state(None).await.expect("setup_state");
-    let db = Arc::new(state.db);
+    let db = state.db.as_db_arc();
     let resolver = PrefixResolver::new(Arc::clone(&db));
 
     // Create system template with low priority
@@ -595,7 +595,7 @@ async fn test_resolve_prefix_mode_precedence() {
 #[tokio::test]
 async fn test_resolve_prefix_after_update() {
     let state = setup_state(None).await.expect("setup_state");
-    let db = Arc::new(state.db);
+    let db = state.db.as_db_arc();
     let resolver = PrefixResolver::new(Arc::clone(&db));
 
     // Create initial template
@@ -650,7 +650,7 @@ async fn test_resolve_prefix_after_update() {
 #[tokio::test]
 async fn test_resolve_prefix_after_delete() {
     let state = setup_state(None).await.expect("setup_state");
-    let db = Arc::new(state.db);
+    let db = state.db.as_db_arc();
     let resolver = PrefixResolver::new(Arc::clone(&db));
 
     // Create template
@@ -688,7 +688,7 @@ async fn test_resolve_prefix_after_delete() {
 #[tokio::test]
 async fn test_all_standard_modes() {
     let state = setup_state(None).await.expect("setup_state");
-    let db = Arc::new(state.db);
+    let db = state.db.as_db_arc();
     let resolver = PrefixResolver::new(Arc::clone(&db));
 
     // Create templates for all standard modes

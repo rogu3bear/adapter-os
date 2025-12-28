@@ -6,7 +6,6 @@ use crate::auth::Claims;
 use crate::permissions::{require_permission, Permission};
 use crate::state::AppState;
 use crate::types::*;
-use crate::validation::*;
 use adapteros_core::AosError;
 use adapteros_db::{
     AdapterVersionRuntimeState, CreateDraftVersionParams as CreateDraftAdapterVersionParams,
@@ -14,17 +13,13 @@ use adapteros_db::{
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::{Extension, Json};
-use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde::Deserialize;
 use std::collections::HashMap;
 use tracing::info;
 use utoipa::IntoParams;
 
 // Import helper functions from adapter_utils
-use super::adapter_utils::{
-    compute_serveable_state, lora_scope_from_provenance, lora_tier_from_provenance,
-    manifest_lineage_from_aos,
-};
+use super::adapter_utils::{compute_serveable_state, manifest_lineage_from_aos};
 
 /// Query parameters for listing adapter versions
 #[derive(Debug, Deserialize, IntoParams)]

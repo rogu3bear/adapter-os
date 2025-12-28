@@ -4,6 +4,7 @@ use crate::boot_state::BootState;
 use crate::state::{AppState, BackgroundTaskSnapshot};
 use crate::supervisor_client;
 use crate::types::*;
+use adapteros_api_types::ModelLoadStatus;
 use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
 use serde::{Deserialize, Serialize};
 use sqlx::query;
@@ -343,6 +344,34 @@ pub async fn ready(State(state): State<AppState>) -> impl IntoResponse {
                 models_seeded_check.ok = false;
                 models_seeded_check.hint = Some("models check timeout".to_string());
                 models_seeded_check.latency_ms = Some(models_latency);
+            }
+        }
+
+        if models_seeded_check.ok {
+            if let (Ok(active_states), Ok(statuses)) = (
+                state.db.list_workspace_active_states().await,
+                state.db.list_base_model_statuses().await,
+            ) {
+                let has_mismatch = active_states.iter().any(|active| {
+                    let Some(model_id) = active.active_base_model_id.as_deref() else {
+                        return false;
+                    };
+
+                    let ready = statuses
+                        .iter()
+                        .find(|s| s.tenant_id == active.tenant_id && s.model_id == model_id)
+                        .map(|s| ModelLoadStatus::parse_status(&s.status).is_ready())
+                        .unwrap_or(false);
+
+                    !ready
+                });
+
+                if has_mismatch {
+                    if models_seeded_check.hint.is_none() {
+                        models_seeded_check.hint =
+                            Some("active model mismatch (not loaded)".to_string());
+                    }
+                }
             }
         }
     }

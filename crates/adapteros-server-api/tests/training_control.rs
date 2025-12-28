@@ -11,7 +11,7 @@ use adapteros_orchestrator::training::compute_combined_data_spec_hash;
 use adapteros_orchestrator::TrainingJobStatus;
 use adapteros_server_api::handlers::get_training_logs;
 use adapteros_server_api::handlers::training::{
-    cancel_training, get_training_job, list_training_jobs, start_training,
+    cancel_training, list_training_jobs, start_training,
 };
 use adapteros_server_api::state::AppState;
 use adapteros_types::training::{BranchClassification, TrainingConfig};
