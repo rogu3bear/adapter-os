@@ -53,6 +53,9 @@ pub mod tenant_settings;
 pub mod topology;
 pub mod traits;
 
+// Lifecycle rules module
+pub mod lifecycle_rules;
+
 // Re-export commonly used types
 pub use adapter_repositories::{
     AdapterRepository, AdapterRepositoryPolicy, AdapterVersion, AdapterVersionRuntimeState,
@@ -99,6 +102,13 @@ pub use tenant_settings::{TenantSettings, UpdateTenantSettingsParams};
 // Re-export tenant policy binding types
 pub mod tenant_policy_bindings;
 pub use tenant_policy_bindings::{TenantPolicyBinding, ALL_POLICIES, CORE_POLICIES};
+
+// Re-export lifecycle rules types
+pub use lifecycle_rules::{
+    ActionType, ConditionEvaluationResult, ConditionOperator, CreateLifecycleRuleParams,
+    LifecycleRule, LifecycleRuleAction, LifecycleRuleCondition, LifecycleRuleEvaluation,
+    LifecycleRuleFilter, LifecycleRuleScope, LifecycleRuleType, UpdateLifecycleRuleParams,
+};
 
 mod protected_db;
 pub use protected_db::{LifecycleToken, ProtectedDb, WriteCapableDb};

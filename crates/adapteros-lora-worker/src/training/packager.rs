@@ -103,6 +103,28 @@ pub struct AdapterManifest {
     /// MoE (Mixture of Experts) training configuration (if trained for MoE model)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub moe_config: Option<MoETrainingConfig>,
+    /// Codebase scope: repository name or identifier
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope_repo: Option<String>,
+    /// Codebase scope: branch name (e.g., "main", "feature/xyz")
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope_branch: Option<String>,
+    /// Codebase scope: commit SHA at training time
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope_commit: Option<String>,
+    /// Codebase scope: primary scan root path used during ingestion
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope_scan_root: Option<String>,
+    /// Codebase scope: remote URL of the repository
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope_remote_url: Option<String>,
+    /// All scan root paths used during training package creation.
+    /// Captures multiple roots when training combines content from different directories.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub scan_roots: Vec<ScanRootMetadata>,
+    /// Session identifier for correlating ingestion workflows
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
     pub metadata: std::collections::HashMap<String, String>,
 }
 
@@ -146,6 +168,33 @@ pub struct PlacementRecord {
     pub alpha_override: Option<f32>,
 }
 
+/// Metadata for a scan root used during training package creation.
+///
+/// A scan root represents a directory path that was scanned during codebase
+/// ingestion. When training combines content from multiple directories (e.g.,
+/// monorepo workspaces, multi-module projects), each scanned location is
+/// recorded here for provenance tracking.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ScanRootMetadata {
+    /// Absolute or relative path to the scan root directory
+    pub path: String,
+    /// Optional label describing this scan root's role (e.g., "main", "lib", "tests")
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    /// Number of files processed from this scan root
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file_count: Option<u64>,
+    /// Total bytes ingested from this scan root
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub byte_count: Option<u64>,
+    /// BLAKE3 hash of the scan root's content at ingestion time
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_hash: Option<String>,
+    /// Timestamp when this scan root was processed
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scanned_at: Option<String>,
+}
+
 fn default_determinism_mode() -> String {
     if cfg!(feature = "deterministic-only") {
         "deterministic-only".to_string()
@@ -185,6 +234,222 @@ fn default_strength_for_tier(tier: Option<LoraTier>) -> Option<f32> {
         Some(LoraTier::Standard) => Some(0.5),
         Some(LoraTier::Max) => Some(1.0),
         None => None,
+    }
+}
+
+/// Parse scan-root metadata from the metadata HashMap.
+///
+/// Supports two formats:
+/// 1. JSON array in `scan_roots` key: `[{"path": "src", "label": "main"}, ...]`
+/// 2. Single scan root from `scope_scan_root` key with optional supporting fields
+fn parse_scan_roots_from_metadata(metadata: &HashMap<String, String>) -> Vec<ScanRootMetadata> {
+    // Try parsing JSON array first
+    if let Some(raw) = metadata.get("scan_roots") {
+        if let Ok(roots) = serde_json::from_str::<Vec<ScanRootMetadata>>(raw) {
+            if !roots.is_empty() {
+                return roots;
+            }
+        }
+    }
+
+    // Fall back to single scan root from scope_scan_root
+    if let Some(path) = metadata.get("scope_scan_root") {
+        if !path.trim().is_empty() {
+            let root = ScanRootMetadata {
+                path: path.clone(),
+                label: metadata.get("scan_root_label").cloned(),
+                file_count: metadata
+                    .get("scan_root_file_count")
+                    .and_then(|v| v.parse().ok()),
+                byte_count: metadata
+                    .get("scan_root_byte_count")
+                    .and_then(|v| v.parse().ok()),
+                content_hash: metadata.get("scan_root_content_hash").cloned(),
+                scanned_at: metadata.get("scan_root_scanned_at").cloned(),
+            };
+            return vec![root];
+        }
+    }
+
+    Vec::new()
+}
+
+/// Codebase scope metadata extracted from the metadata HashMap.
+#[derive(Debug, Clone, Default)]
+struct ScopeMetadataExtract {
+    scope_repo: Option<String>,
+    scope_branch: Option<String>,
+    scope_commit: Option<String>,
+    scope_scan_root: Option<String>,
+    scope_remote_url: Option<String>,
+    session_id: Option<String>,
+    scan_roots: Vec<ScanRootMetadata>,
+}
+
+/// Branch metadata for packaging context.
+///
+/// Contains git branch and commit information that should be included
+/// in the packaged training artifacts for provenance tracking.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct BranchMetadata {
+    /// Git branch name (e.g., "main", "feature/xyz")
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
+    /// Git commit SHA at the time of training
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub commit: Option<String>,
+    /// Full commit SHA (if different from abbreviated)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub commit_full: Option<String>,
+    /// Repository name or identifier
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repo_name: Option<String>,
+    /// Remote URL of the repository
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote_url: Option<String>,
+    /// Whether the working tree was dirty (had uncommitted changes)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dirty: Option<bool>,
+    /// Timestamp when the branch metadata was captured
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub captured_at: Option<String>,
+}
+
+impl BranchMetadata {
+    /// Create new BranchMetadata with branch and commit info.
+    pub fn new(branch: impl Into<String>, commit: impl Into<String>) -> Self {
+        Self {
+            branch: Some(branch.into()),
+            commit: Some(commit.into()),
+            ..Default::default()
+        }
+    }
+
+    /// Create BranchMetadata with full commit SHA.
+    pub fn with_full_commit(mut self, commit_full: impl Into<String>) -> Self {
+        self.commit_full = Some(commit_full.into());
+        self
+    }
+
+    /// Set repository name.
+    pub fn with_repo_name(mut self, repo_name: impl Into<String>) -> Self {
+        self.repo_name = Some(repo_name.into());
+        self
+    }
+
+    /// Set remote URL.
+    pub fn with_remote_url(mut self, remote_url: impl Into<String>) -> Self {
+        self.remote_url = Some(remote_url.into());
+        self
+    }
+
+    /// Set dirty flag indicating uncommitted changes.
+    pub fn with_dirty(mut self, dirty: bool) -> Self {
+        self.dirty = Some(dirty);
+        self
+    }
+
+    /// Set capture timestamp.
+    pub fn with_captured_at(mut self, captured_at: impl Into<String>) -> Self {
+        self.captured_at = Some(captured_at.into());
+        self
+    }
+
+    /// Convert to metadata HashMap entries for packaging.
+    pub fn to_metadata_entries(&self) -> HashMap<String, String> {
+        let mut entries = HashMap::new();
+        if let Some(ref branch) = self.branch {
+            entries.insert("scope_branch".to_string(), branch.clone());
+        }
+        if let Some(ref commit) = self.commit {
+            entries.insert("scope_commit".to_string(), commit.clone());
+        }
+        if let Some(ref commit_full) = self.commit_full {
+            entries.insert("scope_commit_full".to_string(), commit_full.clone());
+        }
+        if let Some(ref repo_name) = self.repo_name {
+            entries.insert("scope_repo".to_string(), repo_name.clone());
+        }
+        if let Some(ref remote_url) = self.remote_url {
+            entries.insert("scope_remote_url".to_string(), remote_url.clone());
+        }
+        if let Some(dirty) = self.dirty {
+            entries.insert("scope_dirty".to_string(), dirty.to_string());
+        }
+        if let Some(ref captured_at) = self.captured_at {
+            entries.insert("branch_metadata_captured_at".to_string(), captured_at.clone());
+        }
+        entries
+    }
+
+    /// Check if branch metadata is present (has at least branch or commit).
+    pub fn is_present(&self) -> bool {
+        self.branch.is_some() || self.commit.is_some()
+    }
+
+    /// Parse BranchMetadata from a metadata HashMap.
+    pub fn from_metadata(metadata: &HashMap<String, String>) -> Self {
+        Self {
+            branch: metadata
+                .get("scope_branch")
+                .or_else(|| metadata.get("repo_branch"))
+                .or_else(|| metadata.get("branch"))
+                .cloned(),
+            commit: metadata
+                .get("scope_commit")
+                .or_else(|| metadata.get("repo_commit"))
+                .or_else(|| metadata.get("commit"))
+                .cloned(),
+            commit_full: metadata
+                .get("scope_commit_full")
+                .or_else(|| metadata.get("commit_full"))
+                .cloned(),
+            repo_name: metadata
+                .get("scope_repo")
+                .or_else(|| metadata.get("repo_name"))
+                .cloned(),
+            remote_url: metadata
+                .get("scope_remote_url")
+                .or_else(|| metadata.get("repo_remote"))
+                .or_else(|| metadata.get("remote_url"))
+                .cloned(),
+            dirty: metadata
+                .get("scope_dirty")
+                .or_else(|| metadata.get("dirty"))
+                .and_then(|v| v.parse().ok()),
+            captured_at: metadata
+                .get("branch_metadata_captured_at")
+                .or_else(|| metadata.get("captured_at"))
+                .cloned(),
+        }
+    }
+}
+
+/// Extract codebase scope metadata from the metadata HashMap.
+fn extract_scope_metadata(metadata: &HashMap<String, String>) -> ScopeMetadataExtract {
+    ScopeMetadataExtract {
+        scope_repo: metadata
+            .get("scope_repo")
+            .or_else(|| metadata.get("repo_name"))
+            .cloned(),
+        scope_branch: metadata
+            .get("scope_branch")
+            .or_else(|| metadata.get("repo_branch"))
+            .cloned(),
+        scope_commit: metadata
+            .get("scope_commit")
+            .or_else(|| metadata.get("repo_commit"))
+            .cloned(),
+        scope_scan_root: metadata
+            .get("scope_scan_root")
+            .or_else(|| metadata.get("repo_path"))
+            .cloned(),
+        scope_remote_url: metadata
+            .get("scope_remote_url")
+            .or_else(|| metadata.get("repo_remote"))
+            .cloned(),
+        session_id: metadata.get("session_id").cloned(),
+        scan_roots: parse_scan_roots_from_metadata(metadata),
     }
 }
 
@@ -919,6 +1184,9 @@ impl AdapterPackager {
             .map(|v| v == "true" || v == "1")
             .unwrap_or(true);
 
+        // Extract codebase scope metadata (scan roots, repo info, session)
+        let scope_meta = extract_scope_metadata(&metadata);
+
         // Create manifest
         let manifest = AdapterManifest {
             version: "1.0.0".to_string(),
@@ -951,6 +1219,13 @@ impl AdapterPackager {
             backend_policy,
             kernel_version: Some(adapteros_core::version::VERSION.to_string()),
             moe_config: config.moe_config.clone(),
+            scope_repo: scope_meta.scope_repo,
+            scope_branch: scope_meta.scope_branch,
+            scope_commit: scope_meta.scope_commit,
+            scope_scan_root: scope_meta.scope_scan_root,
+            scope_remote_url: scope_meta.scope_remote_url,
+            scan_roots: scope_meta.scan_roots,
+            session_id: scope_meta.session_id,
             metadata,
         };
 
@@ -1103,6 +1378,9 @@ impl AdapterPackager {
             .map(|v| v == "true" || v == "1")
             .unwrap_or(true);
 
+        // Extract codebase scope metadata (scan roots, repo info, session)
+        let scope_meta = extract_scope_metadata(&metadata);
+
         // Create manifest
         let manifest = AdapterManifest {
             version: "2.0".to_string(), // AOS 2.0 format
@@ -1135,6 +1413,13 @@ impl AdapterPackager {
             backend_policy,
             kernel_version: Some(adapteros_core::version::VERSION.to_string()),
             moe_config: config.moe_config.clone(),
+            scope_repo: scope_meta.scope_repo,
+            scope_branch: scope_meta.scope_branch,
+            scope_commit: scope_meta.scope_commit,
+            scope_scan_root: scope_meta.scope_scan_root,
+            scope_remote_url: scope_meta.scope_remote_url,
+            scan_roots: scope_meta.scan_roots,
+            session_id: scope_meta.session_id,
             metadata,
         };
 
@@ -1194,6 +1479,80 @@ impl AdapterPackager {
             weights_path: aos_path,
             hash_b3,
         })
+    }
+
+    /// Package adapter as single .aos archive with branch metadata.
+    ///
+    /// This method provides a more ergonomic way to include branch and commit
+    /// information in the packaged training artifacts. The branch metadata is
+    /// merged into the packaging metadata and preserved in the manifest.
+    ///
+    /// # Arguments
+    ///
+    /// * `tenant_id` - Tenant identifier for multi-tenant isolation
+    /// * `adapter_id` - Unique identifier for this adapter
+    /// * `weights` - Quantized LoRA weights to package
+    /// * `config` - Training configuration used to produce these weights
+    /// * `base_model` - Base model identifier this adapter is trained against
+    /// * `branch_metadata` - Git branch and commit information for provenance
+    /// * `metadata` - Additional metadata to include in the manifest
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let branch_meta = BranchMetadata::new("main", "abc123def")
+    ///     .with_repo_name("my-repo")
+    ///     .with_remote_url("https://github.com/org/repo");
+    ///
+    /// let packaged = packager
+    ///     .package_aos_with_branch_metadata(
+    ///         "tenant-1",
+    ///         "adapter-001",
+    ///         &weights,
+    ///         &config,
+    ///         "llama-3.2",
+    ///         &branch_meta,
+    ///         HashMap::new(),
+    ///     )
+    ///     .await?;
+    /// ```
+    pub async fn package_aos_with_branch_metadata(
+        &self,
+        tenant_id: &str,
+        adapter_id: &str,
+        weights: &QuantizedLoRAWeights,
+        config: &TrainingConfig,
+        base_model: &str,
+        branch_metadata: &BranchMetadata,
+        metadata: HashMap<String, String>,
+    ) -> Result<PackagedAdapter> {
+        // Merge branch metadata into the packaging metadata
+        let mut enriched_metadata = metadata;
+        for (key, value) in branch_metadata.to_metadata_entries() {
+            // Only insert if not already present (explicit metadata takes precedence)
+            enriched_metadata.entry(key).or_insert(value);
+        }
+
+        // Log branch metadata inclusion for auditability
+        if branch_metadata.is_present() {
+            info!(
+                adapter_id = %adapter_id,
+                branch = ?branch_metadata.branch,
+                commit = ?branch_metadata.commit,
+                repo = ?branch_metadata.repo_name,
+                "Including branch metadata in packaged adapter"
+            );
+        }
+
+        self.package_aos_with_metadata(
+            tenant_id,
+            adapter_id,
+            weights,
+            config,
+            base_model,
+            enriched_metadata,
+        )
+        .await
     }
 
     /// Save weights in safetensors format
@@ -1595,6 +1954,13 @@ mod tests {
             backend_policy: None,
             kernel_version: None,
             moe_config: None,
+            scope_repo: None,
+            scope_branch: None,
+            scope_commit: None,
+            scope_scan_root: None,
+            scope_remote_url: None,
+            scan_roots: Vec::new(),
+            session_id: None,
             metadata: std::collections::HashMap::new(),
         };
 
@@ -1799,5 +2165,112 @@ mod tests {
         assert_eq!(soft, 800);
         std::env::remove_var("AOS_ARTIFACT_HARD_QUOTA_BYTES");
         std::env::remove_var("AOS_ARTIFACT_SOFT_QUOTA_BYTES");
+    }
+
+    #[test]
+    fn parse_scan_roots_from_json_array() {
+        let mut metadata = HashMap::new();
+        let scan_roots_json = r#"[
+            {"path": "src", "label": "main", "file_count": 100, "byte_count": 50000},
+            {"path": "lib", "label": "library"}
+        ]"#;
+        metadata.insert("scan_roots".to_string(), scan_roots_json.to_string());
+
+        let roots = parse_scan_roots_from_metadata(&metadata);
+        assert_eq!(roots.len(), 2);
+        assert_eq!(roots[0].path, "src");
+        assert_eq!(roots[0].label, Some("main".to_string()));
+        assert_eq!(roots[0].file_count, Some(100));
+        assert_eq!(roots[0].byte_count, Some(50000));
+        assert_eq!(roots[1].path, "lib");
+        assert_eq!(roots[1].label, Some("library".to_string()));
+        assert_eq!(roots[1].file_count, None);
+    }
+
+    #[test]
+    fn parse_scan_roots_from_scope_scan_root_fallback() {
+        let mut metadata = HashMap::new();
+        metadata.insert("scope_scan_root".to_string(), "/project/src".to_string());
+        metadata.insert("scan_root_label".to_string(), "primary".to_string());
+        metadata.insert("scan_root_file_count".to_string(), "42".to_string());
+        metadata.insert(
+            "scan_root_content_hash".to_string(),
+            "abc123".to_string(),
+        );
+
+        let roots = parse_scan_roots_from_metadata(&metadata);
+        assert_eq!(roots.len(), 1);
+        assert_eq!(roots[0].path, "/project/src");
+        assert_eq!(roots[0].label, Some("primary".to_string()));
+        assert_eq!(roots[0].file_count, Some(42));
+        assert_eq!(roots[0].content_hash, Some("abc123".to_string()));
+    }
+
+    #[test]
+    fn parse_scan_roots_returns_empty_for_no_data() {
+        let metadata = HashMap::new();
+        let roots = parse_scan_roots_from_metadata(&metadata);
+        assert!(roots.is_empty());
+    }
+
+    #[test]
+    fn extract_scope_metadata_from_canonical_keys() {
+        let mut metadata = HashMap::new();
+        metadata.insert("scope_repo".to_string(), "my-repo".to_string());
+        metadata.insert("scope_branch".to_string(), "main".to_string());
+        metadata.insert("scope_commit".to_string(), "abc123".to_string());
+        metadata.insert("scope_remote_url".to_string(), "https://github.com/org/repo".to_string());
+        metadata.insert("session_id".to_string(), "session-001".to_string());
+
+        let scope = extract_scope_metadata(&metadata);
+        assert_eq!(scope.scope_repo, Some("my-repo".to_string()));
+        assert_eq!(scope.scope_branch, Some("main".to_string()));
+        assert_eq!(scope.scope_commit, Some("abc123".to_string()));
+        assert_eq!(scope.scope_remote_url, Some("https://github.com/org/repo".to_string()));
+        assert_eq!(scope.session_id, Some("session-001".to_string()));
+    }
+
+    #[test]
+    fn extract_scope_metadata_falls_back_to_repo_keys() {
+        let mut metadata = HashMap::new();
+        metadata.insert("repo_name".to_string(), "fallback-repo".to_string());
+        metadata.insert("repo_branch".to_string(), "develop".to_string());
+        metadata.insert("repo_commit".to_string(), "def456".to_string());
+        metadata.insert("repo_path".to_string(), "/home/user/project".to_string());
+        metadata.insert("repo_remote".to_string(), "git@github.com:org/repo.git".to_string());
+
+        let scope = extract_scope_metadata(&metadata);
+        assert_eq!(scope.scope_repo, Some("fallback-repo".to_string()));
+        assert_eq!(scope.scope_branch, Some("develop".to_string()));
+        assert_eq!(scope.scope_commit, Some("def456".to_string()));
+        assert_eq!(scope.scope_scan_root, Some("/home/user/project".to_string()));
+        assert_eq!(scope.scope_remote_url, Some("git@github.com:org/repo.git".to_string()));
+    }
+
+    #[test]
+    fn extract_scope_metadata_prefers_canonical_over_fallback() {
+        let mut metadata = HashMap::new();
+        metadata.insert("scope_repo".to_string(), "canonical-repo".to_string());
+        metadata.insert("repo_name".to_string(), "fallback-repo".to_string());
+
+        let scope = extract_scope_metadata(&metadata);
+        assert_eq!(scope.scope_repo, Some("canonical-repo".to_string()));
+    }
+
+    #[test]
+    fn scan_root_metadata_serialization_roundtrip() {
+        let root = ScanRootMetadata {
+            path: "/project/src".to_string(),
+            label: Some("main".to_string()),
+            file_count: Some(100),
+            byte_count: Some(50000),
+            content_hash: Some("blake3hash".to_string()),
+            scanned_at: Some("2024-01-15T10:30:00Z".to_string()),
+        };
+
+        let json = serde_json::to_string(&root).unwrap();
+        let parsed: ScanRootMetadata = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(root, parsed);
     }
 }

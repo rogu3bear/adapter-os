@@ -1,4 +1,28 @@
 //! Training dataset database operations
+//!
+//! This module provides database operations for training datasets, including:
+//! - Dataset creation with validation via builder pattern
+//! - Dataset version management with trust state derivation
+//! - Evidence and lineage tracking
+//! - Integrity verification before training
+//!
+//! # Dataset Creation
+//!
+//! Use `CreateDatasetParams` with the builder pattern for validated dataset creation:
+//!
+//! ```ignore
+//! use adapteros_db::training_datasets::CreateDatasetParams;
+//!
+//! let params = CreateDatasetParams::builder()
+//!     .name("my-dataset")
+//!     .format("jsonl")
+//!     .hash_b3("abc123...") // 64 hex chars
+//!     .storage_path("/data/datasets/my-dataset")
+//!     .tenant_id("tenant-123")
+//!     .build()?;
+//!
+//! let dataset_id = db.create_training_dataset_from_params(&params).await?;
+//! ```
 
 use crate::constants::TRAINING_DATASET_COLUMNS;
 use crate::query_helpers::db_err;
@@ -7,6 +31,400 @@ use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use sqlx::{Sqlite, Transaction};
 use uuid::Uuid;
+
+// ============================================================================
+// Dataset Format and Status Validation
+// ============================================================================
+
+/// Valid dataset format types
+pub const VALID_FORMATS: &[&str] = &["patches", "jsonl", "txt", "custom", "parquet", "csv"];
+
+/// Valid dataset status values
+pub const VALID_STATUSES: &[&str] = &["uploaded", "processing", "ready", "failed"];
+
+/// Validate dataset format
+pub fn validate_format(format: &str) -> Result<()> {
+    if VALID_FORMATS.contains(&format) {
+        Ok(())
+    } else {
+        Err(AosError::Validation(format!(
+            "Invalid dataset format '{}'. Must be one of: {}",
+            format,
+            VALID_FORMATS.join(", ")
+        )))
+    }
+}
+
+/// Validate dataset status
+pub fn validate_status(status: &str) -> Result<()> {
+    if VALID_STATUSES.contains(&status) {
+        Ok(())
+    } else {
+        Err(AosError::Validation(format!(
+            "Invalid dataset status '{}'. Must be one of: {}",
+            status,
+            VALID_STATUSES.join(", ")
+        )))
+    }
+}
+
+/// Validate BLAKE3 hash format (64 hex characters)
+pub fn validate_hash_b3(hash: &str) -> Result<()> {
+    if hash.len() != 64 {
+        return Err(AosError::Validation(format!(
+            "Invalid hash_b3 length: expected 64 hex characters, got {}",
+            hash.len()
+        )));
+    }
+    if !hash.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err(AosError::Validation(
+            "Invalid hash_b3: must contain only hexadecimal characters".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+// ============================================================================
+// Dataset Creation Parameters and Builder
+// ============================================================================
+
+/// Parameters for creating a training dataset
+///
+/// Use the builder pattern via `CreateDatasetParams::builder()` for validated construction.
+#[derive(Debug, Clone)]
+pub struct CreateDatasetParams {
+    /// Optional pre-generated ID (UUIDv7 generated if not provided)
+    pub id: Option<String>,
+    /// Dataset name (required)
+    pub name: String,
+    /// Optional description
+    pub description: Option<String>,
+    /// Dataset format: patches, jsonl, txt, custom, parquet, csv (required)
+    pub format: String,
+    /// BLAKE3 hash of the dataset archive/file (required)
+    pub hash_b3: String,
+    /// Content-derived hash for deduplication (defaults to hash_b3)
+    pub dataset_hash_b3: Option<String>,
+    /// Storage path for dataset files (required)
+    pub storage_path: String,
+    /// Dataset status (defaults to "uploaded")
+    pub status: String,
+    /// User/system that created the dataset
+    pub created_by: Option<String>,
+    /// Tenant ID for multi-tenant isolation
+    pub tenant_id: Option<String>,
+    /// Workspace ID within tenant
+    pub workspace_id: Option<String>,
+    /// Dataset type classification
+    pub dataset_type: Option<String>,
+    /// Purpose/use case description
+    pub purpose: Option<String>,
+    /// Source location (URL, path, etc.)
+    pub source_location: Option<String>,
+    /// How the dataset was collected
+    pub collection_method: Option<String>,
+    /// Ownership information
+    pub ownership: Option<String>,
+    /// Additional metadata as JSON
+    pub metadata_json: Option<String>,
+    /// Dataset category (codebase, metrics, synthetic, upload, etc.)
+    pub category: Option<String>,
+    /// Repository slug for filtering by source repo (e.g., "org/repo-name")
+    pub repo_slug: Option<String>,
+}
+
+/// Valid dataset categories
+pub const VALID_CATEGORIES: &[&str] = &["codebase", "metrics", "synthetic", "upload", "patches", "general", "other"];
+
+/// Validate dataset category
+pub fn validate_category(category: &str) -> Result<()> {
+    if VALID_CATEGORIES.contains(&category) {
+        Ok(())
+    } else {
+        Err(AosError::Validation(format!(
+            "Invalid dataset category '{}'. Must be one of: {}",
+            category,
+            VALID_CATEGORIES.join(", ")
+        )))
+    }
+}
+
+/// Builder for creating `CreateDatasetParams` with validation
+#[derive(Debug, Default)]
+pub struct CreateDatasetParamsBuilder {
+    id: Option<String>,
+    name: Option<String>,
+    description: Option<String>,
+    format: Option<String>,
+    hash_b3: Option<String>,
+    dataset_hash_b3: Option<String>,
+    storage_path: Option<String>,
+    status: Option<String>,
+    created_by: Option<String>,
+    tenant_id: Option<String>,
+    workspace_id: Option<String>,
+    dataset_type: Option<String>,
+    purpose: Option<String>,
+    source_location: Option<String>,
+    collection_method: Option<String>,
+    ownership: Option<String>,
+    metadata_json: Option<String>,
+    category: Option<String>,
+    repo_slug: Option<String>,
+}
+
+impl CreateDatasetParams {
+    /// Create a new builder for dataset creation parameters
+    pub fn builder() -> CreateDatasetParamsBuilder {
+        CreateDatasetParamsBuilder::default()
+    }
+}
+
+impl CreateDatasetParamsBuilder {
+    /// Create a new builder
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set a pre-generated dataset ID (optional, UUIDv7 generated if not set)
+    pub fn id(mut self, id: impl Into<String>) -> Self {
+        self.id = Some(id.into());
+        self
+    }
+
+    /// Set the dataset name (required)
+    pub fn name(mut self, name: impl Into<String>) -> Self {
+        self.name = Some(name.into());
+        self
+    }
+
+    /// Set the dataset description (optional)
+    pub fn description(mut self, description: impl Into<String>) -> Self {
+        self.description = Some(description.into());
+        self
+    }
+
+    /// Set the dataset format (required): patches, jsonl, txt, custom, parquet, csv
+    pub fn format(mut self, format: impl Into<String>) -> Self {
+        self.format = Some(format.into());
+        self
+    }
+
+    /// Set the BLAKE3 hash of the dataset (required)
+    pub fn hash_b3(mut self, hash_b3: impl Into<String>) -> Self {
+        self.hash_b3 = Some(hash_b3.into());
+        self
+    }
+
+    /// Set the content-derived hash for deduplication (optional, defaults to hash_b3)
+    pub fn dataset_hash_b3(mut self, dataset_hash_b3: impl Into<String>) -> Self {
+        self.dataset_hash_b3 = Some(dataset_hash_b3.into());
+        self
+    }
+
+    /// Set the storage path (required)
+    pub fn storage_path(mut self, storage_path: impl Into<String>) -> Self {
+        self.storage_path = Some(storage_path.into());
+        self
+    }
+
+    /// Set the dataset status (optional, defaults to "uploaded")
+    pub fn status(mut self, status: impl Into<String>) -> Self {
+        self.status = Some(status.into());
+        self
+    }
+
+    /// Set the creator identifier (optional)
+    pub fn created_by(mut self, created_by: impl Into<String>) -> Self {
+        self.created_by = Some(created_by.into());
+        self
+    }
+
+    /// Set the tenant ID for multi-tenant isolation (recommended)
+    pub fn tenant_id(mut self, tenant_id: impl Into<String>) -> Self {
+        self.tenant_id = Some(tenant_id.into());
+        self
+    }
+
+    /// Set the workspace ID within the tenant (optional)
+    pub fn workspace_id(mut self, workspace_id: impl Into<String>) -> Self {
+        self.workspace_id = Some(workspace_id.into());
+        self
+    }
+
+    /// Set the dataset type classification (optional)
+    pub fn dataset_type(mut self, dataset_type: impl Into<String>) -> Self {
+        self.dataset_type = Some(dataset_type.into());
+        self
+    }
+
+    /// Set the purpose/use case (optional)
+    pub fn purpose(mut self, purpose: impl Into<String>) -> Self {
+        self.purpose = Some(purpose.into());
+        self
+    }
+
+    /// Set the source location (optional)
+    pub fn source_location(mut self, source_location: impl Into<String>) -> Self {
+        self.source_location = Some(source_location.into());
+        self
+    }
+
+    /// Set the collection method (optional)
+    pub fn collection_method(mut self, collection_method: impl Into<String>) -> Self {
+        self.collection_method = Some(collection_method.into());
+        self
+    }
+
+    /// Set ownership information (optional)
+    pub fn ownership(mut self, ownership: impl Into<String>) -> Self {
+        self.ownership = Some(ownership.into());
+        self
+    }
+
+    /// Set additional metadata as JSON (optional)
+    pub fn metadata_json(mut self, metadata_json: impl Into<String>) -> Self {
+        self.metadata_json = Some(metadata_json.into());
+        self
+    }
+
+    /// Set the dataset category (optional): codebase, metrics, synthetic, upload, patches, general, other
+    pub fn category(mut self, category: impl Into<String>) -> Self {
+        self.category = Some(category.into());
+        self
+    }
+
+    /// Set the repository slug for filtering by source repo (e.g., "org/repo-name")
+    pub fn repo_slug(mut self, repo_slug: impl Into<String>) -> Self {
+        self.repo_slug = Some(repo_slug.into());
+        self
+    }
+
+    /// Build and validate the dataset creation parameters
+    pub fn build(self) -> Result<CreateDatasetParams> {
+        // Validate required fields
+        let name = self
+            .name
+            .ok_or_else(|| AosError::validation("name is required"))?;
+        if name.trim().is_empty() {
+            return Err(AosError::validation("name cannot be empty"));
+        }
+
+        let format = self
+            .format
+            .ok_or_else(|| AosError::validation("format is required"))?;
+        validate_format(&format)?;
+
+        let hash_b3 = self
+            .hash_b3
+            .ok_or_else(|| AosError::validation("hash_b3 is required"))?;
+        validate_hash_b3(&hash_b3)?;
+
+        let storage_path = self
+            .storage_path
+            .ok_or_else(|| AosError::validation("storage_path is required"))?;
+        if storage_path.trim().is_empty() {
+            return Err(AosError::validation("storage_path cannot be empty"));
+        }
+
+        // Validate optional fields if provided
+        let status = self.status.unwrap_or_else(|| "uploaded".to_string());
+        validate_status(&status)?;
+
+        // Validate dataset_hash_b3 if provided
+        if let Some(ref dh) = self.dataset_hash_b3 {
+            validate_hash_b3(dh)?;
+        }
+
+        // Validate category if provided
+        if let Some(ref cat) = self.category {
+            validate_category(cat)?;
+        }
+
+        Ok(CreateDatasetParams {
+            id: self.id,
+            name,
+            description: self.description,
+            format,
+            hash_b3,
+            dataset_hash_b3: self.dataset_hash_b3,
+            storage_path,
+            status,
+            created_by: self.created_by,
+            tenant_id: self.tenant_id,
+            workspace_id: self.workspace_id,
+            dataset_type: self.dataset_type,
+            purpose: self.purpose,
+            source_location: self.source_location,
+            collection_method: self.collection_method,
+            ownership: self.ownership,
+            metadata_json: self.metadata_json,
+            category: self.category,
+            repo_slug: self.repo_slug,
+        })
+    }
+}
+
+// ============================================================================
+// Dataset Snapshot Types for Training Run Integrity
+// ============================================================================
+
+/// Parameters for snapshotting a dataset for a training run
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SnapshotDatasetForRunParams {
+    /// Dataset ID to snapshot
+    pub dataset_id: String,
+    /// Optional tenant ID for isolation
+    pub tenant_id: Option<String>,
+    /// Whether to verify file integrity during snapshot
+    pub verify_integrity: bool,
+    /// Whether to require trusted status
+    pub require_trusted: bool,
+}
+
+/// Snapshot of dataset state at training run initiation
+///
+/// Captures immutable dataset metadata for reproducibility and audit.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TrainingRunDatasetSnapshot {
+    /// Dataset ID
+    pub dataset_id: String,
+    /// Dataset version ID
+    pub dataset_version_id: String,
+    /// BLAKE3 hash of the version
+    pub version_hash_b3: String,
+    /// Trust state at snapshot time
+    pub trust_state_at_snapshot: String,
+    /// Validation status at snapshot time
+    pub validation_status_at_snapshot: String,
+    /// When the snapshot was taken
+    pub snapshot_timestamp: String,
+    /// Storage path at snapshot time
+    pub storage_path: String,
+    /// Version number
+    pub version_number: i64,
+    /// Manifest JSON if available
+    pub manifest_json: Option<String>,
+}
+
+/// Result of verifying a dataset snapshot against current state
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DatasetSnapshotVerification {
+    /// Dataset version ID
+    pub dataset_version_id: String,
+    /// Original snapshot timestamp
+    pub snapshot_timestamp: String,
+    /// Whether the snapshot is still valid (no changes)
+    pub is_valid: bool,
+    /// List of detected changes since snapshot
+    pub changes: Vec<String>,
+    /// When verification was performed
+    pub verified_at: String,
+}
+
+// ============================================================================
+// Core Types
+// ============================================================================
 
 /// Derive aggregate safety status from individual signals.
 fn derive_overall_safety_status(
@@ -119,6 +537,8 @@ pub struct TrainingDataset {
     pub ownership: Option<String>,
     pub tenant_id: Option<String>,
     pub workspace_id: Option<String>,
+    // Repository slug for filtering datasets by source repo (e.g., "org/repo-name")
+    pub repo_slug: Option<String>,
     // Hash repair tracking (added in migration 0239)
     pub hash_needs_recompute: i32,
     pub hash_algorithm_version: i32,
@@ -286,6 +706,9 @@ impl Db {
     }
 
     /// Create a new training dataset using a precomputed ID (e.g., to align DB rows with storage paths)
+    ///
+    /// Note: Consider using `create_training_dataset_from_params` for validated creation
+    /// with all extended fields.
     pub async fn create_training_dataset_with_id(
         &self,
         dataset_id: &str,
@@ -321,6 +744,68 @@ impl Db {
         .await
         .map_err(db_err("create training dataset"))?;
         Ok(dataset_id.to_string())
+    }
+
+    /// Create a training dataset from validated parameters
+    ///
+    /// This is the preferred method for dataset creation as it:
+    /// - Validates all inputs before insertion
+    /// - Supports all extended fields including tenant_id
+    /// - Uses the builder pattern for clear, fluent API
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let params = CreateDatasetParams::builder()
+    ///     .name("my-dataset")
+    ///     .format("jsonl")
+    ///     .hash_b3("a".repeat(64)) // 64 hex chars
+    ///     .storage_path("/data/datasets/my-dataset")
+    ///     .tenant_id("tenant-123")
+    ///     .build()?;
+    ///
+    /// let dataset_id = db.create_training_dataset_from_params(&params).await?;
+    /// ```
+    pub async fn create_training_dataset_from_params(
+        &self,
+        params: &CreateDatasetParams,
+    ) -> Result<String> {
+        let id = params
+            .id
+            .clone()
+            .unwrap_or_else(|| Uuid::now_v7().to_string());
+        let final_dataset_hash = params.dataset_hash_b3.as_deref().unwrap_or(&params.hash_b3);
+
+        sqlx::query(
+            "INSERT INTO training_datasets (
+                id, name, description, format, hash_b3, dataset_hash_b3, storage_path,
+                status, validation_status, created_by, tenant_id, workspace_id,
+                dataset_type, purpose, source_location, collection_method, ownership,
+                metadata_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(&id)
+        .bind(&params.name)
+        .bind(&params.description)
+        .bind(&params.format)
+        .bind(&params.hash_b3)
+        .bind(final_dataset_hash)
+        .bind(&params.storage_path)
+        .bind(&params.status)
+        .bind(&params.created_by)
+        .bind(&params.tenant_id)
+        .bind(&params.workspace_id)
+        .bind(&params.dataset_type)
+        .bind(&params.purpose)
+        .bind(&params.source_location)
+        .bind(&params.collection_method)
+        .bind(&params.ownership)
+        .bind(&params.metadata_json)
+        .execute(self.pool())
+        .await
+        .map_err(db_err("create training dataset from params"))?;
+
+        Ok(id)
     }
 
     /// Create a new dataset version aligned to a dataset record.
@@ -913,7 +1398,10 @@ impl Db {
     /// List all dataset files (used by reconciler for orphan detection).
     pub async fn list_all_dataset_files(&self) -> Result<Vec<DatasetFile>> {
         let files = sqlx::query_as::<_, DatasetFile>(
-            "SELECT id, dataset_id, file_name, file_path, size_bytes, hash_b3, mime_type, created_at
+            "SELECT id, dataset_id, file_name, file_path, size_bytes, hash_b3, mime_type, created_at,
+                    updated_at, upload_completed_at, compression_format, original_size_bytes,
+                    row_count, encoding, line_ending, metadata_json, validation_status,
+                    validation_errors_json, source_type, created_by
              FROM dataset_files",
         )
         .fetch_all(self.pool())
@@ -1612,7 +2100,11 @@ impl Db {
 
 #[cfg(test)]
 mod tests {
-    use super::{derive_overall_safety_status, derive_trust_state};
+    use super::{
+        derive_overall_safety_status, derive_trust_state, validate_format, validate_hash_b3,
+        validate_status, CreateDatasetParams, DatasetSnapshotVerification,
+        SnapshotDatasetForRunParams, TrainingRunDatasetSnapshot,
+    };
 
     #[test]
     fn trust_blocks_on_invalid() {
@@ -1672,6 +2164,286 @@ mod tests {
     fn safety_warn_when_warn_present() {
         let safety = derive_overall_safety_status("clean", "warn", "clean", "clean");
         assert_eq!(safety, "warn");
+    }
+
+    // ============================================================================
+    // Validation Function Tests
+    // ============================================================================
+
+    #[test]
+    fn test_validate_format_valid() {
+        assert!(validate_format("jsonl").is_ok());
+        assert!(validate_format("patches").is_ok());
+        assert!(validate_format("txt").is_ok());
+        assert!(validate_format("custom").is_ok());
+        assert!(validate_format("parquet").is_ok());
+        assert!(validate_format("csv").is_ok());
+    }
+
+    #[test]
+    fn test_validate_format_invalid() {
+        let result = validate_format("xml");
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Invalid dataset format"));
+    }
+
+    #[test]
+    fn test_validate_status_valid() {
+        assert!(validate_status("uploaded").is_ok());
+        assert!(validate_status("processing").is_ok());
+        assert!(validate_status("ready").is_ok());
+        assert!(validate_status("failed").is_ok());
+    }
+
+    #[test]
+    fn test_validate_status_invalid() {
+        let result = validate_status("pending");
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Invalid dataset status"));
+    }
+
+    #[test]
+    fn test_validate_hash_b3_valid() {
+        // Valid 64 hex character hash
+        let hash = "a".repeat(64);
+        assert!(validate_hash_b3(&hash).is_ok());
+
+        // Mixed case hex
+        let hash2 = "abcdef0123456789ABCDEF0123456789abcdef0123456789ABCDEF0123456789";
+        assert!(validate_hash_b3(hash2).is_ok());
+    }
+
+    #[test]
+    fn test_validate_hash_b3_invalid_length() {
+        let result = validate_hash_b3("abc123");
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("expected 64 hex characters"));
+    }
+
+    #[test]
+    fn test_validate_hash_b3_invalid_chars() {
+        // Non-hex characters
+        let hash = "g".repeat(64);
+        let result = validate_hash_b3(&hash);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("hexadecimal"));
+    }
+
+    // ============================================================================
+    // Builder Tests
+    // ============================================================================
+
+    #[test]
+    fn test_builder_success() {
+        let hash = "a".repeat(64);
+        let result = CreateDatasetParams::builder()
+            .name("test-dataset")
+            .format("jsonl")
+            .hash_b3(&hash)
+            .storage_path("/data/test")
+            .build();
+
+        assert!(result.is_ok());
+        let params = result.unwrap();
+        assert_eq!(params.name, "test-dataset");
+        assert_eq!(params.format, "jsonl");
+        assert_eq!(params.hash_b3, hash);
+        assert_eq!(params.storage_path, "/data/test");
+        assert_eq!(params.status, "uploaded"); // default
+    }
+
+    #[test]
+    fn test_builder_missing_name() {
+        let hash = "a".repeat(64);
+        let result = CreateDatasetParams::builder()
+            .format("jsonl")
+            .hash_b3(&hash)
+            .storage_path("/data/test")
+            .build();
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("name is required"));
+    }
+
+    #[test]
+    fn test_builder_empty_name() {
+        let hash = "a".repeat(64);
+        let result = CreateDatasetParams::builder()
+            .name("  ")
+            .format("jsonl")
+            .hash_b3(&hash)
+            .storage_path("/data/test")
+            .build();
+
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("name cannot be empty"));
+    }
+
+    #[test]
+    fn test_builder_invalid_format() {
+        let hash = "a".repeat(64);
+        let result = CreateDatasetParams::builder()
+            .name("test")
+            .format("xml")
+            .hash_b3(&hash)
+            .storage_path("/data/test")
+            .build();
+
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Invalid dataset format"));
+    }
+
+    #[test]
+    fn test_builder_invalid_status() {
+        let hash = "a".repeat(64);
+        let result = CreateDatasetParams::builder()
+            .name("test")
+            .format("jsonl")
+            .hash_b3(&hash)
+            .storage_path("/data/test")
+            .status("invalid_status")
+            .build();
+
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Invalid dataset status"));
+    }
+
+    #[test]
+    fn test_builder_with_all_fields() {
+        let hash = "a".repeat(64);
+        let result = CreateDatasetParams::builder()
+            .id("custom-id")
+            .name("test-dataset")
+            .description("Test description")
+            .format("jsonl")
+            .hash_b3(&hash)
+            .dataset_hash_b3(&hash)
+            .storage_path("/data/test")
+            .status("processing")
+            .created_by("user-123")
+            .tenant_id("tenant-456")
+            .workspace_id("workspace-789")
+            .dataset_type("training")
+            .purpose("fine-tuning")
+            .source_location("s3://bucket/path")
+            .collection_method("automated")
+            .ownership("team-ml")
+            .metadata_json(r#"{"key": "value"}"#)
+            .build();
+
+        assert!(result.is_ok());
+        let params = result.unwrap();
+        assert_eq!(params.id, Some("custom-id".to_string()));
+        assert_eq!(params.description, Some("Test description".to_string()));
+        assert_eq!(params.status, "processing");
+        assert_eq!(params.tenant_id, Some("tenant-456".to_string()));
+    }
+
+    // ============================================================================
+    // Snapshot Types Tests
+    // ============================================================================
+
+    #[test]
+    fn snapshot_params_defaults() {
+        let params = SnapshotDatasetForRunParams {
+            dataset_id: "test-dataset-id".to_string(),
+            tenant_id: None,
+            verify_integrity: false,
+            require_trusted: false,
+        };
+        assert_eq!(params.dataset_id, "test-dataset-id");
+        assert!(!params.verify_integrity);
+        assert!(!params.require_trusted);
+    }
+
+    #[test]
+    fn snapshot_params_with_tenant() {
+        let params = SnapshotDatasetForRunParams {
+            dataset_id: "test-dataset-id".to_string(),
+            tenant_id: Some("tenant-123".to_string()),
+            verify_integrity: true,
+            require_trusted: true,
+        };
+        assert_eq!(params.tenant_id, Some("tenant-123".to_string()));
+        assert!(params.verify_integrity);
+        assert!(params.require_trusted);
+    }
+
+    #[test]
+    fn snapshot_struct_serialization() {
+        let snapshot = TrainingRunDatasetSnapshot {
+            dataset_id: "ds-001".to_string(),
+            dataset_version_id: "dsv-001".to_string(),
+            version_hash_b3: "abc123".to_string(),
+            trust_state_at_snapshot: "allowed".to_string(),
+            validation_status_at_snapshot: "valid".to_string(),
+            snapshot_timestamp: "2025-01-01T00:00:00Z".to_string(),
+            storage_path: "/data/datasets/ds-001".to_string(),
+            version_number: 1,
+            manifest_json: Some(r#"{"files": []}"#.to_string()),
+        };
+
+        let json = serde_json::to_string(&snapshot).unwrap();
+        let deserialized: TrainingRunDatasetSnapshot = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(deserialized.dataset_id, snapshot.dataset_id);
+        assert_eq!(deserialized.dataset_version_id, snapshot.dataset_version_id);
+        assert_eq!(deserialized.version_hash_b3, snapshot.version_hash_b3);
+        assert_eq!(
+            deserialized.trust_state_at_snapshot,
+            snapshot.trust_state_at_snapshot
+        );
+    }
+
+    #[test]
+    fn verification_result_valid() {
+        let verification = DatasetSnapshotVerification {
+            dataset_version_id: "dsv-001".to_string(),
+            snapshot_timestamp: "2025-01-01T00:00:00Z".to_string(),
+            is_valid: true,
+            changes: vec![],
+            verified_at: "2025-01-02T00:00:00Z".to_string(),
+        };
+
+        assert!(verification.is_valid);
+        assert!(verification.changes.is_empty());
+    }
+
+    #[test]
+    fn verification_result_with_changes() {
+        let verification = DatasetSnapshotVerification {
+            dataset_version_id: "dsv-001".to_string(),
+            snapshot_timestamp: "2025-01-01T00:00:00Z".to_string(),
+            is_valid: false,
+            changes: vec![
+                "Hash changed from abc to def".to_string(),
+                "Trust state changed from allowed to blocked".to_string(),
+            ],
+            verified_at: "2025-01-02T00:00:00Z".to_string(),
+        };
+
+        assert!(!verification.is_valid);
+        assert_eq!(verification.changes.len(), 2);
+        assert!(verification.changes[0].contains("Hash changed"));
+        assert!(verification.changes[1].contains("Trust state"));
     }
 }
 
@@ -1761,5 +2533,572 @@ impl Db {
             mismatches,
             is_valid,
         })
+    }
+}
+
+// ==============================================================================
+// Codebase Dataset Rows (Session-based ingestion)
+// ==============================================================================
+
+/// Sample role for training examples
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SampleRole {
+    /// Positive examples teach knowledge
+    Positive,
+    /// Negative examples teach abstention (what NOT to do)
+    Negative,
+}
+
+impl SampleRole {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Positive => "positive",
+            Self::Negative => "negative",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "positive" => Some(Self::Positive),
+            "negative" => Some(Self::Negative),
+            _ => None,
+        }
+    }
+}
+
+/// A single row in a codebase dataset, representing one training example.
+///
+/// Each row contains a prompt/response pair extracted from code symbols
+/// during codebase ingestion. Rows are grouped by session_id for atomic
+/// operations and progress tracking.
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct CodebaseDatasetRow {
+    pub id: String,
+    pub dataset_id: String,
+    pub dataset_version_id: Option<String>,
+    pub session_id: Option<String>,
+    pub prompt: String,
+    pub response: String,
+    pub weight: f64,
+    pub sample_role: String,
+    pub symbol_kind: Option<String>,
+    pub language: Option<String>,
+    pub file_path: Option<String>,
+    pub start_line: Option<i32>,
+    pub end_line: Option<i32>,
+    pub qualified_name: Option<String>,
+    pub commit_sha: Option<String>,
+    pub repo_name: Option<String>,
+    pub repo_slug: Option<String>,
+    pub repo_identifier: Option<String>,
+    pub project_name: Option<String>,
+    pub has_docstring: i32,
+    pub content_hash_b3: String,
+    pub metadata_json: Option<String>,
+    pub tenant_id: Option<String>,
+    pub created_at: String,
+}
+
+/// Columns for codebase dataset row SELECT queries
+pub const CODEBASE_DATASET_ROW_COLUMNS: &str =
+    "id, dataset_id, dataset_version_id, session_id, prompt, response, weight, sample_role, \
+     symbol_kind, language, file_path, start_line, end_line, qualified_name, \
+     commit_sha, repo_name, repo_slug, repo_identifier, project_name, has_docstring, content_hash_b3, \
+     metadata_json, tenant_id, created_at";
+
+/// Parameters for creating a codebase dataset row
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateCodebaseDatasetRowParams {
+    pub dataset_id: String,
+    pub dataset_version_id: Option<String>,
+    pub session_id: Option<String>,
+    pub prompt: String,
+    pub response: String,
+    pub weight: f64,
+    pub sample_role: SampleRole,
+    pub symbol_kind: Option<String>,
+    pub language: Option<String>,
+    pub file_path: Option<String>,
+    pub start_line: Option<i32>,
+    pub end_line: Option<i32>,
+    pub qualified_name: Option<String>,
+    pub commit_sha: Option<String>,
+    pub repo_name: Option<String>,
+    pub repo_slug: Option<String>,
+    pub repo_identifier: Option<String>,
+    pub project_name: Option<String>,
+    pub has_docstring: bool,
+    pub metadata_json: Option<String>,
+    pub tenant_id: Option<String>,
+}
+
+/// Summary statistics for a session
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionSummary {
+    pub session_id: String,
+    pub dataset_id: String,
+    pub row_count: i64,
+    pub positive_count: i64,
+    pub negative_count: i64,
+    pub earliest_created_at: Option<String>,
+    pub latest_created_at: Option<String>,
+}
+
+impl Db {
+    // ============================================================================
+    // Codebase Dataset Row Operations
+    // ============================================================================
+
+    /// Insert a single codebase dataset row.
+    ///
+    /// The content_hash_b3 is computed from prompt, response, and weight to
+    /// enable deduplication checks.
+    pub async fn insert_codebase_dataset_row(
+        &self,
+        params: &CreateCodebaseDatasetRowParams,
+    ) -> Result<String> {
+        let id = Uuid::now_v7().to_string();
+
+        // Compute content hash for deduplication
+        let hash_input = format!("{}:{}:{}", params.prompt, params.response, params.weight);
+        let content_hash = blake3::hash(hash_input.as_bytes());
+        let content_hash_b3 = content_hash.to_hex().to_string();
+
+        sqlx::query(
+            "INSERT INTO codebase_dataset_rows (
+                id, dataset_id, dataset_version_id, session_id, prompt, response, weight,
+                sample_role, symbol_kind, language, file_path, start_line, end_line,
+                qualified_name, commit_sha, repo_name, repo_slug, repo_identifier, project_name,
+                has_docstring, content_hash_b3, metadata_json, tenant_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(&id)
+        .bind(&params.dataset_id)
+        .bind(&params.dataset_version_id)
+        .bind(&params.session_id)
+        .bind(&params.prompt)
+        .bind(&params.response)
+        .bind(params.weight)
+        .bind(params.sample_role.as_str())
+        .bind(&params.symbol_kind)
+        .bind(&params.language)
+        .bind(&params.file_path)
+        .bind(params.start_line)
+        .bind(params.end_line)
+        .bind(&params.qualified_name)
+        .bind(&params.commit_sha)
+        .bind(&params.repo_name)
+        .bind(&params.repo_slug)
+        .bind(&params.repo_identifier)
+        .bind(&params.project_name)
+        .bind(if params.has_docstring { 1 } else { 0 })
+        .bind(&content_hash_b3)
+        .bind(&params.metadata_json)
+        .bind(&params.tenant_id)
+        .execute(self.pool())
+        .await
+        .map_err(db_err("insert codebase dataset row"))?;
+
+        Ok(id)
+    }
+
+    /// Bulk insert codebase dataset rows for efficiency.
+    ///
+    /// All rows are inserted with the same session_id for atomic grouping.
+    /// Returns the number of rows inserted.
+    pub async fn bulk_insert_codebase_dataset_rows(
+        &self,
+        rows: &[CreateCodebaseDatasetRowParams],
+    ) -> Result<usize> {
+        if rows.is_empty() {
+            return Ok(0);
+        }
+
+        // Use a transaction for atomic insertion
+        let mut tx = self
+            .pool()
+            .begin()
+            .await
+            .map_err(db_err("begin transaction"))?;
+        let mut count = 0;
+
+        for params in rows {
+            let id = Uuid::now_v7().to_string();
+
+            // Compute content hash for deduplication
+            let hash_input = format!("{}:{}:{}", params.prompt, params.response, params.weight);
+            let content_hash = blake3::hash(hash_input.as_bytes());
+            let content_hash_b3 = content_hash.to_hex().to_string();
+
+            sqlx::query(
+                "INSERT INTO codebase_dataset_rows (
+                    id, dataset_id, dataset_version_id, session_id, prompt, response, weight,
+                    sample_role, symbol_kind, language, file_path, start_line, end_line,
+                    qualified_name, commit_sha, repo_name, repo_slug, repo_identifier, project_name,
+                    has_docstring, content_hash_b3, metadata_json, tenant_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            )
+            .bind(&id)
+            .bind(&params.dataset_id)
+            .bind(&params.dataset_version_id)
+            .bind(&params.session_id)
+            .bind(&params.prompt)
+            .bind(&params.response)
+            .bind(params.weight)
+            .bind(params.sample_role.as_str())
+            .bind(&params.symbol_kind)
+            .bind(&params.language)
+            .bind(&params.file_path)
+            .bind(params.start_line)
+            .bind(params.end_line)
+            .bind(&params.qualified_name)
+            .bind(&params.commit_sha)
+            .bind(&params.repo_name)
+            .bind(&params.repo_slug)
+            .bind(&params.repo_identifier)
+            .bind(&params.project_name)
+            .bind(if params.has_docstring { 1 } else { 0 })
+            .bind(&content_hash_b3)
+            .bind(&params.metadata_json)
+            .bind(&params.tenant_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(db_err("bulk insert codebase dataset row"))?;
+
+            count += 1;
+        }
+
+        tx.commit().await.map_err(db_err("commit transaction"))?;
+        Ok(count)
+    }
+
+    /// Get a codebase dataset row by ID.
+    pub async fn get_codebase_dataset_row(
+        &self,
+        row_id: &str,
+    ) -> Result<Option<CodebaseDatasetRow>> {
+        let row = sqlx::query_as::<_, CodebaseDatasetRow>(&format!(
+            "SELECT {} FROM codebase_dataset_rows WHERE id = ?",
+            CODEBASE_DATASET_ROW_COLUMNS
+        ))
+        .bind(row_id)
+        .fetch_optional(self.pool())
+        .await
+        .map_err(db_err("get codebase dataset row"))?;
+
+        Ok(row)
+    }
+
+    /// List all rows for a dataset, optionally filtered by session.
+    pub async fn list_codebase_dataset_rows(
+        &self,
+        dataset_id: &str,
+        session_id: Option<&str>,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<CodebaseDatasetRow>> {
+        let rows = if let Some(sid) = session_id {
+            sqlx::query_as::<_, CodebaseDatasetRow>(&format!(
+                "SELECT {} FROM codebase_dataset_rows \
+                 WHERE dataset_id = ? AND session_id = ? \
+                 ORDER BY created_at ASC LIMIT ? OFFSET ?",
+                CODEBASE_DATASET_ROW_COLUMNS
+            ))
+            .bind(dataset_id)
+            .bind(sid)
+            .bind(limit)
+            .bind(offset)
+            .fetch_all(self.pool())
+            .await
+            .map_err(db_err("list codebase dataset rows by session"))?
+        } else {
+            sqlx::query_as::<_, CodebaseDatasetRow>(&format!(
+                "SELECT {} FROM codebase_dataset_rows \
+                 WHERE dataset_id = ? \
+                 ORDER BY created_at ASC LIMIT ? OFFSET ?",
+                CODEBASE_DATASET_ROW_COLUMNS
+            ))
+            .bind(dataset_id)
+            .bind(limit)
+            .bind(offset)
+            .fetch_all(self.pool())
+            .await
+            .map_err(db_err("list codebase dataset rows"))?
+        };
+
+        Ok(rows)
+    }
+
+    /// Get all rows for a specific session.
+    pub async fn get_rows_by_session(&self, session_id: &str) -> Result<Vec<CodebaseDatasetRow>> {
+        let rows = sqlx::query_as::<_, CodebaseDatasetRow>(&format!(
+            "SELECT {} FROM codebase_dataset_rows \
+             WHERE session_id = ? \
+             ORDER BY created_at ASC",
+            CODEBASE_DATASET_ROW_COLUMNS
+        ))
+        .bind(session_id)
+        .fetch_all(self.pool())
+        .await
+        .map_err(db_err("get rows by session"))?;
+
+        Ok(rows)
+    }
+
+    /// Count rows for a dataset, optionally filtered by session.
+    pub async fn count_codebase_dataset_rows(
+        &self,
+        dataset_id: &str,
+        session_id: Option<&str>,
+    ) -> Result<i64> {
+        let count: (i64,) = if let Some(sid) = session_id {
+            sqlx::query_as(
+                "SELECT COUNT(*) FROM codebase_dataset_rows \
+                 WHERE dataset_id = ? AND session_id = ?",
+            )
+            .bind(dataset_id)
+            .bind(sid)
+            .fetch_one(self.pool())
+            .await
+            .map_err(db_err("count codebase dataset rows by session"))?
+        } else {
+            sqlx::query_as("SELECT COUNT(*) FROM codebase_dataset_rows WHERE dataset_id = ?")
+                .bind(dataset_id)
+                .fetch_one(self.pool())
+                .await
+                .map_err(db_err("count codebase dataset rows"))?
+        };
+
+        Ok(count.0)
+    }
+
+    /// Count rows by sample role for a session.
+    pub async fn count_rows_by_role_for_session(&self, session_id: &str) -> Result<(i64, i64)> {
+        let positive: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM codebase_dataset_rows \
+             WHERE session_id = ? AND sample_role = 'positive'",
+        )
+        .bind(session_id)
+        .fetch_one(self.pool())
+        .await
+        .map_err(db_err("count positive rows for session"))?;
+
+        let negative: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM codebase_dataset_rows \
+             WHERE session_id = ? AND sample_role = 'negative'",
+        )
+        .bind(session_id)
+        .fetch_one(self.pool())
+        .await
+        .map_err(db_err("count negative rows for session"))?;
+
+        Ok((positive.0, negative.0))
+    }
+
+    /// Get codebase ingestion session summary statistics.
+    pub async fn get_codebase_session_summary(&self, session_id: &str) -> Result<Option<SessionSummary>> {
+        let result: Option<(String, i64, i64, i64, Option<String>, Option<String>)> =
+            sqlx::query_as(
+                "SELECT
+                dataset_id,
+                COUNT(*) as row_count,
+                SUM(CASE WHEN sample_role = 'positive' THEN 1 ELSE 0 END) as positive_count,
+                SUM(CASE WHEN sample_role = 'negative' THEN 1 ELSE 0 END) as negative_count,
+                MIN(created_at) as earliest_created_at,
+                MAX(created_at) as latest_created_at
+             FROM codebase_dataset_rows
+             WHERE session_id = ?
+             GROUP BY dataset_id",
+            )
+            .bind(session_id)
+            .fetch_optional(self.pool())
+            .await
+            .map_err(db_err("get session summary"))?;
+
+        Ok(result.map(
+            |(dataset_id, row_count, positive_count, negative_count, earliest, latest)| {
+                SessionSummary {
+                    session_id: session_id.to_string(),
+                    dataset_id,
+                    row_count,
+                    positive_count,
+                    negative_count,
+                    earliest_created_at: earliest,
+                    latest_created_at: latest,
+                }
+            },
+        ))
+    }
+
+    /// List all sessions for a dataset.
+    pub async fn list_sessions_for_dataset(&self, dataset_id: &str) -> Result<Vec<SessionSummary>> {
+        let rows: Vec<(String, i64, i64, i64, Option<String>, Option<String>)> = sqlx::query_as(
+            "SELECT
+                session_id,
+                COUNT(*) as row_count,
+                SUM(CASE WHEN sample_role = 'positive' THEN 1 ELSE 0 END) as positive_count,
+                SUM(CASE WHEN sample_role = 'negative' THEN 1 ELSE 0 END) as negative_count,
+                MIN(created_at) as earliest_created_at,
+                MAX(created_at) as latest_created_at
+             FROM codebase_dataset_rows
+             WHERE dataset_id = ? AND session_id IS NOT NULL
+             GROUP BY session_id
+             ORDER BY MIN(created_at) DESC",
+        )
+        .bind(dataset_id)
+        .fetch_all(self.pool())
+        .await
+        .map_err(db_err("list sessions for dataset"))?;
+
+        Ok(rows
+            .into_iter()
+            .map(
+                |(session_id, row_count, positive_count, negative_count, earliest, latest)| {
+                    SessionSummary {
+                        session_id,
+                        dataset_id: dataset_id.to_string(),
+                        row_count,
+                        positive_count,
+                        negative_count,
+                        earliest_created_at: earliest,
+                        latest_created_at: latest,
+                    }
+                },
+            )
+            .collect())
+    }
+
+    /// Delete all rows for a session (atomic rollback).
+    ///
+    /// This enables undoing a failed or unwanted ingestion run.
+    pub async fn delete_session_rows(&self, session_id: &str) -> Result<u64> {
+        let result = sqlx::query("DELETE FROM codebase_dataset_rows WHERE session_id = ?")
+            .bind(session_id)
+            .execute(self.pool())
+            .await
+            .map_err(db_err("delete session rows"))?;
+
+        Ok(result.rows_affected())
+    }
+
+    /// Delete all rows for a dataset.
+    pub async fn delete_all_codebase_dataset_rows(&self, dataset_id: &str) -> Result<u64> {
+        let result = sqlx::query("DELETE FROM codebase_dataset_rows WHERE dataset_id = ?")
+            .bind(dataset_id)
+            .execute(self.pool())
+            .await
+            .map_err(db_err("delete all codebase dataset rows"))?;
+
+        Ok(result.rows_affected())
+    }
+
+    /// Check for duplicate rows by content hash.
+    ///
+    /// Returns true if a row with the same content hash already exists
+    /// in the dataset (across any session).
+    pub async fn check_duplicate_row(
+        &self,
+        dataset_id: &str,
+        content_hash_b3: &str,
+    ) -> Result<bool> {
+        let exists: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM codebase_dataset_rows \
+             WHERE dataset_id = ? AND content_hash_b3 = ?",
+        )
+        .bind(dataset_id)
+        .bind(content_hash_b3)
+        .fetch_one(self.pool())
+        .await
+        .map_err(db_err("check duplicate row"))?;
+
+        Ok(exists.0 > 0)
+    }
+
+    /// Get rows by file path for a dataset.
+    ///
+    /// Useful for finding all training examples from a specific source file.
+    pub async fn get_rows_by_file(
+        &self,
+        dataset_id: &str,
+        file_path: &str,
+    ) -> Result<Vec<CodebaseDatasetRow>> {
+        let rows = sqlx::query_as::<_, CodebaseDatasetRow>(&format!(
+            "SELECT {} FROM codebase_dataset_rows \
+             WHERE dataset_id = ? AND file_path = ? \
+             ORDER BY start_line ASC",
+            CODEBASE_DATASET_ROW_COLUMNS
+        ))
+        .bind(dataset_id)
+        .bind(file_path)
+        .fetch_all(self.pool())
+        .await
+        .map_err(db_err("get rows by file"))?;
+
+        Ok(rows)
+    }
+
+    /// Get rows by symbol for a dataset.
+    ///
+    /// Useful for finding the training example for a specific function/struct.
+    pub async fn get_rows_by_symbol(
+        &self,
+        dataset_id: &str,
+        qualified_name: &str,
+    ) -> Result<Vec<CodebaseDatasetRow>> {
+        let rows = sqlx::query_as::<_, CodebaseDatasetRow>(&format!(
+            "SELECT {} FROM codebase_dataset_rows \
+             WHERE dataset_id = ? AND qualified_name = ? \
+             ORDER BY created_at DESC",
+            CODEBASE_DATASET_ROW_COLUMNS
+        ))
+        .bind(dataset_id)
+        .bind(qualified_name)
+        .fetch_all(self.pool())
+        .await
+        .map_err(db_err("get rows by symbol"))?;
+
+        Ok(rows)
+    }
+
+    /// Get rows by repository identifier.
+    ///
+    /// Useful for finding all training examples from a specific repository.
+    pub async fn get_rows_by_repo_identifier(
+        &self,
+        repo_identifier: &str,
+    ) -> Result<Vec<CodebaseDatasetRow>> {
+        let rows = sqlx::query_as::<_, CodebaseDatasetRow>(&format!(
+            "SELECT {} FROM codebase_dataset_rows \
+             WHERE repo_identifier = ? \
+             ORDER BY created_at DESC",
+            CODEBASE_DATASET_ROW_COLUMNS
+        ))
+        .bind(repo_identifier)
+        .fetch_all(self.pool())
+        .await
+        .map_err(db_err("get rows by repo identifier"))?;
+
+        Ok(rows)
+    }
+
+    /// Update the dataset_version_id for all rows in a session.
+    ///
+    /// Used when creating a new dataset version from ingested rows.
+    pub async fn update_session_version(
+        &self,
+        session_id: &str,
+        dataset_version_id: &str,
+    ) -> Result<u64> {
+        let result = sqlx::query(
+            "UPDATE codebase_dataset_rows SET dataset_version_id = ? WHERE session_id = ?",
+        )
+        .bind(dataset_version_id)
+        .bind(session_id)
+        .execute(self.pool())
+        .await
+        .map_err(db_err("update session version"))?;
+
+        Ok(result.rows_affected())
     }
 }

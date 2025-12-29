@@ -12,13 +12,16 @@ use adapteros_lora_worker::tokenizer::QwenTokenizer;
 use adapteros_lora_worker::training::{MicroLoRATrainer, TrainingConfig, TrainingExample};
 use adapteros_platform::common::PlatformUtils;
 use blake3::Hasher;
+use chrono::{DateTime, TimeZone, Utc};
 use git2::Repository;
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use tempfile::TempDir;
 use tokio::fs;
 use tokio::task;
 use tracing::{debug, info, warn};
+use uuid::Uuid;
 
 /// Source repository specification for ingestion.
 #[derive(Debug, Clone)]
@@ -53,6 +56,245 @@ impl Default for CodeDatasetConfig {
     }
 }
 
+/// Configuration for filtering repository scope during ingestion.
+///
+/// Used to selectively include or exclude files based on paths and extensions.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct RepoScopeConfig {
+    /// Paths to include (e.g., ["src/", "lib/"])
+    #[serde(default)]
+    pub include_paths: Vec<String>,
+    /// Paths to exclude (e.g., ["tests/", "vendor/"])
+    #[serde(default)]
+    pub exclude_paths: Vec<String>,
+    /// File extensions to include (e.g., ["rs", "py"])
+    #[serde(default)]
+    pub include_extensions: Vec<String>,
+    /// File extensions to exclude (e.g., ["md", "txt"])
+    #[serde(default)]
+    pub exclude_extensions: Vec<String>,
+}
+
+impl RepoScopeConfig {
+    /// Check if any filters are configured
+    pub fn has_filters(&self) -> bool {
+        !self.include_paths.is_empty()
+            || !self.exclude_paths.is_empty()
+            || !self.include_extensions.is_empty()
+            || !self.exclude_extensions.is_empty()
+    }
+}
+
+/// Stream output format for progress events during ingestion.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum StreamFormat {
+    /// JSON Lines format for machine parsing
+    Json,
+    /// Human-readable text format
+    #[default]
+    Text,
+}
+
+impl StreamFormat {
+    /// Parse from string (case-insensitive)
+    pub fn from_str(s: &str) -> Self {
+        match s.to_lowercase().as_str() {
+            "json" | "jsonl" => Self::Json,
+            _ => Self::Text,
+        }
+    }
+}
+
+/// Configuration for streaming progress events during ingestion.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StreamConfig {
+    /// Whether streaming is enabled
+    pub enabled: bool,
+    /// Output format for events
+    pub format: StreamFormat,
+    /// Minimum interval between events in milliseconds (0 = every event)
+    pub interval_ms: u64,
+}
+
+impl Default for StreamConfig {
+    fn default() -> Self {
+        Self::disabled()
+    }
+}
+
+impl StreamConfig {
+    /// Create a new enabled stream config
+    pub fn new(format: StreamFormat, interval_ms: u64) -> Self {
+        Self {
+            enabled: true,
+            format,
+            interval_ms,
+        }
+    }
+
+    /// Create a disabled stream config
+    pub fn disabled() -> Self {
+        Self {
+            enabled: false,
+            format: StreamFormat::Text,
+            interval_ms: 0,
+        }
+    }
+}
+
+/// Metadata overrides for codebase scope.
+///
+/// Allows CLI or CI/CD to override auto-detected repository metadata.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct CodebaseScopeMetadata {
+    /// Override repository name
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repo: Option<String>,
+    /// Override branch name
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
+    /// Override commit SHA
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub commit: Option<String>,
+    /// Override scan root path
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scan_root: Option<String>,
+    /// Override remote URL
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote_url: Option<String>,
+}
+
+impl CodebaseScopeMetadata {
+    /// Check if any overrides are configured
+    pub fn has_overrides(&self) -> bool {
+        self.repo.is_some()
+            || self.branch.is_some()
+            || self.commit.is_some()
+            || self.scan_root.is_some()
+            || self.remote_url.is_some()
+    }
+}
+
+/// Dataset lineage information for provenance tracking.
+///
+/// Links adapters to their training data sources.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct DatasetLineageInfo {
+    /// Parent dataset ID for single-parent lineage
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_dataset_id: Option<String>,
+    /// Human-readable label for the lineage relationship
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lineage_label: Option<String>,
+    /// List of source dataset IDs this was derived from
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub derived_from: Vec<String>,
+    /// Explicit version string
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    /// Additional key-value metadata
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub metadata: HashMap<String, String>,
+}
+
+impl DatasetLineageInfo {
+    /// Check if any lineage information is present
+    pub fn has_lineage(&self) -> bool {
+        self.parent_dataset_id.is_some()
+            || self.lineage_label.is_some()
+            || !self.derived_from.is_empty()
+            || self.version.is_some()
+            || !self.metadata.is_empty()
+    }
+}
+
+/// Git commit metadata captured during code ingestion.
+///
+/// Provides full commit provenance including author information, timestamps,
+/// and message for traceability and reproducibility of training runs.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct CommitMetadata {
+    /// Full 40-character commit SHA
+    pub sha: String,
+    /// Short SHA (first 8 characters) for display purposes
+    pub short_sha: String,
+    /// Commit author name
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author_name: Option<String>,
+    /// Commit author email
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author_email: Option<String>,
+    /// Commit timestamp in ISO 8601 format (UTC)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub commit_date: Option<String>,
+    /// Unix timestamp of the commit (seconds since epoch)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub commit_timestamp: Option<i64>,
+    /// First line of the commit message (summary)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message_summary: Option<String>,
+    /// Full commit message body
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message_body: Option<String>,
+    /// Committer name (may differ from author in rebased commits)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub committer_name: Option<String>,
+    /// Committer email
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub committer_email: Option<String>,
+    /// Parent commit SHA(s) - empty for initial commits
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub parent_shas: Vec<String>,
+}
+
+impl CommitMetadata {
+    /// Create a new CommitMetadata with just the SHA
+    pub fn new(sha: String) -> Self {
+        let short_sha = sha.get(0..8).unwrap_or(&sha).to_string();
+        Self {
+            sha,
+            short_sha,
+            ..Default::default()
+        }
+    }
+
+    /// Check if full metadata is available (beyond just SHA)
+    pub fn has_full_metadata(&self) -> bool {
+        self.author_name.is_some() || self.commit_date.is_some() || self.message_summary.is_some()
+    }
+
+    /// Convert to a HashMap for metadata storage
+    pub fn to_metadata_map(&self) -> HashMap<String, String> {
+        let mut map = HashMap::new();
+        map.insert("commit_sha".to_string(), self.sha.clone());
+        map.insert("commit_short_sha".to_string(), self.short_sha.clone());
+
+        if let Some(ref name) = self.author_name {
+            map.insert("commit_author_name".to_string(), name.clone());
+        }
+        if let Some(ref email) = self.author_email {
+            map.insert("commit_author_email".to_string(), email.clone());
+        }
+        if let Some(ref date) = self.commit_date {
+            map.insert("commit_date".to_string(), date.clone());
+        }
+        if let Some(ts) = self.commit_timestamp {
+            map.insert("commit_timestamp".to_string(), ts.to_string());
+        }
+        if let Some(ref summary) = self.message_summary {
+            map.insert("commit_message_summary".to_string(), summary.clone());
+        }
+        if let Some(ref committer) = self.committer_name {
+            map.insert("commit_committer_name".to_string(), committer.clone());
+        }
+        if !self.parent_shas.is_empty() {
+            map.insert("commit_parent_shas".to_string(), self.parent_shas.join(","));
+        }
+
+        map
+    }
+}
+
 /// Request to train an adapter directly from a codebase
 #[derive(Debug, Clone)]
 pub struct CodeIngestionRequest {
@@ -68,6 +310,20 @@ pub struct CodeIngestionRequest {
     pub repo_id: Option<String>,
     pub project_name: Option<String>,
     pub seed: Option<u64>,
+    /// Human-readable name for the ingestion session (e.g., "nightly-build", "pr-123")
+    pub session_name: Option<String>,
+    /// Arbitrary tags for categorizing the session (e.g., ["ci", "production"])
+    pub session_tags: Option<Vec<String>>,
+    /// Unique identifier for this ingestion session, used for correlation across pipeline stages
+    pub session_id: Option<Uuid>,
+    /// Repository scope filtering configuration (include/exclude paths and extensions)
+    pub repo_scope: Option<RepoScopeConfig>,
+    /// Streaming configuration for real-time progress updates
+    pub stream: Option<StreamConfig>,
+    /// Codebase scope metadata (repo, branch, commit, etc.)
+    pub scope_metadata: Option<CodebaseScopeMetadata>,
+    /// Dataset lineage information for provenance tracking
+    pub lineage: Option<DatasetLineageInfo>,
 }
 
 /// Result of a code ingestion training run
@@ -76,8 +332,18 @@ pub struct CodeIngestionResult {
     pub adapter_id: String,
     pub repo_name: String,
     pub repo_slug: String,
+    /// Git branch name at time of ingestion (e.g., "main", "feature/xyz")
+    pub branch: Option<String>,
     pub commit_sha: String,
     pub short_commit_sha: String,
+    /// Full commit metadata including author, date, and message
+    pub commit_metadata: CommitMetadata,
+    /// Absolute path to the git repository root
+    pub repo_root_path: PathBuf,
+    /// Absolute path to the scan root (the directory being scanned)
+    pub scan_root_path: PathBuf,
+    /// Scan root path relative to repo root (empty string if same as repo root)
+    pub scan_root_relative: String,
     pub dataset_examples: usize,
     pub positive_examples: usize,
     pub negative_examples: usize,
@@ -112,13 +378,17 @@ impl CodeIngestionPipeline {
             )
         });
 
-        let repo_identifier = request
-            .repo_id
-            .clone()
-            .unwrap_or_else(|| format!("repo:{}", prepared_repo.repo_slug));
+        let repo_identifier = normalize_repo_id(
+            &request
+                .repo_id
+                .clone()
+                .unwrap_or_else(|| format!("repo:{}", prepared_repo.repo_slug)),
+        );
 
         info!(
-            repo = %prepared_repo.root.display(),
+            repo_root = %prepared_repo.root.display(),
+            scan_root = %prepared_repo.scan_root.display(),
+            scan_root_relative = %prepared_repo.scan_root_relative,
             commit = %prepared_repo.commit_sha,
             project = %project_name,
             adapter_id = %adapter_id,
@@ -208,6 +478,17 @@ impl CodeIngestionPipeline {
             "repo_path".to_string(),
             prepared_repo.root.display().to_string(),
         );
+        // Record scan root path and its relative path to repo root
+        metadata.insert(
+            "scan_root_path".to_string(),
+            prepared_repo.scan_root.display().to_string(),
+        );
+        if !prepared_repo.scan_root_relative.is_empty() {
+            metadata.insert(
+                "scan_root_relative".to_string(),
+                prepared_repo.scan_root_relative.clone(),
+            );
+        }
         if let Some(remote) = &prepared_repo.remote_url {
             metadata.insert("repo_remote".to_string(), remote.clone());
         }
@@ -229,6 +510,15 @@ impl CodeIngestionPipeline {
             "generator".to_string(),
             "code_ingestion_pipeline".to_string(),
         );
+        metadata.insert("category".to_string(), "codebase".to_string());
+
+        // Include session context metadata if provided
+        if let Some(session_name) = &request.session_name {
+            metadata.insert("session_name".to_string(), session_name.clone());
+        }
+        if let Some(session_tags) = &request.session_tags {
+            metadata.insert("session_tags".to_string(), session_tags.join(","));
+        }
 
         trainer
             .save_as_aos_package_with_metadata(&training_result, &aos_path, &metadata)
@@ -269,6 +559,9 @@ impl CodeIngestionPipeline {
             repo_slug: prepared_repo.repo_slug.clone(),
             commit_sha: prepared_repo.commit_sha.clone(),
             short_commit_sha: prepared_repo.short_sha().to_string(),
+            repo_root_path: prepared_repo.root.clone(),
+            scan_root_path: prepared_repo.scan_root.clone(),
+            scan_root_relative: prepared_repo.scan_root_relative.clone(),
             dataset_examples: training_examples.len(),
             positive_examples: stats.positive,
             negative_examples: stats.negative,
@@ -281,18 +574,27 @@ impl CodeIngestionPipeline {
 }
 
 struct PreparedRepo {
+    /// Git repository root (the directory containing `.git`)
     root: PathBuf,
+    /// Scan root path (the directory being scanned, may differ from repo root)
+    scan_root: PathBuf,
+    /// Scan root path relative to the repo root (empty string if same as repo root)
+    scan_root_relative: String,
     repo_name: String,
     repo_slug: String,
+    /// Current branch name (e.g., "main", "feature/xyz")
+    branch: Option<String>,
     commit_sha: String,
     commit_summary: String,
+    /// Full commit metadata including author, date, and message
+    commit_metadata: CommitMetadata,
     remote_url: Option<String>,
     _temp_dir: Option<TempDir>,
 }
 
 impl PreparedRepo {
     fn short_sha(&self) -> &str {
-        self.commit_sha.get(0..8).unwrap_or(&self.commit_sha)
+        self.commit_metadata.short_sha.as_str()
     }
 }
 
@@ -705,6 +1007,25 @@ fn load_local_repo(
         ))
     })?;
 
+    // Compute scan root (canonicalized input path) and its relative path to repo root
+    let scan_root = std::fs::canonicalize(path).map_err(|e| {
+        AosError::Io(format!(
+            "Failed to canonicalize scan root {}: {}",
+            path.display(),
+            e
+        ))
+    })?;
+
+    // Compute relative path from repo root to scan root
+    let scan_root_relative = if scan_root == root {
+        String::new()
+    } else {
+        scan_root
+            .strip_prefix(&root)
+            .map(|p| p.to_string_lossy().replace('\\', "/"))
+            .unwrap_or_else(|_| scan_root.to_string_lossy().replace('\\', "/"))
+    };
+
     let head = repo
         .head()
         .map_err(|e| AosError::Git(format!("Failed to resolve HEAD: {}", e)))?;
@@ -714,19 +1035,47 @@ fn load_local_repo(
 
     let commit_sha = commit.id().to_string();
     let summary = commit.summary().unwrap_or("").to_string();
+
+    // Build full commit metadata
+    let author = commit.author();
+    let committer = commit.committer();
+    let commit_time = commit.time();
+    let commit_timestamp = commit_time.seconds();
+    let commit_date = Utc
+        .timestamp_opt(commit_timestamp, 0)
+        .single()
+        .map(|dt| dt.to_rfc3339());
+
+    let commit_metadata = CommitMetadata {
+        sha: commit_sha.clone(),
+        short_sha: commit_sha.get(0..8).unwrap_or(&commit_sha).to_string(),
+        author_name: Some(author.name().unwrap_or("").to_string()),
+        author_email: Some(author.email().unwrap_or("").to_string()),
+        commit_date,
+        commit_timestamp: Some(commit_timestamp),
+        message_summary: Some(summary.clone()),
+        message_body: commit.message().map(|s| s.to_string()),
+        committer_name: Some(committer.name().unwrap_or("").to_string()),
+        committer_email: Some(committer.email().unwrap_or("").to_string()),
+        parent_shas: commit.parent_ids().map(|id| id.to_string()).collect(),
+    };
+
     let repo_name = root
         .file_name()
         .and_then(|s| s.to_str())
         .map(|s| s.to_string())
         .unwrap_or_else(|| "repo".to_string());
-    let repo_slug = slugify(&repo_name);
+    let repo_slug = normalize_repo_slug(&repo_name);
 
     Ok(PreparedRepo {
         root,
+        scan_root,
+        scan_root_relative,
         repo_name,
         repo_slug,
         commit_sha,
         commit_summary: summary,
+        commit_metadata,
         remote_url,
         _temp_dir: temp_dir,
     })
@@ -749,8 +1098,36 @@ fn clone_remote_repo(url: &str) -> Result<PreparedRepo> {
     load_local_repo(&clone_path, Some(temp_dir), Some(url.to_string()))
 }
 
-fn slugify(input: &str) -> String {
-    let mut slug = input
+/// Normalize a repository name into a canonical slug format.
+///
+/// This function ensures consistent, URL-safe repository slugs by:
+/// - Trimming leading/trailing whitespace
+/// - Converting to lowercase for case-insensitive matching
+/// - Replacing non-alphanumeric characters with underscores
+/// - Collapsing consecutive underscores into single underscores
+/// - Removing leading/trailing underscores
+/// - Truncating to a maximum length of 64 characters
+/// - Returns "repo" for empty or invalid inputs
+///
+/// # Examples
+///
+/// ```
+/// use adapteros_orchestrator::code_ingestion::normalize_repo_slug;
+///
+/// assert_eq!(normalize_repo_slug("AdapterOS-Core"), "adapteros_core");
+/// assert_eq!(normalize_repo_slug("My Awesome Repo!"), "my_awesome_repo");
+/// assert_eq!(normalize_repo_slug("__weird__"), "weird");
+/// assert_eq!(normalize_repo_slug(""), "repo");
+/// ```
+pub fn normalize_repo_slug(input: &str) -> String {
+    const MAX_SLUG_LENGTH: usize = 64;
+
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return "repo".to_string();
+    }
+
+    let mut slug = trimmed
         .chars()
         .map(|c| {
             if c.is_ascii_alphanumeric() {
@@ -760,15 +1137,110 @@ fn slugify(input: &str) -> String {
             }
         })
         .collect::<String>();
+
+    // Collapse consecutive underscores
     while slug.contains("__") {
         slug = slug.replace("__", "_");
     }
-    let trimmed = slug.trim_matches('_');
+
+    // Trim leading/trailing underscores
+    let trimmed_slug = slug.trim_matches('_');
+    if trimmed_slug.is_empty() {
+        return "repo".to_string();
+    }
+
+    // Truncate to max length, ensuring we don't cut in the middle of a word
+    let mut result = trimmed_slug.to_string();
+    if result.len() > MAX_SLUG_LENGTH {
+        result.truncate(MAX_SLUG_LENGTH);
+        // Remove trailing underscore if truncation created one
+        result = result.trim_end_matches('_').to_string();
+        if result.is_empty() {
+            return "repo".to_string();
+        }
+    }
+
+    result
+}
+
+/// Alias for backward compatibility - use `normalize_repo_slug` instead.
+#[deprecated(since = "0.1.0", note = "Use normalize_repo_slug instead")]
+fn slugify(input: &str) -> String {
+    normalize_repo_slug(input)
+}
+
+/// Normalize a repository identifier to a canonical form.
+///
+/// This function ensures consistent repo identifiers by:
+/// - Trimming leading/trailing whitespace
+/// - Converting to lowercase for case-insensitive matching
+/// - Removing trailing slashes
+/// - Collapsing multiple consecutive slashes to single slashes
+/// - Stripping common URL schemes (https://, http://, git://, ssh://)
+/// - Converting git SSH format (git@host:path) to standard path format
+/// - Removing `.git` suffix from URLs
+///
+/// The `repo:` prefix is preserved if present, as it indicates a locally-derived
+/// repository identifier rather than a URL-based one.
+pub fn normalize_repo_id(repo_id: &str) -> String {
+    let trimmed = repo_id.trim();
     if trimmed.is_empty() {
+        return "repo".to_string();
+    }
+
+    let mut normalized = trimmed.to_lowercase();
+
+    // Strip common URL schemes
+    for scheme in &["https://", "http://", "git://", "ssh://"] {
+        if let Some(stripped) = normalized.strip_prefix(scheme) {
+            normalized = stripped.to_string();
+            break;
+        }
+    }
+
+    // Handle git@ SSH format: git@github.com:org/repo -> github.com/org/repo
+    if let Some(stripped) = normalized.strip_prefix("git@") {
+        normalized = stripped.to_string();
+        // Convert first colon to slash (git@github.com:org/repo -> github.com/org/repo)
+        if let Some(colon_pos) = normalized.find(':') {
+            let before_colon = &normalized[..colon_pos];
+            let after_colon = &normalized[colon_pos + 1..];
+            // Only convert if before colon looks like a domain (contains a dot)
+            if before_colon.contains('.') {
+                normalized = format!("{}/{}", before_colon, after_colon);
+            }
+        }
+    }
+
+    // Remove .git suffix
+    if let Some(stripped) = normalized.strip_suffix(".git") {
+        normalized = stripped.to_string();
+    }
+
+    // Handle repo: prefix specially - preserve it but normalize the rest
+    if let Some(rest) = normalized.strip_prefix("repo:") {
+        let normalized_rest = normalize_path_segments(rest);
+        if normalized_rest.is_empty() {
+            return "repo".to_string();
+        }
+        return format!("repo:{}", normalized_rest);
+    }
+
+    // Normalize path segments (collapse slashes, remove trailing)
+    let result = normalize_path_segments(&normalized);
+    if result.is_empty() {
         "repo".to_string()
     } else {
-        trimmed.to_string()
+        result
     }
+}
+
+/// Normalize path segments by collapsing multiple slashes and removing trailing slashes.
+fn normalize_path_segments(path: &str) -> String {
+    path.split('/')
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join("/")
 }
 
 #[cfg(test)]
@@ -776,14 +1248,127 @@ mod tests {
     use super::*;
 
     #[test]
-    fn slugify_handles_symbols() {
-        assert_eq!(slugify("AdapterOS-Core"), "adapteros_core");
-        assert_eq!(slugify("__weird__"), "weird");
+    fn normalize_repo_slug_handles_symbols() {
+        assert_eq!(normalize_repo_slug("AdapterOS-Core"), "adapteros_core");
+        assert_eq!(normalize_repo_slug("__weird__"), "weird");
+    }
+
+    #[test]
+    fn normalize_repo_slug_handles_case() {
+        assert_eq!(normalize_repo_slug("MyRepo"), "myrepo");
+        assert_eq!(normalize_repo_slug("MY_REPO"), "my_repo");
+        assert_eq!(normalize_repo_slug("My-Awesome-Repo"), "my_awesome_repo");
+    }
+
+    #[test]
+    fn normalize_repo_slug_handles_special_chars() {
+        assert_eq!(normalize_repo_slug("repo@v1.0.0"), "repo_v1_0_0");
+        assert_eq!(normalize_repo_slug("my.repo.name"), "my_repo_name");
+        assert_eq!(normalize_repo_slug("repo#123"), "repo_123");
+        assert_eq!(normalize_repo_slug("my repo name"), "my_repo_name");
+    }
+
+    #[test]
+    fn normalize_repo_slug_collapses_underscores() {
+        assert_eq!(normalize_repo_slug("repo___name"), "repo_name");
+        assert_eq!(normalize_repo_slug("a--b--c"), "a_b_c");
+        assert_eq!(normalize_repo_slug("__leading_trailing__"), "leading_trailing");
+    }
+
+    #[test]
+    fn normalize_repo_slug_trims_whitespace() {
+        assert_eq!(normalize_repo_slug("  myrepo  "), "myrepo");
+        assert_eq!(normalize_repo_slug("\t\nrepo\n\t"), "repo");
+    }
+
+    #[test]
+    fn normalize_repo_slug_handles_empty_input() {
+        assert_eq!(normalize_repo_slug(""), "repo");
+        assert_eq!(normalize_repo_slug("   "), "repo");
+        assert_eq!(normalize_repo_slug("___"), "repo");
+        assert_eq!(normalize_repo_slug("---"), "repo");
+    }
+
+    #[test]
+    fn normalize_repo_slug_truncates_long_names() {
+        let long_name = "a".repeat(100);
+        let result = normalize_repo_slug(&long_name);
+        assert_eq!(result.len(), 64);
+        assert_eq!(result, "a".repeat(64));
+
+        // Test that truncation handles trailing underscores
+        let long_with_separator = format!("{}_{}", "a".repeat(63), "b".repeat(10));
+        let result = normalize_repo_slug(&long_with_separator);
+        assert!(result.len() <= 64);
+        assert!(!result.ends_with('_'));
     }
 
     #[test]
     fn sanitize_whitespace_collapses_lines() {
         let doc = "Line one\n\n    Line two  ";
         assert_eq!(sanitize_whitespace(doc), "Line one Line two");
+    }
+
+    #[test]
+    fn normalize_repo_id_handles_case() {
+        assert_eq!(normalize_repo_id("GitHub.com/Org/Repo"), "github.com/org/repo");
+        assert_eq!(normalize_repo_id("GITHUB.COM/ORG/REPO"), "github.com/org/repo");
+    }
+
+    #[test]
+    fn normalize_repo_id_removes_trailing_slashes() {
+        assert_eq!(normalize_repo_id("github.com/org/repo/"), "github.com/org/repo");
+        assert_eq!(normalize_repo_id("github.com/org/repo///"), "github.com/org/repo");
+    }
+
+    #[test]
+    fn normalize_repo_id_collapses_slashes() {
+        assert_eq!(normalize_repo_id("github.com//org///repo"), "github.com/org/repo");
+    }
+
+    #[test]
+    fn normalize_repo_id_strips_url_schemes() {
+        assert_eq!(normalize_repo_id("https://github.com/org/repo"), "github.com/org/repo");
+        assert_eq!(normalize_repo_id("http://github.com/org/repo"), "github.com/org/repo");
+        assert_eq!(normalize_repo_id("git://github.com/org/repo"), "github.com/org/repo");
+        assert_eq!(normalize_repo_id("ssh://github.com/org/repo"), "github.com/org/repo");
+    }
+
+    #[test]
+    fn normalize_repo_id_handles_git_ssh_format() {
+        assert_eq!(normalize_repo_id("git@github.com:org/repo"), "github.com/org/repo");
+        assert_eq!(normalize_repo_id("git@github.com:org/repo.git"), "github.com/org/repo");
+    }
+
+    #[test]
+    fn normalize_repo_id_removes_git_suffix() {
+        assert_eq!(normalize_repo_id("github.com/org/repo.git"), "github.com/org/repo");
+        assert_eq!(normalize_repo_id("https://github.com/org/repo.git"), "github.com/org/repo");
+    }
+
+    #[test]
+    fn normalize_repo_id_preserves_repo_prefix() {
+        assert_eq!(normalize_repo_id("repo:my-project"), "repo:my-project");
+        assert_eq!(normalize_repo_id("  repo:my-project  "), "repo:my-project");
+        assert_eq!(normalize_repo_id("repo:My-Project"), "repo:my-project");
+    }
+
+    #[test]
+    fn normalize_repo_id_trims_whitespace() {
+        assert_eq!(normalize_repo_id("  github.com/org/repo  "), "github.com/org/repo");
+        assert_eq!(normalize_repo_id("\t\ngithub.com/org/repo\n\t"), "github.com/org/repo");
+    }
+
+    #[test]
+    fn normalize_repo_id_handles_empty_input() {
+        assert_eq!(normalize_repo_id(""), "repo");
+        assert_eq!(normalize_repo_id("   "), "repo");
+        assert_eq!(normalize_repo_id("///"), "repo");
+    }
+
+    #[test]
+    fn normalize_repo_id_simple_names() {
+        assert_eq!(normalize_repo_id("my-repo"), "my-repo");
+        assert_eq!(normalize_repo_id("org/repo"), "org/repo");
     }
 }

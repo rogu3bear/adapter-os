@@ -840,6 +840,7 @@ impl AppState {
             telemetry_tx,
             registry: None,
             dataset_progress_tx: None,
+            session_progress_tx: None,
             training_signal_tx: Arc::new(training_signal_tx),
             discovery_signal_tx: Arc::new(discovery_signal_tx),
             contact_signal_tx: Arc::new(contact_signal_tx),
@@ -977,6 +978,12 @@ impl AppState {
 
     pub fn with_dataset_progress(mut self, tx: broadcast::Sender<DatasetProgressEvent>) -> Self {
         self.dataset_progress_tx = Some(Arc::new(tx));
+        self
+    }
+
+    /// Set session progress broadcast channel for codebase ingestion SSE streaming
+    pub fn with_session_progress(mut self, tx: broadcast::Sender<SessionProgressEvent>) -> Self {
+        self.session_progress_tx = Some(Arc::new(tx));
         self
     }
 

@@ -94,6 +94,10 @@ pub struct AdapterKv {
     pub drift_baseline_backend: Option<String>,
     pub drift_test_backend: Option<String>,
 
+    // Scan root path (from migration 0243)
+    #[serde(default)]
+    pub repo_path: Option<String>,
+
     // Timestamps
     pub created_at: String,
     pub updated_at: String,

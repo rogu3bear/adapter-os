@@ -93,6 +93,15 @@ pub trait AdapterKvOps {
     async fn list_adapters_by_state_kv(&self, tenant_id: &str, state: &str)
         -> Result<Vec<Adapter>>;
 
+    /// List adapters by repository identifier
+    ///
+    /// Returns all adapters associated with a specific codebase/repository.
+    async fn list_adapters_by_repo_id_kv(
+        &self,
+        tenant_id: &str,
+        repo_id: &str,
+    ) -> Result<Vec<Adapter>>;
+
     /// Update adapter tier
     async fn update_adapter_tier_kv(&self, adapter_id: &str, tier: &str) -> Result<()>;
 
@@ -112,6 +121,27 @@ pub trait AdapterKvOps {
 
     /// Unarchive an adapter in KV backend
     async fn unarchive_adapter_kv(&self, adapter_id: &str) -> Result<()>;
+
+    /// Update adapter .aos file path and hash
+    ///
+    /// Used to persist the location and integrity hash of an adapter's .aos artifact.
+    /// Both values are optional - pass None to leave unchanged, Some("") to clear.
+    async fn update_adapter_aos_file_kv(
+        &self,
+        adapter_id: &str,
+        aos_file_path: Option<&str>,
+        aos_file_hash: Option<&str>,
+    ) -> Result<()>;
+
+    /// Find adapter by .aos file path
+    ///
+    /// Returns the adapter that has the given .aos file path, if any.
+    async fn get_adapter_by_aos_file_path_kv(&self, aos_file_path: &str) -> Result<Option<Adapter>>;
+
+    /// Find adapter by .aos file hash
+    ///
+    /// Returns the adapter that has the given .aos file hash, if any.
+    async fn get_adapter_by_aos_file_hash_kv(&self, aos_file_hash: &str) -> Result<Option<Adapter>>;
 }
 
 /// KV adapter service that wraps the repository
@@ -238,6 +268,7 @@ impl From<Adapter> for AdapterKv {
             drift_reference_backend: adapter.drift_reference_backend,
             drift_baseline_backend: adapter.drift_baseline_backend,
             drift_test_backend: adapter.drift_test_backend,
+            repo_path: adapter.repo_path,
             created_at: adapter.created_at,
             updated_at: adapter.updated_at,
         }
@@ -310,6 +341,8 @@ impl From<AdapterKv> for Adapter {
             drift_reference_backend: kv.drift_reference_backend,
             drift_baseline_backend: kv.drift_baseline_backend,
             drift_test_backend: kv.drift_test_backend,
+            // Scan root path
+            repo_path: kv.repo_path,
         }
     }
 }
@@ -396,6 +429,8 @@ impl AdapterKvOps for AdapterKvRepository {
             drift_reference_backend: None,
             drift_baseline_backend: None,
             drift_test_backend: None,
+            // Scan root path (from migration 0243)
+            repo_path: params.repo_path.clone(),
         };
 
         self.repo
@@ -679,6 +714,27 @@ impl AdapterKvOps for AdapterKvRepository {
         Ok(adapters)
     }
 
+    async fn list_adapters_by_repo_id_kv(
+        &self,
+        tenant_id: &str,
+        repo_id: &str,
+    ) -> Result<Vec<Adapter>> {
+        // Get all adapters for tenant, then filter by repo_id
+        let adapters = self
+            .repo
+            .list_by_tenant(tenant_id)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to list adapters: {}", e)))?;
+
+        let mut filtered: Vec<Adapter> = adapters
+            .into_iter()
+            .filter(|a| a.repo_id.as_deref() == Some(repo_id))
+            .map(|kv| kv.into())
+            .collect();
+        Self::sort_adapters_deterministically(&mut filtered);
+        Ok(filtered)
+    }
+
     async fn update_adapter_tier_kv(&self, adapter_id: &str, tier: &str) -> Result<()> {
         // Validate tier
         if !["persistent", "warm", "ephemeral"].contains(&tier) {
@@ -855,6 +911,93 @@ impl AdapterKvOps for AdapterKvRepository {
             .map_err(|e| AosError::Database(format!("Failed to unarchive adapter: {}", e)))?;
 
         Ok(())
+    }
+
+    async fn update_adapter_aos_file_kv(
+        &self,
+        adapter_id: &str,
+        aos_file_path: Option<&str>,
+        aos_file_hash: Option<&str>,
+    ) -> Result<()> {
+        debug!(
+            adapter_id = %adapter_id,
+            aos_file_path = ?aos_file_path,
+            aos_file_hash = ?aos_file_hash,
+            "Updating adapter .aos file (KV)"
+        );
+
+        // Get current adapter
+        let mut adapter_kv = self
+            .repo
+            .get(&self.default_tenant, adapter_id)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to get adapter: {}", e)))?
+            .ok_or_else(|| AosError::NotFound(format!("Adapter not found: {}", adapter_id)))?;
+
+        // Update fields if provided
+        if let Some(path) = aos_file_path {
+            adapter_kv.aos_file_path = if path.is_empty() {
+                None
+            } else {
+                Some(path.to_string())
+            };
+        }
+        if let Some(hash) = aos_file_hash {
+            adapter_kv.aos_file_hash = if hash.is_empty() {
+                None
+            } else {
+                Some(hash.to_string())
+            };
+        }
+        adapter_kv.updated_at = Utc::now().to_rfc3339();
+
+        // Save
+        self.repo
+            .update(adapter_kv)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to update adapter .aos file: {}", e)))?;
+
+        Ok(())
+    }
+
+    async fn get_adapter_by_aos_file_path_kv(&self, aos_file_path: &str) -> Result<Option<Adapter>> {
+        debug!(aos_file_path = %aos_file_path, "Looking up adapter by .aos file path (KV)");
+
+        // List all adapters for this tenant and filter by aos_file_path
+        // Note: This is a linear scan. For better performance, consider adding an index.
+        let adapters = self
+            .repo
+            .list(&self.default_tenant, None, None)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to list adapters: {}", e)))?;
+
+        for adapter_kv in adapters {
+            if adapter_kv.aos_file_path.as_deref() == Some(aos_file_path) {
+                return Ok(Some(adapter_kv.into()));
+            }
+        }
+
+        Ok(None)
+    }
+
+    async fn get_adapter_by_aos_file_hash_kv(&self, aos_file_hash: &str) -> Result<Option<Adapter>> {
+        debug!(aos_file_hash = %aos_file_hash, "Looking up adapter by .aos file hash (KV)");
+
+        // List all adapters for this tenant and filter by aos_file_hash
+        // Note: This is a linear scan. For better performance, consider adding an index.
+        let adapters = self
+            .repo
+            .list(&self.default_tenant, None, None)
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to list adapters: {}", e)))?;
+
+        for adapter_kv in adapters {
+            if adapter_kv.aos_file_hash.as_deref() == Some(aos_file_hash) {
+                return Ok(Some(adapter_kv.into()));
+            }
+        }
+
+        Ok(None)
     }
 }
 

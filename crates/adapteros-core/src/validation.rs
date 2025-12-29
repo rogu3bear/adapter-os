@@ -1,26 +1,75 @@
 use crate::AosError;
 
+/// Reserved prefixes for system-managed adapters
+const RESERVED_ADAPTER_PREFIXES: &[&str] = &["system-", "internal-", "reserved-"];
+
 pub fn validate_adapter_id(id: &str) -> Result<(), AosError> {
+    // Check empty
     if id.is_empty() {
         return Err(AosError::Validation(
             "Adapter ID cannot be empty".to_string(),
         ));
     }
 
+    // Check minimum length (at least 3 characters for meaningful IDs)
+    if id.len() < 3 {
+        return Err(AosError::Validation(
+            "Adapter ID must be at least 3 characters".to_string(),
+        ));
+    }
+
+    // Check maximum length
     if id.len() > 64 {
         return Err(AosError::Validation(
             "Adapter ID must be 64 characters or less".to_string(),
         ));
     }
 
+    // Check allowed characters (alphanumeric, hyphens, underscores)
     if !id
         .chars()
-        .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
     {
         return Err(AosError::Validation(
-            "Adapter ID must contain only alphanumeric characters, hyphens, and underscores"
+            "Adapter ID must contain only ASCII alphanumeric characters, hyphens, and underscores"
                 .to_string(),
         ));
+    }
+
+    // Must start with alphanumeric character
+    if let Some(first) = id.chars().next() {
+        if !first.is_ascii_alphanumeric() {
+            return Err(AosError::Validation(
+                "Adapter ID must start with an alphanumeric character".to_string(),
+            ));
+        }
+    }
+
+    // Must end with alphanumeric character
+    if let Some(last) = id.chars().last() {
+        if !last.is_ascii_alphanumeric() {
+            return Err(AosError::Validation(
+                "Adapter ID must end with an alphanumeric character".to_string(),
+            ));
+        }
+    }
+
+    // No consecutive hyphens or underscores
+    if id.contains("--") || id.contains("__") || id.contains("-_") || id.contains("_-") {
+        return Err(AosError::Validation(
+            "Adapter ID cannot contain consecutive hyphens or underscores".to_string(),
+        ));
+    }
+
+    // Check reserved prefixes
+    let lower_id = id.to_lowercase();
+    for prefix in RESERVED_ADAPTER_PREFIXES {
+        if lower_id.starts_with(prefix) {
+            return Err(AosError::Validation(format!(
+                "Adapter ID cannot start with reserved prefix '{}'",
+                prefix
+            )));
+        }
     }
 
     Ok(())

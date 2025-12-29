@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
 pub mod behavior_training;
+pub mod code_ingestion;
 pub mod code_jobs;
 pub mod codebase_ingestion;
 pub mod dataset_cleanup;
@@ -20,6 +21,10 @@ pub mod training_dataset_integration;
 pub use behavior_training::{
     BehaviorCategory, BehaviorDataset, BehaviorExample, BehaviorInput, BehaviorMetadata,
     BehaviorTarget, BehaviorTrainingGenerator, DatasetConfig, ExportFilter, SyntheticConfig,
+};
+pub use code_ingestion::{
+    normalize_repo_id, normalize_repo_slug, CodeDatasetConfig, CodeIngestionPipeline,
+    CodeIngestionRequest, CodeIngestionResult, CodeIngestionSource,
 };
 pub use code_jobs::{CodeJobManager, CommitDeltaJob, ScanRepositoryJob, UpdateIndicesJob};
 pub use codebase_ingestion::{CodebaseIngestion, IngestionConfig, IngestionResult};

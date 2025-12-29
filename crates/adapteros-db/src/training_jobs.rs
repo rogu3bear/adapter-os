@@ -42,6 +42,11 @@ pub struct TrainingJobRecord {
     pub config_hash_b3: Option<String>,
     // Fields from migration 0100 - provenance tracking
     pub dataset_id: Option<String>,
+    /// Dataset version ID for provenance tracking and trust gating
+    /// Links to training_dataset_versions.id for version-specific lineage
+    /// Evidence: migrations/0177_dataset_trust_gates.sql:67
+    #[sqlx(default)]
+    pub dataset_version_id: Option<String>,
     pub base_model_id: Option<String>,
     pub collection_id: Option<String>,
     pub tenant_id: Option<String>,
@@ -120,6 +125,53 @@ pub struct TrainingConfigParams {
     pub hidden_dim: usize,
 }
 
+/// Training job dataset link record from database
+///
+/// Represents a many-to-many relationship between training jobs and datasets,
+/// allowing a single training job to use multiple datasets with different roles.
+///
+/// Evidence: migrations/0241_training_job_datasets.sql
+/// Pattern: Junction table for training job to dataset linking
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+pub struct TrainingJobDatasetLink {
+    pub id: String,
+    pub training_job_id: String,
+    pub dataset_id: String,
+    pub dataset_version_id: Option<String>,
+    /// Role of this dataset in the training job (e.g., 'primary', 'validation', 'supplementary')
+    pub role: String,
+    /// Ordering for datasets when order matters (e.g., curriculum learning)
+    pub ordinal: i32,
+    /// Weight for this dataset in the training mix
+    pub weight: Option<f64>,
+    /// Snapshot of dataset hash at link time for reproducibility
+    pub hash_b3_at_link: Option<String>,
+    pub tenant_id: Option<String>,
+    pub created_at: String,
+    pub created_by: Option<String>,
+    pub metadata_json: Option<String>,
+}
+
+/// Parameters for linking a dataset to a training job
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LinkDatasetParams {
+    /// Dataset ID to link
+    pub dataset_id: String,
+    /// Optional specific version ID (if not provided, uses latest)
+    pub dataset_version_id: Option<String>,
+    /// Role of this dataset (default: "primary")
+    pub role: Option<String>,
+    /// Ordering for this dataset (default: 0)
+    pub ordinal: Option<i32>,
+    /// Weight for this dataset in the mix (default: 1.0)
+    pub weight: Option<f64>,
+    /// Who is creating this link
+    pub created_by: Option<String>,
+    /// Additional metadata as JSON
+    pub metadata_json: Option<String>,
+}
+
 /// Compute BLAKE3 hash of training configuration for reproducibility tracking
 ///
 /// Takes training hyperparameters and produces a deterministic hash that can be used to:
@@ -194,6 +246,7 @@ impl Db {
             metadata_json: record.metadata_json.clone(),
             config_hash_b3: record.config_hash_b3.clone(),
             dataset_id: record.dataset_id.clone(),
+            dataset_version_id: record.dataset_version_id.clone(),
             base_model_id: record.base_model_id.clone(),
             collection_id: record.collection_id.clone(),
             tenant_id: record.tenant_id.clone(),
@@ -234,6 +287,7 @@ impl Db {
             metadata_json: kv.metadata_json.clone(),
             config_hash_b3: kv.config_hash_b3.clone(),
             dataset_id: kv.dataset_id.clone(),
+            dataset_version_id: kv.dataset_version_id.clone(),
             base_model_id: kv.base_model_id.clone(),
             collection_id: kv.collection_id.clone(),
             tenant_id: kv.tenant_id.clone(),
@@ -317,6 +371,7 @@ impl Db {
                 metadata_json: None,
                 config_hash_b3: None,
                 dataset_id: None,
+                dataset_version_id: None,
                 base_model_id: None,
                 collection_id: None,
                 tenant_id: None,
@@ -370,7 +425,7 @@ impl Db {
                     training_config_json, status, progress_json,
                     started_at, completed_at, created_by, adapter_name, template_id,
                     created_at, metadata_json, config_hash_b3,
-                    dataset_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
+                    dataset_id, dataset_version_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
                     synthetic_mode, data_lineage_mode,
                     retryable, retry_of_job_id, stack_id, adapter_id, weights_hash_b3, artifact_path, produced_version_id,
                     hyperparameters_json, data_spec_json, metrics_snapshot_id
@@ -399,7 +454,7 @@ impl Db {
                     training_config_json, status, progress_json,
                     started_at, completed_at, created_by, adapter_name, template_id,
                     created_at, metadata_json, config_hash_b3,
-                    dataset_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
+                    dataset_id, dataset_version_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
                     synthetic_mode, data_lineage_mode,
                     retryable, retry_of_job_id, stack_id, adapter_id, weights_hash_b3, artifact_path, produced_version_id,
                     hyperparameters_json, data_spec_json, metrics_snapshot_id
@@ -581,7 +636,7 @@ impl Db {
                     training_config_json, status, progress_json,
                     started_at, completed_at, created_by, adapter_name, template_id,
                     created_at, metadata_json, config_hash_b3,
-                    dataset_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
+                    dataset_id, dataset_version_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
                     synthetic_mode, data_lineage_mode,
                     retryable, retry_of_job_id, stack_id, adapter_id, weights_hash_b3, artifact_path, produced_version_id,
                     hyperparameters_json, data_spec_json, metrics_snapshot_id
@@ -638,7 +693,7 @@ impl Db {
                     training_config_json, status, progress_json,
                     started_at, completed_at, created_by, adapter_name, template_id,
                     created_at, metadata_json, config_hash_b3,
-                    dataset_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
+                    dataset_id, dataset_version_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
                     synthetic_mode, data_lineage_mode,
                     retryable, retry_of_job_id, stack_id, adapter_id, weights_hash_b3, artifact_path, produced_version_id,
                     hyperparameters_json, data_spec_json, metrics_snapshot_id
@@ -694,14 +749,16 @@ impl Db {
         // Optimization: Use direct tenant_id filter (supported since migration 0100)
         // Optimized with INDEXED BY for migration 0210
         let jobs = sqlx::query_as::<_, TrainingJobRecord>(
-            "SELECT rtj.id, rtj.repo_id, rtj.training_config_json, rtj.status, rtj.progress_json,
+            "SELECT rtj.id, rtj.repo_id, rtj.target_branch, rtj.base_version_id, rtj.draft_version_id,
+                    rtj.code_commit_sha, rtj.training_config_json, rtj.status, rtj.progress_json,
                     rtj.started_at, rtj.completed_at, rtj.created_by, rtj.adapter_name,
                     rtj.template_id, rtj.created_at, rtj.metadata_json, rtj.config_hash_b3,
-                    rtj.dataset_id, rtj.base_model_id, rtj.collection_id, rtj.tenant_id,
+                    rtj.dataset_id, rtj.dataset_version_id, rtj.base_model_id, rtj.collection_id, rtj.tenant_id,
                     rtj.build_id, rtj.source_documents_json,
                     rtj.synthetic_mode, rtj.data_lineage_mode,
                     rtj.retryable, rtj.retry_of_job_id, rtj.stack_id, rtj.adapter_id,
-                    rtj.weights_hash_b3, rtj.artifact_path
+                    rtj.weights_hash_b3, rtj.artifact_path, rtj.produced_version_id,
+                    rtj.hyperparameters_json, rtj.data_spec_json, rtj.metrics_snapshot_id
              FROM repository_training_jobs rtj INDEXED BY idx_training_jobs_tenant_status_created_adapter
              WHERE rtj.tenant_id = ?
              ORDER BY rtj.created_at DESC",
@@ -899,9 +956,9 @@ impl Db {
                     training_config_json, status, progress_json,
                     started_at, completed_at, created_by, adapter_name, template_id,
                     created_at, metadata_json, config_hash_b3,
-                    dataset_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
+                    dataset_id, dataset_version_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
                     synthetic_mode, data_lineage_mode,
-                    retryable, retry_of_job_id, stack_id, adapter_id, produced_version_id,
+                    retryable, retry_of_job_id, stack_id, adapter_id, weights_hash_b3, artifact_path, produced_version_id,
                     hyperparameters_json, data_spec_json, metrics_snapshot_id
              FROM repository_training_jobs
              WHERE metadata_json LIKE ?",
@@ -998,9 +1055,9 @@ impl Db {
                     training_config_json, status, progress_json,
                     started_at, completed_at, created_by, adapter_name, template_id,
                     created_at, metadata_json, config_hash_b3,
-                    dataset_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
+                    dataset_id, dataset_version_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
                     synthetic_mode, data_lineage_mode,
-                    retryable, retry_of_job_id, stack_id, adapter_id, produced_version_id,
+                    retryable, retry_of_job_id, stack_id, adapter_id, weights_hash_b3, artifact_path, produced_version_id,
                     hyperparameters_json, data_spec_json, metrics_snapshot_id
              FROM repository_training_jobs
              WHERE config_hash_b3 = ?
@@ -1034,6 +1091,7 @@ impl Db {
     /// * `retry_of_job_id` - Optional ID of original job this is a retry of (for retry chain tracking)
     /// * `synthetic_mode` - Whether the job explicitly opted into synthetic data
     /// * `data_lineage_mode` - Lineage quality for this job
+    /// * `dataset_version_id` - Optional dataset version ID for reproducibility tracking
     pub async fn create_training_job_with_provenance(
         &self,
         job_id: Option<&str>,
@@ -1041,6 +1099,7 @@ impl Db {
         training_config_json: &str,
         created_by: &str,
         dataset_id: Option<&str>,
+        dataset_version_id: Option<&str>,
         base_model_id: Option<&str>,
         collection_id: Option<&str>,
         tenant_id: Option<&str>,
@@ -1073,10 +1132,10 @@ impl Db {
             sqlx::query(
                 "INSERT INTO repository_training_jobs
              (id, repo_id, training_config_json, status, progress_json, created_by,
-             dataset_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
+             dataset_id, dataset_version_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
              retry_of_job_id, target_branch, base_version_id, draft_version_id, code_commit_sha,
              data_spec_json, synthetic_mode, data_lineage_mode, produced_version_id)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             )
             .bind(&id)
             .bind(repo_id)
@@ -1085,6 +1144,7 @@ impl Db {
             .bind(&progress_json)
             .bind(created_by)
             .bind(dataset_id)
+            .bind(dataset_version_id)
             .bind(base_model_id)
             .bind(collection_id)
             .bind(tenant_id)
@@ -1128,6 +1188,7 @@ impl Db {
                 metadata_json: None,
                 config_hash_b3: None,
                 dataset_id: dataset_id.map(|s| s.to_string()),
+                dataset_version_id: dataset_version_id.map(|s| s.to_string()),
                 base_model_id: base_model_id.map(|s| s.to_string()),
                 collection_id: collection_id.map(|s| s.to_string()),
                 tenant_id: tenant_id.map(|s| s.to_string()),
@@ -1415,9 +1476,9 @@ impl Db {
                     training_config_json, status, progress_json,
                     started_at, completed_at, created_by, adapter_name, template_id,
                     created_at, metadata_json, config_hash_b3,
-                    dataset_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
+                    dataset_id, dataset_version_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
                     synthetic_mode, data_lineage_mode,
-                    retryable, retry_of_job_id, stack_id, adapter_id, produced_version_id,
+                    retryable, retry_of_job_id, stack_id, adapter_id, weights_hash_b3, artifact_path, produced_version_id,
                     hyperparameters_json, data_spec_json, metrics_snapshot_id
              FROM repository_training_jobs
              WHERE retry_of_job_id = ?

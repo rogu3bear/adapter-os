@@ -16,10 +16,16 @@
 //! # Valid Transitions
 //!
 //! ```text
-//! Draft   → Training → Ready → Active → Deprecated → Retired
-//!   ↘                 ↘ (rollback)        ↘
-//!    └──────────────► Failed ◄────────────┘
+//! Draft → Training → Ready → Active → Deprecated → Retired
+//!   ↘         ↘        ↘       ↘  ↖ (rollback)     ↗
+//!    └────────┴────────┴───────┴──► Failed    (ephemeral: Active → Retired)
 //! ```
+//!
+//! ## Tier-Specific Rules
+//!
+//! - **Ephemeral adapters**: Cannot be deprecated; transition directly from Active to Retired
+//! - **Persistent/Warm adapters**: Must follow the full lifecycle through Deprecated
+//! - **Terminal states**: Retired and Failed are terminal (no transitions out)
 //!
 //! # Versioning
 //!
@@ -146,6 +152,45 @@ impl LifecycleState {
     /// but provided for compatibility with existing code.
     pub fn can_transition_to(&self, new_state: LifecycleState) -> bool {
         LifecycleTransition::new(*self, new_state).is_valid()
+    }
+
+    /// Check if transition from current state to new state is valid for a specific tier
+    ///
+    /// This method enforces tier-specific transition rules:
+    /// - Ephemeral adapters: Active -> Retired is allowed (skip Deprecated)
+    /// - Ephemeral adapters: Active -> Deprecated is blocked
+    /// - Non-ephemeral adapters: must go through Deprecated before Retired
+    ///
+    /// # Arguments
+    /// * `new_state` - The target lifecycle state
+    /// * `tier` - The adapter tier (e.g., "ephemeral", "warm", "persistent")
+    ///
+    /// # Returns
+    /// `true` if the transition is valid for the given tier, `false` otherwise
+    pub fn can_transition_to_for_tier(&self, new_state: LifecycleState, tier: &str) -> bool {
+        // First check if the target state is valid for this tier
+        if !new_state.is_valid_for_tier(tier) {
+            return false;
+        }
+
+        // For ephemeral adapters, Active -> Retired is allowed (skipping Deprecated)
+        if tier == "ephemeral" {
+            match (*self, new_state) {
+                // Ephemeral can skip Deprecated and go directly to Retired
+                (LifecycleState::Active, LifecycleState::Retired) => return true,
+                // Block transition to Deprecated for ephemeral
+                (_, LifecycleState::Deprecated) => return false,
+                _ => {}
+            }
+        } else {
+            // Non-ephemeral adapters cannot skip Deprecated
+            if let (LifecycleState::Active, LifecycleState::Retired) = (*self, new_state) {
+                return false;
+            }
+        }
+
+        // Fall back to base transition rules
+        self.can_transition_to(new_state)
     }
 
     /// Convert to string representation

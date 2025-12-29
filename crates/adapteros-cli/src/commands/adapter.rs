@@ -762,8 +762,15 @@ pub enum AdapterCommand {
     },
 
     /// Hot-swap adapters in running worker
+    ///
+    /// Runs preflight checks before swap to ensure:
+    /// - Adapter exists in registry with valid metadata
+    /// - .aos file exists and has valid hashes
+    /// - Lifecycle state allows activation
+    /// - No conflicting active adapters
+    /// - System is not in maintenance mode
     #[command(
-        after_help = "Examples:\n  aosctl adapter swap adapter-1\n  aosctl adapter swap adapter-1 --server-url http://localhost:8080\n  aosctl adapter swap adapter-1 --timeout 60"
+        after_help = "Examples:\n  aosctl adapter swap adapter-1\n  aosctl adapter swap adapter-1 --server-url http://localhost:8080\n  aosctl adapter swap adapter-1 --timeout 60\n  aosctl adapter swap adapter-1 --skip-preflight  # Emergency only"
     )]
     Swap {
         /// Adapter ID to activate on the worker
@@ -777,6 +784,14 @@ pub enum AdapterCommand {
         /// Timeout in seconds to wait for readiness
         #[arg(long, default_value = "30")]
         timeout: u64,
+
+        /// Skip preflight checks (emergency use only - use with caution)
+        #[arg(long)]
+        skip_preflight: bool,
+
+        /// Force swap even with preflight warnings (not failures)
+        #[arg(long)]
+        force: bool,
     },
 
     /// Show adapter information and provenance
@@ -1009,7 +1024,12 @@ pub async fn handle_adapter_command(cmd: AdapterCommand, output: &OutputWriter) 
             adapter_id,
             server_url,
             timeout,
-        } => load_adapter_and_wait(&adapter_id, &server_url, timeout, output).await,
+            skip_preflight,
+            force,
+        } => {
+            load_adapter_and_wait(&adapter_id, &server_url, timeout, skip_preflight, force, output)
+                .await
+        }
         AdapterCommand::Info { adapter_id } => crate::commands::adapter_info::run(&adapter_id)
             .await
             .map_err(|e| adapteros_core::AosError::Internal(e.to_string())),
@@ -1046,8 +1066,73 @@ async fn load_adapter_and_wait(
     adapter_id: &str,
     server_url: &str,
     timeout_secs: u64,
+    skip_preflight: bool,
+    force: bool,
     output: &OutputWriter,
 ) -> Result<()> {
+    use crate::commands::preflight::{gate_alias_swap_with_config, AliasSwapGateConfig};
+
+    // ==========================================================================
+    // Phase 0: Preflight checks before alias switch
+    // ==========================================================================
+    if skip_preflight {
+        output.warning("Preflight checks skipped (--skip-preflight) - use with caution!");
+    } else {
+        output.info(format!(
+            "Running preflight checks for adapter '{}'...",
+            adapter_id
+        ));
+
+        // Attempt to connect to database for preflight checks
+        match Db::connect_env().await {
+            Ok(db) => {
+                let config = AliasSwapGateConfig {
+                    force,
+                    skip_maintenance_check: false,
+                    skip_conflict_check: false,
+                    tenant_id: None,
+                    allow_training_state: true,
+                };
+
+                match gate_alias_swap_with_config(adapter_id, &db, &config).await {
+                    Ok(()) => {
+                        output.success("Preflight checks passed - proceeding with swap");
+                    }
+                    Err(e) => {
+                        output.error(format!("Preflight checks failed:\n{}", e));
+                        output.info("Use --skip-preflight to bypass checks (emergency only)");
+                        return Err(AosError::PreflightFailed(format!(
+                            "Adapter '{}' failed preflight checks: {}",
+                            adapter_id, e
+                        )));
+                    }
+                }
+            }
+            Err(e) => {
+                // Database unavailable - warn but continue if force is set
+                if force {
+                    output.warning(format!(
+                        "Database unavailable for preflight checks: {}. Proceeding due to --force.",
+                        e
+                    ));
+                } else {
+                    output.error(format!(
+                        "Cannot run preflight checks - database unavailable: {}",
+                        e
+                    ));
+                    output.info("Use --force to proceed without database validation");
+                    return Err(AosError::Internal(format!(
+                        "Preflight checks require database access: {}",
+                        e
+                    )));
+                }
+            }
+        }
+    }
+
+    // ==========================================================================
+    // Phase 1: Load adapter via API
+    // ==========================================================================
     let base = server_url.trim_end_matches('/');
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(timeout_secs))
@@ -1055,6 +1140,8 @@ async fn load_adapter_and_wait(
         .map_err(|e| AosError::Internal(e.to_string()))?;
 
     let start = Instant::now();
+    output.info(format!("Loading adapter '{}'...", adapter_id));
+
     let load_resp = send_with_refresh_from_store(&client, |c, auth| {
         c.post(format!("{}/v1/adapters/{}/load", base, adapter_id))
             .bearer_auth(&auth.token)

@@ -2,8 +2,15 @@
 //!
 //! This module is temporarily stubbed pending migration from the deleted
 //! adapteros-single-file-adapter crate.
+//!
+//! # CLI Inputs Aligned with Repo Commit Overrides
+//!
+//! The `scope_overrides` field provides CLI arguments that align with
+//! `CodebaseScopeMetadata` in the orchestrator, allowing users to override
+//! auto-detected git metadata for deterministic training.
 
 use crate::commands::adapter::validate_adapter_id;
+use crate::commands::adapter_codebase::CodebaseScopeOverrides;
 use crate::commands::training_common::{CommonTrainingArgs, TokenizerArg};
 use crate::output::OutputWriter;
 use adapteros_core::{AosError, Result};
@@ -76,6 +83,14 @@ pub struct TrainFromCodeArgs {
     /// Common training hyperparameters
     #[command(flatten)]
     pub common: CommonTrainingArgs,
+
+    /// Codebase scope overrides for repo metadata
+    ///
+    /// These flags allow overriding auto-detected git metadata (repo name,
+    /// branch, commit SHA, scan root, remote URL) for deterministic training.
+    /// Aligned with CodebaseScopeMetadata in adapteros-orchestrator.
+    #[command(flatten)]
+    pub scope_overrides: CodebaseScopeOverrides,
 }
 
 pub async fn run(args: &TrainFromCodeArgs, output: &OutputWriter) -> Result<()> {
@@ -104,6 +119,9 @@ pub async fn run(args: &TrainFromCodeArgs, output: &OutputWriter) -> Result<()> 
     if args.negative_weight >= 0.0 {
         output.warning("--negative-weight is non-negative; abstention training may be ineffective");
     }
+
+    // Log any scope overrides for debugging/audit trail
+    args.scope_overrides.log_overrides();
 
     output.warning("adapter train-from-code command is temporarily disabled pending crate migration");
 
