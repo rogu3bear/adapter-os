@@ -43,6 +43,8 @@ import {
 } from '@/hooks/chat';
 import { useAutoAttach } from '@/hooks/chat/useAutoAttach';
 import { useChatAutoLoadModels } from '@/hooks/config/useFeatureFlags';
+import type { AdapterLoadingItem, AdapterLifecycleState } from '@/hooks/model-loading/types';
+import type { AdapterReadinessState } from '@/hooks/chat/useChatAdapterState';
 import {
   useModelLoadingState,
   useModelLoader,
@@ -1050,11 +1052,11 @@ function ChatInterfaceInner({
   const adapterMountItems: AdapterMountItem[] = useMemo(
     () =>
       Array.from(adapterStateMap.values())
-        .map((adapter: any) => ({
-          adapterId: (adapter as any).adapterId ?? (adapter as any).id ?? '',
-          name: (adapter as any).name ?? (adapter as any).adapterId ?? (adapter as any).id ?? 'Adapter',
-          state: (adapter as any).state,
-          isLoading: (adapter as any).isLoading,
+        .map((adapter: AdapterLoadingItem | AdapterReadinessState) => ({
+          adapterId: adapter.adapterId,
+          name: adapter.name || adapter.adapterId || 'Adapter',
+          state: adapter.state,
+          isLoading: adapter.isLoading,
         }))
         .filter((adapter) => adapter.adapterId),
     [adapterStateMap]

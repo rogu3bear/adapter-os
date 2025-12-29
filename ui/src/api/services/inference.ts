@@ -8,20 +8,6 @@
 import type { ApiClient } from '@/api/client';
 import { logger } from '@/utils/logger';
 import { toCamelCase, toSnakeCase } from '@/api/transformers';
-
-// Type extension for ApiClient streaming method (implementation pending)
- 
-interface ApiClientWithStreaming extends ApiClient {
-  streamInfer(
-    request: any,
-    callbacks: {
-      onToken: (token: string, chunk: any) => void;
-      onComplete: (text: string, finishReason: string | null, metadata?: any) => void;
-      onError: (error: Error) => void;
-    },
-    cancelToken?: AbortSignal
-  ): Promise<void>;
-}
 import type {
   InferRequest,
   InferResponse,
@@ -221,9 +207,7 @@ export class InferenceService {
     const backendRequest = toSnakeCase(data);
 
     // Delegate to ApiClient which has access to private members needed for streaming
-    // TODO: Implement ApiClient.streamInfer method or move implementation here
-    // Type assertion needed because streamInfer method is not yet implemented on ApiClient
-    return (this.client as ApiClientWithStreaming).streamInfer(backendRequest, callbacks, cancelToken);
+    return this.client.streamInfer(backendRequest, callbacks, cancelToken);
   }
 
   /**

@@ -409,7 +409,9 @@ fn create_mlx_backend(
     }
 
     use adapteros_lora_mlx_ffi::{
-        mlx_runtime_init, mlx_runtime_is_initialized, MLXFFIBackend, MLXFFIModel,
+        mlx_get_backend_capabilities, mlx_runtime_init, mlx_runtime_init_with_device,
+        mlx_runtime_is_initialized, mlx_runtime_shutdown, MLXFFIBackend, MLXFFIModel,
+        MlxDeviceType,
     };
 
     info!(
@@ -429,10 +431,37 @@ fn create_mlx_backend(
     // Verify model integrity before loading (using model weights hash, not manifest hash)
     verify_model_integrity(&model_path, model_weights_hash, "MLX")?;
 
+    let mut wants_cpu = match mlx_get_backend_capabilities() {
+        Ok(caps) => !caps.gpu_available,
+        Err(_) => false,
+    };
+    #[cfg(target_os = "macos")]
+    {
+        if metal::Device::system_default().is_none() {
+            wants_cpu = true;
+            warn!("Metal device unavailable; forcing MLX CPU runtime");
+        }
+    }
+    if wants_cpu {
+        info!("MLX GPU unavailable; initializing MLX runtime on CPU");
+    }
+
     // Ensure MLX runtime is initialized
     if !mlx_runtime_is_initialized() {
-        mlx_runtime_init()
-            .map_err(|e| AosError::Config(format!("Failed to initialize MLX runtime: {}", e)))?;
+        if wants_cpu {
+            mlx_runtime_init_with_device(MlxDeviceType::Cpu).map_err(|e| {
+                AosError::Config(format!("Failed to initialize MLX CPU runtime: {}", e))
+            })?;
+        } else {
+            mlx_runtime_init().map_err(|e| {
+                AosError::Config(format!("Failed to initialize MLX runtime: {}", e))
+            })?;
+        }
+    } else if wants_cpu {
+        mlx_runtime_shutdown();
+        mlx_runtime_init_with_device(MlxDeviceType::Cpu).map_err(|e| {
+            AosError::Config(format!("Failed to reinitialize MLX CPU runtime: {}", e))
+        })?;
     }
 
     // Create cache key - prefer manifest hash when available for canonical identity
