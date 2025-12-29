@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
+use adapteros_core::{GuardLogLevel, SeedScopeGuard};
 use adapteros_deterministic_exec::spawn_deterministic;
 use adapteros_lora_worker::training::trainer::EpochMetrics as WorkerEpochMetrics;
 use adapteros_lora_worker::training::{
@@ -46,6 +47,10 @@ pub(crate) async fn run_training_job(
     base_model_id: Option<String>,
     cancel_token: Arc<AtomicBool>,
 ) -> Result<()> {
+    // Ensure seed registry is scoped to this training job to prevent cross-job seed reuse errors.
+    // This mirrors the pattern used in inference_core.rs for determinism consistency.
+    let _seed_scope = SeedScopeGuard::for_training(GuardLogLevel::Warn);
+
     let versioning_snapshot = {
         let jobs = jobs_ref.read().await;
         jobs.get(&job_id).map(|job| VersioningSnapshot {

@@ -1,4 +1,27 @@
 //! Dataset safety and trust handlers.
+//!
+//! This module provides:
+//! - Safety status validation for datasets
+//! - Trust state management and overrides
+//! - Dataset preview capabilities
+//! - Training safety gate checks
+//!
+//! # Safety Status Values
+//!
+//! Individual safety signals use the following status values:
+//! - `clean`: No issues detected
+//! - `warn`: Potential issues detected, review recommended
+//! - `block`: Critical issues detected, dataset should not be used
+//! - `unknown`: Safety status has not been evaluated
+//!
+//! # Trust States
+//!
+//! Aggregate trust states for training gates:
+//! - `allowed`: Dataset is safe for training
+//! - `allowed_with_warning`: Dataset can be used but has warnings
+//! - `blocked`: Dataset must not be used for training
+//! - `needs_approval`: Dataset requires manual review before training
+//! - `unknown`: Trust state has not been determined
 
 use super::helpers::stream_preview_file;
 use super::types::{
@@ -17,8 +40,297 @@ use axum::{
     response::IntoResponse,
     Extension, Json,
 };
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tracing::{info, warn};
+use utoipa::ToSchema;
+
+// ============================================================================
+// Safety Status Types and Constants
+// ============================================================================
+
+/// Valid safety status values for individual signals (PII, toxicity, leak, anomaly).
+pub const VALID_SAFETY_STATUSES: &[&str] = &["clean", "warn", "block", "unknown"];
+
+/// Valid trust state values for aggregate dataset trust.
+pub const VALID_TRUST_STATES: &[&str] = &[
+    "allowed",
+    "allowed_with_warning",
+    "blocked",
+    "needs_approval",
+    "unknown",
+];
+
+/// Trust states that permit training to proceed.
+pub const SAFE_TRUST_STATES: &[&str] = &["allowed", "allowed_with_warning"];
+
+/// Trust states that block training.
+pub const BLOCKED_TRUST_STATES: &[&str] = &["blocked", "needs_approval", "unknown"];
+
+/// Result of validating dataset safety status.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct SafetyStatusValidationResult {
+    /// Whether the safety status is valid.
+    pub is_valid: bool,
+    /// Validation errors, if any.
+    pub errors: Vec<String>,
+    /// The validated status value (normalized to lowercase).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub normalized_status: Option<String>,
+}
+
+/// Result of checking if a dataset is safe for training.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct DatasetSafetyCheckResult {
+    /// Whether the dataset is safe for training.
+    pub is_safe: bool,
+    /// The effective trust state.
+    pub trust_state: String,
+    /// Individual safety signals.
+    pub safety_signals: SafetySignals,
+    /// Reasons why the dataset is not safe (if applicable).
+    pub blocking_reasons: Vec<String>,
+    /// Warnings that don't block training but should be noted.
+    pub warnings: Vec<String>,
+}
+
+/// Individual safety signal statuses.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, Default)]
+pub struct SafetySignals {
+    /// PII (Personally Identifiable Information) detection status.
+    pub pii_status: String,
+    /// Toxicity detection status.
+    pub toxicity_status: String,
+    /// Data leak detection status.
+    pub leak_status: String,
+    /// Anomaly detection status.
+    pub anomaly_status: String,
+    /// Overall aggregated safety status.
+    pub overall_safety: String,
+}
+
+// ============================================================================
+// Safety Status Validation Functions
+// ============================================================================
+
+/// Validate a single safety status value.
+///
+/// Returns `Ok(normalized_value)` if valid, `Err(error_message)` if invalid.
+pub fn validate_safety_status(status: &str) -> Result<String, String> {
+    let normalized = status.to_ascii_lowercase();
+    if VALID_SAFETY_STATUSES.contains(&normalized.as_str()) {
+        Ok(normalized)
+    } else {
+        Err(format!(
+            "Invalid safety status '{}'. Valid values: {}",
+            status,
+            VALID_SAFETY_STATUSES.join(", ")
+        ))
+    }
+}
+
+/// Validate a trust state value.
+///
+/// Returns `Ok(normalized_value)` if valid, `Err(error_message)` if invalid.
+pub fn validate_trust_state(state: &str) -> Result<String, String> {
+    let normalized = state.to_ascii_lowercase();
+    if VALID_TRUST_STATES.contains(&normalized.as_str()) {
+        Ok(normalized)
+    } else {
+        Err(format!(
+            "Invalid trust state '{}'. Valid values: {}",
+            state,
+            VALID_TRUST_STATES.join(", ")
+        ))
+    }
+}
+
+/// Validate the safety status request, checking all provided status values.
+pub fn validate_safety_request(
+    request: &UpdateDatasetSafetyRequest,
+) -> SafetyStatusValidationResult {
+    let mut errors = Vec::new();
+    let mut all_valid = true;
+
+    // Validate PII status
+    if let Some(ref status) = request.pii_status {
+        if let Err(e) = validate_safety_status(status) {
+            errors.push(format!("pii_status: {}", e));
+            all_valid = false;
+        }
+    }
+
+    // Validate toxicity status
+    if let Some(ref status) = request.toxicity_status {
+        if let Err(e) = validate_safety_status(status) {
+            errors.push(format!("toxicity_status: {}", e));
+            all_valid = false;
+        }
+    }
+
+    // Validate leak status
+    if let Some(ref status) = request.leak_status {
+        if let Err(e) = validate_safety_status(status) {
+            errors.push(format!("leak_status: {}", e));
+            all_valid = false;
+        }
+    }
+
+    // Validate anomaly status
+    if let Some(ref status) = request.anomaly_status {
+        if let Err(e) = validate_safety_status(status) {
+            errors.push(format!("anomaly_status: {}", e));
+            all_valid = false;
+        }
+    }
+
+    SafetyStatusValidationResult {
+        is_valid: all_valid,
+        errors,
+        normalized_status: None,
+    }
+}
+
+/// Check if a trust state indicates the dataset is safe for training.
+pub fn is_trust_state_safe(trust_state: &str) -> bool {
+    let normalized = trust_state.to_ascii_lowercase();
+    SAFE_TRUST_STATES.contains(&normalized.as_str())
+}
+
+/// Check if a trust state blocks training.
+pub fn is_trust_state_blocked(trust_state: &str) -> bool {
+    let normalized = trust_state.to_ascii_lowercase();
+    BLOCKED_TRUST_STATES.contains(&normalized.as_str())
+}
+
+/// Derive the overall safety status from individual signals.
+///
+/// Priority: block > warn > unknown > clean
+pub fn derive_overall_safety(
+    pii_status: &str,
+    toxicity_status: &str,
+    leak_status: &str,
+    anomaly_status: &str,
+) -> String {
+    let statuses = [pii_status, toxicity_status, leak_status, anomaly_status];
+
+    // If any signal is "block", overall is "block"
+    if statuses
+        .iter()
+        .any(|s| s.eq_ignore_ascii_case("block") || s.eq_ignore_ascii_case("unsafe"))
+    {
+        return "block".to_string();
+    }
+
+    // If any signal is "warn", overall is "warn"
+    if statuses.iter().any(|s| s.eq_ignore_ascii_case("warn")) {
+        return "warn".to_string();
+    }
+
+    // If all signals are "unknown", overall is "unknown"
+    if statuses.iter().all(|s| s.eq_ignore_ascii_case("unknown")) {
+        return "unknown".to_string();
+    }
+
+    // Otherwise, all signals are clean
+    "clean".to_string()
+}
+
+/// Evaluate dataset safety for training.
+///
+/// This function checks whether a dataset is safe to use for training based on
+/// its trust state and individual safety signals.
+pub fn evaluate_dataset_safety(
+    trust_state: &str,
+    pii_status: &str,
+    toxicity_status: &str,
+    leak_status: &str,
+    anomaly_status: &str,
+) -> DatasetSafetyCheckResult {
+    let mut blocking_reasons = Vec::new();
+    let mut warnings = Vec::new();
+
+    let trust_lower = trust_state.to_ascii_lowercase();
+    let is_safe = is_trust_state_safe(&trust_lower);
+
+    // Check trust state
+    match trust_lower.as_str() {
+        "blocked" => blocking_reasons.push("Dataset is explicitly blocked".to_string()),
+        "needs_approval" => {
+            blocking_reasons.push("Dataset requires approval before training".to_string())
+        }
+        "unknown" => blocking_reasons.push("Dataset trust state is unknown".to_string()),
+        "allowed_with_warning" => warnings.push("Dataset has warnings, review recommended".to_string()),
+        _ => {}
+    }
+
+    // Check individual safety signals
+    let check_signal = |status: &str, signal_name: &str| -> Option<(bool, String)> {
+        match status.to_ascii_lowercase().as_str() {
+            "block" | "unsafe" => Some((
+                true,
+                format!("{} detected blocking issues", signal_name),
+            )),
+            "warn" => Some((
+                false,
+                format!("{} detected potential issues", signal_name),
+            )),
+            "unknown" => Some((
+                false,
+                format!("{} status is unknown", signal_name),
+            )),
+            _ => None,
+        }
+    };
+
+    if let Some((is_block, msg)) = check_signal(pii_status, "PII detection") {
+        if is_block {
+            blocking_reasons.push(msg);
+        } else {
+            warnings.push(msg);
+        }
+    }
+
+    if let Some((is_block, msg)) = check_signal(toxicity_status, "Toxicity detection") {
+        if is_block {
+            blocking_reasons.push(msg);
+        } else {
+            warnings.push(msg);
+        }
+    }
+
+    if let Some((is_block, msg)) = check_signal(leak_status, "Data leak detection") {
+        if is_block {
+            blocking_reasons.push(msg);
+        } else {
+            warnings.push(msg);
+        }
+    }
+
+    if let Some((is_block, msg)) = check_signal(anomaly_status, "Anomaly detection") {
+        if is_block {
+            blocking_reasons.push(msg);
+        } else {
+            warnings.push(msg);
+        }
+    }
+
+    let overall_safety = derive_overall_safety(pii_status, toxicity_status, leak_status, anomaly_status);
+
+    DatasetSafetyCheckResult {
+        is_safe,
+        trust_state: trust_state.to_string(),
+        safety_signals: SafetySignals {
+            pii_status: pii_status.to_string(),
+            toxicity_status: toxicity_status.to_string(),
+            leak_status: leak_status.to_string(),
+            anomaly_status: anomaly_status.to_string(),
+            overall_safety,
+        },
+        blocking_reasons,
+        warnings,
+    }
+}
 
 /// Update semantic/safety statuses for a dataset version (Tier 2).
 #[utoipa::path(
@@ -42,6 +354,15 @@ pub async fn update_dataset_safety(
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::DatasetValidate)?;
 
+    // Validate the safety status request before processing
+    let validation_result = validate_safety_request(&body);
+    if !validation_result.is_valid {
+        return Err(bad_request(format!(
+            "Invalid safety status values: {}",
+            validation_result.errors.join("; ")
+        )));
+    }
+
     let dataset = state
         .db
         .get_training_dataset(&dataset_id)
@@ -59,27 +380,13 @@ pub async fn update_dataset_safety(
         .await
         .map_err(|e| db_error(format!("Failed to ensure dataset version: {}", e)))?;
 
-    // Compute overall safety for validation record
-    let overall_safety = {
-        let statuses = [
-            body.pii_status.as_deref().unwrap_or("unknown"),
-            body.toxicity_status.as_deref().unwrap_or("unknown"),
-            body.leak_status.as_deref().unwrap_or("unknown"),
-            body.anomaly_status.as_deref().unwrap_or("unknown"),
-        ];
-        if statuses
-            .iter()
-            .any(|s| s.eq_ignore_ascii_case("block") || s.eq_ignore_ascii_case("unsafe"))
-        {
-            "block".to_string()
-        } else if statuses.iter().any(|s| s.eq_ignore_ascii_case("warn")) {
-            "warn".to_string()
-        } else if statuses.iter().all(|s| s.eq_ignore_ascii_case("unknown")) {
-            "unknown".to_string()
-        } else {
-            "clean".to_string()
-        }
-    };
+    // Compute overall safety using the centralized function
+    let overall_safety = derive_overall_safety(
+        body.pii_status.as_deref().unwrap_or("unknown"),
+        body.toxicity_status.as_deref().unwrap_or("unknown"),
+        body.leak_status.as_deref().unwrap_or("unknown"),
+        body.anomaly_status.as_deref().unwrap_or("unknown"),
+    );
 
     let trust_state = state
         .db
@@ -105,6 +412,15 @@ pub async fn update_dataset_safety(
             Some(claims.sub.as_str()),
         )
         .await;
+
+    info!(
+        dataset_id = %dataset_id,
+        version_id = %version_id,
+        trust_state = %trust_state,
+        overall_safety = %overall_safety,
+        actor = %claims.sub,
+        "Updated dataset safety status"
+    );
 
     Ok(Json(UpdateDatasetSafetyResponse {
         dataset_id,
@@ -470,6 +786,15 @@ pub async fn update_dataset_version_safety(
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::DatasetValidate)?;
 
+    // Validate the safety status request before processing
+    let validation_result = validate_safety_request(&body);
+    if !validation_result.is_valid {
+        return Err(bad_request(format!(
+            "Invalid safety status values: {}",
+            validation_result.errors.join("; ")
+        )));
+    }
+
     // Validate dataset exists and enforce tenant isolation
     let dataset = state
         .db
@@ -501,27 +826,13 @@ pub async fn update_dataset_version_safety(
         validate_tenant_isolation(&claims, version_tenant_id)?;
     }
 
-    // Compute overall safety for validation record
-    let overall_safety = {
-        let statuses = [
-            body.pii_status.as_deref().unwrap_or("unknown"),
-            body.toxicity_status.as_deref().unwrap_or("unknown"),
-            body.leak_status.as_deref().unwrap_or("unknown"),
-            body.anomaly_status.as_deref().unwrap_or("unknown"),
-        ];
-        if statuses
-            .iter()
-            .any(|s| s.eq_ignore_ascii_case("block") || s.eq_ignore_ascii_case("unsafe"))
-        {
-            "block".to_string()
-        } else if statuses.iter().any(|s| s.eq_ignore_ascii_case("warn")) {
-            "warn".to_string()
-        } else if statuses.iter().all(|s| s.eq_ignore_ascii_case("unknown")) {
-            "unknown".to_string()
-        } else {
-            "clean".to_string()
-        }
-    };
+    // Compute overall safety using the centralized function
+    let overall_safety = derive_overall_safety(
+        body.pii_status.as_deref().unwrap_or("unknown"),
+        body.toxicity_status.as_deref().unwrap_or("unknown"),
+        body.leak_status.as_deref().unwrap_or("unknown"),
+        body.anomaly_status.as_deref().unwrap_or("unknown"),
+    );
 
     // Update safety status (this automatically propagates trust changes via DB layer)
     let trust_state = state

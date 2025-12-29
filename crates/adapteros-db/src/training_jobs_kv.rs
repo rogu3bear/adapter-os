@@ -30,6 +30,9 @@ pub struct TrainingJobKv {
     pub metadata_json: Option<String>,
     pub config_hash_b3: Option<String>,
     pub dataset_id: Option<String>,
+    /// Dataset version ID for provenance tracking and trust gating
+    /// Evidence: migrations/0177_dataset_trust_gates.sql:67
+    pub dataset_version_id: Option<String>,
     pub base_model_id: Option<String>,
     pub collection_id: Option<String>,
     pub tenant_id: Option<String>,

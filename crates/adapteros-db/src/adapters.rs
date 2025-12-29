@@ -44,6 +44,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use std::env;
 use std::future::Future;
+use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tracing::{debug, error, info, warn};
@@ -72,7 +73,7 @@ const ADAPTER_COLUMNS_ALIAS_A: &str =
      a.adapter_name, a.tenant_namespace, a.domain, a.purpose, a.revision, a.parent_id, \
      a.fork_type, a.fork_reason, a.version, a.lifecycle_state, a.archived_at, a.archived_by, \
      a.archive_reason, a.purged_at, a.base_model_id, a.recommended_for_moe, a.manifest_schema_version, \
-     a.content_hash_b3, a.metadata_json, a.provenance_json, a.created_at, a.updated_at, a.active";
+     a.content_hash_b3, a.metadata_json, a.provenance_json, a.repo_path, a.created_at, a.updated_at, a.active";
 
 tokio::task_local! {
     static TENANT_SCOPE_ACTIVE: bool;
@@ -183,6 +184,13 @@ pub struct AdapterRegistrationBuilder {
     content_hash_b3: Option<String>,
     provenance_json: Option<String>,
     metadata_json: Option<String>,
+    // Scan root path (from migration 0243)
+    repo_path: Option<String>,
+    // Codebase adapter registration metadata (from migration 0231)
+    codebase_scope: Option<String>,
+    dataset_version_id: Option<String>,
+    registration_timestamp: Option<String>,
+    manifest_hash: Option<String>,
 }
 
 /// Parameters for adapter registration
@@ -229,6 +237,8 @@ pub struct AdapterRegistrationParams {
     pub content_hash_b3: Option<String>,
     pub provenance_json: Option<String>,
     pub metadata_json: Option<String>,
+    // Scan root path (from migration 0243)
+    pub repo_path: Option<String>,
 }
 
 impl AdapterRegistrationBuilder {
@@ -462,6 +472,13 @@ impl AdapterRegistrationBuilder {
         self
     }
 
+    /// Set the repository scan root path (optional, from migration 0243)
+    /// Canonicalized absolute path to the repository root used during code ingestion
+    pub fn repo_path(mut self, repo_path: Option<impl Into<String>>) -> Self {
+        self.repo_path = repo_path.map(|s| s.into());
+        self
+    }
+
     /// Build the adapter registration parameters
     pub fn build(self) -> Result<AdapterRegistrationParams> {
         let rank = self
@@ -476,6 +493,51 @@ impl AdapterRegistrationBuilder {
                 tier
             )));
         }
+
+        // Validate and canonicalize .aos file path if provided
+        let aos_file_path = match self.aos_file_path {
+            Some(path_str) => {
+                let path = Path::new(&path_str);
+
+                // Validate the file exists
+                if !path.exists() {
+                    return Err(AosError::validation(format!(
+                        "aos_file_path does not exist: {}",
+                        path_str
+                    )));
+                }
+
+                // Validate it is a file, not a directory
+                if !path.is_file() {
+                    return Err(AosError::validation(format!(
+                        "aos_file_path is not a file: {}",
+                        path_str
+                    )));
+                }
+
+                // Validate .aos extension
+                match path.extension().and_then(|e| e.to_str()) {
+                    Some("aos") => {}
+                    _ => {
+                        return Err(AosError::validation(format!(
+                            "aos_file_path must have .aos extension: {}",
+                            path_str
+                        )));
+                    }
+                }
+
+                // Canonicalize the path for consistency
+                let canonical = path.canonicalize().map_err(|e| {
+                    AosError::validation(format!(
+                        "Failed to canonicalize aos_file_path {}: {}",
+                        path_str, e
+                    ))
+                })?;
+
+                Some(canonical.to_string_lossy().into_owned())
+            }
+            None => None,
+        };
 
         Ok(AdapterRegistrationParams {
             tenant_id: self
@@ -506,7 +568,7 @@ impl AdapterRegistrationBuilder {
             commit_sha: self.commit_sha,
             intent: self.intent,
             expires_at: self.expires_at,
-            aos_file_path: self.aos_file_path,
+            aos_file_path,
             aos_file_hash: self.aos_file_hash,
             // Semantic naming taxonomy
             adapter_name: self.adapter_name,
@@ -523,6 +585,7 @@ impl AdapterRegistrationBuilder {
             content_hash_b3: self.content_hash_b3,
             provenance_json: self.provenance_json,
             metadata_json: self.metadata_json,
+            repo_path: self.repo_path,
         })
     }
 }
@@ -603,6 +666,10 @@ pub struct Adapter {
     pub metadata_json: Option<String>,
     pub provenance_json: Option<String>,
 
+    // Scan root path (from migration 0243)
+    #[sqlx(default)]
+    pub repo_path: Option<String>,
+
     // Drift tracking fields (for CLI diagnostics)
     #[sqlx(default)]
     pub drift_tier: Option<String>,
@@ -617,6 +684,20 @@ pub struct Adapter {
     #[sqlx(default)]
     pub drift_test_backend: Option<String>,
 
+    // Codebase adapter registration metadata (from migration 0231)
+    /// Source repository/codebase reference for codebase adapters
+    #[sqlx(default)]
+    pub codebase_scope: Option<String>,
+    /// Training dataset version ID for reproducibility
+    #[sqlx(default)]
+    pub dataset_version_id: Option<String>,
+    /// ISO8601 timestamp when adapter was registered
+    #[sqlx(default)]
+    pub registration_timestamp: Option<String>,
+    /// BLAKE3 hash of the adapter manifest for integrity verification
+    #[sqlx(default)]
+    pub manifest_hash: Option<String>,
+
     pub created_at: String,
     pub updated_at: String,
 }
@@ -629,6 +710,293 @@ pub struct AdapterActivation {
     pub gate_value: f64,
     pub selected: i32,
     pub created_at: String,
+}
+
+/// Adapter file metadata for .aos files
+///
+/// This struct stores extended metadata about adapter archive files,
+/// including file size, modification timestamps, segment counts, and
+/// integrity verification data. Used for cache management, staleness
+/// detection, and disk usage tracking.
+///
+/// # Database Table
+///
+/// Persisted in the `aos_adapter_metadata` table (migration 0045 + 0243).
+///
+/// # Example
+///
+/// ```ignore
+/// use adapteros_db::AdapterFileMetadata;
+///
+/// let metadata = AdapterFileMetadata {
+///     adapter_id: "my-adapter-id".to_string(),
+///     aos_file_path: "/var/adapters/my-adapter.aos".to_string(),
+///     aos_file_hash: "b3:abc123...".to_string(),
+///     file_size_bytes: Some(1024 * 1024 * 50), // 50 MB
+///     file_modified_at: Some("2024-01-15T10:30:00Z".to_string()),
+///     segment_count: Some(3),
+///     ..Default::default()
+/// };
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize, Default, sqlx::FromRow)]
+pub struct AdapterFileMetadata {
+    /// Adapter ID (links to adapters table)
+    pub adapter_id: String,
+    /// Absolute path to the .aos file
+    pub aos_file_path: String,
+    /// BLAKE3 hash of the .aos file for integrity verification
+    pub aos_file_hash: String,
+    /// Path to extracted weights (if applicable)
+    #[sqlx(default)]
+    pub extracted_weights_path: Option<String>,
+    /// Number of training examples used
+    #[sqlx(default)]
+    pub training_data_count: Option<i64>,
+    /// Lineage version string for tracking
+    #[sqlx(default)]
+    pub lineage_version: Option<String>,
+    /// Whether cryptographic signature is valid
+    #[sqlx(default)]
+    pub signature_valid: Option<bool>,
+    /// File size in bytes
+    #[sqlx(default)]
+    pub file_size_bytes: Option<i64>,
+    /// File modification timestamp (ISO 8601)
+    #[sqlx(default)]
+    pub file_modified_at: Option<String>,
+    /// Number of segments in the .aos file
+    #[sqlx(default)]
+    pub segment_count: Option<i64>,
+    /// Manifest schema version
+    #[sqlx(default)]
+    pub manifest_schema_version: Option<String>,
+    /// Base model identifier
+    #[sqlx(default)]
+    pub base_model: Option<String>,
+    /// Adapter category
+    #[sqlx(default)]
+    pub category: Option<String>,
+    /// Adapter tier (ephemeral, warm, persistent)
+    #[sqlx(default)]
+    pub tier: Option<String>,
+    /// Creation timestamp
+    pub created_at: String,
+    /// Last update timestamp
+    pub updated_at: String,
+}
+
+/// Parameters for storing adapter file metadata
+#[derive(Debug, Clone, Default)]
+pub struct StoreAdapterFileMetadataParams {
+    /// Adapter ID (required)
+    pub adapter_id: String,
+    /// Absolute path to the .aos file (required)
+    pub aos_file_path: String,
+    /// BLAKE3 hash of the .aos file (required)
+    pub aos_file_hash: String,
+    /// Path to extracted weights
+    pub extracted_weights_path: Option<String>,
+    /// Number of training examples
+    pub training_data_count: Option<i64>,
+    /// Lineage version
+    pub lineage_version: Option<String>,
+    /// Signature validity
+    pub signature_valid: Option<bool>,
+    /// File size in bytes
+    pub file_size_bytes: Option<i64>,
+    /// File modification timestamp (ISO 8601)
+    pub file_modified_at: Option<String>,
+    /// Number of segments in the .aos file
+    pub segment_count: Option<i64>,
+    /// Manifest schema version
+    pub manifest_schema_version: Option<String>,
+    /// Base model identifier
+    pub base_model: Option<String>,
+    /// Adapter category
+    pub category: Option<String>,
+    /// Adapter tier
+    pub tier: Option<String>,
+}
+
+impl StoreAdapterFileMetadataParams {
+    /// Create new parameters with required fields
+    pub fn new(adapter_id: impl Into<String>, aos_file_path: impl Into<String>, aos_file_hash: impl Into<String>) -> Self {
+        Self {
+            adapter_id: adapter_id.into(),
+            aos_file_path: aos_file_path.into(),
+            aos_file_hash: aos_file_hash.into(),
+            ..Default::default()
+        }
+    }
+
+    /// Set the file size in bytes
+    pub fn file_size_bytes(mut self, size: i64) -> Self {
+        self.file_size_bytes = Some(size);
+        self
+    }
+
+    /// Set the file modification timestamp
+    pub fn file_modified_at(mut self, timestamp: impl Into<String>) -> Self {
+        self.file_modified_at = Some(timestamp.into());
+        self
+    }
+
+    /// Set the segment count
+    pub fn segment_count(mut self, count: i64) -> Self {
+        self.segment_count = Some(count);
+        self
+    }
+
+    /// Set the extracted weights path
+    pub fn extracted_weights_path(mut self, path: impl Into<String>) -> Self {
+        self.extracted_weights_path = Some(path.into());
+        self
+    }
+
+    /// Set the training data count
+    pub fn training_data_count(mut self, count: i64) -> Self {
+        self.training_data_count = Some(count);
+        self
+    }
+
+    /// Set the lineage version
+    pub fn lineage_version(mut self, version: impl Into<String>) -> Self {
+        self.lineage_version = Some(version.into());
+        self
+    }
+
+    /// Set signature validity
+    pub fn signature_valid(mut self, valid: bool) -> Self {
+        self.signature_valid = Some(valid);
+        self
+    }
+
+    /// Set the manifest schema version
+    pub fn manifest_schema_version(mut self, version: impl Into<String>) -> Self {
+        self.manifest_schema_version = Some(version.into());
+        self
+    }
+
+    /// Set the base model identifier
+    pub fn base_model(mut self, model: impl Into<String>) -> Self {
+        self.base_model = Some(model.into());
+        self
+    }
+
+    /// Set the adapter category
+    pub fn category(mut self, category: impl Into<String>) -> Self {
+        self.category = Some(category.into());
+        self
+    }
+
+    /// Set the adapter tier
+    pub fn tier(mut self, tier: impl Into<String>) -> Self {
+        self.tier = Some(tier.into());
+        self
+    }
+}
+
+/// Parameters for updating .aos manifest metadata
+///
+/// This struct holds the metadata extracted from an .aos file's manifest
+/// that should be persisted to the adapter record. The metadata is stored
+/// as JSON in the `metadata_json` field.
+///
+/// # Example
+///
+/// ```ignore
+/// use adapteros_db::AosMetadataUpdate;
+/// use std::collections::HashMap;
+///
+/// let mut manifest_meta = HashMap::new();
+/// manifest_meta.insert("scope_path".to_string(), "domain/group/scope/op".to_string());
+/// manifest_meta.insert("training_backend".to_string(), "mlx".to_string());
+///
+/// let update = AosMetadataUpdate {
+///     adapter_id: "my-adapter".to_string(),
+///     tenant_id: "tenant-123".to_string(),
+///     aos_file_path: Some("/path/to/adapter.aos".to_string()),
+///     aos_file_hash: Some("b3:abc123...".to_string()),
+///     manifest_metadata: Some(manifest_meta),
+///     base_model_id: Some("qwen2.5-7b".to_string()),
+///     manifest_schema_version: Some("1.0.0".to_string()),
+///     content_hash_b3: Some("b3:weights...".to_string()),
+///     provenance_json: None,
+/// };
+/// ```
+#[derive(Debug, Clone, Default)]
+pub struct AosMetadataUpdate {
+    /// Adapter ID (required)
+    pub adapter_id: String,
+    /// Tenant ID (required for dual-write)
+    pub tenant_id: String,
+    /// Path to the .aos file
+    pub aos_file_path: Option<String>,
+    /// BLAKE3 hash of the .aos file
+    pub aos_file_hash: Option<String>,
+    /// Metadata from the .aos manifest (stored as metadata_json)
+    pub manifest_metadata: Option<std::collections::HashMap<String, String>>,
+    /// Base model identifier from manifest
+    pub base_model_id: Option<String>,
+    /// Manifest schema version
+    pub manifest_schema_version: Option<String>,
+    /// Content hash (BLAKE3 of manifest + weights)
+    pub content_hash_b3: Option<String>,
+    /// Full training provenance JSON
+    pub provenance_json: Option<String>,
+}
+
+impl AosMetadataUpdate {
+    /// Create a new AosMetadataUpdate with required fields
+    pub fn new(adapter_id: impl Into<String>, tenant_id: impl Into<String>) -> Self {
+        Self {
+            adapter_id: adapter_id.into(),
+            tenant_id: tenant_id.into(),
+            ..Default::default()
+        }
+    }
+
+    /// Set the .aos file path
+    pub fn aos_file_path(mut self, path: impl Into<String>) -> Self {
+        self.aos_file_path = Some(path.into());
+        self
+    }
+
+    /// Set the .aos file hash
+    pub fn aos_file_hash(mut self, hash: impl Into<String>) -> Self {
+        self.aos_file_hash = Some(hash.into());
+        self
+    }
+
+    /// Set the manifest metadata
+    pub fn manifest_metadata(mut self, metadata: std::collections::HashMap<String, String>) -> Self {
+        self.manifest_metadata = Some(metadata);
+        self
+    }
+
+    /// Set the base model identifier
+    pub fn base_model_id(mut self, model: impl Into<String>) -> Self {
+        self.base_model_id = Some(model.into());
+        self
+    }
+
+    /// Set the manifest schema version
+    pub fn manifest_schema_version(mut self, version: impl Into<String>) -> Self {
+        self.manifest_schema_version = Some(version.into());
+        self
+    }
+
+    /// Set the content hash
+    pub fn content_hash_b3(mut self, hash: impl Into<String>) -> Self {
+        self.content_hash_b3 = Some(hash.into());
+        self
+    }
+
+    /// Set the provenance JSON
+    pub fn provenance_json(mut self, json: impl Into<String>) -> Self {
+        self.provenance_json = Some(json.into());
+        self
+    }
 }
 
 impl Db {
@@ -767,8 +1135,8 @@ impl Db {
         if self.storage_mode().write_to_sql() {
             if let Some(pool) = self.pool_opt() {
                 sqlx::query(
-                    "INSERT INTO adapters (id, tenant_id, adapter_id, name, hash_b3, rank, alpha, lora_strength, tier, targets_json, acl_json, languages_json, framework, category, scope, framework_id, framework_version, repo_id, commit_sha, intent, expires_at, adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason, aos_file_path, aos_file_hash, base_model_id, recommended_for_moe, manifest_schema_version, content_hash_b3, metadata_json, provenance_json, version, lifecycle_state, current_state, pinned, memory_bytes, activation_count, load_state, active)
-                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, '1.0.0', 'draft', 'unloaded', 0, 0, 0, 'cold', 1)"
+                    "INSERT INTO adapters (id, tenant_id, adapter_id, name, hash_b3, rank, alpha, lora_strength, tier, targets_json, acl_json, languages_json, framework, category, scope, framework_id, framework_version, repo_id, commit_sha, intent, expires_at, adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason, aos_file_path, aos_file_hash, base_model_id, recommended_for_moe, manifest_schema_version, content_hash_b3, metadata_json, provenance_json, repo_path, version, lifecycle_state, current_state, pinned, memory_bytes, activation_count, load_state, active)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, '1.0.0', 'draft', 'unloaded', 0, 0, 0, 'cold', 1)"
                 )
                 .bind(&id)
                 .bind(&params.tenant_id)
@@ -807,6 +1175,7 @@ impl Db {
                 .bind(&params.content_hash_b3)
                 .bind(&params.metadata_json)
                 .bind(&params.provenance_json)
+                .bind(&params.repo_path)
                 .execute(pool)
                 .await
                 .map_err(|e| AosError::database(e.to_string()))?;
@@ -2731,6 +3100,7 @@ impl Db {
                     content_hash_b3: adapter.content_hash_b3.clone(),
                     provenance_json: adapter.provenance_json.clone(),
                     metadata_json: adapter.metadata_json.clone(),
+                    repo_path: adapter.repo_path.clone(),
                 };
 
                 // Delete old KV entry then re-register and sync state/memory
@@ -2801,6 +3171,7 @@ impl Db {
                     content_hash_b3: adapter.content_hash_b3.clone(),
                     provenance_json: adapter.provenance_json.clone(),
                     metadata_json: adapter.metadata_json.clone(),
+                    repo_path: adapter.repo_path.clone(),
                 };
 
                 repo.register_adapter_kv(params).await.map_err(|e| {
@@ -3547,6 +3918,7 @@ impl Db {
             content_hash_b3: source.content_hash_b3.clone(),
             provenance_json: source.provenance_json.clone(),
             metadata_json: source.metadata_json.clone(),
+            repo_path: source.repo_path.clone(),
         };
 
         // Register the new adapter

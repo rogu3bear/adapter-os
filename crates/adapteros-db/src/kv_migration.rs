@@ -429,7 +429,8 @@ impl Db {
                       training_config_json, status, progress_json,
                       started_at, completed_at, created_by, adapter_name, template_id,
                       created_at, metadata_json, config_hash_b3,
-                      dataset_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
+                      dataset_id, dataset_version_id, base_model_id, collection_id, tenant_id, build_id, source_documents_json,
+                      synthetic_mode, data_lineage_mode,
                       retryable, retry_of_job_id, stack_id, adapter_id, weights_hash_b3, artifact_path,
                       produced_version_id, hyperparameters_json, data_spec_json, metrics_snapshot_id
                FROM repository_training_jobs"#,
@@ -462,6 +463,7 @@ impl Db {
                 metadata_json: row.metadata_json.clone(),
                 config_hash_b3: row.config_hash_b3.clone(),
                 dataset_id: row.dataset_id.clone(),
+                dataset_version_id: row.dataset_version_id.clone(),
                 base_model_id: row.base_model_id.clone(),
                 collection_id: row.collection_id.clone(),
                 tenant_id: Some(tenant_id.clone()),
@@ -862,6 +864,7 @@ impl Db {
             content_hash_b3: None,         // Not available during KV migration
             metadata_json: adapter.metadata_json.clone(),
             provenance_json: None, // Not available during KV migration
+            repo_path: adapter.repo_path.clone(),
         };
 
         // Register in KV

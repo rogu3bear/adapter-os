@@ -209,6 +209,14 @@ pub enum AosError {
     #[error("Lifecycle error: {0}")]
     Lifecycle(String),
 
+    /// Preflight checks failed before an operation could proceed
+    ///
+    /// This error is returned when an operation (like adapter swap) is blocked
+    /// by preflight validation checks. The message contains details about which
+    /// checks failed and suggested remediation steps.
+    #[error("Preflight failed: {0}")]
+    PreflightFailed(String),
+
     /// Adapter is not loaded or not in a ready state for inference
     ///
     /// This error is returned when inference is attempted on an adapter

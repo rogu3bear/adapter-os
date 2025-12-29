@@ -22,6 +22,15 @@ pub struct AdapterTrainingSnapshot {
     pub chunk_manifest_hash: String,
     pub chunking_config_json: String,
     pub created_at: String,
+    /// Dataset ID used for training (for reproducibility)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dataset_id: Option<String>,
+    /// Dataset version ID for exact reproducibility
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dataset_version_id: Option<String>,
+    /// BLAKE3 hash of dataset content for integrity verification
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dataset_hash_b3: Option<String>,
 }
 
 /// Parameters for creating a training snapshot
@@ -33,6 +42,12 @@ pub struct CreateSnapshotParams {
     pub documents_json: String,
     pub chunk_manifest_hash: String,
     pub chunking_config_json: String,
+    /// Dataset ID used for training
+    pub dataset_id: Option<String>,
+    /// Dataset version ID for exact reproducibility
+    pub dataset_version_id: Option<String>,
+    /// BLAKE3 hash of dataset content
+    pub dataset_hash_b3: Option<String>,
 }
 
 impl Db {

@@ -26,7 +26,7 @@ pub const ADAPTER_COLUMNS: &str =
      version, lifecycle_state, \
      archived_at, archived_by, archive_reason, purged_at, \
      base_model_id, recommended_for_moe, manifest_schema_version, content_hash_b3, metadata_json, provenance_json, \
-     created_at, updated_at, active";
+     repo_path, created_at, updated_at, active";
 
 /// Training dataset table columns for SELECT queries
 ///
@@ -35,7 +35,8 @@ pub const TRAINING_DATASET_COLUMNS: &str =
     "id, name, description, file_count, total_size_bytes, format, hash_b3, dataset_hash_b3, \
      storage_path, status, validation_status, validation_errors, metadata_json, \
      created_by, created_at, updated_at, dataset_type, purpose, \
-     source_location, collection_method, ownership, tenant_id, workspace_id";
+     source_location, collection_method, ownership, tenant_id, workspace_id, \
+     repo_slug, hash_needs_recompute, hash_algorithm_version";
 
 /// Dataset file table columns for SELECT queries
 pub const DATASET_FILE_COLUMNS: &str =
@@ -48,6 +49,34 @@ pub const EVIDENCE_ENTRY_COLUMNS: &str =
 
 /// Dataset-adapter link table columns for SELECT queries
 pub const DATASET_ADAPTER_LINK_COLUMNS: &str = "id, dataset_id, adapter_id, link_type, created_at";
+
+/// Dataset scan root table columns for SELECT queries
+///
+/// Stores scan root metadata for datasets created via code ingestion.
+/// Each row represents a directory that was scanned to generate training data.
+pub const DATASET_SCAN_ROOT_COLUMNS: &str = "id, dataset_id, dataset_version_id, session_id, \
+     path, label, file_count, byte_count, content_hash_b3, scanned_at, ordinal, \
+     repo_name, repo_slug, commit_sha, branch, remote_url, \
+     tenant_id, created_at, created_by, metadata_json";
+
+/// Codebase dataset row table columns for SELECT queries
+///
+/// Stores individual Q&A training examples extracted from code during scan-root runs.
+/// Each row represents one prompt/response pair with full provenance tracking.
+pub const CODEBASE_DATASET_ROW_COLUMNS: &str = "id, dataset_id, dataset_version_id, session_id, \
+     prompt, response, weight, sample_role, \
+     symbol_kind, language, file_path, start_line, end_line, qualified_name, \
+     commit_sha, repo_name, repo_slug, repo_identifier, project_name, \
+     has_docstring, content_hash_b3, metadata_json, tenant_id, created_at";
+
+/// Training dataset row table columns for SELECT queries
+///
+/// Stores general-purpose prompt/response training pairs for datasets created from
+/// uploads, synthetic generation, or other non-codebase sources.
+/// Maps to CanonicalRow API format for compatibility with training workers.
+pub const TRAINING_DATASET_ROW_COLUMNS: &str = "id, dataset_id, dataset_version_id, session_id, \
+     prompt, response, weight, split, sample_role, content_hash_b3, \
+     source_type, source_file, source_line, tenant_id, metadata_json, created_at, created_by";
 
 /// Chat tag table columns for SELECT queries
 pub const CHAT_TAG_COLUMNS: &str =
@@ -76,6 +105,9 @@ mod tests {
         assert!(!DATASET_FILE_COLUMNS.is_empty());
         assert!(!EVIDENCE_ENTRY_COLUMNS.is_empty());
         assert!(!DATASET_ADAPTER_LINK_COLUMNS.is_empty());
+        assert!(!DATASET_SCAN_ROOT_COLUMNS.is_empty());
+        assert!(!CODEBASE_DATASET_ROW_COLUMNS.is_empty());
+        assert!(!TRAINING_DATASET_ROW_COLUMNS.is_empty());
         assert!(!CHAT_TAG_COLUMNS.is_empty());
         assert!(!COLLECTION_COLUMNS.is_empty());
         assert!(!DEGRADATION_EVENT_INIT_FAILED.is_empty());
@@ -89,5 +121,8 @@ mod tests {
         assert!(!ADAPTER_COLUMNS.trim().ends_with(','));
         assert!(!TRAINING_DATASET_COLUMNS.trim().ends_with(','));
         assert!(!DATASET_FILE_COLUMNS.trim().ends_with(','));
+        assert!(!DATASET_SCAN_ROOT_COLUMNS.trim().ends_with(','));
+        assert!(!CODEBASE_DATASET_ROW_COLUMNS.trim().ends_with(','));
+        assert!(!TRAINING_DATASET_ROW_COLUMNS.trim().ends_with(','));
     }
 }

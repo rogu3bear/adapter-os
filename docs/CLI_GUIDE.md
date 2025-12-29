@@ -1,8 +1,8 @@
 # AdapterOS CLI Guide
 
-**Purpose**: Comprehensive guide to understanding and using the AdapterOS CLI (`aosctl`)  
-**Last Updated**: 2025-01-15  
-**Version**: alpha-v0.11-unstable-pre-release
+**Purpose**: Comprehensive guide to understanding and using the AdapterOS CLI (`aosctl`)
+**Last Updated**: 2025-12-29
+**Version**: alpha-v0.12-unstable-pre-release
 
 ---
 
@@ -14,6 +14,27 @@
 - [When to Use Which Layer](#when-to-use-which-layer)
 - [Common Workflows](#common-workflows)
 - [Quick Reference](#quick-reference)
+- [Complete Command Reference](#complete-command-reference)
+  - [Tenant Management](#tenant-management)
+  - [Adapter Management](#adapter-management)
+  - [Adapter Lifecycle Management](#adapter-lifecycle-management)
+  - [Dataset Management](#dataset-management)
+  - [Database Management](#database-management)
+  - [Storage Management](#storage-management)
+  - [Preflight Checks](#preflight-checks)
+  - [Cluster Management](#cluster-management)
+  - [Model Operations](#model-operations)
+  - [Telemetry and Auditing](#telemetry--auditing)
+  - [Policy Management](#policy-management)
+  - [Serving and Inference](#serving--inference)
+  - [Development and Testing](#development--testing)
+  - [System Administration](#system-administration)
+  - [Code Intelligence](#code-intelligence)
+  - [AOS File Operations](#aos-file-operations)
+  - [Training and Quantization](#training--quantization)
+  - [Utilities](#utilities)
+- [Codebase Adapter Scope](#codebase-adapter-scope)
+- [Command Aliases](#command-aliases)
 
 ---
 
@@ -1492,6 +1513,148 @@ aosctl manual <ARGS>
 ---
 
 **Note**: This reference is auto-generated from the CLI codebase. For the latest information, use `aosctl --help` or `aosctl <command> --help`.
+
+---
+
+## Codebase Adapter Scope
+
+Adapters can be scoped to specific codebases to enable targeted code intelligence. When training adapters from code repositories, scope metadata is automatically captured and embedded in the adapter manifest.
+
+### Scope Fields
+
+Codebase scope is defined by the following fields in the adapter manifest:
+
+| Field | Description | Example |
+|-------|-------------|---------|
+| `scope_repo` | Repository name or identifier | `my-org/my-repo` |
+| `scope_branch` | Branch name at training time | `main`, `feature/xyz` |
+| `scope_commit` | Commit SHA at training time | `a1b2c3d4...` |
+| `scope_scan_root` | Primary scan root path used during ingestion | `src/api` |
+| `scope_remote_url` | Remote URL of the repository | `https://github.com/org/repo` |
+
+### Viewing Scope Information
+
+Use `adapter inspect` to view scope metadata in a packaged `.aos` file:
+
+```bash
+# Inspect adapter scope and metadata
+aosctl adapter inspect ./my-adapter.aos
+```
+
+The output includes scope information showing:
+```
+Scope Information
+  Repository: my-org/my-repo
+  Branch: main
+  Commit: a1b2c3d4e5f6...
+  Scan Root: src/api
+  Remote URL: https://github.com/my-org/my-repo
+```
+
+### Scope in Training
+
+When training adapters from code, scope is automatically derived from:
+
+1. The repository being ingested
+2. The scan roots specified during ingestion
+3. The semantic naming taxonomy (domain/group/scope/operation)
+
+Example workflow:
+```bash
+# Initialize code repository for training
+aosctl code-init --path /path/to/repo --tenant dev
+
+# Train adapter (scope derived from repository)
+aosctl train --dataset-id dataset_123 --output adapters/my-adapter.aos
+
+# Verify scope metadata
+aosctl adapter inspect adapters/my-adapter.aos
+```
+
+### Scan Roots
+
+For complex projects (monorepos, multi-module projects), multiple scan roots may be recorded. Each scan root captures:
+
+- **path**: Absolute or relative path to the scan root directory
+- **label**: Optional label describing the root's role (e.g., "main", "lib", "tests")
+- **file_count**: Number of files processed from this scan root
+- **byte_count**: Total bytes ingested from this scan root
+- **content_hash**: BLAKE3 hash of the scan root's content at ingestion time
+- **scanned_at**: Timestamp when this scan root was processed
+
+Example manifest with multiple scan roots:
+```json
+{
+  "scan_roots": [
+    {"path": "src/api", "label": "main", "file_count": 150},
+    {"path": "libs/core", "label": "lib", "file_count": 80},
+    {"path": "tests", "label": "tests", "file_count": 45}
+  ]
+}
+```
+
+### Scope Path Derivation
+
+The `scope_path` field provides a derived hierarchical path following the pattern:
+`domain/group/scope/operation`
+
+This path is used for:
+- Organizing adapters in the registry
+- Filtering adapters by domain or scope
+- Semantic routing decisions
+
+---
+
+## Command Aliases
+
+Several commands have shorter aliases for convenience. Aliases are fully equivalent to their canonical forms.
+
+### Available Aliases
+
+| Canonical Command | Alias | Description |
+|-------------------|-------|-------------|
+| `aosctl adapter` | `aosctl adapters` | Adapter management commands |
+| `aosctl stack` | `aosctl stacks` | Adapter stack management |
+| `aosctl node` | `aosctl nodes` | Node management commands |
+
+### Usage Examples
+
+```bash
+# These are equivalent:
+aosctl adapter list
+aosctl adapters list
+
+# These are equivalent:
+aosctl stack create my-stack
+aosctl stacks create my-stack
+
+# These are equivalent:
+aosctl node list
+aosctl nodes list
+```
+
+### Alias Behavior
+
+- Aliases are shown in `--help` output as "visible aliases"
+- Tab completion works with both the canonical command and alias
+- All subcommands and options work identically with either form
+- Log output and telemetry use the canonical command name
+
+### Discovering Aliases
+
+To see available command aliases, run:
+
+```bash
+aosctl --help
+```
+
+Aliases appear in parentheses next to command names:
+```
+Commands:
+  adapter (adapters)    Adapter management commands
+  stack (stacks)        Adapter stack management
+  node (nodes)          Node management commands
+```
 
 ---
 

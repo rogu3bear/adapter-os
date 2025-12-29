@@ -4,7 +4,14 @@
 //! adapteros-single-file-adapter crate.
 //!
 //! Automatically extracts knowledge from a repository and trains a LoRA adapter
+//!
+//! # CLI Inputs Aligned with Repo Commit Overrides
+//!
+//! The `scope_overrides` field provides CLI arguments that align with
+//! `CodebaseScopeMetadata` in the orchestrator, allowing users to override
+//! auto-detected git metadata for deterministic training.
 
+use crate::commands::adapter_codebase::CodebaseScopeOverrides;
 use crate::commands::training_common::{CommonTrainingArgs, TokenizerArg};
 use adapteros_core::{AosError, Result};
 // Removed: use adapteros_db::Db;
@@ -81,6 +88,14 @@ pub struct TrainFromCodeArgs {
     /// Common training hyperparameters
     #[command(flatten)]
     pub common: CommonTrainingArgs,
+
+    /// Codebase scope overrides for repo metadata
+    ///
+    /// These flags allow overriding auto-detected git metadata (repo name,
+    /// branch, commit SHA, scan root, remote URL) for deterministic training.
+    /// Aligned with CodebaseScopeMetadata in adapteros-orchestrator.
+    #[command(flatten)]
+    pub scope_overrides: CodebaseScopeOverrides,
 }
 
 impl TrainFromCodeArgs {
@@ -171,6 +186,7 @@ mod tests {
                 epochs: 3,
                 hidden_dim: 768,
             },
+            scope_overrides: CodebaseScopeOverrides::default(),
         };
 
         assert!(args.validate().is_ok());
@@ -213,6 +229,7 @@ mod tests {
                 epochs: 3,
                 hidden_dim: 768,
             },
+            scope_overrides: CodebaseScopeOverrides::default(),
         };
 
         let err = args.validate().unwrap_err();

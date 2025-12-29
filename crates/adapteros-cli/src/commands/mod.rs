@@ -1,6 +1,7 @@
 //! CLI command implementations
 
 pub mod adapter;
+pub mod adapter_codebase;
 pub mod adapter_info;
 pub mod adapter_swap;
 pub mod adapters;
@@ -68,6 +69,7 @@ pub mod pin;
 pub mod policy;
 pub mod preflight;
 pub mod preflight_fix;
+pub mod preflight_readiness;
 pub mod profile;
 pub mod quantize_qwen;
 pub mod register_adapter;

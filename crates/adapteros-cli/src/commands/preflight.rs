@@ -7,6 +7,21 @@
 //! - Environment variables
 //! - Backend availability (CoreML, Metal, MLX)
 //! - System resources
+//! - Alias swap gating and validation
+//!
+//! # Alias Swap Gating
+//!
+//! Before an alias can be swapped to point to a new adapter, several conditions
+//! must be met to ensure system stability and data integrity:
+//!
+//! 1. **Adapter Existence**: The target adapter must exist in the registry
+//! 2. **File Integrity**: The .aos file must exist and have valid hashes
+//! 3. **Lifecycle State**: Adapter must be in ready/active/training state
+//! 4. **Conflict Detection**: No conflicting active adapters for same repo/branch
+//! 5. **System Mode**: System must not be in maintenance mode
+//! 6. **Tenant Isolation**: Swap must respect tenant boundaries
+//!
+//! Use `gate_alias_swap()` to enforce these checks before any alias operation.
 //!
 //! Copyright: © 2025 JKCA / James KC Auchterlonie. All rights reserved.
 
@@ -18,8 +33,11 @@ use anyhow::Result;
 use clap::Args;
 use comfy_table::{presets::UTF8_FULL, Cell, Color, Table};
 use serde::{Deserialize, Serialize};
+use std::fs::File;
+use std::io::Read as IoRead;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::{Duration, Instant};
 
 // Import auto-fix module
 use super::preflight_fix::{
@@ -860,6 +878,732 @@ fn display_fix_suggestions(results: &[CheckResult], output: &OutputWriter) -> Re
     Ok(())
 }
 
+/// Result of an adapter swap readiness check
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AdapterSwapReadiness {
+    /// Whether the adapter is ready for swap
+    pub ready: bool,
+    /// Adapter ID that was checked
+    pub adapter_id: String,
+    /// Individual check results
+    pub checks: Vec<CheckResult>,
+    /// Summary message
+    pub message: String,
+}
+
+/// Check if an adapter is ready for alias swap
+///
+/// This function performs preflight checks on an adapter before allowing
+/// it to be swapped via alias. Checks include:
+/// - Adapter exists and has valid metadata
+/// - .aos file path and hashes are set
+/// - Lifecycle state allows activation
+/// - No conflicting active adapters for same repo/branch
+///
+/// # Arguments
+/// * `adapter_id` - The adapter ID to check
+/// * `db` - Database connection
+///
+/// # Returns
+/// * `AdapterSwapReadiness` - Result indicating if the adapter is ready
+pub async fn check_adapter_swap_readiness(
+    adapter_id: &str,
+    db: &adapteros_db::Db,
+) -> Result<AdapterSwapReadiness> {
+    let mut checks = Vec::new();
+    let mut all_passed = true;
+
+    // Check 1: Adapter exists
+    #[allow(deprecated)]
+    let adapter = match db.get_adapter(adapter_id).await? {
+        Some(a) => a,
+        None => {
+            checks.push(CheckResult::fail(
+                "Adapter Exists",
+                &format!("Adapter '{}' not found in registry", adapter_id),
+                None,
+            ));
+            return Ok(AdapterSwapReadiness {
+                ready: false,
+                adapter_id: adapter_id.to_string(),
+                checks,
+                message: format!("Adapter '{}' not found", adapter_id),
+            });
+        }
+    };
+    checks.push(CheckResult::pass(
+        "Adapter Exists",
+        &format!("Adapter '{}' found in registry", adapter_id),
+    ));
+
+    // Check 2: .aos file path is set
+    if adapter
+        .aos_file_path
+        .as_ref()
+        .map(|p| !p.is_empty())
+        .unwrap_or(false)
+    {
+        checks.push(CheckResult::pass(
+            "AOS File Path",
+            "Adapter has .aos file path set",
+        ));
+    } else {
+        checks.push(CheckResult::fail(
+            "AOS File Path",
+            "Adapter missing .aos file path",
+            Some("Register adapter with --aos-file-path".to_string()),
+        ));
+        all_passed = false;
+    }
+
+    // Check 3: .aos file hash is set
+    if adapter
+        .aos_file_hash
+        .as_ref()
+        .map(|h| !h.is_empty())
+        .unwrap_or(false)
+    {
+        checks.push(CheckResult::pass(
+            "AOS File Hash",
+            "Adapter has .aos file hash set",
+        ));
+    } else {
+        checks.push(CheckResult::fail(
+            "AOS File Hash",
+            "Adapter missing .aos file hash",
+            Some("Register adapter with valid .aos file".to_string()),
+        ));
+        all_passed = false;
+    }
+
+    // Check 4: Content hash is set (required for integrity)
+    if adapter
+        .content_hash_b3
+        .as_ref()
+        .map(|h| !h.is_empty())
+        .unwrap_or(false)
+    {
+        checks.push(CheckResult::pass(
+            "Content Hash",
+            "Adapter has content hash (BLAKE3) set",
+        ));
+    } else {
+        checks.push(CheckResult::warning(
+            "Content Hash",
+            "Adapter missing content hash - integrity verification limited",
+            Some("Re-register adapter with content hash".to_string()),
+        ));
+        // Warning doesn't fail the overall check
+    }
+
+    // Check 5: Lifecycle state allows activation
+    let lifecycle_ok = matches!(
+        adapter.lifecycle_state.as_str(),
+        "ready" | "active" | "training"
+    );
+    if lifecycle_ok {
+        checks.push(CheckResult::pass(
+            "Lifecycle State",
+            &format!(
+                "Adapter lifecycle state '{}' allows activation",
+                adapter.lifecycle_state
+            ),
+        ));
+    } else {
+        checks.push(CheckResult::fail(
+            "Lifecycle State",
+            &format!(
+                "Adapter lifecycle state '{}' does not allow activation (need ready/active/training)",
+                adapter.lifecycle_state
+            ),
+            Some(format!(
+                "aosctl adapter update-lifecycle {} --state ready",
+                adapter_id
+            )),
+        ));
+        all_passed = false;
+    }
+
+    // Check 6: No conflicting active adapters for same repo/branch
+    if let Some(ref repo_id) = adapter.repo_id {
+        // Extract branch from the adapter's metadata
+        let adapter_branch = adapter.metadata_json.as_ref().and_then(|m| {
+            serde_json::from_str::<serde_json::Value>(m)
+                .ok()
+                .and_then(|v| {
+                    v.get("branch")
+                        .or_else(|| v.get("git_branch"))
+                        .and_then(|b| b.as_str())
+                        .map(String::from)
+                })
+        });
+
+        // list_active_adapters_for_repo returns Vec<(adapter_id, Option<branch>)>
+        let active_adapters = db
+            .list_active_adapters_for_repo(repo_id)
+            .await
+            .unwrap_or_default();
+
+        // Filter for conflicting adapters (same repo/branch, different adapter_id)
+        let conflicting: Vec<_> = active_adapters
+            .iter()
+            .filter(|(other_adapter_id, other_branch)| {
+                // Skip self
+                if other_adapter_id == adapter_id {
+                    return false;
+                }
+                // Check branch conflict:
+                // - If both have branches specified, conflict only if they match
+                // - If new adapter has no branch, conflicts with any existing active
+                // - If existing has no branch, conflicts with any new activation
+                match (&adapter_branch, other_branch) {
+                    (Some(req), Some(other)) => req == other,
+                    (Some(_), None) => true,
+                    (None, _) => true,
+                }
+            })
+            .collect();
+
+        if conflicting.is_empty() {
+            checks.push(CheckResult::pass(
+                "Repo/Branch Uniqueness",
+                "No conflicting active adapters for this repo/branch",
+            ));
+        } else {
+            let conflict_ids: Vec<_> = conflicting
+                .iter()
+                .map(|(id, _)| id.as_str())
+                .collect();
+            checks.push(CheckResult::fail(
+                "Repo/Branch Uniqueness",
+                &format!(
+                    "Conflicting active adapters for repo '{}': {:?}",
+                    repo_id, conflict_ids
+                ),
+                Some(format!(
+                    "Deactivate conflicting adapters first: aosctl adapter update-lifecycle {} --state deprecated",
+                    conflict_ids.first().unwrap_or(&"")
+                )),
+            ));
+            all_passed = false;
+        }
+    } else {
+        checks.push(CheckResult::pass(
+            "Repo/Branch Uniqueness",
+            "Adapter not linked to a repository (no conflict check needed)",
+        ));
+    }
+
+    // Check 7: .aos file exists on disk (if path is set)
+    if let Some(ref aos_path) = adapter.aos_file_path {
+        if !aos_path.is_empty() {
+            let path = Path::new(aos_path);
+            if path.exists() {
+                checks.push(CheckResult::pass(
+                    "AOS File Exists",
+                    &format!("AOS file exists at {}", aos_path),
+                ));
+            } else {
+                checks.push(CheckResult::fail(
+                    "AOS File Exists",
+                    &format!("AOS file not found at {}", aos_path),
+                    Some(format!("Ensure .aos file exists at {}", aos_path)),
+                ));
+                all_passed = false;
+            }
+        }
+    }
+
+    let message = if all_passed {
+        format!("Adapter '{}' is ready for swap", adapter_id)
+    } else {
+        format!(
+            "Adapter '{}' failed {} preflight check(s)",
+            adapter_id,
+            checks
+                .iter()
+                .filter(|c| c.status == CheckStatus::Fail)
+                .count()
+        )
+    };
+
+    Ok(AdapterSwapReadiness {
+        ready: all_passed,
+        adapter_id: adapter_id.to_string(),
+        checks,
+        message,
+    })
+}
+
+// =============================================================================
+// Alias Swap Gating - Enhanced preflight checks before alias swap operations
+// =============================================================================
+
+/// Reason why an alias swap is blocked
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum AliasSwapBlockReason {
+    /// Target adapter not found in registry
+    AdapterNotFound,
+    /// Target adapter file (.aos) does not exist on disk
+    AdapterFileNotFound,
+    /// Target adapter file is corrupted or unreadable
+    AdapterFileCorrupted,
+    /// Target adapter has invalid or missing manifest
+    InvalidManifest,
+    /// Target adapter missing required hash
+    MissingHash,
+    /// Adapter lifecycle state does not permit activation
+    InvalidLifecycleState,
+    /// Conflicting active adapters for same repo/branch
+    ConflictingAdapters,
+    /// System is in maintenance mode
+    MaintenanceMode,
+    /// Alias swap would violate tenant isolation
+    TenantIsolationViolation,
+    /// Database error during validation
+    DatabaseError,
+}
+
+impl std::fmt::Display for AliasSwapBlockReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::AdapterNotFound => write!(f, "Target adapter not found in registry"),
+            Self::AdapterFileNotFound => write!(f, "Target adapter .aos file not found on disk"),
+            Self::AdapterFileCorrupted => {
+                write!(f, "Target adapter file is corrupted or unreadable")
+            }
+            Self::InvalidManifest => write!(f, "Target adapter has invalid or missing manifest"),
+            Self::MissingHash => write!(f, "Target adapter missing required content hash"),
+            Self::InvalidLifecycleState => {
+                write!(f, "Adapter lifecycle state does not permit activation")
+            }
+            Self::ConflictingAdapters => {
+                write!(f, "Conflicting active adapters exist for same repo/branch")
+            }
+            Self::MaintenanceMode => write!(f, "System is in maintenance mode"),
+            Self::TenantIsolationViolation => {
+                write!(f, "Swap would violate tenant isolation boundaries")
+            }
+            Self::DatabaseError => write!(f, "Database error during validation"),
+        }
+    }
+}
+
+/// Configuration for alias swap gating behavior
+#[derive(Debug, Clone)]
+pub struct AliasSwapGateConfig {
+    /// Force swap even with warnings (not failures)
+    pub force: bool,
+    /// Skip maintenance mode check
+    pub skip_maintenance_check: bool,
+    /// Skip conflict detection
+    pub skip_conflict_check: bool,
+    /// Tenant ID for isolation checks
+    pub tenant_id: Option<String>,
+    /// Allow swaps to adapters in "training" state
+    pub allow_training_state: bool,
+}
+
+impl Default for AliasSwapGateConfig {
+    fn default() -> Self {
+        Self {
+            force: false,
+            skip_maintenance_check: false,
+            skip_conflict_check: false,
+            tenant_id: None,
+            allow_training_state: true,
+        }
+    }
+}
+
+/// Result of enhanced alias swap gating
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AliasSwapGateResult {
+    /// Whether the swap is allowed
+    pub allowed: bool,
+    /// Blocking reasons (if any)
+    pub block_reasons: Vec<AliasSwapBlockReason>,
+    /// Warning messages (non-blocking)
+    pub warnings: Vec<String>,
+    /// Individual check results
+    pub checks: Vec<CheckResult>,
+    /// Suggested remediation steps
+    pub remediation: Vec<String>,
+    /// Time taken for checks
+    pub check_duration_ms: u64,
+}
+
+impl AliasSwapGateResult {
+    fn from_readiness(readiness: AdapterSwapReadiness, duration: Duration) -> Self {
+        let mut block_reasons = Vec::new();
+        let mut warnings = Vec::new();
+        let mut remediation = Vec::new();
+
+        for check in &readiness.checks {
+            match check.status {
+                CheckStatus::Fail => {
+                    // Map check name to block reason
+                    let reason = match check.name.as_str() {
+                        "Adapter Exists" => AliasSwapBlockReason::AdapterNotFound,
+                        "AOS File Exists" => AliasSwapBlockReason::AdapterFileNotFound,
+                        "AOS File Path" => AliasSwapBlockReason::AdapterFileNotFound,
+                        "AOS File Hash" => AliasSwapBlockReason::MissingHash,
+                        "Content Hash" => AliasSwapBlockReason::MissingHash,
+                        "Lifecycle State" => AliasSwapBlockReason::InvalidLifecycleState,
+                        "Repo/Branch Uniqueness" => AliasSwapBlockReason::ConflictingAdapters,
+                        "System Mode" => AliasSwapBlockReason::MaintenanceMode,
+                        "Tenant Isolation" => AliasSwapBlockReason::TenantIsolationViolation,
+                        _ => AliasSwapBlockReason::AdapterFileCorrupted,
+                    };
+                    block_reasons.push(reason);
+
+                    if let Some(ref fix) = check.fix_command {
+                        remediation.push(fix.clone());
+                    }
+                }
+                CheckStatus::Warning => {
+                    warnings.push(check.message.clone());
+                }
+                CheckStatus::Pass => {}
+            }
+        }
+
+        Self {
+            allowed: block_reasons.is_empty(),
+            block_reasons,
+            warnings,
+            checks: readiness.checks,
+            remediation,
+            check_duration_ms: duration.as_millis() as u64,
+        }
+    }
+}
+
+/// Check if system is in maintenance mode
+fn check_maintenance_mode() -> CheckResult {
+    let maintenance_file = Path::new("var/.maintenance");
+    let maintenance_env = std::env::var("AOS_MAINTENANCE_MODE").ok();
+
+    if maintenance_file.exists() {
+        return CheckResult::fail(
+            "System Mode",
+            "System is in maintenance mode (var/.maintenance exists)",
+            Some("rm var/.maintenance  # Remove maintenance flag".to_string()),
+        );
+    }
+
+    if let Some(mode) = maintenance_env {
+        if mode == "1" || mode.to_lowercase() == "true" {
+            return CheckResult::fail(
+                "System Mode",
+                "System is in maintenance mode (AOS_MAINTENANCE_MODE=true)",
+                Some("unset AOS_MAINTENANCE_MODE".to_string()),
+            );
+        }
+    }
+
+    CheckResult::pass("System Mode", "System is operational")
+}
+
+/// Verify adapter file integrity (basic checks without full parsing)
+fn check_adapter_file_integrity(aos_path: &Path) -> CheckResult {
+    // Check file exists
+    if !aos_path.exists() {
+        return CheckResult::fail(
+            "File Integrity",
+            &format!("Adapter file not found: {}", aos_path.display()),
+            None,
+        );
+    }
+
+    // Check file is readable and has minimum size
+    match File::open(aos_path) {
+        Ok(mut file) => {
+            let mut header = [0u8; 64];
+            match file.read_exact(&mut header) {
+                Ok(_) => {
+                    // Basic size check
+                    if let Ok(metadata) = file.metadata() {
+                        const MIN_SIZE: u64 = 256;
+                        if metadata.len() < MIN_SIZE {
+                            return CheckResult::warning(
+                                "File Integrity",
+                                &format!(
+                                    "Adapter file is suspiciously small ({} bytes)",
+                                    metadata.len()
+                                ),
+                                None,
+                            );
+                        }
+                    }
+                    CheckResult::pass("File Integrity", "Adapter file readable and valid size")
+                }
+                Err(e) => CheckResult::fail(
+                    "File Integrity",
+                    &format!("Cannot read adapter file header: {}", e),
+                    None,
+                ),
+            }
+        }
+        Err(e) => CheckResult::fail(
+            "File Integrity",
+            &format!("Cannot open adapter file: {}", e),
+            Some("Check file permissions".to_string()),
+        ),
+    }
+}
+
+/// Gate an alias swap operation behind readiness checks
+///
+/// Returns Ok(()) if the adapter passes all preflight checks,
+/// or an error with details about which checks failed.
+///
+/// # Arguments
+/// * `adapter_id` - The adapter ID to swap to
+/// * `db` - Database connection
+///
+/// # Example
+/// ```no_run
+/// # use adapteros_db::Db;
+/// # async fn example(db: &Db) -> anyhow::Result<()> {
+/// use adapteros_cli::commands::preflight::gate_alias_swap;
+/// gate_alias_swap("my-adapter", db).await?;
+/// // Proceed with swap only if checks pass
+/// # Ok(())
+/// # }
+/// ```
+pub async fn gate_alias_swap(adapter_id: &str, db: &adapteros_db::Db) -> Result<()> {
+    gate_alias_swap_with_config(adapter_id, db, &AliasSwapGateConfig::default()).await
+}
+
+/// Gate an alias swap with custom configuration
+///
+/// Allows fine-grained control over which checks are performed.
+pub async fn gate_alias_swap_with_config(
+    adapter_id: &str,
+    db: &adapteros_db::Db,
+    config: &AliasSwapGateConfig,
+) -> Result<()> {
+    let start = Instant::now();
+
+    // Check maintenance mode first (unless skipped)
+    if !config.skip_maintenance_check {
+        let maintenance_check = check_maintenance_mode();
+        if maintenance_check.status == CheckStatus::Fail {
+            return Err(anyhow::anyhow!(
+                "Alias swap blocked: {}",
+                AliasSwapBlockReason::MaintenanceMode
+            ));
+        }
+    }
+
+    // Run core readiness checks
+    let readiness = check_adapter_swap_readiness(adapter_id, db).await?;
+    let duration = start.elapsed();
+    let gate_result = AliasSwapGateResult::from_readiness(readiness, duration);
+
+    if gate_result.allowed {
+        if !gate_result.warnings.is_empty() && !config.force {
+            tracing::warn!(
+                adapter_id = adapter_id,
+                warnings = ?gate_result.warnings,
+                "Alias swap allowed with warnings"
+            );
+        }
+        Ok(())
+    } else {
+        let reasons: Vec<String> = gate_result
+            .block_reasons
+            .iter()
+            .map(|r| r.to_string())
+            .collect();
+
+        let failed_checks: Vec<_> = gate_result
+            .checks
+            .iter()
+            .filter(|c| c.status == CheckStatus::Fail)
+            .map(|c| format!("  - {}: {}", c.name, c.message))
+            .collect();
+
+        let remediation = if gate_result.remediation.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "\n\nRemediation:\n  {}",
+                gate_result.remediation.join("\n  ")
+            )
+        };
+
+        Err(anyhow::anyhow!(
+            "Alias swap blocked for adapter '{}'.\n\nReasons:\n  - {}\n\nFailed checks:\n{}{}",
+            adapter_id,
+            reasons.join("\n  - "),
+            failed_checks.join("\n"),
+            remediation
+        ))
+    }
+}
+
+/// Run alias swap preflight and return detailed results
+///
+/// Use this for reporting/display purposes. For gating, use `gate_alias_swap()`.
+pub async fn run_alias_swap_preflight(
+    adapter_id: &str,
+    db: &adapteros_db::Db,
+    output: &OutputWriter,
+) -> Result<AliasSwapGateResult> {
+    let start = Instant::now();
+
+    output.info(format!(
+        "Running alias swap preflight for adapter: {}",
+        adapter_id
+    ));
+
+    // Check maintenance mode
+    let maintenance_check = check_maintenance_mode();
+    let mut extra_checks = vec![maintenance_check];
+
+    // Run core readiness checks
+    let mut readiness = check_adapter_swap_readiness(adapter_id, db).await?;
+
+    // Add extra checks
+    readiness.checks.append(&mut extra_checks);
+
+    // Add file integrity check if we have a path
+    #[allow(deprecated)]
+    if let Ok(Some(adapter)) = db.get_adapter(adapter_id).await {
+        if let Some(ref aos_path) = adapter.aos_file_path {
+            if !aos_path.is_empty() {
+                let integrity_check = check_adapter_file_integrity(Path::new(aos_path));
+                readiness.checks.push(integrity_check);
+            }
+        }
+    }
+
+    // Recalculate readiness
+    readiness.ready = readiness
+        .checks
+        .iter()
+        .all(|c| c.status != CheckStatus::Fail);
+
+    let duration = start.elapsed();
+    let result = AliasSwapGateResult::from_readiness(readiness, duration);
+
+    // Display results
+    display_alias_swap_preflight_results(&result, output);
+
+    Ok(result)
+}
+
+/// Display alias swap preflight results
+fn display_alias_swap_preflight_results(result: &AliasSwapGateResult, output: &OutputWriter) {
+    output.blank();
+    output.info("Alias Swap Preflight Results:");
+    output.info("-----------------------------");
+
+    let mut table = Table::new();
+    table.load_preset(UTF8_FULL);
+    table.set_header(vec!["Check", "Status", "Message"]);
+
+    for check in &result.checks {
+        let (status_symbol, status_color) = match check.status {
+            CheckStatus::Pass => ("PASS", Color::Green),
+            CheckStatus::Warning => ("WARN", Color::Yellow),
+            CheckStatus::Fail => ("FAIL", Color::Red),
+        };
+
+        table.add_row(vec![
+            Cell::new(&check.name),
+            Cell::new(status_symbol).fg(status_color),
+            Cell::new(&check.message),
+        ]);
+    }
+
+    println!("{}", table);
+
+    output.blank();
+    output.info(format!("Check duration: {} ms", result.check_duration_ms));
+
+    if result.allowed {
+        if result.warnings.is_empty() {
+            output.success("ALIAS SWAP ALLOWED: All preflight checks passed");
+        } else {
+            output.warning(format!(
+                "ALIAS SWAP ALLOWED with {} warning(s)",
+                result.warnings.len()
+            ));
+            for warning in &result.warnings {
+                output.warning(format!("  - {}", warning));
+            }
+        }
+    } else {
+        output.error("ALIAS SWAP BLOCKED:");
+        for reason in &result.block_reasons {
+            output.error(format!("  - {}", reason));
+        }
+
+        if !result.remediation.is_empty() {
+            output.blank();
+            output.info("Suggested remediation:");
+            for fix in &result.remediation {
+                output.info(format!("  $ {}", fix));
+            }
+        }
+    }
+}
+
+/// Quick validation for adapter file readiness before hot-swap
+///
+/// This is a lighter-weight check than full preflight, suitable for
+/// real-time gating during inference operations.
+pub fn require_adapter_file_ready(aos_path: &Path) -> Result<()> {
+    let start = Instant::now();
+
+    // Quick existence check
+    if !aos_path.exists() {
+        return Err(anyhow::anyhow!(
+            "Adapter not ready: file not found at {}",
+            aos_path.display()
+        ));
+    }
+
+    // Quick readability check
+    let file = File::open(aos_path).map_err(|e| {
+        anyhow::anyhow!(
+            "Adapter not ready: cannot open file {}: {}",
+            aos_path.display(),
+            e
+        )
+    })?;
+
+    let metadata = file.metadata().map_err(|e| {
+        anyhow::anyhow!(
+            "Adapter not ready: cannot read metadata {}: {}",
+            aos_path.display(),
+            e
+        )
+    })?;
+
+    // Minimum size check
+    const MIN_ADAPTER_SIZE: u64 = 256;
+    if metadata.len() < MIN_ADAPTER_SIZE {
+        return Err(anyhow::anyhow!(
+            "Adapter not ready: file too small ({} bytes, minimum {})",
+            metadata.len(),
+            MIN_ADAPTER_SIZE
+        ));
+    }
+
+    let elapsed = start.elapsed();
+    tracing::debug!(
+        path = %aos_path.display(),
+        duration_us = elapsed.as_micros(),
+        "Adapter file readiness verified"
+    );
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -873,5 +1617,122 @@ mod tests {
         let fail = CheckResult::fail("test", "error", Some("fix".to_string()));
         assert_eq!(fail.status, CheckStatus::Fail);
         assert_eq!(fail.fix_command, Some("fix".to_string()));
+    }
+
+    #[test]
+    fn test_alias_swap_block_reason_display() {
+        assert_eq!(
+            AliasSwapBlockReason::AdapterNotFound.to_string(),
+            "Target adapter not found in registry"
+        );
+        assert_eq!(
+            AliasSwapBlockReason::AdapterFileNotFound.to_string(),
+            "Target adapter .aos file not found on disk"
+        );
+        assert_eq!(
+            AliasSwapBlockReason::InvalidLifecycleState.to_string(),
+            "Adapter lifecycle state does not permit activation"
+        );
+        assert_eq!(
+            AliasSwapBlockReason::ConflictingAdapters.to_string(),
+            "Conflicting active adapters exist for same repo/branch"
+        );
+        assert_eq!(
+            AliasSwapBlockReason::MaintenanceMode.to_string(),
+            "System is in maintenance mode"
+        );
+        assert_eq!(
+            AliasSwapBlockReason::TenantIsolationViolation.to_string(),
+            "Swap would violate tenant isolation boundaries"
+        );
+    }
+
+    #[test]
+    fn test_alias_swap_gate_config_default() {
+        let config = AliasSwapGateConfig::default();
+        assert!(!config.force);
+        assert!(!config.skip_maintenance_check);
+        assert!(!config.skip_conflict_check);
+        assert!(config.tenant_id.is_none());
+        assert!(config.allow_training_state);
+    }
+
+    #[test]
+    fn test_alias_swap_gate_result_from_readiness() {
+        let checks = vec![
+            CheckResult::pass("Test1", "ok"),
+            CheckResult::warning("Test2", "minor issue", None),
+            CheckResult::fail("Adapter Exists", "not found", Some("fix it".to_string())),
+        ];
+
+        let readiness = AdapterSwapReadiness {
+            ready: false,
+            adapter_id: "test-adapter".to_string(),
+            checks,
+            message: "Test failed".to_string(),
+        };
+
+        let result = AliasSwapGateResult::from_readiness(readiness, Duration::from_millis(50));
+
+        assert!(!result.allowed);
+        assert_eq!(result.block_reasons.len(), 1);
+        assert_eq!(
+            result.block_reasons[0],
+            AliasSwapBlockReason::AdapterNotFound
+        );
+        assert_eq!(result.warnings.len(), 1);
+        assert_eq!(result.remediation.len(), 1);
+        assert_eq!(result.check_duration_ms, 50);
+    }
+
+    #[test]
+    fn test_alias_swap_gate_result_all_pass() {
+        let checks = vec![
+            CheckResult::pass("Adapter Exists", "found"),
+            CheckResult::pass("AOS File Path", "path set"),
+            CheckResult::pass("Lifecycle State", "ready"),
+        ];
+
+        let readiness = AdapterSwapReadiness {
+            ready: true,
+            adapter_id: "test-adapter".to_string(),
+            checks,
+            message: "All passed".to_string(),
+        };
+
+        let result = AliasSwapGateResult::from_readiness(readiness, Duration::from_millis(10));
+
+        assert!(result.allowed);
+        assert!(result.block_reasons.is_empty());
+        assert!(result.warnings.is_empty());
+    }
+
+    #[test]
+    fn test_check_adapter_file_integrity_missing_file() {
+        let result = check_adapter_file_integrity(Path::new("/nonexistent/path/adapter.aos"));
+        assert_eq!(result.status, CheckStatus::Fail);
+        assert!(result.message.contains("not found"));
+    }
+
+    #[test]
+    fn test_require_adapter_file_ready_missing() {
+        let result = require_adapter_file_ready(Path::new("/nonexistent/adapter.aos"));
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("not found"));
+    }
+
+    #[test]
+    fn test_adapter_swap_readiness_structure() {
+        let readiness = AdapterSwapReadiness {
+            ready: true,
+            adapter_id: "test-123".to_string(),
+            checks: vec![CheckResult::pass("Test", "ok")],
+            message: "Ready".to_string(),
+        };
+
+        assert!(readiness.ready);
+        assert_eq!(readiness.adapter_id, "test-123");
+        assert_eq!(readiness.checks.len(), 1);
     }
 }

@@ -88,6 +88,7 @@ impl Default for CircuitBreakerRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::circuit_breaker::CircuitBreaker;
 
     #[test]
     fn test_registry_get_or_create() {

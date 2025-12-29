@@ -37,6 +37,28 @@
 //! - [`derive_seed`]: Core HKDF derivation from global seed + label
 //! - [`derive_seed_typed`]: Type-safe derivation using [`SeedLabel`] enum
 //! - [`ExecutionProfile`]: Request-scoped seed mode + backend configuration
+//! - [`DeterminismConfig`]: Global determinism knobs for testing and replay
+//!
+//! ## Determinism Controls
+//!
+//! The [`DeterminismConfig`] struct provides global controls for determinism:
+//!
+//! ```ignore
+//! use adapteros_core::seed::{DeterminismConfig, set_determinism_config, get_deterministic_timestamp};
+//!
+//! // Set fixed seed and timestamp for replay
+//! let config = DeterminismConfig::builder()
+//!     .fixed_seed(12345)
+//!     .fixed_timestamp(DateTime::parse_from_rfc3339("2025-01-01T00:00:00Z").unwrap().into())
+//!     .stable_ordering(true)
+//!     .build();
+//!
+//! set_determinism_config(config);
+//!
+//! // Now all deterministic helpers use the fixed values
+//! let ts = get_deterministic_timestamp(); // Returns fixed timestamp
+//! let rng = get_deterministic_rng();      // Returns seeded RNG
+//! ```
 //!
 //! ## Critical Invariants
 //!
@@ -58,9 +80,12 @@ use crate::backend::BackendKind;
 use crate::defaults::DEFAULT_SEED_MODE;
 use crate::hash::B3Hash;
 use crate::{AosError, Result};
+use chrono::{DateTime, Utc};
 use hkdf::Hkdf;
+use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt;
 use std::str::FromStr;
@@ -70,6 +95,369 @@ lazy_static::lazy_static! {
     /// Seed registry to prevent reuse
     static ref SEED_REGISTRY: Mutex<HashMap<(String, u64), bool>> = Mutex::new(HashMap::new());
 }
+
+// =============================================================================
+// DeterminismConfig - Global determinism controls
+// =============================================================================
+
+/// Global determinism configuration for testing and replay scenarios.
+///
+/// This configuration controls how the system handles randomness, timestamps,
+/// and ordering to enable deterministic replay of operations.
+///
+/// # Examples
+///
+/// ```ignore
+/// use adapteros_core::seed::{DeterminismConfig, set_determinism_config};
+/// use chrono::Utc;
+///
+/// // Enable full determinism for testing
+/// let config = DeterminismConfig::builder()
+///     .fixed_seed(42)
+///     .fixed_timestamp(Utc::now())
+///     .stable_ordering(true)
+///     .build();
+///
+/// set_determinism_config(config);
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct DeterminismConfig {
+    /// Fixed seed for RNG. When set, all RNG operations use this seed.
+    /// When None, uses the standard seed derivation system.
+    pub fixed_seed: Option<u64>,
+
+    /// Fixed timestamp for all time operations. When set, `get_deterministic_timestamp()`
+    /// returns this value instead of the current time.
+    pub fixed_timestamp: Option<DateTime<Utc>>,
+
+    /// Force stable ordering everywhere. When true, operations that normally
+    /// might produce non-deterministic ordering (e.g., HashMap iteration)
+    /// should use sorted/stable alternatives.
+    pub stable_ordering: bool,
+
+    /// Disable all sources of non-determinism. This is a meta-flag that
+    /// enables strict validation of determinism invariants.
+    pub strict_mode: bool,
+
+    /// Trace seed derivation for debugging. When true, logs detailed
+    /// information about seed derivation operations.
+    pub trace_seeds: bool,
+}
+
+impl DeterminismConfig {
+    /// Create a new determinism config with default settings (non-deterministic).
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Create a builder for constructing a DeterminismConfig.
+    pub fn builder() -> DeterminismConfigBuilder {
+        DeterminismConfigBuilder::new()
+    }
+
+    /// Create a fully deterministic config for testing.
+    ///
+    /// Uses a fixed seed of 0, the Unix epoch as timestamp, and enables
+    /// stable ordering.
+    pub fn fully_deterministic() -> Self {
+        Self {
+            fixed_seed: Some(0),
+            fixed_timestamp: Some(DateTime::UNIX_EPOCH),
+            stable_ordering: true,
+            strict_mode: true,
+            trace_seeds: false,
+        }
+    }
+
+    /// Create a config for replay with specific seed and timestamp.
+    pub fn for_replay(seed: u64, timestamp: DateTime<Utc>) -> Self {
+        Self {
+            fixed_seed: Some(seed),
+            fixed_timestamp: Some(timestamp),
+            stable_ordering: true,
+            strict_mode: true,
+            trace_seeds: false,
+        }
+    }
+
+    /// Check if this config enforces determinism.
+    pub fn is_deterministic(&self) -> bool {
+        self.fixed_seed.is_some() || self.fixed_timestamp.is_some() || self.stable_ordering
+    }
+
+    /// Check if strict mode is enabled.
+    pub fn is_strict(&self) -> bool {
+        self.strict_mode
+    }
+}
+
+/// Builder for DeterminismConfig.
+#[derive(Debug, Default)]
+pub struct DeterminismConfigBuilder {
+    fixed_seed: Option<u64>,
+    fixed_timestamp: Option<DateTime<Utc>>,
+    stable_ordering: bool,
+    strict_mode: bool,
+    trace_seeds: bool,
+}
+
+impl DeterminismConfigBuilder {
+    /// Create a new builder with default settings.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set a fixed seed for RNG operations.
+    pub fn fixed_seed(mut self, seed: u64) -> Self {
+        self.fixed_seed = Some(seed);
+        self
+    }
+
+    /// Set an optional fixed seed for RNG operations.
+    pub fn fixed_seed_opt(mut self, seed: Option<u64>) -> Self {
+        self.fixed_seed = seed;
+        self
+    }
+
+    /// Set a fixed timestamp for time operations.
+    pub fn fixed_timestamp(mut self, timestamp: DateTime<Utc>) -> Self {
+        self.fixed_timestamp = Some(timestamp);
+        self
+    }
+
+    /// Set an optional fixed timestamp for time operations.
+    pub fn fixed_timestamp_opt(mut self, timestamp: Option<DateTime<Utc>>) -> Self {
+        self.fixed_timestamp = timestamp;
+        self
+    }
+
+    /// Enable or disable stable ordering.
+    pub fn stable_ordering(mut self, enabled: bool) -> Self {
+        self.stable_ordering = enabled;
+        self
+    }
+
+    /// Enable or disable strict mode.
+    pub fn strict_mode(mut self, enabled: bool) -> Self {
+        self.strict_mode = enabled;
+        self
+    }
+
+    /// Enable or disable seed tracing.
+    pub fn trace_seeds(mut self, enabled: bool) -> Self {
+        self.trace_seeds = enabled;
+        self
+    }
+
+    /// Build the DeterminismConfig.
+    pub fn build(self) -> DeterminismConfig {
+        DeterminismConfig {
+            fixed_seed: self.fixed_seed,
+            fixed_timestamp: self.fixed_timestamp,
+            stable_ordering: self.stable_ordering,
+            strict_mode: self.strict_mode,
+            trace_seeds: self.trace_seeds,
+        }
+    }
+}
+
+// =============================================================================
+// Global and Thread-Local Config Storage
+// =============================================================================
+
+/// Global determinism configuration.
+static GLOBAL_DETERMINISM_CONFIG: OnceLock<RwLock<DeterminismConfig>> = OnceLock::new();
+
+fn global_config() -> &'static RwLock<DeterminismConfig> {
+    GLOBAL_DETERMINISM_CONFIG.get_or_init(|| RwLock::new(DeterminismConfig::default()))
+}
+
+// Thread-local override for determinism configuration.
+// Takes precedence over the global config when set.
+thread_local! {
+    static THREAD_LOCAL_CONFIG: RefCell<Option<DeterminismConfig>> = const { RefCell::new(None) };
+}
+
+/// Set the global determinism configuration.
+///
+/// This affects all threads that don't have a thread-local override.
+pub fn set_determinism_config(config: DeterminismConfig) {
+    *global_config().write() = config;
+}
+
+/// Get the current determinism configuration.
+///
+/// Returns the thread-local config if set, otherwise the global config.
+pub fn get_determinism_config() -> DeterminismConfig {
+    THREAD_LOCAL_CONFIG.with(|local| {
+        if let Some(config) = local.borrow().as_ref() {
+            return config.clone();
+        }
+        global_config().read().clone()
+    })
+}
+
+/// Set a thread-local determinism configuration override.
+///
+/// This takes precedence over the global configuration for this thread only.
+pub fn set_thread_local_determinism_config(config: DeterminismConfig) {
+    THREAD_LOCAL_CONFIG.with(|local| {
+        *local.borrow_mut() = Some(config);
+    });
+}
+
+/// Clear the thread-local determinism configuration override.
+///
+/// After calling this, the thread will use the global configuration.
+pub fn clear_thread_local_determinism_config() {
+    THREAD_LOCAL_CONFIG.with(|local| {
+        *local.borrow_mut() = None;
+    });
+}
+
+/// Reset the global determinism configuration to defaults.
+///
+/// This is primarily useful for testing.
+pub fn reset_determinism_config() {
+    *global_config().write() = DeterminismConfig::default();
+    clear_thread_local_determinism_config();
+}
+
+/// RAII guard for temporarily setting thread-local determinism config.
+///
+/// Restores the previous config when dropped.
+pub struct DeterminismConfigGuard {
+    previous: Option<DeterminismConfig>,
+}
+
+impl DeterminismConfigGuard {
+    /// Create a new guard that sets the thread-local config.
+    pub fn new(config: DeterminismConfig) -> Self {
+        let previous = THREAD_LOCAL_CONFIG.with(|local| local.borrow().clone());
+        set_thread_local_determinism_config(config);
+        Self { previous }
+    }
+}
+
+impl Drop for DeterminismConfigGuard {
+    fn drop(&mut self) {
+        THREAD_LOCAL_CONFIG.with(|local| {
+            *local.borrow_mut() = self.previous.take();
+        });
+    }
+}
+
+/// Execute a closure with a specific determinism configuration.
+///
+/// The configuration is scoped to this call and automatically restored afterward.
+pub fn with_determinism_config<T, F>(config: DeterminismConfig, f: F) -> T
+where
+    F: FnOnce() -> T,
+{
+    let _guard = DeterminismConfigGuard::new(config);
+    f()
+}
+
+// =============================================================================
+// Deterministic Helper Functions
+// =============================================================================
+
+/// Get a deterministic timestamp.
+///
+/// If a fixed timestamp is configured, returns that. Otherwise returns the
+/// current UTC time.
+pub fn get_deterministic_timestamp() -> DateTime<Utc> {
+    let config = get_determinism_config();
+    config.fixed_timestamp.unwrap_or_else(Utc::now)
+}
+
+/// Get a deterministic Unix timestamp in seconds.
+///
+/// If a fixed timestamp is configured, returns that. Otherwise returns the
+/// current Unix timestamp.
+pub fn get_deterministic_unix_timestamp() -> i64 {
+    get_deterministic_timestamp().timestamp()
+}
+
+/// Get a deterministic Unix timestamp in milliseconds.
+pub fn get_deterministic_unix_timestamp_millis() -> i64 {
+    get_deterministic_timestamp().timestamp_millis()
+}
+
+/// Get a deterministic RNG based on the current configuration.
+///
+/// If a fixed seed is configured, returns a seeded RNG. Otherwise returns
+/// a randomly-seeded RNG.
+pub fn get_deterministic_rng() -> fastrand::Rng {
+    let config = get_determinism_config();
+    match config.fixed_seed {
+        Some(seed) => fastrand::Rng::with_seed(seed),
+        None => fastrand::Rng::new(),
+    }
+}
+
+/// Get a deterministic 32-byte seed for use with other RNG libraries.
+///
+/// If a fixed seed is configured, derives a 32-byte seed from it using HKDF.
+/// Otherwise returns random bytes.
+pub fn get_deterministic_seed_bytes() -> [u8; 32] {
+    let config = get_determinism_config();
+    match config.fixed_seed {
+        Some(seed) => {
+            // Expand the u64 seed into 32 bytes using HKDF
+            let mut seed_bytes = [0u8; 8];
+            seed_bytes.copy_from_slice(&seed.to_le_bytes());
+            let hk = Hkdf::<Sha256>::new(None, &seed_bytes);
+            let mut okm = [0u8; 32];
+            hk.expand(b"determinism-config-seed", &mut okm)
+                .expect("HKDF expand failed");
+            okm
+        }
+        None => {
+            let mut bytes = [0u8; 32];
+            fastrand::Rng::new().fill(&mut bytes);
+            bytes
+        }
+    }
+}
+
+/// Check if stable ordering should be used.
+///
+/// Returns true if the current configuration requires stable ordering.
+pub fn should_use_stable_ordering() -> bool {
+    get_determinism_config().stable_ordering
+}
+
+/// Check if strict determinism mode is enabled.
+pub fn is_strict_determinism_mode() -> bool {
+    get_determinism_config().strict_mode
+}
+
+/// Check if seed tracing is enabled.
+pub fn is_seed_tracing_enabled() -> bool {
+    get_determinism_config().trace_seeds
+}
+
+/// Sort a vector if stable ordering is required.
+///
+/// This is a convenience helper that sorts the vector in place only if
+/// stable ordering is enabled in the current configuration.
+pub fn maybe_stable_sort<T: Ord>(items: &mut [T]) {
+    if should_use_stable_ordering() {
+        items.sort();
+    }
+}
+
+/// Sort a vector by key if stable ordering is required.
+pub fn maybe_stable_sort_by_key<T, K: Ord, F: FnMut(&T) -> K>(items: &mut [T], f: F) {
+    if should_use_stable_ordering() {
+        items.sort_by_key(f);
+    }
+}
+
+// =============================================================================
+// Original seed.rs content continues below
+// =============================================================================
 
 fn determinism_debug_enabled() -> bool {
     static FLAG: OnceLock<bool> = OnceLock::new();
