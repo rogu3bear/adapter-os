@@ -266,6 +266,32 @@ check_db_integrity() {
     fi
 }
 
+check_bootstrap_state_hint() {
+    if [ ! -f "$DATABASE_PATH" ]; then
+        return 0
+    fi
+
+    if ! command -v sqlite3 >/dev/null 2>&1; then
+        warning_msg "sqlite3 not found; skipping bootstrap state check"
+        return 0
+    fi
+
+    local tenants plans nodes
+    tenants=$(sqlite3 "$DATABASE_PATH" "SELECT COUNT(*) FROM tenants;" 2>/dev/null || true)
+    plans=$(sqlite3 "$DATABASE_PATH" "SELECT COUNT(*) FROM plans;" 2>/dev/null || true)
+    nodes=$(sqlite3 "$DATABASE_PATH" "SELECT COUNT(*) FROM nodes;" 2>/dev/null || true)
+
+    if [[ ! "$tenants" =~ ^[0-9]+$ ]] || [[ ! "$plans" =~ ^[0-9]+$ ]] || [[ ! "$nodes" =~ ^[0-9]+$ ]]; then
+        warning_msg "Bootstrap state check skipped (missing tables); run: aosctl db migrate"
+        return 0
+    fi
+
+    if [ "$tenants" -eq 0 ] || [ "$plans" -eq 0 ] || [ "$nodes" -eq 0 ]; then
+        warning_msg "Bootstrap state incomplete: tenants=$tenants plans=$plans nodes=$nodes"
+        warning_msg "Run: aosctl db repair-bootstrap --dry-run"
+    fi
+}
+
 # Run all preflight checks
 # Usage: run_preflight_checks [--skip-disk] [--skip-memory] [--skip-db]
 run_preflight_checks() {
@@ -300,6 +326,8 @@ run_preflight_checks() {
     if [ "$skip_db" != "true" ]; then
         if ! check_db_integrity; then
             failed=true
+        else
+            check_bootstrap_state_hint
         fi
     fi
 

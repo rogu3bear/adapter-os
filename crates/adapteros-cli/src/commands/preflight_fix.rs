@@ -262,6 +262,36 @@ pub fn run_database_migrations(db_path: String) -> FixableIssue {
     )
 }
 
+/// Repair bootstrap state (REQUIRES CONFIRMATION)
+pub fn run_bootstrap_repair(db_path: String) -> FixableIssue {
+    FixableIssue::new(
+        "Bootstrap State".to_string(),
+        "Bootstrap records missing or incomplete".to_string(),
+        format!("Repair bootstrap state in {}", db_path),
+        FixSafety::RequiresConfirm,
+        move |output| {
+            output.info("   Repairing bootstrap state...");
+
+            let mut command = Command::new("cargo");
+            command.args(["run", "-p", "adapteros-cli", "--", "db", "repair-bootstrap"]);
+            if !db_path.trim().is_empty() {
+                command.args(["--db-path", db_path.as_str()]);
+            }
+
+            let status = command
+                .status()
+                .map_err(|e| AosError::Database(format!("Failed to repair bootstrap: {}", e)))?;
+
+            if !status.success() {
+                return Err(AosError::Database("Bootstrap repair failed".to_string()));
+            }
+
+            output.info("   Bootstrap repair completed");
+            Ok(())
+        },
+    )
+}
+
 /// Download model (REQUIRES CONFIRMATION - large download)
 pub fn download_model(model_path: PathBuf) -> FixableIssue {
     FixableIssue::new(
