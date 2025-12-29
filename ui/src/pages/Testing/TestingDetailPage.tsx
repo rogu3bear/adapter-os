@@ -1,10 +1,6 @@
 /**
- * @deprecated DUPLICATE PAGE - Naming conflict with pages/TestingPage.tsx
- * Routes use pages/TestingPage.tsx for /testing route.
- * This file appears to be an alternative testing implementation.
- *
- * TODO: Rename to TestingDetailPage.tsx or merge with pages/TestingPage.tsx
- * Audit date: 2025-12-19
+ * Testing Detail Page - Provides detailed testing functionality
+ * Embedded within pages/TestingPage.tsx as a component.
  */
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';

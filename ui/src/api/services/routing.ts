@@ -6,20 +6,6 @@ import type { ApiClient } from '@/api/client';
 import * as types from '@/api/types';
 import { logger } from '@/utils/logger';
 
-// Type extension for ApiClient streaming method (implementation pending)
- 
-interface ApiClientWithStreaming extends ApiClient {
-  streamInfer(
-    request: any,
-    callbacks: {
-      onToken: (token: string, chunk: any) => void;
-      onComplete: (text: string, finishReason: string | null, metadata?: any) => void;
-      onError: (error: Error) => void;
-    },
-    cancelToken?: AbortSignal
-  ): Promise<void>;
-}
-
 export class RoutingService {
   constructor(private client: ApiClient) {}
 
@@ -157,9 +143,7 @@ export class RoutingService {
     cancelToken?: AbortSignal
   ): Promise<void> {
     // Delegate to ApiClient which has access to private members needed for streaming
-    // TODO: Implement ApiClient.streamInfer method or move implementation here
-    // Type assertion needed because streamInfer method is not yet implemented on ApiClient
-    return (this.client as ApiClientWithStreaming).streamInfer(data, callbacks, cancelToken);
+    return this.client.streamInfer(data, callbacks, cancelToken);
   }
 
   /**

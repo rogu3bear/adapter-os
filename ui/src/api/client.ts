@@ -767,6 +767,214 @@ class ApiClient {
     const response = await this.request<unknown>(path, options, skipRetry, cancelToken);
     return extractArrayFromResponse<T>(response);
   }
+
+  /**
+   * Stream inference using the /v1/infer/stream endpoint with SSE.
+   *
+   * POST /v1/infer/stream
+   *
+   * Uses fetch with ReadableStream since EventSource doesn't support POST.
+   *
+   * @param request - The streaming inference request payload (snake_case for backend)
+   * @param callbacks - Event callbacks for streaming tokens
+   * @param cancelToken - Optional abort signal for cancellation
+   * @returns Promise that resolves when stream completes
+   */
+  async streamInfer<TChunk = unknown, TMetadata = unknown>(
+    request: unknown,
+    callbacks: {
+      onToken: (token: string, chunk: TChunk) => void;
+      onComplete: (
+        fullText: string,
+        finishReason: string | null,
+        metadata?: TMetadata
+      ) => void;
+      onError: (error: Error) => void;
+    },
+    cancelToken?: AbortSignal
+  ): Promise<void> {
+    const url = `${this.baseUrl}/v1/infer/stream`;
+
+    // Read CSRF token from cookie
+    const readCookie = (name: string): string | undefined => {
+      if (typeof document === 'undefined') return undefined;
+      const cookies = document.cookie?.split(';') ?? [];
+      const prefix = `${name}=`;
+      for (const raw of cookies) {
+        const trimmed = raw.trim();
+        if (trimmed.startsWith(prefix)) {
+          return decodeURIComponent(trimmed.slice(prefix.length));
+        }
+      }
+      return undefined;
+    };
+    const csrfToken = readCookie('csrf_token');
+
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      Accept: 'text/event-stream',
+      ...(this.token ? { Authorization: `Bearer ${this.token}` } : {}),
+      ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {}),
+    };
+
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(request),
+        credentials: 'omit',
+        signal: cancelToken,
+      });
+    } catch (networkError) {
+      const error = toError(networkError);
+      if (error.name !== 'AbortError') {
+        markBackendUnreachable(error, { method: 'POST', path: '/v1/infer/stream' });
+      }
+      callbacks.onError(error);
+      throw error;
+    }
+
+    if (!response.ok) {
+      const errorMessage = await response.text().catch(() => response.statusText);
+      const error = new Error(`Stream request failed: ${response.status} ${errorMessage}`) as ApiError;
+      error.status = response.status;
+      callbacks.onError(error);
+      throw error;
+    }
+
+    markBackendReachable();
+
+    if (!response.body) {
+      const error = new Error('Response body is null - streaming not supported');
+      callbacks.onError(error);
+      throw error;
+    }
+
+    // Read the SSE stream
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let fullText = '';
+    let finishReason: string | null = null;
+    let metadata: TMetadata | undefined;
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+
+        if (done) {
+          break;
+        }
+
+        buffer += decoder.decode(value, { stream: true });
+
+        // Process complete SSE lines
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || ''; // Keep incomplete line in buffer
+
+        for (const line of lines) {
+          const trimmedLine = line.trim();
+
+          // Skip empty lines and comments
+          if (!trimmedLine || trimmedLine.startsWith(':')) {
+            continue;
+          }
+
+          // Parse SSE data lines
+          if (trimmedLine.startsWith('data:')) {
+            const jsonStr = trimmedLine.slice(5).trim();
+
+            // Handle [DONE] marker
+            if (jsonStr === '[DONE]') {
+              callbacks.onComplete(fullText, finishReason, metadata);
+              return;
+            }
+
+            try {
+              const event = JSON.parse(jsonStr);
+
+              // Handle different event types based on 'event' discriminator
+              if (typeof event === 'object' && event !== null && 'event' in event) {
+                switch (event.event) {
+                  case 'Token':
+                    if (typeof event.text === 'string') {
+                      fullText += event.text;
+                      callbacks.onToken(event.text, event as TChunk);
+                    }
+                    break;
+
+                  case 'Done':
+                    finishReason = 'stop';
+                    metadata = {
+                      unavailable_pinned_adapters: event.unavailable_pinned_adapters,
+                      pinned_routing_fallback: event.pinned_routing_fallback,
+                      citations: event.citations,
+                    } as TMetadata;
+                    callbacks.onComplete(fullText, finishReason, metadata);
+                    return;
+
+                  case 'Error':
+                    const errorMsg = event.message || 'Stream error';
+                    const streamError = new Error(errorMsg);
+                    callbacks.onError(streamError);
+                    if (!event.recoverable) {
+                      throw streamError;
+                    }
+                    break;
+
+                  case 'Loading':
+                  case 'Ready':
+                    // These are progress events - can be extended to support onProgress callback
+                    break;
+
+                  default:
+                    logger.debug('Unknown inference event type', {
+                      component: 'ApiClient',
+                      operation: 'streamInfer',
+                      eventType: event.event,
+                    });
+                }
+              } else if (typeof event === 'object' && event !== null && 'choices' in event) {
+                // OpenAI-compatible format (StreamingChunk)
+                const choices = event.choices as Array<{
+                  delta?: { content?: string };
+                  finish_reason?: string | null;
+                }>;
+                if (choices && choices[0]) {
+                  const choice = choices[0];
+                  if (choice.delta?.content) {
+                    fullText += choice.delta.content;
+                    callbacks.onToken(choice.delta.content, event as TChunk);
+                  }
+                  if (choice.finish_reason) {
+                    finishReason = choice.finish_reason;
+                  }
+                }
+              }
+            } catch (parseError) {
+              logger.warn('Failed to parse SSE event', {
+                component: 'ApiClient',
+                operation: 'streamInfer',
+                data: jsonStr.slice(0, 100),
+              });
+            }
+          }
+        }
+      }
+
+      // Stream ended without explicit Done event
+      callbacks.onComplete(fullText, finishReason || 'stop', metadata);
+    } catch (error) {
+      const err = toError(error);
+      if (err.name !== 'AbortError') {
+        callbacks.onError(err);
+      }
+      throw err;
+    } finally {
+      reader.releaseLock();
+    }
+  }
 }
 
 // Export class for service classes and direct usage

@@ -1,5 +1,5 @@
 import PageWrapper from '@/layout/PageWrapper';
-import { TestingPage as TestingPageComponent } from '@/pages/Testing/TestingPage';
+import { TestingPage as TestingPageComponent } from '@/pages/Testing/TestingDetailPage';
 import { Card, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Link } from 'react-router-dom';

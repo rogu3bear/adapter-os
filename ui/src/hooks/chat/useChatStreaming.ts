@@ -7,6 +7,30 @@ import { useOperationLockOptional } from '@/contexts/OperationLockContext';
 import type { ChatMessage, ThroughputStats } from '@/components/chat/ChatMessage';
 import type { StreamingInferRequest } from '@/api/streaming-types';
 import type { RunMetadataPayload, UseChatStreamingOptions, UseChatStreamingReturn } from '@/types/hooks';
+import type { InferResponse, Citation } from '@/api/types';
+
+/** Chunk type for streaming inference events */
+interface StreamingChunkEvent {
+  id?: string;
+  event?: string;
+  text?: string;
+  run_envelope?: Record<string, unknown>;
+  runEnvelope?: Record<string, unknown>;
+  choices?: Array<{
+    delta?: { content?: string; role?: string };
+    finish_reason?: string | null;
+    index: number;
+  }>;
+  [key: string]: unknown;
+}
+
+/** Metadata type for stream completion */
+interface StreamCompletionMetadata {
+  request_id?: string;
+  unavailable_pinned_adapters?: string[];
+  pinned_routing_fallback?: InferResponse['pinned_routing_fallback'];
+  citations?: Citation[];
+}
 
 type StreamTokenChunk = {
   token: string;
@@ -526,10 +550,10 @@ export function useChatStreaming(options: UseChatStreamingOptions): UseChatStrea
         tokenMetaRef.current = [...tokenMetaRef.current.slice(-199), chunkEntry];
       };
 
-      await apiClient.streamInfer(
+      await apiClient.streamInfer<StreamingChunkEvent, StreamCompletionMetadata>(
         request,
         {
-          onToken: (token: string, chunk) => {
+          onToken: (token: string, chunk: StreamingChunkEvent) => {
             if (!traceId && typeof chunk.id === 'string') {
               traceId = chunk.id;
               currentTraceIdRef.current = chunk.id;
@@ -634,7 +658,7 @@ export function useChatStreaming(options: UseChatStreamingOptions): UseChatStrea
             processToken(token, chunk);
           },
 
-          onComplete: (completedText, finishReason, metadata) => {
+          onComplete: (completedText: string, finishReason: string | null, metadata?: StreamCompletionMetadata) => {
             // Clear envelope timeout to prevent memory leaks
             if (envelopeTimeoutRef.current) {
               clearTimeout(envelopeTimeoutRef.current);
