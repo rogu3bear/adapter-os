@@ -8,12 +8,12 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use adapteros_config::CoreMLComputePreference;
-use adapteros_core::B3Hash;
+use adapteros_core::{adapter_fs_path_with_root, B3Hash};
 use adapteros_db::CreateCoremlFusionPairParams;
 use adapteros_lora_worker::{ComputeUnits, CoreMLExportJob, CoreMLExportRecord};
 use anyhow::Result;
 use tokio::sync::RwLock;
-use tracing::warn;
+use tracing::{info, warn};
 
 use crate::training::job::TrainingJob;
 
@@ -42,7 +42,10 @@ pub(crate) async fn run_coreml_export_flow(
     let export_outcome = (|| -> Result<CoreMLExportRecord> {
         let base_package = adapteros_config::model::get_model_path_with_fallback()
             .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-        let fused_root = adapters_root.join("coreml").join(adapter_id);
+        let tenant = tenant_id.unwrap_or("default");
+        let fused_root = adapter_fs_path_with_root(adapters_root, tenant, adapter_id)
+            .map_err(|e| anyhow::anyhow!(e.to_string()))?
+            .join("coreml");
         let output_package = if base_package.is_dir() {
             fused_root
         } else {
@@ -72,11 +75,39 @@ pub(crate) async fn run_coreml_export_flow(
             let metadata_path_str = record.metadata_path.to_string_lossy().to_string();
             let fused_path_str = record.fused_package.to_string_lossy().to_string();
 
+            // Post-export verification: check if fusion was semantically verified
+            // The fusion_verified field indicates whether the LoRA fusion path was
+            // successfully exercised during export. If false, the package is a copy
+            // without verified fusion semantics.
+            let export_status = if record.fusion_verified {
+                info!(
+                    job_id = %job_id,
+                    adapter_id = %adapter_id,
+                    "CoreML export completed with verified fusion"
+                );
+                "succeeded"
+            } else {
+                warn!(
+                    job_id = %job_id,
+                    adapter_id = %adapter_id,
+                    base_hash = %base_hash,
+                    fused_hash = %fused_hash,
+                    "CoreML export produced unverified package (stub mode or fusion skipped). \
+                     The fused package may be functionally identical to the base model."
+                );
+                "succeeded_stub"
+            };
+            let is_stub_export = !record.fusion_verified;
+
             {
                 let mut jobs = jobs_ref.write().await;
                 if let Some(job) = jobs.get_mut(job_id) {
-                    job.coreml_export_status = Some("succeeded".to_string());
-                    job.coreml_export_reason = None;
+                    job.coreml_export_status = Some(export_status.to_string());
+                    job.coreml_export_reason = if is_stub_export {
+                        Some("Stub export: fused package is base-model copy".to_string())
+                    } else {
+                        None
+                    };
                     job.coreml_fused_package_hash = Some(fused_hash.clone());
                     job.coreml_package_path = Some(fused_path_str.clone());
                     job.coreml_metadata_path = Some(metadata_path_str.clone());
@@ -109,7 +140,9 @@ pub(crate) async fn run_coreml_export_flow(
                 let export_meta = serde_json::json!({
                     "coreml_export": {
                         "requested": true,
-                        "status": "succeeded",
+                        "status": export_status,
+                        "fusion_verified": record.fusion_verified,
+                        "stub": is_stub_export,
                         "fused_manifest_hash": fused_hash,
                         "base_manifest_hash": base_hash,
                         "adapter_hash_b3": adapter_hash,
@@ -238,7 +271,8 @@ pub(crate) fn perform_coreml_export(job: CoreMLExportJob) -> Result<CoreMLExport
         "base_package": job.base_package,
         "fused_package": job.output_package,
         "adapter_path": job.adapter_aos,
-        "stub": true
+        "stub": true,
+        "fusion_verified": false
     });
     fs::write(&metadata_path, serde_json::to_vec_pretty(&metadata)?)
         .map_err(|e| anyhow::anyhow!(e.to_string()))?;
@@ -251,5 +285,6 @@ pub(crate) fn perform_coreml_export(job: CoreMLExportJob) -> Result<CoreMLExport
         adapter_hash,
         base_model_id: job.base_model_id,
         adapter_id: job.adapter_id,
+        fusion_verified: false, // Stub exports never verify fusion
     })
 }
