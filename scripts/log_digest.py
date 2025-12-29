@@ -106,15 +106,16 @@ def render_text_summary(summary: Dict[str, Any]) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Summarize WARN/ERROR logs.")
+    default_var_dir = Path(os.environ.get("AOS_VAR_DIR", "var"))
     parser.add_argument(
         "--log-dir",
-        default="/var/adapter-os/logs",
-        help="Log directory to scan (default: /var/adapter-os/logs).",
+        default=str(default_var_dir / "logs"),
+        help="Log directory to scan (default: $AOS_VAR_DIR/logs or ./var/logs).",
     )
     parser.add_argument(
         "--out-dir",
-        default="/var/adapter-os/analysis",
-        help="Output directory (default: /var/adapter-os/analysis).",
+        default=str(default_var_dir / "analysis"),
+        help="Output directory (default: $AOS_VAR_DIR/analysis or ./var/analysis).",
     )
     parser.add_argument(
         "--minutes",

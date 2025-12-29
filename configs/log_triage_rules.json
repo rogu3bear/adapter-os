@@ -1,0 +1,379 @@
+{
+  "version": 1,
+  "rules": [
+    {
+      "id": "cp_worker_fk",
+      "pattern": "FOREIGN KEY constraint failed",
+      "severity": "critical",
+      "title": "Worker registration failed (missing tenant/plan/node)",
+      "remediation": {
+        "summary": "Ensure required bootstrap records exist before worker registration.",
+        "steps": [
+          "Verify tenant exists in the control-plane database.",
+          "Verify the plan referenced by the worker exists.",
+          "Verify the node record exists and is active."
+        ],
+        "commands": [
+          "sqlite3 var/aos-cp.sqlite3 \"SELECT id FROM tenants;\"",
+          "sqlite3 var/aos-cp.sqlite3 \"SELECT id FROM plans;\"",
+          "sqlite3 var/aos-cp.sqlite3 \"SELECT id, status FROM nodes;\"",
+          "aosctl db repair-bootstrap --dry-run"
+        ]
+      }
+    },
+    {
+      "id": "preflight_failed",
+      "pattern": "Preflight checks failed",
+      "severity": "high",
+      "title": "Preflight checks failed",
+      "remediation": {
+        "summary": "Run preflight to identify missing dependencies or configuration.",
+        "steps": [
+          "Run the preflight checks to see failures.",
+          "Address failing checks or bypass only for local dev."
+        ],
+        "commands": [
+          "aosctl preflight",
+          "AOS_SKIP_PREFLIGHT=1 scripts/service-manager.sh start backend"
+        ]
+      }
+    },
+    {
+      "id": "preflight_bypassed",
+      "pattern": "Preflight checks bypassed",
+      "severity": "info",
+      "title": "Preflight checks bypassed",
+      "remediation": {
+        "summary": "Bypass is OK for local dev, but fix preflight issues for stability.",
+        "steps": [
+          "Remove AOS_SKIP_PREFLIGHT once checks pass.",
+          "Re-run preflight to confirm readiness."
+        ]
+      }
+    },
+    {
+      "id": "insufficient_memory",
+      "pattern": "Insufficient memory",
+      "severity": "high",
+      "title": "Insufficient memory reported",
+      "remediation": {
+        "summary": "Ensure enough available memory or adjust workload.",
+        "steps": [
+          "Close other heavy processes and retry.",
+          "Verify memory with vm_stat or Activity Monitor.",
+          "Reduce model size or adapters if needed."
+        ],
+        "commands": [
+          "vm_stat",
+          "aosctl diag --system"
+        ]
+      }
+    },
+    {
+      "id": "worker_socket_in_use",
+      "pattern": "Worker socket already in use",
+      "severity": "medium",
+      "title": "Worker socket already in use",
+      "remediation": {
+        "summary": "A stale worker process or socket is blocking startup.",
+        "steps": [
+          "Stop any running worker processes.",
+          "Remove stale socket and pid files if needed."
+        ],
+        "commands": [
+          "scripts/service-manager.sh stop worker",
+          "rm -f var/run/worker.sock var/worker.pid"
+        ]
+      }
+    },
+    {
+      "id": "worker_startup_failed",
+      "pattern": "Worker process died during startup",
+      "severity": "high",
+      "title": "Worker died during startup",
+      "remediation": {
+        "summary": "Inspect worker logs and resolve the underlying startup error.",
+        "steps": [
+          "Open worker logs for the crash reason.",
+          "Fix dependency or configuration errors, then restart."
+        ],
+        "commands": [
+          "tail -n 200 var/logs/worker.log",
+          "scripts/service-manager.sh start worker"
+        ]
+      }
+    },
+    {
+      "id": "worker_socket_missing",
+      "pattern": "socket never created",
+      "severity": "high",
+      "title": "Worker socket not created",
+      "remediation": {
+        "summary": "Worker started but UDS socket did not appear.",
+        "steps": [
+          "Check worker logs for initialization errors.",
+          "Verify worker UDS path is writable."
+        ],
+        "commands": [
+          "ls -la var/run",
+          "tail -n 200 var/logs/worker.log"
+        ]
+      }
+    },
+    {
+      "id": "backend_failed",
+      "pattern": "Backend failed to start",
+      "severity": "high",
+      "title": "Backend failed to start",
+      "remediation": {
+        "summary": "Inspect backend logs for errors during startup.",
+        "steps": [
+          "Check backend logs for the failure reason.",
+          "Verify database and config are reachable."
+        ],
+        "commands": [
+          "tail -n 200 var/logs/backend.log",
+          "aosctl preflight"
+        ]
+      }
+    },
+    {
+      "id": "ui_failed",
+      "pattern": "UI failed to start",
+      "severity": "medium",
+      "title": "UI failed to start",
+      "remediation": {
+        "summary": "Inspect UI logs for errors during startup.",
+        "steps": [
+          "Check UI logs for the failure reason.",
+          "Verify UI dependencies are installed."
+        ],
+        "commands": [
+          "tail -n 200 var/logs/ui.log",
+          "make ui-dev"
+        ]
+      }
+    },
+    {
+      "id": "read_only_mode",
+      "pattern": "read-only mode \\(quorum not met\\)",
+      "severity": "info",
+      "title": "Read-only mode (quorum not met)",
+      "remediation": {
+        "summary": "Single-node dev can ignore; production should ensure quorum.",
+        "steps": [
+          "Confirm expected mode for this environment.",
+          "For production, ensure quorum and verification services are running."
+        ]
+      }
+    },
+    {
+      "id": "missing_auth",
+      "pattern": "Missing or invalid Authorization header",
+      "severity": "low",
+      "title": "Missing Authorization header",
+      "remediation": {
+        "summary": "Ensure API calls include a valid Authorization token.",
+        "steps": [
+          "Verify client is sending Authorization: Bearer <token>.",
+          "Check token validity and tenant permissions."
+        ]
+      }
+    },
+    {
+      "id": "deprecated_config",
+      "pattern": "Deprecated configuration variable in use",
+      "severity": "low",
+      "title": "Deprecated config variable",
+      "remediation": {
+        "summary": "Update config to supported variables.",
+        "steps": [
+          "Run config validation and replace deprecated keys.",
+          "Check configs/*.toml and .env for old keys."
+        ],
+        "commands": [
+          "aosctl check config"
+        ]
+      }
+    },
+    {
+      "id": "unknown_env",
+      "pattern": "Unknown AOS_\\* environment variable",
+      "severity": "low",
+      "title": "Unknown AOS_* environment variable",
+      "remediation": {
+        "summary": "Remove or correct unknown environment variables.",
+        "steps": [
+          "Review env output for unknown AOS_* keys.",
+          "Remove or rename invalid entries."
+        ],
+        "commands": [
+          "env | rg '^AOS_'"
+        ]
+      }
+    },
+    {
+      "id": "request_error_generic",
+      "pattern": "^request_error$",
+      "severity": "medium",
+      "title": "Control plane request error",
+      "remediation": {
+        "summary": "Inspect control-plane logs for the underlying request failure.",
+        "steps": [
+          "Check the control-plane log file for error context.",
+          "Confirm backend service is healthy."
+        ],
+        "commands": [
+          "ls -t var/logs/aos-cp.* | head -1 | xargs tail -n 200",
+          "aosctl doctor"
+        ]
+      }
+    },
+    {
+      "id": "response_failed",
+      "pattern": "^response failed$",
+      "severity": "medium",
+      "title": "Control plane response failed",
+      "remediation": {
+        "summary": "Inspect control-plane logs for the underlying request failure.",
+        "steps": [
+          "Find the paired request_error entries for context.",
+          "Confirm backend service is healthy."
+        ],
+        "commands": [
+          "ls -t var/logs/aos-cp.* | head -1 | xargs tail -n 200",
+          "aosctl doctor"
+        ]
+      }
+    },
+    {
+      "id": "service_manager_startup_hint",
+      "pattern": "This usually indicates a startup error",
+      "severity": "high",
+      "title": "Service manager detected startup error",
+      "remediation": {
+        "summary": "Inspect service logs for the specific startup failure.",
+        "steps": [
+          "Check the referenced service log for details.",
+          "Fix the underlying error and retry startup."
+        ],
+        "commands": [
+          "tail -n 200 var/logs/worker.log"
+        ]
+      }
+    },
+    {
+      "id": "invalid_worker_status",
+      "pattern": "Invalid worker status",
+      "severity": "medium",
+      "title": "Invalid worker status",
+      "remediation": {
+        "summary": "Worker reported a failed status; inspect logs and restart.",
+        "steps": [
+          "Check worker logs for the failure reason.",
+          "Restart the worker after resolving errors."
+        ],
+        "commands": [
+          "tail -n 200 var/logs/worker.log",
+          "scripts/service-manager.sh restart worker"
+        ]
+      }
+    },
+    {
+      "id": "backend_start_failed",
+      "pattern": "backend:start failed",
+      "severity": "high",
+      "title": "Backend start failed",
+      "remediation": {
+        "summary": "Inspect backend logs for the startup failure.",
+        "steps": [
+          "Check backend logs for the failure reason.",
+          "Verify database and config are reachable."
+        ],
+        "commands": [
+          "tail -n 200 var/logs/backend.log",
+          "aosctl preflight"
+        ]
+      }
+    },
+    {
+      "id": "ui_force_stopped",
+      "pattern": "UI force stopped",
+      "severity": "low",
+      "title": "UI force stopped",
+      "remediation": {
+        "summary": "UI did not stop gracefully; check for hung processes.",
+        "steps": [
+          "Inspect UI logs for shutdown errors.",
+          "Restart UI if needed."
+        ],
+        "commands": [
+          "tail -n 200 var/logs/ui.log",
+          "scripts/service-manager.sh start ui"
+        ]
+      }
+    },
+    {
+      "id": "env_drift_detected",
+      "pattern": "Environment drift detected",
+      "severity": "info",
+      "title": "Environment drift detected",
+      "remediation": {
+        "summary": "Development drift is allowed but should be reviewed.",
+        "steps": [
+          "Review drift details to ensure expected configuration.",
+          "Update configs or environment if needed."
+        ],
+        "commands": [
+          "aosctl diag --full"
+        ]
+      }
+    },
+    {
+      "id": "drift_field",
+      "pattern": "Drift field",
+      "severity": "low",
+      "title": "Drift field reported",
+      "remediation": {
+        "summary": "Review drift fields to ensure expected configuration.",
+        "steps": [
+          "Inspect drift details in control-plane logs.",
+          "Align configs or environment if drift is unexpected."
+        ],
+        "commands": [
+          "ls -t var/logs/aos-cp.* | head -1 | xargs tail -n 200"
+        ]
+      }
+    },
+    {
+      "id": "runtime_mode_fallback",
+      "pattern": "Failed to query runtime mode from database",
+      "severity": "low",
+      "title": "Runtime mode fallback to config",
+      "remediation": {
+        "summary": "Database lookup failed; check DB connectivity.",
+        "steps": [
+          "Verify the control-plane database is available.",
+          "Check backend logs for DB errors."
+        ],
+        "commands": [
+          "tail -n 200 var/logs/backend.log",
+          "sqlite3 var/aos-cp.sqlite3 \"PRAGMA integrity_check;\""
+        ]
+      }
+    },
+    {
+      "id": "insufficient_quorum",
+      "pattern": "Insufficient quorum",
+      "severity": "info",
+      "title": "Insufficient quorum",
+      "remediation": {
+        "summary": "Single-node dev can ignore; production should ensure quorum.",
+        "steps": [
+          "Confirm expected mode for this environment.",
+          "For production, ensure quorum and verification services are running."
+        ]
+      }
+    }
+  ]
+}

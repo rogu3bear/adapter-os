@@ -988,6 +988,33 @@ Examples:
         full: bool,
     },
 
+    /// Generate a log digest (WARN/ERROR summary)
+    #[command(after_help = "\
+Examples:
+  aosctl log-digest
+  aosctl log-digest --minutes 120
+  aosctl log-digest --log-dir ./var/logs --out-dir ./var/analysis
+")]
+    LogDigest(commands::log_digest::LogDigestCommand),
+
+    /// Triage log digest with rule-based remediation hints
+    #[command(after_help = "\
+Examples:
+  aosctl log-triage
+  aosctl log-triage --digest ./var/analysis/digest.json
+  aosctl log-triage --rules ./configs/log_triage_rules.json
+")]
+    LogTriage(commands::log_triage::LogTriageCommand),
+
+    /// Build an LLM prompt from triage output
+    #[command(after_help = "\
+Examples:
+  aosctl log-prompt
+  aosctl log-prompt --triage ./var/analysis/triage.json
+  aosctl log-prompt --out-dir ./var/analysis/proposals
+")]
+    LogPrompt(commands::log_prompt::LogPromptCommand),
+
     /// Targeted diagnostics for drift, health, and storage reconciler
     #[command(after_help = "\
 Examples:
@@ -1888,6 +1915,18 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
             diag::run(diag_profile, tenant.clone(), *json, bundle.clone()).await?;
         }
 
+        Commands::LogDigest(cmd) => {
+            commands::log_digest::run(cmd.clone(), &output).await?;
+        }
+
+        Commands::LogTriage(cmd) => {
+            commands::log_triage::run(cmd.clone(), &output).await?;
+        }
+
+        Commands::LogPrompt(cmd) => {
+            commands::log_prompt::run(cmd.clone(), &output).await?;
+        }
+
         Commands::Health(cmd) => {
             commands::diag_health::run(cmd.clone(), &output).await?;
         }
@@ -2288,6 +2327,9 @@ fn get_command_name(command: &Commands) -> String {
         Commands::Completions { .. } => "completions",
         Commands::Config(_) => "config",
         Commands::Diag { .. } => "diag",
+        Commands::LogDigest(_) => "log-digest",
+        Commands::LogTriage(_) => "log-triage",
+        Commands::LogPrompt(_) => "log-prompt",
         Commands::Health { .. } => "health",
         Commands::Determinism { .. } => "determinism",
         Commands::Quarantine { .. } => "quarantine",

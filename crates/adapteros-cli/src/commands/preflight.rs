@@ -24,7 +24,7 @@ use std::process::Command;
 // Import auto-fix module
 use super::preflight_fix::{
     create_directories, create_env_from_example, download_model, install_mlx_library,
-    install_xcode_cli_tools, run_database_migrations, AutoFixer, FixMode,
+    install_xcode_cli_tools, run_bootstrap_repair, run_database_migrations, AutoFixer, FixMode,
 };
 
 /// Preflight command to check system readiness before launch
@@ -128,18 +128,21 @@ pub async fn run(cmd: PreflightCommand, output: &OutputWriter) -> Result<()> {
     // 2. Check database
     results.push(check_database(&cmd).await);
 
-    // 3. Check required directories
+    // 3. Check bootstrap state (tenants/plans/nodes)
+    results.push(check_bootstrap_state(&cmd).await);
+
+    // 4. Check required directories
     results.extend(check_directories().await);
 
-    // 4. Check environment variables
+    // 5. Check environment variables
     results.extend(check_environment_variables().await);
 
-    // 5. Check backends (CoreML, Metal, MLX) unless skipped
+    // 6. Check backends (CoreML, Metal, MLX) unless skipped
     if !cmd.skip_backends {
         results.extend(check_backends().await);
     }
 
-    // 6. Check system resources unless skipped
+    // 7. Check system resources unless skipped
     if !cmd.skip_resources {
         results.extend(check_resources().await);
     }
@@ -182,6 +185,7 @@ pub async fn run(cmd: PreflightCommand, output: &OutputWriter) -> Result<()> {
         results.clear();
         results.push(check_model(&cmd).await);
         results.push(check_database(&cmd).await);
+        results.push(check_bootstrap_state(&cmd).await);
         results.extend(check_directories().await);
         results.extend(check_environment_variables().await);
 
@@ -267,15 +271,13 @@ async fn attempt_fixes(
 
             "Database" | "Database Connection" | "Database Migrations" => {
                 // Database migrations
-                let db_url = cmd
-                    .database_url
-                    .as_ref()
-                    .map(|s| s.to_string())
-                    .or_else(|| std::env::var("AOS_DATABASE_URL").ok())
-                    .or_else(|| std::env::var("DATABASE_URL").ok())
-                    .unwrap_or_else(|| "sqlite:var/aos-cp.sqlite3".to_string());
-
+                let db_url = resolve_db_url(cmd);
                 Some(run_database_migrations(db_url))
+            }
+
+            "Bootstrap State" => {
+                let db_url = resolve_db_url(cmd);
+                resolve_sqlite_path(&db_url).map(run_bootstrap_repair)
             }
 
             ".env File" | "Env: DATABASE_URL" | "Env: MODEL_PATH" => {
@@ -419,22 +421,46 @@ fn resolve_model_path_from_inputs(cmd: &PreflightCommand) -> Result<PathBuf> {
     ))
 }
 
-/// Check database initialization and migrations
-async fn check_database(cmd: &PreflightCommand) -> CheckResult {
-    // Determine database path
-    let db_url = cmd
-        .database_url
+fn resolve_db_url(cmd: &PreflightCommand) -> String {
+    cmd.database_url
         .as_ref()
         .map(|s| s.to_string())
         .or_else(|| std::env::var("AOS_DATABASE_URL").ok())
         .or_else(|| std::env::var("DATABASE_URL").ok())
-        .unwrap_or_else(|| "sqlite:var/aos-cp.sqlite3".to_string());
+        .unwrap_or_else(|| "sqlite:var/aos-cp.sqlite3".to_string())
+}
+
+fn resolve_sqlite_path(db_url: &str) -> Option<String> {
+    let raw = db_url.strip_prefix("sqlite:")?;
+    let mut path = raw.to_string();
+    if let Some(stripped) = path.strip_prefix("//") {
+        path = stripped.to_string();
+    }
+    if let Some(idx) = path.find('?') {
+        path.truncate(idx);
+    }
+    if let Some(idx) = path.find('#') {
+        path.truncate(idx);
+    }
+    Some(path)
+}
+
+/// Check database initialization and migrations
+async fn check_database(cmd: &PreflightCommand) -> CheckResult {
+    // Determine database path
+    let db_url = resolve_db_url(cmd);
 
     // Extract file path from sqlite: URL
-    let db_path = db_url.strip_prefix("sqlite:").unwrap_or(&db_url);
+    let Some(db_path) = resolve_sqlite_path(&db_url) else {
+        return CheckResult::warning(
+            "Database",
+            "Non-sqlite database URL; skipping sqlite checks",
+            None,
+        );
+    };
 
     // Check if database file exists
-    if !Path::new(db_path).exists() {
+    if !Path::new(&db_path).exists() {
         return CheckResult::fail(
             "Database",
             &format!("Database not initialized: {}", db_path),
@@ -475,6 +501,77 @@ async fn check_database(cmd: &PreflightCommand) -> CheckResult {
             Some("cargo run -p adapteros-cli -- db migrate".to_string()),
         ),
     }
+}
+
+/// Check bootstrap state (tenants/plans/nodes)
+async fn check_bootstrap_state(cmd: &PreflightCommand) -> CheckResult {
+    let db_url = resolve_db_url(cmd);
+    let Some(db_path) = resolve_sqlite_path(&db_url) else {
+        return CheckResult::warning(
+            "Bootstrap State",
+            "Non-sqlite database URL; bootstrap check skipped",
+            None,
+        );
+    };
+
+    if !Path::new(&db_path).exists() {
+        return CheckResult::warning(
+            "Bootstrap State",
+            &format!("Database not initialized: {}", db_path),
+            None,
+        );
+    }
+
+    let pool = match sqlx::sqlite::SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect(&format!("sqlite:{}", db_path))
+        .await
+    {
+        Ok(pool) => pool,
+        Err(e) => {
+            return CheckResult::warning(
+                "Bootstrap State",
+                &format!("Cannot connect to database: {}", e),
+                None,
+            )
+        }
+    };
+
+    let tenants: Result<i64, sqlx::Error> = sqlx::query_scalar("SELECT COUNT(*) FROM tenants")
+        .fetch_one(&pool)
+        .await;
+    let plans: Result<i64, sqlx::Error> = sqlx::query_scalar("SELECT COUNT(*) FROM plans")
+        .fetch_one(&pool)
+        .await;
+    let nodes: Result<i64, sqlx::Error> = sqlx::query_scalar("SELECT COUNT(*) FROM nodes")
+        .fetch_one(&pool)
+        .await;
+
+    pool.close().await;
+
+    let (tenants, plans, nodes) = match (tenants, plans, nodes) {
+        (Ok(tenants), Ok(plans), Ok(nodes)) => (tenants, plans, nodes),
+        _ => {
+            return CheckResult::warning(
+                "Bootstrap State",
+                "Bootstrap tables missing or inaccessible; run migrations",
+                Some("cargo run -p adapteros-cli -- db migrate".to_string()),
+            )
+        }
+    };
+
+    let details = format!("tenants={}, plans={}, nodes={}", tenants, plans, nodes);
+
+    if tenants == 0 || plans == 0 || nodes == 0 {
+        return CheckResult::fail(
+            "Bootstrap State",
+            &format!("Bootstrap rows missing ({})", details),
+            Some("aosctl db repair-bootstrap --dry-run".to_string()),
+        )
+        .with_details(details);
+    }
+
+    CheckResult::pass("Bootstrap State", "Bootstrap rows present").with_details(details)
 }
 
 /// Check required directories exist
@@ -621,12 +718,27 @@ async fn check_backends() -> Vec<CheckResult> {
     }
 
     // Check for MLX (optional)
-    let mlx_available = std::env::var("MLX_PATH").is_ok()
-        || Command::new("pkg-config")
+    let mut mlx_available = false;
+    if let Ok(path) = std::env::var("AOS_MLX_PATH").or_else(|_| std::env::var("MLX_PATH")) {
+        if Path::new(&path).exists() {
+            mlx_available = true;
+        }
+    }
+
+    if !mlx_available {
+        let candidates = ["/opt/homebrew/opt/mlx", "/usr/local/opt/mlx"];
+        if candidates.iter().any(|path| Path::new(path).exists()) {
+            mlx_available = true;
+        }
+    }
+
+    if !mlx_available {
+        mlx_available = Command::new("pkg-config")
             .args(["--modversion", "mlx"])
             .output()
             .map(|o| o.status.success())
             .unwrap_or(false);
+    }
 
     if mlx_available {
         results.push(CheckResult::pass(
@@ -636,8 +748,8 @@ async fn check_backends() -> Vec<CheckResult> {
     } else {
         results.push(CheckResult::warning(
             "Backend: MLX",
-            "MLX library not found - using stub implementation (optional)",
-            Some("pip install mlx  # Optional for MLX backend".to_string()),
+            "MLX library not found - set AOS_MLX_PATH or install via Homebrew (optional)",
+            Some("brew install mlx  # Optional for MLX backend".to_string()),
         ));
     }
 
