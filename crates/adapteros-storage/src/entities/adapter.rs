@@ -88,6 +88,10 @@ pub struct AdapterKv {
     #[serde(default)]
     pub metadata_json: Option<String>,
 
+    // Scan root path (from migration 0243)
+    #[serde(default)]
+    pub repo_path: Option<String>,
+
     // Archive/GC state (from migration 0138)
     pub archived_at: Option<DateTime<Utc>>,
     pub archived_by: Option<String>,
@@ -188,6 +192,7 @@ mod tests {
             aos_file_path: Some("/var/adapters/test.aos".to_string()),
             aos_file_hash: None,
             metadata_json: None,
+            repo_path: None,
             archived_at: None,
             archived_by: None,
             archive_reason: None,
@@ -245,6 +250,7 @@ mod tests {
             aos_file_path: None,
             aos_file_hash: None,
             metadata_json: None,
+            repo_path: None,
             archived_at: None,
             archived_by: None,
             archive_reason: None,

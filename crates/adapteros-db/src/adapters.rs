@@ -234,11 +234,21 @@ pub struct AdapterRegistrationParams {
     pub recommended_for_moe: Option<bool>,
     // Artifact hardening (from migration 0153)
     pub manifest_schema_version: Option<String>,
-    pub content_hash_b3: Option<String>,
+    /// Content hash (BLAKE3 of manifest + weights) - required for deduplication
+    pub content_hash_b3: String,
     pub provenance_json: Option<String>,
     pub metadata_json: Option<String>,
     // Scan root path (from migration 0243)
     pub repo_path: Option<String>,
+    // Codebase adapter registration metadata (from migration 0231)
+    /// Source repository/codebase reference for codebase adapters
+    pub codebase_scope: Option<String>,
+    /// Training dataset version ID for reproducibility
+    pub dataset_version_id: Option<String>,
+    /// ISO8601 timestamp when adapter was registered
+    pub registration_timestamp: Option<String>,
+    /// BLAKE3 hash of the adapter manifest for integrity verification
+    pub manifest_hash: Option<String>,
 }
 
 impl AdapterRegistrationBuilder {
@@ -452,10 +462,10 @@ impl AdapterRegistrationBuilder {
         self
     }
 
-    /// Set the content hash (optional, from migration 0153)
+    /// Set the content hash (required for deduplication)
     /// BLAKE3 hash of manifest + weights for identity/deduplication
-    pub fn content_hash_b3(mut self, content_hash_b3: Option<impl Into<String>>) -> Self {
-        self.content_hash_b3 = content_hash_b3.map(|s| s.into());
+    pub fn content_hash_b3(mut self, content_hash_b3: impl Into<String>) -> Self {
+        self.content_hash_b3 = Some(content_hash_b3.into());
         self
     }
 
@@ -476,6 +486,37 @@ impl AdapterRegistrationBuilder {
     /// Canonicalized absolute path to the repository root used during code ingestion
     pub fn repo_path(mut self, repo_path: Option<impl Into<String>>) -> Self {
         self.repo_path = repo_path.map(|s| s.into());
+        self
+    }
+
+    /// Set the codebase scope (optional, from migration 0231)
+    /// Source repository/codebase reference for codebase adapters
+    pub fn codebase_scope(mut self, codebase_scope: Option<impl Into<String>>) -> Self {
+        self.codebase_scope = codebase_scope.map(|s| s.into());
+        self
+    }
+
+    /// Set the dataset version ID (optional, from migration 0231)
+    /// Training dataset version ID for reproducibility
+    pub fn dataset_version_id(mut self, dataset_version_id: Option<impl Into<String>>) -> Self {
+        self.dataset_version_id = dataset_version_id.map(|s| s.into());
+        self
+    }
+
+    /// Set the registration timestamp (optional, from migration 0231)
+    /// ISO8601 timestamp when adapter was registered
+    pub fn registration_timestamp(
+        mut self,
+        registration_timestamp: Option<impl Into<String>>,
+    ) -> Self {
+        self.registration_timestamp = registration_timestamp.map(|s| s.into());
+        self
+    }
+
+    /// Set the manifest hash (optional, from migration 0231)
+    /// BLAKE3 hash of the adapter manifest for integrity verification
+    pub fn manifest_hash(mut self, manifest_hash: Option<impl Into<String>>) -> Self {
+        self.manifest_hash = manifest_hash.map(|s| s.into());
         self
     }
 
@@ -582,10 +623,23 @@ impl AdapterRegistrationBuilder {
             base_model_id: self.base_model_id,
             recommended_for_moe: self.recommended_for_moe,
             manifest_schema_version: self.manifest_schema_version,
-            content_hash_b3: self.content_hash_b3,
+            content_hash_b3: {
+                let hash = self
+                    .content_hash_b3
+                    .ok_or_else(|| AosError::validation("content_hash_b3 is required"))?;
+                if hash.is_empty() {
+                    return Err(AosError::validation("content_hash_b3 cannot be empty"));
+                }
+                hash
+            },
             provenance_json: self.provenance_json,
             metadata_json: self.metadata_json,
             repo_path: self.repo_path,
+            // Codebase adapter registration metadata
+            codebase_scope: self.codebase_scope,
+            dataset_version_id: self.dataset_version_id,
+            registration_timestamp: self.registration_timestamp,
+            manifest_hash: self.manifest_hash,
         })
     }
 }
@@ -1121,6 +1175,43 @@ impl Db {
         &self,
         params: AdapterRegistrationParams,
     ) -> Result<String> {
+        // Idempotency check: if adapter with same adapter_id exists, verify hash matches
+        // This prevents duplicate registrations while allowing safe retries
+        if let Some(existing) = self.get_adapter(&params.adapter_id).await? {
+            if existing.hash_b3 == params.hash_b3 {
+                // Exact match - return existing ID (idempotent)
+                tracing::info!(
+                    adapter_id = %params.adapter_id,
+                    hash_b3 = %params.hash_b3,
+                    existing_id = %existing.id,
+                    "Adapter already registered with identical hash - returning existing ID"
+                );
+                return Ok(existing.id);
+            } else {
+                // Hash mismatch - conflict error
+                return Err(AosError::validation(format!(
+                    "Adapter '{}' already registered with different hash (existing: {}, new: {}). \
+                     Use a new adapter_id or update the existing adapter.",
+                    params.adapter_id, existing.hash_b3, params.hash_b3
+                )));
+            }
+        }
+
+        // Deduplication check: if adapter with same content_hash_b3 exists, return existing ID
+        // This prevents duplicate adapters with identical content (unique index on content_hash_b3)
+        if let Some(existing) = self
+            .find_adapter_by_content_hash(&params.content_hash_b3)
+            .await?
+        {
+            tracing::info!(
+                content_hash_b3 = %params.content_hash_b3,
+                existing_id = %existing.id,
+                existing_adapter_id = %existing.adapter_id.as_deref().unwrap_or("N/A"),
+                "Adapter with identical content_hash_b3 already exists - returning existing ID"
+            );
+            return Ok(existing.id);
+        }
+
         let id = Uuid::now_v7().to_string();
         let mut sql_inserted = false;
         let mut dual_write_completed = false;
@@ -1982,6 +2073,40 @@ impl Db {
                 }
             }
         }
+
+        Ok(adapter)
+    }
+
+    /// Find adapter by content hash (BLAKE3 of manifest + weights)
+    ///
+    /// Used for deduplication during registration - if an adapter with the same
+    /// content hash already exists, we return the existing adapter instead of
+    /// creating a duplicate.
+    pub async fn find_adapter_by_content_hash(
+        &self,
+        content_hash_b3: &str,
+    ) -> Result<Option<Adapter>> {
+        // Try KV first if enabled
+        if self.storage_mode().read_from_kv() {
+            // TODO: Add content hash index to KV backend for efficient lookup
+            // For now, fall through to SQL since content hash is a global dedup key
+            if self.storage_mode().sql_fallback_enabled() {
+                debug!(content_hash_b3 = %content_hash_b3, mode = "sql-required", "Content hash lookup requires SQL");
+            }
+        }
+
+        // SQL lookup using the unique index on content_hash_b3 (from migration 0153)
+        let query = format!(
+            "SELECT {} FROM adapters WHERE content_hash_b3 = ? AND active = 1 LIMIT 1",
+            ADAPTER_SELECT_FIELDS
+        );
+        let adapter = sqlx::query_as::<_, Adapter>(&query)
+            .bind(content_hash_b3)
+            .fetch_optional(self.pool())
+            .await
+            .map_err(|e| {
+                AosError::database(format!("Failed to find adapter by content hash: {}", e))
+            })?;
 
         Ok(adapter)
     }
@@ -3097,10 +3222,19 @@ impl Db {
                     base_model_id: adapter.base_model_id.clone(),
                     recommended_for_moe: adapter.recommended_for_moe,
                     manifest_schema_version: adapter.manifest_schema_version.clone(),
-                    content_hash_b3: adapter.content_hash_b3.clone(),
+                    // Use existing content_hash_b3 or fall back to hash_b3 for legacy adapters
+                    content_hash_b3: adapter
+                        .content_hash_b3
+                        .clone()
+                        .unwrap_or_else(|| adapter.hash_b3.clone()),
                     provenance_json: adapter.provenance_json.clone(),
                     metadata_json: adapter.metadata_json.clone(),
                     repo_path: adapter.repo_path.clone(),
+                    // These fields may not exist on legacy adapters
+                    codebase_scope: None,
+                    dataset_version_id: None,
+                    registration_timestamp: None,
+                    manifest_hash: None,
                 };
 
                 // Delete old KV entry then re-register and sync state/memory
@@ -3168,10 +3302,19 @@ impl Db {
                     base_model_id: adapter.base_model_id.clone(),
                     recommended_for_moe: adapter.recommended_for_moe,
                     manifest_schema_version: adapter.manifest_schema_version.clone(),
-                    content_hash_b3: adapter.content_hash_b3.clone(),
+                    // Use existing content_hash_b3 or fall back to hash_b3 for legacy adapters
+                    content_hash_b3: adapter
+                        .content_hash_b3
+                        .clone()
+                        .unwrap_or_else(|| adapter.hash_b3.clone()),
                     provenance_json: adapter.provenance_json.clone(),
                     metadata_json: adapter.metadata_json.clone(),
                     repo_path: adapter.repo_path.clone(),
+                    // These fields may not exist on legacy adapters
+                    codebase_scope: None,
+                    dataset_version_id: None,
+                    registration_timestamp: None,
+                    manifest_hash: None,
                 };
 
                 repo.register_adapter_kv(params).await.map_err(|e| {
