@@ -4,6 +4,7 @@
 //! - Dataset root resolution from environment or configuration
 //! - Safe path joining that prevents directory traversal attacks
 //! - Path validation to ensure files stay within dataset boundaries
+//! - Comprehensive dataset root validation for codebase adapter support
 //!
 //! # Resolution Precedence
 //!
@@ -19,6 +20,15 @@
 //! - Validated against forbidden temp directories (`/tmp`, `/var/tmp`, etc.)
 //! - Canonicalized to resolve symlinks and prevent symlink attacks
 //! - Checked for directory traversal patterns
+//!
+//! # Dataset Root Validation (Codebase Adapter Support)
+//!
+//! The `validate_dataset_root` function provides comprehensive validation for
+//! dataset roots used in codebase adapter workflows. This includes:
+//! - Existence and accessibility checks
+//! - Permission validation (read/write)
+//! - Security boundary enforcement
+//! - Expected directory structure validation
 
 use adapteros_core::{reject_forbidden_tmp_path, AosError, Result};
 use std::env;
