@@ -8,6 +8,7 @@ mod chunker;
 pub mod embeddings;
 mod markdown;
 mod pdf;
+pub mod pdf_render;
 pub mod rag_integration;
 pub mod training_gen;
 pub mod types;
@@ -31,7 +32,7 @@ pub use training_gen::{
     TrainingGenConfig, TrainingStrategy,
 };
 pub use types::{
-    DocumentChunk, DocumentSource, IngestedDocument, IngestedDocumentWithErrors,
+    DocumentChunk, DocumentSource, ExtractedImage, IngestedDocument, IngestedDocumentWithErrors,
     PageExtractionResult,
 };
 

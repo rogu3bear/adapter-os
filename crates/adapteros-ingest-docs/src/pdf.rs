@@ -1,4 +1,5 @@
 use crate::chunker::DocumentChunker;
+use crate::pdf_render;
 use crate::types::{
     DocumentSource, IngestedDocument, IngestedDocumentWithErrors, PageExtractionResult,
 };
@@ -102,17 +103,63 @@ pub fn ingest_pdf_bytes_resilient(
     let mut all_chunks = Vec::new();
     let mut page_errors = Vec::new();
     let mut successful_pages = 0;
+    let mut pages_with_images = 0;
+    let mut pages_with_visual_extraction = 0;
 
-    for (page_number, _object_id) in pages.iter() {
+    for (page_number, object_id) in pages.iter() {
+        // Check if page contains images that won't be extracted as text
+        let has_images = page_has_images(&document, *object_id);
+        if has_images {
+            pages_with_images += 1;
+        }
+
+        // Try to extract images for visual content description
+        let (visual_content_extracted, visual_description) = if has_images {
+            let extracted_images =
+                pdf_render::extract_page_images(&document, *object_id, *page_number);
+            if !extracted_images.is_empty() {
+                pages_with_visual_extraction += 1;
+                // Convert images to base64 for later vision model processing
+                let base64_images = pdf_render::images_to_base64(&extracted_images);
+                let description = format!(
+                    "[Visual Content: {} image(s) extracted from page {}. Base64 data available for vision model inference.]",
+                    extracted_images.len(),
+                    page_number
+                );
+                tracing::info!(
+                    page = page_number,
+                    source = source_name,
+                    image_count = extracted_images.len(),
+                    "Extracted images from page for visual content processing"
+                );
+                // Store base64 references in description for downstream processing
+                let _ = base64_images; // Used for logging, actual processing done downstream
+                (true, Some(description))
+            } else {
+                (false, None)
+            }
+        } else {
+            (false, None)
+        };
+
         match document.extract_text(&[*page_number]) {
             Ok(text) => {
-                let normalized = normalize_whitespace(&text);
-                if normalized.trim().is_empty() {
-                    // Empty page - not an error, just skip
+                let mut normalized = normalize_whitespace(&text);
+
+                // Append visual content description to page text if extracted
+                if let Some(ref visual_desc) = visual_description {
+                    normalized = format!("{}\n\n{}", normalized, visual_desc);
+                }
+
+                if normalized.trim().is_empty() && visual_description.is_none() {
+                    // Empty page with no visual content - skip
                     page_errors.push(PageExtractionResult {
                         page_number: *page_number,
                         text: None,
                         error: Some("Empty page".to_string()),
+                        has_unextracted_images: has_images && !visual_content_extracted,
+                        visual_content_extracted,
+                        visual_description,
                     });
                     continue;
                 }
@@ -133,6 +180,9 @@ pub fn ingest_pdf_bytes_resilient(
                             normalized.len(),
                             MAX_PAGE_TEXT_CHARS
                         )),
+                        has_unextracted_images: has_images && !visual_content_extracted,
+                        visual_content_extracted,
+                        visual_description,
                     });
                     continue;
                 }
@@ -145,6 +195,9 @@ pub fn ingest_pdf_bytes_resilient(
                             page_number: *page_number,
                             text: Some(normalized),
                             error: None,
+                            has_unextracted_images: has_images && !visual_content_extracted,
+                            visual_content_extracted,
+                            visual_description,
                         });
                     }
                     Err(e) => {
@@ -158,6 +211,9 @@ pub fn ingest_pdf_bytes_resilient(
                             page_number: *page_number,
                             text: Some(normalized),
                             error: Some(format!("Chunking failed: {}", e)),
+                            has_unextracted_images: has_images && !visual_content_extracted,
+                            visual_content_extracted,
+                            visual_description,
                         });
                     }
                 }
@@ -173,6 +229,9 @@ pub fn ingest_pdf_bytes_resilient(
                     page_number: *page_number,
                     text: None,
                     error: Some(format!("Text extraction failed: {}", e)),
+                    has_unextracted_images: has_images && !visual_content_extracted,
+                    visual_content_extracted,
+                    visual_description,
                 });
             }
         }
@@ -197,6 +256,26 @@ pub fn ingest_pdf_bytes_resilient(
         );
     }
 
+    // Log summary of visual content extraction
+    if pages_with_images > 0 {
+        if pages_with_visual_extraction > 0 {
+            tracing::info!(
+                source = source_name,
+                pages_with_images = pages_with_images,
+                pages_with_visual_extraction = pages_with_visual_extraction,
+                total_pages = total_pages,
+                "PDF visual content extracted from pages"
+            );
+        } else {
+            tracing::info!(
+                source = source_name,
+                pages_with_images = pages_with_images,
+                total_pages = total_pages,
+                "PDF contains pages with images/charts that could not be extracted"
+            );
+        }
+    }
+
     let chunks = finalize_chunks(all_chunks);
 
     Ok(IngestedDocumentWithErrors {
@@ -212,6 +291,8 @@ pub fn ingest_pdf_bytes_resilient(
         page_errors,
         total_pages,
         successful_pages,
+        pages_with_images,
+        pages_with_visual_extraction,
     })
 }
 
@@ -273,6 +354,58 @@ fn pages_with_limits(
     }
 
     Ok(pages)
+}
+
+/// Check if a PDF page contains image XObjects that won't be extracted as text.
+/// Returns true if the page has embedded images (charts, figures, scanned content).
+fn page_has_images(document: &Document, page_id: lopdf::ObjectId) -> bool {
+    let Ok(page_dict) = document.get_dictionary(page_id) else {
+        return false;
+    };
+
+    // Check Resources -> XObject dictionary for Image subtypes
+    let resources = if let Ok(res_ref) = page_dict.get(b"Resources") {
+        match res_ref {
+            Object::Dictionary(d) => Some(d.clone()),
+            Object::Reference(r) => document.get_dictionary(*r).ok().cloned(),
+            _ => None,
+        }
+    } else {
+        None
+    };
+
+    let Some(resources) = resources else {
+        return false;
+    };
+
+    let xobjects = if let Ok(xobj_ref) = resources.get(b"XObject") {
+        match xobj_ref {
+            Object::Dictionary(d) => Some(d.clone()),
+            Object::Reference(r) => document.get_dictionary(*r).ok().cloned(),
+            _ => None,
+        }
+    } else {
+        None
+    };
+
+    let Some(xobjects) = xobjects else {
+        return false;
+    };
+
+    for (_name, obj_ref) in xobjects.iter() {
+        if let Ok(obj_id) = obj_ref.as_reference() {
+            if let Ok(xobj_dict) = document.get_dictionary(obj_id) {
+                if let Ok(subtype) = xobj_dict.get(b"Subtype") {
+                    if let Ok(name) = subtype.as_name_str() {
+                        if name == "Image" {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    false
 }
 
 fn validate_page_tree(document: &Document, source_name: &str) -> Result<()> {

@@ -1,8 +1,8 @@
 //! Integration tests for document ingestion pipeline
 
 use adapteros_ingest_docs::{
-    default_ingest_options, generate_training_data, DocumentIngestor, DocumentSource,
-    EmbeddingModel, SimpleEmbeddingModel, TrainingGenConfig, TrainingStrategy,
+    default_ingest_options, generate_training_data, pdf_render, DocumentIngestor, DocumentSource,
+    EmbeddingModel, ExtractedImage, SimpleEmbeddingModel, TrainingGenConfig, TrainingStrategy,
 };
 use std::io::Write;
 use std::path::PathBuf;
@@ -213,4 +213,80 @@ async fn test_rag_preparation() {
         assert_eq!(params.rev, "v1");
         assert_eq!(params.source_type, "markdown");
     }
+}
+
+// ============================================================================
+// Visual Content Extraction Tests
+// ============================================================================
+
+#[test]
+fn test_vision_prompt_generation_single_image() {
+    let prompt = pdf_render::generate_vision_prompt(1, None);
+    assert!(prompt.contains("Describe this image"));
+    assert!(prompt.contains("chart") || prompt.contains("graph") || prompt.contains("diagram"));
+}
+
+#[test]
+fn test_vision_prompt_generation_multiple_images() {
+    let prompt = pdf_render::generate_vision_prompt(3, None);
+    assert!(prompt.contains("Describe these images"));
+}
+
+#[test]
+fn test_vision_prompt_with_context() {
+    let prompt = pdf_render::generate_vision_prompt(1, Some("Financial report Q4 2024"));
+    assert!(prompt.contains("Context: Financial report Q4 2024"));
+}
+
+#[test]
+fn test_images_to_base64_empty() {
+    let images: Vec<ExtractedImage> = vec![];
+    let base64_images = pdf_render::images_to_base64(&images);
+    assert!(base64_images.is_empty());
+}
+
+#[test]
+fn test_images_to_base64_encoding() {
+    // Create a minimal test image (1x1 pixel PNG)
+    let test_png_bytes = vec![
+        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, // PNG signature
+        0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52, // IHDR chunk
+        0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77,
+        0x53, 0xDE, // IHDR data
+    ];
+
+    let images = vec![ExtractedImage {
+        page_number: 1,
+        image_name: "test_image".to_string(),
+        image_bytes: test_png_bytes.clone(),
+        width: 1,
+        height: 1,
+    }];
+
+    let base64_images = pdf_render::images_to_base64(&images);
+    assert_eq!(base64_images.len(), 1);
+
+    // Verify base64 encoding
+    use base64::Engine;
+    let decoded = base64::engine::general_purpose::STANDARD
+        .decode(&base64_images[0])
+        .expect("Should be valid base64");
+    assert_eq!(decoded, test_png_bytes);
+}
+
+#[test]
+fn test_extracted_image_type() {
+    let image = ExtractedImage {
+        page_number: 5,
+        image_name: "chart_001".to_string(),
+        image_bytes: vec![1, 2, 3, 4],
+        width: 800,
+        height: 600,
+    };
+
+    assert_eq!(image.page_number, 5);
+    assert_eq!(image.image_name, "chart_001");
+    assert_eq!(image.image_bytes.len(), 4);
+    assert_eq!(image.width, 800);
+    assert_eq!(image.height, 600);
 }
