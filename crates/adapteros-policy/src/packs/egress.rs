@@ -73,6 +73,136 @@ pub enum EnforcementLevel {
     Auto,
 }
 
+/// Web browsing egress configuration (per-tenant)
+/// Allows controlled exceptions to the default deny-all egress policy
+/// for web browsing and search operations.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WebBrowseEgressConfig {
+    /// Whether web browsing is enabled for this tenant
+    pub enabled: bool,
+    /// Allowed search provider endpoints
+    pub allowed_search_endpoints: Vec<AllowedEndpoint>,
+    /// Allowed page fetch domains (domain patterns)
+    pub allowed_fetch_domains: Vec<DomainPattern>,
+    /// Blocked domains (takes precedence over allowed)
+    pub blocked_domains: Vec<String>,
+    /// Maximum concurrent requests
+    pub max_concurrent_requests: u32,
+    /// Request timeout in seconds
+    pub request_timeout_secs: u32,
+    /// Whether to require HTTPS only
+    pub https_only: bool,
+    /// Rate limit per minute
+    pub rate_limit_rpm: u32,
+    /// Rate limit per day
+    pub rate_limit_daily: u32,
+}
+
+/// Allowed search endpoint configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AllowedEndpoint {
+    /// Endpoint name (e.g., "brave_search", "bing_search")
+    pub name: String,
+    /// Base URL pattern
+    pub base_url: String,
+    /// Required headers (e.g., API key header name)
+    pub required_headers: Vec<String>,
+    /// Rate limit per minute for this endpoint
+    pub rate_limit_rpm: u32,
+}
+
+/// Domain pattern for allowed/blocked domains
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DomainPattern {
+    /// Domain pattern (e.g., "*.wikipedia.org", "docs.python.org")
+    pub pattern: String,
+    /// Whether to allow subdomains
+    pub allow_subdomains: bool,
+    /// Content type restrictions (e.g., ["text/html", "application/json"])
+    pub allowed_content_types: Vec<String>,
+}
+
+impl Default for WebBrowseEgressConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false, // Disabled by default for security
+            allowed_search_endpoints: vec![],
+            allowed_fetch_domains: vec![],
+            blocked_domains: vec![
+                "localhost".to_string(),
+                "127.0.0.1".to_string(),
+                "0.0.0.0".to_string(),
+                "*.local".to_string(),
+                "*.internal".to_string(),
+                "*.corp".to_string(),
+                "10.*".to_string(),
+                "172.16.*".to_string(),
+                "192.168.*".to_string(),
+            ],
+            max_concurrent_requests: 3,
+            request_timeout_secs: 10,
+            https_only: true,
+            rate_limit_rpm: 10,
+            rate_limit_daily: 100,
+        }
+    }
+}
+
+impl WebBrowseEgressConfig {
+    /// Check if a domain is allowed for browsing
+    pub fn is_domain_allowed(&self, domain: &str) -> bool {
+        if !self.enabled {
+            return false;
+        }
+
+        // Check blocked domains first (takes precedence)
+        for blocked in &self.blocked_domains {
+            if Self::matches_pattern(domain, blocked) {
+                return false;
+            }
+        }
+
+        // Check allowed domains
+        for allowed in &self.allowed_fetch_domains {
+            if Self::matches_pattern(domain, &allowed.pattern) {
+                return true;
+            }
+            if allowed.allow_subdomains {
+                let subdomain_pattern = format!("*.{}", allowed.pattern);
+                if Self::matches_pattern(domain, &subdomain_pattern) {
+                    return true;
+                }
+            }
+        }
+
+        false
+    }
+
+    /// Check if a URL matches a pattern (supports wildcards)
+    fn matches_pattern(domain: &str, pattern: &str) -> bool {
+        if pattern.starts_with("*.") {
+            // Wildcard pattern: *.example.com matches sub.example.com
+            let suffix = &pattern[1..]; // ".example.com"
+            domain.ends_with(suffix) || domain == &pattern[2..]
+        } else if pattern.ends_with(".*") {
+            // Wildcard suffix: 192.168.* matches 192.168.1.1
+            let prefix = &pattern[..pattern.len() - 1];
+            domain.starts_with(prefix)
+        } else {
+            domain == pattern
+        }
+    }
+
+    /// Check if an endpoint is allowed
+    pub fn is_endpoint_allowed(&self, endpoint_name: &str) -> bool {
+        self.enabled
+            && self
+                .allowed_search_endpoints
+                .iter()
+                .any(|e| e.name == endpoint_name)
+    }
+}
+
 impl Default for EgressConfig {
     fn default() -> Self {
         Self {

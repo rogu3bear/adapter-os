@@ -2,11 +2,54 @@
 //!
 //! Enforces LLM output format, safety, and citation requirements
 //! for AdapterOS responses.
+//!
+//! Includes length enforcement with actual truncation (not just warnings).
 
 use crate::{Audit, Policy, PolicyContext, PolicyId, Severity, Violation};
 use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+/// Preferred response length levels
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
+pub enum ResponseLength {
+    /// Brief response (max 500 characters)
+    Brief,
+    /// Standard response (max 2000 characters)
+    #[default]
+    Standard,
+    /// Detailed response (max 10000 characters)
+    Detailed,
+    /// Custom length limit
+    Custom(usize),
+}
+
+impl ResponseLength {
+    /// Get the character limit for this response length
+    pub fn char_limit(&self) -> usize {
+        match self {
+            ResponseLength::Brief => 500,
+            ResponseLength::Standard => 2000,
+            ResponseLength::Detailed => 10000,
+            ResponseLength::Custom(limit) => *limit,
+        }
+    }
+}
+
+/// Result of length enforcement
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LengthEnforcementResult {
+    /// The (possibly truncated) content
+    pub content: String,
+    /// Whether truncation occurred
+    pub was_truncated: bool,
+    /// Original length before truncation
+    pub original_length: usize,
+    /// Final length after enforcement
+    pub final_length: usize,
+    /// Truncation indicator appended (if any)
+    pub truncation_indicator: Option<String>,
+}
 
 /// Output policy configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -152,6 +195,48 @@ pub enum SafetyViolationType {
     SecurityRisk,
     /// Privacy violation
     PrivacyViolation,
+    /// Procedural harm - instructions that enable wrongdoing
+    ProceduralHarm,
+    /// Hate speech targeting protected classes
+    HateSpeech,
+    /// Extremist or recruitment content
+    ExtremistContent,
+}
+
+/// Category of harmful content
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum HarmCategory {
+    /// Procedural instructions for harmful activities
+    Procedural,
+    /// Informational content about harmful topics (may be educational)
+    Informational,
+    /// No harmful content detected
+    None,
+}
+
+/// Procedural harm detection result
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProceduralHarmResult {
+    /// Whether procedural harm was detected
+    pub detected: bool,
+    /// The category of harm
+    pub category: HarmCategory,
+    /// Matched patterns
+    pub matched_patterns: Vec<String>,
+    /// Risk level (0.0 to 1.0)
+    pub risk_level: f64,
+}
+
+/// Protected class categories for hate speech detection
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum ProtectedClass {
+    Race,
+    Religion,
+    Gender,
+    Sexuality,
+    Disability,
+    Nationality,
+    Age,
 }
 
 /// Safety severity levels
@@ -176,6 +261,104 @@ impl OutputPolicy {
     /// Create new output policy
     pub fn new(config: OutputConfig) -> Self {
         Self { config }
+    }
+
+    /// Enforce length constraints on content
+    /// Truncates at sentence boundary when possible, appends indicator if truncated
+    pub fn enforce_length(
+        &self,
+        content: &str,
+        preferred_length: Option<ResponseLength>,
+    ) -> LengthEnforcementResult {
+        let limit = preferred_length
+            .map(|l| l.char_limit())
+            .unwrap_or(self.config.max_response_length);
+
+        let original_length = content.len();
+
+        if original_length <= limit {
+            return LengthEnforcementResult {
+                content: content.to_string(),
+                was_truncated: false,
+                original_length,
+                final_length: original_length,
+                truncation_indicator: None,
+            };
+        }
+
+        // Try to truncate at sentence boundary
+        let truncation_indicator = " [...]".to_string();
+        let target_length = limit.saturating_sub(truncation_indicator.len());
+
+        // Find the best truncation point (end of sentence)
+        let truncation_point = Self::find_sentence_boundary(content, target_length);
+
+        let truncated = format!("{}{}", &content[..truncation_point], truncation_indicator);
+        let final_length = truncated.len();
+
+        LengthEnforcementResult {
+            content: truncated,
+            was_truncated: true,
+            original_length,
+            final_length,
+            truncation_indicator: Some(truncation_indicator),
+        }
+    }
+
+    /// Find the best sentence boundary for truncation
+    fn find_sentence_boundary(content: &str, max_pos: usize) -> usize {
+        if max_pos >= content.len() {
+            return content.len();
+        }
+
+        // Look for sentence-ending punctuation before max_pos
+        let search_range = &content[..max_pos];
+
+        // Find the last sentence boundary (. ! ?)
+        let sentence_endings = [". ", "! ", "? ", ".\n", "!\n", "?\n"];
+
+        let mut best_pos = 0;
+        for ending in sentence_endings {
+            if let Some(pos) = search_range.rfind(ending) {
+                let end_pos = pos + ending.len() - 1; // Include the punctuation but not the space
+                if end_pos > best_pos {
+                    best_pos = end_pos;
+                }
+            }
+        }
+
+        // If no sentence boundary found, try to find word boundary
+        if best_pos == 0 {
+            if let Some(pos) = search_range.rfind(' ') {
+                best_pos = pos;
+            } else {
+                // Last resort: just use the max_pos
+                best_pos = max_pos;
+            }
+        }
+
+        best_pos
+    }
+
+    /// Count sentences in content
+    pub fn count_sentences(content: &str) -> usize {
+        content
+            .chars()
+            .filter(|c| *c == '.' || *c == '!' || *c == '?')
+            .count()
+    }
+
+    /// Count paragraphs in content
+    pub fn count_paragraphs(content: &str) -> usize {
+        content
+            .split("\n\n")
+            .filter(|p| !p.trim().is_empty())
+            .count()
+    }
+
+    /// Count words in content
+    pub fn count_words(content: &str) -> usize {
+        content.split_whitespace().count()
     }
 
     /// Validate output format
@@ -299,6 +482,37 @@ impl OutputPolicy {
             }
         }
 
+        // Check for procedural harm (instructions that enable wrongdoing)
+        let procedural_harm = self.check_procedural_harm(content);
+        if procedural_harm.detected {
+            for pattern in &procedural_harm.matched_patterns {
+                violations.push(SafetyViolation {
+                    violation_type: SafetyViolationType::ProceduralHarm,
+                    severity: SafetySeverity::Critical,
+                    description: format!(
+                        "Procedural harm detected: instructions for '{}'",
+                        pattern
+                    ),
+                    position: None,
+                });
+            }
+            risk_score += procedural_harm.risk_level;
+        }
+
+        // Check for hate speech targeting protected classes
+        let hate_speech = self.check_hate_speech(content);
+        if !hate_speech.is_empty() {
+            for (class, description) in &hate_speech {
+                violations.push(SafetyViolation {
+                    violation_type: SafetyViolationType::HateSpeech,
+                    severity: SafetySeverity::Critical,
+                    description: format!("Hate speech targeting {:?}: {}", class, description),
+                    position: None,
+                });
+                risk_score += 0.4;
+            }
+        }
+
         // Check response length
         if content.len() > self.config.max_response_length {
             warnings.push(format!(
@@ -314,6 +528,223 @@ impl OutputPolicy {
             warnings,
             risk_score: risk_score.min(1.0),
         }
+    }
+
+    /// Check for procedural harm - instructions that enable wrongdoing
+    ///
+    /// Detects patterns like "how to hack", "steps to build a weapon", etc.
+    /// Returns a result indicating whether procedural harm was detected.
+    pub fn check_procedural_harm(&self, content: &str) -> ProceduralHarmResult {
+        let content_lower = content.to_lowercase();
+        let mut matched_patterns = Vec::new();
+        let mut risk_level: f64 = 0.0;
+
+        // Procedural patterns that indicate harmful instructions
+        let procedural_patterns = [
+            ("how to hack", "hacking"),
+            ("how to exploit", "exploitation"),
+            ("how to attack", "cyber attack"),
+            ("how to bypass", "security bypass"),
+            ("steps to build a weapon", "weapon construction"),
+            ("steps to build a bomb", "explosive construction"),
+            ("steps to make a bomb", "explosive construction"),
+            ("instructions for making", "harmful manufacturing"),
+            ("how to synthesize", "chemical synthesis"),
+            ("how to manufacture drugs", "drug manufacturing"),
+            ("how to create malware", "malware creation"),
+            ("how to write a virus", "virus creation"),
+            ("how to steal", "theft instructions"),
+            ("how to break into", "break-in instructions"),
+            ("how to pick a lock", "lock picking"),
+            ("how to evade detection", "evasion techniques"),
+            ("how to launder money", "money laundering"),
+            ("how to commit fraud", "fraud instructions"),
+            ("how to forge", "forgery instructions"),
+        ];
+
+        for (pattern, category) in procedural_patterns {
+            if content_lower.contains(pattern) {
+                matched_patterns.push(category.to_string());
+                risk_level += 0.5;
+            }
+        }
+
+        // Additional high-risk patterns
+        let high_risk_indicators = [
+            "step by step",
+            "step-by-step",
+            "detailed instructions",
+            "complete guide to",
+            "tutorial on how to",
+        ];
+
+        let dangerous_topics = [
+            "weapon",
+            "bomb",
+            "explosive",
+            "poison",
+            "drug synthesis",
+            "hack",
+            "malware",
+            "ransomware",
+            "phishing",
+        ];
+
+        // Check for combination of instructional language + dangerous topic
+        let has_instructional = high_risk_indicators
+            .iter()
+            .any(|ind| content_lower.contains(ind));
+        let has_dangerous = dangerous_topics
+            .iter()
+            .any(|topic| content_lower.contains(topic));
+
+        if has_instructional && has_dangerous {
+            matched_patterns.push("instructional_dangerous_combination".to_string());
+            risk_level += 0.4;
+        }
+
+        let detected = !matched_patterns.is_empty();
+        let category = if detected {
+            HarmCategory::Procedural
+        } else {
+            HarmCategory::None
+        };
+
+        ProceduralHarmResult {
+            detected,
+            category,
+            matched_patterns,
+            risk_level: risk_level.min(1.0),
+        }
+    }
+
+    /// Check for hate speech targeting protected classes
+    ///
+    /// Detects dehumanizing language, slurs, and targeted attacks against
+    /// protected groups (race, religion, gender, sexuality, disability, nationality).
+    pub fn check_hate_speech(&self, content: &str) -> Vec<(ProtectedClass, String)> {
+        let content_lower = content.to_lowercase();
+        let mut detections = Vec::new();
+
+        // Dehumanization patterns
+        let dehumanization_terms = [
+            "vermin",
+            "subhuman",
+            "plague",
+            "infestation",
+            "cockroaches",
+            "parasites",
+            "filth",
+            "scum",
+        ];
+
+        // Protected class indicators
+        let race_indicators = ["race", "racial", "ethnic"];
+        let religion_indicators = ["muslim", "jewish", "christian", "hindu", "religious"];
+        let gender_indicators = ["women", "men", "female", "male", "transgender", "trans"];
+        let sexuality_indicators = ["gay", "lesbian", "homosexual", "lgbtq", "queer"];
+        let disability_indicators = ["disabled", "handicapped"];
+        let nationality_indicators = ["immigrant", "foreigner", "refugee", "migrant"];
+
+        // Check for dehumanization combined with protected class
+        for dehumanization in dehumanization_terms {
+            if content_lower.contains(dehumanization) {
+                if race_indicators.iter().any(|i| content_lower.contains(i)) {
+                    detections.push((
+                        ProtectedClass::Race,
+                        format!("Dehumanizing language '{}' targeting race", dehumanization),
+                    ));
+                }
+                if religion_indicators
+                    .iter()
+                    .any(|i| content_lower.contains(i))
+                {
+                    detections.push((
+                        ProtectedClass::Religion,
+                        format!(
+                            "Dehumanizing language '{}' targeting religion",
+                            dehumanization
+                        ),
+                    ));
+                }
+                if gender_indicators.iter().any(|i| content_lower.contains(i)) {
+                    detections.push((
+                        ProtectedClass::Gender,
+                        format!(
+                            "Dehumanizing language '{}' targeting gender",
+                            dehumanization
+                        ),
+                    ));
+                }
+                if sexuality_indicators
+                    .iter()
+                    .any(|i| content_lower.contains(i))
+                {
+                    detections.push((
+                        ProtectedClass::Sexuality,
+                        format!(
+                            "Dehumanizing language '{}' targeting sexuality",
+                            dehumanization
+                        ),
+                    ));
+                }
+                if disability_indicators
+                    .iter()
+                    .any(|i| content_lower.contains(i))
+                {
+                    detections.push((
+                        ProtectedClass::Disability,
+                        format!(
+                            "Dehumanizing language '{}' targeting disability",
+                            dehumanization
+                        ),
+                    ));
+                }
+                if nationality_indicators
+                    .iter()
+                    .any(|i| content_lower.contains(i))
+                {
+                    detections.push((
+                        ProtectedClass::Nationality,
+                        format!(
+                            "Dehumanizing language '{}' targeting nationality",
+                            dehumanization
+                        ),
+                    ));
+                }
+            }
+        }
+
+        // Check for explicit calls for violence against protected groups
+        let violence_indicators = [
+            "kill all",
+            "exterminate",
+            "eliminate all",
+            "get rid of all",
+            "purge",
+        ];
+
+        for violence in violence_indicators {
+            if content_lower.contains(violence) {
+                if race_indicators.iter().any(|i| content_lower.contains(i)) {
+                    detections.push((
+                        ProtectedClass::Race,
+                        format!("Violence incitement '{}' targeting race", violence),
+                    ));
+                }
+                if religion_indicators
+                    .iter()
+                    .any(|i| content_lower.contains(i))
+                {
+                    detections.push((
+                        ProtectedClass::Religion,
+                        format!("Violence incitement '{}' targeting religion", violence),
+                    ));
+                }
+            }
+        }
+
+        detections
     }
 
     /// Validate citations
@@ -668,5 +1099,153 @@ mod tests {
         let policy = OutputPolicy::new(config);
 
         assert!(policy.validate_config().is_err());
+    }
+
+    #[test]
+    fn test_enforce_length_no_truncation() {
+        let config = OutputConfig::default();
+        let policy = OutputPolicy::new(config);
+
+        let short_content = "This is a short response.";
+        let result = policy.enforce_length(short_content, None);
+
+        assert!(!result.was_truncated);
+        assert_eq!(result.content, short_content);
+        assert!(result.truncation_indicator.is_none());
+    }
+
+    #[test]
+    fn test_enforce_length_with_truncation() {
+        let config = OutputConfig::default();
+        let policy = OutputPolicy::new(config);
+
+        // Create content longer than Brief limit (500 chars)
+        let long_content = "This is a test sentence. ".repeat(50); // ~1250 chars
+        let result = policy.enforce_length(&long_content, Some(ResponseLength::Brief));
+
+        assert!(result.was_truncated);
+        assert!(result.final_length <= 500);
+        assert!(result.content.ends_with("[...]"));
+        assert!(result.truncation_indicator.is_some());
+    }
+
+    #[test]
+    fn test_enforce_length_sentence_boundary() {
+        let config = OutputConfig::default();
+        let policy = OutputPolicy::new(config);
+
+        let content = "First sentence. Second sentence. Third sentence. Fourth sentence.";
+        let result = policy.enforce_length(content, Some(ResponseLength::Custom(40)));
+
+        // Should truncate at a sentence boundary
+        assert!(result.was_truncated);
+        assert!(result.content.contains("First sentence."));
+    }
+
+    #[test]
+    fn test_response_length_limits() {
+        assert_eq!(ResponseLength::Brief.char_limit(), 500);
+        assert_eq!(ResponseLength::Standard.char_limit(), 2000);
+        assert_eq!(ResponseLength::Detailed.char_limit(), 10000);
+        assert_eq!(ResponseLength::Custom(1500).char_limit(), 1500);
+    }
+
+    #[test]
+    fn test_count_sentences() {
+        let content = "First sentence. Second sentence! Third sentence? Fourth.";
+        assert_eq!(OutputPolicy::count_sentences(content), 4);
+    }
+
+    #[test]
+    fn test_count_paragraphs() {
+        let content = "First paragraph.\n\nSecond paragraph.\n\nThird paragraph.";
+        assert_eq!(OutputPolicy::count_paragraphs(content), 3);
+    }
+
+    #[test]
+    fn test_count_words() {
+        let content = "This is a test with seven words.";
+        assert_eq!(OutputPolicy::count_words(content), 7);
+    }
+
+    #[test]
+    fn test_procedural_harm_detection() {
+        let config = OutputConfig::default();
+        let policy = OutputPolicy::new(config);
+
+        // Should detect procedural harm
+        let result = policy.check_procedural_harm("Here's how to hack into a system");
+        assert!(result.detected);
+        assert_eq!(result.category, HarmCategory::Procedural);
+        assert!(!result.matched_patterns.is_empty());
+
+        // Should detect weapon instructions
+        let result = policy.check_procedural_harm("Steps to build a bomb at home");
+        assert!(result.detected);
+        assert!(result
+            .matched_patterns
+            .iter()
+            .any(|p| p.contains("explosive")));
+
+        // Should detect combination of instructional + dangerous
+        let result =
+            policy.check_procedural_harm("Here's a step by step guide to creating malware");
+        assert!(result.detected);
+
+        // Should NOT flag benign content
+        let result = policy.check_procedural_harm("How to cook a delicious meal");
+        assert!(!result.detected);
+        assert_eq!(result.category, HarmCategory::None);
+    }
+
+    #[test]
+    fn test_hate_speech_detection() {
+        let config = OutputConfig::default();
+        let policy = OutputPolicy::new(config);
+
+        // Should detect hate speech with dehumanization + protected class
+        let result = policy.check_hate_speech("Those immigrants are vermin");
+        assert!(!result.is_empty());
+        assert!(result
+            .iter()
+            .any(|(class, _)| *class == ProtectedClass::Nationality));
+
+        // Should detect religious targeting
+        let result = policy.check_hate_speech("Muslim people are parasites");
+        assert!(!result.is_empty());
+        assert!(result
+            .iter()
+            .any(|(class, _)| *class == ProtectedClass::Religion));
+
+        // Should detect violence incitement
+        let result = policy.check_hate_speech("We should exterminate all religious people");
+        assert!(!result.is_empty());
+
+        // Should NOT flag neutral content
+        let result = policy.check_hate_speech("The conference discussed immigration policy");
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_content_safety_includes_new_checks() {
+        let config = OutputConfig::default();
+        let policy = OutputPolicy::new(config);
+
+        // Should detect procedural harm in safety check
+        let result = policy.check_content_safety("Learn how to hack into bank systems");
+        assert!(!result.is_safe);
+        assert!(result
+            .violations
+            .iter()
+            .any(|v| matches!(v.violation_type, SafetyViolationType::ProceduralHarm)));
+
+        // Should detect hate speech in safety check
+        let result =
+            policy.check_content_safety("Those immigrants are vermin and should be purged");
+        assert!(!result.is_safe);
+        assert!(result
+            .violations
+            .iter()
+            .any(|v| matches!(v.violation_type, SafetyViolationType::HateSpeech)));
     }
 }
