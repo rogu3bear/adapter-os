@@ -452,6 +452,10 @@ impl<K: FusedKernels + crate::StrictnessControl + Send + Sync + 'static> Worker<
                         "Patch validation failed: {}",
                         validation_result.errors.join(", ")
                     ),
+                    suggested_actions: vec![
+                        "Review and fix the validation errors".to_string(),
+                        "Ensure all required fields are provided".to_string(),
+                    ],
                 })
             } else {
                 None

@@ -73,6 +73,13 @@ static REDACTION_PATTERNS: Lazy<Vec<(Regex, &'static str)>> = Lazy::new(|| {
             Regex::new(r"(?i)(secret|password)[=:\s]+[A-Za-z0-9+/]{16,}=*").unwrap(),
             "$1=[REDACTED]",
         ),
+        // Social Security Numbers (XXX-XX-XXXX format)
+        (Regex::new(r"\b\d{3}-\d{2}-\d{4}\b").unwrap(), "[SSN]"),
+        // Credit card numbers (16 digits with optional spaces/dashes)
+        (
+            Regex::new(r"\b(?:\d{4}[-\s]?){3}\d{4}\b").unwrap(),
+            "[CREDIT_CARD]",
+        ),
         // PostgreSQL connection strings
         (
             Regex::new(r"postgres://[^@\s]+@[^\s]+").unwrap(),
@@ -210,6 +217,190 @@ impl From<&str> for SecretString {
 }
 
 // ============================================================================
+// Copyright Excerpt Enforcement
+// ============================================================================
+
+/// Maximum allowed length for quoted excerpts to respect copyright (in words).
+/// Excerpts longer than this should be summarized rather than reproduced.
+pub const MAX_EXCERPT_WORDS: usize = 25;
+
+/// Maximum allowed length for a single quoted excerpt (in characters).
+/// This provides a secondary check to ensure short word counts with very long words
+/// don't bypass the protection.
+pub const MAX_EXCERPT_CHARS: usize = 200;
+
+/// Result of checking content against copyright excerpt limits.
+#[derive(Debug, Clone)]
+pub struct ExcerptCheckResult {
+    /// Whether the content exceeds excerpt limits
+    pub exceeds_limit: bool,
+    /// Word count of the content
+    pub word_count: usize,
+    /// Character count of the content
+    pub char_count: usize,
+    /// Suggested truncation point (if exceeds limit)
+    pub suggested_truncation: Option<usize>,
+    /// Whether content appears to be quoted text
+    pub is_quoted: bool,
+}
+
+/// Check if content exceeds copyright excerpt limits.
+///
+/// This function analyzes text content to determine if it's being reproduced
+/// beyond fair use limits. Content that appears to be quoted (starts with quotes,
+/// uses quotation marks, etc.) is analyzed more strictly.
+///
+/// # Arguments
+/// * `content` - The text content to check
+///
+/// # Returns
+/// An `ExcerptCheckResult` indicating whether the content exceeds limits
+///
+/// # Example
+///
+/// ```ignore
+/// use adapteros_core::redaction::check_excerpt_limits;
+///
+/// let short_quote = "\"This is a short quote from a book.\"";
+/// let result = check_excerpt_limits(short_quote);
+/// assert!(!result.exceeds_limit);
+///
+/// let long_quote = "\"This is a very long quote that goes on and on..."; // 50+ words
+/// let result = check_excerpt_limits(long_quote);
+/// assert!(result.exceeds_limit);
+/// ```
+pub fn check_excerpt_limits(content: &str) -> ExcerptCheckResult {
+    let trimmed = content.trim();
+
+    // Check if content appears to be quoted text
+    let is_quoted = is_quoted_content(trimmed);
+
+    // Count words and characters
+    let word_count = trimmed.split_whitespace().count();
+    let char_count = trimmed.chars().count();
+
+    // Determine if limits are exceeded
+    let exceeds_word_limit = word_count > MAX_EXCERPT_WORDS;
+    let exceeds_char_limit = char_count > MAX_EXCERPT_CHARS;
+    let exceeds_limit = exceeds_word_limit || exceeds_char_limit;
+
+    // Calculate suggested truncation point (word boundary near limit)
+    let suggested_truncation = if exceeds_limit {
+        Some(find_truncation_point(trimmed, MAX_EXCERPT_WORDS))
+    } else {
+        None
+    };
+
+    ExcerptCheckResult {
+        exceeds_limit,
+        word_count,
+        char_count,
+        suggested_truncation,
+        is_quoted,
+    }
+}
+
+/// Check if content appears to be quoted text
+fn is_quoted_content(content: &str) -> bool {
+    let trimmed = content.trim();
+
+    // Direct quote indicators
+    let starts_with_quote = trimmed.starts_with('"')
+        || trimmed.starts_with('"')
+        || trimmed.starts_with('\u{2018}')
+        || trimmed.starts_with('\'');
+
+    let ends_with_quote = trimmed.ends_with('"')
+        || trimmed.ends_with('"')
+        || trimmed.ends_with('\u{2019}')
+        || trimmed.ends_with('\'');
+
+    // Block quote indicators
+    let has_block_quote = trimmed.starts_with("> ") || trimmed.starts_with(">");
+
+    // Citation indicators
+    let has_citation = trimmed.contains(" - ") && trimmed.len() > 50;
+
+    starts_with_quote || ends_with_quote || has_block_quote || has_citation
+}
+
+/// Find a good truncation point near the word limit
+fn find_truncation_point(content: &str, max_words: usize) -> usize {
+    let mut word_count = 0;
+    let mut last_boundary = 0;
+
+    for (idx, c) in content.char_indices() {
+        if c.is_whitespace() {
+            word_count += 1;
+            if word_count >= max_words {
+                return idx;
+            }
+            last_boundary = idx;
+        }
+    }
+
+    // If we didn't hit the limit, return the last word boundary
+    last_boundary
+}
+
+/// Truncate content to respect copyright excerpt limits.
+///
+/// If the content exceeds limits, it will be truncated at a word boundary
+/// and appended with an indicator.
+///
+/// # Arguments
+/// * `content` - The content to potentially truncate
+/// * `add_indicator` - Whether to append "[...]" to indicate truncation
+///
+/// # Returns
+/// The (possibly truncated) content
+pub fn enforce_excerpt_limit(content: &str, add_indicator: bool) -> String {
+    let result = check_excerpt_limits(content);
+
+    if !result.exceeds_limit {
+        return content.to_string();
+    }
+
+    if let Some(truncation_point) = result.suggested_truncation {
+        let truncated = &content[..truncation_point];
+        if add_indicator {
+            format!("{}[...]", truncated.trim())
+        } else {
+            truncated.trim().to_string()
+        }
+    } else {
+        content.to_string()
+    }
+}
+
+/// Check if content requires source attribution.
+///
+/// Content that appears to be a direct quote or substantial excerpt
+/// should include source attribution.
+///
+/// # Arguments
+/// * `content` - The content to check
+/// * `has_attribution` - Whether the content already has source attribution
+///
+/// # Returns
+/// `true` if attribution is required but missing
+pub fn requires_attribution(content: &str, has_attribution: bool) -> bool {
+    if has_attribution {
+        return false;
+    }
+
+    let result = check_excerpt_limits(content);
+
+    // Quoted content always needs attribution
+    if result.is_quoted {
+        return true;
+    }
+
+    // Longer content (even if under limit) may need attribution
+    result.word_count > 15
+}
+
+// ============================================================================
 // Tests
 // ============================================================================
 
@@ -301,5 +492,112 @@ mod tests {
             matches!(result, Cow::Borrowed(_)),
             "Should return borrowed when no redaction needed"
         );
+    }
+
+    #[test]
+    fn test_redacts_ssn() {
+        let input = "User SSN: 123-45-6789 is on file";
+        let result = redact_sensitive(input);
+        assert!(!result.contains("123-45-6789"), "SSN should be redacted");
+        assert!(result.contains("[SSN]"), "Should contain [SSN] placeholder");
+    }
+
+    #[test]
+    fn test_redacts_credit_card() {
+        let input = "Card number: 4111-1111-1111-1111 on file";
+        let result = redact_sensitive(input);
+        assert!(
+            !result.contains("4111-1111-1111-1111"),
+            "Credit card should be redacted"
+        );
+        assert!(
+            result.contains("[CREDIT_CARD]"),
+            "Should contain [CREDIT_CARD] placeholder"
+        );
+    }
+
+    #[test]
+    fn test_redacts_credit_card_no_dashes() {
+        let input = "Card: 4111111111111111";
+        let result = redact_sensitive(input);
+        assert!(
+            !result.contains("4111111111111111"),
+            "Credit card without dashes should be redacted"
+        );
+    }
+
+    // ========================================================================
+    // Copyright Excerpt Tests
+    // ========================================================================
+
+    #[test]
+    fn test_check_excerpt_limits_short_content() {
+        let short = "This is a short excerpt.";
+        let result = check_excerpt_limits(short);
+        assert!(!result.exceeds_limit);
+        assert_eq!(result.word_count, 5);
+    }
+
+    #[test]
+    fn test_check_excerpt_limits_long_content() {
+        // Create content with more than MAX_EXCERPT_WORDS
+        let long = "word ".repeat(30);
+        let result = check_excerpt_limits(&long);
+        assert!(result.exceeds_limit);
+        assert!(result.word_count > MAX_EXCERPT_WORDS);
+        assert!(result.suggested_truncation.is_some());
+    }
+
+    #[test]
+    fn test_check_excerpt_limits_detects_quotes() {
+        let quoted = "\"This is a quoted text from a book.\"";
+        let result = check_excerpt_limits(quoted);
+        assert!(result.is_quoted);
+
+        let not_quoted = "This is just regular text without quotes.";
+        let result = check_excerpt_limits(not_quoted);
+        assert!(!result.is_quoted);
+    }
+
+    #[test]
+    fn test_check_excerpt_limits_block_quote() {
+        let block_quote = "> This is a block quote from an article.";
+        let result = check_excerpt_limits(block_quote);
+        assert!(result.is_quoted);
+    }
+
+    #[test]
+    fn test_enforce_excerpt_limit_truncates() {
+        let long = "word ".repeat(30);
+        let truncated = enforce_excerpt_limit(&long, true);
+        assert!(truncated.len() < long.len());
+        assert!(truncated.ends_with("[...]"));
+    }
+
+    #[test]
+    fn test_enforce_excerpt_limit_preserves_short() {
+        let short = "This is short.";
+        let result = enforce_excerpt_limit(short, true);
+        assert_eq!(result, short);
+        assert!(!result.contains("[...]"));
+    }
+
+    #[test]
+    fn test_requires_attribution_quoted() {
+        let quoted = "\"This is a quote from someone.\"";
+        assert!(requires_attribution(quoted, false));
+        assert!(!requires_attribution(quoted, true)); // Already has attribution
+    }
+
+    #[test]
+    fn test_requires_attribution_long() {
+        let long_text = "This is a longer piece of text that spans multiple words and should probably have some source attribution even though it is not in quotes.";
+        assert!(requires_attribution(long_text, false));
+    }
+
+    #[test]
+    fn test_requires_attribution_short() {
+        let short = "Just a few words.";
+        assert!(!requires_attribution(short, false));
     }
 }

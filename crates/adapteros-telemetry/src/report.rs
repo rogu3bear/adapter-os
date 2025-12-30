@@ -379,6 +379,66 @@ fn format_timestamp(ts: u128) -> String {
     format!("{}ms", ms)
 }
 
+/// Report structure requirements for validation
+#[derive(Debug, Clone, Default)]
+pub struct ReportStructureRequirements {
+    /// Whether the report has a title (h1 element)
+    pub has_title: bool,
+    /// Whether the report has a bundle hash displayed
+    pub has_bundle_hash: bool,
+    /// Number of stat cards in the report
+    pub stat_card_count: usize,
+    /// Whether the report has an event table
+    pub has_event_table: bool,
+}
+
+/// Validate that an HTML report meets structure requirements
+///
+/// Checks for:
+/// - Title (h1 element with "AdapterOS Telemetry Report")
+/// - Bundle hash displayed in a stat card
+/// - At least 4 stat cards
+/// - Event timeline table with proper structure
+pub fn validate_report_structure(html: &str) -> Result<ReportStructureRequirements> {
+    let requirements = ReportStructureRequirements {
+        has_title: html.contains("<h1>AdapterOS Telemetry Report</h1>"),
+        has_bundle_hash: html.contains("Bundle Hash") && html.contains("stat-value"),
+        stat_card_count: html.matches("class=\"stat-card\"").count(),
+        has_event_table: html.contains("<table>")
+            && html.contains("<thead>")
+            && html.contains("<tbody>")
+            && html.contains("<th>Timestamp</th>"),
+    };
+
+    // Validate minimum requirements
+    let mut errors = Vec::new();
+
+    if !requirements.has_title {
+        errors.push("Report missing title element");
+    }
+
+    if !requirements.has_bundle_hash {
+        errors.push("Report missing bundle hash display");
+    }
+
+    if requirements.stat_card_count < 4 {
+        errors.push("Report has fewer than 4 stat cards");
+    }
+
+    if !requirements.has_event_table {
+        errors.push("Report missing event timeline table");
+    }
+
+    if !errors.is_empty() {
+        return Err(adapteros_core::AosError::Telemetry(format!(
+            "Report structure validation failed: {}",
+            errors.join("; ")
+        )));
+    }
+
+    Ok(requirements)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -386,5 +446,89 @@ mod tests {
     #[test]
     fn test_format_timestamp() {
         assert_eq!(format_timestamp(1_500_000_000), "1500ms");
+    }
+
+    #[test]
+    fn test_validate_report_structure_valid() {
+        let valid_html = r#"<!DOCTYPE html>
+<html>
+<head><title>Report</title></head>
+<body>
+    <h1>AdapterOS Telemetry Report</h1>
+    <div class="stat-card"><div class="stat-label">Total Events</div><div class="stat-value">100</div></div>
+    <div class="stat-card"><div class="stat-label">Event Types</div><div class="stat-value">5</div></div>
+    <div class="stat-card"><div class="stat-label">Duration</div><div class="stat-value">1500ms</div></div>
+    <div class="stat-card"><div class="stat-label">Bundle Hash</div><div class="stat-value">abc123</div></div>
+    <table>
+        <thead><tr><th>Timestamp</th><th>Type</th><th>Hash</th></tr></thead>
+        <tbody><tr><td>100ms</td><td>event</td><td>hash</td></tr></tbody>
+    </table>
+</body>
+</html>"#;
+
+        let result = validate_report_structure(valid_html);
+        assert!(result.is_ok());
+        let requirements = result.unwrap();
+        assert!(requirements.has_title);
+        assert!(requirements.has_bundle_hash);
+        assert_eq!(requirements.stat_card_count, 4);
+        assert!(requirements.has_event_table);
+    }
+
+    #[test]
+    fn test_validate_report_structure_missing_title() {
+        let html = r#"<!DOCTYPE html>
+<html>
+<body>
+    <h1>Some Other Title</h1>
+    <div class="stat-card"><div class="stat-label">Bundle Hash</div><div class="stat-value">abc</div></div>
+    <div class="stat-card"><div class="stat-value">1</div></div>
+    <div class="stat-card"><div class="stat-value">2</div></div>
+    <div class="stat-card"><div class="stat-value">3</div></div>
+    <table><thead><tr><th>Timestamp</th></tr></thead><tbody></tbody></table>
+</body>
+</html>"#;
+
+        let result = validate_report_structure(html);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("title"));
+    }
+
+    #[test]
+    fn test_validate_report_structure_missing_stat_cards() {
+        let html = r#"<!DOCTYPE html>
+<html>
+<body>
+    <h1>AdapterOS Telemetry Report</h1>
+    <div class="stat-card"><div class="stat-label">Bundle Hash</div><div class="stat-value">abc</div></div>
+    <div class="stat-card"><div class="stat-value">1</div></div>
+    <table><thead><tr><th>Timestamp</th></tr></thead><tbody></tbody></table>
+</body>
+</html>"#;
+
+        let result = validate_report_structure(html);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("stat cards"));
+    }
+
+    #[test]
+    fn test_validate_report_structure_missing_table() {
+        let html = r#"<!DOCTYPE html>
+<html>
+<body>
+    <h1>AdapterOS Telemetry Report</h1>
+    <div class="stat-card"><div class="stat-label">Bundle Hash</div><div class="stat-value">abc</div></div>
+    <div class="stat-card"><div class="stat-value">1</div></div>
+    <div class="stat-card"><div class="stat-value">2</div></div>
+    <div class="stat-card"><div class="stat-value">3</div></div>
+</body>
+</html>"#;
+
+        let result = validate_report_structure(html);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("table"));
     }
 }
